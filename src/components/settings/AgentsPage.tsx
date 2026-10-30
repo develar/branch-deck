@@ -2,15 +2,14 @@ import { useEffect, useId, useState } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { FieldGroup } from "@/components/layout/FieldGroup"
-import { ConfigReadError, SettingRow, SettingsSection } from "@/components/settings/SettingRow"
+import { ConfigReadError, ConfigSwitchRow, ConfigWarnings, SettingsSection } from "@/components/settings/SettingRow"
 import { CopyButton } from "@/components/shared/CopyButton"
-import { InlineCode } from "@/components/shared/InlineCode"
 import { InstallAgentCliButton } from "@/components/shared/InstallAgentCliButton"
 import { useAgentCliStatus } from "@/hooks/useAgentCliStatus"
 import { useConfigWrite } from "@/hooks/useConfigWrite"
 import { useRepositoryConfig } from "@/hooks/useRepositoryConfig"
 import { resolveHomeDir, tildePath } from "@/lib/home-path"
-import { CONFIG_KEYS, describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle } from "@/lib/repository-config"
+import { describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle } from "@/lib/repository-config"
 import { openSettings } from "@/lib/settings-window"
 import { useSelectedProjectPath } from "@/stores/repository"
 
@@ -127,15 +126,10 @@ function AgentRuleSetting({
 
   return (
     <div className="flex flex-col gap-1">
-      <SettingRow
-        testId={`setting-${configKey}`}
+      <ConfigSwitchRow
+        configKey={configKey}
         label={label}
-        description={
-          <>
-            {`${description} · `}
-            <InlineCode>{CONFIG_KEYS[configKey]}</InlineCode>
-          </>
-        }
+        description={description}
         checked={everywhere}
         disabled={setting === null || writing}
         onCheckedChange={checked => void write({ key: configKey, value: checked }, "global", globalErrorTitle)}
@@ -171,12 +165,7 @@ function AgentRuleSetting({
             </FieldGroup>
           </div>
         )}
-        {overridden !== null && (
-          <p className="text-warning" data-testid={`setting-${configKey}-reason`}>
-            {overridden}
-          </p>
-        )}
-        {setting?.invalid != null && <p className="text-warning">{setting.invalid}</p>}
+        <ConfigWarnings configKey={configKey} overridden={overridden} invalid={setting?.invalid} />
       </div>
     </div>
   )

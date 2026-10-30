@@ -290,7 +290,7 @@ export function writeErrorTitle(change: RepositoryConfigChange, fallbackStacks: 
     case "agentSubjectBranch":
       return `Cannot change how agents write commit subjects in ${name}`
     case "reviewExperimental":
-      return `Cannot change the review experiments of ${name}`
+      return `Cannot change whether ${name} shows the review plan`
   }
 }
 

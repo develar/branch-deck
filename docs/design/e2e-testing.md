@@ -206,6 +206,9 @@ Mock implementation:
   `TestUpdater`, `TestAgentCli`: below, **Command registry**), and the git of a test machine, `GIT_CONFIG_GLOBAL` the repository's
   own file and `GIT_CONFIG_NOSYSTEM`, whose identity is Test User <test-user@example.com> (`TEST_IDENTITY`: what `git
   var` finds outside a repository, the first run's suggestion `test-user`; a template's own identity wins inside it).
+  The same file turns the review plan off (`branchdeck.reviewExperimental = false`, on when unset): the review windows
+  of the other tests look as before it, and a test of the plan turns it on in `.git/config`. The syncs of the
+  sessions run that git too (`AppState::git_of`, `SessionEnvironment::git`), never the config of the machine.
   So the server answers what the app answers, an unknown path included, with no code of its own: the read ahead of a
   branch review (`prefetch_branch_review`) fills the memories of the context as the app's fills its own. It answers the value Tauri resolves the `invoke` with, the
   bytes of a raw command (`get_blob_syntax`), or its error (below) with the operation it names, as the app's.

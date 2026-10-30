@@ -52,7 +52,7 @@ const TALLEST_REPOSITORY_CONFIG: RepositoryConfig = {
   },
   agentLease: { value: false, scope: "worktree", localSet: true, invalid: null, fallbackValue: true, fallbackScope: "system" },
   agentSubjectBranch: { value: false, scope: "local", localSet: true, invalid: "maybe is not a boolean (true or false)", fallbackValue: true, fallbackScope: "global" },
-  reviewExperimental: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
+  reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   detectedGithubRepository: { fullName: "acme/app", source: "spaceMirror" },
   landingDefault: { route: "pullRequest", onSpace: false },
   stacksOffClashes: [
@@ -114,7 +114,10 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
   return window
 }
 
-/** Each page of the sidebar in its tallest state fits the island: nothing to scroll at 720 × 540 */
+/** The pages that scroll at 720 × 540: Diffs & Merge with its Review section (spec/repository/settings.spec.md) */
+const SCROLLING_PAGES = new Set(["Diffs & Merge"])
+
+/** Each page of the sidebar in its tallest state fits the island: nothing to scroll at 720 × 540, but `SCROLLING_PAGES` */
 async function expectEveryPageFits(window: Page, pages: string[]): Promise<void> {
   const island = window.getByTestId("settings-island")
   for (const name of pages) {
@@ -143,6 +146,9 @@ async function expectEveryPageFits(window: Page, pages: string[]): Promise<void>
     if (name === "Repository") {
       // the reason that stacked branches can't be turned off, a value from the global config with its button
       await expect(window.getByTestId("repository-setting-reason")).toHaveCount(2)
+    }
+    if (SCROLLING_PAGES.has(name)) {
+      continue
     }
     const { scrollHeight, clientHeight } = await island.evaluate(element => ({ scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }))
     expect(scrollHeight, `${name} fits`).toBeLessThanOrEqual(clientHeight)

@@ -4,6 +4,9 @@ import { RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Callout } from "@/components/shared/Callout"
+import { InlineCode } from "@/components/shared/InlineCode"
+import type { RepositoryConfigKey } from "@/lib/repository-config"
+import { CONFIG_KEYS } from "@/lib/repository-config"
 import type { AppSettingsSwitch } from "@/stores/settings/appSettings"
 import { setAppSettingsSwitch, useAppSettings } from "@/stores/settings/appSettings"
 
@@ -68,6 +71,53 @@ export function ReadFailure({ title, message, testId, onRetry }: { title: string
         </Button>
       </div>
     </Callout>
+  )
+}
+
+/** A switch of a `branchdeck.*` key that one value of the global git config gives every repository: what it does, then the key */
+export function ConfigSwitchRow({
+  configKey,
+  label,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  configKey: RepositoryConfigKey
+  label: string
+  description: string
+  checked: boolean
+  disabled: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <SettingRow
+      testId={`setting-${configKey}`}
+      label={label}
+      description={
+        <>
+          {`${description} · `}
+          <InlineCode>{CONFIG_KEYS[configKey]}</InlineCode>
+        </>
+      }
+      checked={checked}
+      disabled={disabled}
+      onCheckedChange={onCheckedChange}
+    />
+  )
+}
+
+/** Under a switch of `configKey`: why the worktree config or the command line keep it as it is, and its invalid value */
+export function ConfigWarnings({ configKey, overridden, invalid }: { configKey: RepositoryConfigKey; overridden: string | null; invalid: string | null | undefined }) {
+  return (
+    <>
+      {overridden !== null && (
+        <p className="text-warning" data-testid={`setting-${configKey}-reason`}>
+          {overridden}
+        </p>
+      )}
+      {invalid != null && <p className="text-warning">{invalid}</p>}
+    </>
   )
 }
 

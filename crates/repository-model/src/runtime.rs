@@ -1191,6 +1191,12 @@ pub trait SessionEnvironment: Send + Sync + 'static {
   fn synced_before(&self, _key: &SessionKey) -> bool {
     false
   }
+
+  /// The git the session of `key` runs its syncs, its inputs and its Patronus view with: the host's `git` in the app;
+  /// the E2E server's carries the global config of the test repository (`GIT_CONFIG_GLOBAL`), as its commands do
+  fn git(&self, _key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {
+    git.clone()
+  }
 }
 
 /// The host of the app's sessions: the syncs and their inputs, the Patronus view and the landing needs run with git;
@@ -1209,15 +1215,22 @@ impl<E> GitSessionHost<E> {
   }
 }
 
+impl<E: SessionEnvironment> GitSessionHost<E> {
+  /// The git of the session of `key` (`SessionEnvironment::git`)
+  fn git_of(&self, key: &SessionKey) -> GitCommandExecutor {
+    self.environment.git(key, &self.git)
+  }
+}
+
 impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   fn inputs(&self, key: &SessionKey) -> Option<SyncInputs> {
-    read_sync_inputs(&self.git, &key.worktree, &key.prefix)
+    read_sync_inputs(&self.git_of(key), &key.worktree, &key.prefix)
       .inspect_err(|error| warn!(worktree = %key.worktree, "Cannot read the sync inputs: {error:#}"))
       .ok()
   }
 
   fn run(&self, key: &SessionKey, reporter: RunReporter) -> SyncRun {
-    let (git, environment, key) = (self.git.clone(), Arc::clone(&self.environment), key.clone());
+    let (git, environment, key) = (self.git_of(key), Arc::clone(&self.environment), key.clone());
     Box::pin(async move {
       let setup = {
         let (environment, key) = (Arc::clone(&environment), key.clone());
@@ -1246,7 +1259,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
 
   fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
     self.environment.before_patronus_view(key)?;
-    Ok(derive_patronus(&self.git, &key.worktree, of, memo))
+    Ok(derive_patronus(&self.git_of(key), &key.worktree, of, memo))
   }
 
   fn landing_needs(&self, key: &SessionKey, landed: &HashSet<String>) -> Result<Needs, ApiError> {
@@ -1254,7 +1267,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
   }
 
   fn prune_review_refs(&self, key: &SessionKey, keep: &[u32]) {
-    self.environment.prune_review_refs(&self.git, key, keep);
+    self.environment.prune_review_refs(&self.git_of(key), key, keep);
   }
 
   fn frame(&self, key: &SessionKey) -> Option<CachedSession> {

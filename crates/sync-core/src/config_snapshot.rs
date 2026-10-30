@@ -150,7 +150,7 @@ impl ConfigSnapshot {
     }
   }
 
-  /// `branchdeck.reviewExperimental`, a git boolean, off when unset: whether the review windows show the review plan. A
+  /// `branchdeck.reviewExperimental`, a git boolean, on when unset: whether the review windows show the review plan. A
   /// value git would refuse is off, with a warning, and fails nothing: the flag only shows an experiment
   pub fn review_experimental(&self) -> bool {
     let setting = self.settings().review_experimental;

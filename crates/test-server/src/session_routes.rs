@@ -175,6 +175,16 @@ impl SessionEnvironment for TestSessionEnvironment {
       .unwrap_or(false)
   }
 
+  /// The git of the test repository (`AppState::git_of`): a sync reads the `branchdeck.*` keys of its global config, as
+  /// Settings does, never the config of the machine that runs the tests
+  fn git(&self, key: &SessionKey, git: &GitCommandExecutor) -> GitCommandExecutor {
+    self
+      .state
+      .upgrade()
+      .and_then(|state| state.repository(&key.worktree).ok().map(|repository| state.git_of(&repository.id)))
+      .unwrap_or_else(|| git.clone())
+  }
+
   /// Records the `keep` of the repository (`prunes` of `GET /repositories/{id}/review-requests`), then prunes as the app
   fn prune_review_refs(&self, git: &GitCommandExecutor, key: &SessionKey, keep: &[u32]) {
     if let Some(state) = self.state.upgrade()

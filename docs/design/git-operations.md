@@ -3167,8 +3167,8 @@ superseded after its last query answers `canceled` too. Mark Reviewed of the win
 command of the app (`app(ReviewedRefs)`: the refs have their one writer, no session reads them,
 `crates/app-api/src/app/mark_reviewed.rs`), with the same `mark_reviewed_core` and its CAS; both name the branch with
 the prefix the app resolves for the repository (`PrefixInputs`), and the page passes the head of the stack parent as
-the base of a stacked branch. The review windows offer neither unless `branchdeck.reviewExperimental` is on, which the
-sync carries into the view (`TableHeader.review_experimental`, "Repository settings").
+the base of a stacked branch. The review windows offer neither when `branchdeck.reviewExperimental` is off (it is on
+when unset), which the sync carries into the view (`TableHeader.review_experimental`, "Repository settings").
 
 Code: `crates/review-plan/src/mark_reviewed.rs`, `crates/review-plan/src/interdiff.rs`, `crates/review-plan/src/api.rs`,
 `crates/review-plan/src/fan_in.rs`, `crates/review-plan/src/risk.rs`, `crates/review-plan/src/order.rs`,
@@ -4147,10 +4147,11 @@ unset, `0` or `off` for none: see [Push size](#push-size); one value for every r
 `branchdeck.resolveByWords` (a git boolean, on when unset: whether a sync resolves a conflict of git by words, see
 "Resolve by words"), `branchdeck.agentLease` (a git boolean, on when unset: an agent works in a lease of the pool and
 lands each commit with `bd pick`) and `branchdeck.agentSubjectBranch` (a git boolean, on when unset: an agent starts
-each subject with its `(branch)`, which the copies of the virtual branches drop), and, with no row, the flag of the
-review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, off when unset: Mark Reviewed, the local
-Since Your Review, the API & Risk card and Order: Dependencies, [Review Plan](../../spec/branch/review-plan.spec.md);
-`bd review-plan` and `bd mark-reviewed` work without it). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
+each subject with its `(branch)`, which the copies of the virtual branches drop), and, on Settings → Diffs & Merge →
+Review, the flag of the review windows' experiments (`branchdeck.reviewExperimental`, a git boolean, on when unset and
+off for a value git refuses: Mark Reviewed, the local Since Your Review, the API & Risk card and Order: Dependencies,
+[Review Plan](../../spec/branch/review-plan.spec.md); one value for every repository in the global config, as
+`resolveByWords`; `bd review-plan` and `bd mark-reviewed` work without it). `bd` reads the same keys, so the app keeps nothing of them in its own settings; the
 two agent keys only `bd workspace` reads ([bd workspace](../../spec/cli/workspace.spec.md)), and their global values
 `agent_defaults` (`crates/lease-pool/src/agent_workspace.rs`) for `bd install` and the app's Install Agent CLI: no sync,
 no operation.

@@ -709,8 +709,10 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
 
 /// The identity of the test machine, in the global config of a test repository: what `git var` finds outside a
 /// repository (the first run of the welcome card, a `NO_REPO` path), as the developer's global config gives the app one.
-/// A repository's own identity (the templates set `user.name` and `user.email`) wins
-const TEST_IDENTITY: &str = "[user]\n\tname = Test User\n\temail = test-user@example.com\n";
+/// A repository's own identity (the templates set `user.name` and `user.email`) wins.
+/// The review plan, on when unset, is off here: the review windows of the other tests look as they did before it, and a
+/// test of the plan turns it on in the repository's `.git/config`, which wins (spec/branch/review-plan.spec.md)
+const TEST_IDENTITY: &str = "[user]\n\tname = Test User\n\temail = test-user@example.com\n[branchdeck]\n\treviewExperimental = false\n";
 
 fn write_test_identity(global_config: &std::path::Path) -> Result<(), StatusCode> {
   std::fs::write(global_config, TEST_IDENTITY).map_err(|e| {

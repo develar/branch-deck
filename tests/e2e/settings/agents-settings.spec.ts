@@ -105,7 +105,7 @@ const EMPTY_CONFIG: RepositoryConfig = {
   landing: { value: null, scope: null, localSet: false, invalid: null, fallbackValue: null, fallbackScope: null },
   agentLease: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   agentSubjectBranch: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
-  reviewExperimental: { value: false, scope: null, localSet: false, invalid: null, fallbackValue: false, fallbackScope: null },
+  reviewExperimental: { value: true, scope: null, localSet: false, invalid: null, fallbackValue: true, fallbackScope: null },
   detectedGithubRepository: null,
   landingDefault: { route: "pullRequest", onSpace: false },
   stacksOffClashes: [],

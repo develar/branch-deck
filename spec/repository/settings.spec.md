@@ -120,7 +120,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 - A search over the settings, Reset All.
 - A write of the worktree or the system git config. Repository writes `.git/config` only, and says where a value of
-  another config comes from; Diffs & Merge writes one key to the global config.
+  another config comes from; Diffs & Merge writes two keys to the global config.
 - A Light/Dark choice: the theme follows the system.
 - A settings dialog inside another window.
 
@@ -227,6 +227,16 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   change how <repository> resolves conflicts by words".
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should resolve conflicts by words in the global config, and say where the repository's own value wins`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
+- Diffs & Merge, "Review": "Review plan (experimental)", the git key `branchdeck.reviewExperimental`, on by default:
+  Mark Reviewed, Since Your Review, the API & Risk card and the order by dependencies in the branch review
+  ([Review Plan](../branch/review-plan.spec.md)). The page reads it with "Resolve conflicts by words" in one
+  `get_repository_config`, and the switch behaves as that one: the global config for every repository, the lines of
+  where the value comes from, a repository's own `.git/config` value with "Use Global" (or "Use Default"), the
+  reasons of the worktree config, the command line and an invalid value. After a write the main window syncs, and a
+  review window opened after the sync takes the new value. A failed write is a toast: "Cannot change whether every
+  repository shows the review plan", or for the local value "Cannot change whether <repository> shows the review
+  plan". With this section the page scrolls at 720 × 540.
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Diffs & Merge`)
 - Notifications: the four switches of the OS notifications, the permission of the OS, and "Dock icon" (not Windows)
   ([Review Requests](review-requests.spec.md#settings)). The permission is asked when the page shows, on each open of
   the window and when the window gets the focus.
@@ -252,7 +262,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   Retry says it reads again until the answer.
   [@test] ../../tests/e2e/settings/status-reads.spec.ts (`should say it reads the GitHub sign-in until the answer, and a failed read with Retry`, `should say it reads the YouTrack sign-in until the answer, and a failed read with Retry`, `should say it reads the tools until the answer, and a failed read with Retry`)
   [@test] ../../src/stores/auth.test.ts (`says why a read failed and keeps the last status, until a read answers; Retry reads again, the failure gone meanwhile`)
-- Every page fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
+- Every page but Diffs & Merge fits 720 × 540 without scrolling in its tallest state: the code of the GitHub sign-in, the warning that the
   OS refused the notifications (one line with Open System Settings), the Dock group on macOS and Linux, every line a row
   of Repository can show, on Agents the installed skill, a value of the worktree config and an invalid one, on Tools a
   CLI on two servers and the install command of the other.

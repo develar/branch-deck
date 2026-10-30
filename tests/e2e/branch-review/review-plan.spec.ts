@@ -28,8 +28,9 @@ const READER = (body: string) => `package a\n\nimport b.Cache\n\nclass Reader {\
 
 /** The branch `plan` of two commits on top of the template, the index of accio with three usages of `helper` */
 async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experimental: boolean }): Promise<void> {
+  // the flag is on when unset, but the global config of the test machine turns it off (`TEST_IDENTITY` of the server)
   if (experimental) {
-    // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it
+    // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it, and it wins over the global
     appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
   }
   await repo.commit("(plan) scale the helper", { "src/Store.kt": storeText("fun helper(value: Int, scale: Int) = value * scale") }, 1704121200)

@@ -41,6 +41,16 @@ impl AppState {
     self.test_root_dir.path().join(format!("{repository_id}.gitconfig"))
   }
 
+  /// The git of a test machine for the test repository `repository_id`: its global config (`global_config_of`) and no
+  /// system config. Its commands (`context_of`) and the syncs of its sessions (`TestSessionEnvironment::git`) run it
+  pub fn git_of(&self, repository_id: &str) -> GitCommandExecutor {
+    let global_config = self.global_config_of(repository_id);
+    self
+      .git_executor
+      .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
+      .with_env("GIT_CONFIG_NOSYSTEM", "1")
+  }
+
   /// The app of the test repository `repository_id`, what its commands of app-api run with: the git of a test machine
   /// (the global config of the repository, `global_config_of`, and no system config), the settings of its page, its own
   /// memory of the diffs and of the reviews of branches, its own windows and its own search of the conflict fix, the
@@ -49,13 +59,9 @@ impl AppState {
   /// (`TestDesktop`, `TestUpdater`, `TestAgentCli`), and the git prefixes, the repository state, the sessions and the
   /// registry of the server
   pub fn context_of(self: &std::sync::Arc<Self>, repository_id: &str, hosts: &TestHosts) -> app_api::context::AppContext {
-    let global_config = self.global_config_of(repository_id);
     let services = crate::session_routes::test_services(self);
     app_api::context::AppContext {
-      git: self
-        .git_executor
-        .with_env("GIT_CONFIG_GLOBAL", &global_config.to_string_lossy())
-        .with_env("GIT_CONFIG_NOSYSTEM", "1"),
+      git: self.git_of(repository_id),
       settings: std::sync::Arc::clone(&hosts.settings),
       prefixes: self.branch_prefixes.clone(),
       repository_state: self.repository_state.clone(),

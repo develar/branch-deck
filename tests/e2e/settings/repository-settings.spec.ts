@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
 import { expectSettingsOpened, openSettingsWindow, recordWrites, settingsTab } from "../helpers/settings-helpers"
+import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, expectTeamSessionSyncedOnOpen, finishedSyncCount, nextAnswer, pressSyncHeld, viewEpoch, waitForSyncComplete } from "../helpers/sync-helpers"
 import { TEST_SERVER_URL } from "../helpers/test-server-url"
 import { windowCalls } from "../helpers/title-bar-helpers"
@@ -359,15 +360,19 @@ test.describe("Settings → Repository", () => {
   })
 })
 
+/** Settings → Diffs & Merge: the row of the switch of `key`, its switch, the line of where its value comes from, the writes */
+async function openDiffsSwitch(page: Page, key: string) {
+  const window = await openSettingsWindow(page, { page: "diffs" })
+  const writes = recordWrites(window)
+  const setting = window.getByTestId(`setting-${key}`)
+  return { window, writes, setting, toggle: setting.getByRole("switch"), source: window.getByTestId(`setting-${key}-source`) }
+}
+
 test.describe("Settings → Diffs & Merge", () => {
   test("should resolve conflicts by words in the global config, and say where the repository's own value wins", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await syncAndWaitForBranches()
-    const window = await openSettingsWindow(page, { page: "diffs" })
-    const writes = recordWrites(window)
-    const setting = window.getByTestId("setting-resolveByWords")
-    const toggle = setting.getByRole("switch")
-    const source = window.getByTestId("setting-resolveByWords-source")
+    const { window, writes, setting, toggle, source } = await openDiffsSwitch(page, "resolveByWords")
     await expect(source).toHaveText("On by default. A change goes to your global Git config, which bd reads too")
     await expect(setting).toContainText("branchdeck.resolveByWords")
     await expect(toggle).toBeChecked()
@@ -403,5 +408,39 @@ test.describe("Settings → Diffs & Merge", () => {
     await expect(source).toHaveText("Set in your global Git config, which bd reads too")
     await expect(toggle).not.toBeChecked()
     expect(writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "resolveByWords", value: null }, scope: "local" })
+  })
+
+  test("should turn the review plan on and off for every repository from Diffs & Merge", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await syncAndWaitForBranches()
+    const { writes, setting, toggle, source } = await openDiffsSwitch(page, "reviewExperimental")
+    await expect(setting).toContainText("Review plan (experimental)")
+    await expect(setting).toContainText("branchdeck.reviewExperimental")
+    // on by default, off in the global config of the test machine
+    await expect(source).toHaveText("Set in your global Git config, which bd reads too")
+    await expect(toggle).not.toBeChecked()
+
+    // on for every repository: the global config, and the main window syncs, whose header the review windows read
+    let syncs = await finishedSyncCount(page)
+    await setting.click()
+    await expect(toggle).toBeChecked()
+    await waitForSyncComplete(page, syncs)
+    expect(writes).toEqual([{ repositoryPath: repo.path, change: { key: "reviewExperimental", value: true }, scope: "global" }])
+
+    // Review Changes of a branch: its window, opened after Settings, shows the review plan
+    const opened = (await getOpenedSubWindows(page)).length
+    await findBranchRow(page, "test-branch").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(opened + 1)
+    const review = await openLinkedSubWindow(page, (await getOpenedSubWindows(page)).at(-1)!)
+    await expect(review.getByTestId("branch-review-mark-reviewed")).toBeVisible()
+    await review.close()
+
+    // off again, in the same global config
+    syncs = await finishedSyncCount(page)
+    await setting.click()
+    await expect(toggle).not.toBeChecked()
+    await waitForSyncComplete(page, syncs)
+    expect(writes.at(-1)).toEqual({ repositoryPath: repo.path, change: { key: "reviewExperimental", value: false }, scope: "global" })
   })
 })

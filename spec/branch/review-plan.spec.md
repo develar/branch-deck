@@ -22,6 +22,7 @@ targets:
   - ../../crates/app-api/src/app/mark_reviewed.rs
   - ../../crates/app-api/src/session/windows.rs
   - ../../crates/sync-core/src/repository_config.rs
+  - ../../src/components/settings/DiffsPage.tsx
   - ../../src/lib/review-plan.ts
   - ../../src/lib/range-review.ts
   - ../../src/lib/file-tree.ts
@@ -250,10 +251,15 @@ order of the files: a file that declares what another uses before it, a test rig
   kill its queries of accio and answer `canceled`; a symbol search of the window and a plan must never supersede each
   other.
   [@test] ../../crates/app-api/src/session/windows_test.rs (`a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other`, `a_closed_window_supersedes_its_request`)
-- `branchdeck.reviewExperimental` must be off unless git config turns it on, read and written like the other keys of
-  Settings; a value git refuses must be off with its reason and fail no sync.
-  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_off_until_the_config_turns_them_on`, `nothing_set_is_the_defaults`)
-  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_off_unless_the_config_turns_them_on`)
+- `branchdeck.reviewExperimental` must be on unless git config turns it off, read and written like the other keys of
+  Settings; a value git refuses must be off with its reason and fail no sync: an experiment never turns on from a
+  broken value.
+  [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_review_experiments_are_on_until_the_config_turns_them_off`, `nothing_set_is_the_defaults`)
+  [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_review_experiments_are_on_unless_the_config_turns_them_off`)
+- The switch "Review plan (experimental)" of Settings → Diffs & Merge → Review must turn it on and off for every
+  repository in the global git config, and a repository's own `.git/config` value must win over it, as
+  `branchdeck.resolveByWords` does (spec/repository/settings.spec.md).
+  [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Diffs & Merge`)
 - The flag must reach the view through each sync (`TableHeader.reviewExperimental`), and a change of it from Settings
   must sync; with the flag off the review windows must look as they do without the review plan. `bd review-plan` and
   `bd mark-reviewed` must work without it, and so must the two commands of the app.
