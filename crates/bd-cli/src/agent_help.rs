@@ -737,16 +737,13 @@ guarded update.
 Before the first edit or commit in a repository, run `bd workspace` and follow it; what the user says in the session
 wins over it:
 - `lease.on`: work in a worktree of your own. Run the first command of `next` (`bd lease get --holder <your name>`, a
-  name of this session) and edit, build and commit only in its `path` (and `subdir` there). In Claude Code, `cd` into
-  `path` once: the shell stays there when the pool is in `permissions.additionalDirectories` of the settings, and
-  Read, Edit and Write take the files by their paths in `path`. When the shell goes back, `EnterWorktree` with that
-  `path` moves the session there; it asks the user. Its `next` (and `bd workspace` inside it) names the rest:
-  land each commit that builds and passes its tests at once with `bd -C <path> lease pick`, onto the branch of `home`;
-  a conflict comes back to you, `conflict.next` says what to do. Once the task is done and every commit landed,
-  `bd lease return --lease-id <lease_id>`. Never `git rebase` or `git merge` into the shared checkout, and never
-  `bd update` in a lease. Return only your own lease,
-  never one of `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout:
-  when the task needs them, ask the user.
+  name of this session) and edit, build and commit only in its `path` (and `subdir` there). Its `next` (and
+  `bd workspace` inside it) names the rest: land each commit that builds and passes its tests at once with
+  `bd -C <path> lease pick`, onto the branch of `home`; a conflict comes back to you, `conflict.next` says what to do.
+  Once the task is done and every commit landed, `bd lease return --lease-id <lease_id>`. Never `git rebase` or
+  `git merge` into the shared checkout, and never `bd update` in a lease. Return only your own lease, never one of
+  `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout: when the task
+  needs them, ask the user.
 - `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
   `git add -A` or `git add .`.
 - `subject_branch.on`: start each commit subject with `(branch) `, a readable name of a few words, never an issue id as
@@ -757,8 +754,13 @@ wins over it:
 - A lease is the only worktree of your own: never `git worktree add` or a clone for it on your own initiative, also not
   when a bd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
   (`path`, `lease_id`, `holder`).
+- In Claude Code, `cd` into `path` once: the shell stays there when the pool is in `permissions.additionalDirectories`
+  of the settings, and Read, Edit and Write take the files by their paths in `path`. When the shell goes back,
+  `EnterWorktree` with that `path` moves the session there; it asks the user.
 - In a sandbox (Codex) a change of directory does not make `path` writable: before the first edit there, ask for write
   access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease.
+- When the shell does not keep the current directory (Junie, for example), give each file tool an absolute path in
+  `path`, and start each shell command with `cd <path> && `.
 
 To group or push commits or to start a Safe Push, run `bd help agent` first and follow the workflow it prints: it is the
 contract of the installed version. To update a branch or resolve its update conflicts, run `bd help update` instead.

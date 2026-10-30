@@ -423,7 +423,9 @@ fn the_skill_description_starts_with_the_first_edit_and_fits_the_limit() {
 }
 
 /// A repository needs no instructions of its own for the isolation: the skill says that a lease is the only worktree
-/// of the agent's own, also when bd fails, how a sandbox writes the lease, and how Claude Code enters it
+/// of the agent's own, also when bd fails, how a sandbox writes the lease, how Claude Code enters it, and how an agent
+/// works there when its shell does not keep the current directory. The rule of the lease is the same for every agent:
+/// it names none, and a note per agent follows it
 #[test]
 fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() {
   let skill = skill_text("bd");
@@ -431,10 +433,23 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() 
   assert!(skill.contains("ask for write\n  access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease."));
   // `EnterWorktree` asks on every lease, since the pool is outside `.claude/worktrees/`; a `cd` into a working
   // directory asks nothing, so it comes first
-  let cd = skill.find("In Claude Code, `cd` into\n  `path` once").unwrap();
-  let enter = skill.find("`EnterWorktree` with that\n  `path` moves the session there").unwrap();
+  let cd = skill.find("- In Claude Code, `cd` into `path` once").unwrap();
+  let enter = skill.find("`EnterWorktree` with that `path` moves the session there").unwrap();
   assert!(cd < enter, "{skill}");
   assert!(skill.contains("`permissions.additionalDirectories`"), "{skill}");
+  assert!(
+    skill.contains("- When the shell does not keep the current directory (Junie, for example), give each file tool an absolute path in\n  `path`, and start each shell command with `cd <path> && `."),
+    "{skill}"
+  );
+
+  let rule_start = skill.find("- `lease.on`: work in a worktree of your own.").unwrap();
+  let rule_end = rule_start + 2 + skill[rule_start + 2..].find("\n- ").unwrap();
+  let rule = &skill[rule_start..rule_end];
+  assert!(rule.contains("`bd -C <path> lease pick`"), "{rule}");
+  for agent_word in ["Claude", "Codex", "Junie", "EnterWorktree", "request_permissions"] {
+    assert!(!rule.contains(agent_word), "the rule of the lease names `{agent_word}`: {rule}");
+  }
+  assert!(rule_end < cd, "{skill}");
 }
 
 /// `bd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
