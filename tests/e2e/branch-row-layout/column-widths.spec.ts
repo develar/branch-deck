@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { pressSyncHeld, releaseHeldSync, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { resizeReportsDelivered, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
@@ -12,8 +12,8 @@ async function trackWidth(page: Page, track: string): Promise<number> {
   return Number.parseFloat(await page.getByTestId("branch-view").evaluate((view, name) => (view as HTMLElement).style.getPropertyValue(name), `--bd-track-${track}`))
 }
 
-// https://github.com/develar/branch-deck/issues/72
-test.describe("Branch table column widths", () => {
+// https://github.com/develar/branch-deck/issues/72; in WebKit too, which lays the columns out from the same observer
+test.describe("Branch table column widths", { tag: "@webkit" }, () => {
   test("gives the free width to the branch name and keeps the other columns at content width", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await page.setViewportSize({ width: 1400, height: 900 })
     await setupRepo("long_subjects")
@@ -21,6 +21,7 @@ test.describe("Branch table column widths", () => {
 
     const branchRow = findBranchRow(page, "IJPL-215166")
     await waitForBranchSyncComplete(page, "IJPL-215166")
+    await waitForBranchLayout(page)
 
     const { branchName, commits, status, actions } = getBranchCells(branchRow)
     const row = await branchRow.boundingBox()
@@ -109,6 +110,7 @@ test.describe("Branch table column widths", () => {
     await waitForStorePersistence(page, "repositoryState", states =>
       Object.values(states as Record<string, { settledLayout?: { tracks: Record<string, number> } }>).some(state => (state.settledLayout?.tracks["state"] ?? 0) > 0),
     )
+    await waitForBranchLayout(page)
     // the running robot is the widest state of the view
     const content = row.locator("[data-track=state] > div")
     const runningWidth = await trackWidth(page, "state")
@@ -143,6 +145,10 @@ test.describe("Branch table column widths", () => {
     await page.setViewportSize({ width: 768, height: 800 })
     await setupRepo("issue_links")
     await syncAndWaitForBranches()
+    // the sync ended and the steps know their facts: a track that held "syncing 3/7…" or "Checking…" follows what the
+    // rows show now, and no row shows a step (no Patronus), so the step column takes no room
+    await waitForBranchLayout(page)
+    expect(await trackWidth(page, "step")).toBe(0)
 
     const summaries = page.getByTestId("branch-row").getByTestId("branch-summary")
     await expect(summaries.first()).toBeAttached()
@@ -162,6 +168,8 @@ test.describe("Branch table column widths", () => {
     // which drop out; a subject that shows has at least 6rem, never a letter or two
     await page.setViewportSize({ width: 700, height: 800 })
     await expect(findBranchRow(page, "feature-auth").getByTestId("branch-summary")).toBeHidden()
+    // the subjects of the other rows as the observer reported the narrower view
+    await resizeReportsDelivered(page)
     for (const width of await visibleWidths()) {
       expect(width).toBeGreaterThanOrEqual(6 * 16)
     }

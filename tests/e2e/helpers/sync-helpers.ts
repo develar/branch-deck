@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test"
 import { expect } from "../fixtures/base-test"
 import { findBranchRow } from "./branch-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "./test-repository"
+import { resizeReportsDelivered, waitForStepFacts } from "./wait-helpers"
 
 /** The epoch of the view the main window holds, from `data-view-version` (`epoch:seq`) of Sync; undefined without one */
 export async function viewEpoch(page: Page): Promise<string | undefined> {
@@ -123,6 +124,20 @@ export async function waitForSyncComplete(page: Page, previousCount: number, tim
   const syncButton = page.locator('[data-testid="sync-button"]')
   await expect(syncButton).not.toHaveAttribute("data-sync-count", String(previousCount), { timeout })
   await expect(syncButton).toBeEnabled({ timeout })
+}
+
+/**
+ * Waits until the branch view stands where what its rows show puts it: the sync after `previousCount`
+ * (`finishedSyncCount`) ended, no step waits for a fact (`waitForStepFacts`), and the observer of the columns reported
+ * the frame of the last answer (`resizeReportsDelivered`). What that `ResizeObserver` writes (the widths of the tracks
+ * `--bd-track-*`, `data-wide`) and every box it moves is read after it, never at the first row of a running sync, as
+ * `syncAndWaitForBranches` returns: while the sync runs a track only widens ("syncing 3/7…"), and a step says
+ * "Checking…" until its facts came (docs/design/e2e-testing.md, "Under load")
+ */
+export async function waitForBranchLayout(page: Page, previousCount = 0): Promise<void> {
+  await waitForSyncComplete(page, previousCount)
+  await waitForStepFacts(page.getByTestId("next-step-slot"))
+  await resizeReportsDelivered(page)
 }
 
 /**

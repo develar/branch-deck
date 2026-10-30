@@ -902,7 +902,13 @@ branch at the commit it was pushed up to.
   the pointer of a hover). A rest on a row (`restOnBranchRow`) waits for the facts of the steps first: the last answer
   widens the step of some rows and the step track of the others follows a frame later (the observer of the columns),
   so for that frame their "⋯" sits left of its place; a hover that landed then met the "⋯" coming back under the still
-  pointer, which opens no tooltip (2 of 5 runs on the Studio). A menu zoomed in late under load, and an item hovered meanwhile moved away under the
+  pointer, which opens no tooltip (2 of 5 runs on the Studio). A flag or a width that a `ResizeObserver` writes
+  (`data-wide`, the tracks of the branch columns) is right in the first frame and after each report, and its reader
+  waits for the report, the end of the sync and the facts of the steps (`waitForBranchLayout`), never for time:
+  `column-widths.spec.ts` read the subjects of a 768px view while the first sync still ran, and the widths of every
+  frame under a load of 70 (2026-10-30) showed the page wrong besides, a step track that kept the width of a
+  "Checking…" the observer never reported (9 of 20 runs in Chromium; [Branch columns](ui-theme.md#branch-columns), "A
+  read is confirmed"). A menu zoomed in late under load, and an item hovered meanwhile moved away under the
   pointer, its leave canceling the hover open: the zoom is off in a test now (**Motion** above), and `openSubmenu`
   hovers once the exits of the menus ended (`animationsEnded`) and waits for the submenu. A chain of commands gets a
   wait per step: at a load of 150-220 on 18 cores each of them takes 2-5 s, and a 5 s assertion after the press that

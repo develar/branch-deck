@@ -68,7 +68,10 @@ type Key = ColumnKey
  * all in, at least the widths the view had once they were in the last time (the floors of `setLayout`), so a late
  * answer that fills a track the way it did before moves no column; while a sync runs a track only widens (`held`), as a
  * write restyles every row of the view. The root itself is measured too: `data-wide` while it is at least `WIDE_REM`
- * wide, changed only when its width crosses that, so a resize inside either side restyles nothing
+ * wide, changed only when its width crosses that, so a resize inside either side restyles nothing.
+ *
+ * The width of an item is what the observer reported last, the size the observer compares the item with at each
+ * rendering update; a width read from the layout instead (`setLayout`) is confirmed by the observer (`unconfirmed`)
  */
 export class ColumnRegistry {
   private readonly items = new Map<Element, { key: Key; width: number }>()
@@ -80,13 +83,21 @@ export class ColumnRegistry {
   private floors: Readonly<Partial<Record<Key, number>>> | null = null
   private held = false
   private wide: boolean | null = null
+  /**
+   * The items whose width `setLayout` read from the layout, observed anew since: the observer reports such an item at
+   * its next rendering update unless it is 0 wide then, which a report of the root, observed anew too, tells (a report
+   * of the root comes with every item's of that rendering update)
+   */
+  private readonly unconfirmed = new Set<Element>()
   private readonly observer: ResizeObserver | null =
     typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(entries => {
           let resized = false
+          let rootReported = false
           for (const entry of entries) {
             if (entry.target === this.root) {
+              rootReported = true
               this.setWide(entry.contentBoxSize[0]?.inlineSize ?? entry.contentRect.width)
               continue
             }
@@ -95,8 +106,21 @@ export class ColumnRegistry {
               // the width as laid out, a fraction too: a track as wide as its content moves nothing when the report of
               // a wider content comes a frame after the content (rounded up it would, by the fraction)
               item.width = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+              this.unconfirmed.delete(entry.target)
               resized = true
             }
+          }
+          if (rootReported && this.unconfirmed.size > 0) {
+            // not reported with the root: 0 wide now, though the read had it wider ("Checking…" that went before the
+            // observer saw it, which held the step track at its width while no row showed a step)
+            for (const element of this.unconfirmed) {
+              const item = this.items.get(element)
+              if (item !== undefined && item.width !== 0) {
+                item.width = 0
+                resized = true
+              }
+            }
+            this.unconfirmed.clear()
           }
           if (resized) {
             this.write()
@@ -125,20 +149,46 @@ export class ColumnRegistry {
    * has it, while a sync runs, as the texts of a run ("syncing 3/7…") change the widths of the items, and each width
    * written restyles every row of the view. As the floors go or the hold ends, the view follows its content once, in
    * the commit that renders what ends them: the widths are read from the items as laid out then, not from the observer,
-   * whose report of that content comes a frame later, so the drop moves no item for a frame
+   * whose report of that content comes a frame later, so the drop moves no item for a frame. The observer still
+   * compares an item with the size it reported last, so an item read wider than that and back at it before the next
+   * rendering update ("Checking…" of a step for a frame) would never be reported again: an item read other than
+   * reported is observed anew, the root too, and the next report of the root confirms it (`unconfirmed`)
    */
   setLayout(floors: Readonly<Partial<Record<Key, number>>> | null, held: boolean): void {
     if (this.floors === floors && this.held === held) {
       return
     }
     if ((this.floors !== null && floors === null) || (this.held && !held)) {
-      for (const [element, item] of this.items) {
-        item.width = element.getBoundingClientRect().width
-      }
+      this.readLaidOut()
     }
     this.floors = floors
     this.held = held
     this.write()
+  }
+
+  /** The width of each item as laid out now; an item read other than reported is observed anew, until confirmed */
+  private readLaidOut(): void {
+    const observer = this.observer
+    for (const [element, item] of this.items) {
+      const width = element.getBoundingClientRect().width
+      if (width === item.width) {
+        continue
+      }
+      item.width = width
+      if (observer !== null) {
+        // observed anew, the observer compares the item with 0 at its next rendering update (an observe of an item
+        // observed already changes nothing)
+        observer.unobserve(element)
+        observer.observe(element, { box: "border-box" })
+        this.unconfirmed.add(element)
+      }
+    }
+    const root = this.root
+    if (observer !== null && root !== null && this.unconfirmed.size > 0) {
+      // reported at the next rendering update, as the view is never 0 wide where it shows, with every item of it
+      observer.unobserve(root)
+      observer.observe(root)
+    }
   }
 
   /**
@@ -160,6 +210,7 @@ export class ColumnRegistry {
     return () => {
       this.observer?.unobserve(element)
       this.items.delete(element)
+      this.unconfirmed.delete(element)
       // the widest item may be gone: once for the rows a collapse removes together
       if (!this.scheduled) {
         this.scheduled = true

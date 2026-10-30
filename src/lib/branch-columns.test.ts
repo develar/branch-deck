@@ -1,19 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { ColumnRegistry } from "@/lib/branch-columns"
 
-/** The one observer of a registry: the test reports the sizes the browser would */
+/**
+ * The one observer of a registry: the test reports the sizes the browser would, by hand (`report`) or as a rendering
+ * update does (`renderingUpdate`): a target whose size differs from the one it reported last, 0 once observed. An
+ * observe of a target observed already changes nothing, as in Chromium and WebKit
+ */
 class FakeResizeObserver {
   static current: FakeResizeObserver | null = null
+  readonly reported = new Map<Element, number>()
 
   constructor(private readonly callback: ResizeObserverCallback) {
     FakeResizeObserver.current = this
   }
 
-  observe(): void {}
+  observe(target: Element): void {
+    if (!this.reported.has(target)) {
+      this.reported.set(target, 0)
+    }
+  }
 
-  unobserve(): void {}
+  unobserve(target: Element): void {
+    this.reported.delete(target)
+  }
 
-  disconnect(): void {}
+  disconnect(): void {
+    this.reported.clear()
+  }
 }
 
 /** An item as laid out: its width now, which the observer reports later (`report`) */
@@ -28,11 +41,29 @@ function item(width: number): Item {
   return it
 }
 
+/** The observer's report of the elements as they are laid out now */
+function deliver(elements: Element[]): void {
+  const observer = FakeResizeObserver.current!
+  const entries = elements.map(element => {
+    const width = element.getBoundingClientRect().width
+    observer.reported.set(element, width)
+    const size = [{ inlineSize: width }]
+    return { target: element, borderBoxSize: size, contentBoxSize: size, contentRect: { width } }
+  })
+  ;(observer as unknown as { callback: ResizeObserverCallback }).callback(entries as unknown as ResizeObserverEntry[], observer as unknown as ResizeObserver)
+}
+
 /** The observer's report of the items as they are laid out now */
 function report(...items: Item[]): void {
-  const observer = FakeResizeObserver.current!
-  const entries = items.map(it => ({ target: it.element, borderBoxSize: [{ inlineSize: it.width }], contentRect: { width: it.width } }))
-  ;(observer as unknown as { callback: ResizeObserverCallback }).callback(entries as unknown as ResizeObserverEntry[], observer as unknown as ResizeObserver)
+  deliver(items.map(it => it.element))
+}
+
+/** A rendering update: the observer reports every observed element whose size is not the one it reported last */
+function renderingUpdate(): void {
+  const changed = [...FakeResizeObserver.current!.reported].filter(([element, width]) => element.getBoundingClientRect().width !== width).map(([element]) => element)
+  if (changed.length > 0) {
+    deliver(changed)
+  }
 }
 
 /** The root of a view: the variables written on it, each write counted (each restyles every row of the view) */
@@ -45,7 +76,8 @@ function root(): { element: HTMLElement; variables: Map<string, string>; writes:
       writes.push(`${name}=${value}`)
     },
   }
-  return { element: { style, toggleAttribute: () => true } as unknown as HTMLElement, variables, writes }
+  // as wide as a window of 768px at its least
+  return { element: { style, toggleAttribute: () => true, getBoundingClientRect: () => ({ width: 752 }) } as unknown as HTMLElement, variables, writes }
 }
 
 describe("ColumnRegistry", () => {
@@ -119,6 +151,43 @@ describe("ColumnRegistry", () => {
     expect(view.variables.get("--bd-track-step")).toBe("110.63px")
 
     registry.setLayout(null, false)
+    expect(view.variables.get("--bd-track-step")).toBe("100.03px")
+  })
+
+  it("follows an item read wider as the hold ends and back at its reported width before the next rendering update", () => {
+    // the root's report compares the view with 56rem
+    vi.stubGlobal("document", { documentElement: {} })
+    vi.stubGlobal("getComputedStyle", () => ({ fontSize: "16px" }))
+    const registry = new ColumnRegistry()
+    const view = root()
+    registry.setRoot(view.element)
+    const state = item(98.36)
+    const step = item(0)
+    registry.observe(state.element, "state")
+    registry.observe(step.element, "step")
+    registry.setLayout(null, true)
+    renderingUpdate()
+    expect(view.variables.get("--bd-track-step")).toBe("0px")
+
+    // the commit that ends the sync shows "Checking…" in the step slot of every row: read as laid out, the track
+    // follows it at once
+    step.width = 100.03
+    state.width = 82.97
+    registry.setLayout(null, false)
+    expect(view.variables.get("--bd-track-step")).toBe("100.03px")
+    // the fact comes before the next rendering update and the slot is empty again, the size the observer reported
+    // last: no row shows a step, the track takes no room
+    step.width = 0
+    renderingUpdate()
+    expect(view.variables.get("--bd-track-step")).toBe("0px")
+    expect(view.variables.get("--bd-gap-step")).toBe("0px")
+    expect(view.variables.get("--bd-track-state")).toBe("82.97px")
+
+    // a read the observer reports at its next rendering update stands
+    step.width = 100.03
+    registry.setLayout({ step: 110.63 }, false)
+    registry.setLayout(null, false)
+    renderingUpdate()
     expect(view.variables.get("--bd-track-step")).toBe("100.03px")
   })
 })

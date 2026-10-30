@@ -184,9 +184,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
 - A running sync must move no column: while a sync runs a column only widens, as the texts of the run ("syncing 3/7…")
   change what its items show; once the sync ended, the column follows what its rows show, in the frame that renders
-  the end ([Branch columns](../../docs/design/ui-theme.md#branch-columns), "A running sync moves no column").
-  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`holds the width of a column while a sync runs, and follows what the rows show once it ended`)
-  [@test] ../../src/lib/branch-columns.test.ts (`only widens a track while held, and follows the items as laid out once the hold ends`, `writes no track before the observer measured an item, then every track at once`, `keeps a track at its floor until the floors go, then at what its items show`)
+  the end and in every frame after it, also when an item showed only in that frame ("Checking…" of a step whose fact
+  came before the next frame) ([Branch columns](../../docs/design/ui-theme.md#branch-columns), "A running sync moves no
+  column", "A read is confirmed").
+  [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`holds the width of a column while a sync runs, and follows what the rows show once it ended`, `drops a subject that has no room to be read`)
+  [@test] ../../src/lib/branch-columns.test.ts (`only widens a track while held, and follows the items as laid out once the hold ends`, `writes no track before the observer measured an item, then every track at once`, `keeps a track at its floor until the floors go, then at what its items show`, `follows an item read wider as the hold ends and back at its reported width before the next rendering update`)
 - A long name or subject must truncate, not wrap: the row stays one line high.
   [@test] ../../tests/e2e/branch-row-layout/column-widths.spec.ts (`gives the free width to the branch name and keeps the other columns at content width`)
 - A subject with less than 6rem of free width must drop out instead of truncating to a letter or two.

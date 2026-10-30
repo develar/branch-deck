@@ -483,6 +483,16 @@ shows.
   widths measured, the state narrowing as the last rows of the run ended ("syncing 0/1…" to "created"), the steps of
   the end of the run and the robots; it restyles it four times now, as often as the tree of s0a did, whose rows
   mounted once at the end of the sync ([Rendering Performance](rendering-performance.md#the-main-thread-of-a-sync)).
+- **A read is confirmed**: the observer compares an item with the size it reported last, never with a width the registry
+  read from the layout itself as the floors went or the hold ended. An item read other than reported is observed anew,
+  and the root of the view too: the next report of the root comes with the report of every item of that rendering update
+  (an observed item is compared with 0), so an item that the observer doesn't report with it is 0 wide (`unconfirmed` of
+  `ColumnRegistry`). Without it a step that said "Checking…" in the commit of the end of the first sync, and nothing
+  again before the observer looked (a commit between the frame callbacks and the reports of a rendering update, traced
+  frame by frame), was never reported: the step track kept the 100px of "Checking…" while no row showed a step, and at
+  768px no subject had its 6rem (9 of 20 runs of `column-widths.spec.ts` in Chromium under a load of 70 on the Mac
+  Studio, 2026-10-30; none in WebKit, which times its frames otherwise). `data-wide` comes from the reports of the root
+  alone, so it is right in the first frame and after each report.
 - **Live values hold their own width**: a running robot is at least `13ch`, the compact push `min-w-16` (`⟳ 100%`),
   Push with Children of a row the widest it gets while it pushes (`⟳ 100% with children`, invisible in its cell),
   the Safe Push of a slot its width at rest while its start runs, so

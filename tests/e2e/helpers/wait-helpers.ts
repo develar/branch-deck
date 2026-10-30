@@ -1,5 +1,5 @@
 import type { Page, Locator } from "@playwright/test"
-import type { ApiError } from "../../../src/lib/bindings"
+import type { ApiError, StepFact } from "../../../src/lib/bindings"
 import { expect } from "../fixtures/base-test"
 
 /**
@@ -40,8 +40,20 @@ export async function resizeReportsDelivered(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 }
 
-/** The facts a step waits for (`PendingFact` of `src/presenters/next-step.ts`, `StepFact` of Rust), in the order they come */
-const STEP_FACTS = ["patronus", "pullRequests", "robotProblems", "landingNeeds", "readiness"] as const
+/**
+ * The facts a step waits for (`StepFact` of Rust, `PendingFact` of `src/presenters/next-step.ts`), in the order the step
+ * waits for them: the keys of a record of every fact, so a new one joins the wait
+ */
+const STEP_FACTS = Object.keys({
+  patronus: true,
+  pullRequests: true,
+  landingNeeds: true,
+  robotProblems: true,
+  readiness: true,
+  permission: true,
+  targetRules: true,
+  mergeState: true,
+} satisfies Record<StepFact, true>)
 
 /**
  * Waits until no step of the next-step `slots` waits for a fact (`data-waits-for` of "Checking…"), each fact with an
