@@ -1405,9 +1405,10 @@ impl HeadRef {
 /// `branch`, the one checked: after `prepare` git holds the locks of HEAD and of the branch, and `symbolic-ref HEAD`,
 /// read under them, decides between `commit` and `abort` (`RefTransaction::commit_while`). A `git switch` can't change
 /// HEAD while the locks are held, so a switch at any point since the check is `BranchSwitched` with nothing changed.
-/// (git refuses `symref-verify HEAD` next to either form of the update.) The read before the transaction only refuses
-/// earlier. If the files can't follow, the branch moves back under the same check and the error says that nothing
-/// was changed
+/// (git refuses `symref-verify HEAD` next to either form of the update.) No read of HEAD comes before the transaction:
+/// when `prepare` fails (a switch to a branch at another commit fails its old value), HEAD is read once more, so the
+/// switch is still `BranchSwitched`. If the files can't follow, the branch moves back under the same check and the
+/// error says that nothing was changed
 /// A detached HEAD (`HeadRef::Detached`) moves the same way: `option no-deref`, and under the locks HEAD must still be
 /// detached (`HeadAttached`).
 pub(crate) fn move_branch_and_files(
@@ -1627,7 +1628,6 @@ fn move_with_index_lock(git_executor: &GitCommandExecutor, repo_path: &str, lock
     rollback_with,
   } = move_;
   let name = head_ref.name();
-  head_ref.ensure(git_executor, repo_path)?;
   if files_change {
     lock
       .wait_while_locked(INDEX_LOCK_WAIT)
@@ -1640,6 +1640,12 @@ fn move_with_index_lock(git_executor: &GitCommandExecutor, repo_path: &str, lock
   if let Err(e) = transaction.commit_while(git_executor, repo_path, operation, head_as_checked) {
     if e.downcast_ref::<BranchSwitched>().is_some() || e.downcast_ref::<HeadAttached>().is_some() {
       return Err(e);
+    }
+    // `prepare` failed before the check ran: a switch to a branch at another commit fails the old value of HEAD
+    if let Err(switched) = head_ref.ensure(git_executor, repo_path)
+      && (switched.downcast_ref::<BranchSwitched>().is_some() || switched.downcast_ref::<HeadAttached>().is_some())
+    {
+      return Err(switched);
     }
     let actual = git_executor.execute_command(&["rev-parse", "HEAD"], repo_path).unwrap_or_default();
     if !actual.is_empty() && actual != head {

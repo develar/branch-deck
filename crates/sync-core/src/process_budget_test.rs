@@ -478,8 +478,8 @@ async fn a_drop() {
       ("replay", 2),
       ("rev-list", 1),
       ("rev-parse", 4), // the directories, read once for the lock, the guards, the mark and the index: 1
-      ("symbolic-ref", 3),
-      ("update-index", 3),
+      ("symbolic-ref", 2),
+      ("update-index", 2),
       ("update-ref", 2),
     ],
   );
@@ -494,8 +494,8 @@ const UNDO_OF_A_MOVE: &[(&str, u32)] = &[
   ("log", 1),
   ("read-tree", 2),
   ("rev-parse", 3),
-  ("symbolic-ref", 3),
-  ("update-index", 3),
+  ("symbolic-ref", 2),
+  ("update-index", 2),
   ("update-ref", 2),
 ];
 
@@ -538,8 +538,8 @@ async fn a_reapply() {
       ("replay", 1),
       ("rev-list", 2),
       ("rev-parse", 4), // the directories, read once for the lock, the guards, the mark and the index: 1
-      ("symbolic-ref", 4),
-      ("update-index", 3),
+      ("symbolic-ref", 3),
+      ("update-index", 2),
       ("update-ref", 2),
     ],
   );

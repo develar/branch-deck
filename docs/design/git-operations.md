@@ -208,8 +208,9 @@ written, except by Update Project and the finish of its resolve session (their o
    (`RefTransaction::commit_while`): `start`, `update HEAD N H`, `prepare`, which takes the locks of HEAD and of the
    branch and checks the old value, then `symbolic-ref --quiet HEAD` under those locks, then `commit` when it
    is still `<b>`, else `abort` and `BranchSwitched`. While the locks are held, a `git switch` fails on `HEAD.lock`,
-   so a switch at any point since the check refuses the move with nothing changed. A read of `symbolic-ref` before
-   the transaction only refuses earlier, and the rollback runs the same way. The transactions also pass
+   so a switch at any point since the check refuses the move with nothing changed. No `symbolic-ref` runs before the
+   transaction: when `prepare` fails (a switch to a branch at another commit fails the old value of HEAD), HEAD is read
+   once more, so that switch is `BranchSwitched` too. The rollback runs the same way. The transactions also pass
    `--create-reflog`, so the undo finds the update in the reflog with `core.logAllRefUpdates=false` too.
 
    `commit_while` runs `update-ref --stdin` as an interactive git (`GitCommand::interactive`,
@@ -305,7 +306,7 @@ taken and deletes it before the release), then runs the real git.
 | The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
 | `bd update --continue` (`continue_resolve`; a `--dry-run` takes no lock) | `cat-file`, `config`, `diff-tree`, `fast-import`, `read-tree`, `replay`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`: the whole round and the finish, an exception (below) | `a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish`, `the_landed_report_of_a_finished_session_runs_after_the_lock` (`crates/bd-update/src/resolve_test.rs`) |
 | `bd update --abort` (`abort_resolve`) | `cat-file`, `for-each-ref`, `update-ref` (the session, its CAS delete, the sweep of stale temporary refs) | `an_abort_of_a_resolve_session_locks_only_the_read_of_the_session_and_its_delete` (`resolve_test.rs`) |
-| `bd pick --from --follow` (`pick_core`) | `cat-file` 1, `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 6, `update-index` 4, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write, the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
+| `bd pick --from --follow` (`pick_core`) | `cat-file` 1, `hash-object` 1, `read-tree` 2, `rev-parse` 8, `symbolic-ref` 4, `update-index` 2, `update-ref` 4 (the witness of both worktrees, the local changes on the paths the moves write, the two moves) | `the_check_of_a_pick_runs_before_the_lock` (`crates/bd-update/src/pick_test.rs`) |
 | `bd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
 | The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
 | A start of the app and of `bd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
@@ -464,8 +465,8 @@ unapply, the reapply, their undo, the finish of a resolve session) and for `Inde
    that may own it: `locked` (retryable) with `processes` in bd. A move that gives up after the branch moved moves it
    back first, so nothing was changed; a follow that gives up is `followed: blocked`, the target picked. A rewrite has
    rewritten the branch already: its error stays the non-retryable one with the `git reset -q` advice, naming the lock.
-5. The refresh after `read-tree -m -u` is best effort: the files followed, and the next `git status` refreshes the
-   stat data. Before, its failure moved the branch back after the files had moved.
+5. No refresh follows `read-tree -m -u`: it records the stat data of every file it writes (git 2.56: `diff-files`
+   right after it is empty, also within the second of the index write).
 
 The happy path costs no process: the lock file is looked at only when a step failed or the git dir is known.
 
@@ -1147,8 +1148,8 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
 | 7. Dry run | under the lock; on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
-| 9. Move | `symbolic-ref --quiet HEAD` (still `refs/heads/<b>`), then `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
-| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, `update-index -q --refresh`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
+| 9. Move | `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
+| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
 
 Details:
 

@@ -713,8 +713,8 @@ fn assert_followed_pick(context: &RepoContext, output: &PickOutput) {
       ("replay", 1),
       ("rev-list", 1),
       ("rev-parse", 17),
-      ("symbolic-ref", 9),
-      ("update-index", 6),
+      ("symbolic-ref", 7),
+      ("update-index", 4),
       ("update-ref", 4),
     ],
   );
@@ -768,8 +768,8 @@ fn a_remote_pick() {
       ("replay", 1),
       ("rev-list", 3),
       ("rev-parse", 6),
-      ("symbolic-ref", 6),
-      ("update-index", 3),
+      ("symbolic-ref", 5),
+      ("update-index", 2),
       ("update-ref", 3),
     ],
   );

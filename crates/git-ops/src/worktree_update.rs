@@ -12,7 +12,7 @@ use crate::index_lock::{INDEX_LOCK_WAIT, IndexLock};
 use crate::rewrite_guard::IndexCopy;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, instrument};
 
 /// Check that `read-tree -m -u <old_tree> <new_tree>` would succeed, on a copy of the index, so neither the index nor
 /// the working tree is written. Returns git's message if the update is refused.
@@ -48,7 +48,8 @@ pub(crate) fn prepare_worktree_update(git_executor: &GitCommandExecutor, repo_pa
 /// Update the user's index and working tree from `old_tree` (the tree of the commit HEAD pointed at) to `new_tree`
 /// (HEAD's tree now; for an undo, the tree before the update). Must follow a passed `dry_run_worktree_update`,
 /// `prepare_worktree_update` and the branch move: git checks every path again before it writes any file, so a file
-/// changed since the dry run fails the update with nothing written. A lock of another process waits (`IndexLock::retry`)
+/// changed since the dry run fails the update with nothing written. A lock of another process waits (`IndexLock::retry`).
+/// `read-tree -u` records the stat data of every file it writes, so no refresh follows it
 #[instrument(skip(git_executor, lock))]
 pub(crate) fn apply_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str, lock: &IndexLock<'_>) -> Result<()> {
   lock.retry(INDEX_LOCK_WAIT, || {
@@ -57,14 +58,7 @@ pub(crate) fn apply_worktree_update(git_executor: &GitCommandExecutor, repo_path
       bail!("{output}");
     }
     Ok(())
-  })?;
-  // read-tree drops the stat data of the updated entries; restore it so `git status` doesn't rehash those files. The
-  // files followed already: a failure (the lock of another process) is no reason to move the branch back, and the next
-  // `git status` refreshes the index anyway
-  if let Err(e) = refresh_index(git_executor, repo_path) {
-    warn!(error = %format!("{e:#}"), "the files followed, but the index stat data was not refreshed");
-  }
-  Ok(())
+  })
 }
 
 /// `update-index -q --refresh`: with `-q`, modified files are not an error, only a failure to write the index is
