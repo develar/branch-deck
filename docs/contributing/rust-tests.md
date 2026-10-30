@@ -6,7 +6,7 @@
 
 ## Summary
 
-The time of the Rust suite is the time of its git processes. A full run starts about 89,000 of them (3,799 tests, a
+The time of the Rust suite is the time of its git processes. A full run starts about 88,000 of them (3,851 tests, a
 process each under nextest), and a test's time follows its count: a git process costs about 5 ms on a quiet Mac, 40 to
 70 ms in a parallel run on the Studio (kernel time: one run spent 3,270 s in the kernel against 499 s in user code;
 on 2026-10-29 the tests' time, 4,633 s, was 49 ms for each of their 93,839 processes) and about 80 ms on the Windows
@@ -115,6 +115,7 @@ the job summary (`scripts/slowest-tests.mjs`).
 | s16-4: `6d4194fa`, 3,740 tests (the tree of `s0a`, `66938306`, there: 227.7 s, 2,241 tests, load 3.7) | 93,839 | 234.9 s, the tests' time 4,633 s (bd-remote 954, sync-core 897, bd-update 427, bd-rewrite 284, git-ops 284, operations 280, bd-lease 246, update-core 228); again 268.4 s, 5,303 s (user 590 s, sys 3,227 s); beside the clippy of another checkout 465.1 s, 9,235 s | the Studio, `--profile ci --retries 0`; load at the start 13 (the `pnpm lint:backend` of another checkout from the first minute), 8 (31 over five minutes, no other run), 32; traced at load 27–122 |
 | s16-6: the six binaries of `bd` and update-core (`-p bd-remote -p bd-update -p update-core -p bd-rewrite -p bd-lease -p bd-cli`), 637 tests, on `f431ca76` and with the fixtures of s16-6 | 48,962 → 44,688 (−8.7 %): bd-remote 21,246 → 19,050, bd-update 8,730 → 8,537, bd-lease 5,428 → 4,889, bd-rewrite 5,395 → 4,612, bd-cli 4,551 → 3,991, update-core 3,612 → 3,609; the fixtures' own processes before the first command of a test 7,611 → 3,833, `version` 1,242 → 753 | | the Studio, traced (`GIT_TRACE2_ENV_VARS=GIT_CONFIG_GLOBAL` tells the git of `bd` from the fixtures'), load 13–32 |
 | s16-8: A/B of `abc5b20a` (3,799 tests) against the tree of `s0a` (`66938306`, 2,241 tests) | 88,459 → 88,897 (23.4 a test against 39.5); from s16-4 93,839 → 88,897 (−5.3 %): `add` 6,953 → 4,227, `commit` 6,058 → 4,297, `remote` 5,378 → 4,383, `config` 5,737 → 5,153, `version` 2,682 → 2,181, `fast-import` 3,745 → 4,560 | 219.3 / 231.8 s → 255.8 / 257.4 / 255.5 s (+10–17 %); the tests' time 4,003 / 4,263 s → 5,107 / 5,138 / 5,101 s, user 461 s → 568 s, sys 2,318 / 2,504 s → 3,215–3,287 s; traced, 48 → 60 ms of the tests' time per git process | the Studio, `--profile ci --retries 0`, the trees in turns (A B B A A B), load at the start 21–31 with no other run; two runs of `s0a` beside the full e2e of another checkout (293.8, 288.4 s) left out; traced at load 6.5 / 3.7 with the script of `abc5b20a` |
+| s17-9: A/B of `a063a0d7` (3,851 tests) against the tree of `s0a` (`66938306`, 2,241 tests) | 88,459 → 87,911 (from s16-8 88,897 → 87,911); the binaries of the code of `s0a` (trial-check and update-core, split out of sync-core, with them) 88,459 → 77,022 for 2,241 → 2,645 tests; the repeated reads of the six binaries of `bd` 11,520 → 10,815 (16.1 processes a command against 17.0) | 229.3 / 229.2 / 229.1 s → 258.0 / 254.7 s (+11–13 %); the tests' time 4,199 / 4,215 / 4,193 s → 5,150 / 5,085 s, user 458–460 s → 569–574 s, sys 2,788–2,821 s → 3,574–3,615 s; traced, in git 26.2 → 27.4 ms a process, beside git 23.6 → 31.3 ms; the code of `s0a` 4,411 → 4,506 s of the tests' time (+2 %), 17 new crates 661 s (operations 304 s) | the Studio, `--profile ci --retries 0`, the trees in turns, load at the start 10.6–29.8 (the owner's LoginItems held a core); a run of each tree left out (beside another's lint; the first after a build in a new slot); traced at load 24.1 / 24.6 |
 
 The wall times of a loaded machine say little: the load of the other sessions changed by a factor of three between
 the runs of the first A/B. The process counts do not depend on it. What is left is mostly the code under test: about
@@ -122,8 +123,11 @@ three quarters of the processes are the operations' own git, of which the sync r
 session of s7 of the rework is to own them). The last A/B shows where the count stops telling the time: the suite of
 s16 starts as many git processes as the tree of `s0a` for 70 % more tests and still takes 10–17 % longer, because its
 tests spend 60 ms of their time per process against 48 ms: in the kernel and the unoptimized code beside git (the
-engine of `operations`, the scenario table, the crates of `bd-host`). The open classes are the reads of a `bd` command,
-the CPU of the unoptimized build and the threads of the scenario table ([Classes](#classes)).
+engine of `operations`, the scenario table, the crates of `bd-host`). s17 measured each of those classes
+([Classes](#classes), [Beyond the processes](#beyond-the-processes)) and fixed the reads of a `bd` command, the
+flushes and the waits of the host tests; the A/B of s17-9 places what is left: the binaries of the code that the tree
+of `s0a` has cost what they cost there (+2 % of the tests' time for 18 % more tests and 13 % fewer processes), and the
+run is longer by the tests of the 17 crates `s0a` does not have (1,206 tests, 661 s, about 33 s on 20 slots).
 
 ## Classes
 
