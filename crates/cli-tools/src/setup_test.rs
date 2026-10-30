@@ -1,6 +1,6 @@
 use crate::setup::{EXPIRING_WITHIN, SetupFacts, setup_entries};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolServer, CliToolSignInState, CliToolSkill, CliToolStatus};
-use domain_types::setup::{SetupItem, SetupSkip};
+use domain_types::setup::{SetupEntry, SetupItem, SetupSkip};
 use pretty_assertions::assert_eq;
 
 const NOW: u32 = 1_800_000_000;
@@ -35,6 +35,7 @@ fn server(url: &str, expires_at: Option<u32>) -> CliToolServer {
 fn items(app_update: Option<&str>, tools: &[CliToolStatus], youtrack_broken: bool, skips: &[SetupSkip]) -> Vec<SetupItem> {
   setup_entries(&SetupFacts {
     app_update,
+    app_update_check_failure: None,
     tools,
     youtrack_broken,
     skips,
@@ -43,6 +44,17 @@ fn items(app_update: Option<&str>, tools: &[CliToolStatus], youtrack_broken: boo
   .into_iter()
   .map(|entry| entry.item)
   .collect()
+}
+
+fn app_update_entries(app_update: Option<&str>, check_failure: Option<&str>, tools: &[CliToolStatus], skips: &[SetupSkip], now: u32) -> Vec<SetupEntry> {
+  setup_entries(&SetupFacts {
+    app_update,
+    app_update_check_failure: check_failure,
+    tools,
+    youtrack_broken: false,
+    skips,
+    now,
+  })
 }
 
 #[test]
@@ -75,6 +87,42 @@ fn the_app_update_then_each_tool_then_the_youtrack_sign_in() {
     ]
   );
   assert_eq!(EXPIRING_WITHIN, 7 * DAY);
+}
+
+#[test]
+fn a_failed_app_update_check_is_the_app_item_unless_an_update_waits() {
+  let teamcity = tool(CliTool::Teamcity, Some("1.6.0"), Some("1.7.0"));
+  let tools = [teamcity];
+  let failed = app_update_entries(None, Some("Network unavailable"), &tools, &[], NOW);
+  assert_eq!(
+    failed.iter().map(|entry| entry.item.clone()).collect::<Vec<_>>(),
+    vec![
+      SetupItem::AppUpdateCheckFailed {
+        message: "Network unavailable".to_string()
+      },
+      SetupItem::ToolUpdate {
+        tool: CliTool::Teamcity,
+        version: "1.7.0".to_string(),
+      },
+    ]
+  );
+  assert_eq!(failed[0].key, "app-update-check-failed");
+  assert!(failed[0].skippable);
+
+  let with_update = app_update_entries(Some("1.2.0"), Some("Network unavailable"), &tools, &[], NOW);
+  assert_eq!(with_update[0].item, SetupItem::AppUpdate { version: "1.2.0".to_string() });
+  assert_eq!(with_update[1].item, failed[1].item);
+}
+
+#[test]
+fn a_failed_app_update_check_can_be_reminded_tomorrow() {
+  let skips = [SetupSkip {
+    key: "app-update-check-failed".to_string(),
+    until: Some(NOW + DAY),
+  }];
+  let hidden = app_update_entries(None, Some("Network unavailable"), &[], &skips, NOW);
+  assert_eq!(hidden, [] as [SetupEntry; 0]);
+  assert_eq!(app_update_entries(None, Some("Network unavailable"), &[], &skips, NOW + DAY).len(), 1);
 }
 
 #[test]
@@ -134,6 +182,7 @@ fn a_skip_hides_an_update_until_another_version_and_a_reminder_until_its_time() 
   teamcity.latest = Some("1.8.0".to_string());
   let later = setup_entries(&SetupFacts {
     app_update: None,
+    app_update_check_failure: None,
     tools: std::slice::from_ref(&teamcity),
     youtrack_broken: false,
     skips: &skips,

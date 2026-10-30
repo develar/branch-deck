@@ -25,11 +25,17 @@ pub const NO_UPDATER_MESSAGE: &str = "The E2E test server has no updater: it ins
 #[derive(Default)]
 pub struct TestUpdater {
   available: RwLock<Option<String>>,
+  fail_with: RwLock<Option<String>>,
+  check_failure: RwLock<Option<String>>,
 }
 
 impl TestUpdater {
   fn available(&self) -> Option<String> {
     self.available.read().unwrap_or_else(PoisonError::into_inner).clone()
+  }
+
+  fn failure(&self) -> Option<String> {
+    self.fail_with.read().unwrap_or_else(PoisonError::into_inner).clone()
   }
 
   /// What the app's check answers for the update of the fixture, once its download finished
@@ -53,7 +59,18 @@ impl TestUpdater {
 
 impl Updater for TestUpdater {
   fn check(&self) -> Later<'_, Result<UpdateInfo, ApiError>> {
-    Box::pin(async move { Ok(self.info()) })
+    Box::pin(async move {
+      let failure = self.failure();
+      self.check_failure.write().unwrap_or_else(PoisonError::into_inner).clone_from(&failure);
+      match failure {
+        Some(message) => Err(ApiError::internal(message)),
+        None => Ok(self.info()),
+      }
+    })
+  }
+
+  fn check_failure(&self) -> Option<String> {
+    self.check_failure.read().unwrap_or_else(PoisonError::into_inner).clone()
   }
 
   /// As the app holds it after a check
@@ -77,6 +94,7 @@ impl Updater for TestUpdater {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateFixture {
   available_version: Option<String>,
+  fail_with: Option<String>,
 }
 
 pub async fn set_update(
@@ -86,5 +104,6 @@ pub async fn set_update(
 ) -> Result<StatusCode, StatusCode> {
   let repo = state.repositories.get(&id).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
   *repo.updater.available.write().unwrap_or_else(PoisonError::into_inner) = fixture.available_version;
+  *repo.updater.fail_with.write().unwrap_or_else(PoisonError::into_inner) = fixture.fail_with;
   Ok(StatusCode::OK)
 }

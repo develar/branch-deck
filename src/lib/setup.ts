@@ -8,6 +8,7 @@ import { hostOf } from "@/lib/cli-tools"
 
 export interface SetupItemWords {
   readonly title: string
+  readonly detail?: string
   /** The button of its action */
   readonly action: string
   /** The skip of a skippable item: an update for good, a reminder for a day; null for one that can't be skipped */
@@ -23,6 +24,8 @@ export function describeSetupItem(entry: SetupEntry): SetupItemWords {
   switch (item.kind) {
     case "appUpdate":
       return { title: `Branch Deck ${item.version} is ready to install`, action: "Install and Restart", skip: skip("Skip This Version") }
+    case "appUpdateCheckFailed":
+      return { title: "Cannot check for updates", detail: item.message, action: "Check Again", skip: skip("Remind Tomorrow") }
     case "toolUpdate":
       return { title: `${item.tool} ${item.version} is out`, action: "Update", skip: skip("Skip This Version") }
     case "skillUpdate":
@@ -42,7 +45,7 @@ export function describeSetupItem(entry: SetupEntry): SetupItemWords {
 
 /** Until when a skip of `entry` holds: an update for good (another version is another item), a reminder a day */
 export function setupSkipUntil(entry: SetupEntry, nowSeconds: number): number | null {
-  return entry.item.kind === "signInExpiring" ? nowSeconds + DAY_SECONDS : null
+  return entry.item.kind === "signInExpiring" || entry.item.kind === "appUpdateCheckFailed" ? nowSeconds + DAY_SECONDS : null
 }
 
 /** The accessible name of the Settings button with the dot: "Settings · 2 to do" */

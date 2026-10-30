@@ -26,8 +26,6 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
         // asked: a toast; at startup the Setup dot keeps it, as nobody asked (spec/repository/setup-attention.spec.md)
         if (showNoUpdateToast) {
           showUpdateAvailableToast(result.data)
-        } else {
-          void refreshSetup()
         }
       } else if (showNoUpdateToast) {
         toast.add({
@@ -36,6 +34,7 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
           description: `${result.data.current_version} is the newest version.`,
         })
       }
+      void refreshSetup()
       return
     }
     failure = result.error
@@ -46,8 +45,8 @@ export async function checkForUpdates(showNoUpdateToast = false): Promise<void> 
     notifyError("Cannot check for updates", failure)
   } else {
     logError("Cannot check for updates", failure)
-    void refreshSetup()
   }
+  void refreshSetup()
 }
 
 function showUpdateAvailableToast(updateInfo: UpdateInfo): void {

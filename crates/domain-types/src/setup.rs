@@ -21,6 +21,8 @@ pub enum SetupItem {
   SignInExpired { tool: CliTool, server: String },
   /// The app's own YouTrack sign-in stopped working; it can't be skipped
   YouTrackSignIn,
+  /// The last check for updates of Branch Deck failed: Check Again
+  AppUpdateCheckFailed { message: String },
 }
 
 impl SetupItem {
@@ -28,6 +30,7 @@ impl SetupItem {
   pub fn key(&self) -> String {
     match self {
       Self::AppUpdate { version } => format!("app-update:{version}"),
+      Self::AppUpdateCheckFailed { .. } => "app-update-check-failed".to_string(),
       Self::ToolUpdate { tool, version } => format!("tool-update:{}:{version}", tool.command()),
       Self::SkillUpdate { tool, version } => format!("skill-update:{}:{version}", tool.command()),
       Self::SignInExpiring { tool, server, .. } => format!("sign-in-expiring:{}:{server}", tool.command()),

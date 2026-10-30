@@ -235,6 +235,9 @@ pub trait Updater: Send + Sync {
   /// The check or the download failed, or this build has no updater
   fn check(&self) -> Later<'_, Result<UpdateInfo, ApiError>>;
 
+  /// The error of the last check, cleared by the next successful check
+  fn check_failure(&self) -> Option<String>;
+
   /// The state of the update since the last check
   ///
   /// # Errors

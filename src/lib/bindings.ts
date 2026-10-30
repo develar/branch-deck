@@ -6421,7 +6421,9 @@ export type SetupItem =
 /**  The token of a CLI for a server expired; it can't be skipped */
 { kind: "signInExpired"; tool: CliTool; server: string } | 
 /**  The app's own YouTrack sign-in stopped working; it can't be skipped */
-{ kind: "youTrackSignIn" };
+{ kind: "youTrackSignIn" } | 
+/**  The last check for updates of Branch Deck failed: Check Again */
+{ kind: "appUpdateCheckFailed"; message: string };
 
 /**  A skipped item: hidden until `until` (Unix seconds) or for good (an update: until another version) */
 export type SetupSkip = {

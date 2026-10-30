@@ -61,6 +61,26 @@ test.describe("Setup dot", () => {
     await expect(page.getByTestId("setup-popover").getByTestId("setup-item")).toHaveText(/Branch Deck 1\.2\.0 is ready to install/)
   })
 
+  test("should show a failed update check and clear it when Check Again succeeds", async ({ page, setupRepo }) => {
+    const repo = await setupRepo("simple", { prepopulateStore: true })
+    await repo.setUpdateCheckFailure("Network unavailable")
+    const silentCheck = page.waitForResponse(response => response.url().endsWith("/invoke/check_for_updates"))
+    await page.reload()
+    const button = page.getByTestId("settings-button")
+    await expect(button).toHaveAccessibleName("Settings")
+    await page.clock.fastForward(3_000)
+    await silentCheck
+
+    const item = (await openSetup(page)).getByTestId("setup-item")
+    await expect(item).toContainText("Cannot check for updates")
+    await expect(item).toContainText("Network unavailable")
+
+    await repo.setUpdateCheckFailure(null)
+    await item.getByRole("button", { name: "Check Again" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "is up to date" })).toBeVisible()
+    await expect(button.getByTestId("setup-dot")).toHaveCount(0)
+  })
+
   test("should update a CLI from the dot, and skip a version until a newer one", async ({ page, setupRepo }) => {
     const repo = await setupRepo("simple", { prepopulateStore: true })
     await repo.setCliTools(teamcityBehindOnHomebrew())

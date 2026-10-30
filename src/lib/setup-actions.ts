@@ -1,4 +1,5 @@
 import { installUpdateNow } from "@/hooks/useAutoUpdate"
+import { runAppCommand } from "@/lib/app-commands"
 import type { SetupEntry } from "@/lib/bindings"
 import { openSettings } from "@/lib/settings-window"
 import { setupSkipUntil } from "@/lib/setup"
@@ -12,6 +13,9 @@ export function runSetupItem(entry: SetupEntry): void {
   switch (item.kind) {
     case "appUpdate":
       void installUpdateNow()
+      return
+    case "appUpdateCheckFailed":
+      runAppCommand("check_for_updates")
       return
     case "toolUpdate":
       void runCliToolAction(item.tool, "update", item.version).then(refreshSetup)

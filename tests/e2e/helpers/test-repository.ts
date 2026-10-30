@@ -542,6 +542,11 @@ export class TestRepositoryBuilder {
     await this.setFixture("update", { availableVersion })
   }
 
+  /** Makes a check for updates fail with `message`, or clears the failure */
+  async setUpdateCheckFailure(message: string | null): Promise<void> {
+    await this.setFixture("update", { availableVersion: null, failWith: message })
+  }
+
   /**
    * The folder the native dialog of the app picks from now on (`browse_repository`, the Browse button): `path`, or
    * `null`, the user cancels; without the fixture it picks the repository's own path

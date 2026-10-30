@@ -1,6 +1,6 @@
 ---
 name: Setup Dot
-description: Requirements for the dot on the Settings button of the header - what of the setup of the machine waits for the user (a downloaded update of the app, a newer CLI or skill, a CLI sign-in that expires or expired, the app's YouTrack sign-in that stopped), derived in Rust, each with its action and its skip, instead of a toast nobody asked for.
+description: Requirements for the dot on the Settings button of the header - what of the setup of the machine waits for the user (a downloaded update of the app, a failed app update check, a newer CLI or skill, a CLI sign-in that expires or expired, the app's YouTrack sign-in that stopped), derived in Rust, each with its action and its skip, instead of a toast nobody asked for.
 style: plain-1
 targets:
   - ../../crates/cli-tools/src/setup.rs
@@ -8,8 +8,10 @@ targets:
   - ../../crates/domain-types/src/setup.rs
   - ../../crates/remote-facts/src/cli_tool_releases.rs
   - ../../crates/app-api/src/app/cli_tools.rs
+  - ../../crates/app-api/src/transport.rs
   - ../../src-tauri/src/auto_update.rs
   - ../../crates/test-server/src/updater.rs
+  - ../../tests/e2e/helpers/test-repository.ts
   - ../../crates/test-server/src/cli_tools_fixtures.rs
   - ../../src/stores/setup.ts
   - ../../src/lib/setup.ts
@@ -31,7 +33,7 @@ Date: 2026-10-23
 
 A toast says what just happened; a newer release nobody asked for is no event, and a sticky toast closed once is gone.
 Activity is the history of what the app did. What is missing between them is the state of the setup that waits for
-the user: an update of the app ready to install, a newer `teamcity` or `youtrack`, a CLI sign-in that expires. That is
+the user: an update of the app ready to install, a failed app update check, a newer `teamcity` or `youtrack`, a CLI sign-in that expires. That is
 a dot on the Settings button of the header, as IntelliJ badges its gear for the updates of the IDE and its plugins; a
 click lists each item with its action and its skip, then Settings.
 
@@ -50,10 +52,15 @@ click lists each item with its action and its skip, then Settings.
 
 ### Items
 
-- Rust derives the items (`get_setup_items`, `cli_tools::setup`) from explicit facts: the downloaded update of the app,
-  the last statuses of the CLIs with their newest releases, the app's YouTrack sign-in; in this order: the app, each
-  tool, YouTrack.
+- Rust derives the items (`get_setup_items`, `cli_tools::setup`) from explicit facts: the downloaded update or the last
+  failed check of the app, the last statuses of the CLIs with their newest releases, the app's YouTrack sign-in; in this
+  order: the app, each tool, YouTrack. A downloaded update takes the app's slot instead of a failed check.
   [@test] ../../crates/cli-tools/src/setup_test.rs (`the_app_update_then_each_tool_then_the_youtrack_sign_in`)
+- When the last check for app updates failed and no downloaded update waits, the app's item says "Cannot check for
+  updates", shows the error, offers Check Again and Remind Tomorrow; a successful check removes it.
+  [@test] ../../crates/cli-tools/src/setup_test.rs (`a_failed_app_update_check_is_the_app_item_unless_an_update_waits`, `a_failed_app_update_check_can_be_reminded_tomorrow`)
+  [@test] ../../src/lib/setup.test.ts (`names each item, its action and its skip`, `skips an update for good and a reminder for a day, and counts the items in the name of Settings`)
+  [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should show a failed update check and clear it when Check Again succeeds`)
 - An installed CLI is an item when its newest release is newer than its version, else when the agents have an older
   skill than it bundles (a skill never installed is the user's choice); a sign-in of a CLI is one when its token expires
   within 7 days or expired. A CLI that is not installed is none.
@@ -78,9 +85,11 @@ click lists each item with its action and its skip, then Settings.
 - The update of the app that the silent check after startup and every 6 hours downloaded is an item, not a toast:
   "Branch Deck 1.2.0 is ready to install", Install and Restart.
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should keep a downloaded update of the app in the dot, not in a toast, and install it from there`, `should find an update after the app has stayed open for six hours`)
+- A failed check is named "Cannot check for updates", its message is the detail, and its action is Check Again.
+  [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should show a failed update check and clear it when Check Again succeeds`)
 - A check that finds the release already downloaded reuses it; a newer release replaces it. Concurrent checks share one
   answer, so they never download the same release twice.
-  [@test] ../../src-tauri/src/auto_update.rs (`reuses_the_downloaded_release_when_the_manifest_still_names_it`)
+  [@test] ../../src-tauri/src/auto_update.rs (`reuses_the_downloaded_release_when_the_manifest_still_names_it`, `a_successful_update_check_clears_the_last_failure`)
   [@test] ../../crates/sync-utils/src/single_flight_test.rs (`callers_that_ask_while_a_read_runs_get_its_answer`)
 - "teamcity 1.7.0 is out" updates the CLI as Settings → Tools does (its toast in the main window), an older skill of the
   agents with it; "The teamcity agent skill 1.4.0 is ready to install" updates the skill.
@@ -93,10 +102,10 @@ click lists each item with its action and its skip, then Settings.
 
 ### Skips
 
-- Skip This Version hides an update until another version (another item); Remind Tomorrow hides an expiring sign-in for
-  a day. An expired sign-in and the YouTrack sign-in can't be skipped: they go once fixed. The skips are a setting of
+- Skip This Version hides an update until another version (another item); Remind Tomorrow hides an expiring sign-in or
+  failed app update check for a day. An expired sign-in and the YouTrack sign-in can't be skipped: they go once fixed. The skips are a setting of
   every window (`appSettings.setupSkips`), which Rust applies.
-  [@test] ../../crates/cli-tools/src/setup_test.rs (`a_skip_hides_an_update_until_another_version_and_a_reminder_until_its_time`)
+  [@test] ../../crates/cli-tools/src/setup_test.rs (`a_skip_hides_an_update_until_another_version_and_a_reminder_until_its_time`, `a_failed_app_update_check_can_be_reminded_tomorrow`)
   [@test] ../../tests/e2e/repository/setup-dot.spec.ts (`should keep an expired sign-in without a skip`)
   [@test] ../../src/lib/setup.test.ts (`names each item, its action and its skip`, `skips an update for good and a reminder for a day, and counts the items in the name of Settings`)
 

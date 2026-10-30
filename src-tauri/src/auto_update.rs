@@ -15,6 +15,7 @@ use tracing::info;
 
 pub struct UpdateState {
   pub info: UpdateInfo,
+  pub check_failure: Option<String>,
   #[cfg(feature = "auto-update")]
   pub pending_update: Option<tauri_plugin_updater::Update>,
   #[cfg(feature = "auto-update")]
@@ -35,6 +36,7 @@ impl UpdateState {
         is_update_available: false,
         status,
       },
+      check_failure: None,
       #[cfg(feature = "auto-update")]
       pending_update: None,
       #[cfg(feature = "auto-update")]
@@ -155,6 +157,27 @@ fn record_error(update_state: &SharedUpdateState, error: ApiError) -> ApiError {
   }
 }
 
+/// Records a failed check as both its status and the fact the Setup dot reads
+#[cfg(feature = "auto-update")]
+fn record_check_error(update_state: &SharedUpdateState, error: ApiError) -> ApiError {
+  match update_state.lock() {
+    Ok(mut state) => {
+      state.info.status = UpdateStatus::Error(error.message.clone());
+      state.check_failure = Some(error.message.clone());
+      error
+    }
+    Err(_) => ApiError::internal("Failed to lock state"),
+  }
+}
+
+#[cfg(feature = "auto-update")]
+fn record_check_success(update_state: &SharedUpdateState, update_info: &UpdateInfo) -> Result<(), ApiError> {
+  let mut state = lock_state(update_state)?;
+  state.info = update_info.clone();
+  state.check_failure = None;
+  Ok(())
+}
+
 #[cfg(not(feature = "auto-update"))]
 fn auto_update_disabled<T>() -> Result<T, ApiError> {
   error!("Auto-update feature is not enabled");
@@ -181,12 +204,12 @@ impl Updater for AppUpdater {
             lock_state(&self.state)?.info.status = UpdateStatus::Checking;
             match auto_update_impl::perform_update_check(&self.app, &self.state).await {
               Ok(update_info) => {
-                lock_state(&self.state)?.info = update_info.clone();
+                record_check_success(&self.state, &update_info)?;
                 Ok(update_info)
               }
               Err(e) => {
                 error!("Update check failed: {e:?}");
-                Err(record_error(&self.state, ApiError::internal(format!("Update check failed: {e:#}"))))
+                Err(record_check_error(&self.state, ApiError::internal(format!("Update check failed: {e:#}"))))
               }
             }
           })
@@ -242,19 +265,53 @@ impl Updater for AppUpdater {
   }
 
   fn downloaded(&self) -> Option<String> {
-    let state = self.state.lock().ok()?;
-    (state.info.is_update_available && state.info.status == UpdateStatus::Downloaded).then(|| state.info.available_version.clone())
+    #[cfg(feature = "auto-update")]
+    {
+      let state = self.state.lock().ok()?;
+      state.pending_update.as_ref().map(|update| update.version.clone())
+    }
+    #[cfg(not(feature = "auto-update"))]
+    {
+      let state = self.state.lock().ok()?;
+      (state.info.is_update_available && state.info.status == UpdateStatus::Downloaded).then(|| state.info.available_version.clone())
+    }
+  }
+
+  fn check_failure(&self) -> Option<String> {
+    self.state.lock().ok()?.check_failure.clone()
   }
 }
 
 #[cfg(all(test, feature = "auto-update"))]
 mod tests {
-  use super::has_downloaded_version;
+  use super::{UpdateState, has_downloaded_version, record_check_error, record_check_success};
+  use domain_types::error::ApiError;
+  use domain_types::update::{UpdateInfo, UpdateStatus};
+  use std::sync::Mutex;
 
   #[test]
   fn reuses_the_downloaded_release_when_the_manifest_still_names_it() {
     assert!(has_downloaded_version(Some("1.2.0"), "1.2.0"));
     assert!(!has_downloaded_version(Some("1.2.0"), "1.2.1"));
     assert!(!has_downloaded_version(None, "1.2.0"));
+  }
+
+  #[test]
+  fn a_successful_update_check_clears_the_last_failure() {
+    let state = Mutex::new(UpdateState::new("1.2.0".to_string()));
+    record_check_error(&state, ApiError::internal("Network unavailable"));
+    assert_eq!(state.lock().unwrap().check_failure.as_deref(), Some("Network unavailable"));
+
+    let update_info = UpdateInfo {
+      current_version: "1.2.0".to_string(),
+      available_version: String::new(),
+      is_update_available: false,
+      status: UpdateStatus::Idle,
+    };
+    record_check_success(&state, &update_info).unwrap();
+
+    let state = state.lock().unwrap();
+    assert_eq!(state.check_failure, None);
+    assert_eq!(state.info, update_info);
   }
 }

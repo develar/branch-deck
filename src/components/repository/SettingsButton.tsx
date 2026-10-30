@@ -44,6 +44,7 @@ export function SettingsButton() {
             return (
               <li key={entry.key} className="flex flex-col gap-1.5" data-testid="setup-item">
                 <span>{words.title}</span>
+                {words.detail !== undefined && <span className="text-sm text-muted-foreground">{words.detail}</span>}
                 <span className="flex items-center gap-1">
                   <Button
                     size="xs"

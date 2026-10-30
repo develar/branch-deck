@@ -1,7 +1,7 @@
 //! The rule of the Setup dot (spec/repository/setup-attention.spec.md): what in the setup of the machine waits for the
 //! user, from facts the caller brings. Only what has a direct action and the app relies on: an update that is ready, a
-//! newer CLI or skill, a sign-in of a CLI that expires within a week or expired, the app's YouTrack sign-in that stopped.
-//! A tool that is not installed is never an item: the user may not want it.
+//! failed app update check when none is downloaded, a newer CLI or skill, a sign-in of a CLI that expires within a week
+//! or expired, the app's YouTrack sign-in that stopped. A tool that is not installed is never an item: the user may not want it.
 
 use crate::parse::compare_versions;
 use domain_types::cli_tools::{CliToolSignInState, CliToolStatus};
@@ -14,6 +14,8 @@ pub const EXPIRING_WITHIN: u32 = 7 * 24 * 60 * 60;
 pub struct SetupFacts<'a> {
   /// The version of a downloaded update of the app
   pub app_update: Option<&'a str>,
+  /// The error of the last app update check, when no downloaded update waits
+  pub app_update_check_failure: Option<&'a str>,
   pub tools: &'a [CliToolStatus],
   /// The app's YouTrack sign-in was refused or expired
   pub youtrack_broken: bool,
@@ -27,6 +29,8 @@ pub fn setup_entries(facts: &SetupFacts<'_>) -> Vec<SetupEntry> {
   let mut items = Vec::new();
   if let Some(version) = facts.app_update {
     items.push(SetupItem::AppUpdate { version: version.to_string() });
+  } else if let Some(message) = facts.app_update_check_failure {
+    items.push(SetupItem::AppUpdateCheckFailed { message: message.to_string() });
   }
   for status in facts.tools.iter().filter(|status| status.binary.is_some()) {
     tool_items(status, facts.now, &mut items);

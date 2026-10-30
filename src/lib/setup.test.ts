@@ -14,6 +14,12 @@ describe("setup dot", () => {
       action: "Install and Restart",
       skip: "Skip This Version",
     })
+    expect(describeSetupItem(entry({ kind: "appUpdateCheckFailed", message: "Network unavailable" }))).toEqual({
+      title: "Cannot check for updates",
+      detail: "Network unavailable",
+      action: "Check Again",
+      skip: "Remind Tomorrow",
+    })
     expect(describeSetupItem(entry({ kind: "toolUpdate", tool: "youtrack", version: "0.8.0" }))).toEqual({
       title: "youtrack 0.8.0 is out",
       action: "Update",
@@ -35,6 +41,7 @@ describe("setup dot", () => {
 
   it("skips an update for good and a reminder for a day, and counts the items in the name of Settings", () => {
     expect(setupSkipUntil(entry({ kind: "toolUpdate", tool: "teamcity", version: "1.7.0" }), 100)).toBeNull()
+    expect(setupSkipUntil(entry({ kind: "appUpdateCheckFailed", message: "Network unavailable" }), 100)).toBe(100 + 86_400)
     expect(setupSkipUntil(entry({ kind: "signInExpiring", tool: "teamcity", server: "https://ci.example", expiresAt: 500_000 }), 100)).toBe(100 + 86_400)
     expect(settingsButtonLabel(0)).toBe("Settings")
     expect(settingsButtonLabel(2)).toBe("Settings · 2 to do")
