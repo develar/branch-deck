@@ -19,9 +19,9 @@ import { formatReviewPosition } from "@/lib/review-position"
 import { readBranchReview } from "@/lib/review-window-reads"
 import { showToast } from "@/lib/toast-message"
 import { formatMarkedReviewed } from "@/presenters/review-plan"
+import type { ReviewFacts } from "@/presenters/review-plan"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
 import { dropFileDiffsOf } from "@/stores/file-diffs"
-import { useAppSettings } from "@/stores/settings/appSettings"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 /*
@@ -47,8 +47,8 @@ export interface BranchReviewSource {
   readonly wholeStack?: boolean
   /**
    * The review plan is on for the repository (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md): Mark
-   * Reviewed, "Since Your Review", the API & Risk card and the dependency order of the files; off, the review is as
-   * it is without them
+   * Reviewed, "Since Your Review", the API & Risk card, the badges of the files and their Mechanical group; off, the
+   * review is as it is without them
    */
   readonly reviewExperimental?: boolean
 }
@@ -123,8 +123,11 @@ export interface BranchReviewModel {
     readonly plan: ReviewPlanState | null
     /** "Since Your Review" is shown: the card heads a commit of it too, with what its rewrite changed */
     readonly sinceShown: boolean
-    /** The paths in the order the files show, with Order: Dependencies and a plan; null for the tree order */
-    readonly fileOrder: readonly string[] | null
+    /**
+     * The facts of the plan for the tree of the files (the badges, the Mechanical group), while the shown scope is the
+     * one the plan was read of (All Changes, Since Your Review as one range); null for a commit and without a plan
+     */
+    readonly reviewFacts: ReviewFacts | null
     /** Mark Reviewed of the target, with the flag on, of a branch (not of the whole stack); null without it */
     readonly markReviewed: (() => void) | null
   } | null
@@ -206,7 +209,6 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   // its range; "Since Your Review" only of one branch, whose base is the one Mark Reviewed keeps
   const experimental = source.reviewExperimental === true
   const [planGeneration, setPlanGeneration] = useState(0)
-  const fileOrderSetting = useAppSettings(state => state.reviewFileOrder)
   const planPart = experimental && view !== null ? reviewPlanPart(view.segments, view.range, wholeStack) : null
   const plan = useReviewPlan(
     planPart === null || rangeSubject?.kind !== "range"
@@ -276,7 +278,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
       position: formatReviewPosition({ file: position, ...rangePosition(items, selected) }),
       plan: experimental ? (plan.plan === null || plan.plan.interdiff === interdiff ? plan : { ...plan, plan: { ...plan.plan, interdiff } }) : null,
       sinceShown,
-      fileOrder: experimental && fileOrderSetting === "dependencies" ? (plan.plan?.order ?? null) : null,
+      reviewFacts: experimental && (selected === ALL_CHANGES || selected === SINCE_REVIEW) ? planFacts(plan) : null,
       markReviewed:
         planPart?.markable === true
           ? () =>
@@ -322,6 +324,11 @@ function reviewPlanPart(
     return { subject: { kind: "range", base: first.base, head: last.head }, ownBranch: false, markable: false }
   }
   return { subject: { kind: "branch", name: last.name, base: first.base }, ownBranch: range.from === range.to, markable: true }
+}
+
+/** The facts of the plan for the tree, once read: a plan still read again may be of the other scope */
+function planFacts(state: ReviewPlanState): ReviewFacts | null {
+  return state.plan === null || state.loading ? null : state.plan
 }
 
 /** ⌥↑/⌥↓ step through the commits of the part (it has a column) */

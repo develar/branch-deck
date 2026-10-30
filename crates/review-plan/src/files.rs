@@ -94,6 +94,9 @@ pub struct FileFacts {
   pub new_links: u32,
   /// The usages left outside the change, at the head, of the API it removes or changes (`ApiChange::usages`)
   pub breaks: u32,
+  /// `breaks` counts every usage left outside: each API it removes or changes has its usages, each `complete`; false
+  /// makes `breaks` a lower bound (a name not asked, no index, a cut answer, the calls of a constructor-only change)
+  pub breaks_complete: bool,
   /// A source file changed while none of its tests changed
   pub untested: bool,
   /// Its group of `ReviewPlan::repeated_edits`
@@ -511,11 +514,9 @@ pub(crate) fn file_facts(
     .enumerate()
     .map(|(index, (file, mechanical))| {
       let path = file.path;
-      let breaks = api
-        .iter()
-        .filter(|change| change.file == path && change.kind != ApiChangeKind::Added)
-        .filter_map(|change| change.usages.as_ref().map(|usages| usages.outside))
-        .sum();
+      let broken = || api.iter().filter(|change| change.file == path && change.kind != ApiChangeKind::Added);
+      let breaks = broken().filter_map(|change| change.usages.as_ref().map(|usages| usages.outside)).sum();
+      let breaks_complete = broken().all(|change| change.usages.as_ref().is_some_and(|usages| usages.complete));
       let source = language_of(path).is_some() && test_subject(path).is_none();
       FileFacts {
         path: path.to_string(),
@@ -525,6 +526,7 @@ pub(crate) fn file_facts(
         used_by: count(&|link| link.to == path && link.state != LinkState::Removed),
         new_links: count(&|link| link.from == path && link.state == LinkState::Added),
         breaks,
+        breaks_complete,
         untested: mechanical.is_none() && source && !tested.contains(&subject_stem(path)),
         repeated_edit: group_of.get(&index).copied(),
       }

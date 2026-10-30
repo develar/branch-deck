@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { ApiChange, FileFacts, Interdiff, PairedCommit, Usages } from "@/lib/bindings"
+import type { ApiChange, DependencyChange, FileFacts, FileLink, Interdiff, PairedCommit, Usages } from "@/lib/bindings"
 import {
+  formatDependencyChange,
   formatMarkedReviewed,
+  formatMechanicalGroup,
   formatPairState,
   formatPlanSummary,
   formatRewrittenChanges,
   formatSinceReview,
   formatUsages,
   presentApiChanges,
+  presentDependencyBadge,
+  presentFileBadges,
   presentRiskyFiles,
 } from "@/presenters/review-plan"
 
@@ -24,7 +28,7 @@ function usages(inside: number, outside: number): Usages {
 }
 
 function facts(patch: Partial<FileFacts>): FileFacts {
-  return { path: "src/Store.kt", oldPath: null, mechanical: null, uses: 0, usedBy: 0, newLinks: 0, breaks: 0, untested: false, repeatedEdit: null, ...patch }
+  return { path: "src/Store.kt", oldPath: null, mechanical: null, uses: 0, usedBy: 0, newLinks: 0, breaks: 0, breaksComplete: true, untested: false, repeatedEdit: null, ...patch }
 }
 
 describe("the words of the commits since the review", () => {
@@ -109,6 +113,97 @@ describe("the risky files of the card", () => {
     expect(formatPlanSummary({ api: [change({})], files: [facts({ breaks: 2 }), facts({ path: "b", untested: true }), facts({ path: "c" })] })).toBe("1 API change · 2 risky files")
     expect(formatPlanSummary({ api: [], files: [facts({})] })).toBe("No API changes")
     expect(formatPlanSummary({ api: [change({}), change({})], files: [facts({ untested: true })] })).toBe("2 API changes · 1 risky file")
+  })
+})
+
+function link(from: string, to: string, state: FileLink["state"], symbols: string[] = ["Cache"]): FileLink {
+  return { from, to, symbols: symbols.map((name, index) => ({ name, line: 3 + index })), state, crossModule: false }
+}
+
+function dependency(patch: Partial<DependencyChange>): DependencyChange {
+  return {
+    manifest: "src/b/b.iml",
+    module: "b",
+    kind: "module",
+    name: "intellij.platform.x",
+    change: "added",
+    versionBefore: null,
+    versionAfter: null,
+    scope: "main",
+    scopeBefore: null,
+    ...patch,
+  }
+}
+
+describe("the badges of the files in the tree", () => {
+  it("counts the links among the changed files, the new ones apart, and lists each with its names, its line and its state", () => {
+    const badges = presentFileBadges({
+      files: [facts({ path: "src/a/Reader.kt", uses: 1, newLinks: 1, untested: true }), facts({ path: "src/b/Cache.kt", usedBy: 1 })],
+      links: [link("src/a/Reader.kt", "src/b/Cache.kt", "added", ["Cache", "get", "put", "size"]), link("src/a/Reader.kt", "src/Old.kt", "removed")],
+      dependencies: [],
+      repeatedEdits: [],
+    })
+    const reader = badges.get("src/a/Reader.kt")!
+    expect([reader.uses, reader.usedBy, reader.newLinks, reader.untested, reader.breaks]).toEqual(["uses 1", null, "+1 new", "no test", null])
+    expect(reader.description).toBe("uses 1, +1 new, no test")
+    expect(reader.usesLinks.map(({ key: _key, ...entry }) => entry)).toEqual([
+      { path: "src/b/Cache.kt", name: "Cache.kt", symbols: "Cache, get, put +1 · Reader.kt:3", state: "added", stateWord: "Added" },
+      { path: "src/Old.kt", name: "Old.kt", symbols: "Cache · Reader.kt:3", state: "removed", stateWord: "Removed" },
+    ])
+    const cache = badges.get("src/b/Cache.kt")!
+    expect([cache.uses, cache.usedBy, cache.newLinks]).toEqual([null, "used by 1", null])
+    expect(cache.usedByLinks.map(entry => [entry.path, entry.stateWord])).toEqual([["src/a/Reader.kt", "Added"]])
+  })
+
+  it("says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0", () => {
+    const breaks = (patch: Partial<FileFacts>) => presentFileBadges({ files: [facts(patch)], links: [], dependencies: [], repeatedEdits: [] }).get("src/Store.kt")?.breaks ?? null
+    expect(breaks({ breaks: 3 })).toMatchObject({ label: "breaks 3", tone: "warning" })
+    expect(breaks({ breaks: 3, breaksComplete: false })).toMatchObject({ label: "breaks 3+", tone: "warning" })
+    expect(breaks({ breaks: 0, breaksComplete: false })).toMatchObject({ label: "breaks ?", tone: "muted" })
+    expect(breaks({ breaks: 0 })).toBeNull()
+  })
+
+  it("names the same edit of a group of files and the other files that get it", () => {
+    const group = { files: ["src/A.kt", "src/B.kt", "src/C.kt"], removed: ["ProjectManager.getInstance()"], added: ["ProjectManagerEx.getInstanceEx()"] }
+    const badges = presentFileBadges({ files: group.files.map(path => facts({ path, repeatedEdit: 0 })), links: [], dependencies: [], repeatedEdits: [group] })
+    expect(badges.get("src/B.kt")!.sameEdit).toEqual({
+      label: "same edit ×3",
+      edit: "ProjectManager.getInstance() → ProjectManagerEx.getInstanceEx()",
+      files: ["src/A.kt", "src/C.kt"],
+    })
+    const added = presentFileBadges({ files: [facts({ repeatedEdit: 0 })], links: [], dependencies: [], repeatedEdits: [{ ...group, removed: [] }] })
+    expect(added.get("src/Store.kt")!.sameEdit!.edit).toBe("+ ProjectManagerEx.getInstanceEx()")
+  })
+
+  it("lists no file without a badge", () => {
+    expect(presentFileBadges({ files: [facts({})], links: [], dependencies: [], repeatedEdits: [] }).size).toBe(0)
+  })
+
+  it("names the Mechanical group and its groups by kind", () => {
+    expect(formatMechanicalGroup(null, 5)).toBe("Mechanical (5)")
+    expect(formatMechanicalGroup("importsOnly", 2)).toBe("Imports only (2)")
+  })
+
+  it("counts the dependency changes of a module, a version change as one changed entry with both versions", () => {
+    const badge = presentDependencyBadge([
+      dependency({}),
+      dependency({ kind: "library", name: "kotlinx-coroutines" }),
+      dependency({ change: "removed", name: "intellij.platform.y", scope: "test" }),
+      dependency({ kind: "crate", name: "serde", change: "changed", versionBefore: "1.2", versionAfter: "1.3" }),
+    ])
+    expect(badge).toEqual({
+      label: "+2 deps −1 ~1",
+      lines: ["Added module intellij.platform.x", "Added library kotlinx-coroutines", "Removed module intellij.platform.y (test)", "Changed crate serde 1.2 → 1.3"],
+    })
+    expect(presentDependencyBadge([dependency({ change: "removed" })])!.label).toBe("−1 dep")
+    expect(presentDependencyBadge([dependency({ kind: "newModule", name: "b" }), dependency({})])!.label).toBe("new module · +1 dep")
+    expect(presentDependencyBadge([])).toBeNull()
+  })
+
+  it("words a version, a scope and a new module", () => {
+    expect(formatDependencyChange(dependency({ kind: "package", name: "vitest", versionAfter: "^3.0.0", scope: "dev" }))).toBe("Added package vitest ^3.0.0 (dev)")
+    expect(formatDependencyChange(dependency({ change: "changed", scopeBefore: "test", scope: "main" }))).toBe("Changed module intellij.platform.x (test → main)")
+    expect(formatDependencyChange(dependency({ kind: "newModule", name: "b" }))).toBe("New module b")
   })
 })
 

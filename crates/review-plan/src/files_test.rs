@@ -164,6 +164,46 @@ fn the_usages_of_a_files_api_rank_it_first() {
   );
 }
 
+/// `breaks` is complete only when every removed or changed declaration of the file has a complete usage count: a name
+/// not asked or a cut answer makes it a lower bound, also at 0, an addition does not, and a file without such an API is
+/// complete
+#[test]
+fn breaks_is_a_lower_bound_when_a_usage_count_of_its_api_is_unknown_or_cut() {
+  let diffs = [commit(vec![
+    file('M', "src/a/Known.kt", None),
+    file('M', "src/a/Unknown.kt", None),
+    file('M', "src/a/Cut.kt", None),
+    file('M', "src/a/Added.kt", None),
+    file('M', "src/a/Plain.kt", None),
+  ])];
+  let mut unknown = api_change("src/a/Unknown.kt", "toString", ApiChangeKind::Removed, 0);
+  unknown.usages = None;
+  let mut cut = api_change("src/a/Cut.kt", "Policy", ApiChangeKind::Changed, 0);
+  cut.usages.as_mut().unwrap().complete = false;
+  let mut added = api_change("src/a/Added.kt", "fresh", ApiChangeKind::Added, 0);
+  added.usages = None;
+  let api = [
+    api_change("src/a/Known.kt", "few", ApiChangeKind::Changed, 2),
+    api_change("src/a/Unknown.kt", "kept", ApiChangeKind::Changed, 1),
+    unknown,
+    cut,
+    added,
+  ];
+  let facts = facts_of(&diffs, &api);
+  let mut breaks: Vec<(&str, u32, bool)> = facts.iter().map(|facts| (facts.path.as_str(), facts.breaks, facts.breaks_complete)).collect();
+  breaks.sort_unstable();
+  assert_eq!(
+    breaks,
+    [
+      ("src/a/Added.kt", 0, true),
+      ("src/a/Cut.kt", 0, false),
+      ("src/a/Known.kt", 2, true),
+      ("src/a/Plain.kt", 0, true),
+      ("src/a/Unknown.kt", 1, false)
+    ]
+  );
+}
+
 /// A declaration `name` of `path` with `usages` left outside the change, and one updated in it
 fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiChange {
   ApiChange {

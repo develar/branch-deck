@@ -1,15 +1,18 @@
 import { memo, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon, FolderIcon, FolderOpenIcon } from "lucide-react"
+import { ChevronRightIcon, FolderIcon, FolderOpenIcon, LayersIcon } from "lucide-react"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
+import { DependencyBadgeView, FileRowBadges } from "@/components/files/FileRowBadges"
 import type { CommitFile } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
+import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
+import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
 
 interface FileTreeBaseProps {
   nodes: readonly FileTreeNode[]
@@ -19,6 +22,17 @@ interface FileTreeBaseProps {
   onToggleDirectory: (key: string) => void
   /** The code owner of a file by its path, in the hover of its row (the header of its diff shows it) */
   fileOwners?: ReadonlyMap<string, string>
+  /** The badges of the review plan on the rows (`FileRowBadges`); none without a plan */
+  badges?: FileTreeBadges | null
+}
+
+/** The badges of the rows of a tree, by the key of the row */
+export interface FileTreeBadges {
+  readonly files: ReadonlyMap<string, FileBadges>
+  /** The dependency changes of a module, on its directory row or on the row of its build file */
+  readonly dependencies: ReadonlyMap<string, DependencyBadge>
+  /** Selects another file from a popover of a badge; must keep its identity: the rows are memoized */
+  readonly onSelectPath: (path: string) => void
 }
 
 /** A file row expands its diff under it (the commit preview) */
@@ -58,7 +72,7 @@ const CHEVRON_MIDDLE = "7px"
  * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C.
  */
 export function FileTree(props: FileTreeProps) {
-  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners } = props
+  const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null } = props
   // a file of a navigation tree has no diff to open
   const expandedFiles = props.mode === "inline" ? props.expandedFiles : null
   const selectedKey = props.mode === "navigate" ? props.selectedKey : null
@@ -107,7 +121,7 @@ export function FileTree(props: FileTreeProps) {
       const node = rows.find(row => row.key === key)
       if (node !== undefined) {
         event.preventDefault()
-        void copyText(fileActionTarget(node).path)
+        void copyText(copiedText(fileActionTarget(node)))
       }
       return
     }
@@ -185,6 +199,9 @@ export function FileTree(props: FileTreeProps) {
           onToggle={toggle}
           onFocusRow={setFocusedKey}
           owner={node.kind === "file" ? fileOwners?.get(node.file.path) : undefined}
+          fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
+          dependencyBadge={badges?.dependencies.get(node.key)}
+          onSelectPath={badges?.onSelectPath}
           content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
@@ -211,16 +228,33 @@ interface FileTreeRowProps {
   onFocusRow: (key: string) => void
   /** The code owner of a file */
   owner: string | undefined
+  /** The badges of the review plan */
+  fileBadges: FileBadges | undefined
+  dependencyBadge: DependencyBadge | undefined
+  onSelectPath: ((path: string) => void) | undefined
   /** The diff under an expanded file */
   content: ReactNode
 }
 
-const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabOrder, rowElements, onToggle, onFocusRow, owner, content }: FileTreeRowProps) {
+const FileTreeRow = memo(function FileTreeRow({
+  node,
+  isOpen,
+  isSelected,
+  inTabOrder,
+  rowElements,
+  onToggle,
+  onFocusRow,
+  owner,
+  fileBadges,
+  dependencyBadge,
+  onSelectPath,
+  content,
+}: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
   const description =
     node.kind === "directory"
       ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
-      : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
+      : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}${fileBadges === undefined ? "" : `, ${fileBadges.description}`}`
   return (
     <div
       ref={element => {
@@ -281,6 +315,9 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
           <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
         )}
         {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} owner={owner} />}
+        {dependencyBadge !== undefined && <DependencyBadgeView badge={dependencyBadge} />}
+        {fileBadges !== undefined && onSelectPath !== undefined && <FileRowBadges badges={fileBadges} onSelectPath={onSelectPath} />}
+        {node.kind === "directory" ? <DirectoryLineCounts node={node} /> : <FileLineCounts node={node} />}
       </FileContextMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -292,17 +329,23 @@ const FileTreeRow = memo(function FileTreeRow({ node, isOpen, isSelected, inTabO
 })
 
 function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen: boolean }) {
-  const Icon = isOpen ? FolderOpenIcon : FolderIcon
+  // a group of a review is no directory: its name is what it holds
+  const Icon = node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
   return (
     <>
       <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate" title={node.key.slice(0, -1)}>
+      <span className="min-w-0 flex-1 truncate" title={node.group === undefined ? node.key.slice(0, -1) : node.name} data-group={node.group}>
         {node.name}
       </span>
-      <span className="shrink-0 text-xs text-muted-foreground" data-testid="directory-line-counts">
-        <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />
-      </span>
     </>
+  )
+}
+
+function DirectoryLineCounts({ node }: { node: FileTreeDirectory }) {
+  return (
+    <span className="shrink-0 text-xs text-muted-foreground" data-testid="directory-line-counts">
+      <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />
+    </span>
   )
 }
 
@@ -313,13 +356,19 @@ function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | u
     <>
       {/* the letter where a directory has its folder icon, so the names align; the name keeps its width, the old name of a rename gives way first */}
       <span className="flex min-w-0 flex-1" title={owner === undefined ? path : `${path}\nOwned by ${owner}`}>
-        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={false} letterSlot="icon" />
+        {/* a file of a group is in no directory row: its directory follows its name */}
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup === true} letterSlot="icon" />
       </span>
-      {(file.additions > 0 || file.deletions > 0) && (
-        <span className="shrink-0 text-xs">
-          <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
-        </span>
-      )}
     </>
+  )
+}
+
+function FileLineCounts({ node: { file } }: { node: FileTreeFile }) {
+  return (
+    (file.additions > 0 || file.deletions > 0) && (
+      <span className="shrink-0 text-xs">
+        <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
+      </span>
+    )
   )
 }

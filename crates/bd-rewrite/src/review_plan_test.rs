@@ -113,8 +113,8 @@ fn prints_the_api_and_the_files_of_a_range() {
         "usages": null,
       }]),
       &json!([
-        { "path": "src/a/Api.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "untested": true, "repeated_edit": null },
-        { "path": "src/a/Session.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "untested": true, "repeated_edit": null },
+        { "path": "src/a/Api.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "breaks_complete": false, "untested": true, "repeated_edit": null },
+        { "path": "src/a/Session.kt", "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 0, "breaks_complete": true, "untested": true, "repeated_edit": null },
       ])
     )
   );

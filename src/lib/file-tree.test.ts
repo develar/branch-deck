@@ -1,7 +1,19 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitFile, FileStatus } from "@/lib/bindings"
-import { buildFileTree, flattenTreeFiles, formatTreeFileLabel, getInitiallyCollapsed, getVisibleRows, orderedFileNodes, revealInTree } from "@/lib/file-tree"
+import type { CommitFile, DependencyChange, FileStatus, MechanicalKind } from "@/lib/bindings"
+import { fileMenuItems } from "@/lib/file-actions"
+import {
+  buildFileTree,
+  buildReviewTree,
+  dependencyRows,
+  fileActionTarget,
+  flattenTreeFiles,
+  formatTreeFileLabel,
+  getInitiallyCollapsed,
+  getVisibleRows,
+  MECHANICAL_GROUP_KEY,
+  revealInTree,
+} from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
@@ -93,11 +105,12 @@ describe("tree rows", () => {
   })
 
   it("opens the directories above a row to reveal it, and only those", () => {
+    const tree = buildFileTree(AIR)
     const collapsed = new Set(["plugins/air/backend/session/", "plugins/air/backend/session/catalog/", "plugins/air/backend/session/projection/"])
-    expect([...revealInTree(collapsed, "plugins/air/backend/session/catalog/src/RowMapper.kt")]).toEqual(["plugins/air/backend/session/projection/"])
-    expect(revealInTree(collapsed, "README.md")).toBe(collapsed)
+    expect([...revealInTree(collapsed, "plugins/air/backend/session/catalog/src/RowMapper.kt", tree)]).toEqual(["plugins/air/backend/session/projection/"])
+    expect(revealInTree(collapsed, "README.md", tree)).toBe(collapsed)
     // a directory row stays collapsed itself
-    expect([...revealInTree(collapsed, "plugins/air/backend/session/catalog/")]).toEqual(["plugins/air/backend/session/catalog/", "plugins/air/backend/session/projection/"])
+    expect([...revealInTree(collapsed, "plugins/air/backend/session/catalog/", tree)]).toEqual(["plugins/air/backend/session/catalog/", "plugins/air/backend/session/projection/"])
   })
 })
 
@@ -113,11 +126,81 @@ describe("formatTreeFileLabel", () => {
   })
 })
 
-describe("orderedFileNodes", () => {
-  it("lists the files flat in the order of the review plan, a rename by either path, the files it lacks after in tree order", () => {
-    const files = [file("src/a/Reader.kt"), file("src/b/Cache.kt"), file("src/Store.kt"), file("src/New.kt", 1, 0, "renamed", "src/Old.kt"), file("README.md"), file("docs/z.md")]
-    const nodes = orderedFileNodes(files, ["src/b/Cache.kt", "src/Old.kt", "src/a/Reader.kt", "src/gone/Deleted.kt", "src/Store.kt"])
-    expect(outline(nodes)).toEqual(["src/b/Cache.kt", "src/New.kt", "src/a/Reader.kt", "src/Store.kt", "docs/z.md", "README.md"])
-    expect(flattenTreeFiles(nodes).map(it => it.path)).toEqual(["src/b/Cache.kt", "src/New.kt", "src/a/Reader.kt", "src/Store.kt", "docs/z.md", "README.md"])
+describe("the tree of a review with its plan", () => {
+  const files = [
+    file("src/a/Reader.kt"),
+    file("src/b/Cache.kt"),
+    file("src/b/b.iml", 3, 0, "added"),
+    file("src/Base.kt", 1, 1),
+    file("src/a/Old.kt", 0, 4, "deleted"),
+    file("README.md"),
+  ]
+  const mechanical = new Map<string, MechanicalKind>([
+    ["src/b/b.iml", "buildModel"],
+    ["src/Base.kt", "whitespace"],
+    ["src/a/Old.kt", "deleted"],
+  ])
+
+  it("folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last", () => {
+    const tree = buildReviewTree(files, mechanical)
+    expect(outline(tree)).toEqual([
+      "src/",
+      "  a/",
+      "    Reader.kt",
+      "  b/",
+      "    Cache.kt",
+      "README.md",
+      "Mechanical (3)/",
+      "  Build files (1)/",
+      "    src/b/b.iml",
+      "  Whitespace only (1)/",
+      "    src/Base.kt",
+      "  Deleted (1)/",
+      "    src/a/Old.kt",
+    ])
+    expect(flattenTreeFiles(tree).map(it => it.path)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "README.md", "src/b/b.iml", "src/Base.kt", "src/a/Old.kt"])
+    const group = tree.at(-1) as FileTreeDirectory
+    expect([group.key, group.group, group.fileCount, group.additions, group.deletions]).toEqual([MECHANICAL_GROUP_KEY, "mechanical", 3, 4, 5])
+    // a tree without a mechanical file has no group
+    expect(outline(buildReviewTree(files.slice(0, 2), mechanical))).toEqual(outline(buildFileTree(files.slice(0, 2))))
+  })
+
+  it("starts with the Mechanical group collapsed, and opens it to reveal a file in it", () => {
+    const tree = buildReviewTree(files, mechanical)
+    const collapsed = getInitiallyCollapsed(tree, files.length)
+    expect([...collapsed]).toEqual([MECHANICAL_GROUP_KEY])
+    expect(outline(tree, collapsed).at(-1)).toBe("Mechanical (3)/")
+    expect([...revealInTree(collapsed, "src/Base.kt", tree)]).toEqual([])
+    expect(revealInTree(collapsed, "src/a/Reader.kt", tree)).toBe(collapsed)
+  })
+
+  it("copies the paths of a group, which has no path of its own", () => {
+    const group = buildReviewTree(files, mechanical).at(-1)!
+    expect(fileActionTarget(group)).toEqual({ kind: "group", files: ["src/b/b.iml", "src/Base.kt", "src/a/Old.kt"] })
+    expect(fileMenuItems(fileActionTarget(group), { copyKey: true }).map(item => item.label)).toEqual(["Copy Changed Paths"])
+  })
+
+  it("shows the dependency changes of a build file on the directory row of its module, else on the row of the build file", () => {
+    const change = (manifest: string, name: string): DependencyChange => ({
+      manifest,
+      module: name,
+      kind: "module",
+      name,
+      change: "added",
+      versionBefore: null,
+      versionAfter: null,
+      scope: "main",
+      scopeBefore: null,
+    })
+    const tree = buildReviewTree([...files, file("Cargo.toml"), file("lib/x/x.iml")], new Map([...mechanical, ["Cargo.toml", "buildModel"], ["lib/x/x.iml", "buildModel"]]))
+    const rows = dependencyRows(tree, [change("src/b/b.iml", "b"), change("Cargo.toml", "serde"), change("lib/x/x.iml", "x"), change("gone/y.iml", "y")])
+    expect([...rows].map(([key, changes]) => [key, changes.map(it => it.name)])).toEqual([
+      ["src/b/", ["b"]],
+      ["Cargo.toml", ["serde"]],
+      ["lib/x/x.iml", ["x"]],
+    ])
+    // the directory a merged row holds: `plugins/air/` is in the row `plugins/air/backend/`
+    const merged = buildFileTree([file("plugins/air/backend/A.kt"), file("README.md")])
+    expect([...dependencyRows(merged, [change("plugins/air/air.iml", "air")]).keys()]).toEqual(["plugins/air/backend/"])
   })
 })

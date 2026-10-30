@@ -6,21 +6,25 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
 import { FileTree } from "@/components/files/FileTree"
+import type { FileTreeBadges } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import type { CommitFile, DiffRevisions } from "@/lib/bindings"
+import type { CommitFile, DiffRevisions, MechanicalKind } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
 import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
-import { buildFileTree, flattenTreeFiles, getInitiallyCollapsed, orderedFileNodes, revealInTree, toggleInSet } from "@/lib/file-tree"
+import { buildFileTree, buildReviewTree, dependencyRows, flattenTreeFiles, getInitiallyCollapsed, MECHANICAL_GROUP_KEY, revealInTree, toggleInSet } from "@/lib/file-tree"
+import type { FileTreeNode } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
+import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
+import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { setReviewSidebar, useAppSettings } from "@/stores/settings/appSettings"
@@ -62,10 +66,10 @@ export interface CommitReviewProps {
   /** What ⌥↑/⌥↓ show next: read once the subject is, so the step is instant */
   neighbours?: readonly DiffSubject[]
   /**
-   * The paths in the order the files show, a flat list instead of the tree (the dependency order of the review plan);
-   * the tree without it
+   * The facts of the review plan of the subject: the badges of the rows, the mechanical files folded into one group at
+   * the end of the tree; the plain tree without them
    */
-  fileOrder?: readonly string[] | null
+  reviewFacts?: ReviewFacts | null
 }
 
 /**
@@ -89,7 +93,7 @@ export function CommitReview({
   filesHeader,
   codeTop,
   neighbours,
-  fileOrder = null,
+  reviewFacts = null,
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
@@ -181,7 +185,7 @@ export function CommitReview({
   } else {
     loaded = {
       // the selection and the collapsed directories belong to one commit or range, and to one filter
-      key: `${pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`}${fileOrder === null ? "" : "|ordered"}`,
+      key: pathFilter === null ? subjectId : `${subjectId}|${[...pathFilter].join("\n")}`,
       // the counts of the engine, none until its diffs are read: git's numstat counts what the policy ignores too
       files: withEngineCounts(shownFiles, entry?.kind === "loaded" ? entry.files : undefined),
       totalCount: filteredFiles?.length ?? shownFiles.length,
@@ -190,7 +194,7 @@ export function CommitReview({
       initialPath: initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null,
       // the commits of the sides: a declaration outside the review is read at them
       revisions: subject.kind === "commit" ? { old: `${subject.id}^`, new: subject.id } : { old: subject.base, new: subject.head },
-      fileOrder,
+      reviewFacts,
     }
   }
   // an error and an empty subject are the content: the window shows them
@@ -274,8 +278,8 @@ interface LoadedReview {
   diffsComplete: boolean
   initialPath: string | null
   revisions: DiffRevisions
-  /** The files flat in this order, not as the tree */
-  fileOrder: readonly string[] | null
+  /** The facts of the review plan: the badges, the Mechanical group */
+  reviewFacts: ReviewFacts | null
 }
 
 /** The search of the files: the text belongs to the window, not to one subject */
@@ -302,28 +306,47 @@ interface TreeSelection {
   filterText: string
   collapsed: ReadonlySet<string>
   selectedPath: string | null
+  /** The tree has the Mechanical group: a plan that comes after the files folds it once */
+  grouped: boolean
 }
 
-function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: ReturnType<typeof buildFileTree>, fileCount: number, firstPath: string | null): TreeSelection {
+function hasMechanicalGroup(nodes: readonly FileTreeNode[]): boolean {
+  return nodes.some(node => node.key === MECHANICAL_GROUP_KEY)
+}
+
+function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: readonly FileTreeNode[], fileCount: number, firstPath: string | null): TreeSelection {
   if (loaded === null) {
-    return { key: null, filterText, collapsed: new Set(), selectedPath: null }
+    return { key: null, filterText, collapsed: new Set(), selectedPath: null, grouped: false }
   }
   // what a search found shows whole: its directories open
   const initial = filterText.trim() === "" ? getInitiallyCollapsed(nodes, fileCount) : new Set<string>()
   return {
     key: loaded.key,
     filterText,
-    collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath),
+    collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath, nodes),
     selectedPath: loaded.initialPath ?? firstPath,
+    grouped: hasMechanicalGroup(nodes),
   }
 }
 
 /** Another search text: the directories as a new tree has them, the selected file kept while the search keeps it */
-function searchedSelection(previous: TreeSelection, filterText: string, nodes: ReturnType<typeof buildFileTree>, files: readonly CommitFile[]): TreeSelection {
+function searchedSelection(previous: TreeSelection, filterText: string, nodes: readonly FileTreeNode[], files: readonly CommitFile[]): TreeSelection {
   const selectedPath = files.some(file => file.path === previous.selectedPath) ? previous.selectedPath : (files[0]?.path ?? null)
   const collapsed = filterText.trim() === "" ? getInitiallyCollapsed(nodes, files.length) : new Set<string>()
-  return { key: previous.key, filterText, collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath), selectedPath }
+  return { ...previous, filterText, collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes), selectedPath, grouped: hasMechanicalGroup(nodes) }
 }
+
+/** The plan came, or went: the Mechanical group starts collapsed unless it holds the selected file */
+function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[]): TreeSelection {
+  const grouped = hasMechanicalGroup(nodes)
+  if (!grouped) {
+    return { ...previous, grouped }
+  }
+  const collapsed = new Set(previous.collapsed).add(MECHANICAL_GROUP_KEY)
+  return { ...previous, grouped, collapsed: previous.selectedPath === null ? collapsed : revealInTree(collapsed, previous.selectedPath, nodes) }
+}
+
+const NO_MECHANICAL: ReadonlyMap<string, MechanicalKind> = new Map()
 
 /**
  * The width of the sidebar until its divider is dragged: what the names of a tree need, not a share of the window, so
@@ -340,13 +363,18 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const sidebarShown = useAppSettings(state => state.reviewSidebar)
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
-  const fileOrder = loaded?.fileOrder ?? null
+  const reviewFacts = loaded?.reviewFacts ?? null
+  // the files of real work as the tree, the mechanical ones in one group at the end, as Rust classed them
+  const mechanical = useMemo(
+    () => (reviewFacts === null ? NO_MECHANICAL : new Map(reviewFacts.files.flatMap(file => (file.mechanical === null ? [] : [[file.path, file.mechanical] as const])))),
+    [reviewFacts],
+  )
   const nodes = useMemo(() => {
     if (loadedFiles === undefined) {
       return []
     }
-    return fileOrder === null ? buildFileTree(loadedFiles) : orderedFileNodes(loadedFiles, fileOrder)
-  }, [loadedFiles, fileOrder])
+    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical)
+  }, [loadedFiles, reviewFacts, mechanical])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
   const filterText = search?.text ?? ""
   const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
@@ -355,6 +383,8 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     setSelection(initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
   } else if (selection.filterText !== filterText) {
     setSelection(searchedSelection(selection, filterText, nodes, files))
+  } else if (selection.grouped !== hasMechanicalGroup(nodes)) {
+    setSelection(groupedSelection(selection, nodes))
   }
   const { collapsed, selectedPath } = selection
   const code = useRef<CommitReviewCodeHandle>(null)
@@ -389,9 +419,12 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const toggleDirectory = useCallback((key: string) => setSelection(previous => ({ ...previous, collapsed: toggleInSet(previous.collapsed, key) })), [])
 
   // the tree shows the selected file: its directories open
-  const select = useCallback((path: string) => {
-    setSelection(previous => ({ ...previous, selectedPath: path, collapsed: revealInTree(previous.collapsed, path) }))
-  }, [])
+  const select = useCallback(
+    (path: string) => {
+      setSelection(previous => ({ ...previous, selectedPath: path, collapsed: revealInTree(previous.collapsed, path, nodes) }))
+    },
+    [nodes],
+  )
 
   const selectInTree = useCallback(
     (file: CommitFile) => {
@@ -400,6 +433,27 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     },
     [select],
   )
+
+  // the badges of the review plan: a file of a popover is selected as a row of the tree is
+  const badges = useMemo<FileTreeBadges | null>(() => {
+    if (reviewFacts === null) {
+      return null
+    }
+    const dependencies = new Map<string, DependencyBadge>()
+    for (const [key, changes] of dependencyRows(nodes, reviewFacts.dependencies)) {
+      const badge = presentDependencyBadge(changes)
+      if (badge !== null) {
+        dependencies.set(key, badge)
+      }
+    }
+    const onSelectPath = (path: string) => {
+      const file = files.find(it => it.path === path)
+      if (file !== undefined) {
+        selectInTree(file)
+      }
+    }
+    return { files: presentFileBadges(reviewFacts), dependencies, onSelectPath }
+  }, [reviewFacts, nodes, files, selectInTree])
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   useEffect(() => {
@@ -488,6 +542,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                     selectedKey={selectedPath}
                     onSelectFile={selectInTree}
                     fileOwners={fileOwners}
+                    badges={badges}
                   />
                 )}
               </div>

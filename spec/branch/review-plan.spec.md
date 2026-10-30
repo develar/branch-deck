@@ -29,11 +29,15 @@ targets:
   - ../../src/lib/review-plan.ts
   - ../../src/lib/range-review.ts
   - ../../src/lib/file-tree.ts
+  - ../../src/lib/file-actions.ts
   - ../../src/hooks/useReviewPlan.ts
   - ../../src/hooks/useBranchReview.ts
   - ../../src/presenters/review-plan.ts
   - ../../src/components/review/ReviewPlanCard.tsx
   - ../../src/components/review/BranchReview.tsx
+  - ../../src/components/commit/CommitReview.tsx
+  - ../../src/components/files/FileTree.tsx
+  - ../../src/components/files/FileRowBadges.tsx
 ---
 
 # Review Plan
@@ -58,7 +62,9 @@ accio that the change left outside, and the facts of each changed file: which ot
 is mechanical, the edit it shares with other files, the usages of the API it removes or changes, and whether it
 changed without its tests. Then the dependency changes: the module, library, plugin, crate and package entries the
 commits add to, remove from or change in the build files, and the build files they add or delete. Then the order of
-the files: a file that declares what another uses before it, a test right after its subject.
+the files for `bd`: a file that declares what another uses before it, a test right after its subject. The review
+window keeps the tree of the files: each row shows its links and its risk, and the mechanical files fold into one
+group at the end.
 
 ## Goals
 
@@ -240,6 +246,11 @@ the files: a file that declares what another uses before it, a test right after 
   of a removal whose entry names the old path. A usage inside the change and an addition break nothing.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
   [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`, `a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
+- `breaks_complete` must be true only when every API the file removes or changes has `usages` that are `complete`.
+  A name not asked, no index, a failed query, a cut answer or a constructor-only change makes `breaks` a lower
+  bound, also at 0. A file without such an API is complete.
+  [@test] ../../crates/review-plan/src/files_test.rs (`breaks_is_a_lower_bound_when_a_usage_count_of_its_api_is_unknown_or_cut`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 - The files with the most `breaks` must come first, then the `untested` ones, then the tree order.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
 - A test must be told by its path: a directory `test`, `tests`, `__tests__`, `testFixtures`, or a name `*Test`,
@@ -447,14 +458,42 @@ the files: a file that declares what another uses before it, a test right after 
   with the lines per path it changes against its reviewed version), the API in the order Rust ranked it with its
   kind, `path:line`, the parts that changed, the forms before and after of a removal or a change and the usages, the
   files with used API removed or changed or `untested`, with why, and the `index_note` when the usages are missing.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and order the files by their dependencies, kept for every review`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `words the usages inside and outside the change, a cut answer as more, none when unknown`, `keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change`, `raises only the risky files, in Rust's order, with the usages and the missing test`, `sums the card up in its title`)
-- Order: Tree / Dependencies beside the header of the files must be kept for every review (`reviewFileOrder` of the
-  app settings); Dependencies shows the files as one flat list, each by its path, in the plan's `order`, a renamed file
-  also by its old path, a file the order lacks after them in tree order; the diffs, J and K follow it.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and order the files by their dependencies, kept for every review`)
-  [@test] ../../src/lib/file-tree.test.ts (`lists the files flat in the order of the review plan, a rename by either path, the files it lacks after in tree order`)
+- The files must stay in the tree, in tree order, in All Changes and in "Since Your Review" as one range: the plan
+  adds badges and the Mechanical group, and offers no other order. A commit of the column shows its plain tree.
+  The facts apply once the plan of the shown scope is read, not while the next one is read.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and keep the files in the tree`)
+- A file row must show `uses N` and `used by M`, the links among the changed files after the commits, with `+K new`
+  for the links it uses that the commits added. Its popover must list each link it uses, then each link that uses it,
+  a removed one too: the other file, the names and the line of the first use (`Cache, get · Reader.kt:3`), and the
+  state Added, Removed or Kept. A click on a link must select that file and close the popover.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line and its state`)
+- A file row must show `breaks N` in the warning tone for the uses left outside the change of the API it removes or
+  changes. When `breaks_complete` is false it must show `breaks N+`, or a quiet `breaks ?` at 0: a lower bound never
+  reads as safe. `no test` must be a quiet text of an `untested` file.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover`)
+  [@test] ../../src/presenters/review-plan.test.ts (`says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0`, `lists no file without a badge`)
+- A file of a repeated edit must show `same edit ×N`. Its popover must name the edit (the first line removed and the
+  first added, `a → b`) and list the other files of the group; a click selects one.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
+  [@test] ../../src/presenters/review-plan.test.ts (`names the same edit of a group of files and the other files that get it`)
+- The mechanical files must leave the tree for one group at its end, `Mechanical (N)`, with a group per kind in the
+  order Build files, Imports only, Whitespace only, Renamed, Deleted, each file by its path. The group must start
+  collapsed, also when the plan comes after the files, unless it holds the selected file. The diffs, J and K must
+  reach these files last, and a file selected in it opens it. Its menu and ⌘C copy its changed paths.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
+  [@test] ../../src/lib/file-tree.test.ts (`folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last`, `starts with the Mechanical group collapsed, and opens it to reveal a file in it`, `copies the paths of a group, which has no path of its own`)
+  [@test] ../../src/presenters/review-plan.test.ts (`names the Mechanical group and its groups by kind`)
+- The dependency changes of a build file must show on the directory row whose chain holds the directory of the build
+  file, else on the row of the build file (one at the root, or a module whose only change is its build file):
+  `+N deps −M ~K`, `new module`, `deleted module`. Its tooltip must list each change, a changed version as
+  `1.2 → 1.3` and a changed scope as `test → main`.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
+  [@test] ../../src/lib/file-tree.test.ts (`shows the dependency changes of a build file on the directory row of its module, else on the row of the build file`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts the dependency changes of a module, a version change as one changed entry with both versions`, `words a version, a scope and a new module`)
 
 ## User Experience
 
@@ -469,8 +508,8 @@ the files: a file that declares what another uses before it, a test right after 
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
   open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
   "src/b/Client.kt", "line": 8}, …], "complete": true}}]`, `"files": [{"path": "src/a/Api.kt",
-  "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12, "untested": true,
-  "repeated_edit": null}]`, `"index_note": null`.
+  "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12, "breaks_complete":
+  true, "untested": true, "repeated_edit": null}]`, `"index_note": null`.
 - `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
   "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`, `"links": [{"from": "src/a/User.kt", "to":
   "src/b/Store.kt", "symbols": [{"name": "Store", "line": 3}], "state": "added", "cross_module": false}]`.
@@ -481,7 +520,10 @@ the files: a file that declares what another uses before it, a test right after 
   it `fun helper(value:Int) → fun helper(value:Int, scale:Int)`; `Added Cache src/b/Cache.kt:3`; risky `src/Store.kt
   An API used in 3 places · No test changed`; "Since your review: 1 new · 1 rewritten", under it "Rewritten scale the helper: src/Store.kt +1 −1"; "No usages: accio has no index
   of this repository"; "Cannot read the review plan: …".
-- **Order: Tree | Dependencies** beside the header of the files.
+- The tree, flag on: `Reader.kt` `uses 1 +1 new` `same edit ×3` `no test`; its popover "Uses: Cache.kt Added, Cache,
+  get · Reader.kt:3"; `Store.kt` `breaks 2`, or `breaks 2+` and `breaks ?` for a lower bound; the directory `b`
+  `new module`, its tooltip "New module b"; last, the collapsed `Mechanical (2)` with `Build files (1)`
+  and `Whitespace only (1)`.
 
 ## Measurements
 

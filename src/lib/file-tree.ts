@@ -1,5 +1,6 @@
-import type { CommitFile } from "@/lib/bindings"
+import type { CommitFile, DependencyChange, MechanicalKind } from "@/lib/bindings"
 import type { FileActionTarget } from "@/lib/file-actions"
+import { formatMechanicalGroup } from "@/presenters/review-plan"
 
 /** A changed file of the tree, by its name in its directory */
 export interface FileTreeFile {
@@ -10,6 +11,8 @@ export interface FileTreeFile {
   depth: number
   parentKey: string | undefined
   file: CommitFile
+  /** Named by its path, not in the directories of its path: a file of a group */
+  inGroup?: boolean
 }
 
 /** A directory of the tree; a chain of directories with one subdirectory each is one row, `plugins/air/backend` */
@@ -25,6 +28,11 @@ export interface FileTreeDirectory {
   fileCount: number
   additions: number
   deletions: number
+  /**
+   * A group of files that is no directory: `mechanical`, the Mechanical group at the end of the tree of a review, or
+   * the group of one kind in it
+   */
+  group?: MechanicalKind | "mechanical"
 }
 
 export type FileTreeNode = FileTreeFile | FileTreeDirectory
@@ -104,28 +112,92 @@ function toNodes(directory: MutableDirectory, prefix: string, depth: number, par
   return nodes.sort(compareTreeNodes)
 }
 
+/** The key of the Mechanical group: a git path never starts with `/` */
+export const MECHANICAL_GROUP_KEY = "//mechanical/"
+
+/** The order of the groups of one kind in the Mechanical group */
+const MECHANICAL_KINDS: readonly MechanicalKind[] = ["buildModel", "importsOnly", "whitespace", "renamed", "deleted"]
+
 /**
- * The files as one flat list in `order` (the dependency order of the review plan, by the path after the commits, a
- * rename also by its old path), each named by its path: the tree cannot hold that order. A file the order lacks keeps
- * its place of the tree after the ordered ones
+ * The tree of a review with its plan: the files of real work as `buildFileTree` groups them, then the Mechanical group
+ * with a group per kind (`mechanical`, the kind Rust gave each path), each file named by its path. The diffs and J and
+ * K follow this order, so the mechanical files come last
  */
-export function orderedFileNodes(files: readonly CommitFile[], order: readonly string[]): FileTreeNode[] {
-  const rank = new Map(order.map((path, index) => [path, index]))
-  const rankOf = (file: CommitFile) => rank.get(file.path) ?? (file.oldPath === null ? undefined : rank.get(file.oldPath)) ?? order.length
-  const treeOrder = flattenTreeFiles(buildFileTree(files))
-  const ranked = treeOrder.map((file, index) => ({ file, index, rank: rankOf(file) }))
-  ranked.sort((a, b) => a.rank - b.rank || a.index - b.index)
-  return ranked.map(({ file }) => ({ kind: "file", key: file.path, name: file.path, depth: 0, parentKey: undefined, file }))
+export function buildReviewTree(files: readonly CommitFile[], mechanical: ReadonlyMap<string, MechanicalKind>): FileTreeNode[] {
+  const kindOf = (file: CommitFile) => mechanical.get(file.path)
+  const nodes = buildFileTree(files.filter(file => kindOf(file) === undefined))
+  const folded = flattenTreeFiles(buildFileTree(files.filter(file => kindOf(file) !== undefined)))
+  if (folded.length === 0) {
+    return nodes
+  }
+  const groups: FileTreeDirectory[] = []
+  for (const kind of MECHANICAL_KINDS) {
+    const ofKind = folded.filter(file => kindOf(file) === kind)
+    if (ofKind.length > 0) {
+      const key = `${MECHANICAL_GROUP_KEY}${kind}/`
+      const children: FileTreeFile[] = ofKind.map(file => ({ kind: "file", key: file.path, name: file.path, depth: 2, parentKey: key, file, inGroup: true }))
+      groups.push(groupNode(key, formatMechanicalGroup(kind, ofKind.length), 1, MECHANICAL_GROUP_KEY, children, kind))
+    }
+  }
+  return [...nodes, groupNode(MECHANICAL_GROUP_KEY, formatMechanicalGroup(null, folded.length), 0, undefined, groups, "mechanical")]
+}
+
+function groupNode(key: string, name: string, depth: number, parentKey: string | undefined, children: FileTreeNode[], group: FileTreeDirectory["group"]): FileTreeDirectory {
+  const files = flattenTreeFiles(children)
+  const additions = files.reduce((sum, file) => sum + file.additions, 0)
+  const deletions = files.reduce((sum, file) => sum + file.deletions, 0)
+  return { kind: "directory", key, name, depth, parentKey, children, fileCount: files.length, additions, deletions, group }
+}
+
+/**
+ * The row that shows the dependency changes of each build file, by its key: the directory row whose chain of
+ * directories holds the directory of the build file (its module), else the row of the build file itself (a build file
+ * at the root, a module whose only change is its build file, folded into the Mechanical group). A build file the tree
+ * does not show has no row
+ */
+export function dependencyRows(nodes: readonly FileTreeNode[], dependencies: readonly DependencyChange[]): Map<string, DependencyChange[]> {
+  const rows = new Map<string, DependencyChange[]>()
+  const directories: FileTreeDirectory[] = []
+  const files = new Set<string>()
+  const visit = (list: readonly FileTreeNode[]) => {
+    for (const node of list) {
+      if (node.kind === "file") {
+        files.add(node.key)
+      } else {
+        if (node.group === undefined) {
+          directories.push(node)
+        }
+        visit(node.children)
+      }
+    }
+  }
+  visit(nodes)
+  for (const change of dependencies) {
+    const directory = change.manifest.slice(0, change.manifest.lastIndexOf("/") + 1)
+    // the row whose merged chain holds the directory: its key starts with it, its parent's key is shorter
+    const row =
+      (directory === "" ? undefined : directories.find(node => node.key.startsWith(directory) && (node.parentKey ?? "").length < directory.length)?.key) ??
+      (files.has(change.manifest) ? change.manifest : undefined)
+    if (row !== undefined) {
+      rows.set(row, [...(rows.get(row) ?? []), change])
+    }
+  }
+  return rows
+}
+
+/**
+ * What the actions of a row act on (`fileMenuItems`): a file by its path, a directory by its path and its files, a group
+ * by its files
+ */
+export function fileActionTarget(node: FileTreeNode): FileActionTarget {
+  if (node.kind === "file") {
+    return { kind: "file", path: node.file.path }
+  }
+  const files = flattenTreeFiles(node.children).map(file => file.path)
+  return node.group === undefined ? { kind: "directory", path: node.key.slice(0, -1), files } : { kind: "group", files }
 }
 
 /** The files in the order of the tree: what the tree shows from top to bottom with every directory open */
-/** What the actions of a row act on (`fileMenuItems`): a file by its path, a directory by its path and its files */
-export function fileActionTarget(node: FileTreeNode): FileActionTarget {
-  return node.kind === "file"
-    ? { kind: "file", path: node.file.path }
-    : { kind: "directory", path: node.key.slice(0, -1), files: flattenTreeFiles(node.children).map(file => file.path) }
-}
-
 export function flattenTreeFiles(nodes: readonly FileTreeNode[]): CommitFile[] {
   return nodes.flatMap(node => (node.kind === "file" ? [node.file] : flattenTreeFiles(node.children)))
 }
@@ -145,9 +217,12 @@ export function getVisibleRows(nodes: readonly FileTreeNode[], collapsed: Readon
   return rows
 }
 
-/** The directories that start collapsed: none, unless the commit has more than `AUTO_COLLAPSE_FILE_COUNT` files */
+/**
+ * The directories that start collapsed: the Mechanical group, and the directories below the top level when the commit
+ * has more than `AUTO_COLLAPSE_FILE_COUNT` files
+ */
 export function getInitiallyCollapsed(nodes: readonly FileTreeNode[], fileCount: number): Set<string> {
-  const collapsed = new Set<string>()
+  const collapsed = new Set<string>(nodes.some(node => node.key === MECHANICAL_GROUP_KEY) ? [MECHANICAL_GROUP_KEY] : [])
   if (fileCount <= AUTO_COLLAPSE_FILE_COUNT) {
     return collapsed
   }
@@ -174,10 +249,28 @@ export function toggleInSet(set: ReadonlySet<string>, key: string): ReadonlySet<
   return next
 }
 
-/** `collapsed` without the directories above `key`, so its row shows; the same set when none of them is collapsed */
-export function revealInTree(collapsed: ReadonlySet<string>, key: string): ReadonlySet<string> {
-  // a directory key is its full path with a trailing slash, so the directories above a row are the keys it starts with
-  const above = [...collapsed].filter(directory => key !== directory && key.startsWith(directory))
+/** The keys of the directories and groups above the row `key` in `nodes`, outermost first; null when it has no row */
+function keysAbove(nodes: readonly FileTreeNode[], key: string): string[] | null {
+  for (const node of nodes) {
+    if (node.key === key) {
+      return []
+    }
+    if (node.kind === "directory") {
+      const inner = keysAbove(node.children, key)
+      if (inner !== null) {
+        return [node.key, ...inner]
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * `collapsed` without the directories and groups above `key` in `nodes`, so its row shows; the same set when none of
+ * them is collapsed
+ */
+export function revealInTree(collapsed: ReadonlySet<string>, key: string, nodes: readonly FileTreeNode[]): ReadonlySet<string> {
+  const above = (keysAbove(nodes, key) ?? []).filter(directory => collapsed.has(directory))
   if (above.length === 0) {
     return collapsed
   }

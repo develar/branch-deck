@@ -2614,6 +2614,11 @@ export type FileFacts = {
 	newLinks: number,
 	/**  The usages left outside the change, at the head, of the API it removes or changes (`ApiChange::usages`) */
 	breaks: number,
+	/**
+	 *  `breaks` counts every usage left outside: each API it removes or changes has its usages, each `complete`; false
+	 *  makes `breaks` a lower bound (a name not asked, no index, a cut answer, the calls of a constructor-only change)
+	 */
+	breaksComplete: boolean,
 	/**  A source file changed while none of its tests changed */
 	untested: boolean,
 	/**  Its group of `ReviewPlan::repeated_edits` */

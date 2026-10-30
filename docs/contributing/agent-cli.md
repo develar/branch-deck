@@ -683,7 +683,8 @@ owner: its `usages` is `null`. A member of that name counts only the lines that 
 (`complete: false`). A removal names the file and line before the commit that removed
 it. `files` gives per changed file (a deleted one too) its `old_path`, `mechanical` (`buildModel`, `importsOnly`,
 `whitespace`, `renamed`, `deleted`, or `null` for real work), `uses` and `used_by` (the links among the changed files
-after the commits), `new_links`, `breaks` (the usages left outside of the API it removes or changes), `untested` (a source file
+after the commits), `new_links`, `breaks` (the usages left outside of the API it removes or changes), `breaks_complete` (false makes
+`breaks` a lower bound: a usage count of that API is `null` or not `complete`), `untested` (a source file
 changed while none of its tests did) and `repeated_edit`, the most `breaks` first. `links` lists which changed file
 uses which (`from`, `to`, `symbols` with the line of the first use, `state` `added`, `removed` or `kept`,
 `cross_module`); `dependencies` the entries the commits add to, remove from or change in the build files: the
@@ -706,9 +707,9 @@ tree order inside a cycle and between files with no edge.
     "before":"fun logout() : Unit","after":"fun logout(all:Boolean) : Unit",
     "usages":{"inside":1,"outside":12,"outside_sites":[{"path":"src/c/Menu.kt","line":40},…],"complete":true}}],
   "files":[{"path":"src/a/Session.kt","old_path":null,"mechanical":null,"uses":0,"used_by":1,"new_links":0,
-    "breaks":12,"untested":true,"repeated_edit":null},
+    "breaks":12,"breaks_complete":true,"untested":true,"repeated_edit":null},
     {"path":"src/b/Logout.kt","old_path":null,"mechanical":null,"uses":1,"used_by":0,"new_links":1,"breaks":0,
-    "untested":true,"repeated_edit":null}],
+    "breaks_complete":true,"untested":true,"repeated_edit":null}],
   "links":[{"from":"src/b/Logout.kt","to":"src/a/Session.kt","symbols":[{"name":"logout","line":5}],"state":"added",
     "cross_module":false}],
   "dependencies":[{"manifest":"src/b/intellij.b.iml","module":"intellij.b","kind":"module","name":"intellij.a",

@@ -155,6 +155,9 @@ pub struct FileFactsOutput {
   pub new_links: u32,
   /// The usages left outside the change, at the head, of the API it removes or changes
   pub breaks: u32,
+  /// `breaks` counts every usage left outside; false makes it a lower bound: a usage count of its API is unknown or
+  /// incomplete
+  pub breaks_complete: bool,
   /// A source file changed while none of its tests changed
   pub untested: bool,
   /// The index of its group in `repeated_edits`
@@ -305,6 +308,7 @@ fn file_output(facts: FileFacts) -> FileFactsOutput {
     used_by: facts.used_by,
     new_links: facts.new_links,
     breaks: facts.breaks,
+    breaks_complete: facts.breaks_complete,
     untested: facts.untested,
     repeated_edit: facts.repeated_edit,
   }

@@ -2,7 +2,24 @@
 // of the commits since the user's review, the API the reviewed commits change with the usages of each declaration, and
 // the risky files. Rust pairs the commits, ranks the API and the files and orders them (`review_plan::review_plan_core`);
 // the card only words them in the order Rust sent.
-import type { ApiChange, ApiChangeKind, CommitChanges, FileFacts, FormChange, Interdiff, PairState, ReviewPlan, Usages } from "@/lib/bindings"
+import type {
+  ApiChange,
+  ApiChangeKind,
+  CommitChanges,
+  DependencyChange,
+  DependencyChangeKind,
+  DependencyKind,
+  FileFacts,
+  FileLink,
+  FormChange,
+  Interdiff,
+  LinkState,
+  MechanicalKind,
+  PairState,
+  RepeatedEditGroup,
+  ReviewPlan,
+  Usages,
+} from "@/lib/bindings"
 
 /** What the commit column says of a commit since the review: "New", "Rewritten"; nothing of the others */
 export function formatPairState(state: PairState): string | null {
@@ -144,6 +161,199 @@ export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "files">): stri
     parts.push(risky === 1 ? "1 risky file" : `${risky} risky files`)
   }
   return parts.join(" · ")
+}
+
+/** What the tree of a review shows of its plan: the facts of each file, the links between the files, the dependency changes */
+export type ReviewFacts = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
+
+const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
+  buildModel: "Build files",
+  importsOnly: "Imports only",
+  whitespace: "Whitespace only",
+  renamed: "Renamed",
+  deleted: "Deleted",
+}
+
+/** "Mechanical (5)", the group at the end of the tree; "Imports only (2)", a group of one kind in it */
+export function formatMechanicalGroup(kind: MechanicalKind | null, count: number): string {
+  return `${kind === null ? "Mechanical" : MECHANICAL_WORDS[kind]} (${count})`
+}
+
+const LINK_STATE_WORDS: Readonly<Record<LinkState, string>> = { added: "Added", removed: "Removed", kept: "Kept" }
+
+/** At most this many names of the symbols of a link, then "+2" */
+const LINK_SYMBOLS = 3
+
+/** A link of a file in its popover: the other file, the names it links on, where the first one is used */
+export interface LinkEntry {
+  readonly key: string
+  /** The other file: a click selects it */
+  readonly path: string
+  /** Its name, "Cache.kt" */
+  readonly name: string
+  /** "get, Cache · Reader.kt:6": the names and the line of the first use, in the file that uses */
+  readonly symbols: string
+  readonly state: LinkState
+  /** "Added", "Removed", "Kept" */
+  readonly stateWord: string
+}
+
+/** The words of the badges of a file row */
+export interface FileBadges {
+  /** "uses 2", "used by 1": the links after the commits; null without one */
+  readonly uses: string | null
+  readonly usedBy: string | null
+  /** "+1 new": the links it uses that the commits added */
+  readonly newLinks: string | null
+  /** The links it uses, then those that use it, a removed one too */
+  readonly usesLinks: readonly LinkEntry[]
+  readonly usedByLinks: readonly LinkEntry[]
+  /**
+   * "breaks 3": the uses left outside the change of the API it removes or changes; "breaks 3+" and "breaks ?" where Rust
+   * says the count is a lower bound, so a 0 never reads as safe
+   */
+  readonly breaks: { readonly label: string; readonly title: string; readonly tone: "warning" | "muted" } | null
+  /** "no test": a source file changed while none of its tests did */
+  readonly untested: string | null
+  /** "same edit ×4", the edit, and the other files that get it */
+  readonly sameEdit: { readonly label: string; readonly edit: string; readonly files: readonly string[] } | null
+  /** "uses 1, +1 new, breaks 3, no test": the badges in words, for the description of the row */
+  readonly description: string
+}
+
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1)
+}
+
+function linkEntry(link: FileLink, other: string): LinkEntry {
+  const names = link.symbols.slice(0, LINK_SYMBOLS).map(symbol => symbol.name)
+  const more = link.symbols.length - names.length
+  const first = link.symbols[0]
+  const site = first === undefined ? "" : ` · ${fileName(link.from)}:${first.line}`
+  return {
+    key: `${link.from}\n${link.to}`,
+    path: other,
+    name: fileName(other),
+    symbols: `${names.join(", ")}${more > 0 ? ` +${more}` : ""}${site}`,
+    state: link.state,
+    stateWord: LINK_STATE_WORDS[link.state],
+  }
+}
+
+/** "ProjectManager → ProjectManagerEx": the first line the edit removes and the first it adds */
+export function formatRepeatedEdit(group: RepeatedEditGroup): string {
+  const removed = group.removed[0]
+  const added = group.added[0]
+  if (removed !== undefined && added !== undefined) {
+    return `${removed} → ${added}`
+  }
+  return removed === undefined ? `+ ${added ?? ""}` : `− ${removed}`
+}
+
+function breaksBadge(file: FileFacts): FileBadges["breaks"] {
+  if (file.breaksComplete) {
+    return file.breaks === 0 ? null : { label: `breaks ${file.breaks}`, title: `${formatUses(file.breaks)} left outside the change`, tone: "warning" }
+  }
+  if (file.breaks === 0) {
+    return { label: "breaks ?", title: "The uses left outside the change are unknown, or their count is incomplete", tone: "muted" }
+  }
+  return { label: `breaks ${file.breaks}+`, title: `At least ${formatUses(file.breaks)} left outside the change: the count is incomplete`, tone: "warning" }
+}
+
+function formatUses(count: number): string {
+  return count === 1 ? "1 use" : `${count} uses`
+}
+
+/** The badges of each file row, by its path; a file with none is not listed */
+export function presentFileBadges(facts: ReviewFacts): ReadonlyMap<string, FileBadges> {
+  const badges = new Map<string, FileBadges>()
+  for (const file of facts.files) {
+    const usesLinks = facts.links.filter(link => link.from === file.path).map(link => linkEntry(link, link.to))
+    const usedByLinks = facts.links.filter(link => link.to === file.path).map(link => linkEntry(link, link.from))
+    const group = file.repeatedEdit === null ? undefined : facts.repeatedEdits[file.repeatedEdit]
+    const entry: Omit<FileBadges, "description"> = {
+      uses: file.uses === 0 ? null : `uses ${file.uses}`,
+      usedBy: file.usedBy === 0 ? null : `used by ${file.usedBy}`,
+      newLinks: file.newLinks === 0 ? null : `+${file.newLinks} new`,
+      usesLinks,
+      usedByLinks,
+      breaks: breaksBadge(file),
+      untested: file.untested ? "no test" : null,
+      sameEdit: group === undefined ? null : { label: `same edit ×${group.files.length}`, edit: formatRepeatedEdit(group), files: group.files.filter(path => path !== file.path) },
+    }
+    if (usesLinks.length > 0 || usedByLinks.length > 0 || entry.breaks !== null || entry.untested !== null || entry.sameEdit !== null) {
+      const words = [entry.uses, entry.newLinks, entry.usedBy, entry.breaks?.label, entry.sameEdit?.label, entry.untested]
+      badges.set(file.path, { ...entry, description: words.filter(word => word != null).join(", ") })
+    }
+  }
+  return badges
+}
+
+/** The dependency changes of the build files of a directory row */
+export interface DependencyBadge {
+  /** "+2 deps −1 ~1", "new module" */
+  readonly label: string
+  /** One line per change: "Added module intellij.platform.x", "Changed crate serde 1.0.1 → 1.0.2" */
+  readonly lines: readonly string[]
+}
+
+const DEPENDENCY_KIND_WORDS: Readonly<Record<DependencyKind, string>> = {
+  newModule: "module",
+  module: "module",
+  library: "library",
+  plugin: "plugin",
+  content: "content module",
+  crate: "crate",
+  package: "package",
+}
+
+const CHANGE_WORDS: Readonly<Record<DependencyChangeKind, string>> = { added: "Added", removed: "Removed", changed: "Changed" }
+
+/** "Changed crate serde 1.0.1 → 1.0.2 (dev)": what one change does */
+export function formatDependencyChange(change: DependencyChange): string {
+  if (change.kind === "newModule") {
+    return `${change.change === "removed" ? "Deleted" : "New"} module ${change.name}`
+  }
+  let version = ""
+  if (change.versionBefore !== null && change.versionAfter !== null && change.versionBefore !== change.versionAfter) {
+    version = ` ${change.versionBefore} → ${change.versionAfter}`
+  } else if ((change.versionAfter ?? change.versionBefore) !== null) {
+    version = ` ${change.versionAfter ?? change.versionBefore}`
+  }
+  let scope = ""
+  if (change.scopeBefore !== null && change.scopeBefore !== change.scope) {
+    scope = ` (${change.scopeBefore} → ${change.scope})`
+  } else if (change.scope !== "main") {
+    scope = ` (${change.scope})`
+  }
+  return `${CHANGE_WORDS[change.change]} ${DEPENDENCY_KIND_WORDS[change.kind]} ${change.name}${version}${scope}`
+}
+
+/** The badge of the dependency changes of a module: "+2 deps −1 ~1", "new module"; null for none */
+export function presentDependencyBadge(changes: readonly DependencyChange[]): DependencyBadge | null {
+  if (changes.length === 0) {
+    return null
+  }
+  const parts: string[] = []
+  const modules = changes.filter(change => change.kind === "newModule")
+  if (modules.some(change => change.change === "added")) {
+    parts.push("new module")
+  }
+  if (modules.some(change => change.change === "removed")) {
+    parts.push("deleted module")
+  }
+  const entries = changes.filter(change => change.kind !== "newModule")
+  const counts = [
+    ["+", entries.filter(change => change.change === "added").length],
+    ["−", entries.filter(change => change.change === "removed").length],
+    ["~", entries.filter(change => change.change === "changed").length],
+  ] as const
+  const shown = counts.filter(([, count]) => count > 0)
+  if (shown.length > 0) {
+    const [sign, first] = shown[0]!
+    parts.push([`${sign}${first} ${first === 1 ? "dep" : "deps"}`, ...shown.slice(1).map(([mark, count]) => `${mark}${count}`)].join(" "))
+  }
+  return { label: parts.join(" · "), lines: changes.map(formatDependencyChange) }
 }
 
 /** The toast of Mark Reviewed: "Marked auth reviewed", or that it was already */

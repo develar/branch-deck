@@ -48,8 +48,8 @@ export interface RangeReviewProps {
   scopeTop?: ReactNode
   /** Above the heading of a shown commit: the card of the review plan in "Since Your Review" */
   commitTop?: ReactNode
-  /** The paths in the order the files show, flat (the dependency order of the review plan); the tree without it */
-  fileOrder?: readonly string[] | null
+  /** The facts of the review plan of the scope: the badges of the files, the Mechanical group */
+  reviewFacts?: CommitReviewProps["reviewFacts"]
 }
 
 /**
@@ -74,7 +74,7 @@ export function RangeReview({
   commitMenu,
   scopeTop,
   commitTop,
-  fileOrder,
+  reviewFacts,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -103,7 +103,7 @@ export function RangeReview({
         neighbours={neighbours}
         sidebarTop={single ? undefined : <CommitColumn items={items} selected={selected} onSelect={onSelect} commitMenu={commitMenu} />}
         filesHeader={filesHeader}
-        fileOrder={fileOrder}
+        reviewFacts={reviewFacts}
         codeTop={
           shown?.kind === "commit" ? (
             <>
