@@ -228,7 +228,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should resolve conflicts by words in the global config, and say where the repository's own value wins`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
 - Diffs & Merge, "Review": "Review plan (experimental)", the git key `branchdeck.reviewExperimental`, on by default:
-  Mark Reviewed, Since Your Review, the API & Risk card and the order by dependencies in the branch review
+  Mark Reviewed, Since Your Review, the Review Summary card and the badges of the files in the branch review
   ([Review Plan](../branch/review-plan.spec.md)). The page reads it with "Resolve conflicts by words" in one
   `get_repository_config`, and the switch behaves as that one: the global config for every repository, the lines of
   where the value comes from, a repository's own `.git/config` value with "Use Global" (or "Use Default"), the

@@ -32,6 +32,7 @@ targets:
   - ../../src/lib/file-actions.ts
   - ../../src/hooks/useReviewPlan.ts
   - ../../src/hooks/useBranchReview.ts
+  - ../../src/hooks/useSelectReviewFile.ts
   - ../../src/presenters/review-plan.ts
   - ../../src/components/review/ReviewPlanCard.tsx
   - ../../src/components/review/BranchReview.tsx
@@ -64,7 +65,8 @@ changed without its tests. Then the dependency changes: the module, library, plu
 commits add to, remove from or change in the build files, and the build files they add or delete. Then the order of
 the files for `bd`: a file that declares what another uses before it, a test right after its subject. The review
 window keeps the tree of the files: each row shows its links and its risk, and the mechanical files fold into one
-group at the end.
+group at the end. Above the diffs, the Review Summary card leads with what can break, then the dependency changes,
+the repeated edits and the new API.
 
 ## Goals
 
@@ -453,18 +455,43 @@ group at the end.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
   [@test] ../../src/lib/range-review.test.ts (`offers no scope for a branch never marked, nor when nothing was added or rewritten`, `marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope`, `keeps the plain range of the commits added on top, and the column of one new commit`)
-- The API & Risk card must head the diffs of a scope, and in "Since Your Review" also a shown commit above its heading
-  (a rewritten commit shows its whole diff, the card what it changes against its reviewed version): the summary, what changed since the review (a rewritten commit
-  with the lines per path it changes against its reviewed version), the API in the order Rust ranked it with its
-  kind, `path:line`, the parts that changed, the forms before and after of a removal or a change and the usages, the
-  files with used API removed or changed or `untested`, with why, and the `index_note` when the usages are missing.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and keep the files in the tree`)
+- The Review Summary card must head the diffs of a scope, and in "Since Your Review" also a shown commit above its
+  heading (a rewritten commit shows its whole diff, the card what it changes against its reviewed version). Its
+  subtitle must give the counts, what can break first: "1 possible break · 1 dependency change · 1 new link between
+  modules · 1 repeated edit · 2 new declarations", or "No possible break". Then "Since your review" as before (a
+  rewritten commit with the lines per path it changes against its reviewed version), and the `index_note` last when
+  the usages are missing.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, with what it changes against its reviewed version`)
-  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `words the usages inside and outside the change, a cut answer as more, none when unknown`, `keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change`, `raises only the risky files, in Rust's order, with the usages and the missing test`, `sums the card up in its title`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `sums the card up in its title, what can break first`)
+- "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless every use is
+  updated in this change: its kind, its name, `path:line`, the parts that changed, the form before and the form after
+  on lines of their own, the uses left outside ("3 uses left outside") with the first sites as `path:line`, and the
+  uses updated in this change. An entry with `usages` null says "The uses are unknown". An entry whose count is not
+  `complete` says "At least N uses left outside", or "No use found outside, the count is incomplete" at 0. Only the
+  entries with a `complete` count and no use outside fold into one collapsed line, "12 API changes, every use updated
+  in this change": an unknown or incomplete count never reads as safe. An addition is not listed there.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
+  [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0`)
+- "Dependencies" must list the dependency changes per build file in Rust's order, under the module and the path of
+  the build file: a changed version as `1.0.1 → 1.0.2`, a new or deleted module. Under them it must list the links
+  the commits added between the files of two modules (`Reader.kt → Cache.kt`, with the names and the line of the
+  first use). "Repeated Edits" must list one line per group, "Same edit in 3 files:" with the edit and its files, and
+  "New API" the added declarations per file. Both start collapsed.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../src/presenters/review-plan.test.ts (`groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules`, `words each repeated edit with its files, and the new API per file in the order of its first declaration`)
+- A click on an entry of the card must select its file in the review, as a link of a badge does: the file that
+  declares an API (by its old path too), the build file of a module, the file that uses of a link, a file of a
+  repeated edit, a file of the new API. A filter that hides the file is dropped as for a badge.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
 - The files must stay in the tree, in tree order, in All Changes and in "Since Your Review" as one range: the plan
   adds badges and the Mechanical group, and offers no other order. A commit of the column shows its plain tree.
   The facts apply once the plan of the shown scope is read, not while the next one is read.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the API & Risk card with the fan-in, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
 - A file row must show `uses N` and `used by M`, the links among the changed files after the commits, with `+K new`
   for the links it uses that the commits added. Its popover must list each link it uses, then each link that uses it,
   a removed one too: the other file, the names and the line of the first use (`Cache, get · Reader.kt:3`), and the
@@ -520,10 +547,13 @@ group at the end.
 - The review window, flag on: **Mark Reviewed** in the title bar → toast "Marked plan reviewed" ("plan was already
   marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
   commit", "read the cache twice  New".
-- The card **API & Risk**, "3 API changes · 3 risky files": `Changed helper src/Store.kt:36 parameters 3 usages`, under
-  it `fun helper(value:Int) → fun helper(value:Int, scale:Int)`; `Added Cache src/b/Cache.kt:3`; risky `src/Store.kt
-  An API used in 3 places · No test changed`; "Since your review: 1 new · 1 rewritten", under it "Rewritten scale the helper: src/Store.kt +1 −1"; "No usages: accio has no index
-  of this repository"; "Cannot read the review plan: …".
+- The card **Review Summary**, "1 possible break · 2 new declarations": "Since your review: 1 new · 1 rewritten", under
+  it "Rewritten scale the helper: src/Store.kt +1 −1"; under Possible Breakage `Changed helper src/Store.kt:36
+  parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and
+  "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9"; without an index "The uses are unknown"; "1 API change, every
+  use updated in this change"; under Dependencies `b src/b/b.iml` "New module b" and "New links between modules
+  Reader.kt → Cache.kt"; collapsed "Repeated Edits 1" and "New API 2"; "No usages: accio has no index of this
+  repository"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` `uses 1 +1 new` `same edit ×3` `no test`; its popover "Uses: Cache.kt Added, Cache,
   get · Reader.kt:3"; `Store.kt` `breaks 2`, or `breaks 2+` and `breaks ?` for a lower bound; the directory `b`
   `new module`, its tooltip "New module b"; last, the collapsed `Mechanical (2)` with `Build files (1)`

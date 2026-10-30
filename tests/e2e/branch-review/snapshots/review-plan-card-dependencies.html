@@ -1,0 +1,108 @@
+<section aria-label="Review Summary" class="flex max-h-72 shrink-0 flex-col gap-2 overflow-y-auto border-b border-border px-4 py-3 text-sm" data-testid="review-plan-card">
+  <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+    <span class="truncate">
+      Review Summary
+    </span>
+    <span class="ml-auto font-normal">
+      <span class="flex items-center gap-1.5" data-testid="review-plan-summary">
+        No possible break · 1 dependency change · 1 new link between modules · 1 repeated edit · 2 new declarations
+      </span>
+    </span>
+  </div>
+  <div class="flex flex-col gap-1" data-testid="review-plan-breakage">
+    <div class="flex flex-col gap-1" data-closed="" data-slot="collapsible" data-testid="review-plan-updated">
+      <button aria-expanded="false" class="group flex min-w-0 items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-slot="collapsible-trigger" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
+        <span class="truncate">
+          1 API change, every use updated in this change
+        </span>
+      </button>
+    </div>
+  </div>
+  <div class="flex flex-col gap-1" data-testid="review-plan-dependencies">
+    <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span class="truncate">
+        Dependencies
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-col" data-manifest="src/b/b.iml" data-testid="review-plan-dependency-module">
+      <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/b/b.iml" data-testid="review-plan-file" title="src/b/b.iml" type="button">
+        <span class="font-medium">
+          b
+        </span>
+        <span class="text-xs text-muted-foreground">
+          src/b/b.iml
+        </span>
+      </button>
+      <ul class="flex flex-col pl-3 text-xs">
+        <li class="truncate" data-change="added" data-testid="review-plan-dependency" title="New module b">
+          New module b
+        </li>
+      </ul>
+    </div>
+    <div class="flex min-w-0 flex-col">
+      <span class="text-xs text-muted-foreground">
+        New links between modules
+      </span>
+      <ul class="flex flex-col pl-3">
+        <li class="flex min-w-0" data-from="src/a/Reader.kt" data-testid="review-plan-module-link" data-to="src/b/Cache.kt">
+          <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/a/Reader.kt" data-testid="review-plan-file" title="src/a/Reader.kt → src/b/Cache.kt" type="button">
+            <span>
+              Reader.kt → Cache.kt
+            </span>
+            <span class="text-xs text-muted-foreground">
+              Cache, get · Reader.kt:3
+            </span>
+          </button>
+        </li>
+      </ul>
+    </div>
+  </div>
+  <div class="flex flex-col gap-1" data-open="" data-slot="collapsible" data-testid="review-plan-repeated">
+    <button aria-controls="base-ui-[ID]" aria-expanded="true" class="group flex min-w-0 items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-panel-open="" data-slot="collapsible-trigger" tabindex="0" type="button">
+      <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
+      <span class="truncate">
+        Repeated Edits
+      </span>
+      <span class="tabular-nums">
+        1
+      </span>
+    </button>
+    <div class="pl-4.5" data-open="" data-slot="collapsible-content" id="base-ui-[ID]" style="--collapsible-panel-height: auto;  --collapsible-panel-width: auto">
+      <ul aria-label="Repeated edits" class="flex flex-col gap-1">
+        <li class="flex min-w-0 flex-col" data-testid="review-plan-repeated-edit">
+          <span class="flex min-w-0 items-baseline gap-1.5">
+            <span class="shrink-0">
+              Same edit in 3 files:
+            </span>
+            <code class="truncate font-mono text-xs" title="+ // read by the review plan of the branch">
+              + // read by the review plan of the branch
+            </code>
+          </span>
+          <span class="flex flex-wrap gap-x-2 pl-3 text-xs">
+            <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/a/Reader.kt" data-testid="review-plan-repeated-file" title="src/a/Reader.kt" type="button">
+              Reader.kt
+            </button>
+            <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/b/Cache.kt" data-testid="review-plan-repeated-file" title="src/b/Cache.kt" type="button">
+              Cache.kt
+            </button>
+            <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/Store.kt" data-testid="review-plan-repeated-file" title="src/Store.kt" type="button">
+              Store.kt
+            </button>
+          </span>
+        </li>
+      </ul>
+    </div>
+  </div>
+  <div class="flex flex-col gap-1" data-closed="" data-slot="collapsible" data-testid="review-plan-new-api">
+    <button aria-expanded="false" class="group flex min-w-0 items-center gap-1 rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-slot="collapsible-trigger" tabindex="0" type="button">
+      <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
+      <span class="truncate">
+        New API
+      </span>
+      <span class="tabular-nums">
+        2
+      </span>
+    </button>
+  </div>
+</section>

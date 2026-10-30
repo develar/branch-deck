@@ -8,11 +8,13 @@ import {
   formatPlanSummary,
   formatRewrittenChanges,
   formatSinceReview,
-  formatUsages,
-  presentApiChanges,
+  formatOutsideUses,
+  presentBreakage,
   presentDependencyBadge,
+  presentDependencyChanges,
   presentFileBadges,
-  presentRiskyFiles,
+  presentNewApi,
+  presentRepeatedEdits,
 } from "@/presenters/review-plan"
 
 function paired(state: PairedCommit["state"], id: string): PairedCommit {
@@ -61,23 +63,58 @@ describe("the words of the commits since the review", () => {
   })
 })
 
-describe("the API of the card", () => {
-  it("words the usages inside and outside the change, a cut answer as more, none when unknown", () => {
-    expect(formatUsages(usages(1, 2))).toBe("3 usages")
-    expect(formatUsages(usages(0, 1))).toBe("1 usage")
-    expect(formatUsages({ ...usages(0, 100), complete: false })).toBe("100+ usages")
-    expect(formatUsages(null)).toBeNull()
+describe("the possible breakage of the card", () => {
+  it("words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown", () => {
+    expect(formatOutsideUses(usages(1, 2))).toBe("2 uses left outside")
+    expect(formatOutsideUses(usages(0, 1))).toBe("1 use left outside")
+    expect(formatOutsideUses({ ...usages(0, 100), complete: false })).toBe("At least 100 uses left outside")
+    expect(formatOutsideUses({ ...usages(3, 0), complete: false })).toBe("No use found outside, the count is incomplete")
+    expect(formatOutsideUses(null)).toBe("The uses are unknown")
   })
 
-  it("keeps the order Rust ranked, with the kind, the place, the parts that changed and the forms of a removal or a change", () => {
-    const entries = presentApiChanges([
-      change({ kind: "removed", name: "open", key: "a.open", path: "src/a/Api.kt", line: 3, before: "fun open(path:String)", usages: usages(0, 12) }),
-      change({ changes: ["parameters", "reach"], before: "fun helper(value:Int)", after: "fun helper(value:Int, scale:Int)", usages: usages(1, 2) }),
+  it("lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites", () => {
+    const { entries, updated } = presentBreakage([
+      change({
+        kind: "removed",
+        name: "open",
+        key: "a.open",
+        path: "src/a/Api.kt",
+        line: 3,
+        before: "fun open(path:String)",
+        usages: { inside: 0, outside: 7, outsideSites: [1, 2, 3, 4, 5].map(line => ({ path: "src/b/Client.kt", line })), complete: true },
+      }),
+      change({
+        changes: ["parameters", "reach"],
+        before: "fun helper(value:Int)",
+        after: "fun helper(value:Int, scale:Int)",
+        usages: {
+          ...usages(1, 2),
+          outsideSites: [
+            { path: "src/Base.kt", line: 1 },
+            { path: "src/Uses.kt", line: 4 },
+          ],
+        },
+      }),
       change({ kind: "added", name: "Cache", key: "b.Cache", path: "src/b/Cache.kt", line: 3, after: "class Cache" }),
     ])
+    expect(updated).toBeNull()
     expect(entries.map(({ key: _key, ...entry }) => entry)).toEqual([
-      { name: "open", kind: "Removed", tone: "destructive", location: "src/a/Api.kt:3", changed: null, before: "fun open(path:String)", after: null, usages: "12 usages" },
       {
+        path: "src/a/Api.kt",
+        name: "open",
+        kind: "Removed",
+        tone: "destructive",
+        location: "src/a/Api.kt:3",
+        changed: null,
+        before: "fun open(path:String)",
+        after: null,
+        outside: "7 uses left outside",
+        inside: null,
+        sites: ["src/b/Client.kt:1", "src/b/Client.kt:2", "src/b/Client.kt:3", "src/b/Client.kt:4", "src/b/Client.kt:5"],
+        moreSites: "+2 more",
+      },
+      {
+        path: "src/Store.kt",
         name: "helper",
         kind: "Changed",
         tone: "warning",
@@ -85,34 +122,92 @@ describe("the API of the card", () => {
         changed: "parameters, visibility",
         before: "fun helper(value:Int)",
         after: "fun helper(value:Int, scale:Int)",
-        usages: "3 usages",
+        outside: "2 uses left outside",
+        inside: "1 use updated in this change",
+        sites: ["src/Base.kt:1", "src/Uses.kt:4"],
+        moreSites: null,
       },
-      { name: "Cache", kind: "Added", tone: "info", location: "src/b/Cache.kt:3", changed: null, before: null, after: null, usages: null },
     ])
-    expect(new Set(entries.map(entry => entry.key)).size).toBe(3)
+  })
+
+  it("folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0", () => {
+    const { entries, updated } = presentBreakage([
+      change({ name: "unknown", key: "unknown", usages: null }),
+      change({ name: "constructor", key: "constructor", changes: ["constructors"], usages: { ...usages(2, 0), complete: false } }),
+      change({ name: "renamed", key: "renamed", kind: "removed", usages: usages(3, 0) }),
+      change({ name: "unused", key: "unused", usages: usages(0, 0) }),
+    ])
+    expect(entries.map(entry => [entry.name, entry.outside])).toEqual([
+      ["unknown", "The uses are unknown"],
+      ["constructor", "No use found outside, the count is incomplete"],
+    ])
+    expect(updated?.label).toBe("2 API changes, every use updated in this change")
+    expect(updated?.entries.map(entry => entry.name)).toEqual(["renamed", "unused"])
+    expect(presentBreakage([change({ usages: usages(1, 0) })]).updated?.label).toBe("1 API change, every use updated in this change")
+  })
+
+  it("sums the card up in its title, what can break first", () => {
+    const plan = { api: [], dependencies: [], links: [], repeatedEdits: [] }
+    expect(formatPlanSummary(plan)).toBe("No possible break")
+    expect(
+      formatPlanSummary({
+        api: [change({ usages: null }), change({ usages: usages(1, 0) }), change({ kind: "added", after: "class Cache" }), change({ kind: "added", name: "get" })],
+        dependencies: [dependency({}), dependency({ name: "b" })],
+        links: [
+          { ...link("src/a/Reader.kt", "src/b/Cache.kt", "added"), crossModule: true },
+          { ...link("src/a/A.kt", "src/b/B.kt", "kept"), crossModule: true },
+        ],
+        repeatedEdits: [{ files: ["a", "b", "c"], removed: [], added: ["// a line of the edit"] }],
+      }),
+    ).toBe("1 possible break · 2 dependency changes · 1 new link between modules · 1 repeated edit · 2 new declarations")
   })
 })
 
-describe("the risky files of the card", () => {
-  it("raises only the risky files, in Rust's order, with the usages and the missing test", () => {
-    expect(
-      presentRiskyFiles([
-        facts({ path: "src/Store.kt", breaks: 3, untested: true }),
-        facts({ path: "src/a/Api.kt", breaks: 1 }),
-        facts({ path: "src/b/Cache.kt", untested: true }),
-        facts({ path: "src/a/Reader.kt" }),
-      ]),
-    ).toEqual([
-      { path: "src/Store.kt", reasons: "An API used in 3 places · No test changed" },
-      { path: "src/a/Api.kt", reasons: "An API used in 1 place" },
-      { path: "src/b/Cache.kt", reasons: "No test changed" },
+describe("the dependencies, the repeated edits and the new API of the card", () => {
+  it("groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules", () => {
+    const section = presentDependencyChanges({
+      dependencies: [
+        dependency({ manifest: "crates/x/Cargo.toml", module: "x", kind: "crate", name: "serde", change: "changed", versionBefore: "1.0.1", versionAfter: "1.0.2" }),
+        dependency({ manifest: "crates/x/Cargo.toml", module: "x", kind: "crate", name: "toml", change: "added", versionAfter: "0.8" }),
+        dependency({ manifest: "src/b/b.iml", module: "b", kind: "newModule", name: "b", change: "added" }),
+      ],
+      links: [
+        { ...link("src/a/Reader.kt", "src/b/Cache.kt", "added", ["Cache", "get"]), crossModule: true },
+        { ...link("src/a/A.kt", "src/b/B.kt", "removed"), crossModule: true },
+        link("src/a/A.kt", "src/a/C.kt", "added"),
+      ],
+    })
+    expect(section.modules.map(module => ({ ...module, lines: module.lines.map(line => [line.change, line.text]) }))).toEqual([
+      {
+        manifest: "crates/x/Cargo.toml",
+        module: "x",
+        lines: [
+          ["changed", "Changed crate serde 1.0.1 → 1.0.2"],
+          ["added", "Added crate toml 0.8"],
+        ],
+      },
+      { manifest: "src/b/b.iml", module: "b", lines: [["added", "New module b"]] },
+    ])
+    expect(section.links.map(({ key: _key, ...entry }) => entry)).toEqual([
+      { from: "src/a/Reader.kt", to: "src/b/Cache.kt", label: "Reader.kt → Cache.kt", symbols: "Cache, get · Reader.kt:3" },
     ])
   })
 
-  it("sums the card up in its title", () => {
-    expect(formatPlanSummary({ api: [change({})], files: [facts({ breaks: 2 }), facts({ path: "b", untested: true }), facts({ path: "c" })] })).toBe("1 API change · 2 risky files")
-    expect(formatPlanSummary({ api: [], files: [facts({})] })).toBe("No API changes")
-    expect(formatPlanSummary({ api: [change({}), change({})], files: [facts({ untested: true })] })).toBe("2 API changes · 1 risky file")
+  it("words each repeated edit with its files, and the new API per file in the order of its first declaration", () => {
+    expect(presentRepeatedEdits([{ files: ["src/A.kt", "src/B.kt", "src/C.kt"], removed: ["ProjectManager"], added: ["ProjectManagerEx"] }])).toEqual([
+      { key: "0", label: "Same edit in 3 files", edit: "ProjectManager → ProjectManagerEx", files: ["src/A.kt", "src/B.kt", "src/C.kt"] },
+    ])
+    expect(
+      presentNewApi([
+        change({ kind: "added", name: "Cache", path: "src/b/Cache.kt" }),
+        change({ kind: "changed", name: "helper" }),
+        change({ kind: "added", name: "Reader", path: "src/a/Reader.kt" }),
+        change({ kind: "added", name: "get", path: "src/b/Cache.kt" }),
+      ]),
+    ).toEqual([
+      { path: "src/b/Cache.kt", names: "Cache, get" },
+      { path: "src/a/Reader.kt", names: "Reader" },
+    ])
   })
 })
 

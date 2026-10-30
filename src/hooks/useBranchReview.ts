@@ -47,7 +47,7 @@ export interface BranchReviewSource {
   readonly wholeStack?: boolean
   /**
    * The review plan is on for the repository (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md): Mark
-   * Reviewed, "Since Your Review", the API & Risk card, the badges of the files and their Mechanical group; off, the
+   * Reviewed, "Since Your Review", the Review Summary card, the badges of the files and their Mechanical group; off, the
    * review is as it is without them
    */
   readonly reviewExperimental?: boolean

@@ -94,28 +94,63 @@ async function markReviewed(window: Page): Promise<void> {
 }
 
 test.describe("The review plan in the branch review", () => {
-  test("should show the API & Risk card with the fan-in, and keep the files in the tree", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
-    await syncAndWaitForBranches()
-    await openSubWindowPage(page, await openReviewWindow(page, "plan"))
-    await expect(page.getByTestId("review-file-header").first()).toBeVisible()
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    const { store, cache } = planRows(window)
 
-    // the card above the diffs of All Changes: the changed `helper` first, with its usages at the head from accio
-    const card = page.getByTestId("review-plan-card")
-    await expect(card.getByTestId("review-plan-summary")).toHaveText(/^\d+ API changes · 3 risky files$/)
-    const helper = card.getByTestId("review-plan-api-entry").first()
+    // the card above the diffs of All Changes: the changed `helper` with its 3 uses outside the change, from accio
+    const card = window.getByTestId("review-plan-card")
+    await expect(card.getByTestId("review-plan-summary")).toHaveText(/^1 possible break · \d+ new declarations$/)
+    const helper = card.getByTestId("review-plan-breakage-entry")
+    await expect(helper).toHaveCount(1)
     await expect(helper).toHaveAttribute("data-name", "helper")
     await expect(helper).toContainText("Changed")
     await expect(helper).toContainText("src/Store.kt:")
-    await expect(helper.getByTestId("review-plan-fan-in")).toHaveText("3 usages")
-    // the risky files: the used API without its test first
-    await expect(card.getByTestId("review-plan-risk-entry").first()).toHaveAttribute("data-path", "src/Store.kt")
-    await expect(card.getByTestId("review-plan-risk-entry").first()).toContainText("An API used in 3 places · No test changed")
+    await expect(helper.getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
+    // the forms before and after on their own lines, then the uses left outside
+    await expect(helper.getByTestId("review-plan-before")).toContainText("value:Int")
+    await expect(helper.getByTestId("review-plan-before")).not.toContainText("scale")
+    await expect(helper.getByTestId("review-plan-after")).toContainText("scale:Int")
+    for (const site of ["src/Base.kt:1", "src/Uses.kt:4", "src/main/App.kt:9"]) {
+      await expect(helper.getByTestId("review-plan-sites")).toContainText(site)
+    }
+    // the new API starts collapsed, per file
+    const newApi = card.getByTestId("review-plan-new-api")
+    await expect(newApi.getByTestId("review-plan-new-api-file")).toHaveCount(0)
     await captureHtmlSnapshot(card, "review-plan-card")
 
+    // an entry selects its file
+    await helper.getByTestId("review-plan-breakage-file").click()
+    await expect(store).toHaveAttribute("aria-selected", "true")
+    await newApi.getByRole("button", { name: /New API/ }).click()
+    await expect
+      .poll(() => newApi.getByTestId("review-plan-new-api-file").evaluateAll(files => files.map(file => file.getAttribute("data-path"))))
+      .toEqual(["src/a/Reader.kt", "src/b/Cache.kt"])
+    await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
+    await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+
     // the files stay in the tree: the directories first, no order to choose
-    await expect.poll(() => reviewedPaths(page)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
-    await expect(page.getByRole("group", { name: "Order" })).toHaveCount(0)
+    await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
+    await expect(window.getByRole("group", { name: "Order" })).toHaveCount(0)
+  })
+
+  test("should keep an API whose uses are unknown under Possible breakage, and say why", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    // every query of the index fails: the uses are unknown, never a safe 0
+    writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ error: "no index of the repository" }))
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+
+    const card = window.getByTestId("review-plan-card")
+    await expect(card.getByTestId("review-plan-summary")).toHaveText(/^1 possible break/)
+    const helper = card.getByTestId("review-plan-breakage-entry")
+    await expect(helper).toHaveAttribute("data-name", "helper")
+    await expect(helper.getByTestId("review-plan-outside")).toHaveText("The uses are unknown")
+    await expect(card.getByTestId("review-plan-updated")).toHaveCount(0)
+    await expect(card.getByTestId("review-plan-index-note")).toContainText("No usages:")
+    await expect(planRows(window).store.getByTestId("file-breaks-badge")).toHaveText("breaks ?")
   })
 
   test("should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -244,6 +279,11 @@ test.describe("The review plan in the branch review", () => {
       },
       1704124800,
     )
+    // the only use of `helper` is in Base.kt, which this change updates
+    writeFileSync(
+      path.join(repo.path, ".git", "branch-deck-accio.json"),
+      JSON.stringify({ references: { helper: [{ file: "src/Base.kt", line: 1, column: 31, snippet: "helper(value)", kind: "call" }] } }),
+    )
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const tree = window.getByRole("tree", { name: "Changed files" })
 
@@ -277,6 +317,35 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "src/b/b.iml" })).toHaveAttribute("aria-selected", "true")
     await expect(tree.getByRole("treeitem", { name: "Build files (1)" })).toBeVisible()
     await expect(tree.getByRole("treeitem", { name: "Whitespace only (1)" })).toBeVisible()
+
+    // the card: no possible break, `helper` folded with every use updated; the new module and the link into it; the
+    // same edit, collapsed
+    const card = window.getByTestId("review-plan-card")
+    await expect(card.getByTestId("review-plan-summary")).toHaveText(
+      /^No possible break · 1 dependency change · 1 new link between modules · 1 repeated edit · \d+ new declarations$/,
+    )
+    await expect(card.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
+    await expect(card.getByTestId("review-plan-updated")).toContainText("1 API change, every use updated in this change")
+    const dependencies = card.getByTestId("review-plan-dependencies")
+    await expect(dependencies.getByTestId("review-plan-dependency-module")).toHaveAttribute("data-manifest", "src/b/b.iml")
+    await expect(dependencies.getByTestId("review-plan-dependency")).toHaveText("New module b")
+    const moduleLink = dependencies.getByTestId("review-plan-module-link")
+    await expect(moduleLink).toHaveAttribute("data-from", "src/a/Reader.kt")
+    await expect(moduleLink).toContainText("Reader.kt → Cache.kt")
+    const repeated = card.getByTestId("review-plan-repeated")
+    await expect(repeated.getByTestId("review-plan-repeated-edit")).toHaveCount(0)
+    await repeated.getByRole("button", { name: /Repeated Edits/ }).click()
+    const edit = repeated.getByTestId("review-plan-repeated-edit")
+    await expect(edit).toContainText("Same edit in 3 files:")
+    await expect(edit.locator("code")).toHaveText("+ // read by the review plan of the branch")
+    await expect(edit.getByTestId("review-plan-repeated-file")).toHaveText(["Reader.kt", "Cache.kt", "Store.kt"])
+    await captureHtmlSnapshot(card, "review-plan-card-dependencies")
+
+    // a click selects the file of an entry: the link selects Reader, the module its build file in the Mechanical group
+    await moduleLink.getByRole("button").click()
+    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await dependencies.getByTestId("review-plan-file").first().click()
+    await expect(tree.getByRole("treeitem", { name: "src/b/b.iml" })).toHaveAttribute("aria-selected", "true")
   })
 
   test("should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart", async ({ page, setupRepo, syncAndWaitForBranches }) => {

@@ -1,7 +1,8 @@
 // The words of the review plan of a review window (spec/branch/review-plan.spec.md, Status: Experimental): the states
-// of the commits since the user's review, the API the reviewed commits change with the usages of each declaration, and
-// the risky files. Rust pairs the commits, ranks the API and the files and orders them (`review_plan::review_plan_core`);
-// the card only words them in the order Rust sent.
+// of the commits since the user's review, the API the reviewed commits remove or change with the uses left outside
+// the change, the dependency changes, the repeated edits, the new API, and the badges of the files. Rust pairs the
+// commits, ranks the API and the files and decides each fact (`review_plan::review_plan_core`); the card and the tree
+// only word them in the order Rust sent.
 import type {
   ApiChange,
   ApiChangeKind,
@@ -69,18 +70,6 @@ export function formatRewrittenChanges(changes: CommitChanges): string {
   return [...byPath].map(([path, { added, removed }]) => `${path} +${added} −${removed}`).join(", ")
 }
 
-/** "3 usages", "1 usage", "100+ usages" when the index cut its answer, inside and outside the change; null when unknown */
-export function formatUsages(usages: Usages | null): string | null {
-  if (usages === null) {
-    return null
-  }
-  const count = usages.inside + usages.outside
-  if (!usages.complete) {
-    return `${count}+ usages`
-  }
-  return count === 1 ? "1 usage" : `${count} usages`
-}
-
 const KIND_WORDS: Readonly<Record<ApiChangeKind, string>> = { removed: "Removed", changed: "Changed", added: "Added" }
 
 const FORM_WORDS: Readonly<Record<FormChange, string>> = {
@@ -92,73 +81,225 @@ const FORM_WORDS: Readonly<Record<FormChange, string>> = {
   jvm: "Java view",
 }
 
-/** The tone of an entry: a removal may break a use, a change may need one changed, an addition breaks nothing */
-export type ApiTone = "destructive" | "warning" | "info"
+/** The tone of an entry: a removal may break a use, a change may need one changed */
+export type ApiTone = "destructive" | "warning"
 
-/** An entry of the API of the card, as it is worded */
-export interface ApiEntry {
+function formatUses(count: number): string {
+  return count === 1 ? "1 use" : `${count} uses`
+}
+
+/**
+ * Every use of a removed or changed API is updated in this change: Rust counted them all (`complete`) and none is left
+ * outside. An unknown or incomplete count is never this, also at 0
+ */
+function isUpdatedInChange(usages: Usages | null): boolean {
+  return usages !== null && usages.complete && usages.outside === 0
+}
+
+/**
+ * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use found outside, the count is
+ * incomplete", "The uses are unknown" without a count
+ */
+export function formatOutsideUses(usages: Usages | null): string {
+  if (usages === null) {
+    return "The uses are unknown"
+  }
+  if (usages.complete) {
+    return `${formatUses(usages.outside)} left outside`
+  }
+  return usages.outside === 0 ? "No use found outside, the count is incomplete" : `At least ${formatUses(usages.outside)} left outside`
+}
+
+/** An API the commits remove or change, as the card words it */
+export interface BreakageEntry {
   readonly key: string
+  /** The file that declares it: a click selects it */
+  readonly path: string
   readonly name: string
+  /** "Removed", "Changed" */
   readonly kind: string
   readonly tone: ApiTone
   /** "src/Store.kt:34" */
   readonly location: string
   /** "parameters, visibility": the parts of the form that changed, of a change */
   readonly changed: string | null
-  /** The forms before and after, of a removal or a change */
+  /** The forms before and after, each on its own line */
   readonly before: string | null
   readonly after: string | null
-  readonly usages: string | null
+  /** "3 uses left outside" (`formatOutsideUses`) */
+  readonly outside: string
+  /** "2 uses updated in this change"; null for none or an unknown count */
+  readonly inside: string | null
+  /** The first uses left outside, "src/Base.kt:1", then "+4 more" when Rust found more */
+  readonly sites: readonly string[]
+  readonly moreSites: string | null
 }
 
-/** The API of the card in the order Rust ranked it (the most usages first) */
-export function presentApiChanges(api: readonly ApiChange[]): ApiEntry[] {
-  return api.map(change => ({
+/** "Possible breakage" of the card: the API with uses left outside or unknown, and the API whose every use is updated */
+export interface Breakage {
+  /** In the order Rust ranked them: the most uses left outside first */
+  readonly entries: readonly BreakageEntry[]
+  /** "12 API changes, every use updated in this change", and these entries; null for none */
+  readonly updated: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
+}
+
+function breakageEntry(change: ApiChange): BreakageEntry {
+  const usages = change.usages
+  const more = usages === null ? 0 : usages.outside - usages.outsideSites.length
+  return {
     key: `${change.kind}:${change.key}:${change.path}:${change.line}`,
+    path: change.path,
     name: change.name,
     kind: KIND_WORDS[change.kind],
-    tone: change.kind === "removed" ? "destructive" : change.kind === "changed" ? "warning" : "info",
+    tone: change.kind === "removed" ? "destructive" : "warning",
     location: `${change.path}:${change.line}`,
     changed: change.changes.length === 0 ? null : change.changes.map(it => FORM_WORDS[it]).join(", "),
-    // an addition breaks no use: its place says enough, and the form of a new type is only its constructors
-    before: change.kind === "added" ? null : change.before,
-    after: change.kind === "added" ? null : change.after,
-    usages: formatUsages(change.usages),
-  }))
+    before: change.before,
+    after: change.kind === "removed" ? null : change.after,
+    outside: formatOutsideUses(usages),
+    inside: usages === null || usages.inside === 0 ? null : `${formatUses(usages.inside)} updated in this change`,
+    sites: usages?.outsideSites.map(site => `${site.path}:${site.line}`) ?? [],
+    moreSites: more > 0 ? `+${more} more` : null,
+  }
 }
 
-/** A file the card raises: the usages Rust counted of the API it removes or changes, or Rust's `untested` */
-function isRisky(file: FileFacts): boolean {
-  return file.breaks > 0 || file.untested
-}
-
-/** A risky file of the card and why: "Used in 12 places · No test changed" */
-export interface RiskEntry {
-  readonly path: string
-  readonly reasons: string
-}
-
-/** The files the card raises (an API with usages removed or changed, or `untested`), in the order Rust ranked them */
-export function presentRiskyFiles(files: readonly FileFacts[]): RiskEntry[] {
-  return files.filter(isRisky).map(file => {
-    const reasons: string[] = []
-    if (file.breaks > 0) {
-      reasons.push(file.breaks === 1 ? "An API used in 1 place" : `An API used in ${file.breaks} places`)
+/**
+ * The removed and changed API of the card. An entry with a use left outside, or with an unknown or incomplete count,
+ * is listed; the entries whose every use is updated in this change fold into one line. An addition breaks no use
+ */
+export function presentBreakage(api: readonly ApiChange[]): Breakage {
+  const entries: BreakageEntry[] = []
+  const updated: BreakageEntry[] = []
+  for (const change of api) {
+    if (change.kind === "added") {
+      continue
     }
-    if (file.untested) {
-      reasons.push("No test changed")
+    if (isUpdatedInChange(change.usages)) {
+      updated.push(breakageEntry(change))
+    } else {
+      entries.push(breakageEntry(change))
     }
-    return { path: file.path, reasons: reasons.join(" · ") }
+  }
+  const count = updated.length === 1 ? "1 API change" : `${updated.length} API changes`
+  return { entries, updated: updated.length === 0 ? null : { label: `${count}, every use updated in this change`, entries: updated } }
+}
+
+/** A dependency change of a module of the card */
+export interface DependencyLine {
+  readonly key: string
+  readonly change: DependencyChangeKind
+  /** "Changed crate serde 1.0.1 → 1.0.2" (`formatDependencyChange`) */
+  readonly text: string
+}
+
+/** The dependency changes of one build file */
+export interface ModuleDependencies {
+  /** The build file: a click selects it */
+  readonly manifest: string
+  /** "intellij.platform.x", "(root)" */
+  readonly module: string
+  readonly lines: readonly DependencyLine[]
+}
+
+/** A link the commits added between the files of two modules */
+export interface CrossModuleLink {
+  readonly key: string
+  /** The file that uses: a click selects it */
+  readonly from: string
+  readonly to: string
+  /** "Reader.kt → Cache.kt" */
+  readonly label: string
+  /** "Cache, get · Reader.kt:3" */
+  readonly symbols: string
+}
+
+/** "Dependencies" of the card: the changes of each build file, in Rust's order, and the new links between modules */
+export interface DependencySection {
+  readonly modules: readonly ModuleDependencies[]
+  readonly links: readonly CrossModuleLink[]
+}
+
+/** The dependency changes by build file, and the links the commits added across modules */
+export function presentDependencyChanges(plan: Pick<ReviewPlan, "dependencies" | "links">): DependencySection {
+  const modules = new Map<string, { manifest: string; module: string; lines: DependencyLine[] }>()
+  plan.dependencies.forEach((change, index) => {
+    let entry = modules.get(change.manifest)
+    if (entry === undefined) {
+      entry = { manifest: change.manifest, module: change.module, lines: [] }
+      modules.set(change.manifest, entry)
+    }
+    entry.lines.push({ key: `${index}`, change: change.change, text: formatDependencyChange(change) })
   })
+  const links = plan.links
+    .filter(link => link.crossModule && link.state === "added")
+    .map(link => {
+      const { key, symbols } = linkEntry(link, link.to)
+      return { key, from: link.from, to: link.to, label: `${fileName(link.from)} → ${fileName(link.to)}`, symbols }
+    })
+  return { modules: [...modules.values()], links }
 }
 
-/** "2 API changes · 1 risky file", the line of the card's title; "No API changes" */
-export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "files">): string {
-  const api = plan.api.length
-  const risky = plan.files.filter(isRisky).length
-  const parts = [api === 0 ? "No API changes" : api === 1 ? "1 API change" : `${api} API changes`]
-  if (risky > 0) {
-    parts.push(risky === 1 ? "1 risky file" : `${risky} risky files`)
+/** A group of files that get the same edit, as the card words it */
+export interface RepeatedEditEntry {
+  readonly key: string
+  /** "Same edit in 14 files" */
+  readonly label: string
+  /** "ProjectManager → ProjectManagerEx" (`formatRepeatedEdit`) */
+  readonly edit: string
+  /** Its files: a click selects one */
+  readonly files: readonly string[]
+}
+
+/** "Repeated edits" of the card, the most files first as Rust sent them */
+export function presentRepeatedEdits(groups: readonly RepeatedEditGroup[]): RepeatedEditEntry[] {
+  return groups.map((group, index) => ({ key: `${index}`, label: `Same edit in ${group.files.length} files`, edit: formatRepeatedEdit(group), files: group.files }))
+}
+
+/** The public declarations the commits add to one file */
+export interface NewApiFile {
+  /** The file: a click selects it */
+  readonly path: string
+  /** "Cache, get" */
+  readonly names: string
+}
+
+/** "New API" of the card: the added declarations per file, the files in the order of their first declaration */
+export function presentNewApi(api: readonly ApiChange[]): NewApiFile[] {
+  const byPath = new Map<string, string[]>()
+  for (const change of api) {
+    if (change.kind === "added") {
+      const names = byPath.get(change.path) ?? []
+      names.push(change.name)
+      byPath.set(change.path, names)
+    }
+  }
+  return [...byPath].map(([path, names]) => ({ path, names: names.join(", ") }))
+}
+
+function count(n: number, one: string, many: string): string {
+  return n === 1 ? `1 ${one}` : `${n} ${many}`
+}
+
+/**
+ * "2 possible breaks · 3 dependency changes · 1 repeated edit · 4 new declarations", the line of the card's title;
+ * what can break leads, "No possible break" when nothing can
+ */
+export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" | "links" | "repeatedEdits">): string {
+  const breaks = presentBreakage(plan.api).entries.length
+  const crossLinks = plan.links.filter(link => link.crossModule && link.state === "added").length
+  const added = plan.api.filter(change => change.kind === "added").length
+  const parts = [breaks === 0 ? "No possible break" : count(breaks, "possible break", "possible breaks")]
+  if (plan.dependencies.length > 0) {
+    parts.push(count(plan.dependencies.length, "dependency change", "dependency changes"))
+  }
+  if (crossLinks > 0) {
+    parts.push(count(crossLinks, "new link between modules", "new links between modules"))
+  }
+  if (plan.repeatedEdits.length > 0) {
+    parts.push(count(plan.repeatedEdits.length, "repeated edit", "repeated edits"))
+  }
+  if (added > 0) {
+    parts.push(count(added, "new declaration", "new declarations"))
   }
   return parts.join(" · ")
 }
@@ -258,10 +399,6 @@ function breaksBadge(file: FileFacts): FileBadges["breaks"] {
     return { label: "breaks ?", title: "The uses left outside the change are unknown, or their count is incomplete", tone: "muted" }
   }
   return { label: `breaks ${file.breaks}+`, title: `At least ${formatUses(file.breaks)} left outside the change: the count is incomplete`, tone: "warning" }
-}
-
-function formatUses(count: number): string {
-  return count === 1 ? "1 use" : `${count} uses`
 }
 
 /** The badges of each file row, by its path; a file with none is not listed */

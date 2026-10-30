@@ -11,6 +11,7 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
+import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
 import type { CommitFile, DiffRevisions, MechanicalKind } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -61,7 +62,7 @@ export interface CommitReviewProps {
    * "Files 3 of 9" by default, the owner chips of a branch review
    */
   filesHeader?: (count: FilesCount | null) => ReactNode
-  /** Above the diffs: the commit a range shows */
+  /** Above the diffs: the commit a range shows; it selects a changed file with `useSelectReviewFile` */
   codeTop?: ReactNode
   /** What ⌥↑/⌥↓ show next: read once the subject is, so the step is instant */
   neighbours?: readonly DiffSubject[]
@@ -70,7 +71,7 @@ export interface CommitReviewProps {
    * the end of the tree; the plain tree without them
    */
   reviewFacts?: ReviewFacts | null
-  /** Drops `pathFilter`: a file the filter hides is shown when a link of a badge selects it */
+  /** Drops `pathFilter`: a file the filter hides is shown when a link of a badge or of `codeTop` selects it */
   onShowAllPaths?: () => void
 }
 
@@ -124,7 +125,8 @@ export function CommitReview({
   const forgetReveal = useCallback(() => setReveal(null), [])
   const revealHidden = useCallback(
     (path: string) => {
-      const file = commitFiles?.files.find(it => it.path === path)
+      // a removed declaration names the path before a rename
+      const file = commitFiles?.files.find(it => it.path === path) ?? commitFiles?.files.find(it => it.oldPath === path)
       if (file === undefined) {
         return
       }
@@ -140,7 +142,7 @@ export function CommitReview({
         setFilterText("")
       }
       // the parent drops its filter in the same batch: All has no path filter
-      setReveal({ subjectId, path, filterText: hiddenBySearch ? "" : filterText, pathFilterKey: hiddenByOwner ? null : pathFilterKey })
+      setReveal({ subjectId, path: file.path, filterText: hiddenBySearch ? "" : filterText, pathFilterKey: hiddenByOwner ? null : pathFilterKey })
     },
     [commitFiles, pathFilter, pathFilterKey, filterText, onShowAllPaths, subjectId],
   )
@@ -513,7 +515,21 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     [select],
   )
 
-  // the badges of the review plan: a file of a popover is selected as a row of the tree is
+  // a file of a popover or of the card of the review plan is selected as a row of the tree is, by its path or its old
+  // path; one that a filter hides is revealed
+  const selectChangedFile = useCallback(
+    (path: string) => {
+      const file = files.find(it => it.path === path) ?? files.find(it => it.oldPath === path)
+      if (file === undefined) {
+        onRevealHidden(path)
+      } else {
+        selectInTree(file)
+      }
+    },
+    [files, selectInTree, onRevealHidden],
+  )
+
+  // the badges of the review plan
   const badges = useMemo<FileTreeBadges | null>(() => {
     if (reviewFacts === null) {
       return null
@@ -525,16 +541,8 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         dependencies.set(key, badge)
       }
     }
-    const onSelectPath = (path: string) => {
-      const file = files.find(it => it.path === path)
-      if (file === undefined) {
-        onRevealHidden(path)
-      } else {
-        selectInTree(file)
-      }
-    }
-    return { files: presentFileBadges(reviewFacts), dependencies, onSelectPath }
-  }, [reviewFacts, nodes, files, selectInTree, onRevealHidden])
+    return { files: presentFileBadges(reviewFacts), dependencies, onSelectPath: selectChangedFile }
+  }, [reviewFacts, nodes, selectChangedFile])
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
   useEffect(() => {
@@ -633,7 +641,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         {sidebarShown && <ResizableHandle />}
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
-            {codeTop}
+            <SelectReviewFileContext value={loaded === null ? null : selectChangedFile}>{codeTop}</SelectReviewFileContext>
             {loaded === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
             ) : viewFiles === null ? (

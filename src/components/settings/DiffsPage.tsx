@@ -56,7 +56,7 @@ function EveryRepositorySettings({ path }: { path: string }) {
           config={config}
           configKey="reviewExperimental"
           label="Review plan (experimental)"
-          description="Mark Reviewed, Since Your Review, the API & Risk card and the order by dependencies in the branch review"
+          description="Mark Reviewed, Since Your Review, the Review Summary card and the badges of the files in the branch review"
           globalErrorTitle="Cannot change whether every repository shows the review plan"
         />
       </SettingsSection>
