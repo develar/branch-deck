@@ -239,6 +239,23 @@ export async function retargetPullRequest(branchName: string): Promise<void> {
   }
 }
 
+/**
+ * Links the stack of GitHub of the layer `branchName` as its chain is (`LinkStack`, the engine of the session): an old
+ * pull request of a layer into the target joins the stack, one outside it is linked; resolves once the session has the
+ * writes. Throws why not
+ */
+export async function linkGitHubStack(branchName: string): Promise<void> {
+  const key = currentKey()
+  if (key === null) {
+    return
+  }
+  const run = await runIntent(pathOf(key), { kind: "linkStack", branch: branchName })
+  const failure = runFailure(run, `${branchName} is no layer of a stack of GitHub`)
+  if (failure !== null) {
+    throw typeof failure === "string" ? new Error(failure) : commandFailure(failure)
+  }
+}
+
 // ---- the rules of the bases ----
 
 /**

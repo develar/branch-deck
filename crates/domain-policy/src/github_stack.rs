@@ -65,11 +65,12 @@ pub fn layer_parent<'a>(chain: Option<&[&'a str]>, name: &str) -> Option<&'a str
 /// What brings the stack of GitHub of `chain` in line with it (module docs), by `open(branch)`, the open pull request of
 /// a branch, and `target`. The layers are the pull requests of the chain from the bottom up while each goes where it
 /// should: the bottom's into the target, each other's into the branch of the one below or into another virtual branch,
-/// which a retarget moves; a branch without a pull request, or with one into the target or another base above the bottom
-/// (one of before the stacks of GitHub: the user takes it into the stack), ends them. Fewer than two layers make no
+/// which a retarget moves; a branch without a pull request, or with one into another base above the bottom, ends them.
+/// One into the target above the bottom (of before the stacks of GitHub) ends them too, unless the user takes it into
+/// the stack (`join`: Link GitHub Stack), which retargets it into the branch below it. Fewer than two layers make no
 /// stack, and one already there stays as it is
 #[must_use]
-pub fn stack_writes<'p>(chain: &[&str], open: impl Fn(&str) -> Option<&'p PullRequest>, target: &str, prefix: &str) -> Vec<StackWrite> {
+pub fn stack_writes<'p>(chain: &[&str], open: impl Fn(&str) -> Option<&'p PullRequest>, target: &str, prefix: &str, join: bool) -> Vec<StackWrite> {
   let mut layers: Vec<(&str, &PullRequest)> = Vec::new();
   for branch in chain {
     let Some(pull_request) = open(branch) else {
@@ -78,7 +79,7 @@ pub fn stack_writes<'p>(chain: &[&str], open: impl Fn(&str) -> Option<&'p PullRe
     let base = pull_request.base_ref_name.as_str();
     let goes = match layers.last() {
       None => base == target,
-      Some((_, below)) => base == below.head_ref_name || is_virtual(base, prefix),
+      Some((_, below)) => base == below.head_ref_name || is_virtual(base, prefix) || (join && base == target),
     };
     if !goes {
       break;

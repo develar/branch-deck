@@ -401,16 +401,65 @@ fn a_push_closes_the_pull_requests_whose_head_it_left_out_and_leaves_those_in_th
   };
   let lands = names(&["auth", "login", "oauth"]);
   assert_eq!(
-    pull_requests_to_close(&Landing::Push { branches: &lands, chain: true }, subject),
+    pull_requests_to_close(
+      &Landing::Push {
+        branches: &lands,
+        chain: true,
+        target: "master"
+      },
+      subject
+    ),
     vec![closes("login", 6), closes("oauth", 7)]
   );
   // a stack branch copies every branch anew: no head of a branch is in the target
   assert_eq!(
-    pull_requests_to_close(&Landing::Push { branches: &lands, chain: false }, subject),
+    pull_requests_to_close(
+      &Landing::Push {
+        branches: &lands,
+        chain: false,
+        target: "master"
+      },
+      subject
+    ),
     vec![closes("auth", 5), closes("login", 6), closes("oauth", 7)]
   );
   let behind = |name: &str| table_branch(name, &pull_requests, remote("login-old", false, 1));
-  assert_eq!(pull_requests_to_close(&Landing::Push { branches: &lands, chain: true }, behind), Vec::new());
+  assert_eq!(
+    pull_requests_to_close(
+      &Landing::Push {
+        branches: &lands,
+        chain: true,
+        target: "master"
+      },
+      behind
+    ),
+    Vec::new()
+  );
+}
+
+/// A push of the copy of a piece into master leaves to GitHub only a pull request into master whose head it put there: a
+/// layer of a stack of GitHub above the bottom goes into the branch below it, which GitHub never marks merged, so the
+/// push closes it (docs/design/github-stacks.md)
+#[test]
+fn a_push_closes_the_layers_of_a_stack_of_github_above_the_bottom() {
+  let into = |branch: &str, number: u32, base: &str| PullRequest {
+    base_ref_name: base.to_owned(),
+    ..open_at(branch, number, &format!("{branch}-tip"))
+  };
+  let pull_requests = [("auth", into("auth", 5, "master")), ("login", into("login", 6, "user/virtual/auth"))];
+  let subject = |name: &str| table_branch(name, &pull_requests, remote("login-tip", true, 0));
+  let lands = names(&["auth", "login"]);
+  assert_eq!(
+    pull_requests_to_close(
+      &Landing::Push {
+        branches: &lands,
+        chain: true,
+        target: "master"
+      },
+      subject
+    ),
+    vec![closes("login", 6)]
+  );
 }
 
 /// What the fetched baseline or a merged pull request has closes every open pull request of it that holds nothing more,

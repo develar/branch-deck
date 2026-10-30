@@ -28,6 +28,7 @@ use crate::land_session::pull_request_start;
 use crate::registry::{Answer, OperationRequest, Registry};
 use crate::robot_start::github_failure;
 use crate::witness::Witness;
+use domain_policy::github_stack::stack_writes;
 use domain_policy::pull_request::layer_base_of;
 use domain_policy::reasons::stack_not_built;
 use domain_policy::review::{Candidates, candidates};
@@ -434,7 +435,10 @@ pub fn create_planned(facts: &PullRequestFacts<'_, '_>, create: &CreatePullReque
       effects.push(PlannedEffect::CreatePullRequest {
         base: layer.parent.as_deref().and_then(full),
       });
-      effects.push(PlannedEffect::LinkStack { chain: layer.chain.clone() });
+      effects.push(PlannedEffect::LinkStack {
+        chain: layer.chain.clone(),
+        join: false,
+      });
       effects
     }
     (true, true, _) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],
@@ -547,9 +551,14 @@ pub async fn prepare_planned(sessions: &Sessions, key: &SessionKey, intent: &Int
 /// The plan of `intent` over `sources`, `push` the push the branch of its subject needs first; `None` for another
 /// intent
 pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPushView, intent: &Intent) -> Option<Planned> {
+  let link;
   let subject = match intent {
     Intent::CreatePullRequest(create) => &create.subject,
     Intent::RequestReview { subject, .. } => subject,
+    Intent::LinkStack { branch } => {
+      link = Subject::branch(branch);
+      &link
+    }
     _ => return None,
   };
   let facts = PullRequestFacts {
@@ -562,8 +571,46 @@ pub fn planned_of(sources: &LandSources<'_>, push: impl FnOnce(&str) -> ActionPu
   match intent {
     Intent::CreatePullRequest(create) => create_planned(&facts, create),
     Intent::RequestReview { subject, reviewers, push_first } => review_planned(&facts, subject, reviewers, *push_first),
+    Intent::LinkStack { branch } => link_planned(&facts, branch),
     _ => None,
   }
+}
+
+/// The plan of Link GitHub Stack of `branch` over `facts` (`Intent::LinkStack`): the push of what the chain below it
+/// lacks on the remote first (the bases of its layers), then the link of its stack with `join`, an old pull request into
+/// the target above the bottom retargeted into the branch below it (`LinkStack`); no effect while the stack is in line.
+/// `None` for a branch that is no layer of a stack of GitHub
+#[must_use]
+pub fn link_planned(facts: &PullRequestFacts<'_, '_>, branch: &str) -> Option<Planned> {
+  let sources = facts.sources;
+  let layer = sources.github_layers.get(branch)?;
+  let subject = Subject::branch(branch);
+  let first = push_step(facts, &subject)?;
+  let blockers: Vec<Reason> = first.blocker.iter().cloned().collect();
+  let open = |name: &str| {
+    sources
+      .pull_requests
+      .pull_requests
+      .get(name)
+      .filter(|pull_request| pull_request.state == PullRequestState::Open)
+  };
+  let chain: Vec<&str> = layer.chain.iter().map(String::as_str).collect();
+  let writes = stack_writes(&chain, open, sources.target, sources.prefix, true);
+  let link = (!writes.is_empty()).then(|| PlannedEffect::LinkStack {
+    chain: layer.chain.clone(),
+    join: true,
+  });
+  let layers: Vec<&PullRequest> = chain.iter().filter_map(|name| open(name)).collect();
+  let mut planned = planned(
+    Intent::LinkStack { branch: branch.to_owned() },
+    &subject,
+    first,
+    link.into_iter().collect(),
+    blockers,
+    &layers,
+  );
+  planned.stack_pull_requests = chain.iter().filter_map(|name| Some(((*name).to_owned(), open(name)?.clone()))).collect();
+  Some(planned)
 }
 
 /// The plan of the pull request or review request `intent` over the one-shot session of a command (`bd request-review`)
@@ -584,7 +631,13 @@ pub(crate) fn pull_request_request(intent: &Intent, planned: Option<&Planned>) -
   let mut moves = Vec::new();
   if let Some(planned) = planned {
     let subject = planned.subject.key();
-    if let Some(number) = planned.plan.pull_request {
+    if matches!(intent, Intent::LinkStack { .. }) {
+      // the bases of the layers it links: a retarget of one of them waits for it
+      resources.extend(planned.stack_pull_requests.values().map(|pull_request| Resource::PullRequest {
+        number: pull_request.number,
+        field: PullRequestField::Base,
+      }));
+    } else if let Some(number) = planned.plan.pull_request {
       resources.push(Resource::PullRequest {
         number,
         field: PullRequestField::Reviewers,
@@ -630,6 +683,7 @@ fn no_plan(intent: &Intent) -> ApiError {
       ErrorCode::UnknownBranch,
       format!("Nothing was pushed or created: the last sync has no {}", create.subject.words()),
     ),
+    Intent::LinkStack { branch } => ApiError::new(ErrorCode::InvalidArguments, format!("Nothing was linked: {branch} is no layer of a stack of GitHub")),
     _ => ApiError::new(ErrorCode::InvalidArguments, "No pull request intent"),
   }
 }

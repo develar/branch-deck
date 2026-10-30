@@ -225,10 +225,13 @@ fn linking_stacks(sources: &LandSources<'_>, mut planned: Planned) -> Planned {
   }
   for chain in chains {
     let names: Vec<&str> = chain.iter().map(String::as_str).collect();
-    if stack_writes(&names, open, sources.target, sources.prefix).is_empty() {
+    if stack_writes(&names, open, sources.target, sources.prefix, false).is_empty() {
       continue;
     }
-    planned.plan.effects.push(PlannedEffect::LinkStack { chain: chain.clone() });
+    planned.plan.effects.push(PlannedEffect::LinkStack {
+      chain: chain.clone(),
+      join: false,
+    });
     for branch in chain {
       if let Some(pull_request) = open(branch) {
         planned.stack_pull_requests.insert(branch.clone(), pull_request.clone());

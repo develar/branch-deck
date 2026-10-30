@@ -32,7 +32,7 @@ import { branchSyncStore, getBranch, useBranchSyncEntry, useBranchSyncField } fr
 import { openCreatePullRequestDialog } from "@/stores/create-pull-request-dialog"
 import { getOperationWords, operationBusyOf } from "@/stores/indicators"
 import { getRobot, getRobotProblemsFailure, isRobotProblemsPending, isTableRobot, patronusStore, refreshPatronus } from "@/stores/patronus"
-import { getPullRequest, getStackPullRequest, retargetPullRequest } from "@/stores/pull-requests"
+import { getPullRequest, getStackPullRequest, linkGitHubStack, retargetPullRequest } from "@/stores/pull-requests"
 import { requestPushConfirm } from "@/stores/push-confirm"
 import { getSelectedProject, isSelectedRepository, repositoryStore, useSelectedProjectPath } from "@/stores/repository"
 import { openRequestReview } from "@/stores/request-review-popover"
@@ -61,6 +61,14 @@ export async function retargetToTarget(branchName: string): Promise<void> {
       showToast({ title, description, action: { children: "Open Pull Request", onClick: () => openPullRequest(pullRequest) } })
     },
     (error: unknown) => notifyError(`Cannot retarget pull request #${pullRequest.number}`, error),
+  )
+}
+
+/** Links the stack of GitHub of the layer `branchName` (`linkGitHubStack`), and says so: the step of row 5, the menu */
+export async function linkGitHubStackOf(branchName: string): Promise<void> {
+  await linkGitHubStack(branchName).then(
+    () => showToast({ title: `Linked the GitHub stack of ${branchName}`, description: "Each layer goes into the branch below it" }),
+    (error: unknown) => notifyError(`Cannot link the GitHub stack of ${branchName}`, error),
   )
 }
 
@@ -183,6 +191,7 @@ export function stepActionsOf(key: string, inputs: StepInputs, items: Pick<NextS
     refreshPatronus: () => void refreshPatronus(),
     pickRemoteCommits: () => requestPushConfirm(key, "row"),
     updateProject: () => void runUpdateProject(),
+    linkStack: () => void linkGitHubStackOf(key),
     restart: robot === undefined ? null : (getRobotActionItems(robot, { ...inputs.words, offered: inputs.robotActions }).find(isRestart) ?? null),
     requestReview: getRequestReviewItem({ pullRequest: inputs.pullRequest, actions: inputs.reviewActions, open: () => openRequestReview(key) }, { ...inputs.words, subject: key }),
   }

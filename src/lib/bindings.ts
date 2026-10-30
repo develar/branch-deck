@@ -450,7 +450,12 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  */
 "merge-pull-request" | 
 /**  The auto-merge of its pull request disabled (`Intent::DisableAutoMerge`) */
-"cancel-auto-merge" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | 
+"cancel-auto-merge" | "review-changes" | "open-pull-request" | "request-review" | "retarget-pull-request" | 
+/**
+ *  The stack of GitHub of a layer linked as its chain is (`Intent::LinkStack`): an old pull request into the target
+ *  joins it, one outside it is linked
+ */
+"link-github-stack" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | 
 /**
  *  The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered only while it
  *  no longer matches the stack (a landing took the root, or the stack no longer forks)
@@ -3174,50 +3179,56 @@ export type Intent =
 	kind: "push",
 } & Push | 
 /**  A restart of a robot of the user, with the push before it when the branch moved past its commit */
-({ kind: "restartRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "restartRobot"; robotId: string }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  A cancel of a running robot of the user */
-({ kind: "cancelRobot"; robotId: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "cancelRobot"; robotId: string }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The open pull request `number` goes into the base its rule names (`domain_policy::pull_request::base_of`) */
-({ kind: "retarget"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "retarget"; number: number }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request of a subject is opened, after the push it needs */
 {
 	kind: "createPullRequest",
 } & CreatePullRequest | 
 /**
+ *  The stack of GitHub of the branch `branch`, a layer of one, is linked as its chain is (Link GitHub Stack): an open
+ *  pull request of a layer into the target above the bottom is retargeted into the branch below it and joins it, one
+ *  outside the stack joins it (`domain_policy::github_stack::stack_writes` with `join`)
+ */
+({ kind: "linkStack"; branch: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+/**
  *  `reviewers` are asked to review the open pull request of a subject, none: the code owners Patronus suggests that
  *  Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
  *  remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
  */
-({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; robotId?: never; source?: never; state?: never; thenLand?: never; verdict?: never } | 
+({ kind: "requestReview"; subject: Subject; reviewers: string[]; pushFirst: boolean }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; robotId?: never; source?: never; state?: never; thenLand?: never; verdict?: never } | 
 /**  The pull request `number` is closed with `comment` */
-({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "closePullRequest"; number: number; comment: string }) & { body?: never; branch?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The auto-merge of the open pull request `number` is disabled (Cancel Auto-Merge): GitHub merges it no more by
  *  itself
  */
-({ kind: "disableAutoMerge"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "disableAutoMerge"; number: number }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The open pull requests that hold nothing more than what `landing` landed are closed: of the branches a merged
  *  robot landed whole besides its own, of a push into the target, of the fetched baseline, of a merged pull request
  *  (`domain_policy::landed::pull_requests_to_close`)
  */
-({ kind: "closeLandedPullRequests"; landing: LandingKey }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "closeLandedPullRequests"; landing: LandingKey }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  A review of the pull request `number` of someone else on the commit the user reviewed, and the Safe Push of it
  *  after an approval (`then_land`: a `/patronus merge` comment, only while GitHub still shows that commit); no
  *  verdict: the Safe Push alone, the user approved the commit before
  */
-({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { comment?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never } | 
+({ kind: "submitReview"; number: number; verdict: PullRequestReviewEvent | null; commit: string; body: string | null; thenLand: boolean }) & { branch?: never; comment?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never } | 
 /**
  *  The YouTrack issue `key` goes into `state` (Mark Fixed; its undo the same intent, back to the value it had, while it
  *  is in `expected`); without `expected`, only an open issue changes
  */
-({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; comment?: never; commit?: never; fetch?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "setIssueState"; key: string; state: string; expected: string | null }) & { body?: never; branch?: never; comment?: never; commit?: never; fetch?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The start `op`, whose answer was lost (`OperationStep::StartUnknown`), leaves the operations registry: what it held
  *  is free, and a start of its subject can be sent again; Patronus may still run the robot it sent
  */
-({ kind: "forgetStart"; op: OperationId }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "forgetStart"; op: OperationId }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  A rewrite of the checked out branch or of the refs of Branch Deck by its core (`operations::rewrite`) */
 {
 	kind: "rewrite",
@@ -3226,28 +3237,28 @@ export type Intent =
  *  Only the remote branch of the baseline is fetched into its tracking ref (the Fetch of a merge toast); the branch,
  *  the index and the working tree stay as they are (`operations::update`)
  */
-({ kind: "fetchBaseline" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "fetchBaseline" }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The checked out branch is brought onto the baseline, keeping unrelated local changes (Update Project, ⌘T): the
  *  fetch first when `fetch` (the `FetchBaseline` of the session, joined when one runs), then the check and the move
  *  (`operations::update`); without it onto the tracking ref as the last fetch left it (Retry Without Fetch)
  */
-({ kind: "updateProject"; fetch: boolean }) & { body?: never; comment?: never; commit?: never; expected?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "updateProject"; fetch: boolean }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**  The report of the commits that landed with an update is cleared (the user has seen it) */
-({ kind: "dismissLanded" }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "dismissLanded" }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The commits of the pull request `number` a review window shows are fetched into its review refs
  *  (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
  *  the head and the base GitHub names, as the review requests of the session have them
  */
-({ kind: "fetchReview"; number: number }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
+({ kind: "fetchReview"; number: number }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
  *  The commits of another worktree (`source`: its directory as `bd pick --from` named it) or of a range of revisions
  *  (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`bd pick`, `bd lease pick`): only the
  *  record of a run of `bd` in the operations registry of the repository, which the view and the journal show; the
  *  engine of the app runs none
  */
-({ kind: "pick"; source: string }) & { body?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
+({ kind: "pick"; source: string }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; number?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; state?: never; subject?: never; thenLand?: never; verdict?: never };
 
 /**  What changed in a branch since its review */
 export type Interdiff = {
@@ -4290,7 +4301,7 @@ export type OperationHolder = {
 export type OperationId = string;
 
 /**  What an operation does, by the family of its intent (`Intent`), for the words of its holder */
-export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
+export type OperationKind = "safe_push" | "dry_run" | "push" | "restart_robot" | "cancel_robot" | "retarget" | "create_pull_request" | "link_stack" | "request_review" | "close_pull_request" | "disable_auto_merge" | "close_landed_pull_requests" | "submit_review" | "set_issue_state" | "forget_start" | "rewrite" | "fetch_baseline" | "update_project" | "dismiss_landed" | "fetch_review" | "pick";
 
 /**  What an operation answered besides the status of each effect, by its family (the contract's `Outcome.result`) */
 export type OperationResult = 
@@ -4910,9 +4921,10 @@ export type PlannedEffect =
 /**
  *  The stack of GitHub of `chain` (its branches, bottom first) is brought in line with it
  *  (`domain_policy::github_stack::stack_writes` over its open pull requests as the run left them): the unstacks, the
- *  retargets, then the create or the add
+ *  retargets, then the create or the add; `join`: a pull request into the target above the bottom joins the stack too
+ *  (Link GitHub Stack), which a push leaves as it is
  */
-{ kind: "linkStack"; chain: string[] } | 
+{ kind: "linkStack"; chain: string[]; join?: boolean } | 
 /**  The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch */
 { kind: "restartRobot"; robotId: string } | 
 /**
@@ -7267,6 +7279,11 @@ export type StepKind =
 { kind: "robotPullRequest"; number: number | null } | 
 /**  Row 5: the open pull request goes into the virtual branch `base`: retarget it into the target */
 { kind: "retarget"; number: number; base: string } | 
+/**
+ *  Row 5: the open pull request `number` goes into the branch of the layer below it, outside a stack of GitHub: Link
+ *  GitHub Stack (`Intent::LinkStack`), as its merge would land nothing
+ */
+{ kind: "linkStack"; number: number } | 
 /**  Row 5′: the open pull request goes into another base, which may be meant: it opens */
 { kind: "otherBase"; number: number; base: string } | 
 /**  Row 6: an open draft, which Patronus merges once it is ready for review */

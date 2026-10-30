@@ -106,7 +106,9 @@ pub async fn prepare(sessions: &Sessions, key: &SessionKey, intent: Intent) -> R
     Intent::RestartRobot { robot_id } => Ok(robot::prepare_restart(sessions, key, &robot_id).await.map(|planned| planned.plan)),
     Intent::CancelRobot { robot_id } => Ok(robot::prepare_cancel(sessions, key, &robot_id).await.map(|(plan, _)| plan)),
     Intent::Retarget { number } => Ok(pull_request::prepare_retarget(sessions, key, number).await),
-    Intent::CreatePullRequest(_) | Intent::RequestReview { .. } => Ok(pull_request::prepare_planned(sessions, key, &intent).await.map(|planned| planned.plan)),
+    Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::LinkStack { .. } => {
+      Ok(pull_request::prepare_planned(sessions, key, &intent).await.map(|planned| planned.plan))
+    }
     Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. } => Ok(close::prepare_close(sessions, key, &intent).await),
     Intent::DisableAutoMerge { number } => Ok(auto_merge::prepare_disable(sessions, key, number).await),
     Intent::SubmitReview { .. } => review::review_plan(&intent).map(Some),
@@ -139,7 +141,9 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
     Intent::RestartRobot { robot_id } => Box::pin(robot::execute_restart(registry, key, &robot_id, accepted, services, events)).await,
     Intent::CancelRobot { robot_id } => robot::execute_cancel(registry, key, &robot_id, accepted, services, events).await,
     Intent::Retarget { number } => pull_request::execute_retarget(registry, key, number, accepted, services, events).await,
-    intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => Box::pin(pull_request::execute_pull_request(registry, key, intent, accepted, services, events)).await,
+    intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::LinkStack { .. }) => {
+      Box::pin(pull_request::execute_pull_request(registry, key, intent, accepted, services, events)).await
+    }
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::execute_close(registry, key, intent, accepted, services, events).await,
     Intent::DisableAutoMerge { number } => auto_merge::execute_disable(registry, key, number, accepted, services, events).await,
     intent @ Intent::SubmitReview { .. } => Box::pin(review::execute_review(registry, key, intent, accepted, services, events)).await,
@@ -162,9 +166,13 @@ pub async fn execute(registry: &Registry, key: &SessionKey, intent: Intent, acce
 /// none)
 const fn frame_reads(intent: &Intent) -> Option<FrameReads> {
   match intent {
-    Intent::Land(_) | Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => {
-      Some(FrameReads::Landing)
-    }
+    Intent::Land(_)
+    | Intent::Retarget { .. }
+    | Intent::CreatePullRequest(_)
+    | Intent::LinkStack { .. }
+    | Intent::RequestReview { .. }
+    | Intent::ClosePullRequest { .. }
+    | Intent::DisableAutoMerge { .. } => Some(FrameReads::Landing),
     Intent::RestartRobot { .. } | Intent::CancelRobot { .. } => Some(FrameReads::Robots),
     Intent::SubmitReview { .. } => Some(FrameReads::Reviews),
     _ => None,
@@ -313,7 +321,7 @@ pub fn request_of(prefix: &str, planned: &Planned) -> OperationRequest {
     Intent::RestartRobot { robot_id } => robot::restart_request(robot_id, Some(planned)),
     Intent::CancelRobot { robot_id } => robot::cancel_request(robot_id),
     Intent::Retarget { number } => pull_request::retarget_request(*number),
-    intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. }) => pull_request::pull_request_request(intent, Some(planned)),
+    intent @ (Intent::CreatePullRequest(_) | Intent::RequestReview { .. } | Intent::LinkStack { .. }) => pull_request::pull_request_request(intent, Some(planned)),
     intent @ (Intent::ClosePullRequest { .. } | Intent::CloseLandedPullRequests { .. }) => close::close_request(intent, Some(plan)),
     Intent::DisableAutoMerge { number } => auto_merge::disable_request(*number),
     intent @ Intent::SubmitReview { number, .. } => review::review_request(intent, *number),

@@ -36,6 +36,7 @@ const KIND_WORDS: Record<OperationKind, string> = {
   cancel_robot: "cancel of a robot",
   retarget: "retarget of a pull request",
   create_pull_request: "creation of the pull request",
+  link_stack: "link of a stack of GitHub",
   request_review: "review request",
   close_pull_request: "close of a pull request",
   disable_auto_merge: "cancel of an auto-merge",

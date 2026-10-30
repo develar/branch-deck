@@ -1638,9 +1638,15 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
 /// requests and the readiness of the session of `prefix`
 #[must_use]
 pub fn session_open_pull_requests(state: &TableState, facts: &FactStore, prefix: &str) -> BTreeMap<String, PullRequestView> {
+  open_pull_requests_of(state, facts, prefix, &session_github_layers(state, facts))
+}
+
+/// The layers of the stacks of GitHub of `state` over its route and what landed (`github_layers_of`), for a caller
+/// without the derived parts of the view: `bd`, a read of the session
+#[must_use]
+pub fn session_github_layers(state: &TableState, facts: &FactStore) -> BTreeMap<String, GitHubLayer> {
   let route = landing_route_of(&state.parts.header, &state.parts.sections.landed, facts);
-  let layers = github_layers_of(state, facts, &route, &landed_states_of(state, facts));
-  open_pull_requests_of(state, facts, prefix, &layers)
+  github_layers_of(state, facts, &route, &landed_states_of(state, facts))
 }
 
 /// `session_open_pull_requests` over the layers of the stacks of GitHub the caller derived (`github_layers_of`)

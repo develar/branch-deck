@@ -42,6 +42,7 @@ use domain_types::operation::{EffectStatus, Intent, Push, PushScope};
 use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, ReviewerState};
 use domain_types::repository_view::HoldKind;
+use domain_types::session::GitHubLayer;
 use domain_types::stack::StackBranchUpdate;
 use domain_types::{GroupedBranchInfo, RemoteStatusUpdate, SyncEvent};
 use git_ops::revs::{ref_exists, ref_tips, resolve_commit, tips_under};
@@ -51,10 +52,11 @@ use operations::push::Sent;
 use remote_facts::pull_request_text::{AncestorText, CommitText, IssueText, PullRequestTextInput, issue_texts, pull_request_text};
 use remote_facts::pull_requests::{GitHubWriteError, failure_message};
 use remote_facts::stack_pull_request::{StackMemberText, stack_pull_request_text};
+use repository_model::derive::session_github_layers;
 use repository_model::one_shot::OneShot;
 use schemars::JsonSchema;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use sync_core::config_snapshot::ConfigSnapshot;
 use sync_core::github_repository::{GitHubRepository, parse_github_repository, resolve_github_repository_with};
@@ -135,6 +137,11 @@ pub struct PushOutput {
   /// request is the one of the whole stack
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stacks: Vec<PushedBranch>,
+  /// The stacks of GitHub of the drafted branches on a route without Patronus (each layer's draft goes into the branch
+  /// below it): the chain of each, bottom first, and the `gh stack link` that links their pull requests once they
+  /// are open ([Stacks of GitHub](docs/design/github-stacks.md))
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub github_stacks: Vec<GitHubStackDraft>,
   /// A stack branch `--with-children` left out: not built by this sync (`stacks` of `bd sync` says why), or pushed to
   /// another remote than `origin`, which its remote status compares with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -144,6 +151,16 @@ pub struct PushOutput {
   /// left to push (`landed`; tell the user who landed it), or the user parked it or a branch it is built on (`parked`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub skipped: Vec<SkippedBranch>,
+}
+
+/// A stack of GitHub of drafted branches (`github_stacks`)
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct GitHubStackDraft {
+  /// The virtual branches of the stack, bottom first
+  pub chain: Vec<String>,
+  /// `gh stack link` of their remote branches, bottom first: it opens the pull requests a layer lacks into the branch
+  /// below it and links them (the `gh stack` extension)
+  pub command: String,
 }
 
 /// A branch `bd push` left out (`skipped`)
@@ -689,9 +706,16 @@ impl PushRun<'_> {
       pushed.chain(up_to_date.iter().map(|(name, ..)| *name)).collect()
     };
     let youtrack = youtrack_service(self.environment);
+    let layers = session_github_layers(facts.session.state(), facts.session.facts());
     let issues = pull_request_issues(context, report, Some(&youtrack), &drafted)?;
     let repository_option = github_repository_option(context, report)?;
-    let draft = |name: &str, head: &str| (!self.args.unapplied).then(|| pull_request_draft(context, report, (&repository_option, base.clone()), (name, head), &issues));
+    let github_stacks = github_stack_drafts(context, &layers, &drafted);
+    // a layer of a stack of GitHub goes into the branch below it, with its own commits
+    let draft = |name: &str, head: &str| {
+      let parent = layers.get(name).and_then(|layer| layer.parent.as_deref());
+      let base = parent.and_then(|parent| final_name(context, parent).ok()).unwrap_or_else(|| base.clone());
+      (!self.args.unapplied).then(|| pull_request_draft(context, report, (&repository_option, base), (name, head), &issues, parent.is_some()))
+    };
     let (mut branches, mut stacks) = (Vec::new(), Vec::new());
     for (pushed, leased, moved) in refs {
       let replaced = |remote: &RemoteStatusUpdate| landed_commits(remote, &context.short_ids(RemoteSummary::ids(remote)));
@@ -743,6 +767,7 @@ impl PushRun<'_> {
       restarted: told.restarted,
       retargeted: told.retargeted,
       retarget_warnings,
+      github_stacks,
       stacks,
       stack_warnings: covered.stack_warnings,
       skipped: covered.skipped,
@@ -851,9 +876,44 @@ fn draft_of(repository_option: &str, base: String, head: &str, title: String, bo
 /// remote), as the printed `gh pr create` opens it, with the text of `pull_request_text`: the `bd describe` text, else
 /// the text of its commits, with the branches it is built on, whose commits it holds too. `issues` are the texts of
 /// their issues (`pull_request_issues`). From what the sync read: no git process.
-fn pull_request_draft(context: &RepoContext, report: &SyncReport, (repository_option, base): (&str, String), (name, head): (&str, &str), issues: &[IssueText]) -> PullRequestDraft {
-  let (title, body) = pull_request_text(&pull_request_input(context, report, name), issues);
+fn pull_request_draft(
+  context: &RepoContext,
+  report: &SyncReport,
+  (repository_option, base): (&str, String),
+  (name, head): (&str, &str),
+  issues: &[IssueText],
+  layer: bool,
+) -> PullRequestDraft {
+  let mut input = pull_request_input(context, report, name);
+  // a layer of a stack of GitHub shows only its own commits
+  if layer {
+    input.ancestors.clear();
+  }
+  let (title, body) = pull_request_text(&input, issues);
   draft_of(repository_option, base, head, title, body)
+}
+
+/// The stacks of GitHub of `drafted` among `layers`, each once, with the `gh stack link` of its remote branches, run in
+/// the checkout: the extension takes no repository of its own
+fn github_stack_drafts(context: &RepoContext, layers: &BTreeMap<String, GitHubLayer>, drafted: &[&str]) -> Vec<GitHubStackDraft> {
+  let mut chains: Vec<&Vec<String>> = Vec::new();
+  for name in drafted {
+    if let Some(layer) = layers.get(*name)
+      && !chains.contains(&&layer.chain)
+    {
+      chains.push(&layer.chain);
+    }
+  }
+  chains
+    .into_iter()
+    .map(|chain| {
+      let heads: Vec<String> = chain.iter().filter_map(|name| final_name(context, name).ok()).map(|head| shell_quote(&head)).collect();
+      GitHubStackDraft {
+        chain: chain.clone(),
+        command: format!("gh stack link {}", heads.join(" ")),
+      }
+    })
+    .collect()
 }
 
 /// What the text of the pull request of the grouped branch `name` is written from: its description, its commits and
@@ -935,7 +995,14 @@ pub(crate) fn pull_request_drafts(context: &RepoContext, synced: &SyncOutput, na
     .iter()
     .map(|name| {
       let head = final_name(context, name)?;
-      Ok(pull_request_draft(context, report, (&repository_option, base_branch.to_string()), (name, &head), &issues))
+      Ok(pull_request_draft(
+        context,
+        report,
+        (&repository_option, base_branch.to_string()),
+        (name, &head),
+        &issues,
+        false,
+      ))
     })
     .collect()
 }

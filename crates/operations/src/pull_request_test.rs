@@ -83,7 +83,7 @@ fn the_creation_of_a_layer_opens_the_layers_below_it_its_own_into_its_parent_and
       PlannedEffect::CreatePullRequest {
         base: Some("user/virtual/root".to_owned()),
       },
-      PlannedEffect::LinkStack { chain },
+      PlannedEffect::LinkStack { chain, join: false },
     ]
   );
   assert_eq!(planned.stack_pull_requests, BTreeMap::from([("root".to_owned(), open)]));
@@ -511,6 +511,7 @@ async fn the_link_of_a_stack_makes_the_stack_of_its_layers() {
     alpha_creation(false),
     vec![PlannedEffect::LinkStack {
       chain: vec!["root".to_owned(), "alpha".to_owned()],
+      join: false,
     }],
   );
   planned.stack_pull_requests = BTreeMap::from([
@@ -562,4 +563,48 @@ async fn the_merge_of_a_piece_of_a_stack_asks_its_result_until_github_merged_it(
   assert_eq!(started.outcome.effects[0].status, EffectStatus::Done);
   assert_eq!(fake.requests_to("PUT", merge)[0].json(), json!({"sha": head, "merge_method": "rebase"}));
   assert_eq!(told.iter().filter(|told| told.starts_with("pull request Merged")).count(), 2, "{told:?}");
+}
+
+/// Link GitHub Stack of a layer whose old pull request goes into master links its stack with `join`: the run retargets
+/// it into the branch below it and makes the stack; a stack in line has nothing to link, and a branch of no stack of
+/// GitHub no plan
+#[test]
+fn link_github_stack_joins_an_old_pull_request_and_has_nothing_to_link_in_line() {
+  use crate::pull_request::{PullRequestFacts, link_planned};
+  let mut pushed = sources(true);
+  let pull_request = |branch: &str, number: u32, base: &str| PullRequest {
+    head_ref_name: format!("user/virtual/{branch}"),
+    base_ref_name: base.to_owned(),
+    ..pull_request(branch, number)
+  };
+  pushed.pull_requests.pull_requests.insert("root".to_owned(), pull_request("root", 5, "master"));
+  pushed.pull_requests.pull_requests.insert("auth".to_owned(), pull_request("auth", 7, "master"));
+  let chain = vec!["root".to_owned(), "auth".to_owned()];
+  pushed.github_layers.insert(
+    "auth".to_owned(),
+    GitHubLayer {
+      chain: chain.clone(),
+      parent: Some("root".to_owned()),
+      creates: Vec::new(),
+    },
+  );
+  let linked = |sources: &Sources| sources.with(|sources| link_planned(&PullRequestFacts { sources, push: pushes(&[], None) }, "auth"));
+  let planned = linked(&pushed).unwrap();
+  assert_eq!(planned.plan.intent, Intent::LinkStack { branch: "auth".to_owned() });
+  assert_eq!(planned.plan.effects, [PlannedEffect::LinkStack { chain, join: true }]);
+  assert_eq!(planned.stack_pull_requests.len(), 2);
+
+  let entry = |position| domain_types::pull_request::PullRequestStackEntry {
+    number: 4,
+    base_ref_name: "master".to_owned(),
+    size: 2,
+    position,
+  };
+  pushed.pull_requests.pull_requests.get_mut("root").unwrap().stack = Some(entry(1));
+  let auth = pushed.pull_requests.pull_requests.get_mut("auth").unwrap();
+  auth.base_ref_name = "user/virtual/root".to_owned();
+  auth.stack = Some(entry(2));
+  assert_eq!(linked(&pushed).unwrap().plan.effects, []);
+  pushed.github_layers.clear();
+  assert!(linked(&pushed).is_none());
 }

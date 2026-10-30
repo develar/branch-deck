@@ -49,6 +49,10 @@ pub enum Intent {
   Retarget { number: u32 },
   /// The pull request of a subject is opened, after the push it needs
   CreatePullRequest(CreatePullRequest),
+  /// The stack of GitHub of the branch `branch`, a layer of one, is linked as its chain is (Link GitHub Stack): an open
+  /// pull request of a layer into the target above the bottom is retargeted into the branch below it and joins it, one
+  /// outside the stack joins it (`domain_policy::github_stack::stack_writes` with `join`)
+  LinkStack { branch: String },
   /// `reviewers` are asked to review the open pull request of a subject, none: the code owners Patronus suggests that
   /// Request Review… preselects (`domain_policy::review::candidates`); `push_first`: the work its branch has for the
   /// remote is pushed first, so the reviewers see it (D5), else such work refuses it (`Reason::NeedsPush`)
@@ -112,6 +116,7 @@ impl Intent {
       Self::CancelRobot { .. } => OperationKind::CancelRobot,
       Self::Retarget { .. } => OperationKind::Retarget,
       Self::CreatePullRequest(_) => OperationKind::CreatePullRequest,
+      Self::LinkStack { .. } => OperationKind::LinkStack,
       Self::RequestReview { .. } => OperationKind::RequestReview,
       Self::ClosePullRequest { .. } => OperationKind::ClosePullRequest,
       Self::DisableAutoMerge { .. } => OperationKind::DisableAutoMerge,
@@ -144,6 +149,7 @@ impl Intent {
       Self::Land(Land { subject, .. }) | Self::Push(Push { subject, .. }) | Self::CreatePullRequest(CreatePullRequest { subject, .. }) | Self::RequestReview { subject, .. } => {
         Some(subject.key())
       }
+      Self::LinkStack { branch } => Some(branch.clone()),
       Self::Rewrite(rewrite) => rewrite.subject().map(str::to_owned),
       _ => None,
     }

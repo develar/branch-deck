@@ -594,6 +594,7 @@ pub enum OperationKind {
   CancelRobot,
   Retarget,
   CreatePullRequest,
+  LinkStack,
   RequestReview,
   ClosePullRequest,
   DisableAutoMerge,

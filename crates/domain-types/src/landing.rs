@@ -452,8 +452,14 @@ pub enum PlannedEffect {
   CreateLayerPullRequest { branch: String, base: String },
   /// The stack of GitHub of `chain` (its branches, bottom first) is brought in line with it
   /// (`domain_policy::github_stack::stack_writes` over its open pull requests as the run left them): the unstacks, the
-  /// retargets, then the create or the add
-  LinkStack { chain: Vec<String> },
+  /// retargets, then the create or the add; `join`: a pull request into the target above the bottom joins the stack too
+  /// (Link GitHub Stack), which a push leaves as it is
+  LinkStack {
+    chain: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    join: bool,
+  },
   /// The robot is restarted (`Intent::RestartRobot`): Patronus starts it again on the newest commit of its remote branch
   RestartRobot { robot_id: String },
   /// GitHub has the pushed branch `branch` (without `refs/heads/`): a mirror copies it a moment after the push, and

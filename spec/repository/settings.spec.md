@@ -471,7 +471,8 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 - First a section "Route into master", "How the work of the repository lands into master, in the app and bd", with one
   row of the selected repository, "Land by": Safe Push · Push · Pull Request (`branchdeck.landing`), the route in
   effect pressed and its sentence under it ("A push of its copy lands each piece, without a robot or the CI of a pull
-  request"). Unset, the default of the host of `origin` is pressed and the
+  request; a straight stack is a stack of GitHub"), which says where the pull requests of a stack go: into master on
+  Safe Push, a stack of GitHub off it ([Stacks of GitHub](../branch/stacked-branches.spec.md#stacks-of-github)). Unset, the default of the host of `origin` is pressed and the
   line says why (`RepositoryConfig.landingDefault`, Rust's one default: "Safe Push by default: the repository is on
   Space", "Pull Request by default: the repository is not on Space"); a click on it names it in `.git/config`. A write
   goes to `.git/config` only (a `push` never to the global config), "Use Default" removes it ("Removes it from

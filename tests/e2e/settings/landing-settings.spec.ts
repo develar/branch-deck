@@ -22,6 +22,8 @@ test.describe("Settings → Landing", () => {
     // unset: the default of the host of origin, which the line says
     await expect(group.getByRole("button", { name: "Pull Request" })).toHaveAttribute("aria-pressed", "true")
     await expect(route.getByTestId("repository-setting-source")).toHaveText("Pull Request by default: the repository is not on Space")
+    // off Patronus the pull requests of a straight stack are a stack of GitHub (docs/design/github-stacks.md)
+    await expect(route).toContainText("Its pull request lands each piece, merged on GitHub; a straight stack is a stack of GitHub")
     // no robot lands it: no switch of the robots; the push size limit of every push stays
     await expect(window.getByRole("heading", { name: "Push", exact: true })).toBeVisible()
     await expect(window.getByRole("switch", { name: "New Patronus API" })).toHaveCount(0)
@@ -31,7 +33,7 @@ test.describe("Settings → Landing", () => {
     await group.getByRole("button", { name: "Push", exact: true }).click()
     await expect(group.getByRole("button", { name: "Push", exact: true })).toHaveAttribute("aria-pressed", "true")
     await expect(route.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
-    await expect(route).toContainText("A push of its copy lands each piece, without a robot or the CI of a pull request")
+    await expect(route).toContainText("A push of its copy lands each piece, without a robot or the CI of a pull request; a straight stack is a stack of GitHub")
     expect(await repo.getLanding()).toBe("push")
     await waitForSyncComplete(page, syncs)
     await expect(findBranchRow(page, "JIRA-456").getByTestId("safe-push-button")).toHaveText("Push to master")
@@ -39,6 +41,7 @@ test.describe("Settings → Landing", () => {
     // Safe Push: the robots of Patronus are read again
     await group.getByRole("button", { name: "Safe Push" }).click()
     await expect(window.getByRole("switch", { name: "New Patronus API" })).toBeVisible()
+    await expect(route).toContainText("A robot of Patronus checks each piece and pushes it into master; every pull request goes into master")
     expect(await repo.getLanding()).toBe("patronus")
 
     // Use Default: the line goes from .git/config, the default again, and the row has no push into master

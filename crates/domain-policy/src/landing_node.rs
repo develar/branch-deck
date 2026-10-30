@@ -189,6 +189,7 @@ fn of_step(facts: &NodeFacts<'_>) -> LandingNode {
     StepKind::MergeHeld { .. } => merge_held(&step),
     StepKind::OpenPullRequest
     | StepKind::Retarget { .. }
+    | StepKind::LinkStack { .. }
     | StepKind::Draft { .. }
     | StepKind::NeedsBranch { .. }
     | StepKind::PickRemoteCommits { .. }

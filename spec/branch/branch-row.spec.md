@@ -708,7 +708,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   stacked on it "Push with Children (4 branches)" beside it (disabled with the reason while it pushes nothing beyond
   the branch: [Stacked Branches](stacked-branches.spec.md#pull-requests)), and "Mark IJAI-1 Fixed" for a YouTrack issue;
   the review ("Review Changes", "Open Pull Request" or "Create Pull Request…", "Request Review…", "Retarget #7 to
-  master"); the shape ("Rename…" or "Name This Branch…", "Move to…", "Stack On… ›", "Unstack from …", "Ungroup"); on
+  master", "Link GitHub Stack" of a layer whose stack of GitHub is out of line:
+  [Stacks of GitHub](stacked-branches.spec.md#stacks-of-github)); the shape ("Rename…" or "Name This Branch…", "Move to…", "Stack On… ›", "Unstack from …", "Ungroup"); on
   every branch of a stack the stack ("Collapse Stack" `⌥←` or "Expand Stack" `⌥→`, "Whole Stack ›", the actions of the
   whole stack of its root: [Whole Stack](whole-stack.spec.md)); the commits ("Amend Changes…", "Add Issue Reference…",
   "Squash N Fixups…"); what sets the branch aside ("Park Branch…": [Parked Branches](parked-branches.spec.md),

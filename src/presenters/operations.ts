@@ -58,6 +58,8 @@ function runningWords(intent: Intent, resources: readonly Resource[] = []): read
       return [`Retargeting #${intent.number}`, `a retarget of #${intent.number}`]
     case "createPullRequest":
       return [`Opening the pull request of ${subjectName(intent.subject)}`, `the creation of the pull request of ${subjectName(intent.subject)}`]
+    case "linkStack":
+      return [`Linking the GitHub stack of ${intent.branch}`, `the link of the GitHub stack of ${intent.branch}`]
     case "requestReview":
       return [`Requesting a review of ${subjectName(intent.subject)}`, `a review request of ${subjectName(intent.subject)}`]
     case "closePullRequest":

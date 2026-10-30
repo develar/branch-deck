@@ -16,10 +16,11 @@ use domain_policy::actions::{
   BranchFacts, Children, Of, Problems, RobotFacts, Row, StackFacts, StackShape, branch_actions, on_cached_frame, review_blocker, robot_actions, stack_actions, start_actions,
   with_operations,
 };
+use domain_policy::github_stack::stack_writes;
 use domain_policy::land::merges_on_github;
 use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_types::actions::{ActionState, NothingBeyond};
-use domain_types::branch_names::to_final_branch_name;
+use domain_types::branch_names::{baseline_on_remote, to_final_branch_name};
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
@@ -27,7 +28,7 @@ use domain_types::patronus::PatronusRobotStatus;
 use domain_types::pull_request::{PullRequestState, PullRequestView};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{HoldKind, PatronusView, RobotOf};
-use domain_types::session::{BranchPush, BranchView, RobotsView, SyncState, WholeStackView, stack_readiness_key};
+use domain_types::session::{BranchPush, BranchView, GitHubLayer, RobotsView, SyncState, WholeStackView, stack_readiness_key};
 use std::collections::{BTreeMap, HashSet};
 
 /// What of the session the remote actions of a subject read, and their intents with them, which the cached frame of an
@@ -65,6 +66,8 @@ pub struct ActionSources<'a> {
   pub lands: &'a BTreeMap<String, LandDecisions>,
   pub open_pull_requests: &'a BTreeMap<String, PullRequestView>,
   pub landed: &'a BTreeMap<String, Landed>,
+  /// The layers of the stacks of GitHub (`derive::github_layers_of`), by branch
+  pub github_layers: &'a BTreeMap<String, GitHubLayer>,
 }
 
 /// The actions of every subject of `state` by subject key (`domain_policy::actions`); none before the first sync, whose
@@ -127,6 +130,11 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
       pull_request: pull_requests.pull_requests.get(name),
       open_pull_request: sources.open_pull_requests.get(name),
       listing,
+      links_stack: sources.github_layers.get(name).is_some_and(|layer| {
+        let chain: Vec<&str> = layer.chain.iter().map(String::as_str).collect();
+        let open = |name: &str| pull_requests.pull_requests.get(name).filter(|pull_request| pull_request.state == PullRequestState::Open);
+        !stack_writes(&chain, open, baseline_on_remote(&parts.header.baseline_branch), sources.prefix, true).is_empty()
+      }),
       repository,
       comment_route: sources.lands.get(name).and_then(|lands| match lands.safe_push.start_route() {
         Some(StartRoute::Comment { number }) => Some(*number),

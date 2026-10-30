@@ -138,6 +138,7 @@ fn asked(intent: &Intent) -> (String, &'static str) {
     Intent::CancelRobot { .. } => ("the cancel of the robot".to_string(), "cancel it again"),
     Intent::Retarget { number } => (format!("the retarget of pull request #{number}"), "retarget it again"),
     Intent::CreatePullRequest(create) => (format!("the pull request of {}", create.subject.words()), "create it again"),
+    Intent::LinkStack { branch } => (format!("the link of the GitHub stack of {branch}"), "link it again"),
     Intent::RequestReview { subject, .. } => (format!("the review request of {}", subject.words()), "request the review again"),
     Intent::ClosePullRequest { number, .. } => (format!("the close of pull request #{number}"), "close it again"),
     Intent::DisableAutoMerge { number } => (format!("the cancel of the auto-merge of pull request #{number}"), "cancel it again"),

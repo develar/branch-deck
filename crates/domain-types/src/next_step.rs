@@ -207,6 +207,9 @@ pub enum StepKind {
   RobotPullRequest { number: Option<u32> },
   /// Row 5: the open pull request goes into the virtual branch `base`: retarget it into the target
   Retarget { number: u32, base: String },
+  /// Row 5: the open pull request `number` goes into the branch of the layer below it, outside a stack of GitHub: Link
+  /// GitHub Stack (`Intent::LinkStack`), as its merge would land nothing
+  LinkStack { number: u32 },
   /// Row 5′: the open pull request goes into another base, which may be meant: it opens
   OtherBase { number: u32, base: String },
   /// Row 6: an open draft, which Patronus merges once it is ready for review

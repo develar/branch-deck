@@ -41,6 +41,9 @@ pub enum ActionId {
   OpenPullRequest,
   RequestReview,
   RetargetPullRequest,
+  /// The stack of GitHub of a layer linked as its chain is (`Intent::LinkStack`): an old pull request into the target
+  /// joins it, one outside it is linked
+  LinkGithubStack,
   CreatePullRequest,
   // its shape and its commits: the rewrites
   Rename,
@@ -94,7 +97,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 50] = [
+  pub const ALL: [Self; 51] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -110,6 +113,7 @@ impl ActionId {
     Self::OpenPullRequest,
     Self::RequestReview,
     Self::RetargetPullRequest,
+    Self::LinkGithubStack,
     Self::CreatePullRequest,
     Self::Rename,
     Self::MoveTo,

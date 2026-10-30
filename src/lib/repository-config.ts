@@ -87,9 +87,13 @@ export function symbolModeLabel(mode: SymbolMode): string {
  * spec/branch/landing-routes.spec.md): its label and the sentence of the route chosen
  */
 export const LANDING_ROUTES: ReadonlyArray<{ setting: LandingSetting; label: string; description: string }> = [
-  { setting: "patronus", label: "Safe Push", description: "A robot of Patronus checks each piece and pushes it into master" },
-  { setting: "push", label: "Push", description: "A push of its copy lands each piece, without a robot or the CI of a pull request" },
-  { setting: "pullRequest", label: "Pull Request", description: "Its pull request lands each piece, merged on GitHub" },
+  { setting: "patronus", label: "Safe Push", description: "A robot of Patronus checks each piece and pushes it into master; every pull request goes into master" },
+  {
+    setting: "push",
+    label: "Push",
+    description: "A push of its copy lands each piece, without a robot or the CI of a pull request; a straight stack is a stack of GitHub",
+  },
+  { setting: "pullRequest", label: "Pull Request", description: "Its pull request lands each piece, merged on GitHub; a straight stack is a stack of GitHub" },
 ]
 
 export function landingRouteLabel(setting: LandingSetting): string {

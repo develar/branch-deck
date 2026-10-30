@@ -507,6 +507,17 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   "GitHub moved #9 of oauth onto master after the layers below it merged: Update Project first" (`LayerRebased`): its
   push would put the merged layers back over GitHub's rebase, whose copies have the same patches.
   [@test] ../../crates/operations/src/push_test.rs (`a_push_of_a_layer_links_its_stack_and_one_github_moved_waits_for_the_update`)
+- "Link GitHub Stack" (`link-github-stack`, `Intent::LinkStack`) must be offered in the menu of a layer whose stack is
+  out of line with its chain, an old pull request into the target above the bottom joining it (`stack_writes` with
+  `join`); it pushes what the chain lacks on the remote, retargets that pull request into the branch below it, then
+  links the stack, and tells it ("Linked the GitHub stack of login"). It is the next step of a layer into the branch
+  below it that GitHub lists in no stack (row 5, "Link Stack" in the slot), whose merge would land nothing.
+  [@test] ../../crates/domain-policy/src/github_stack_test.rs (`an_old_pull_request_into_the_target_joins_the_stack_only_when_the_user_links_it`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`a_layer_whose_stack_is_out_of_line_offers_link_github_stack`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_5_links_the_stack_of_a_layer_github_lists_in_none`)
+  [@test] ../../crates/operations/src/pull_request_test.rs (`link_github_stack_joins_an_old_pull_request_and_has_nothing_to_link_in_line`)
+  [@test] ../../src/presenters/next-step.test.ts (`row 5: links the stack of GitHub of a layer GitHub lists in none, short in its column`)
+  [@test] ../../tests/e2e/stacked-branches/github-stacks.spec.ts (`should take an old pull request into master into the stack with Link GitHub Stack from the menu of the row`, `should link the stack of a layer outside it from the slot of the row, as its merge would land nothing`)
   [@test] ../../crates/domain-policy/src/github_stack_test.rs (`a_layer_github_moved_onto_the_target_waits_for_the_update`)
 
 ### Push Up to Here

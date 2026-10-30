@@ -85,10 +85,11 @@ pub enum Landing<'a> {
   /// The merged `robot` of Patronus, with the branches it landed as the Patronus view names them (`landed`, by the
   /// hashes or by content)
   Robot { robot: &'a PatronusRobot, landed: &'a [RobotLandedBranch] },
-  /// A push of this session put the copy of a piece or of a whole stack into the target: `branches`, what it landed (the
-  /// `lands` of its plan, root first). `chain`: the commit it pushed is a virtual branch, whose history has the virtual
-  /// branches it is built on (a piece, the last branch of a straight chain), not a stack branch, which copies them anew
-  Push { branches: &'a [String], chain: bool },
+  /// A push of this session put the copy of a piece or of a whole stack into the target `target` ("master"): `branches`,
+  /// what it landed (the `lands` of its plan, root first). `chain`: the commit it pushed is a virtual branch, whose
+  /// history has the virtual branches it is built on (a piece, the last branch of a straight chain), not a stack branch,
+  /// which copies them anew
+  Push { branches: &'a [String], chain: bool, target: &'a str },
   /// The fetched baseline has every commit of `branches`, or GitHub merged a pull request that has them (a branch's own,
   /// which has the branches it is built on, a whole stack's)
   Content { branches: &'a [String] },
@@ -100,8 +101,9 @@ pub enum Landing<'a> {
 ///   carries their commits), of every branch of the stack for the robot of the whole stack; the pull request the robot
 ///   started from is Patronus' to close, and so is the robot's own branch's.
 /// - A push: every branch it landed, its own too, whose pull request shows an older version of it (a head the push
-///   left out); a pull request whose head is its branch's tip, pushed in the history of the copy (`chain`), is GitHub's:
-///   its head is in the target now, which merges it.
+///   left out); a pull request into the target whose head is its branch's tip, pushed in the history of the copy
+///   (`chain`), is GitHub's: its head is in the target now, which merges it. A layer of a stack of GitHub above the
+///   bottom goes into the branch below it, which GitHub never marks merged for a head in the target: closed too.
 /// - The fetched baseline or a merged pull request: every branch it has whose pull request is still open.
 #[must_use]
 pub fn pull_requests_to_close<'a>(landing: &Landing<'_>, subject: impl Fn(&str) -> Option<LandedSubject<'a>>) -> Vec<LandedPullRequest> {
@@ -122,9 +124,14 @@ pub fn pull_requests_to_close<'a>(landing: &Landing<'_>, subject: impl Fn(&str) 
         .filter_map(|branch| open(&branch.branch, &|pull_request, _| Some(pull_request.number) == started))
         .collect()
     }
-    Landing::Push { branches, chain } => branches
+    Landing::Push { branches, chain, target } => branches
       .iter()
-      .filter_map(|name| open(name, &|pull_request, tip| chain && head_of(pull_request).is_some() && head_of(pull_request) == tip))
+      .filter_map(|name| {
+        open(name, &|pull_request, tip| {
+          let into_target = pull_request.base_ref_name.is_empty() || pull_request.base_ref_name == target;
+          chain && into_target && head_of(pull_request).is_some() && head_of(pull_request) == tip
+        })
+      })
       .collect(),
     Landing::Content { branches } => branches.iter().filter_map(|name| open(name, &|_, _| false)).collect(),
   }

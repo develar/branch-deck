@@ -141,6 +141,18 @@ describe("the words of the next step", () => {
     expect(presentNextStep(testStep({ kind: "robotPullRequest", number: null }), testContext()).item).toMatchObject({ id: "create-pull-request" })
   })
 
+  it("row 5: links the stack of GitHub of a layer GitHub lists in none, short in its column", () => {
+    const calls: string[] = []
+    const link = presentNextStep(testStep({ kind: "linkStack", number: 7 }), testContext({ actions: testActions(calls) }))
+    expect(link).toMatchObject({ kind: "linkStack", safePushBlocker: null })
+    expect(link.item).toMatchObject({ id: "link-github-stack", label: "Link GitHub Stack", compactLabel: "Link Stack" })
+    expect(link.item?.description).toBe(
+      "#7 goes into the branch below it outside a stack of GitHub: its merge would land nothing. Links the stack: each layer into the branch below it",
+    )
+    link.item!.onSelect(FROM_MENU)
+    expect(calls).toEqual(["linkStack"])
+  })
+
   it("row 5: retargets a pull request into a virtual branch, short in its column; 5′ opens one into another base, the retarget in the menu", () => {
     const retarget = { number: 7, base: "test-user/virtual/core", target: "master" }
     const calls: string[] = []

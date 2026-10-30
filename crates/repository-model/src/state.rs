@@ -209,6 +209,7 @@ impl Derived {
       lands: lands.as_ref().unwrap_or(&last.lands),
       open_pull_requests: &open,
       landed: &landed,
+      github_layers: &github_layers,
     };
     let reviews = reviews_view(state, facts, &steps);
     let mut actions = actions_of(state, facts, &sources);

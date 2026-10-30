@@ -53,7 +53,9 @@ pub fn needs(intent: &Intent) -> Vec<FactNeed> {
       robots.into_iter().chain([FactNeed::PullRequests]).chain(readiness).collect()
     }
     Intent::Push(_) | Intent::CloseLandedPullRequests { .. } => vec![FactNeed::Robots, FactNeed::PullRequests],
-    Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => vec![FactNeed::PullRequests],
+    Intent::Retarget { .. } | Intent::CreatePullRequest(_) | Intent::LinkStack { .. } | Intent::ClosePullRequest { .. } | Intent::DisableAutoMerge { .. } => {
+      vec![FactNeed::PullRequests]
+    }
     Intent::SubmitReview { .. }
     | Intent::SetIssueState { .. }
     | Intent::ForgetStart { .. }

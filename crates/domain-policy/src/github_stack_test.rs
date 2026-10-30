@@ -92,7 +92,7 @@ fn writes(pull_requests: &[PullRequest]) -> Vec<StackWrite> {
     .iter()
     .map(|pull_request| (pull_request.head_ref_name.trim_start_matches("develar/virtual/"), pull_request))
     .collect();
-  stack_writes(&["auth", "login", "oauth"], |branch| by_branch.get(branch).copied(), "master", "develar")
+  stack_writes(&["auth", "login", "oauth"], |branch| by_branch.get(branch).copied(), "master", "develar", false)
 }
 
 /// The layers of a chain without a stack make a new one; with fewer than two layers there is none to make
@@ -139,7 +139,7 @@ fn the_layers_left_after_a_partial_merge_are_in_line() {
   let login = open_pull_request("login", 2, "master", Some((4, 3, 2)));
   let oauth = open_pull_request("oauth", 3, "develar/virtual/login", Some((4, 3, 3)));
   let by_branch = BTreeMap::from([("login", &login), ("oauth", &oauth)]);
-  assert_eq!(stack_writes(&["login", "oauth"], |branch| by_branch.get(branch).copied(), "master", "develar"), []);
+  assert_eq!(stack_writes(&["login", "oauth"], |branch| by_branch.get(branch).copied(), "master", "develar", false), []);
 }
 
 /// A stack out of line with the chain (another order, a member to retarget, layers of two stacks) is unstacked, the
@@ -193,4 +193,27 @@ fn a_layer_github_moved_onto_the_target_waits_for_the_update() {
   assert_eq!(rebased_by_github("auth", &bottom, Some("base"), "master"), None);
   let layer = open_pull_request("oauth", 3, "develar/virtual/login", Some((4, 3, 3)));
   assert_eq!(rebased_by_github("oauth", &layer, Some("login"), "master"), None);
+}
+
+/// A pull request of before the stacks of GitHub into the target above the bottom ends the layers of a push, which
+/// leaves it as it is; Link GitHub Stack (`join`) retargets it into the branch below it and makes the stack
+#[test]
+fn an_old_pull_request_into_the_target_joins_the_stack_only_when_the_user_links_it() {
+  let auth = open_pull_request("auth", 1, "master", None);
+  let login = open_pull_request("login", 2, "master", None);
+  let by_branch = BTreeMap::from([("auth", &auth), ("login", &login)]);
+  let writes = |join| stack_writes(&["auth", "login"], |branch| by_branch.get(branch).copied(), "master", "develar", join);
+  assert_eq!(writes(false), []);
+  assert_eq!(
+    writes(true),
+    [
+      StackWrite::Retarget {
+        branch: "login".to_string(),
+        number: 2,
+        from: "master".to_string(),
+        to: "develar/virtual/auth".to_string(),
+      },
+      StackWrite::Create { pull_requests: vec![1, 2] },
+    ]
+  );
 }

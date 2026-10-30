@@ -93,6 +93,7 @@ fn facts<'a>(step: &'a NextStep, remote: &'a RemoteStatusUpdate) -> BranchFacts<
     pull_request: None,
     open_pull_request: None,
     listing: Listing::Listed,
+    links_stack: false,
     repository: true,
     comment_route: None,
     stacks_enabled: true,
@@ -1701,4 +1702,19 @@ fn a_frame_is_unchecked_while_its_table_or_a_fact_the_actions_read_is_the_cached
   assert!(on_cached_frame(false, [&fresh, &FactState::Cached]));
   assert!(!on_cached_frame(false, [&fresh, &stale, &FactState::Loading, &FactState::Unknown]));
   assert!(!on_cached_frame(false, []));
+}
+
+/// A layer of a stack of GitHub whose stack is out of line with its chain offers Link GitHub Stack, enabled; one in line
+/// offers none (docs/design/github-stacks.md)
+#[test]
+fn a_layer_whose_stack_is_out_of_line_offers_link_github_stack() {
+  let (step, remote) = (ready_step(), remote(PushAction::Push));
+  let links = BranchFacts {
+    links_stack: true,
+    ..facts(&step, &remote)
+  };
+  let actions = branch_actions(&links);
+  let link = actions.iter().find(|action| action.id == ActionId::LinkGithubStack).expect("offered");
+  assert_eq!(link.availability, Availability::Enabled);
+  assert!(!branch_actions(&facts(&step, &remote)).iter().any(|action| action.id == ActionId::LinkGithubStack));
 }

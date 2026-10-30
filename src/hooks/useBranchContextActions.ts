@@ -1,7 +1,7 @@
 import { CopyIcon, FoldVerticalIcon, LayersIcon, LinkIcon, ShieldEllipsisIcon, UnfoldVerticalIcon, WandSparklesIcon } from "lucide-react"
 import { useStore } from "zustand"
 import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
-import { getBranchNextStep } from "@/hooks/useBranchNextStep"
+import { getBranchNextStep, linkGitHubStackOf } from "@/hooks/useBranchNextStep"
 import { pushRunsOf } from "@/hooks/useBranchPushes"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { ungroupBranch } from "@/hooks/useMoveCommits"
@@ -189,6 +189,7 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
       nextStep.kind === "requestReview" ? nextStep.item : getRequestReviewItemNow(branch.name),
       // a pull request into another base: the step retargets one into a virtual branch, the menu always offers it
       findAction(actionsOf(branch.name), "retarget-pull-request") === undefined ? null : nextStep.retarget,
+      getLinkGitHubStackItem(branch),
       getCreatePullRequestItem(branch),
     ),
   )
@@ -519,6 +520,14 @@ export function getSafePushWithoutReviewItem(branch: Branch, nextStep: BranchNex
     blocker,
   )
   return withStepReason(item, blocker)
+}
+
+/**
+ * "Link GitHub Stack" of a layer of a stack of GitHub whose stack is out of line with its chain, as Rust offers it
+ * (`link-github-stack`): an old pull request into the target joins the stack, one outside it is linked; null otherwise
+ */
+export function getLinkGitHubStackItem(branch: Branch, actions: readonly ActionState[] | undefined = actionsOf(branch.name)): MenuItem | null {
+  return presentAction(actions, "link-github-stack", { onSelect: () => void linkGitHubStackOf(branch.name) }, wordsOf(branch))
 }
 
 /**

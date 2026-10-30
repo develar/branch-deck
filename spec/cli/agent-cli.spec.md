@@ -1136,6 +1136,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   command, with `--repo` for a GitHub repository `origin` doesn't push to (a mirror). The summaries of the issues come
   from YouTrack as in the app, read with the token of `YOUTRACK_TOKEN` or of the app's sign-in and never renewed.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `parents_go_first_and_a_child_alone_carries_its_parents_commits`, `with_children_pushes_the_branches_stacked_on_the_named_ones`, `the_pull_request_command_names_a_github_mirror`)
+- On a route without Patronus the draft of a layer of a stack of GitHub must go into the branch below it, with only its
+  own commits, the bottom's into the baseline ([Stacks of GitHub](../branch/stacked-branches.spec.md#stacks-of-github));
+  `github_stacks` names each stack of the drafted branches, its `chain` bottom first and the `gh stack link` of their
+  remote branches, which opens the pull requests a layer lacks and links them.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_drafts_the_layers_of_a_stack_of_github_into_the_branches_below_them`)
 - Before the push, with the lock released, it must retarget the open pull request of each branch it pushes whose base
   is a virtual branch of the user (`{prefix}/virtual/…`) to the baseline, as the app's push does (one search of the
   pull requests, one `PATCH pulls/<n>` each; D3a: GitHub never compares the pushed commits with a parent's branch the

@@ -93,6 +93,9 @@ pub struct BranchFacts<'a> {
   pub pull_request: Option<&'a PullRequest>,
   pub open_pull_request: Option<&'a PullRequestView>,
   pub listing: Listing<'a>,
+  /// It is a layer of a stack of GitHub whose stack is out of line with its chain, an old pull request into the target
+  /// joining it (`github_stack::stack_writes` with `join`): Link GitHub Stack has writes to make
+  pub links_stack: bool,
   /// The GitHub repository of the branches is known
   pub repository: bool,
   /// The pull request whose comment starts its Safe Push (`StartRoute::Comment`)
@@ -107,7 +110,7 @@ pub struct BranchFacts<'a> {
 }
 
 /// The most actions a branch offers: the vector of them is sized once (every row of every patch of a view derives them)
-const BRANCH_ACTIONS: usize = 24;
+const BRANCH_ACTIONS: usize = 25;
 
 /// The actions of a branch, in the order of the enum
 #[must_use]
@@ -153,6 +156,9 @@ pub fn branch_actions(facts: &BranchFacts<'_>) -> Vec<ActionState> {
   }
   if step.retarget.is_some() {
     offer(ActionId::RetargetPullRequest, None);
+  }
+  if facts.links_stack {
+    offer(ActionId::LinkGithubStack, None);
   }
   let live = facts.pull_request.is_some_and(|pull_request| pull_request.state != PullRequestState::Closed);
   if facts.repository && !live {
@@ -805,6 +811,7 @@ fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
       (ActionId::RetargetPullRequest, Intent::Retarget { number }) | (ActionId::CancelAutoMerge, Intent::DisableAutoMerge { number }) => pull_request == Some(*number),
       (ActionId::RequestReview, Intent::RequestReview { subject, .. }) => is_branch(subject, name),
       (ActionId::CreatePullRequest, Intent::CreatePullRequest(create)) => is_branch(&create.subject, name),
+      (ActionId::LinkGithubStack, Intent::LinkStack { branch }) => branch == name,
       (_, Intent::Rewrite(rewrite)) => is_own_rewrite(id, name, unparks, rewrite),
       _ => false,
     },

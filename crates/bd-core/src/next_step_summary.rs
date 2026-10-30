@@ -62,6 +62,7 @@ const fn kind_name(kind: &StepKind) -> &'static str {
     StepKind::Restart { .. } => "restart",
     StepKind::RobotPullRequest { .. } => "robot_pull_request",
     StepKind::Retarget { .. } => "retarget",
+    StepKind::LinkStack { .. } => "link_stack",
     StepKind::OtherBase { .. } => "other_base",
     StepKind::Draft { .. } => "draft",
     StepKind::CreatePullRequest { .. } => "create_pull_request",
@@ -106,6 +107,7 @@ fn pull_request_of(kind: &StepKind) -> Option<u32> {
   match kind {
     StepKind::RobotPullRequest { number } => *number,
     StepKind::Retarget { number, .. }
+    | StepKind::LinkStack { number }
     | StepKind::OtherBase { number, .. }
     | StepKind::Draft { number }
     | StepKind::ChangesRequested { number, .. }
@@ -163,6 +165,7 @@ fn step_words(kind: &StepKind, what: &str) -> String {
       StepFailure::ProblemsFailed { message } => format!("Patronus didn't tell why the Safe Push failed ({message})"),
     },
     StepKind::OtherBase { number, base } => format!("Approvals in #{number} don't count: its base is {base}"),
+    StepKind::LinkStack { number } => format!("#{number} goes into the branch below it outside a stack of GitHub: `gh stack link` its layers first"),
     StepKind::Draft { number } => format!("#{number} is a draft: Patronus merges it once it is ready for review"),
     StepKind::CreatePullRequest { groups, .. } => format!("Code owners must approve in a pull request: {}", group_names(groups)),
     StepKind::ChangesRequested { number, groups } => {

@@ -40,6 +40,7 @@ use domain_policy::land_direct::update_after;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
 use domain_policy::landing_route::{GitHubFacts, RouteFacts, TargetRules, route};
 use domain_policy::stack::WholeStack;
+use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{Confirmation, Land, LandFact, LandingRefusal, PlannedEffect, ProfileChoice, Unchecked};
 use domain_types::landing_route::{LandingRemote, LandingRoute, RouteGate};
@@ -496,7 +497,8 @@ fn landed_closes(table: &BranchTable, pull_requests: &PullRequestsView, lands: &
   if !matches!(pull_requests.head.value, Some(PullRequestAvailability::Available { .. })) {
     return Vec::new();
   }
-  pull_requests_to_close(&Landing::Push { branches: lands, chain }, |name| {
+  let target = baseline_on_remote(&table.baseline);
+  pull_requests_to_close(&Landing::Push { branches: lands, chain, target }, |name| {
     table
       .branch(name)
       .map(|found| landed_subject(table, &table.remote, Of::Branch(&found.name), Some(pull_requests)))

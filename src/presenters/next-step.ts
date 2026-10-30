@@ -16,6 +16,7 @@ import {
   ShieldCheckIcon,
   TriangleAlertIcon,
   UserPlusIcon,
+  LayersIcon,
 } from "lucide-react"
 import type { LandingFix, MissingReviewGroup, NextStep, Person, StepBlocker, StepFact, StepFailure, StepKind } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
@@ -46,6 +47,7 @@ export type NextStepKind =
   | "restart"
   | "pullRequest"
   | "retarget"
+  | "linkStack"
   | "otherBase"
   | "draft"
   | "createPullRequest"
@@ -76,6 +78,8 @@ export interface NextStepActions {
   readonly openPullRequest: () => void
   /** Retargets the pull request of the subject to the target */
   readonly retarget: () => void
+  /** Links the stack of GitHub of the subject, a layer of one (`Intent::LinkStack`) */
+  readonly linkStack: () => void
   /** Opens the pull request of the whole stack of `root` (row 7, "In #12") */
   readonly openStackPullRequest: (root: string) => void
   /** Runs the fix of what the Safe Push needs (`LandingFix`): the restack of the root of what it lands */
@@ -538,6 +542,19 @@ function show(step: NextStep, context: StepContext, general: string | null): Sho
       const retarget = retargetItem(step, context, kind.number, kind.base)
       const reason = `Approvals in #${kind.number} don't count: its base is ${kind.base}`
       return { kind: "retarget", item: { ...retarget, compactLabel: `Retarget #${kind.number}`, description: `${reason}, a virtual branch. ${retarget.description}` }, retarget }
+    }
+    case "linkStack": {
+      // a layer into the branch below it outside a stack of GitHub: its merge would land nothing until the stack is linked
+      const reason = `#${kind.number} goes into the branch below it outside a stack of GitHub: its merge would land nothing`
+      const item: MenuItem = {
+        id: "link-github-stack",
+        label: "Link GitHub Stack",
+        compactLabel: "Link Stack",
+        icon: LayersIcon,
+        description: `${reason}. Links the stack: each layer into the branch below it`,
+        onSelect: actions.linkStack,
+      }
+      return { kind: "linkStack", item, own: reason, notice: { title: `#${kind.number} of ${subject} is outside its GitHub stack`, description: reason } }
     }
     case "otherBase": {
       // another base may be meant (a release branch): the step opens the pull request, the retarget is in the menu

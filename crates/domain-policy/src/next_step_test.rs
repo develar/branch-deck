@@ -1342,3 +1342,26 @@ fn a_merge_of_the_pull_request_is_the_step_of_its_route_by_what_github_tells() {
   });
   assert_eq!(patronus.step().kind, StepKind::SafePush);
 }
+
+/// A layer of a stack of GitHub into the branch below it that GitHub lists in no stack: row 5 links the stack, as its
+/// merge would land nothing; one GitHub lists in its stack merges with the layers below it (docs/design/github-stacks.md)
+#[test]
+fn row_5_links_the_stack_of_a_layer_github_lists_in_none() {
+  let outside = Fixture::merging(RouteGate::Open, Some(MergeStateStatus::Clean)).with(|it| {
+    if let Some((pull_request, base)) = it.pull_request.as_mut() {
+      pull_request.base_ref_name = "user/virtual/root".to_string();
+      *base = Some(PullRequestBase::Layer { parent: "root".to_string() });
+    }
+  });
+  let (row, kind, blocker, _) = shape(&outside.step());
+  assert_eq!((row, kind, blocker), (StepRow::Five, StepKind::LinkStack { number: 7 }, None));
+  let stacked = outside.with_pull_request(|pull_request| {
+    pull_request.stack = Some(domain_types::pull_request::PullRequestStackEntry {
+      number: 4,
+      base_ref_name: "master".to_string(),
+      size: 1,
+      position: 1,
+    });
+  });
+  assert!(matches!(stacked.step().kind, StepKind::MergePullRequest { number: 7, .. }), "{:?}", stacked.step().kind);
+}

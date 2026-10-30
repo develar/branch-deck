@@ -663,6 +663,11 @@ fn merge_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Opti
       }
     }
     MergeAnswer::Waits { .. } => pending(StepFact::MergeState, blocker, dry_run),
+    // a layer outside a stack of GitHub: its link is the step, its merge would land nothing
+    MergeAnswer::Held {
+      reason: Reason::LayerNotLinked { number, .. },
+      ..
+    } => step(StepRow::Five, StepKind::LinkStack { number }, blocker, dry_run),
     MergeAnswer::Held { number, reason } => step(
       StepRow::MergeDoublePrime,
       StepKind::MergeHeld { number },

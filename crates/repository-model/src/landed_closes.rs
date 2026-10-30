@@ -14,6 +14,7 @@ use crate::table::TableState;
 use domain_policy::facts::Repository;
 use domain_policy::landed::{Landing, Of, baseline_upstream, merged_pull_request, pull_requests_to_close};
 use domain_policy::stack::build_ancestors;
+use domain_types::branch_names::baseline_on_remote;
 use domain_types::landing::{BaselinePush, LandedPullRequest, LandedWith};
 use domain_types::pull_request::{PullRequest, PullRequestAvailability, PullRequestState};
 use domain_types::session::{NewsEvent, PullRequestsView, stack_readiness_key, stack_root_of_readiness_key};
@@ -178,9 +179,15 @@ pub fn push_closes(table: &TableFacts, pull_requests: &PullRequestsView, landed:
   // the virtual branches it is built on in its history
   let chain = stack.is_none_or(|(_, stack)| landed.iter().any(|(key, branch)| stack_root_of_readiness_key(key).is_none() && branch.tip == stack.tip));
   let (rows, remote) = (&table.table, &table.remote);
-  let closes = pull_requests_to_close(&Landing::Push { branches: &branches, chain }, |name| {
-    rows.branch(name).map(|found| landed_subject(rows, remote, Of::Branch(&found.name), Some(pull_requests)))
-  });
+  let target = baseline_on_remote(&pushed.upstream);
+  let closes = pull_requests_to_close(
+    &Landing::Push {
+      branches: &branches,
+      chain,
+      target,
+    },
+    |name| rows.branch(name).map(|found| landed_subject(rows, remote, Of::Branch(&found.name), Some(pull_requests))),
+  );
   let with = LandedWith::Push {
     subject: subject.clone(),
     tip: pushed.tip.clone(),

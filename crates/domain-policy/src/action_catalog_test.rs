@@ -183,6 +183,7 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::OpenPullRequest
       | ActionId::RequestReview
       | ActionId::RetargetPullRequest
+      | ActionId::LinkGithubStack
       | ActionId::CreatePullRequest
       | ActionId::Rename
       | ActionId::MoveTo

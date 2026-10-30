@@ -1123,7 +1123,7 @@ fn a_push_of_a_layer_links_its_stack_and_one_github_moved_waits_for_the_update()
     planned
   };
   let linked = sources.with(|sources| super::linking_stacks(sources, planned()));
-  assert_eq!(linked.plan.effects, [push.clone(), PlannedEffect::LinkStack { chain }]);
+  assert_eq!(linked.plan.effects, [push.clone(), PlannedEffect::LinkStack { chain, join: false }]);
   assert_eq!(linked.stack_pull_requests.keys().collect::<Vec<_>>(), ["auth", "root"]);
 
   let entry = |position| PullRequestStackEntry {

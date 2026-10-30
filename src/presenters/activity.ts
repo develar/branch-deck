@@ -331,6 +331,8 @@ function failureTitle(intent: Intent, subject: string): string {
       return `Cannot retarget pull request #${intent.number}`
     case "createPullRequest":
       return `Cannot create the pull request of ${subject}`
+    case "linkStack":
+      return `Cannot link the GitHub stack of ${intent.branch}`
     case "requestReview":
       return `Cannot request a review of ${subject}`
     case "closePullRequest":

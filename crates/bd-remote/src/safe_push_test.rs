@@ -1797,3 +1797,43 @@ fn assert_clean_on_the_last_fetched(output: &Value, baseline: &str) -> String {
   );
   message.to_string()
 }
+
+/// On a route without Patronus a straight chain is a stack of GitHub (docs/design/github-stacks.md): `bd push` drafts
+/// the pull request of each layer into the branch below it, with only its own commits, the bottom's into master, and
+/// prints the `gh stack link` of the chain; on the route of Patronus every draft goes into master as before
+#[test_log::test]
+fn push_drafts_the_layers_of_a_stack_of_github_into_the_branches_below_them() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login", "(login/oauth) Add oauth"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (_github, url) = fake_github(&space, &[]);
+  let environment = reviewed_on_github(&space, &url);
+  let (exit_code, output) = bd_push(&environment, &["oauth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(branch_of(&output, "oauth")["pull_request"]["base"], json!("master"), "the route of Patronus: {output}");
+  assert_eq!(output.get("github_stacks"), None);
+
+  space.repo.set_config("branchdeck.landing", "pull-request").unwrap();
+  write(&space.repo, "oauth2.txt", "v2\n");
+  commit_all(&space.repo, "(login/oauth) Add the oauth flow", 1_700_000_900);
+  let (exit_code, output) = bd_push(&environment, &["oauth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let bases: Vec<(&Value, &Value)> = output["branches"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|branch| (&branch["name"], &branch["pull_request"]["base"]))
+    .collect();
+  assert_eq!(bases, [(&json!("oauth"), &json!(format!("{PREFIX}/virtual/login")))], "{output}");
+  let draft = &branch_of(&output, "oauth")["pull_request"];
+  assert_eq!(draft["body"].as_str().map(|body| body.contains("Built on")), Some(false), "only its own commits: {draft}");
+  assert_eq!(
+    output["github_stacks"],
+    json!([{"chain": ["auth", "login", "oauth"], "command": format!("gh stack link {PREFIX}/virtual/auth {PREFIX}/virtual/login {PREFIX}/virtual/oauth")}])
+  );
+  let (_, schema) = run_json(&environment, &["schema", "--all"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+}
+
+fn branch_of<'a>(output: &'a Value, name: &str) -> &'a Value {
+  output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
+}

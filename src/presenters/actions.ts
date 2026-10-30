@@ -87,6 +87,7 @@ export const ACTION_LOOKS = {
   "open-pull-request": { label: "Open Pull Request", icon: GitPullRequestIcon, kbds: ["o"] },
   "request-review": { label: "Request Review…", icon: UserPlusIcon },
   "retarget-pull-request": { label: "Retarget", icon: GitPullRequestArrowIcon },
+  "link-github-stack": { label: "Link GitHub Stack", icon: LayersIcon },
   "create-pull-request": { label: "Create Pull Request…", icon: GitPullRequestCreateIcon },
   rename: { label: "Rename…", icon: PencilIcon },
   "move-to": { label: "Move to…", icon: FolderInputIcon, kbds: ["m"] },

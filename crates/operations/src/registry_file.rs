@@ -676,6 +676,7 @@ const fn kind_words(kind: OperationKind) -> &'static str {
     OperationKind::CancelRobot => "cancel of a robot",
     OperationKind::Retarget => "retarget of a pull request",
     OperationKind::CreatePullRequest => "creation of the pull request",
+    OperationKind::LinkStack => "link of a stack of GitHub",
     OperationKind::RequestReview => "review request",
     OperationKind::ClosePullRequest => "close of a pull request",
     OperationKind::DisableAutoMerge => "cancel of an auto-merge",

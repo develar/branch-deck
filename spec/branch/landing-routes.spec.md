@@ -352,11 +352,13 @@ target, read before anything is pushed.
   its remote branch has no commit the branch lacks) must close, by one rule (`domain_policy::landed::
   pull_requests_to_close`, `Landing`): of a merged robot as before ([Patronus](patronus.spec.md#merged)); of a push into
   the target every branch it landed, its own too, whose pull request shows an older version of it (a head the push
-  left out), while one whose head is its branch's tip in the history of the copy is GitHub's, which merges it once its
-  head is in the target (a piece, the last branch of a straight chain; a stack branch copies the branches anew, so of
-  a stack that forks every branch's closes); of the fetched baseline and of a pull request GitHub merged with the
+  left out), while one into the target whose head is its branch's tip in the history of the copy is GitHub's, which
+  merges it once its head is in the target (a piece, the last branch of a straight chain; a stack branch copies the
+  branches anew, so of a stack that forks every branch's closes); a layer of a stack of GitHub above the bottom goes
+  into the branch below it, which GitHub never marks merged, so it closes too; of the fetched baseline and of a pull request GitHub merged with the
   commits of its branch (that branch with what it is built on, of a whole stack every branch) every open pull request of
   what it has.
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_closes_the_layers_of_a_stack_of_github_above_the_bottom`)
   [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_closes_the_pull_requests_whose_head_it_left_out_and_leaves_those_in_the_history_of_its_copy_to_github`, `the_fetched_baseline_closes_every_open_pull_request_of_what_it_has_that_holds_nothing_more`, `names_the_pull_request_github_merged_with_the_commits_of_the_branch`)
   [@test] ../../crates/domain-policy/src/landed_test.rs (`closes_the_pull_requests_of_the_branches_a_merged_robot_landed_whole_not_of_its_own_branch`)
 - The session must tell each landing without a robot once as news (`NewsEvent::Landed`, with the pull requests it

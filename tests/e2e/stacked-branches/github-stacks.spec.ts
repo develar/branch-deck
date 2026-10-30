@@ -90,4 +90,31 @@ test.describe("Stacks of GitHub", () => {
     await expect(findBranchRow(page, "auth")).toHaveCount(0)
     await expect(findBranchRow(page, "oauth")).toBeVisible()
   })
+
+  test("should take an old pull request into master into the stack with Link GitHub Stack from the menu of the row", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // auth and login each opened their pull request into master before the stacks of GitHub
+    const pulls = [pullRequest("auth", 6, { baseRefName: "master" }), pullRequest("login", 7, { baseRefName: "master" })]
+    const repo = await setupRepo("stacked_chain", { pullRequests: availablePullRequests(...pulls), landing: LANDING })
+    await syncAndWaitForBranches()
+    await openContextMenu(page, findBranchRow(page, "login"))
+    await clickContextMenuItem(page, "Link GitHub Stack")
+    await expect(page.locator("[data-slot=toast]", { hasText: "Linked the GitHub stack of login" })).toBeVisible()
+    // login's #7 goes into auth's branch first, then the stack of both: GitHub refuses the retarget of a member
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([
+      ["PATCH", repoPath("pulls", 7), { base: "user-name/virtual/auth" }],
+      ["POST", repoPath("stacks"), { pull_requests: [6, 7] }],
+    ])
+  })
+
+  test("should link the stack of a layer outside it from the slot of the row, as its merge would land nothing", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // login's #7 goes into auth's branch, and GitHub lists it in no stack
+    const pulls = [pullRequest("auth", 6, { baseRefName: "master" }), pullRequest("login", 7, { baseRefName: "user-name/virtual/auth" })]
+    const repo = await setupRepo("stacked_chain", { pullRequests: availablePullRequests(...pulls), landing: LANDING })
+    await syncAndWaitForBranches()
+    const row = findBranchRow(page, "login")
+    await waitForStepFacts(row.getByTestId("next-step-slot"))
+    await row.getByTestId("next-step-slot").getByRole("button", { name: "Link Stack" }).click()
+    await expect(page.locator("[data-slot=toast]", { hasText: "Linked the GitHub stack of login" })).toBeVisible()
+    expect(gitHubWrites(await repo.getGitHubLog())).toEqual([["POST", repoPath("stacks"), { pull_requests: [6, 7] }]])
+  })
 })

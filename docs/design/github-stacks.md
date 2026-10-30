@@ -147,14 +147,23 @@ take holds it by its own number; no auto-merge, which GitHub offers no stack. Th
 most 2 minutes: merged, the layer and the layers below go into the session as merged, and Update Project follows as
 after any merge; enqueued, the merge queue of the base merges it later; failed, in GitHub's words.
 
-### Not built yet
+After a merge GitHub marks the merged layers merged, so the closing of landed pull requests leaves them to it. On the
+`push` route GitHub marks only the bottom merged after the push of the copy into master: the layers above it go into
+the branches below them, so the close of what the push landed takes them with the landing comment (`Landing::Push`
+leaves to GitHub only a pull request into the target).
 
-- Joining an old pull request into master into its stack (a next step that retargets it into its parent's branch and
-  links the stack), and "Link Stack" as a next step of a layer outside a stack: today a push links it.
-- `bd push` prints its `gh pr create` drafts with `--base` the target; the drafts of a layer into its parent's branch
-  and the `gh stack link` line.
-- The words of Settings → Landing for where the pull requests of stacked branches go.
-- The closing of the layers above the bottom after a push into master on the `push` route, which GitHub leaves open.
+### Link GitHub Stack
+
+An old pull request into master of a layer keeps its base: no push retargets it. "Link GitHub Stack" (the menu of the
+layer, `Intent::LinkStack`) takes it in: the link with `join` retargets each layer into master above the bottom into
+the branch below it, then makes the stack. A layer into the branch below it that GitHub lists in no stack has the link
+as its next step (row 5): its merge would land nothing (`LayerNotLinked`).
+
+### bd and Settings
+
+`bd push` drafts the pull request of a layer into the branch below it, with only its own commits, and names each stack
+of the drafted branches with the `gh stack link` of their remote branches (`github_stacks`). Settings → Landing says
+where the pull requests of a stack go by the route: into master on Safe Push, a stack of GitHub off it.
 
 ### The client
 

@@ -838,7 +838,7 @@ impl<'a> Run<'a> {
           PlannedEffect::StartRobot { route } => self.start(route).await,
           PlannedEffect::CreatePullRequest { base } => self.create_pull_request(base.as_deref()).await,
           PlannedEffect::CreateLayerPullRequest { branch, base } => self.create_layer_pull_request(branch, base).await,
-          PlannedEffect::LinkStack { chain } => self.link_stack(chain).await,
+          PlannedEffect::LinkStack { chain, join } => self.link_stack(chain, *join).await,
           PlannedEffect::RestartRobot { robot_id } => self.restart(robot_id).await,
           PlannedEffect::WaitForMirror { branch } => self.wait_for_mirror(branch).await,
           PlannedEffect::RequestReviewers { number, reviewers } => self.request_reviewers(*number, reviewers).await,
@@ -1570,7 +1570,7 @@ impl Run<'_> {
   /// The stack of GitHub of `chain` is brought in line with it (`domain_policy::github_stack::stack_writes`) over its
   /// open pull requests as the plan read them and the run opened them: each write in its order, GitHub's refusal of one
   /// fails the effect, the pull requests stay as they are
-  async fn link_stack(&mut self, chain: &[String]) -> EffectStatus {
+  async fn link_stack(&mut self, chain: &[String], join: bool) -> EffectStatus {
     let (github, repository) = match self.before_write().await {
       Ok(github) => github,
       Err(status) => return status,
@@ -1582,6 +1582,7 @@ impl Run<'_> {
       |branch| open.get(branch).filter(|pull_request| pull_request.state == PullRequestState::Open),
       &self.services.target,
       &self.services.prefix,
+      join,
     );
     let path = self.services.repository_path.clone();
     for write in writes {
