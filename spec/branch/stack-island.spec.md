@@ -198,7 +198,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   lands in pieces: the "⋯" item "Safe Push deploy" (the last branch of the main line), the action of the notice of S
   and "Land it in pieces" of the popover open that Safe Push at the header's slot. The rows keep their own popovers at
   their slots, one popover at a time (`SafePushAsk`). The header shows no key hints: it is no row.
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`, `should keep the popover of a row of the island at its slot, and review the whole stack in the window of its stack branch`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../crates/domain-policy/src/stack_test.rs (`the_main_line_takes_the_longest_chain_at_each_fork_and_the_last_of_equal_ones`)
 - While a Safe Push runs in the stack (each one lands the root: [Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs))
@@ -218,7 +218,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   "Review Whole Stack" (the review window of the stack branch; of a straight chain, of its last branch from the root,
   disabled with the reason of the branch menu's, `reviewBlockerOf`, as Rust decides it: no commits, failed, blocked) and the actions of
   the robot of the whole stack; then "Collapse Stack" / "Expand Stack".
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`, `should keep the popover of a row of the island at its slot, and review the whole stack in the window of its stack branch`, `should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)
 
 ### Rows
@@ -241,7 +241,7 @@ Rust places: at each fork the child with the longest chain), whose one robot lan
   focus; F2 and a reveal of a branch in a collapsed island expand it. S on the focused header opens the popover of the
   Safe Push of the whole stack, Enter starts it. A side stack of the island is a side stack of the table
   ([Stacked Branches](stacked-branches.spec.md#ui)).
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should step from the table into the island with the arrows, and collapse it with Alt+Left`)
 - Under the filter, an island must show its matches and, dimmed, the branches they stack on, and not collapse; an
   island without a match is not shown; the table without a row, while islands show matches, has no "No branches match".

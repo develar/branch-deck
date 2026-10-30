@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 /**
  * A second recent project, which git cannot read: a switch to it shows another repository, so what an action of the

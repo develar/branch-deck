@@ -1,6 +1,6 @@
-import { expect } from "@playwright/test"
 import type { Locator, Page } from "@playwright/test"
 import type { GitHubUser, MergeMethods, PullRequest, PullRequestAvailability, Reviewer, ReviewerState } from "../../../src/lib/bindings"
+import { expect } from "../fixtures/base-test"
 
 /** The branch prefix of the E2E repositories */
 const BRANCH_PREFIX = "user-name"

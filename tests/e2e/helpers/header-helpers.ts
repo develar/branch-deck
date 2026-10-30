@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 /** The minimum size of the main window (`min_inner_size` in src-tauri/src/lib.rs) */
 export const MIN_WINDOW = { width: 960, height: 700 }

@@ -111,6 +111,19 @@ test("a routed command error names its code", () => {
   assert.deepEqual(rulesOf(source), ["3 route-error-code", "6 route-error-code"])
 })
 
+test("an e2e file takes the expect of its fixtures, whose poll asks every 50 ms", () => {
+  const source = [
+    'import { expect } from "@playwright/test"',
+    'import { test, expect as check } from "@playwright/test"',
+    'import type { Page } from "@playwright/test"',
+    'import { expect } from "../fixtures/base-test"',
+  ].join("\n")
+  const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
+  assert.deepEqual(rules("tests/e2e/helpers/example-helpers.ts"), ["1 e2e-expect", "2 e2e-expect"])
+  assert.deepEqual(rules("tests/e2e/fixtures/base-test.ts"), [])
+  assert.deepEqual(rules("src/lib/example.ts"), [])
+})
+
 test("a timer of a store or a hook is a poll, of its test or another module not", () => {
   const source = ["const timer = setTimeout(ask, 300_000)", "const every = window.setInterval(read, 60_000)", "// setTimeout(ask) in a comment", "clearTimeout(timer)"].join("\n")
   const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)

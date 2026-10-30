@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { ActivityWindowData } from "../../../src/lib/activity-window"
+import { expect } from "../fixtures/base-test"
 import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 

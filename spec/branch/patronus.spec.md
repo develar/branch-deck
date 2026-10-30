@@ -674,7 +674,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Escape and a click outside close it. The stack graph highlights the path it lands while it is open.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should give the focus to the start of the popover once it can start`)
   [@test] ../../src/lib/patronus-stack.test.ts (`lands a stacked branch with what it is built on, in one robot, counted`, `names three ancestors and counts the rest, the size of what lands first`, `says that a dry run checks the commits of the ancestors too, and nothing of the children`, `says that the branches built on it stay, and what the next sync after the merge does to them`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
 - The profile:
  "Default checks" and the merge profiles of the target branch that allow the mode (the emergency ones
@@ -882,11 +882,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   with "Safe Push Whole Stack" ("Check the whole stack:" with "Dry Run Whole Stack" for a Dry Run), the item of the
   menus (`getWholeStackStartItems`), its hover what it lands, disabled with the reason under it; it opens the popover
   of the whole stack.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from S, the preview and the review window`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S and the review window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`, `should say in the Safe Push popover of a branch in the middle what lands and what stays`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`a_start_pushes_the_ancestors_with_work_up_to_the_nearest_held_one_past_what_landed`, `a_branch_is_kept_out_parked_then_landed_then_held_unless_replaced_then_not_built`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_push_of_a_start_is_the_push_of_its_row_past_an_ancestor_that_landed`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`)
 - A stored stack parent can stay after the branch stopped needing it ([Stack Parents](stack-parents.spec.md#a-stacked-branch-that-builds-alone)).
   So the popover of a Safe Push of a stacked branch asks the trial build of the branch alone (`get_stack_independence`)
   when it opens, and again when the local tip of the branch changes; it never holds the start back. While it runs, a
@@ -1082,7 +1082,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
 - A change below the commit the robot took (a new commit or an amend of a branch it is built on, a reword; for the
   whole stack any change of a branch of it) gives the branches new copies, so the hashes no longer tell what landed:
   the repository view asks by content (`robot_landings_of_grouped` of `crates/sync-core/src/robot_landing.rs`, the

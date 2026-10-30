@@ -429,7 +429,7 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should take the whole stack branch along in Push with Children of the root once its pull request is open, from the push and the menu`, `should push a parent with its children`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should take the whole stack branch along in the header's push once it is on the remote, and push it alone from the menu`, `should hold the push of the whole stack branch once every branch of the stack landed, and push what is left without the landed ones`)
   [@test] ../../src/presenters/push-button.test.ts (`offers no push while a Safe Push holds the branch, and says why; the children of a landed one push without it`)
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_with_children_covers_the_branch_and_its_descendants`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`, `push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`)
@@ -446,7 +446,7 @@ menu stacks, unstacks and renames branches.
   says that the next sync after the merge builds them on the target. Its slot, "⋯", S, the preview and the review
   window ask the branch's own start, its popover at its own row, never the root's. Landing the branch alone is the second way:
   "Unstack from <parent>" for a branch that builds alone, "Move 1 Commit Here" for one that needs commits it can take.
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from S, the preview and the review window`, `should offer to land only a stacked branch that applies alone`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S and the review window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`, `should offer to land only a stacked branch that applies alone`)
   While it runs, the branches it lands say "lands with oauth" in their Status cell and offer no push and no Safe Push of their
   own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
   robot. Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the

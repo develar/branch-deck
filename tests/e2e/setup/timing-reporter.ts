@@ -26,9 +26,22 @@ interface Stall {
 }
 
 /**
+ * The steps of a test in `tests/results/steps.json`, each `[offset from the start of the test, duration, depth,
+ * "category: title", "file:line"]` (ms): where the time of a slow test went, step by step, which its total does not say
+ */
+interface Profile {
+  title: string
+  status: string
+  start: number
+  ms: number
+  steps: [number, number, number, string, string][]
+}
+
+/**
  * The timing of a run, printed at its end and written to `tests/results/timing.json`: the start (global setup, the
  * server, the workers) and the tests, the slowest tests, and the actions that stalled. A test that gets slow, or a
- * click that starts to wait for an overlay, shows in every run instead of in a sum nobody reads
+ * click that starts to wait for an overlay, shows in every run instead of in a sum nobody reads. The steps of every
+ * test go to `tests/results/steps.json` (`Profile`)
  */
 export default class TimingReporter implements Reporter {
   private readonly started = Date.now()
@@ -36,6 +49,7 @@ export default class TimingReporter implements Reporter {
   private lastEnd = 0
   private readonly tests: { title: string; ms: number }[] = []
   private readonly actions: { test: string; action: string; ms: number }[] = []
+  private readonly profiles: Profile[] = []
 
   onTestEnd(test: TestCase, result: TestResult) {
     const title = `${test.location.file.replace(/^.*tests\/e2e\//, "")} › ${test.titlePath().slice(3).join(" › ")}`
@@ -43,15 +57,19 @@ export default class TimingReporter implements Reporter {
     this.firstTest = Math.min(this.firstTest, start)
     this.lastEnd = Math.max(this.lastEnd, start + result.duration)
     this.tests.push({ title, ms: result.duration })
-    const walk = (steps: TestStep[]) => {
-      for (const step of steps) {
+    const steps: Profile["steps"] = []
+    const walk = (list: TestStep[], depth: number) => {
+      for (const step of list) {
         if (isAction(step)) {
           this.actions.push({ test: title, action: step.title, ms: step.duration })
         }
-        walk(step.steps)
+        const where = step.location === undefined ? "" : `${step.location.file.replace(/^.*tests\/e2e\//, "")}:${step.location.line}`
+        steps.push([step.startTime.getTime() - start, step.duration, depth, `${step.category}: ${step.title.slice(0, 160)}`, where])
+        walk(step.steps, depth + 1)
       }
     }
-    walk(result.steps)
+    walk(result.steps, 0)
+    this.profiles.push({ title: `${title} (line ${test.location.line})`, status: result.status, start: start - this.started, ms: result.duration, steps })
   }
 
   onEnd(result: FullResult) {
@@ -75,6 +93,7 @@ export default class TimingReporter implements Reporter {
     }
     try {
       writeFileSync("tests/results/timing.json", JSON.stringify(timing, null, 2))
+      writeFileSync("tests/results/steps.json", JSON.stringify(this.profiles))
     } catch {
       // no results directory: a run that listed nothing
     }

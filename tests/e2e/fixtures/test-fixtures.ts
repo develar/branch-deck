@@ -142,7 +142,7 @@ export const test = base.extend<{
   },
 })
 
-export { expect } from "@playwright/test"
+export { expect } from "./base-test"
 
 /**
  * Test fixture for the `issue_links` repository, synced before every test (the fixture is automatic); a test that

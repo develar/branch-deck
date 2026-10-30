@@ -1,5 +1,5 @@
 import type { Page, Locator } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 /**
  * Open a modal by clicking a trigger element

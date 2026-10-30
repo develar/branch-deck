@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { TitleBar } from "../../../src/lib/title-bar"
+import { expect } from "../fixtures/base-test"
 
 /** What the backend decides on each platform (`title_bar_script` in src-tauri/src/title_bar.rs) */
 export const TITLE_BARS = {

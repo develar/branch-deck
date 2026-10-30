@@ -114,7 +114,7 @@ keys.
   reason, while the stack branch has no tip. Of a straight chain, which has no stack branch, it opens the review of its
   last branch from the root (`range: "all"`).
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it`)
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should keep the popover of a row of the island at its slot, and review the whole stack in the window of its stack branch`)
   [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
 - D on a commit row of a branch, the "Review Changes" of its menu and the D, the footer button and Enter in the
   Files tree of its preview must open the window at the commit (`reviewBranchCommit`, `focus.commitId` the copy of

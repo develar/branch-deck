@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 export function getCommitPreview(page: Page): Locator {
   return page.getByTestId("commit-preview")

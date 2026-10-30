@@ -541,8 +541,11 @@ State isolation:
   `[class*="animate-in"]:not([data-closed])`), so a popup, an inline form or a card is in place from its first frame.
   On the Mac Studio Playwright found the first two frames of a menu's zoom equal, put the pointer where an item was in
   them, and the grown item left it 3 px above: the hover open of "Whole Stack ›" closed in 22 of 40 runs of four
-  tests, a tooltip of an item never opened. The exits still run as the user sees them, so a popup reopened while it
-  closes stays tested; the reduced motion of the app is a test's own (`page.emulateMedia({ reducedMotion })`)
+  tests, a tooltip of an item never opened. A toast slides in with a transition (500 ms, `data-starting-style`), not
+  an animation: the sheet stops the transitions of a toast that is not ending (`[data-slot="toast"]:not([data-ending-style])`),
+  since a click on its close or its Undo waited for the slide to stop (0.75 s per click under load, s16-7). The exits
+  still run as the user sees them, so a popup reopened while it closes stays tested; the reduced motion of the app is
+  a test's own (`page.emulateMedia({ reducedMotion })`)
 - **Focus**: Base UI moves the focus into a dialog a frame after it opened (`requestAnimationFrame`, which the clock
   drives), often after the dialog's text came. A test that types into the dialog waits for `toBeFocused()` first and
   types with `page.keyboard`: `press` or `type` on an input without the focus focuses it with the caret at 0, and End
@@ -879,7 +882,8 @@ branch at the commit it was pushed up to.
 - **Timing summary** (`tests/e2e/setup/timing-reporter.ts`, a reporter of `playwright.config.ts`): every run prints
   its start (global setup, the server, the workers), the slowest tests, and the stalled actions, a click or hover
   that took ≥ 2 s and 20× the median action of the run (the ratio holds on a loaded machine, where every action is
-  slower): an overlay over its target, a toast to close (below). `tests/results/timing.json` keeps 20 of each
+  slower): an overlay over its target, a toast to close (below). `tests/results/timing.json` keeps 20 of each, and
+  `tests/results/steps.json` every step of every test, its offset and duration (`scripts/e2e-steps.mjs` reads it)
 - **Under load** (load average 80, several checkouts running e2e and cargo): a command takes seconds, so a test waits
   for the event a state comes with, never for one assertion to span two of them. A rewrite (move, rename, reword,
   squash, stack, undo) shows its result with the sync it starts: `runAndWaitForSync` (`data-sync-count`). What loads
@@ -906,12 +910,36 @@ branch at the commit it was pushed up to.
   measured in the traces of the failed waits (2026-10-24):
   the fetch of an update 2-4 s, the landing gate 2-3.5 s (the gate of a whole stack in `execute`: the test server has no
   object cache), the landing needs 2-5 s (then the page's `wait_landing_needs`, the session's since s7-4), the readiness 1-5 s
+- **A test of many starts** (s16-7): the test timeout is Playwright's 30 s (`playwright.config.ts` sets none, and a
+  test never raises it), and the time of a test grows with the load of the machine: under load every click and hover
+  costs 0.4-0.6 s (the page answers the event before Playwright goes on) and every start of a robot 1-5 s (the gate,
+  the push of the stack branch, the start). In the final gate of s14 (e2e 8.4 min against 4.3) seven tests passed
+  only on the rerun; on the Studio beside 40 `yes` workers (load 10-106) the test that started the whole
+  stack from five surfaces took 26-30 s and timed out in 2 of 5 runs, with no stall: the sum of its steps. So a test
+  of every surface of one start keeps a few starts each and the next surfaces are tests of their own: the whole stack
+  from the header (its push held), from the island's "⋯" and S, its Dry Run, and the row's popover with Review Whole
+  Stack (`stack-island.spec.ts`); a stacked branch from its slot, from the "⋯" and Safe Push With Profile…, from S and
+  the review window, and from its preview (`stacked-branches.spec.ts`); the request of a review of a small stack apart
+  from the surfaces that open it, and the landed whole stack apart from the menus of the branches it landed
+  (`whole-stack.spec.ts`). A test that grew past 20 s under that load is split the same way; the step profile of
+  the run shows where its time went (`node scripts/e2e-steps.mjs <part of its title>`, `--kinds` for the time per kind
+  of step over the tests that match)
+- **Polls and reads** (s16-7): `expect.poll` asks every 50 ms (`POLL_INTERVALS` of `fixtures/base-test.ts`, the
+  `expect` of the specs and the helpers; `pnpm lint:arch` refuses the one of `@playwright/test` in `tests/e2e`,
+  `e2e-expect`), not after Playwright's 100, 250 and 500 ms and then every second: what a
+  test polls answers from memory (the log of a fake, the page), and under load a poll saw the push arrive at the
+  remote up to a second after it did (`holdRemotePushes().arrived`: 1.7 → 1.3 s). A poll that reads the page reads
+  what it compares at once: `expectPopoverAtSlot` asks for both boxes together (one round trip of 100-250 ms under
+  load, not two: 0.56 → 0.36 s), and `closeToast` polls the count of the toast it closed (its exit is 500 ms; the
+  backoff of `toHaveCount` saw it gone 350 ms later: with the slide in off, 1.6 → 1.1 s per toast)
 - **Toasts**: the toast viewport lies above the menus and the dialogs (`z-[60]`), so a toast at the bottom right
   covers a menu item, a row's button or a dialog's footer there; Playwright waits until nothing intercepts the click,
   which is until the toast times out (5 s, 10 s with an action). A test closes a toast it has read with its close
   button before it acts there (`closeToast`, `toast-helpers.ts`), also over a dialog the toast's action opened. Five
   tests waited 7-9 s each for a toast (2026-10-24: the unapply and reapply from both menus, the close of an orphaned
-  stack pull request, GitHub's form from the push toast, the disabled push of the preview)
+  stack pull request, GitHub's form from the push toast, the disabled push of the preview), and on 2026-10-30 a sixth
+  8-9 s in every run: an item of "Whole Stack ›" of a row's "⋯" under the toast of a review request
+  (`whole-stack.spec.ts`), which the timing summary named as the one stalled action of the suite
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
   client and of the YouTrack and GitHub clients and services are left out (`patronus::client=error`, `youtrack=error`,

@@ -412,9 +412,17 @@ test.describe("Stack island", () => {
     expect(await remotePushes(repo)).toEqual([["stack:air"]])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
+  })
+
+  // a test of its own, as the next one: each start is seconds of push, gate and robot under load, and the starts of
+  // every surface of the header in one test ran past its timeout (docs/design/e2e-testing.md, "A test of many starts")
+  test("should start the whole stack from the island's ⋯ and with S on its header, the popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stack_island", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
+    const safePushOfAir = wholeStackStartRequest("air")
 
     // expanded: "⋯" has the Safe Push and the Dry Run of the whole stack, and opens the same popover at the header
-    await air.getByTestId("stack-island-root").click()
     await expect(air).toHaveAttribute("data-state", "open")
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
     await expect(page.getByRole("menu", { name: "More actions for the air stack" }).getByRole("menuitem")).toHaveText([
@@ -427,7 +435,7 @@ test.describe("Stack island", () => {
     await page.getByRole("menuitem", { name: "Safe Push Whole Stack" }).click()
     await expectWholeStackPopoverAt(popover, headerSlot)
     await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
-    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir])
+    await expectPatronusStarts(repo, [safePushOfAir])
     await expect(popover).toHaveCount(0)
     await closeRefusal(page)
 
@@ -436,8 +444,16 @@ test.describe("Stack island", () => {
     await page.keyboard.press("s")
     await expectWholeStackPopoverAt(popover, headerSlot)
     await runAndWaitForAnswer(page, "execute", () => page.keyboard.press("Enter"))
-    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir])
+    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir])
     await closeRefusal(page)
+    // the first start pushed the stack branch alone; the remote has it since, so the second pushed nothing
+    expect(await remotePushes(repo)).toEqual([["stack:air"]])
+  })
+
+  test("should check the whole stack in a Dry Run from the island's ⋯, its popover at the header", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stack_island", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const { air, headerSlot, popover } = await refuseIslandStarts(page, repo)
 
     // Dry Run Whole Stack: checks the whole stack, its popover at the header too
     await air.getByRole("button", { name: "More actions for the air stack" }).click()
@@ -446,8 +462,21 @@ test.describe("Stack island", () => {
     await expect(popover.getByTestId("safe-push-lands")).toHaveText("Checks 7 branches · 14 commits on master in one Dry Run: air, bazel, … side-fix and side-test.")
     await expectPopoverAtSlot(popover, headerSlot)
     await runAndWaitForAnswer(page, "execute", () => popoverStart(page).click())
-    await expectPatronusStarts(repo, [safePushOfAir, safePushOfAir, safePushOfAir, wholeStackStartRequest("air", { mode: "DRY_RUN" })])
+    await expectPatronusStarts(repo, [wholeStackStartRequest("air", { mode: "DRY_RUN" })])
     await expect(page.locator("[data-slot=toast]", { hasText: "Cannot start the Dry Run" })).toBeVisible()
+    // a Dry Run checks the stack branch on the remote too: it pushed it alone first
+    expect(await remotePushes(repo)).toEqual([["stack:air"]])
+  })
+
+  test("should keep the popover of a row of the island at its slot, and review the whole stack in the window of its stack branch", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupRepo("stack_island", { patronus: availableRobots() })
+    await syncAndWaitForBranches()
+    const air = island(page, "air")
+    const popover = safePushPopover(page)
 
     // the row of deploy keeps its own popover at its slot: the Safe Push of deploy and what it is built on
     await openSafePushWithKey(page, "deploy")

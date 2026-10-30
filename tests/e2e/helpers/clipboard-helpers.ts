@@ -1,5 +1,5 @@
 import type { Page, BrowserContext, Locator } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 import { captureFloatingElementSnapshot } from "./aria-snapshot-helpers"
 
 /**

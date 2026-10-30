@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { PullRequestAvailability, ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
 import type { PullRequestReviewWindowData } from "../../../src/lib/pull-request-review"
+import { expect } from "../fixtures/base-test"
 import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 import { sendProgress } from "./wait-helpers"

@@ -56,6 +56,19 @@ async function openWholeStackSubmenu(page: Page, root: string): Promise<void> {
   await openSubmenu(page, "Whole Stack")
 }
 
+/**
+ * stacked_branches, whose auth forks (no island), with the pull request #12 of its whole stack, which its code owner has
+ * to approve and nobody asked yet: the popover of Request Review… and the slot of the root's row, where it opens
+ */
+async function setupUnaskedSmallStack(
+  page: Page,
+  setupRepo: (template: string, options?: SetupRepoOptions) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<void>,
+): Promise<{ repo: TestRepositoryBuilder; popover: Locator; rootSlot: Locator }> {
+  const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
+  return { repo, popover: page.getByTestId("request-review-popover"), rootSlot: findBranchRow(page, "auth").getByTestId("next-step-slot") }
+}
+
 /** "Request Review…" of "Whole Stack ›" of the root's menu: its popover, which asks on #12, without code owners yet */
 async function openWholeStackRequestReview(page: Page, root: string): Promise<Locator> {
   await openWholeStackSubmenu(page, root)
@@ -454,15 +467,12 @@ test.describe("Whole stack", () => {
     await expect(push).not.toHaveAttribute("aria-busy", "true")
   })
 
-  test("should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, its row's ⋯ and its preview, the popover at the root's row", async ({
+  test("should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, the popover at the root's row", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    // auth forks, no island: the code owner of the whole stack has to approve in #12, and nobody asked him yet
-    const repo = await setupUnaskedStackPullRequest(setupRepo, syncAndWaitForBranches, "stacked_branches", "auth")
-    const popover = page.getByTestId("request-review-popover")
-    const rootSlot = findBranchRow(page, "auth").getByTestId("next-step-slot")
+    const { repo, popover, rootSlot } = await setupUnaskedSmallStack(page, setupRepo, syncAndWaitForBranches)
     const ask = "Waits for the approval of IJPL Code Platform: nobody of it is requested on #12. Ask Ilya Korennoy to review #12"
 
     // the right-click on the root: "Whole Stack ›" asks the code owner of the whole stack, the popover at the root's row;
@@ -489,6 +499,16 @@ test.describe("Whole stack", () => {
     await expect(page.locator("[data-slot=toast]", { hasText: "Requested a review from Ilya Korennoy on #12" })).toBeVisible()
     expect(await reviewRequestsOf12(repo)).toEqual([{ reviewers: ["ikorennoy"] }])
     await expect(popover).toHaveCount(0)
+  })
+
+  // a test of its own: with the request above, the surfaces of one small stack ran near the timeout under load
+  // (docs/design/e2e-testing.md, "A test of many starts")
+  test("should open Request Review… of the pull request of a small stack from the ⋯ of its root's row and of its preview, the popover at the root's row", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { repo, popover, rootSlot } = await setupUnaskedSmallStack(page, setupRepo, syncAndWaitForBranches)
 
     // "⋯" of the root's row: the same item, the same popover
     await findBranchRow(page, "auth").getByRole("button", { name: "More actions for auth" }).click()
@@ -508,6 +528,8 @@ test.describe("Whole stack", () => {
     await expect(popover).toHaveCount(1)
     await expect(popover).toContainText("Request a review on #12")
     await expectPopoverAtSlot(popover, rootSlot)
+    // an open asks nobody
+    expect(await reviewRequestsOf12(repo)).toEqual([])
   })
 
   test("should choose the code owner of a readiness of the whole stack that comes after its Request Review… opened", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -892,7 +914,7 @@ test.describe("Whole stack", () => {
     }
   })
 
-  test("should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them", async ({
+  test("should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -939,6 +961,24 @@ test.describe("Whole stack", () => {
     await expect(page.getByRole("menuitem", { name: "Safe Push Whole Stack" })).toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
     await page.keyboard.press("Escape")
+    expect(await pushedBranches(repo)).toEqual([stackBranchOf("auth")])
+  })
+
+  // a test of its own: the start above and every menu of the branches it landed ran near the timeout under load
+  // (docs/design/e2e-testing.md, "A test of many starts")
+  test("should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // auth forks: login and oauth on one side, session on the other; the robot of the whole stack runs on its stack branch
+    const running = wholeStackRobot("auth", "whole")
+    const repo = await setupRepo("stacked_branches", { patronus: availableRobots(running) })
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "login").getByTestId("landing-span")).toHaveText("lands with the whole auth stack")
+    await repo.setPatronus(availableRobots({ ...running, status: "success", finishTime: 1704142800 }))
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(findBranchRow(page, "oauth").getByTestId("landed-with")).toHaveText("Landed with the whole auth stack")
 
     const chip = findBranchRow(page, "oauth").getByTestId("landed-with")
     await chip.hover()
@@ -952,8 +992,7 @@ test.describe("Whole stack", () => {
     await findBranchRow(page, "auth").click({ button: "right" })
     await expectDisabledItems(page, [["Push with Children", "Merged by Patronus: nothing of auth and its children is left to push"]])
     await page.keyboard.press("Escape")
-    // nothing more reached the remote
-    expect(await pushedBranches(repo)).toEqual([stackBranchOf("auth")])
+    expect(await pushedBranches(repo)).toEqual([])
   })
 
   test("should land only what is left of the whole stack after a piece landed its main line, and offer nothing once every branch of it landed", async ({

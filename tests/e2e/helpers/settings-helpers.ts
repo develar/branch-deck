@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { SettingsTarget } from "../../../src/lib/settings-window"
+import { expect } from "../fixtures/base-test"
 import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "./sync-helpers"

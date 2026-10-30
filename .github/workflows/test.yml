@@ -89,7 +89,7 @@ jobs:
 
       - name: Check macOS release credential handling
         if: runner.os == 'macOS'
-        run: pnpm exec node --test scripts/release-signing.test.mjs scripts/slowest-tests.test.mjs
+        run: pnpm exec node --test scripts/release-signing.test.mjs scripts/slowest-tests.test.mjs scripts/e2e-steps.test.mjs
 
       - name: Type-check, find copies, check the test links of the specs and the architecture rules
         run: pnpm lint:typecheck && pnpm lint:cpd && pnpm lint:specs && pnpm lint:arch

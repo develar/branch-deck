@@ -1,6 +1,6 @@
 import type { Page, Locator } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { ApiError } from "../../../src/lib/bindings"
+import { expect } from "../fixtures/base-test"
 
 /**
  * Wait for processing state to complete (animate-pulse class removed)

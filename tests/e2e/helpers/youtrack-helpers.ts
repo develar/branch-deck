@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { YouTrackUser } from "../../../src/lib/bindings"
+import { expect } from "../fixtures/base-test"
 import { getOpenedUrls } from "./pull-request-helpers"
 import { openSettingsWindow } from "./settings-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"

@@ -1,5 +1,26 @@
-import { test as base, expect } from "@playwright/test"
+import { test as base, expect as playwrightExpect } from "@playwright/test"
 import { PAGE_COMMANDS, tauriMockScript } from "../setup/tauri-mocks"
+
+/**
+ * How often an `expect.poll` asks: Playwright's default (100, 250 and 500 ms, then every second) is made for a remote
+ * service, and a poll here reads memory, the log of a fake on the test server or the page. A change shows within 50 ms
+ * instead of up to a second after it, which a test of a chain of starts and pushes paid at each step under load
+ */
+const POLL_INTERVALS = [50]
+
+/**
+ * Playwright's `expect` whose `poll` asks every `POLL_INTERVALS` unless the call names its own intervals: the one
+ * `expect` of the specs (`test-fixtures.ts`) and the helpers
+ */
+export const expect = new Proxy(playwrightExpect, {
+  get(target, property, receiver) {
+    if (property !== "poll") {
+      return Reflect.get(target, property, receiver)
+    }
+    return ((actual, options) =>
+      target.poll(actual, typeof options === "string" ? { message: options, intervals: POLL_INTERVALS } : { intervals: POLL_INTERVALS, ...options })) as typeof target.poll
+  },
+})
 
 /**
  * Custom test fixture that automatically sets up Tauri mocks
@@ -29,13 +50,14 @@ export const test = base.extend({
     // Inject Tauri mocks before each navigation
     await page.addInitScript(tauriMockScript, PAGE_COMMANDS)
 
-    // a popup, a form or a card is in place from its first frame, in every window: its zoom and slide in are off.
-    // Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in
-    // them, and the grown item left it (a submenu closed, a tooltip never opened). The exit still runs, as the user
-    // sees it: a popup reopened while it closes stays tested
+    // a popup, a form, a card or a toast is in place from its first frame, in every window: its zoom and slide in are
+    // off. Playwright found the first frames of a zoom stable on a quick machine, the pointer went where the item was in
+    // them, and the grown item left it (a submenu closed, a tooltip never opened); a click on a toast that slid in
+    // (its close, its Undo) waited for the slide (a transition of 500 ms, not an animation). The exit still runs, as the
+    // user sees it: a popup reopened while it closes stays tested
     await context.addInitScript(() => {
       const sheet = new CSSStyleSheet()
-      sheet.replaceSync('[class*="animate-in"]:not([data-closed]) { animation: none !important; }')
+      sheet.replaceSync('[class*="animate-in"]:not([data-closed]) { animation: none !important; } [data-slot="toast"]:not([data-ending-style]) { transition: none !important; }')
       document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]
     })
 
@@ -53,5 +75,3 @@ export const test = base.extend({
     }
   },
 })
-
-export { expect }

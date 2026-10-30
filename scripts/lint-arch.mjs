@@ -44,6 +44,10 @@
 //   `getDiffRepositoryPath`, `getEffectiveBranchPrefix`, `getFullBranchName`, `getFullStackBranchName`,
 //   `vcsRequestFactory.`, `repositoryStore.getState()`) after the first `await` of an async function, its operand
 //   included, in src (its tests aside): the function captures the key before it.
+// The E2E tests poll at the intervals of their own `expect` (docs/design/e2e-testing.md, "Polls and reads"):
+// - `e2e-expect`: a file of tests/e2e but `fixtures/base-test.ts` that imports `expect` from "@playwright/test", whose
+//   `poll` waits up to a second between its tries; the `expect` of `fixtures/base-test.ts` (or `test-fixtures.ts`) asks
+//   every 50 ms.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`, `EXCEPTED_RULES`): every other rule
 // holds without exceptions; an entry that matches nothing fails, so the list never outlives its code.
@@ -333,6 +337,8 @@ const ASSIGNED = new RegExp(String.raw`\b(?:const|let|var)\s+([\w$]+)\s*(?::[^=]
 const TYPE_NAMES = new Set(["string", "number", "boolean", "unknown", "any", "never"])
 const ERROR_KIND = /\bCommandErrorKind\b|\b(?:error|err|apiError|rejection)\??\.kind\b|\.error\??\.kind\b/
 const ROUTE_ERROR = /\brouteCommandError\(/g
+const EXPECTING = /^tests\/e2e\/(?!fixtures\/base-test\.ts$)/
+const PLAYWRIGHT_EXPECT = /(?<![\w$])import\s+\{[^}]*(?<![\w$])expect(?![\w$])[^}]*\}\s*from\s*["']@playwright\/test["']/g
 const TIMER = /(?<![\w$])(?:window\.)?set(?:Timeout|Interval)\(/
 /** The sources whose timers are polls unless they say otherwise: the stores and the hooks, their tests aside */
 const TIMED = /^src\/(?:stores|hooks)\/(?!.*\.test\.tsx?$)/
@@ -471,6 +477,12 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     for (const index of lateProjectReads(code)) {
       const line = code.slice(0, index).split("\n").length
       problems.push({ file, line, rule: "late-project-read", text: sourceLines[line - 1].trim() })
+    }
+  }
+  if (EXPECTING.test(file)) {
+    for (const found of text.matchAll(PLAYWRIGHT_EXPECT)) {
+      const line = text.slice(0, found.index).split("\n").length
+      problems.push({ file, line, rule: "e2e-expect", text: sourceLines[line - 1].trim() })
     }
   }
   for (const call of text.matchAll(ROUTE_ERROR)) {

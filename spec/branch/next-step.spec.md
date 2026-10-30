@@ -155,7 +155,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_missing_source_lands_nothing`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
 - What landed a branch, and a whole stack, is one rule in Rust for the app and `bd` (`domain_policy::landed::landed_state`,
   the view's `landedStates`, [Patronus](patronus.spec.md#merged)), the first that holds: the fetched baseline has every
   commit of it (of a whole stack, of every branch); merged Safe Pushes landed it (also a part of it, the commits added
@@ -216,7 +216,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   The texts name the branch by `NextStepFacts.subject`, the branch's name.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_0_waits_for_a_fact_no_answer_told_yet_and_a_reason_of_the_subject_outranks_it`, `rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`)
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should wait for the code owner a stacked branch's own pull request asks, not for its root`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from S, the preview and the review window`, `should wait for the Safe Push of an ancestor, which lands its commits`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S and the review window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`, `should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - An operation on the row ([Running Operations](../../docs/design/operations.md)), as the view of the session has it in
   every window (`RepositoryView.operations`: a rewrite of the branch or of its commits, the retarget of its pull

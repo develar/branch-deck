@@ -1,7 +1,7 @@
 # Writing E2E Tests
 
 **Status:** Active  
-**Updated:** 2026-10-29  
+**Updated:** 2026-10-30  
 **Tags:** [e2e, playwright, tests]
 
 ## Summary
@@ -38,7 +38,12 @@ rules in one line each and links here.
   that starts after the press misses a quick answer and holds the test until its timeout.
 - **Close a read toast** before acting where it lies (`closeToast` of `tests/e2e/helpers/toast-helpers.ts`): the toasts
   lie above menus and dialogs at the bottom right, and a click or hover under one waits until it times out (5 s, 10 s
-  with an action); five tests spent 7-9 s each this way.
+  with an action); six tests spent 7-9 s each this way, which the timing summary names as stalled actions.
+- **A few starts per test**: the 30 s timeout of a test holds its steps under load, where a click costs 0.5 s and a
+  start of a robot or a push 1-5 s; a test of every surface of one start gives each a few starts, and the next surfaces
+  are tests of their own. A test that takes more than 20 s on the Studio beside 40 `yes` workers is split; the step
+  profile of the run says where its time went (`node scripts/e2e-steps.mjs <part of its title> [--kinds]`,
+  [A test of many starts](../design/e2e-testing.md#performance-considerations)).
 - **Locators**: role and accessible name first (`getByRole("menuitem", { name: "Review Changes" })`), `getByTestId` for
   what has no role or name; never CSS classes or DOM shape, which the theme and the React Compiler change.
 - **Through the user's path**: open, select and press like the user (hover, focus, right-click, keys); call a command

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 /** What the Tauri mock counts of the page's commands (`window.__ipcStats`, tests/e2e/setup/tauri-mocks.ts) */
 export interface IpcStats {

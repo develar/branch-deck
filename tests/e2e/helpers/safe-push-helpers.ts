@@ -98,8 +98,10 @@ export async function expectPopoverAtSlot(popover: Locator, slot: Locator): Prom
   await expect
     .poll(async () => {
       await animationsEnded(popover)
-      const box = (await popover.boundingBox())!
-      const anchor = (await slot.boundingBox())!
+      // both at once: under load each read of the page is a round trip of 100-250 ms
+      const [popoverBox, slotBox] = await Promise.all([popover.boundingBox(), slot.boundingBox()])
+      const box = popoverBox!
+      const anchor = slotBox!
       return Math.min(Math.abs(box.y - (anchor.y + anchor.height)), Math.abs(box.y + box.height - anchor.y))
     })
     .toBeLessThan(24)

@@ -342,7 +342,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
   [@test] ../../src/presenters/reasons.test.ts (`says why a branch a merged Safe Push landed offers no push: who landed it, its own robot as the merge`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`new_commits_on_the_commit_of_a_robot_leave_the_hashes_telling`)
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer no Safe Push or push of them`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
 - One builder must list the actions of the whole stack (`getWholeStackMenuItems`), which the "⋯" of the stack island
   renders, the menu of every branch of the stack under "Whole Stack ›", the root's whole stack (so their previews
   too), and the title bar and "⋯" of the review of the whole stack ([Branch Review](branch-review.spec.md#title-bar-footer-and-actions)): every branch is a piece of it, for a small stack without an island as for an island: "Safe Push Whole Stack" and "Dry Run Whole Stack" ([below](#the-safe-push-of-the-whole-stack-in-the-app)),
@@ -358,7 +358,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should follow the pull requests in the island's ⋯ while it is open: they load after the sync`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`is the submenu of the root's whole stack on every branch of the stack, none on a branch of no stack`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should create the pull request of the whole stack from the island's menu and the root's menu, and open it from both`, `should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it`)
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, its row's ⋯ and its preview, the popover at the root's row`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should ask for a review of the pull request of a small stack from Whole Stack › of the root's menu, the popover at the root's row`, `should open Request Review… of the pull request of a small stack from the ⋯ of its root's row and of its preview, the popover at the root's row`, `should ask for a review of the pull request of the whole stack from the island's ⋯ and the root's menu, the popover at the header`, `should open Request Review… of the whole stack at the header while its Safe Push runs and the header offers no step`)
 - "Create Pull Request of the Stack…" must open the "Create pull request" dialog of the stack branch into the baseline
   ("Whole air stack → master", "Holds the commits of every branch of the stack: air, bazel, bridge and 4 more: 7
   branches · 14 commits"), its text from `stack_pull_request_text` (`get_new_stack_pull_request`: the descriptions in
@@ -422,7 +422,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   facts load, the spinner and "45%" of its push, "Starting…", in the button of the header's slot, else in the root's slot of a small stack,
   in place of the root's own step while the start runs (`NextStepSlot`); the push button of the root's row stays the
   root's own meanwhile (`useStackBranchPushAlone`).
-  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`)
+  [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should land the whole stack in one Safe Push from the header, its popover at the header`, `should start the whole stack from the island's ⋯ and with S on its header, the popover at the header`, `should check the whole stack in a Dry Run from the island's ⋯, its popover at the header`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a small stack with its side branch from the root's menu, its popover at the root`, `should offer the whole stack in the Safe Push popover of its root and of its branches, which opens its own popover`)
 - After merged Safe Pushes landed branches of it (a piece that landed its main line, `getLandedBy`), it must land only
   the rest and say so: its label counts the rest ("Safe Push" for one branch left), its hover, menu item and popover

@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test"
-import { expect } from "@playwright/test"
+import { expect } from "../fixtures/base-test"
 
 /**
  * The left (or right) edges of the matches of `items`, rounded to the pixel, distinct ones in the order of the page: one value when

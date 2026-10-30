@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test"
-import { expect } from "@playwright/test"
 import type { CachedModel } from "../../../src/lib/bindings"
+import { expect } from "../fixtures/base-test"
 import { clearClipboard } from "./clipboard-helpers"
 import { parseSetupOptions, type SetupRepoOptions } from "./setup-options"
 import { registerWindowBuild } from "./sub-window-helpers"
