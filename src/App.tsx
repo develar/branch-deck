@@ -1,4 +1,4 @@
-import { Outlet } from "react-router"
+import type { ComponentType } from "react"
 import { Toaster } from "@/components/ui/toast"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
@@ -9,10 +9,10 @@ import { useZoom } from "@/hooks/useZoom"
 import { useAuthSync } from "@/stores/auth"
 
 /**
- * The root of every window: the page of its route, the tooltips, the toasts, the issue popover, the sign-ins, the zoom,
- * the theme and the keys of the main menu.
+ * The root of every window: its page (by the path of its URL, `src/router.ts`), the tooltips, the toasts, the issue
+ * popover, the sign-ins, the zoom, the theme and the keys of the main menu.
  */
-export function App() {
+export function App({ page: Page }: { page: ComponentType }) {
   useZoom()
   useTheme()
   // every window knows the sign-ins: whether the links of the YouTrack issues show the issue, what GitHub gives
@@ -22,7 +22,7 @@ export function App() {
 
   return (
     <TooltipProvider>
-      <Outlet />
+      <Page />
       <Toaster renderText={renderToastText} />
       <IssueHoverHost />
     </TooltipProvider>

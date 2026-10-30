@@ -152,7 +152,7 @@ keys.
   hover or a focus of a branch row reads nothing: no IPC for a pointer that passes over the table.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
-- The window must start the read of its segments with its page, not after its route chunk loaded; its first read
+- The window must start the read of its segments with its page, not after the chunk of its page loaded; its first read
   takes that read when it asks for the same review, a later one reads again.
   [@test] ../../src/lib/review-window-reads.test.ts (`gives the first read of the page the read its load started, once, and only for the same review`)
 - In the window ↑/↓, Space and P are the review's (P is the previous change), never a push.

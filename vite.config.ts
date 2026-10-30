@@ -108,7 +108,6 @@ export default defineConfig({
       "react",
       "react-dom",
       "react-dom/client",
-      "react-router",
       "zustand",
       "@tauri-apps/api/webviewWindow",
       "@tauri-apps/api/event",

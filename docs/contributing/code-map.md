@@ -127,13 +127,13 @@ src/
 ├── presenters/      # The words, icons and menu items of what Rust decided: next-step.ts, landing-node.ts, land.ts, actions.ts, reasons.ts; no rule, no store read (the caller passes what it selected)
 ├── stores/          # zustand stores; settings/ holds persisted, cross-window settings
 ├── lib/             # Utilities and the generated bindings.ts
-├── pages/           # Route components (index, the sub-windows: reviews, conflict windows, settings, activity)
+├── pages/           # The page of each window (index, the sub-windows: reviews, conflict windows, settings, activity)
 ├── types/           # Shared TypeScript types
 ├── test-support/    # Helpers of the unit tests
-├── router.ts        # react-router routes (createBrowserRouter)
-├── App.tsx          # The root route
+├── router.ts        # The page of each window by the path of its URL, each a chunk loaded before the first render
+├── App.tsx          # The root of every window around its page
 ├── index.css        # Tailwind and the theme tokens
-└── main.tsx         # App entry (store handlers, router)
+└── main.tsx         # App entry (store handlers, the page of the window)
 src-tauri/src/
 ├── api.rs           # The Tauri wrappers of the commands of app-api and their registration (`typed_commands`, `raw_handler`), generated from its registry (`for_each_command!`): the app has no command or list of its own
 ├── desktop.rs       # The windows, the folder dialog and the restart of the app (`WindowHost`, `DialogHost`, `RestartHost` of app-api)

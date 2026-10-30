@@ -132,7 +132,7 @@ branch-deck/
 
 ## Architecture
 
-- **Frontend**: React 19 + Vite SPA with react-router, zustand stores, shadcn/ui components on Base UI, Tailwind CSS v4, TypeScript
+- **Frontend**: React 19 + Vite SPA (a page per window by the path of its URL), zustand stores, shadcn/ui components on Base UI, Tailwind CSS v4, TypeScript
 - **Backend**: Rust with Tauri framework for native desktop app
 - **Git Integration**: Git CLI operations via custom GitCommandExecutor
 - **IPC**: Tauri's built-in IPC for frontend-backend communication

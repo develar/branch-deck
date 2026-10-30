@@ -517,7 +517,13 @@ An E2E test pins these numbers.
 
 Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conflicting-files`, `/missing-commits`)
 used to download and compile the main window's tree before its own page: 61 modulepreloads, about 1.1 MB of JS.
-- The main page is a `lazy` route (`src/router.ts`), like the sub-window pages.
+- A window loads its page by the path of its URL (`loadWindowPage` of `src/router.ts`: eight pages, each a chunk of
+  its own), the main page as the sub-window pages, and the root renders once the page is here, with it
+  (`src/main.tsx`). Not a `React.lazy` under `Suspense`: its fallback committed before the chunk came, and React
+  reveals a boundary that showed its fallback no sooner than 300 ms after it, so every window showed 0.3 s later
+  (`commit-review open 376 ms: loaded 20, shell 354` against `78 ms: loaded 20, shell 58`, eight opens each in E2E on
+  this Mac). react-router did the same before with `createBrowserRouter`, its lazy routes and a `HydrateFallback`,
+  and navigated nowhere: 93,764 bytes of the eager part.
 - The main window's Create Pull Request dialog (`src/pages/IndexPage.tsx`) loads on first open and then stays mounted;
   Settings is a sub-window of its own (`/settings`).
 - The commit preview (`CommitList`) loads on first open too. It pulls in the file tree; the commit review and the
@@ -553,10 +559,11 @@ used to download and compile the main window's tree before its own page: 61 modu
 - The main window starts warm: before it is built, Rust opens the session of the selected project seeded from the
   frame its last run saved and puts the seed into the init script (`window.__BD_MODEL__`, `src-tauri/src/warm_start.rs`,
   [Onboarding](../../spec/repository/onboarding.spec.md#before-the-first-sync)), so the first frame with content is the
-  rows of that frame, not the loading table, and `BranchCreator` says the content settled on them. The lazy main route
-  puts the seed into the store before the first render (`adoptCachedModel` in `src/router.ts`, beside the import of the
-  page) and subscribes holding it: one `subscribe_view`, whose answer is the patch from the seed (or nothing), and its
-  channel, before the rows (B7, `warm-start.spec.ts`), beside what every page tells as it loads and which reads nothing
+  rows of that frame, not the loading table, and `BranchCreator` says the content settled on them. The load of the
+  main page puts the seed into the store before the first render (`adoptCachedModel` in `src/router.ts`, beside the
+  import of the page) and subscribes holding it: one `subscribe_view`, whose answer is the patch from the seed (or
+  nothing), and its channel, before the rows (B7, `warm-start.spec.ts`), beside what every page tells as it loads and
+  which reads nothing
   of the repository (`sub_window_loaded`, `get_settings_changes`, the `set_demand` of its subscription: `PAGE_PROTOCOL`
   of `tests/e2e/helpers/ipc-helpers.ts`). The page reads no prefix and no git setup of its own (the view names the
   prefix, the subscription answers a missing git with its code) and asks no sync as it opens: the first sync, which the
@@ -585,21 +592,24 @@ used to download and compile the main window's tree before its own page: 61 modu
   its first rendering update came 6–9 ms after the shell, while the window was hidden), and Windows fades the window
   in from that frame: the frames of the fade had the shell or the Welcome card from the first one on, never a bare
   canvas.
-- The review page imports `CommitReviewCode` statically (the route is the lazy chunk): a `React.lazy` there committed
-  its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle. The page
-  starts the highlight worker when its module loads, beside the reads of the files and the diffs.
+- The review page imports `CommitReviewCode` statically (the page is the chunk the window loads): a `React.lazy` there
+  committed its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle.
+  The page starts the highlight worker when its module loads, beside the reads of the files and the diffs.
 - A review window starts its reads with its page (`startReviewWindowReads`): the files and the patch of the commit
-  review into their stores, the segments of the branch review for its first read (`readBranchReview`). Its route
-  chunk holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads waited for it
-  before. Only a review window loads them: `src/lib/review-window-start.ts`, which `main.tsx` imports before the
-  router, imports their chunk of about 19 KB with the stores they fill (`import()` by the label of the window), so it is
-  asked before the chunk of the page, whose load the start of the router asks for. A chunk asked after it waited behind
-  the requests of the page: in Chromium the reads of the commit review then started at 62 ms after the open instead of
-  32, its diffs came 9 ms later. Asked first, they start at 35 ms (the window loads its eager part 7 ms sooner), and
-  the review paints as before (`commit-review open 79 ms: loaded 21, shell 62, diffs 62` against `80 ms: loaded 28,
-  shell 63, diffs 64` before, the branch review 100 ms in both, eight opens each in E2E on this Mac). The Undo toast
-  of a rewrite (`src/lib/undo-toast.ts`) is a module apart from `invokeCommand` (`src/lib/command.ts`), so the reads
-  never load the Activity store and its presenters (74 KB of chunks before).
+  review into their stores, the segments of the branch review for its first read (`readBranchReview`). The chunk of
+  its page holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads waited for
+  it before. Only a review window loads them: `src/lib/review-window-start.ts`, which `main.tsx` imports before
+  `src/router.ts`, imports their chunk of about 19 KB with the stores they fill (`import()` by the label of the
+  window), so it is asked before the chunk of the page, which `main.tsx` asks for next. A chunk asked after it waited
+  behind the requests of the page: in Chromium the reads of the commit review then started at 62 ms after the open
+  instead of 32, its diffs came 9 ms later. Asked first, they start at 35 ms (the window loads its eager part 7 ms
+  sooner), and the review paints as before (`commit-review open 79 ms: loaded 21, shell 62, diffs 62` against `80 ms:
+  loaded 28, shell 63, diffs 64` before, the branch review 100 ms in both, eight opens each in E2E on this Mac).
+  Without react-router (s15-7) they start at 31 ms and the review paints 2–4 ms sooner (`77–78 ms: loaded 20, shell
+  58, diffs 61` against `79–82 ms: loaded 21, shell 62, diffs 63` of the tree before it, the branch review 97–98 ms
+  against 100–103, at the same load). The Undo toast of a rewrite (`src/lib/undo-toast.ts`) is a module apart from
+  `invokeCommand` (`src/lib/command.ts`), so the reads never load the Activity store and its presenters (74 KB of
+  chunks before).
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
   review shows what it has meanwhile (the tree, the headers of the files).
@@ -608,24 +618,27 @@ used to download and compile the main window's tree before its own page: 61 modu
 
 The eager part, which every window loads before its page (B13 of [Rust as the Domain
 Authority](rust-domain-authority.md#бюджеты-производительности); the entry and the modulepreloads of `dist/index.html`,
-`pnpm perf:eager-js` below), is the entry and 11 modulepreloads: 681,308 bytes (221,764 gzipped) since s15-6, under
-the 719,284 of the tree of s0a, against 810,173 (264,689) in 16 files before it. The root of every window loads no
-store of the main window: `stores/auth.ts`, which `App.tsx` imports for the sign-ins, imports nothing of the session
+`pnpm perf:eager-js` below), is the entry and 11 modulepreloads: 587,718 bytes (192,248 gzipped) since s15-7, 131,566
+under the 719,284 of the tree of s0a; 681,308 (221,764) after s15-6, 810,173 (264,689) in 16 files before it. The root
+of every window loads no store of the main window: `stores/auth.ts`, which `App.tsx` imports for the sign-ins, imports
+nothing of the session
 (the store of a session puts its fact `auth` into it, `applyAuthFacts` from `model/store.ts`; the read of it again
-and the toast of a failed read are `model/auth-facts.ts`, which the main route and the issue popover import); the
+and the toast of a failed read are `model/auth-facts.ts`, which the main page and the issue popover import); the
 reads of a review window load in a review window only (above); `describeError` words the holder of a `busy` error by
 `presenters/lock-wait.ts`, which imports no other presenter (`presenters/operations.ts` imported the words of the
 rewrites). Before, the root of every window reached the store (`App.tsx` → `stores/auth.ts` → `model/store.ts`,
 15.7 KB, with `stores/branch-sync.ts`, 11.4 KB, and the rules of the rows), so its import beside the page in the main
 route moved nothing (rolldown warned `INEFFECTIVE_DYNAMIC_IMPORT`), and `main.tsx` reached the reads of the reviews
 with `lib/command.ts`, the Activity store and its presenters (`presenters/activity.ts`, `presenters/outcome.ts`,
-`lib/patronus.ts`). The modules of the page in the eager part went from 186,305 bytes to 63,857; the packages are
-596,483 (react-dom 206,995, Base UI 117,788 with its utils, react-router 93,764, zod 87,809), the bundler's code
-20,968. What a window loads before its first render, the eager part and the static closure of the chunk of its page
-(of the store of the session too for the main window): Settings 920,168 bytes in 39 files (1,042,688 before), the
-commit review 1,223,624 in 50 (1,330,278 in 46), the main window 1,783,236 in 66 (1,791,269 in 63), the other
-windows within 3 KB of before, in more and smaller chunks. Earlier, after s13: 801,652 bytes (261,332) against
-797,568 (258,780) on master `5879479e5`, 0.5 % more: s13 removed the reads of the start (1.8 KB) and added the seed
+`lib/patronus.ts`). The modules of the page in the eager part went from 186,305 bytes to 63,857 (64,029 since s15-7);
+the packages are 502,672 (react-dom 206,896, Base UI 117,834 with its utils, zod 87,809), the bundler's code 21,017;
+react-router, 93,764 bytes, went with s15-7 (above). What a window loads before its first render, the eager part and
+the static closure of the chunk of its page (of the store of the session too for the main window), after s15-6:
+Settings 920,168 bytes in 39 files (1,042,688 before), the commit review 1,223,624 in 50 (1,330,278 in 46), the main
+window 1,783,236 in 66 (1,791,269 in 63), the other windows within 3 KB of before, in more and smaller chunks; s15-7
+takes 93,590 bytes off each, in as many files (Settings 826,578, the commit review 1,130,034, the main window
+1,689,646). Earlier, after s13: 801,652 bytes (261,332) against 797,568 (258,780) on master `5879479e5`, 0.5 % more:
+s13 removed the reads of the start (1.8 KB) and added the seed
 (1.2 KB of `model/store.ts`) and the lazy roots of the popups of a row (3.1 KB: `useLazyRoot`, `popover`, `tooltip`).
 
 `pnpm perf:eager-js` (`scripts/perf/eager-js.mjs`) measures it. It builds the page into `tests/results/perf/eager-js/`
@@ -635,7 +648,7 @@ the total beside the budget of B13 (719,284 bytes, the tree of s0a), and from th
 package, of each module of the page (`--top`) and of the bundler's own code, which no map names: the imports and
 exports between the chunks, the list of their dependencies and the preload helper. `tests/results/perf/eager-js.json`
 keeps the report. On 2026-10-29, after s15-1: 806,609 bytes (263,474 gzipped), 87,325 over the budget; on
-2026-10-30, after s15-6: 681,308 (221,764), 37,976 under it.
+2026-10-30, after s15-6: 681,308 (221,764), 37,976 under it; after s15-7: 587,718 (192,248), 131,566 under it.
 
 `preloadInterFont` (`vite.config.ts`) adds a `<link rel="preload">` for the upright InterVariable face to the built
 `index.html`. Without it the browser finds the font only after the CSS applies, and a window paints first in the
