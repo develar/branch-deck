@@ -51,9 +51,9 @@ pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
 pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
 
 /// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
-/// Reviewed and the local Since Your Review, the API & Risk card, Order: Dependencies. A git boolean, on when unset, and a
-/// value git refuses is off: an experiment never turns on from a broken value. Settings → Diffs & Merge → Review writes
-/// it; `bd review-plan` and `bd mark-reviewed` work without it
+/// Reviewed and the local Since Your Review, the Review Summary card, the badges and the Mechanical group of the tree.
+/// A git boolean, on when unset, and a value git refuses is off: an experiment never turns on from a broken value.
+/// Settings → Diffs & Merge → Review writes it; `bd review-plan` and `bd mark-reviewed` work without it
 pub const REVIEW_EXPERIMENTAL_CONFIG_KEY: &str = "branchdeck.reviewExperimental";
 
 /// The config file an entry comes from, in git's order: a later scope wins over an earlier one

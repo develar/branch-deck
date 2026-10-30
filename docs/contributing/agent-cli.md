@@ -676,8 +676,8 @@ the rewritten commits. A branch never marked and a range have `"interdiff": null
 references` at the head, asked by `Owner.name` for a member and by `package.name` for a top-level Kotlin or Java
 declaration, for the first 20 queries: `inside` counts the uses in the changed files, `outside` the others, with the
 first 5 as `outside_sites`, and `complete: false` past 100 hits. An import, a doc mention and a hit in another
-language family are no use, and of a type whose constructors are its only change only a call is, as a lower bound
-(`complete: false`), since a subclass is missed. A name that nearly
+language family are no use, and of a type whose constructors are its only change only a call and a subtype are. A
+name that nearly
 every type declares (`equals`, `toString`, `get`, `run`, `new`, `invoke` and others) is never asked without an
 owner: its `usages` is `null`. A member of that name counts only the lines that name its owner, as a lower bound
 (`complete: false`). A removal names the file and line before the commit that removed

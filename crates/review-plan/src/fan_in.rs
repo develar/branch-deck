@@ -15,9 +15,9 @@
 //!   `add_usages` says why, as it does when accio is missing or has no index of the repository. Never an index build.
 //! - **A usage** is a hit in code: no declaration, `import` or `doc` hit (`NOT_USES`), none in a file of another
 //!   family of languages than the declaration (a Python `.get(` is no use of a Kotlin `Key.get`). Of a type whose
-//!   constructors are its only change, only the `call` hits count (`Type(…)`, `new Type(…)`), and the usages are a
-//!   lower bound (`complete: false`): a subclass calls a constructor too, but accio tags it `type`, as it tags a field
-//!   of the type, and the summary does not read whether a class is final. It is **inside** when its path is one of the
+//!   constructors are its only change, only the `call` hits (`Type(…)`, `new Type(…)`, a Kotlin `class Sub : Type(…)`)
+//!   and the `supertype` hits (a Java `extends Type`, whose `super(…)` calls a constructor) count: a use of the type as
+//!   a type or an import still compiles. It is **inside** when its path is one of the
 //!   changed paths after the commits, else **outside**; the first `OUTSIDE_SITES` outside ones are kept, by path and
 //!   line. The index answers at most 100 hits, and a cut answer is `complete: false`.
 
@@ -81,6 +81,9 @@ pub const NO_INDEX: &str = "accio has no index of this repository";
 /// The kinds of accio hits that use nothing: the declaration itself, an import, a mention in a doc comment
 pub const NOT_USES: [&str; 3] = ["declaration", "import", "doc"];
 
+/// The kinds of accio hits that call a constructor of a type: a call, and a subtype, whose constructors call one
+const CONSTRUCTOR_USES: [&str; 2] = ["call", "supertype"];
+
 /// A name of `STOP_NAMES` that is asked bare: never asked
 fn stopped(change: &ApiChange) -> bool {
   change.owner.is_none() && STOP_NAMES.contains(&change.name.as_str())
@@ -99,13 +102,13 @@ fn names(text: &str, word: &str) -> bool {
     .any(|(at, _)| !part(text[..at].chars().next_back()) && !part(text[at + word.len()..].chars().next()))
 }
 
-/// The only change of `change` is its constructors: of its hits, only a call is known to break
+/// The only change of `change` is its constructors: of its hits, only a call and a subtype are known to break
 fn constructors_only(change: &ApiChange) -> bool {
   change.kind == ApiChangeKind::Changed && change.changes == [FormChange::Constructors]
 }
 
-/// `hit` is a use of `change`: a hit in code of its family of languages; only a call of a type whose constructors are its
-/// only change; one that names the owner of a member of `STOP_NAMES`
+/// `hit` is a use of `change`: a hit in code of its family of languages; only a call or a subtype of a type whose
+/// constructors are its only change; one that names the owner of a member of `STOP_NAMES`
 fn uses(change: &ApiChange, hit: &ReferenceHit) -> bool {
   if NOT_USES.contains(&hit.kind.as_str()) {
     return false;
@@ -115,7 +118,7 @@ fn uses(change: &ApiChange, hit: &ReferenceHit) -> bool {
   {
     return false;
   }
-  if constructors_only(change) && hit.kind != "call" {
+  if constructors_only(change) && !CONSTRUCTOR_USES.contains(&hit.kind.as_str()) {
     return false;
   }
   by_owner(change).is_none_or(|owner| names(&hit.snippet, owner))
@@ -127,7 +130,7 @@ fn usages_of(change: &ApiChange, references: &References, changed: &HashSet<&str
     inside: 0,
     outside: 0,
     outside_sites: Vec::new(),
-    complete: references.complete && by_owner(change).is_none() && !constructors_only(change),
+    complete: references.complete && by_owner(change).is_none(),
   };
   for hit in references.hits.iter().filter(|hit| uses(change, hit)) {
     if changed.contains(hit.path.as_str()) {

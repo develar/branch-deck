@@ -201,12 +201,11 @@ the repeated edits and the new API.
 - Only a hit in code must count as a usage: not the declaration itself, an `import` or a `doc` hit (`NOT_USES`).
   A hit in a file of another family of languages than the declaration (JVM, Rust, script) must not count: it is a
   namesake.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls`)
-- Of a type whose only change is its constructors, only a `call` hit must count. A use of the type as a type or an
-  import still compiles. The usages must be `complete: false`, a lower bound: a subclass calls a constructor too, but
-  accio tags that call `type`, and the summary does not read whether the class is final. With no use outside, the
-  entry still must not read as safe.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls`)
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes`)
+- Of a type whose only change is its constructors, only a `call` hit (`Type(…)`, `new Type(…)`, a Kotlin
+  `class Sub : Type(…)`) and a `supertype` hit (a Java `extends Type`, whose `super(…)` calls a constructor) must
+  count. A use of the type as a type or an import still compiles. The usages are as `complete` as the answer of accio.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes`)
 - A name that nearly every type declares (`STOP_NAMES`: `equals`, `hashCode`, `toString`, `get`, `set`, `run`,
   `invoke`, `close`, `new` and others) must never be asked without an owner, bare or after a package: its `usages`
   stay `null`, unknown, not a wrong count. Two entries of the same query must share one query.
@@ -587,10 +586,13 @@ the repeated edits and the new API.
   holds the name counts too.
 - Of a constructor-only change, every call of the type counts, also one that the change left valid, such as a call
   with named arguments that skips a new default parameter.
-- Of a constructor-only change, a subclass outside the change is missed, also when it breaks: accio 0.8.0 tags a
-  Kotlin `class Sub : Type(…)` and a Java `extends Type` as `type`. The usages are `complete: false` for that
-  reason, also of a final class. A summary that reads the modality of a class, or a supertype kind from accio, would
-  make them complete.
+- An override of a changed open member in a subclass outside the change is missed: accio answers neither
+  `references Owner.member` nor `implementations Owner.member` with it, and calls its answer complete
+  (JetBrains/accio#71). A changed parameter list of an open member can therefore read as "every use updated".
+- accio keeps a call of `Owner.member` whose receiver it cannot type and does not tell it from a typed one
+  (JetBrains/accio#72); the owner check of `STOP_NAMES` stays until it does.
+- The plan tells "no index" by the layout of accio's index on disk, as no query of accio answers without building
+  one (JetBrains/accio#73).
 - A member of `STOP_NAMES` counts only the lines that name its owner: `store.close()` through a variable is missed.
 - A usage is inside when its file is changed, not when its line is: a use in a changed file that the change left as
   it was counts as updated. With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated

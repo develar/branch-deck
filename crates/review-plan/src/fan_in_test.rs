@@ -278,11 +278,10 @@ fn a_member_of_a_name_of_the_stop_list_counts_the_lines_that_name_its_owner() {
 type Split<'a> = (Vec<FormChange>, ApiChangeKind, u32, u32, Vec<&'a str>, bool);
 
 /// Only a hit in code is a usage: no import, no doc mention, no hit in a file of another family of languages. Of a type
-/// whose constructors are its only change, only a call counts, and the count is a lower bound: accio tags the
-/// constructor call of a subclass (`class Sub : Policy(1)`) `type`, as a field of the type, and whether the class is
-/// final is not known. When accio tags that call `call` or `supertype`, the subclass counts here without a change
+/// whose constructors are its only change, only a call and a subtype count (accio tags a Kotlin `class Sub : Policy(1)`
+/// `call` and a Java `extends Policy` `supertype`), and the count is as complete as the answer of accio
 #[test]
-fn only_code_hits_count_and_of_a_constructor_change_only_calls() {
+fn only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes() {
   let hits = vec![
     ("lib/A.kt", "import", "import a.Policy"),
     ("lib/A.kt", "type", "override fun policy(): Policy?"),
@@ -291,7 +290,8 @@ fn only_code_hits_count_and_of_a_constructor_change_only_calls() {
     ("web/policy.ts", "call", "new Policy(1)"),
     ("lib/D.kt", "read", "val id = policy.id"),
     ("src/E.kt", "call", "Policy(id = 1)"),
-    ("lib/F.kt", "type", "class Sub : Policy(1) {"),
+    ("lib/F.kt", "call", "class Sub : Policy(1) {"),
+    ("lib/G.java", "supertype", "public class JSub extends Policy {"),
   ];
   let index = Counts::hits(&[("a.Policy", Ok(hits))]);
   let policy = |kind: ApiChangeKind, changes: Vec<FormChange>| ApiChange {
@@ -315,22 +315,29 @@ fn only_code_hits_count_and_of_a_constructor_change_only_calls() {
       (change.changes.clone(), change.kind, usages.inside, usages.outside, sites, usages.complete)
     })
     .collect();
-  let every_code_hit = vec!["lib/A.kt", "lib/C.java", "lib/D.kt", "lib/F.kt"];
+  let every_code_hit = vec!["lib/A.kt", "lib/C.java", "lib/D.kt", "lib/F.kt", "lib/G.java"];
   assert_eq!(
     usages,
     [
-      (Vec::new(), ApiChangeKind::Removed, 1, 4, every_code_hit.clone(), true),
-      (vec![FormChange::Constructors, FormChange::Open], ApiChangeKind::Changed, 1, 4, every_code_hit, true),
-      (vec![FormChange::Constructors], ApiChangeKind::Changed, 1, 1, vec!["lib/C.java"], false),
+      (Vec::new(), ApiChangeKind::Removed, 1, 5, every_code_hit.clone(), true),
+      (vec![FormChange::Constructors, FormChange::Open], ApiChangeKind::Changed, 1, 5, every_code_hit, true),
+      (
+        vec![FormChange::Constructors],
+        ApiChangeKind::Changed,
+        1,
+        3,
+        vec!["lib/C.java", "lib/F.kt", "lib/G.java"],
+        true
+      ),
     ]
   );
 
-  // no use outside, but a subclass may still break: the count stays a lower bound, never "every use updated"
-  let index = Counts::hits(&[("a.Policy", Ok(vec![("src/E.kt", "call", "Policy(id = 1)")]))]);
+  // no call and no subtype outside: every use is updated in this change
+  let index = Counts::hits(&[("a.Policy", Ok(vec![("src/E.kt", "call", "Policy(id = 1)"), ("lib/A.kt", "type", "val p: Policy")]))]);
   let mut api = vec![policy(ApiChangeKind::Changed, vec![FormChange::Constructors])];
   add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
   let usages = api[0].usages.as_ref().unwrap();
-  assert_eq!((usages.inside, usages.outside, usages.complete), (1, 0, false));
+  assert_eq!((usages.inside, usages.outside, usages.complete), (1, 0, true));
 }
 
 /// No accio on the machine, or no index of the repository: no usages, and the note says why

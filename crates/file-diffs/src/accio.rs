@@ -40,7 +40,7 @@ pub struct SymbolHit {
 }
 
 /// A usage an index knows: a path, a line and a column from 1, the text of the line, and how it uses the name
-/// (`call`, `write`, `argument`, `read`, `declaration`, `import`)
+/// (`call`, `write`, `argument`, `read`, `type`, `supertype`, `declaration`, `import`, `doc`, `string`)
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ReferenceHit {
   #[serde(rename = "file")]
