@@ -13,7 +13,8 @@
 //!
 //! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way
 //! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
-//! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink. A
+//! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink and
+//! removes a link, a junction of Windows too, as the link (`fs_retry::remove_entry`), never what it points to. A
 //! return and `bd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
 //! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`). What a process keeps (on Windows one
 //! that works in it or has a file of it open, which no rename moves) stays whole in the checkout and the error of its
@@ -504,7 +505,8 @@ fn held_note(error: &std::io::Error) -> &'static str {
   }
 }
 
-/// Delete `path` and everything below it, symlinks as themselves, in one walk that counts the bytes on disk it freed
+/// Delete `path` and everything below it in one walk that counts the bytes on disk it freed. A link, a junction or a
+/// directory symlink of Windows too, is removed as the link (`fs_retry::remove_entry`): never followed, never gone into
 pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
   let metadata = match path.symlink_metadata() {
     Ok(metadata) => metadata,
@@ -513,7 +515,7 @@ pub fn remove_measured(path: &Path) -> std::io::Result<u64> {
   };
   let own = allocated(&metadata);
   if !metadata.is_dir() {
-    fs_retry::remove_file(path)?;
+    fs_retry::remove_entry(path, &metadata.file_type())?;
     return Ok(own);
   }
   let mut freed = own;
