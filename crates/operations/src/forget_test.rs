@@ -22,8 +22,8 @@ async fn forget_this_start_takes_the_record_out_and_frees_what_it_held() {
   let dir = directory.path().to_path_buf();
   let sessions = sessions();
   let key = session("user");
-  let registry = Registry::new(Arc::clone(&sessions), RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())));
-  let files = ProcessRegistry::of(directory.path());
+  let registry = Registry::new(Arc::clone(&sessions), RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())).unflushed());
+  let files = ProcessRegistry::of(directory.path()).unflushed();
   let gone = crate::registry_file::registry_file_test::process(4_000_000, Some(1));
   let lost = Record {
     status: RecordStatus::Unknown,

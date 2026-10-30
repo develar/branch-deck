@@ -3420,7 +3420,10 @@ names of its files anywhere else):
 - **Versions**: a file of another schema, or of this schema with records this version can't read, is the registry of
   another Branch Deck: every admission is `busy` without a holder, and the file is never written until the operations
   of that version ended. Every write is on the disk before its rename (`AtomicWrite { durable }`), so a crash leaves
-  the state before or after it; a file that is no JSON at all (cut short all the same, emptied by hand) tells nothing:
+  the state before or after it. Only a test and the E2E server write without the flush (`ProcessRegistry::unflushed`,
+  `RegistryFiles::unflushed`, `bd` of the fixtures through `Environment::flush_to_drive`), a value the app and `bd`
+  never have: the 1,904 writes of a full run cost 21 s of the tests' time at the drive
+  (`the_registry_flushes_each_write_but_in_a_test`). A file that is no JSON at all (cut short all the same, emptied by hand) tells nothing:
   it reads as empty, with a warning, and the next change writes it whole.
 - **No clean rule**: the lock is a `flock`, which the system releases with its holder, so `operations.lock` is never
   stale, and deleting a lock file another process still holds would let two holders in; the record of a process that

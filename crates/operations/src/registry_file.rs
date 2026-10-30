@@ -318,6 +318,10 @@ impl Content {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProcessRegistry {
   dir: PathBuf,
+  /// Whether a write reaches the drive before its rename (`AtomicWrite::durable`): always for the user, so a crash
+  /// leaves the old state or the new one; a test, whose writes in 20 processes at once queue at the drive, writes
+  /// without (`unflushed`)
+  flush: bool,
 }
 
 impl ProcessRegistry {
@@ -325,7 +329,22 @@ impl ProcessRegistry {
   pub fn of(git_common_dir: &Path) -> Self {
     Self {
       dir: git_common_dir.join(DIRECTORY),
+      flush: true,
     }
+  }
+
+  /// The same registry, written without a flush of the drive: only a test, which outlives no crash of the system
+  /// (`bd_core::context::Environment::flush_to_drive`, `RegistryFiles::unflushed`)
+  #[must_use]
+  pub const fn unflushed(mut self) -> Self {
+    self.flush = false;
+    self
+  }
+
+  /// Whether a write reaches the drive before its rename (`unflushed`)
+  #[cfg(test)]
+  pub(crate) const fn flushes(&self) -> bool {
+    self.flush
   }
 
   fn path(&self) -> PathBuf {
@@ -431,7 +450,10 @@ impl ProcessRegistry {
         if broken || *file != before {
           let json = serde_json::to_vec_pretty(&*file).map_err(|error| ApiError::internal(format!("Cannot write the operations registry: {error}")))?;
           // on the disk before the rename: a crash leaves the old state or the new one, never a file cut short
-          let durable = AtomicWrite { private: false, durable: true };
+          let durable = AtomicWrite {
+            private: false,
+            durable: self.flush,
+          };
           write_atomically(&self.path(), &json, durable).map_err(|error| io(error, "write"))?;
         }
         Some(result)

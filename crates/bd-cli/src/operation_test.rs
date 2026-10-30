@@ -103,7 +103,7 @@ fn a_rewrite_is_journaled_under_the_operation_id_of_its_json() {
     (refused.as_str(), Some(output["error"]["code"].clone())),
     "{failed:#?}"
   );
-  assert_eq!(ProcessRegistry::of(&common_dir).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&common_dir).unflushed().records().unwrap(), Some(Vec::new()));
 }
 
 /// `bd squash` is journaled as the app's Squash of the same commits (`RewriteIntent::Squash`, full ids, the oldest
@@ -137,7 +137,7 @@ fn a_squash_is_journaled_as_the_squash_of_its_commits() {
     "{entry:#?}"
   );
   assert!(entry.stats.git_processes.contains_key("update-ref"), "{entry:#?}");
-  assert_eq!(ProcessRegistry::of(&common_dir).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&common_dir).unflushed().records().unwrap(), Some(Vec::new()));
 }
 
 #[test]

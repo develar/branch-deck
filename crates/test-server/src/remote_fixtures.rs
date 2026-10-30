@@ -791,7 +791,7 @@ pub async fn set_foreign_operation(
     status: if request.unknown { RecordStatus::Unknown } else { RecordStatus::Running },
     external,
   };
-  let registry = ProcessRegistry::of(&std::path::Path::new(&path).join(".git"));
+  let registry = ProcessRegistry::of(&std::path::Path::new(&path).join(".git")).unflushed();
   let operation = ForeignOperation {
     id: record.id.clone(),
     registry: registry.clone(),
@@ -867,6 +867,7 @@ pub async fn journal_agent_operation(
     moves: Vec::new(),
   };
   let entry = ProcessRegistry::of(&common_dir)
+    .unflushed()
     .admit(&op, HolderTool::Bd, &session, &admitted)
     .map_err(|error| failed(error.message))?;
   let outcome = Outcome {

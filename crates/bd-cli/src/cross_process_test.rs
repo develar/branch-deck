@@ -218,6 +218,7 @@ impl App {
     let common_dir = context.git_common_dir.clone();
     // a start whose answer was lost is settled over the services of the app, as late as a read once it settled
     let files = RegistryFiles::new(HolderTool::App, move |_key| Some(common_dir.clone()))
+      .unflushed()
       .settled_with(Arc::new(services(space, &context)))
       .at(|_key| unix_now() + SETTLED_AFTER);
     let registry = Registry::new(Arc::clone(&sessions), files);
@@ -320,7 +321,7 @@ fn bd_held_at_its_start(space: &Space, branch: &str) -> (Arc<test_utils::fake_se
 
 /// The one record of the registry of the repository of `space`
 fn the_record(space: &Space) -> Record {
-  let records = ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap().unwrap();
+  let records = ProcessRegistry::of(&space.repo.path().join(".git")).unflushed().records().unwrap().unwrap();
   let [record] = records.as_slice() else {
     panic!("one record: {records:?}");
   };
@@ -362,7 +363,7 @@ fn bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app() {
       "{outcome:?}"
     );
   });
-  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).unflushed().records().unwrap(), Some(Vec::new()));
   assert_eq!(space.fake.starts.lock().unwrap().len(), 1);
 }
 
@@ -404,7 +405,7 @@ fn the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd() {
     assert_eq!(exit_code, 0, "{output}");
     app.operations_once(<[RunningOperation]>::is_empty).await;
   });
-  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).unflushed().records().unwrap(), Some(Vec::new()));
   assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "the start of bd alone reached Patronus");
 }
 
@@ -433,7 +434,7 @@ fn a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder()
   start.open();
   let (exit_code, output) = bd.answer();
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).unflushed().records().unwrap(), Some(Vec::new()));
   // the start of the other process alone reached Patronus
   assert_eq!(space.fake.starts.lock().unwrap().len(), 1);
 }
@@ -481,7 +482,7 @@ fn a_bd_killed_between_its_push_and_its_start_leaves_a_lost_start_the_app_settle
     let effects: Vec<(&PlannedEffect, &EffectStatus)> = outcome.effects.iter().map(|record| (&record.effect, &record.status)).collect();
     assert!(matches!(effects.as_slice(), [(PlannedEffect::StartRobot { .. }, EffectStatus::Done)]), "{effects:?}");
   });
-  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).unflushed().records().unwrap(), Some(Vec::new()));
   assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "the start of the app alone reached Patronus");
 }
 
@@ -521,7 +522,7 @@ fn a_lost_start_holds_bd_until_bd_operation_forget_lets_it_go() {
       }),
     }),
   };
-  let registry = ProcessRegistry::of(&space.repo.path().join(".git"));
+  let registry = ProcessRegistry::of(&space.repo.path().join(".git")).unflushed();
   registry.insert_of_another_process(lost).unwrap();
 
   let (exit_code, output) = space.run(&["auth"]);
@@ -638,7 +639,7 @@ fn the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each() 
     [(HolderTool::App, Some("beta"), None), (HolderTool::Bd, Some("beta"), Some(ErrorCode::InvalidPlan))],
     "{journal:#?}"
   );
-  assert_eq!(ProcessRegistry::of(&common_dir).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&common_dir).unflushed().records().unwrap(), Some(Vec::new()));
 }
 
 /// `bd unstack beta` killed while it waits for the repository lock another holder keeps: its record stays in the file,
@@ -654,7 +655,7 @@ fn a_bd_killed_in_its_rewrite_leaves_a_record_the_app_drops_once_its_process_is_
     let bd = OtherBd::waiting(&space, &["unstack", "beta"], Some(60));
     app.operations_once(|operations| operations.iter().any(bds_unstack)).await;
     bd.0.kill();
-    let registry = ProcessRegistry::of(&common_dir);
+    let registry = ProcessRegistry::of(&common_dir).unflushed();
     assert_eq!(registry.records().unwrap().map(|records| records.len()), Some(1), "the record of the killed bd stays");
     assert_eq!(registry.of_other_processes().unwrap(), Vec::new(), "no process runs it");
     drop(held);
@@ -663,7 +664,7 @@ fn a_bd_killed_in_its_rewrite_leaves_a_record_the_app_drops_once_its_process_is_
     // the admission of the app wrote the file without it: the window reads it again and shows nothing of it
     app.operations_once(<[RunningOperation]>::is_empty).await;
   });
-  assert_eq!(ProcessRegistry::of(&common_dir).records().unwrap(), Some(Vec::new()));
+  assert_eq!(ProcessRegistry::of(&common_dir).unflushed().records().unwrap(), Some(Vec::new()));
   assert_eq!(rewrites_of_head(&space), 1, "the app's unstack alone");
   let journal = operations::journal::read(&common_dir).unwrap();
   assert_eq!(journal.iter().map(|entry| entry.tool).collect::<Vec<_>>(), [HolderTool::App], "{journal:#?}");

@@ -9,7 +9,6 @@ use bd_core::error::CliError;
 use bd_core::output::SchemaVersion;
 use domain_types::operation::OperationId;
 use operations::forget::forget_start;
-use operations::registry_file::ProcessRegistry;
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -53,7 +52,7 @@ pub struct OperationForgetOutput {
 /// `invalid_arguments` for an id the registry lacks or of an operation whose process still runs it; `locked` when
 /// another process keeps the lock of the registry
 pub fn forget(context: &RepoContext, args: &ForgetArgs) -> Result<OperationForgetOutput, CliError> {
-  let forgotten = forget_start(&ProcessRegistry::of(&context.git_common_dir), &OperationId(args.id.clone()))?;
+  let forgotten = forget_start(&context.operations_registry(), &OperationId(args.id.clone()))?;
   Ok(OperationForgetOutput {
     schema: SchemaVersion,
     repository: context.repository.clone(),

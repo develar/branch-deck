@@ -62,7 +62,7 @@ impl AppRun {
     let repo = TestRepo::new();
     let common = tempfile::tempdir().unwrap();
     let common_dir = common.path().to_path_buf();
-    let registry = Registry::new(sessions(), RegistryFiles::new(HolderTool::App, move |_| Some(common_dir.clone())));
+    let registry = Registry::new(sessions(), RegistryFiles::new(HolderTool::App, move |_| Some(common_dir.clone())).unflushed());
     let key = SessionKey {
       worktree: repo.path().to_string_lossy().into_owned(),
       prefix: "user".to_string(),
@@ -122,7 +122,7 @@ async fn an_operation_of_the_app_and_one_of_bd_are_journaled_once_each_with_what
   let foreign = format!("{{\"endedAt\":{},\"kind\":\"newer\"}}", unix_now());
   std::fs::write(&path, format!("{}{foreign}\n", std::fs::read_to_string(&path).unwrap())).unwrap();
 
-  let files = ProcessRegistry::of(common.path());
+  let files = ProcessRegistry::of(common.path()).unflushed();
   let entry = files.admit(&id("bd"), HolderTool::Bd, &session("user"), &safe_push("docs")).unwrap();
   entry.tally().scope(sync_utils::operation_tally::http_request);
   let stats = entry.stats();
@@ -163,7 +163,7 @@ async fn an_operation_of_the_app_and_one_of_bd_are_journaled_once_each_with_what
 #[test]
 fn a_start_whose_answer_was_lost_is_journaled_again_once_settled_or_forgotten() {
   let common = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   for (op, branch) in [("lost", "auth"), ("forgotten", "docs")] {
     let entry = registry.admit(&id(op), HolderTool::App, &session("user"), &safe_push(branch)).unwrap();
     entry.handle().send_start(sent(branch, unix_now())).unwrap();
@@ -193,7 +193,7 @@ fn a_start_whose_answer_was_lost_is_journaled_again_once_settled_or_forgotten() 
 #[test]
 fn a_dropped_operation_is_journaled_as_internal_and_a_discarded_one_not_at_all() {
   let common = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   drop(registry.admit(&id("dropped"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap());
   registry.admit(&id("joined"), HolderTool::App, &session("user"), &safe_push("docs")).unwrap().discard();
 
@@ -222,7 +222,7 @@ fn an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents() {
       Ok(())
     })
     .unwrap();
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   let in_slot = SessionKey {
     worktree: slot.path().to_string_lossy().into_owned(),
     prefix: "user".to_string(),
@@ -239,7 +239,7 @@ fn an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents() {
 #[test]
 fn a_start_of_the_push_route_is_journaled_with_its_target_also_when_refused_before_its_first_effect() {
   let common = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   let mut push = safe_push("auth");
   push.resources.push(domain_types::operation::Resource::Ref {
     name: "refs/remotes/origin/master".to_string(),
@@ -286,7 +286,7 @@ fn told_error(repository: &str, title: &str) -> PageActivity {
 #[test]
 fn the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_repository_in_both() {
   let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
   let recorded = record_page(app_data.path(), told_error("/a", "Cannot push auth")).unwrap();
   record_page(app_data.path(), told_error("/b", "Cannot push docs")).unwrap();
@@ -316,7 +316,7 @@ fn the_page_records_into_its_journal_and_clear_log_forgets_the_log_of_a_reposito
 #[test]
 fn clear_log_forgets_the_errors_the_page_told_of_the_operations_of_the_journal() {
   let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   let failed = ApiError::new(ErrorCode::PushRefused, "the remote refused it");
   finished(&registry, "failed", &session("user"), &safe_push("auth"), Err(&failed));
   // the toast came while the main window showed /b
@@ -339,7 +339,7 @@ fn clear_log_forgets_the_errors_the_page_told_of_the_operations_of_the_journal()
 #[tokio::test(flavor = "multi_thread")]
 async fn activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read() {
   let (common, app_data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
   record_page(app_data.path(), told_error("/b", "Cannot push docs")).unwrap();
   let journal = journal_path_in(registry.dir()).to_string_lossy().into_owned();
@@ -389,7 +389,7 @@ async fn the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_wri
   let log = read_activity(&projects, app_data.path(), Duration::from_mins(1), &unheard()).await;
   let available: Vec<_> = log.journals.iter().map(|journal| (journal.repositories.clone(), journal.available)).collect();
   assert_eq!(available, [(vec!["/new".to_string()], true), (vec!["/gone".to_string()], false)]);
-  assert_eq!(journal_path(common.path()), journal_path_in(ProcessRegistry::of(common.path()).dir()));
+  assert_eq!(journal_path(common.path()), journal_path_in(ProcessRegistry::of(common.path()).unflushed().dir()));
 }
 
 /// A late answer of a journal that nobody hears
@@ -461,7 +461,7 @@ async fn a_journal_that_answers_after_the_bound_shows_once_it_answered() {
 
   // the disk answers the read that runs: the line of an operation of the repository
   let common = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
   answer_hung_read(hung_disk_writer(&pipe), &std::fs::read_to_string(journal_path_in(registry.dir())).unwrap());
   heard.recv().await.unwrap();
@@ -486,7 +486,7 @@ async fn a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one()
   let projects = [("/a".to_string(), Some(path.to_string_lossy().into_owned()))];
   let app_data = tempfile::tempdir().unwrap();
   let common = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(common.path());
+  let registry = ProcessRegistry::of(common.path()).unflushed();
   finished(&registry, "pushed", &session("user"), &safe_push("auth"), Ok(&started(&id("pushed"), EffectStatus::Done)));
   let before = std::fs::read_to_string(journal_path_in(registry.dir())).unwrap();
   finished(&registry, "landed", &session("user"), &safe_push("docs"), Ok(&started(&id("landed"), EffectStatus::Done)));

@@ -13,6 +13,7 @@ use github::client::GITHUB_API_URL;
 use github::token::TokenSources;
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use object_cache::cache::{CacheConfig, ObjectCache, cache_dir};
+use operations::registry_file::ProcessRegistry;
 use patronus::client::PATRONUS_URL;
 use patronus::token::TOKEN_ENV;
 use std::ffi::OsString;
@@ -76,8 +77,9 @@ pub struct Environment {
   pub remote_retry_delay: Option<Duration>,
   /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`known_tools::TEAMCITY`), and only then
   pub teamcity: Option<PathBuf>,
-  /// Whether a commit of the object cache reaches the drive before it returns (`CacheConfig::sync_commits`): always for
-  /// the user; a test, whose thousands of commits in 20 processes at once queue at the drive, writes without
+  /// Whether a commit of the object cache and a write of the operations registry reach the drive before they return
+  /// (`CacheConfig::sync_commits`, `ProcessRegistry::unflushed`): always for the user; a test, whose thousands of
+  /// writes in 20 processes at once queue at the drive, writes without
   pub flush_to_drive: bool,
 }
 
@@ -175,7 +177,7 @@ pub struct RepoContext {
   /// The object cache, opened by the first that asks: opening reads the database names of every environment
   cache: OnceLock<ObjectCache>,
   /// The config `cache` opens with: the app's, its commits not waiting for the drive in a test
-  /// (`Environment::flush_to_drive`)
+  /// (`Environment::flush_to_drive`, which `operations_registry` reads here too)
   cache_config: CacheConfig,
   /// The blocks and the blobs of the scans of this command (`file_diffs`)
   file_diffs: OnceLock<FileDiffs>,
@@ -382,6 +384,13 @@ impl RepoContext {
         }
       })
       .clone()
+  }
+
+  /// The operations registry of the repository, its writes not waiting for the drive in a test
+  /// (`Environment::flush_to_drive`)
+  pub fn operations_registry(&self) -> ProcessRegistry {
+    let registry = ProcessRegistry::of(&self.git_common_dir);
+    if self.cache_config.sync_commits { registry } else { registry.unflushed() }
   }
 
   /// `ids` are all the commit ids the output names

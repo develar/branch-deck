@@ -102,7 +102,7 @@ pub(crate) async fn registry_on(repo: &TestRepo, host: Arc<dyn SessionHost>, syn
   if synced {
     sessions.sync(&key, SyncReason::Manual).wait().await.unwrap();
   }
-  let files = RegistryFiles::new(HolderTool::App, |key| Some(std::path::Path::new(&key.worktree).join(".git")));
+  let files = RegistryFiles::new(HolderTool::App, |key| Some(std::path::Path::new(&key.worktree).join(".git"))).unflushed();
   (Registry::new(sessions, files), key)
 }
 

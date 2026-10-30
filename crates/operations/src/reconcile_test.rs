@@ -258,7 +258,7 @@ async fn a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_
   fixture.fake.lose_start_answers.store(true, Ordering::SeqCst);
   *fixture.fake.robots.lock().unwrap() = Some(Vec::new());
   let host = StartFixture::host(fixture.planned(start_effects()));
-  let files = ProcessRegistry::of(&fixture.services.git_common_dir);
+  let files = ProcessRegistry::of(&fixture.services.git_common_dir).unflushed();
   let key = SessionKey {
     worktree: fixture.repo.path_str().to_string(),
     prefix: "test".to_string(),
@@ -323,7 +323,7 @@ async fn a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_
 async fn a_lost_start_patronus_does_not_list_once_it_settled_leaves_and_the_admission_goes_in() {
   let fixture = start_fixture().await;
   *fixture.fake.robots.lock().unwrap() = Some(Vec::new());
-  let files = ProcessRegistry::of(&fixture.services.git_common_dir);
+  let files = ProcessRegistry::of(&fixture.services.git_common_dir).unflushed();
   let key = SessionKey {
     worktree: fixture.repo.path_str().to_string(),
     prefix: "test".to_string(),
@@ -367,6 +367,7 @@ fn settling_registry(directory: &std::path::Path, now: Arc<AtomicU32>, patronus:
   let registry = Registry::new(
     crate::registry::registry_test::sessions(),
     RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone()))
+      .unflushed()
       .settled_with(services)
       .at(move |_key| now.load(Ordering::SeqCst)),
   );
@@ -398,7 +399,7 @@ fn settled_as(directory: &std::path::Path) -> Vec<Option<String>> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_list_of_the_robots_of_a_session_settles_its_lost_starts() {
   let directory = tempfile::tempdir().unwrap();
-  let files = ProcessRegistry::of(directory.path());
+  let files = ProcessRegistry::of(directory.path()).unflushed();
   let (fake, patronus) = patronus_of_the_app().await;
   let now = Arc::new(AtomicU32::new(SENT + 16));
   let (registry, key) = settling_registry(directory.path(), Arc::clone(&now), Some(patronus));
@@ -434,7 +435,7 @@ async fn session_has_robot(registry: &Registry, key: &SessionKey, id: &'static s
 #[tokio::test(flavor = "multi_thread")]
 async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_it_absent() {
   let directory = tempfile::tempdir().unwrap();
-  let files = ProcessRegistry::of(directory.path());
+  let files = ProcessRegistry::of(directory.path()).unflushed();
   let (fake, patronus) = patronus_of_the_app().await;
   let now = Arc::new(AtomicU32::new(SENT + 55));
   let (registry, key) = settling_registry(directory.path(), Arc::clone(&now), Some(Arc::clone(&patronus)));
@@ -480,7 +481,7 @@ async fn a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_i
 #[tokio::test(flavor = "multi_thread")]
 async fn the_lost_starts_of_a_prefix_settle_by_one_list_since_the_oldest() {
   let directory = tempfile::tempdir().unwrap();
-  let files = ProcessRegistry::of(directory.path());
+  let files = ProcessRegistry::of(directory.path()).unflushed();
   let (fake, patronus) = patronus_of_the_app().await;
   let now = Arc::new(AtomicU32::new(SENT + 5 + SETTLED_AFTER));
   let (registry, key) = settling_registry(directory.path(), now, Some(patronus));

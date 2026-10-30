@@ -236,8 +236,8 @@ fn a_heartbeat_beats_the_live_records_of_this_process_and_takes_out_its_others()
 fn a_heartbeat_keeps_the_records_admitted_after_it_chose_its_registries() {
   let directory = tempfile::tempdir().unwrap();
   std::fs::create_dir_all(directory.path().join("worktree")).unwrap();
-  let registry = ProcessRegistry::of(directory.path());
-  let spelled_otherwise = ProcessRegistry::of(&directory.path().join("worktree").join(".."));
+  let registry = ProcessRegistry::of(directory.path()).unflushed();
+  let spelled_otherwise = ProcessRegistry::of(&directory.path().join("worktree").join("..")).unflushed();
   assert_ne!(registry, spelled_otherwise);
   let first = registry.admit(&id("first"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
   let this = ProcessIdentity::this();
@@ -302,7 +302,7 @@ pub(crate) fn sleeping_child() -> std::process::Child {
 #[test]
 fn the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out() {
   let directory = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(directory.path());
+  let registry = ProcessRegistry::of(directory.path()).unflushed();
   let mut child = sleeping_child();
   let holder = ProcessIdentity {
     pid: child.id(),
@@ -339,7 +339,7 @@ fn the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out() {
 /// `check` of a registry whose file has each of `contents` in turn
 fn with_file_of(contents: &[&str], check: impl Fn(&ProcessRegistry, &str)) {
   let directory = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(directory.path());
+  let registry = ProcessRegistry::of(directory.path()).unflushed();
   std::fs::create_dir_all(registry.path().parent().unwrap()).unwrap();
   for content in contents {
     std::fs::write(registry.path(), content).unwrap();
@@ -397,7 +397,7 @@ pub(crate) fn sent(branch: &str, sent_at: u32) -> PendingStart {
 #[test]
 fn a_start_of_this_process_whose_answer_was_lost_holds_its_own_admissions_after_its_entry() {
   let directory = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(directory.path());
+  let registry = ProcessRegistry::of(directory.path()).unflushed();
   let entry = registry.admit(&id("lost"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
   let handle = entry.handle();
   handle.send_start(sent("auth", NOW)).unwrap();
@@ -443,7 +443,7 @@ fn a_start_of_this_process_whose_answer_was_lost_holds_its_own_admissions_after_
 #[test]
 fn a_forget_takes_out_a_start_whose_answer_was_lost_and_refuses_one_that_runs() {
   let directory = tempfile::tempdir().unwrap();
-  let registry = ProcessRegistry::of(directory.path());
+  let registry = ProcessRegistry::of(directory.path()).unflushed();
   let gone = process(4_000_000, Some(1));
   let mut lost = Record {
     status: RecordStatus::Unknown,
@@ -467,4 +467,17 @@ fn a_forget_takes_out_a_start_whose_answer_was_lost_and_refuses_one_that_runs() 
   let auth = registry.admit(&id("auth"), HolderTool::App, &session("user"), &safe_push("auth")).unwrap();
   drop((auth, running));
   assert_eq!(registry.records().unwrap().unwrap(), Vec::<Record>::new());
+}
+
+/// The registry of the app and of `bd` reaches the drive before each rename, so a crash of the system leaves the old
+/// state or the new one (git-operations.md, "Operations registry"); only a test writes without the flush, which cost a
+/// full run 21 s of the tests' time over 1,904 writes (docs/contributing/rust-tests.md, "Beyond the processes")
+#[test]
+fn the_registry_flushes_each_write_but_in_a_test() {
+  let directory = tempfile::tempdir().unwrap();
+  assert!(ProcessRegistry::of(directory.path()).flushes());
+  let unflushed = ProcessRegistry::of(directory.path()).unflushed();
+  assert!(!unflushed.flushes());
+  unflushed.admit(&id("docs"), HolderTool::App, &session("user"), &safe_push("docs")).unwrap().discard();
+  assert_eq!(ProcessRegistry::of(directory.path()).records().unwrap().unwrap(), Vec::<Record>::new());
 }

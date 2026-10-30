@@ -136,6 +136,7 @@ fn registry_files(git: git_executor::git_command_executor::GitCommandExecutor) -
     known.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(key.worktree.clone(), dir.clone());
     Some(dir)
   })
+  .unflushed()
 }
 
 /// The journal of a repository changed: the pages of each test repository whose session watches it hear

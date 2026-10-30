@@ -135,6 +135,8 @@ pub struct RegistryFiles {
   /// Called when the watch of a repository saw its journal change (`registry_watch`): an operation of this process or
   /// of another ended, and Activity reads the journals again
   journaled: Option<JournalListener>,
+  /// Whether a write of a registry reaches the drive before its rename (`ProcessRegistry::unflushed`): but in a test
+  flush: bool,
 }
 
 /// What hears that the journal of a watched repository changed, with the keys of the sessions that watch it (the e2e
@@ -154,7 +156,15 @@ impl RegistryFiles {
       settle: None,
       now: Arc::new(|_key| unix_now()),
       journaled: None,
+      flush: true,
     }
+  }
+
+  /// The same files, written without a flush of the drive (`ProcessRegistry::unflushed`): a test, the E2E server
+  #[must_use]
+  pub const fn unflushed(mut self) -> Self {
+    self.flush = false;
+    self
   }
 
   /// The same files, whose journal changes `listener` hears while a window watches its repository, with the keys of the
@@ -190,6 +200,7 @@ impl RegistryFiles {
       settle: None,
       now: Arc::new(|_key| unix_now()),
       journaled: None,
+      flush: true,
     }
   }
 
@@ -214,7 +225,8 @@ impl RegistryFiles {
     let common_dir = self.common_dir.clone()?;
     let key = key.clone();
     let dir = tokio::task::spawn_blocking(in_current_span(move || common_dir(&key))).await.ok().flatten()?;
-    Some(ProcessRegistry::of(&dir))
+    let registry = ProcessRegistry::of(&dir);
+    Some(if self.flush { registry } else { registry.unflushed() })
   }
 }
 

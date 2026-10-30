@@ -31,7 +31,7 @@ impl Subscriber for Window {
 async fn watched(host: Arc<dyn SessionHost>, common_dir: &Path) -> (Registry, SessionKey, mpsc::UnboundedReceiver<()>) {
   let sessions = Arc::new(Sessions::new(tokio::runtime::Handle::current(), host, Arc::new(OneClock(Arc::new(TestClock::new())))));
   let dir = common_dir.to_path_buf();
-  let registry = Registry::new(sessions, RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())));
+  let registry = Registry::new(sessions, RegistryFiles::new(HolderTool::App, move |_key| Some(dir.clone())).unflushed());
   let key = session("user");
   let (patches, patched) = mpsc::unbounded_channel();
   registry.subscribe(&key, Box::new(Window(patches)), None).await.unwrap();
@@ -64,7 +64,7 @@ fn agent(child: &std::process::Child) -> ProcessIdentity {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_window_shows_the_operations_another_process_runs_under_its_prefix_while_it_watches() {
   let directory = tempfile::tempdir().unwrap();
-  let file = ProcessRegistry::of(directory.path());
+  let file = ProcessRegistry::of(directory.path()).unflushed();
   let mut child = sleeping_child();
   let agent = agent(&child);
   let mut elsewhere = record("bd-elsewhere", &agent, &safe_push("api"), unix_now());
@@ -108,7 +108,7 @@ async fn a_window_shows_the_operations_another_process_runs_under_its_prefix_whi
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stamp_of_bd_syncs_the_session_a_window_shows() {
   let directory = tempfile::tempdir().unwrap();
-  let file = ProcessRegistry::of(directory.path());
+  let file = ProcessRegistry::of(directory.path()).unflushed();
   let mut child = sleeping_child();
   file.insert_of_another_process(record("bd", &agent(&child), &safe_push("auth"), unix_now())).unwrap();
   let (synced, mut syncs) = mpsc::unbounded_channel();

@@ -25,7 +25,7 @@ use operations::engine::{request_of, unplanned_request};
 use operations::land_execute::{Planned, StartServices, Started};
 use operations::reconcile::{ReconcileSources, SettleWith, admit_settled};
 use operations::registry::OperationRequest;
-use operations::registry_file::{Entry, ProcessRegistry};
+use operations::registry_file::Entry;
 use sync_utils::timestamp::unix_now;
 
 /// The operation of the command in the words of its record
@@ -43,7 +43,7 @@ fn operation_of(context: &RepoContext) -> OperationId {
 /// As `admit_settled`: `busy`, naming the holder; `locked` while another process keeps the lock of the registry;
 /// `git_error` when the file can't be read or written
 pub fn admit(context: &RepoContext, request: &OperationRequest, settle: Option<SettleWith<'_>>) -> Result<Entry, ApiError> {
-  let registry = ProcessRegistry::of(&context.git_common_dir);
+  let registry = context.operations_registry();
   let runtime = context.runtime().map_err(|error| ApiError::internal(error.message))?;
   let admitted = runtime.block_on(admit_settled(&registry, &operation_of(context), HolderTool::Bd, &session_key(context), request, settle));
   admitted.entry
@@ -89,7 +89,7 @@ pub fn recorded<T>(context: &RepoContext, intent: &Intent, run: impl FnOnce() ->
     return Err(CliError::new(ErrorCode::InvalidArguments, format!("bd records no {:?} without its plan", intent.kind())));
   };
   let op = operation_of(context);
-  let entry = ProcessRegistry::of(&context.git_common_dir).admit(&op, HolderTool::Bd, &session_key(context), &request)?;
+  let entry = context.operations_registry().admit(&op, HolderTool::Bd, &session_key(context), &request)?;
   let ran = entry.tally().scope(run);
   let stats = entry.stats();
   match &ran {
