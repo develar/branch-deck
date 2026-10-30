@@ -1,6 +1,6 @@
 ---
 name: Review Plan
-description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its fan-in from accio, the facts of each file (its links to the other changed files, a mechanical change, a repeated edit, a missing test) and the files in dependency order.
+description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its fan-in from accio, the facts of each file (its links to the other changed files, a mechanical change, a repeated edit, a missing test), the dependency changes of the build files and the files in dependency order.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/lib.rs
@@ -10,6 +10,7 @@ targets:
   - ../../crates/review-plan/src/fan_in.rs
   - ../../crates/review-plan/src/files.rs
   - ../../crates/review-plan/src/links.rs
+  - ../../crates/review-plan/src/dependencies.rs
   - ../../crates/review-plan/src/order.rs
   - ../../crates/trial-check/src/declaration_checks.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
@@ -55,8 +56,9 @@ dropped, and the plain range of the commits added on top (`bd review-plan`). The
 declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
 accio, and the facts of each changed file: which other changed files it uses and which use it, whether its change
 is mechanical, the edit it shares with other files, the usages of the API it removes or changes, and whether it
-changed without its tests. Then the order of the files: a file that declares what another uses before it, a test
-right after its subject.
+changed without its tests. Then the dependency changes: the module, library, plugin, crate and package entries the
+commits add to, remove from or change in the build files, and the build files they add or delete. Then the order of
+the files: a file that declares what another uses before it, a test right after its subject.
 
 ## Goals
 
@@ -209,8 +211,10 @@ right after its subject.
 - A test must be told by its path: a directory `test`, `tests`, `__tests__`, `testFixtures`, or a name `*Test`,
   `*Tests`, `*_test`, `*.test`, `*.spec`, `test_*`; it names the stem without that mark, compared without case.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_test_names_its_subject_by_its_path`)
-- `bd review-plan` must print `api`, `files`, `links`, `repeated_edits` and `index_note`, in `bd schema`.
+- `bd review-plan` must print `api`, `files`, `links`, `dependencies`, `repeated_edits` and `index_note`, in
+  `bd schema`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`, `prints_the_files_in_dependency_order`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
 - The API and the files must add a fixed number of git processes, whatever the number of commits: one `log` of the
   changes of the reviewed commits, one `cat-file` of their blobs, and the reads of the syntax summaries; accio runs
   no git.
@@ -244,6 +248,11 @@ right after its subject.
 - A file must be `deleted` when the commits delete it, and `buildModel` when its name is of the build model: `*.iml`,
   `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`.
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_deletions_and_the_build_model_are_mechanical`)
+- A plugin descriptor, a `Cargo.toml` or a `package.json` must be `buildModel` when only its dependency entries
+  changed ("Dependency Changes"). One that changed beside them, a new one, and one that a side does not parse must
+  stay real work. One whose entries and remainder did not change is read as any other file. An `*.iml` that does not
+  parse must stay real work too.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`, `the_dependencies_of_a_package_json_are_its_dependency_changes`, `the_dependencies_and_the_content_of_a_plugin_descriptor_are_its_dependency_changes`)
 - Else, from the text of every hunk of every commit that changes it: `renamed` when each change is a rename with no
   line added or removed; `whitespace` when each hunk has the same text without its whitespace, line ends included, so
   a line wrapped or joined too; `importsOnly` when, in a source file, each other hunk has only blank lines and lines
@@ -274,6 +283,44 @@ right after its subject.
 - A hunk of whitespace alone (a wrapped line too), and one without a line of 10 or more characters (a `}` alone),
   must make no group.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_same_edit_in_three_or_more_files_is_one_group`, `a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
+
+### Dependency Changes
+
+- `dependencies` must list the entries the commits add to, remove from or change in the build files, read before the
+  first commit that changes each file and after the last. They are sorted by build file in tree order, then by kind
+  and name. Each has its build file (`manifest`), its `module`, its `scope`, and its versions before and after when it
+  has one.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
+- The entries of an `*.iml` must be its `orderEntry` of type `module` and `library`, and of type `module-library`
+  with a named `library`. The scope is `TEST`, `RUNTIME` or `PROVIDED`, else `main`. Its module is the name of the
+  file.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`)
+- A plugin descriptor must be an `*.xml` named `plugin.xml`, or in a `META-INF` or `resources` directory, out of
+  `.idea`, whose root is `idea-plugin`. Its entries must be its `depends` and `dependencies` `plugin` (`plugin`), its
+  `dependencies` `module` (`module`) and its `content` `module` (`content`). Its module is its `id`, else the name of
+  the file. Another `*.xml` has no entry.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependencies_and_the_content_of_a_plugin_descriptor_are_its_dependency_changes`)
+- The entries of a `Cargo.toml` must be those of `dependencies`, `dev-dependencies` and `build-dependencies`, of the
+  same tables of each `target`, and of `workspace.dependencies`. The version is a string, or the `version` key of a
+  table. Its module is `package.name`, else the name of its directory.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
+- The entries of a `package.json` must be those of `dependencies`, `devDependencies` and `peerDependencies`. Its
+  module is its `name`, else the name of its directory.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependencies_of_a_package_json_are_its_dependency_changes`)
+- Before and after, the entries of one kind and name must pair first by their table, then in their order. A pair
+  whose version or scope differs must be one `changed` entry with both versions. It has `scope_before` when the scope
+  differs. An entry without a pair is `added` or `removed`.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`, `the_dependencies_of_a_package_json_are_its_dependency_changes`)
+- A build file the commits add must be one `newModule` entry `added`, named by its module. A build file the commits
+  delete must be one `newModule` entry `removed`.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
+- A build file that has no text or does not parse, before or after the commits, must have no dependency change.
+  [@test] ../../crates/review-plan/src/dependencies_test.rs (`the_entries_of_an_iml_are_its_dependency_changes`, `the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes`)
+- The texts of the build files must come with the text of the hunks: from the memory of the diffs, else in the
+  `cat-file` of the summaries. A plan of build files alone must run one `cat-file`, with the diffs read in this process
+  or from the object cache.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
 
 ### Dependency Order
 
@@ -425,6 +472,14 @@ right after its subject.
   change of whitespace inside a string literal changes the value. Only the indentation-sensitive files are left out.
 - The text of the hunks is read only up to the size limit of the summaries: a larger file is never `whitespace` or
   `importsOnly`. A Python or Go file is of no known language, so it is never `importsOnly`.
+- An `*.iml` that parses is `buildModel` by its name, also when more than its entries changed. Its dependency
+  changes still show.
+- A dependency change that is no version or scope stays out of `dependencies`, such as the features of a crate,
+  `exported` or `optional`. Its build file then stays real work.
+- `optionalDependencies` of a `package.json`, `[patch]` of a `Cargo.toml` and an unnamed module library of an
+  `*.iml` are part of the remainder: a change of them keeps the build file real work, with no entry.
+- A plugin descriptor is told by its path and its root: an `idea-plugin` elsewhere is no build file.
+- Git may see a build file deleted and another added with a like text as a rename: then neither is a `newModule`.
 - The links before the commits read the module roots at the checked out HEAD too: a module the commits add or delete
   may count a link before them across modules wrongly.
 - The order reads each file as the last reviewed commit leaves it: with `--since-reviewed`, a later unreviewed commit

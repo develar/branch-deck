@@ -3,8 +3,8 @@
 //! (`bd mark-reviewed`), its commits paired with the reviewed ones and the plain range of the ones added on top; the
 //! public declarations the reviewed commits add, remove or change, ranked by their usages at the head from accio
 //! (`AccioCli::discover`, never canceled, never an index build); the facts of each changed file, the links between
-//! the files and the repeated edits; the changed files in dependency order. Reads only; the baseline is that of the
-//! checked out branch
+//! the files, the dependency changes of the build files and the repeated edits; the changed files in dependency order.
+//! Reads only; the baseline is that of the checked out branch
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -14,6 +14,7 @@ use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
 use git_ops::landed_pairing::PathLines;
 use review_plan::api::{ApiChange, ApiChangeKind, FormChange};
+use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
@@ -56,6 +57,11 @@ pub struct ReviewPlanOutput {
   pub files: Vec<FileFactsOutput>,
   /// Which changed file uses which, before and after the commits, by the file that uses, then the one that declares
   pub links: Vec<FileLinkOutput>,
+  /// The entries the commits add to, remove from or change in the build files (the `orderEntry` of an `*.iml`, the
+  /// `depends`, `dependencies` and `content` of a plugin descriptor, the dependency tables of a `Cargo.toml`, the
+  /// dependencies of a `package.json`), and the build files they add or delete (`newModule`): by build file in tree
+  /// order, then by kind and name. A new version or scope is one `changed` entry
+  pub dependencies: Vec<DependencyChange>,
   /// The groups of 3 or more files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditOutput>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file
@@ -226,6 +232,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     api: plan.api.into_iter().map(api_output).collect(),
     files: plan.files.into_iter().map(file_output).collect(),
     links: plan.links.into_iter().map(link_output).collect(),
+    dependencies: plan.dependencies,
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
     order: plan.order,
     index_note: plan.index_note,

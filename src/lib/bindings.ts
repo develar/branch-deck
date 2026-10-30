@@ -86,7 +86,8 @@ export const commands = {
 	 *  The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
 	 *  marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
 	 *  from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
-	 *  (`links`), the files that get the same edit (`repeated_edits`) and the files in dependency order
+	 *  (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
+	 *  (`repeated_edits`) and the files in dependency order
 	 *  (`review_plan_core`, as `bd review-plan`). A newer plan of the window or its close supersedes it: `canceled`
 	 */
 	getReviewPlan: (params: ReviewPlanParams) => typedError<ReviewPlan, ApiError>(__TAURI_INVOKE("get_review_plan", { params })),
@@ -1688,6 +1689,67 @@ export type Demand = {
 	 */
 	reviewWindows?: number[],
 };
+
+/**  A dependency entry the commits add, remove or change */
+export type DependencyChange = {
+	/**  The build file, at its last path */
+	manifest: string,
+	/**
+	 *  The module of the build file: the name of an `*.iml`, the `id` of a plugin descriptor (else its name), the
+	 *  `package.name` of a `Cargo.toml` or the `name` of a `package.json` (else the name of its directory)
+	 */
+	module: string,
+	kind: DependencyKind,
+	/**  The module, library, plugin, crate or package; of a `NewModule`, the module */
+	name: string,
+	change: DependencyChangeKind,
+	/**  The version before and after the commits, of a `Cargo.toml` or `package.json` entry that has one */
+	versionBefore: string | null,
+	versionAfter: string | null,
+	/**  The scope after the commits, of a removal the scope before */
+	scope: DependencyScope,
+	/**  The scope before the commits, when a `Changed` entry changes it */
+	scopeBefore: DependencyScope | null,
+};
+
+/**  How the commits change a dependency entry */
+export type DependencyChangeKind = "added" | "removed" | 
+/**  Its version or its scope changed */
+"changed";
+
+/**  What a dependency entry names */
+export type DependencyKind = 
+/**  The manifest itself: a module, crate or package the commits add or delete */
+"newModule" | 
+/**  A JPS module (`*.iml` `orderEntry`) or a module a plugin descriptor depends on */
+"module" | 
+/**  A library of an `*.iml` */
+"library" | 
+/**  A plugin a plugin descriptor depends on (`depends`, `dependencies` `plugin`) */
+"plugin" | 
+/**  A content module of a plugin descriptor (`content` `module`) */
+"content" | 
+/**  A crate of a `Cargo.toml` */
+"crate" | 
+/**  A package of a `package.json` */
+"package";
+
+/**  Where a dependency is used */
+export type DependencyScope = 
+/**  The code itself: `COMPILE`, `[dependencies]`, `dependencies`, an entry of a plugin descriptor */
+"main" | 
+/**  `TEST` of an `*.iml` */
+"test" | 
+/**  `[dev-dependencies]`, `devDependencies` */
+"dev" | 
+/**  `[build-dependencies]` */
+"build" | 
+/**  `RUNTIME` of an `*.iml` */
+"runtime" | 
+/**  `PROVIDED` of an `*.iml` */
+"provided" | 
+/**  `peerDependencies` */
+"peer";
 
 /**  The GitHub repository found without `branchdeck.githubRepository` */
 export type DetectedGitHubRepository = {
@@ -3639,7 +3701,10 @@ export type MarkReviewedParams = {
 
 /**  Why a change of a file is mechanical: the review folds it into one group at the end */
 export type MechanicalKind = 
-/**  A file of the build model: `*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml` */
+/**
+ *  A file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`), or a
+ *  plugin descriptor, `Cargo.toml` or `package.json` that changed only in its dependency entries
+ */
 "buildModel" | 
 /**  Only `import`, `use` and `package` lines and blank lines changed */
 "importsOnly" | 
@@ -5819,6 +5884,11 @@ export type ReviewPlan = {
 	files: FileFacts[],
 	/**  Which of these files uses which, before and after the commits, by the file that uses, then the one that declares */
 	links: FileLink[],
+	/**
+	 *  The entries the commits add to, remove from or change in the build files, and the build files they add or delete:
+	 *  by build file in tree order, then by kind and name
+	 */
+	dependencies: DependencyChange[],
 	/**  The groups of files that get the same edit, the most files first */
 	repeatedEdits: RepeatedEditGroup[],
 	/**

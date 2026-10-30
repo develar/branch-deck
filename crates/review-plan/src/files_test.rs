@@ -29,7 +29,7 @@ fn commit(files: Vec<FileChange>) -> CommitDiff {
 
 /// The facts of `diffs` with no text, no link, and `api`
 fn facts_of(diffs: &[CommitDiff], api: &[ApiChange]) -> Vec<FileFacts> {
-  file_facts(&changed_files(diffs), &HashMap::new(), &[], api).0
+  file_facts(&changed_files(diffs), &HashMap::new(), &[], &[], api).0
 }
 
 /// The paths of the facts that are untested

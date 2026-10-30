@@ -7,6 +7,8 @@
 //! - `fan_in`: the usages of the removed and changed ones at the head, from accio
 //! - `order`: the changed files in dependency order, a declaration before its uses, a test after its subject
 //! - `links`: which changed file uses which, added, removed or kept by the commits
+//! - `dependencies`: the entries the commits add to, remove from or change in the build files, and the build files they
+//!   add or delete
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
 //!   removes or changes and whether its tests changed with it
 //!
@@ -14,6 +16,7 @@
 //! `review_plan_core`, the one entry of `bd review-plan` and the app.
 
 pub mod api;
+pub mod dependencies;
 pub mod fan_in;
 pub mod files;
 pub mod interdiff;
@@ -22,6 +25,7 @@ pub mod mark_reviewed;
 pub mod order;
 
 use crate::api::{ApiChange, api_changes};
+use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_fan_in;
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, hunk_blobs};
 use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
@@ -36,6 +40,7 @@ use git_ops::reviewed_refs::read_reviewed_refs;
 use git_ops::revs::resolve_commit;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use tracing::instrument;
 use trial_check::diff_scan::read_commit_diffs_cached;
 use trial_check::symbol_scan::read_symbol_input_with;
@@ -96,6 +101,9 @@ pub struct ReviewPlan {
   pub files: Vec<FileFacts>,
   /// Which of these files uses which, before and after the commits, by the file that uses, then the one that declares
   pub links: Vec<FileLink>,
+  /// The entries the commits add to, remove from or change in the build files, and the build files they add or delete:
+  /// by build file in tree order, then by kind and name
+  pub dependencies: Vec<DependencyChange>,
   /// The groups of files that get the same edit, the most files first
   pub repeated_edits: Vec<RepeatedEditGroup>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
@@ -127,11 +135,11 @@ pub struct SinceReviewedOfRange(pub String);
 
 /// The plan of the subject of `params`. For a branch: one `for-each-ref` of the reviewed refs with the branches, its base
 /// (`branch_on_base`), then its interdiff when it was marked (`interdiff::interdiff`); for a range: one `rev-parse
-/// --verify` per rev. Then the API, the fan-in, the order, the links and the facts of the files of the reviewed
-/// commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the text of the hunks
-/// from the memory of the diffs when they read it in this process, else in the batch of the summaries
-/// (`read_symbol_input_with`), which then runs for those blobs alone when it has no summary or manifest to read.
-/// Reads only;
+/// --verify` per rev. Then the API, the fan-in, the order, the links, the dependency changes and the facts of the files
+/// of the reviewed commits (`reviewed_commits`): the order and the links from the summaries the API read, no git; the text of the hunks
+/// and of the build files before and after the commits (`manifest_blobs`) from the memory of the diffs when they read
+/// it in this process, else in the batch of the summaries (`read_symbol_input_with`), which then runs for those blobs
+/// alone when it has no summary or manifest to read. Reads only;
 /// `UnknownReviewBranch`, `UnknownReviewBase`, `NoCommonHistory`, `UnknownRevision` and `SinceReviewedOfRange` are the
 /// caller's errors, `SearchCanceled` the cancel of `sources.index`
 #[instrument(skip(git, sources), fields(subject = ?params.subject))]
@@ -160,7 +168,13 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?
   };
   let changed = changed_files(&diffs);
-  let (mut texts, unread) = sources.file_diffs.texts_in_memory(&hunk_blobs(&changed));
+  let mut seen: HashSet<String> = HashSet::new();
+  let wanted: Vec<String> = hunk_blobs(&changed)
+    .into_iter()
+    .chain(manifest_blobs(&changed))
+    .filter(|id| seen.insert(id.clone()))
+    .collect();
+  let (mut texts, unread) = sources.file_diffs.texts_in_memory(&wanted);
   let (mut api, order, links) = if diffs.is_empty() {
     (Vec::new(), Vec::new(), Vec::new())
   } else {
@@ -170,7 +184,8 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     (api_changes(&input, &diffs), order, link_files(&input, &changed, &uses))
   };
   let index_note = add_fan_in(sources.index, repository_path, &head, &mut api)?;
-  let (files, repeated_edits) = file_facts(&changed, &texts, &links, &api);
+  let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
+  let (files, repeated_edits) = file_facts(&changed, &texts, &states, &links, &api);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -185,6 +200,7 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
     api,
     files,
     links,
+    dependencies,
     repeated_edits,
     order,
     index_note,
@@ -211,6 +227,8 @@ fn reviewed_commits(git: &GitCommandExecutor, repository_path: &str, base: &str,
 
 #[cfg(test)]
 mod api_test;
+#[cfg(test)]
+mod dependencies_test;
 #[cfg(test)]
 mod fan_in_test;
 #[cfg(test)]

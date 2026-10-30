@@ -601,6 +601,23 @@ fn a_review_plan_since_the_review() {
   );
 }
 
+/// The review of the commits of the branch above the baseline, `origin/master..HEAD`
+fn range_to_head() -> ReviewPlanArgs {
+  ReviewPlanArgs {
+    subject: "origin/master..HEAD".to_string(),
+    base: None,
+    since_reviewed: false,
+  }
+}
+
+/// A commit of `(auth)` per file of `files` that writes its text, 100 seconds apart
+fn commit_each<'a>(repo: &TestRepo, files: impl IntoIterator<Item = (&'a str, String)>) {
+  for (number, (path, text)) in files.into_iter().enumerate() {
+    write(repo, path, text);
+    commit_all(repo, &format!("(auth) Change {path}"), 1_700_000_100 + i64::try_from(number).unwrap() * 100);
+  }
+}
+
 /// `bd review-plan` of a range of seven Kotlin commits, the same for four: one `rev-parse --verify` per rev, one
 /// `rev-list` of the commits, one `log` of their changes, one `cat-file` of their blobs, and the reads of the syntax
 /// summaries (`read_symbol_input`: the trees above the files and the blobs no cache has, one `rev-parse`); accio asks no
@@ -619,11 +636,7 @@ fn a_review_plan_of_a_range() {
   }
 
   let context = context(&repo);
-  let args = ReviewPlanArgs {
-    subject: "origin/master..HEAD".to_string(),
-    base: None,
-    since_reviewed: false,
-  };
+  let args = range_to_head();
   let output = review_plan(&context, &args).unwrap();
   assert_eq!(output.api.len(), 7);
   assert_eq!(output.order.first().map(String::as_str), Some("src/a/role.kt"));
@@ -639,19 +652,15 @@ fn modified_files_plans(extension: &str, manifest: Option<(&str, &str)>, source:
   let files: Vec<(String, String)> = names.iter().map(|name| (format!("src/{name}.{extension}"), source(name))).collect();
   let refs: Vec<(&str, &str)> = files.iter().map(|(path, text)| (path.as_str(), text.as_str())).chain(manifest).collect();
   let repo = repo_with_baseline(&refs);
-  for (number, (path, text)) in files.iter().enumerate() {
+  let edited = files.iter().enumerate().map(|(number, (path, text))| {
     let (from, to) = match number {
       0 | 1 => edits[number],
       _ => ("run", "start"),
     };
-    write(&repo, path, text.replace(from, to));
-    commit_all(&repo, &format!("(auth) Change {path}"), 1_700_000_100 + i64::try_from(number).unwrap() * 100);
-  }
-  let args = ReviewPlanArgs {
-    subject: "origin/master..HEAD".to_string(),
-    base: None,
-    since_reviewed: false,
-  };
+    (path.as_str(), text.replace(from, to))
+  });
+  commit_each(&repo, edited);
+  let args = range_to_head();
   let expected = [
     serde_json::json!("importsOnly"),
     serde_json::json!("whitespace"),
@@ -694,6 +703,50 @@ fn a_review_plan_of_modified_files() {
   );
   assert_processes(&rust[0], &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
   assert_processes(&rust[1], &[("cat-file", 2), ("rev-list", 1), ("rev-parse", 3)]);
+}
+
+/// `bd review-plan` of a range of three commits that change the dependencies of an `*.iml`, a plugin descriptor and a
+/// `package.json`, and of a fourth that adds a crate: the dependency changes come from the texts of these build files
+/// before and after the commits. The first plan reads the diffs itself (one `cat-file` of their blobs) and finds those
+/// texts in memory, no process more. A second plan, a new process, finds the diffs in the object cache and reads the
+/// texts in the batch of the summaries (`read_symbol_input_with`), which without a source file runs for them alone:
+/// one `cat-file`, and no read of the trees at HEAD
+#[test]
+fn a_review_plan_of_build_files() {
+  let iml = "<module type=\"JAVA_MODULE\" version=\"4\">\n  <component name=\"NewModuleRootManager\">\n    <orderEntry type=\"module\" module-name=\"intellij.platform.core\" />\n  </component>\n</module>";
+  let plugin = "<idea-plugin>\n  <id>com.example.x</id>\n  <dependencies>\n    <plugin id=\"com.intellij.java\"/>\n  </dependencies>\n</idea-plugin>\n";
+  let package = "{\n  \"name\": \"web\",\n  \"dependencies\": {\n    \"react\": \"^18.0.0\"\n  }\n}\n";
+  let repo = repo_with_baseline(&[("x/intellij.x.iml", iml), ("x/resources/META-INF/plugin.xml", plugin), ("web/package.json", package)]);
+  let edits = [
+    ("x/intellij.x.iml", iml.replace("core", "util")),
+    ("x/resources/META-INF/plugin.xml", plugin.replace("com.intellij.java", "com.intellij.gradle")),
+    ("web/package.json", package.replace("^18.0.0", "^19.0.0")),
+    ("crates/new/Cargo.toml", "[package]\nname = \"new\"\n".to_string()),
+  ];
+  commit_each(&repo, edits);
+  let args = range_to_head();
+  let plans = [context(&repo), context(&repo)].map(|context| {
+    let output = review_plan(&context, &args).unwrap();
+    let changes: Vec<String> = output
+      .dependencies
+      .iter()
+      .map(|change| format!("{} {:?} {:?} {}", change.manifest, change.change, change.kind, change.name))
+      .collect();
+    assert_eq!(
+      changes,
+      [
+        "crates/new/Cargo.toml Added NewModule new",
+        "web/package.json Changed Package react",
+        "x/resources/META-INF/plugin.xml Added Plugin com.intellij.gradle",
+        "x/resources/META-INF/plugin.xml Removed Plugin com.intellij.java",
+        "x/intellij.x.iml Removed Module intellij.platform.core",
+        "x/intellij.x.iml Added Module intellij.platform.util",
+      ]
+    );
+    context
+  });
+  assert_processes(&plans[0], &[("cat-file", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&plans[1], &[("cat-file", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the

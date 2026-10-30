@@ -327,7 +327,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    user says they reviewed the branch. `bd review-plan <branch> --since-reviewed` (reads only; `review-plan --base
    <parent>` as for the mark) lists the commits added or rewritten since then, and `scope`, the plain range to review
    when commits were only added on top; its `api` names the public declarations they change, ranked by their usages
-   from accio, `files` the facts of each file (mechanical, untested, its links) and `links` which file uses which;
+   from accio, `files` the facts of each file (mechanical, untested, its links), `links` which file uses which and
+   `dependencies` the entries the commits add to, remove from or change in the build files;
    `order` lists the files to read, each declaration before its uses.
 5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals

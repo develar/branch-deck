@@ -91,7 +91,8 @@ macro_rules! for_each_command {
       /// The plan of a review (spec/branch/review-plan.spec.md, Status: Experimental): what changed in a branch since it was
       /// marked reviewed, the public declarations the reviewed commits add, remove or change with their usages at the head
       /// from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
-      /// (`links`), the files that get the same edit (`repeated_edits`) and the files in dependency order
+      /// (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
+      /// (`repeated_edits`) and the files in dependency order
       /// (`review_plan_core`, as `bd review-plan`). A newer plan of the window or its close supersedes it: `canceled`
       read window get_review_plan(params: review_plan::ReviewPlanParams) -> review_plan::ReviewPlan = $crate::reads::review_plan::get_review_plan;
 

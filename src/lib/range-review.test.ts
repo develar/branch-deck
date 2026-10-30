@@ -44,7 +44,19 @@ describe("the local Since Your Review", () => {
     items.map(item => (item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.commit.subject}${item.since === undefined ? "" : ` (${item.since})`}`))
 
   it("takes the interdiff only of the part's own branch, and only of a plan of the head on screen", () => {
-    const plan: ReviewPlan = { branch: "user/virtual/auth", base: "base", head: "c4", interdiff, api: [], files: [], links: [], repeatedEdits: [], order: [], indexNote: null }
+    const plan: ReviewPlan = {
+      branch: "user/virtual/auth",
+      base: "base",
+      head: "c4",
+      interdiff,
+      api: [],
+      files: [],
+      links: [],
+      dependencies: [],
+      repeatedEdits: [],
+      order: [],
+      indexNote: null,
+    }
     expect(shownInterdiff(plan, true, "c4")).toBe(interdiff)
     // a part of several branches: the pair is on the base of the upper branch alone, the lower commits are no news
     expect(shownInterdiff(plan, false, "c4")).toBeNull()

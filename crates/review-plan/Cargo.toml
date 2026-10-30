@@ -3,7 +3,7 @@ name = "review-plan"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the facts of each file, the links between the files and their dependency order, read by `bd review-plan` and the review windows"
+description = "The plan of a review (experimental): the reviewed tip of a local branch and what changed since it, the API surface with its accio fan-in, the facts of each file, the links between the files, the dependency changes of the build files and the dependency order, read by `bd review-plan` and the review windows"
 publish = false
 
 [dependencies]
@@ -21,6 +21,10 @@ object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 # the span of the fan-in's threads (`in_current_span`)
 sync-utils = { path = "../sync-utils" }
+# the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
+quick-xml = "0.42"
+toml = "1.1"
+serde_json.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 thiserror.workspace = true

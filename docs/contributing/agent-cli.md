@@ -679,7 +679,12 @@ it. `files` gives per changed file (a deleted one too) its `old_path`, `mechanic
 after the commits), `new_links`, `breaks` (the usages of the API it removes or changes), `untested` (a source file
 changed while none of its tests did) and `repeated_edit`, the most `breaks` first. `links` lists which changed file
 uses which (`from`, `to`, `symbols` with the line of the first use, `state` `added`, `removed` or `kept`,
-`cross_module`); `repeated_edits` the groups of 3 or more files that get the same edit. The reviewed commits are those of `base..head`, with
+`cross_module`); `dependencies` the entries the commits add to, remove from or change in the build files: the
+`orderEntry` of an `*.iml`, the `depends`, `dependencies` and `content` of a plugin descriptor, the dependency tables of
+a `Cargo.toml` and the dependencies of a `package.json` (`manifest`, `module`, `kind`, `name`, `change` `added`,
+`removed` or `changed`, `version_before`, `version_after`, `scope`, `scope_before`), a new or deleted build file as one
+`newModule` entry; a build file that changed only in these entries is `buildModel`. `repeated_edits` lists the groups
+of 3 or more files that get the same edit. The reviewed commits are those of `base..head`, with
 `--since-reviewed` only the added and rewritten ones. Without accio or its index, `fan_in` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
@@ -698,6 +703,8 @@ tree order inside a cycle and between files with no edge.
     "untested":true,"repeated_edit":null}],
   "links":[{"from":"src/b/Logout.kt","to":"src/a/Session.kt","symbols":[{"name":"logout","line":5}],"state":"added",
     "cross_module":false}],
+  "dependencies":[{"manifest":"src/b/intellij.b.iml","module":"intellij.b","kind":"module","name":"intellij.a",
+    "change":"added","version_before":null,"version_after":null,"scope":"main","scope_before":null}],
   "repeated_edits":[],
   "order":["src/a/Session.kt","src/b/Logout.kt"],"index_note":null}
 ```

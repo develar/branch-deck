@@ -3145,7 +3145,8 @@ whose text is translated:
   interdiff; a range resolves its two revs by `rev-parse --verify` (`UnknownRevision`), and `--since-reviewed` of a
   range is `SinceReviewedOfRange`, both `invalid_arguments` in `bd`.
 
-Then the API surface, its fan-in, the order, the links and the facts of the files, from the reviewed commits: those of
+Then the API surface, its fan-in, the order, the links, the dependency changes and the facts of the files, from the
+reviewed commits: those of
 `base..head`, the commits of the interdiff when there is one (no process of their own), else one `rev-list`; with
 `--since-reviewed` only the `added` and the `rewritten` ones, each against its own parent, so an unchanged commit
 between two of them adds nothing:
@@ -3153,13 +3154,14 @@ between two of them adds nothing:
 | Step | Command | Note |
 |------|---------|------|
 | 5. Changes | `log --no-walk=unsorted --stdin --raw -z -M` (`read_commit_diffs_cached`), and one `cat-file --batch` of the blobs for their blocks | the object cache first: a commit it knows runs nothing |
-| 6. Summaries | `cat-file --batch` of the trees above the files at HEAD, then one of the blobs no cache has, the `Cargo.toml` and `tsconfig*.json` files and the blobs of the hunk text that the memory of `FileDiffs` lacks (`read_symbol_input_with`) | parsed in parallel, written back to the cache by blob id; the second batch runs only when it has a blob to read |
+| 6. Summaries | `cat-file --batch` of the trees above the files at HEAD, then one of the blobs no cache has, the `Cargo.toml` and `tsconfig*.json` files and the blobs of the hunk text and of the build files that the memory of `FileDiffs` lacks (`read_symbol_input_with`) | parsed in parallel, written back to the cache by blob id; the second batch runs only when it has a blob to read |
 | 7. API | none | `changed_declarations` (trial-check) gives per commit and file the forms of the declarations of the names on the changed lines; `api.rs` compares, per key, the forms before the first commit that touches it in a file with those after the last one: public ones added, removed, or changed in the parts a use sees (`changed_form`, the constructors) |
 | 8. Fan-in | `accio references <name> --ref <head>`, no git | the first 20 removals and changes (`MAX_FANIN_QUERIES`), one thread each, through `Lenient`: a failed query leaves its entry without a fan-in and `index_note` says why; no accio or no index is a note too, never an index build; a cancel of the caller cancels the plan |
 | 9. Order | none | the summaries of step 6 of each kept file as the last reviewed commit leaves it, the declarations of each against the uses of the others with the evidence of the symbol dependencies (`file_links`, trial-check); Tarjan's components placed in topological order, the first in the tree first, a cycle in tree order, then each test right after its subject (`order.rs`); the links it read are the links after the commits |
 | 10. Links | none | `file_links` again on the summaries of step 6 of each file before the first commit that changes it, at its path then; per pair of files `added`, `removed` or `kept`, across modules when the nearest module roots differ (`links.rs`) |
 | 11. Hunk text | none | the old and new blobs of the modified and renamed files (`hunk_blobs`): from the memory of `FileDiffs` when step 5 read them in this process, else from the second batch of step 6, which then runs for them alone in a repository with no manifest; the text makes the mechanical kinds and the repeated edits |
-| 12. Files | none | per changed file its link counts, its mechanical kind (by name, deletion, or the text of every hunk), its repeated edit (a hunk key of 3 or more files), the summed fan-in of its removed or changed API (`breaks`), and `untested` when a source file changed with no test that names its stem (`files.rs`) |
+| 12. Dependencies | none | the `*.iml`, plugin descriptors, `Cargo.toml` and `package.json` before the first commit that changes each and after the last (`manifest_blobs`), from the memory of `FileDiffs` or the second batch of step 6, as the hunk text; their entries parsed (`quick-xml`, `toml`, `serde_json`), paired by kind, name and table: `added`, `removed`, `changed` for a new version or scope, `newModule` for a build file added or deleted; whether only the entries changed (`dependencies.rs`) |
+| 13. Files | none | per changed file its link counts, its mechanical kind (by name, deletion, a build file that changed only in its entries, or the text of every hunk), its repeated edit (a hunk key of 3 or more files), the summed fan-in of its removed or changed API (`breaks`), and `untested` when a source file changed with no test that names its stem (`files.rs`) |
 
 `bd` passes `AccioCli::discover()` with no cancel. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
@@ -3174,7 +3176,7 @@ when unset), which the sync carries into the view (`TableHeader.review_experimen
 
 Code: `crates/review-plan/src/mark_reviewed.rs`, `crates/review-plan/src/interdiff.rs`, `crates/review-plan/src/api.rs`,
 `crates/review-plan/src/fan_in.rs`, `crates/review-plan/src/files.rs`, `crates/review-plan/src/links.rs`,
-`crates/review-plan/src/order.rs`,
+`crates/review-plan/src/dependencies.rs`, `crates/review-plan/src/order.rs`,
 `crates/git-ops/src/reviewed_refs.rs`, `crates/bd-rewrite/src/mark_reviewed_command.rs`,
 `crates/bd-rewrite/src/review_plan_command.rs`, `crates/app-api/src/reads/review_plan.rs`,
 `crates/app-api/src/app/mark_reviewed.rs`.

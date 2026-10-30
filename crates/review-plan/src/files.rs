@@ -6,8 +6,11 @@
 //!   the path before the first commit, a deleted one at its path, none that the commits add and delete again.
 //! - **Mechanical**, by name or by the text of every hunk of every commit that changes the file, as `ImportChangeFilter`
 //!   of `CoRT` and `detectReformatting` of `SmartCommit` do: `Deleted` when the commits delete it, `BuildModel`
-//!   for a file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`),
-//!   else each change a pure rename (status `R`, no line added or removed), or each of its hunks the same text without
+//!   for a file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`)
+//!   and for a manifest whose parsed form changed only in its dependency entries (a plugin descriptor, `Cargo.toml`,
+//!   `package.json`: `dependencies::ManifestState`). A manifest that does not parse, or that changed beside its
+//!   dependencies, is no `BuildModel` (an `*.iml` that parses is one by name). Else each change a pure rename
+//!   (status `R`, no line added or removed), or each of its hunks the same text without
 //!   its whitespace, line ends included, so a wrapped or joined line too (`Whitespace`), or, in a source file, only
 //!   blank lines and lines of import statements, at least one (`ImportsOnly`). A file whose whitespace has a meaning
 //!   (Python, Starlark, YAML, a Makefile: `indentation_matters`) is never `Whitespace`. An import statement starts
@@ -31,6 +34,7 @@
 //!   (`trial_check::symbol_scan::read_symbol_input_with`). A blob too large for the summaries has no text.
 
 use crate::api::{ApiChange, ApiChangeKind};
+use crate::dependencies::ManifestState;
 use crate::links::{FileLink, LinkState};
 use code_symbols::language::language_of;
 use file_diffs::service::compare_tree_paths;
@@ -47,7 +51,8 @@ use trial_check::diff_scan::CommitDiff;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum MechanicalKind {
-  /// A file of the build model: `*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`
+  /// A file of the build model (`*.iml`, `BUILD`, `BUILD.bazel`, `*.lock`, `pnpm-lock.yaml`, `.idea/modules.xml`), or a
+  /// plugin descriptor, `Cargo.toml` or `package.json` that changed only in its dependency entries
   BuildModel,
   /// Only `import`, `use` and `package` lines and blank lines changed
   ImportsOnly,
@@ -357,10 +362,17 @@ fn hunk_kind(hunk: &HunkText<'_>, source: bool, indented: bool) -> Option<HunkKi
   (source && hunk.imports).then_some(HunkKind::Imports)
 }
 
-/// Why the change of `file` is mechanical, `None` when it is not: by its deletion, its name, or the text of each hunk
-pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, String>) -> Option<MechanicalKind> {
+/// Why the change of `file` is mechanical, `None` when it is not: by its deletion, the state of its manifest
+/// (`manifest`), its name, or the text of each hunk
+pub(crate) fn mechanical_kind(file: &ChangedFile<'_>, texts: &HashMap<String, String>, manifest: Option<ManifestState>) -> Option<MechanicalKind> {
   if file.deleted {
     return Some(MechanicalKind::Deleted);
+  }
+  match manifest {
+    Some(ManifestState::Unparsed) => return None,
+    Some(ManifestState::DependenciesOnly) => return Some(MechanicalKind::BuildModel),
+    Some(ManifestState::Other) if !is_build_model(file.path) => return None,
+    _ => {}
   }
   if is_build_model(file.path) {
     return Some(MechanicalKind::BuildModel);
@@ -468,10 +480,21 @@ pub(crate) fn repeated_edits(files: &[ChangedFile<'_>], texts: &HashMap<String, 
   groups
 }
 
-/// The facts of `files` (`changed_files`) and the groups of their repeated edits: by `links` and the usages of `api`,
-/// the most `breaks` first, then the `untested` ones, then in tree order
-pub(crate) fn file_facts(files: &[ChangedFile<'_>], texts: &HashMap<String, String>, links: &[FileLink], api: &[ApiChange]) -> (Vec<FileFacts>, Vec<RepeatedEditGroup>) {
-  let mechanical: Vec<Option<MechanicalKind>> = files.iter().map(|file| mechanical_kind(file, texts)).collect();
+/// The facts of `files` (`changed_files`) and the groups of their repeated edits: by the states of their manifests
+/// (`manifests`, by place; none past its end), `links` and the usages of `api`, the most `breaks` first, then the
+/// `untested` ones, then in tree order
+pub(crate) fn file_facts(
+  files: &[ChangedFile<'_>],
+  texts: &HashMap<String, String>,
+  manifests: &[Option<ManifestState>],
+  links: &[FileLink],
+  api: &[ApiChange],
+) -> (Vec<FileFacts>, Vec<RepeatedEditGroup>) {
+  let mechanical: Vec<Option<MechanicalKind>> = files
+    .iter()
+    .enumerate()
+    .map(|(index, file)| mechanical_kind(file, texts, manifests.get(index).copied().flatten()))
+    .collect();
   let groups = repeated_edits(files, texts, &mechanical);
   let mut group_of: HashMap<usize, u32> = HashMap::new();
   for (group, (members, _)) in groups.iter().enumerate() {
