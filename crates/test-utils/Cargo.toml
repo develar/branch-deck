@@ -33,6 +33,11 @@ tracing-subscriber.workspace = true
 
 # Note: git-ops removed to avoid circular dependency - git-ops has its own test utilities
 
+# the junctions of `links::directory_link` (Bazel's `bazel-*` links on Windows are junctions): made without admin
+# rights and without a `cmd /C mklink` process
+[target.'cfg(windows)'.dependencies]
+junction = "2.1.0"
+
 [dev-dependencies]
 test-log = { workspace = true }
 

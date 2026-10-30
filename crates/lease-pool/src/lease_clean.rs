@@ -16,9 +16,10 @@
 //! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink and
 //! removes a link, a junction of Windows too, as the link (`fs_retry::remove_entry`), never what it points to. A
 //! return and `bd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
-//! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`). What a process keeps (on Windows one
-//! that works in it or has a file of it open, which no rename moves) stays whole in the checkout and the error of its
-//! rule names it, never half deleted: a later clean deletes it once it is free.
+//! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`); a link they delete at once, which
+//! costs no more than its move, so the trash holds no links. What a process keeps (on Windows one that works in it or
+//! has a file of it open, which no rename moves) stays whole in the checkout and the error of its rule names it, never
+//! half deleted: a later clean deletes it once it is free.
 
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -326,7 +327,8 @@ pub enum CleanMode<'a> {
   Measure,
   /// Delete in place
   Delete,
-  /// Move what a rule removes into the trash, a rename (in place on another volume); `Trash::empty` deletes it
+  /// Move what a rule removes into the trash, a rename (in place on another volume); `Trash::empty` deletes it. A link
+  /// is deleted in place
   Trash(&'a Trash),
 }
 
@@ -460,7 +462,9 @@ fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut 
 /// them in place, or move them into the trash, where their bytes are counted once it is deleted. A path that can't be
 /// moved (on Windows a process works in it or has a file of it open) puts back the ones moved before it, so what a
 /// holder keeps stays whole in the checkout and the error names it, never half deleted; on another volume than the
-/// trash they are deleted in place
+/// trash they are deleted in place. A link (a symlink, a junction of Windows) never goes into the trash: once every
+/// other path is moved it is deleted in place as the link (`fs_retry::remove_entry`), its target kept, and its bytes
+/// are counted at once; a failed move leaves it too, since a deleted link can't be put back
 pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<u64> {
   let delete = || {
     paths.iter().try_fold(0, |freed, path| {
@@ -472,8 +476,15 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
     CleanMode::Delete => return delete(),
     CleanMode::Trash(trash) => trash,
   };
+  let mut links: Vec<(&PathBuf, std::fs::Metadata)> = Vec::new();
   let mut moved: Vec<(&PathBuf, PathBuf)> = Vec::new();
   for path in paths {
+    if let Ok(metadata) = path.symlink_metadata()
+      && metadata.file_type().is_symlink()
+    {
+      links.push((path, metadata));
+      continue;
+    }
     match trash.move_in(path) {
       Ok(target) => moved.push((path, target)),
       Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -492,7 +503,13 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
     }
   }
   trashed.extend(moved.into_iter().map(|(_, target)| target));
-  Ok(0)
+  links
+    .into_iter()
+    .try_fold(0, |freed, (path, metadata)| match fs_retry::remove_entry(path, &metadata.file_type()) {
+      Ok(()) => Ok(freed + allocated(&metadata)),
+      Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(freed),
+      Err(error) => Err(anyhow!("cannot remove the link {}: {error}{}", path.display(), held_note(&error))),
+    })
 }
 
 /// What the error of a held path tells to do: no scan of Windows names the process, but its refusal of the move says

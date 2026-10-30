@@ -1877,8 +1877,8 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Remove the seeded `paths` from `slot`, each a file or a directory with what is in it, moved into `trash` as a whole
-/// (`remove_together`): what a process keeps stays and fails the return, never half removed. A path that is gone
-/// already is no error. Returns the paths removed
+/// (`remove_together`; a link is deleted in place): what a process keeps stays and fails the return, never half removed.
+/// A path that is gone already is no error. Returns the paths removed
 fn remove_seeded(slot: &Path, paths: &[String], trash: &Trash) -> Result<Vec<String>> {
   let mut removed = Vec::new();
   for path in paths.iter().filter(|path| is_relative_path(path)) {

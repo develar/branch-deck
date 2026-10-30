@@ -465,6 +465,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`, `nested_deletes_keep_only_the_whitelist`)
   [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`remove_entry_removes_a_directory_link_as_the_link_and_keeps_its_target`, `remove_entry_removes_a_file_an_empty_directory_and_a_file_symlink_as_themselves`)
+- A `delete` must remove a link (a symlink, a junction or a directory symlink of Windows) in place, as the link and
+  never its target, also in a return and `bd lease clean`, which move every other path into the trash: a link is no
+  cheaper to move than to delete, and a junction moved there stayed ("Access is denied"). It goes only once every
+  other path removed with it is moved, so a failed move never leaves a link lost, and its own bytes count in
+  `freed_bytes` at once. The trash holds no links; one an earlier version left there goes as the link with the trash
+  of its run.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_through_the_trash_deletes_bazel_links_in_place_and_keeps_their_targets`, `the_sweep_deletes_a_link_left_in_the_trash_of_a_gone_run`, `a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
 - The table `[host]` belongs to the remote runs of `bd-host` (spec/cli/host.spec.md), which checks its keys. The rules
@@ -484,10 +491,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   the return.
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`the_return_applies_the_clean_rules_of_the_source`, `a_bad_file_does_not_fail_the_return`)
 - What a rule removes must go into the trash first, a rename into `$GIT_COMMON_DIR/branch-deck/trash/<pid>-<start
-  time>-<uuid>/` (in place on another volume): the paths of a `delete`, and a stale unit of a `cargo` rule as a whole,
-  so a return frees the slot before the long delete of a build output and a timeout of the caller never leaves a lease
-  `returning` while files go. What a process keeps must stay whole in the checkout, never be deleted in place: on
-  Windows a rename fails while a process works in the path or has a file of it open; after a retry of about a second
+  time>-<uuid>/` (in place on another volume): the paths of a `delete` but a link, and a stale unit of a `cargo` rule
+  as a whole, so a return frees the slot before the long delete of a build output and a timeout of the caller never
+  leaves a lease `returning` while files go. What a process keeps must stay whole in the checkout, never be deleted in
+  place: on Windows a rename fails while a process works in the path or has a file of it open; after a retry of about a second
   (`sync_utils::fs_retry`, which every removal and rename of the app goes through; a read-only attribute, which fails a
   call with the same "Access is denied", is cleared instead, as git clears it) the files of the unit moved before it go
   back, and the `error` of the rule names the path and says that a process holds it (Windows has no process scan
