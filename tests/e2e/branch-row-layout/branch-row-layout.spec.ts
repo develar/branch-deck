@@ -191,28 +191,27 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     const row = (await branchRow.boundingBox())!
     const moreMenu = page.locator("[data-slot=dropdown-menu-content]")
     const rowMenu = page.locator("[data-slot=context-menu-content]")
-    // whether the menu of "⋯" was still in its exit as each right-click reached the page: a gesture after its end does
-    // not play the race, and the old code passes it too
-    await page.evaluate(() => {
-      const hits: boolean[] = []
-      ;(window as unknown as { contextMenuInExit: boolean[] }).contextMenuInExit = hits
-      window.addEventListener("contextmenu", () => hits.push(document.querySelector("[data-slot=dropdown-menu-content]") !== null), { capture: true })
-    })
-    const rightClickInExit = () => page.evaluate(() => (window as unknown as { contextMenuInExit: boolean[] }).contextMenuInExit.at(-1))
-    // the menu of "⋯" gave the focus back to "⋯" from any menu at the end of its exit, in 9 of 32 gestures that landed in
-    // the exit without load (2026-10-30): the old code passes ten of them in about 4 of 100 runs
-    for (let gesture = 0; gesture < 10; gesture++) {
+    // the exit of the menu of "⋯" lasts until the test ends it: Base UI unmounts a popup once its finite animations
+    // finished, so every right-click lands in the exit, as a quick one does by hand. A right-click left to the timing of
+    // a 100 ms exit landed after its end under load (2026-10-30, gesture 2 of a full run), and that gesture plays no race
+    await page.addStyleTag({ content: "[data-slot=dropdown-menu-content][data-closed] { animation-duration: 600s !important; }" })
+    const endExit = () => moreMenu.evaluate(menu => menu.getAnimations().forEach(animation => animation.finish()))
+    const hasFocus = (menu: Locator) => menu.evaluate(element => element.contains(document.activeElement))
+    // the menu of "⋯" gave the focus back to "⋯" from any menu at the end of its exit: the old code fails each gesture
+    for (let gesture = 0; gesture < 2; gesture++) {
       await getMoreButton(branchRow).click()
-      await expect(moreMenu).toBeVisible()
-      // Escape, and the right-click within the exit of that menu, at once: the menu of the row opens and takes the focus
+      // a menu takes the focus a frame after it opened: one closed before that has none to give back, and plays no race
+      await expect.poll(() => hasFocus(moreMenu), `gesture ${gesture + 1}`).toBe(true)
       await page.keyboard.press("Escape")
+      await expect(moreMenu, `gesture ${gesture + 1}`).toHaveAttribute("data-closed")
+      // the right-click within the exit of that menu: the menu of the row opens and takes the focus a frame after
       await page.mouse.click(row.x + 40, row.y + row.height / 2, { button: "right" })
       await expect(rowMenu).toBeVisible()
-      expect(await rightClickInExit(), `gesture ${gesture + 1}`).toBe(true)
-      // the menu of "⋯" ended its exit, giving the focus back to "⋯" only from itself: the keys stay the open menu's
+      await expect(moreMenu, `gesture ${gesture + 1}`).toHaveCount(1)
+      await expect.poll(() => hasFocus(rowMenu), `gesture ${gesture + 1}`).toBe(true)
+      // the menu of "⋯" ends its exit, giving the focus back to "⋯" only from itself: the keys stay the open menu's
+      await endExit()
       await expect(moreMenu).toHaveCount(0)
-      // the menu of the row takes the focus a frame after it opened, and keeps it: a key before that frame went elsewhere
-      await expect.poll(() => rowMenu.evaluate(menu => menu.contains(document.activeElement)), `gesture ${gesture + 1}`).toBe(true)
       await page.keyboard.press("ArrowDown")
       await expect(rowMenu.getByRole("menuitem").first(), `gesture ${gesture + 1}`).toBeFocused()
       await page.keyboard.press("Escape")

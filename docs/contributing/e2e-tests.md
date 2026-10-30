@@ -80,6 +80,8 @@ rules in one line each and links here.
   caret at 0 and the text lands at the start. A Base UI menu takes its focus a frame after it shows (`enqueueFocus`), and
   a closing one gives it back in a microtask after its popup goes: a key for an open menu waits for the focus in it
   (`branch-row-layout.spec.ts`, the right-click within the exit of a "⋯" menu), never only for the popup's visibility.
+  A step that must land within an exit holds it: a style that lengthens the exit, then `finish()` of the popup's
+  `getAnimations()` once the step is done; never an assertion that a quick step happened to land in it.
 - **Throwaway Playwright specs** (screenshots, debugging) go into `shots.local/` of the worktree (`*.local` is
   ignored), with a config there that spreads `../playwright.config` and sets `testDir: "."`, `globalSetup:
   "../tests/e2e/setup/global-setup.ts"` and `webServer[].cwd: ".."`; run `npx playwright test --config

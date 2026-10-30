@@ -825,7 +825,9 @@ each the branches it moved, to their commits; its `post-receive` hook, which the
 `pushes.log` of the remote, one write per push; a push in a terminal is not one, and a refused push moved nothing).
 `expectPushedToRemote(repo, names)` of `push-helpers.ts` waits until the remote has each branch at the commit of the
 local one (a virtual branch by its name, the stack branch of a whole stack as `stack:<root>`, `stackBranchOf`, an
-unapplied branch as `unapplied:<name>`, `branchOf`), `pushedBranches(repo)` lists what is there, the anchor of a
+unapplied branch as `unapplied:<name>`, `branchOf`) and its log has the push that moved it there: git runs the hook
+after the refs moved, so a read of the log after a wait on the refs alone can come while the push is still in its hook
+(2026-10-30, under load). `pushedBranches(repo)` lists what is there, the anchor of a
 "nothing was pushed" after a step that would have pushed, and `remotePushes(repo)` the pushes, each its branches
 sorted: one entry for the one atomic push of a stack, none for a push that found the remote moved, so "pushed once,
 over the tip the sync brought" and "refused whole" are what the remote took. A push of Push Up to Here is the remote
@@ -969,11 +971,14 @@ branch at the commit it was pushed up to.
   closing menu gives the focus back only from its own popups now (the `data-rootownerid` of Base UI;
   `spec/branch/branch-row.spec.md`), and the test, unchanged, passed 40 of 40 traced runs, and 20 of 20 on the Studio
   beside 40 `yes` workers (load 4-62: 17.8 s on average, 19.8 s at most, no stalled action; the time is the setup, four
-  syncs and the push of the terminal, none of them waiting on another). Its test in `branch-row-layout.spec.ts` asserts
-  that each right-click reached the page while the menu of "⋯" was still there (a capture listener of `contextmenu`): a
-  right-click after the end of the exit plays no race, and the old code passes it too. Without load all 32 right-clicks
-  of 8 runs landed in the exit, and the old code lost the focus in 9 of them, so the test plays ten gestures: the old
-  code failed it 8 of 8 runs
+  syncs and the push of the terminal, none of them waiting on another). Its test in `branch-row-layout.spec.ts` arranges
+  both states the race needs instead of hoping for a timing: the menu of "⋯" holds the focus before Escape (a menu
+  takes it a frame after it opened, and one closed before that has nothing to give back), and its exit lasts until the
+  test ends it (a style of a 600 s exit; Base UI unmounts a popup once `getAnimations()` finished, and the test calls
+  `finish()` after the right-click and after the menu of the row took the focus). Asserting that a right-click of a
+  100 ms exit landed in it failed under load in a full run, the exit ended first. Beside 20 `yes` workers on the
+  Studio the old code failed 20 of 20 runs in Chromium and 20 of 20 in WebKit, each at its first gesture (load 50-54),
+  and the fix passed 20 of 20 in each (load 60-73)
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
   client and of the YouTrack and GitHub clients and services are left out (`patronus::client=error`, `youtrack=error`,

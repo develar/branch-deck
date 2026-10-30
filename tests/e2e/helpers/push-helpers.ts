@@ -62,15 +62,22 @@ export async function remotePushes(repo: TestRepositoryBuilder, prefix = "user-n
 }
 
 /**
- * Waits until the remote of `repo` has the branches `names` (`branchOf`) at the commits their local branches are at:
- * the push of each reached the remote (docs/design/e2e-testing.md#the-remote-of-a-repository)
+ * Waits until the remote of `repo` has the branches `names` (`branchOf`) at the commits their local branches are at,
+ * and its log has the push of the app that moved each there: the push of each reached the remote and ended, so
+ * `remotePushes` has it. The hook that logs a push runs after its refs moved (docs/design/e2e-testing.md#the-remote-of-a-repository)
  */
 export async function expectPushedToRemote(repo: TestRepositoryBuilder, names: readonly string[], prefix = "user-name"): Promise<void> {
   const tips = Object.fromEntries(await Promise.all(names.map(async name => [name, await repo.revision(branchOf(name, prefix))] as const)))
   await expect
     .poll(async () => {
-      const remote = await repo.getRemoteBranches()
-      return Object.fromEntries(names.map(name => [name, remote[branchOf(name, prefix)] ?? null]))
+      const [remote, pushes] = await Promise.all([repo.getRemoteBranches(), repo.getRemotePushes()])
+      return Object.fromEntries(
+        names.map(name => {
+          const branch = branchOf(name, prefix)
+          const logged = pushes.some(push => push[branch] === tips[name])
+          return [name, logged ? (remote[branch] ?? null) : `${remote[branch] ?? null}, no push logged`]
+        }),
+      )
     })
     .toEqual(tips)
 }
