@@ -6,7 +6,8 @@
 // action and the close button in the body, not a parameter default (React Compiler cannot compile a JSX parameter
 // default); an action whose label ends with "…" (it opens a dialog or a popover) closes its toast when pressed
 // (`opensDialog`); `data.running` disables the primary action, `secondaryAction.disabled` the secondary one, while the
-// operation it started runs ("Updating…", `src/lib/event-toast.ts`)
+// operation it started runs ("Updating…", `src/lib/event-toast.ts`); the icon, the action beside the text and the close
+// button align with the first line of the title (`items-start`), not with the middle of a long description
 "use client"
 
 import * as React from "react"
@@ -67,7 +68,7 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
     <ToastPrimitive.Content
       data-slot="toast-content"
       className={cn(
-        "flex h-full items-center gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100",
+        "flex h-full items-start gap-3 overflow-hidden p-4 transition-opacity duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] data-behind:opacity-0 data-expanded:opacity-100",
         className,
       )}
       {...props}
@@ -93,7 +94,7 @@ function ToastClose({ className, children, render, ...props }: ToastPrimitive.Cl
       data-slot="toast-close"
       aria-label="Close toast"
       render={render ?? <Button variant="ghost" size="icon-sm" />}
-      className={cn("relative shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground", className)}
+      className={cn("relative -my-1 shrink-0 text-muted-foreground after:absolute after:-inset-2 after:content-[''] hover:text-foreground", className)}
       {...props}
     >
       {children ?? <XIcon aria-hidden="true" />}
@@ -129,7 +130,7 @@ function ToastIcon({ type }: { type: string | undefined }) {
   }
 
   return (
-    <span data-slot="toast-icon" className="shrink-0 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4">
+    <span data-slot="toast-icon" className="flex h-5 shrink-0 items-center [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4">
       {icon}
     </span>
   )
@@ -198,7 +199,7 @@ function ToastList({ renderText }: { renderText?: ToastTextRenderer }) {
               </div>
             )}
           </div>
-          {!stacked && action}
+          {!stacked && <ToastAction onClick={closeOnPress} disabled={toastItem.data?.running === true} className="-my-1" />}
           <ToastClose />
         </ToastContent>
       </Toast>
