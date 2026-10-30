@@ -73,7 +73,7 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
     (
       &json!("sum"),
       &json!("changed"),
-      &json!({ "inside": 1, "outside": 2, "outsideSites": [{ "path": "src/main.rs", "line": 3 }, { "path": "src/main.rs", "line": 7 }], "complete": true }),
+      &json!({ "inside": 1, "outside": 2, "outsideSites": [{ "path": "src/main.rs", "line": 3 }, { "path": "src/main.rs", "line": 7 }], "complete": true, "updated": false }),
       &json!(null)
     ),
     "{plan}"

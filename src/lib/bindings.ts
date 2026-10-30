@@ -2638,6 +2638,8 @@ export type FileLink = {
 	state: LinkState,
 	/**  The two files are in different modules */
 	crossModule: boolean,
+	/**  The commits added it between two modules: a new dependency of a module, which the review lists */
+	newBetweenModules: boolean,
 };
 
 /**
@@ -7880,6 +7882,11 @@ export type Usages = {
 	outsideSites: UsageSite[],
 	/**  False when the index cut its answer at its limit (100): there are more */
 	complete: boolean,
+	/**
+	 *  Every use is updated in this change: the count is `complete` and none is left outside. An unknown or incomplete
+	 *  count never is, also at 0
+	 */
+	updated: boolean,
 };
 
 /**  The parameters of `validate_branch_name` */

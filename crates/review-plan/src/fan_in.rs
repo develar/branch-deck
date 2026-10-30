@@ -133,6 +133,7 @@ fn usages_of(change: &ApiChange, references: &References, changed: &HashSet<&str
     outside: 0,
     outside_sites: Vec::new(),
     complete: references.complete && by_owner(change).is_none(),
+    updated: false,
   };
   for hit in references.hits.iter().filter(|hit| uses(change, hit)) {
     if changed.contains(hit.path.as_str()) {
@@ -147,6 +148,7 @@ fn usages_of(change: &ApiChange, references: &References, changed: &HashSet<&str
       });
     }
   }
+  usages.updated = usages.complete && usages.outside == 0;
   usages
 }
 

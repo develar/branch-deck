@@ -152,6 +152,6 @@ fn prints_the_files_in_dependency_order() {
   // the link that orders them, new; the test uses a type of its package, which links only inside a known module
   assert_eq!(
     output["links"],
-    json!([{ "from": "src/a/User.kt", "to": "src/b/Store.kt", "symbols": [{ "name": "Store", "line": 3 }], "state": "added", "cross_module": false }])
+    json!([{ "from": "src/a/User.kt", "to": "src/b/Store.kt", "symbols": [{ "name": "Store", "line": 3 }], "state": "added", "cross_module": false, "new_between_modules": false }])
   );
 }

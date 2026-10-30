@@ -690,7 +690,7 @@ after the commits), `new_links`, `breaks` (the usages left outside of the API it
 changed while none of its tests did), `repeated_edit` and `repeated_edit_only` (every hunk of it is that edit), the most
 `breaks` first. `links` lists which changed file
 uses which (`from`, `to`, `symbols` with the line of the first use, `state` `added`, `removed` or `kept`,
-`cross_module`); `dependencies` the entries the commits add to, remove from or change in the build files: the
+`cross_module`, `new_between_modules` when it is also added); `dependencies` the entries the commits add to, remove from or change in the build files: the
 `orderEntry` of an `*.iml`, the `depends`, `dependencies` and `content` of a plugin descriptor, the dependency tables of
 a `Cargo.toml` and the dependencies of a `package.json` (`manifest`, `module`, `kind`, `name`, `change` `added`,
 `removed` or `changed`, `version_before`, `version_after`, `scope`, `scope_before`), a new or deleted build file as one
@@ -708,13 +708,13 @@ tree order inside a cycle and between files with no edge.
     "scope":{"base":"5e6f7a8b","head":"7a8b9c0d"}},
   "api":[{"path":"src/a/Session.kt","line":3,"name":"logout","kind":"changed","changes":["parameters"],
     "before":"fun logout() : Unit","after":"fun logout(all:Boolean) : Unit",
-    "usages":{"inside":1,"outside":12,"outside_sites":[{"path":"src/c/Menu.kt","line":40},…],"complete":true}}],
+    "usages":{"inside":1,"outside":12,"outside_sites":[{"path":"src/c/Menu.kt","line":40},…],"complete":true,"updated":false}}],
   "files":[{"path":"src/a/Session.kt","old_path":null,"mechanical":null,"uses":0,"used_by":1,"new_links":0,
     "breaks":12,"breaks_complete":true,"untested":true,"repeated_edit":null,"repeated_edit_only":false},
     {"path":"src/b/Logout.kt","old_path":null,"mechanical":null,"uses":1,"used_by":0,"new_links":1,"breaks":0,
     "breaks_complete":true,"untested":true,"repeated_edit":null,"repeated_edit_only":false}],
   "links":[{"from":"src/b/Logout.kt","to":"src/a/Session.kt","symbols":[{"name":"logout","line":5}],"state":"added",
-    "cross_module":false}],
+    "cross_module":false,"new_between_modules":false}],
   "dependencies":[{"manifest":"src/b/intellij.b.iml","module":"intellij.b","kind":"module","name":"intellij.a",
     "change":"added","version_before":null,"version_after":null,"scope":"main","scope_before":null}],
   "repeated_edits":[],

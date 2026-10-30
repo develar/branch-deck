@@ -221,6 +221,7 @@ fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiCh
       outside: usages,
       outside_sites: Vec::new(),
       complete: true,
+      updated: usages == 0,
     }),
     query: name.to_string(),
     owner: None,

@@ -27,6 +27,7 @@ fn link(from: &str, to: &str, symbols: &[(&str, u32)], state: LinkState, cross_m
     symbols: symbols.iter().map(|&(name, line)| LinkedSymbol { name: name.to_string(), line }).collect(),
     state,
     cross_module,
+    new_between_modules: cross_module && state == LinkState::Added,
   }
 }
 
@@ -82,10 +83,18 @@ fn a_link_between_two_modules_crosses_them() {
       ("store/src/b/Store.kt", "package b\n\nclass Store\n"),
     ],
   );
-  let crossing: Vec<(&str, &str, bool)> = plan.links.iter().map(|link| (link.from.as_str(), link.to.as_str(), link.cross_module)).collect();
+  let crossing: Vec<(&str, &str, bool, bool)> = plan
+    .links
+    .iter()
+    .map(|link| (link.from.as_str(), link.to.as_str(), link.cross_module, link.new_between_modules))
+    .collect();
+  // the commits add both: the one across the modules is a new dependency of the module of User
   assert_eq!(
     crossing,
-    [("app/src/a/User.kt", "app/src/a/Name.kt", false), ("app/src/a/User.kt", "store/src/b/Store.kt", true)]
+    [
+      ("app/src/a/User.kt", "app/src/a/Name.kt", false, false),
+      ("app/src/a/User.kt", "store/src/b/Store.kt", true, true)
+    ]
   );
 }
 

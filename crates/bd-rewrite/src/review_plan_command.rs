@@ -138,6 +138,8 @@ pub struct UsagesOutput {
   pub outside_sites: Vec<UsageSite>,
   /// False when accio cut its answer at 100 usages
   pub complete: bool,
+  /// Every use is updated in this change: `complete` and none left outside
+  pub updated: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -178,6 +180,8 @@ pub struct FileLinkOutput {
   pub state: LinkState,
   /// The two files are in different modules
   pub cross_module: bool,
+  /// The commits added it between two modules: a new dependency of a module
+  pub new_between_modules: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -302,6 +306,7 @@ fn api_output(change: ApiChange) -> ApiChangeOutput {
       outside: usages.outside,
       outside_sites: usages.outside_sites,
       complete: usages.complete,
+      updated: usages.updated,
     }),
   }
 }
@@ -329,6 +334,7 @@ fn link_output(link: FileLink) -> FileLinkOutput {
     symbols: link.symbols,
     state: link.state,
     cross_module: link.cross_module,
+    new_between_modules: link.new_between_modules,
   }
 }
 

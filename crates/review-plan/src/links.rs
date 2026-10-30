@@ -55,6 +55,8 @@ pub struct FileLink {
   pub state: LinkState,
   /// The two files are in different modules
   pub cross_module: bool,
+  /// The commits added it between two modules: a new dependency of a module, which the review lists
+  pub new_between_modules: bool,
 }
 
 /// The names that link a pair of files before and after the commits
@@ -105,12 +107,14 @@ pub(crate) fn link_files(input: &SymbolInput, files: &[ChangedFile<'_>], after: 
         (false, true) => (LinkState::Removed, before),
         (false, false) => (LinkState::Kept, after),
       };
+      let cross_module = module_root(&input.roots, from) != module_root(&input.roots, to);
       FileLink {
         from: from.to_string(),
         to: to.to_string(),
         symbols,
         state,
-        cross_module: module_root(&input.roots, from) != module_root(&input.roots, to),
+        cross_module,
+        new_between_modules: cross_module && state == LinkState::Added,
       }
     })
     .collect()

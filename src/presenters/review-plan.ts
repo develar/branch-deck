@@ -91,14 +91,6 @@ function formatUses(count: number): string {
 }
 
 /**
- * Every use of a removed or changed API is updated in this change: Rust counted them all (`complete`) and none is left
- * outside. An unknown or incomplete count is never this, also at 0
- */
-function isUpdatedInChange(usages: Usages | null): boolean {
-  return usages !== null && usages.complete && usages.outside === 0
-}
-
-/**
  * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use found outside, the count is
  * incomplete", "The uses are unknown" without a count
  */
@@ -179,7 +171,8 @@ export function presentBreakage(api: readonly ApiChange[]): Breakage {
     if (change.kind === "added") {
       continue
     }
-    if (isUpdatedInChange(change.usages)) {
+    // Rust says every use is updated in this change; an unknown or incomplete count never is
+    if (change.usages?.updated === true) {
       updated.push(breakageEntry(change))
     } else {
       entries.push(breakageEntry(change))
@@ -237,7 +230,7 @@ export function presentDependencyChanges(plan: Pick<ReviewPlan, "dependencies" |
     entry.lines.push({ key: `${index}`, change: change.change, text: formatDependencyChange(change) })
   })
   const links = plan.links
-    .filter(link => link.crossModule && link.state === "added")
+    .filter(link => link.newBetweenModules)
     .map(link => {
       const { key, symbols } = linkEntry(link, link.to)
       return { key, from: link.from, to: link.to, place: firstUse(link), label: `${fileName(link.from)} → ${fileName(link.to)}`, symbols }
@@ -293,7 +286,7 @@ function count(n: number, one: string, many: string): string {
  */
 export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" | "links" | "repeatedEdits">): string {
   const breaks = presentBreakage(plan.api).entries.length
-  const crossLinks = plan.links.filter(link => link.crossModule && link.state === "added").length
+  const crossLinks = plan.links.filter(link => link.newBetweenModules).length
   const added = plan.api.filter(change => change.kind === "added").length
   const parts = [breaks === 0 ? "No possible break" : count(breaks, "possible break", "possible breaks")]
   if (plan.dependencies.length > 0) {

@@ -393,5 +393,21 @@ pub(crate) fn outside(outside: u32) -> Usages {
     outside,
     outside_sites: (1..=outside.min(5)).map(|line| UsageSite { path: OUTSIDE.to_string(), line }).collect(),
     complete: true,
+    updated: outside == 0,
   }
+}
+
+/// An API is updated in this change only when its count is complete and none of its uses is left outside: a cut count
+/// or one of a member of `STOP_NAMES` at 0 is not, nor a count with a use outside
+#[test]
+fn an_api_is_updated_only_by_a_complete_count_with_no_use_left_outside() {
+  let changed: HashSet<&str> = std::iter::once("src/inside.kt").collect();
+  let index = Counts::hits(&[
+    ("inside", Ok(vec![("src/inside.kt", "call", "open(1)")])),
+    ("outside", Ok(vec![("src/inside.kt", "call", "open(1)"), ("src/other.kt", "call", "open(2)")])),
+  ]);
+  let mut api = vec![change("inside", ApiChangeKind::Changed), change("outside", ApiChangeKind::Changed)];
+  add_usages(Some(&index), "/repo", "head", &changed, &mut api).unwrap();
+  let updated: Vec<(&str, bool)> = api.iter().map(|change| (change.name.as_str(), change.usages.as_ref().unwrap().updated)).collect();
+  assert_eq!(updated, [("outside", false), ("inside", true)]);
 }

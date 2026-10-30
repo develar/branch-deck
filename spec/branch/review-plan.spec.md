@@ -241,6 +241,9 @@ the repeated edits and the new API.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_usages_split_into_those_inside_the_change_and_those_left_outside`)
   [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
+- `updated` must be true only when the usages are `complete` and none is left outside: every use is updated in this
+  change. An unknown, cut or lower-bound count never is, also at 0.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_api_is_updated_only_by_a_complete_count_with_no_use_left_outside`)
 - The entries must be sorted by their usages left outside, the most first, then by those inside, those without
   `usages` last; then removals, changes and additions, then by file and line.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `the_usages_split_into_those_inside_the_change_and_those_left_outside`)
@@ -305,7 +308,8 @@ the repeated edits and the new API.
 - `uses` and `used_by` of a file must count its `added` and `kept` links; `new_links` its `added` links as the file
   that uses.
   [@test] ../../crates/review-plan/src/links_test.rs (`a_new_file_that_another_imports_is_an_added_link`, `a_link_before_and_after_is_kept_and_one_only_before_is_removed`)
-- A link must be `cross_module` when the nearest directories above its two files with a build file differ.
+- A link must be `cross_module` when the nearest directories above its two files with a build file differ, and
+  `new_between_modules` when it is also `added`: a new dependency of a module, which the review lists.
   [@test] ../../crates/review-plan/src/links_test.rs (`a_link_between_two_modules_crosses_them`)
 - The links must run no git process: they read the summaries the API read.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
@@ -494,16 +498,16 @@ the repeated edits and the new API.
   on lines of their own, the uses left outside ("3 uses left outside") with the first sites as `path:line`, and the
   uses updated in this change. An entry with `usages` null says "The uses are unknown". An entry whose count is not
   `complete` says "At least N uses left outside", or "No use found outside, the count is incomplete" at 0. Only the
-  entries with a `complete` count and no use outside fold into one collapsed line, "12 API changes, every use updated
-  in this change": an unknown or incomplete count never reads as safe. An addition is not listed there.
+  entries Rust says are `updated` fold into one collapsed line, "12 API changes, every use updated in this change":
+  an unknown or incomplete count never reads as safe. An addition is not listed there.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0`)
 - "Dependencies" must list the dependency changes per build file in Rust's order, under the module and the path of
   the build file: a changed version as `1.0.1 → 1.0.2`, a new or deleted module. Under them it must list the links
-  the commits added between the files of two modules (`Reader.kt → Cache.kt`, with the names and the line of the
-  first use). "Repeated Edits" must list one line per group, "Same edit in 3 files:" with the edit and its files, and
+  the commits added between the files of two modules (`new_between_modules`: `Reader.kt → Cache.kt`, with the names
+  and the line of the first use). "Repeated Edits" must list one line per group, "Same edit in 3 files:" with the edit and its files, and
   "New API" the added declarations per file. Both start collapsed.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
@@ -574,12 +578,13 @@ the repeated edits and the new API.
 - `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
   open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
-  "src/b/Client.kt", "line": 8}, …], "complete": true}}]`, `"files": [{"path": "src/a/Api.kt",
+  "src/b/Client.kt", "line": 8}, …], "complete": true, "updated": false}}]`, `"files": [{"path": "src/a/Api.kt",
   "old_path": null, "mechanical": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12, "breaks_complete":
   true, "untested": true, "repeated_edit": null, "repeated_edit_only": false}]`, `"index_note": null`.
 - `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
   "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`, `"links": [{"from": "src/a/User.kt", "to":
-  "src/b/Store.kt", "symbols": [{"name": "Store", "line": 3}], "state": "added", "cross_module": false}]`.
+  "src/b/Store.kt", "symbols": [{"name": "Store", "line": 3}], "state": "added", "cross_module": false,
+  "new_between_modules": false}]`.
 - The review window, flag on: **Mark Reviewed** in the title bar → toast "Marked plan reviewed" ("plan was already
   marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
   commit", "read the cache twice  New".

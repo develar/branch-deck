@@ -85,6 +85,9 @@ pub struct Usages {
   pub outside_sites: Vec<UsageSite>,
   /// False when the index cut its answer at its limit (100): there are more
   pub complete: bool,
+  /// Every use is updated in this change: the count is `complete` and none is left outside. An unknown or incomplete
+  /// count never is, also at 0
+  pub updated: bool,
 }
 
 /// A public declaration the reviewed commits add, remove or change
