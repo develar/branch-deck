@@ -32,7 +32,8 @@ rules in one line each and links here.
   `setTimeout` in a spec, a fixture or a helper. A box or a point measured for a press waits for the facts that move
   it: Patronus answers after the sync and moves the header row (`waitForHeaderFacts`). A width or a flag that the
   `ResizeObserver` of the branch columns writes (`--bd-track-*`, `data-wide`), and every box it moves, is read after
-  `waitForBranchLayout` (the end of the sync, the facts of the steps, the reports of that frame), never at the first
+  `waitForBranchLayout(page, syncs)` (the end of the sync after the `finishedSyncCount` read before it started, the
+  facts of the steps, the reports of that frame), never at the first
   row `syncAndWaitForBranches` returns at, and after a resize once `resizeReportsDelivered`. A chain of commands gets a
   wait per step, each of which takes seconds under load: a rewrite and its sync `runAndWaitForSync`, Update Project
   `runAndWaitForUpdate`, a start `runAndWaitForAnswer(page, "execute", …)` (the end of its stream), the facts of a next step

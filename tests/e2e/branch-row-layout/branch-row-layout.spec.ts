@@ -191,15 +191,24 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     const row = (await branchRow.boundingBox())!
     const moreMenu = page.locator("[data-slot=dropdown-menu-content]")
     const rowMenu = page.locator("[data-slot=context-menu-content]")
-    // the menu of "⋯" gave the focus back to "⋯" from any menu at the end of its exit, in about half of the gestures
-    // (2026-10-30): four of them
-    for (let gesture = 0; gesture < 4; gesture++) {
+    // whether the menu of "⋯" was still in its exit as each right-click reached the page: a gesture after its end does
+    // not play the race, and the old code passes it too
+    await page.evaluate(() => {
+      const hits: boolean[] = []
+      ;(window as unknown as { contextMenuInExit: boolean[] }).contextMenuInExit = hits
+      window.addEventListener("contextmenu", () => hits.push(document.querySelector("[data-slot=dropdown-menu-content]") !== null), { capture: true })
+    })
+    const rightClickInExit = () => page.evaluate(() => (window as unknown as { contextMenuInExit: boolean[] }).contextMenuInExit.at(-1))
+    // the menu of "⋯" gave the focus back to "⋯" from any menu at the end of its exit, in 9 of 32 gestures that landed in
+    // the exit without load (2026-10-30): the old code passes ten of them in about 4 of 100 runs
+    for (let gesture = 0; gesture < 10; gesture++) {
       await getMoreButton(branchRow).click()
       await expect(moreMenu).toBeVisible()
       // Escape, and the right-click within the exit of that menu, at once: the menu of the row opens and takes the focus
       await page.keyboard.press("Escape")
       await page.mouse.click(row.x + 40, row.y + row.height / 2, { button: "right" })
       await expect(rowMenu).toBeVisible()
+      expect(await rightClickInExit(), `gesture ${gesture + 1}`).toBe(true)
       // the menu of "⋯" ended its exit, giving the focus back to "⋯" only from itself: the keys stay the open menu's
       await expect(moreMenu).toHaveCount(0)
       // the menu of the row takes the focus a frame after it opened, and keeps it: a key before that frame went elsewhere

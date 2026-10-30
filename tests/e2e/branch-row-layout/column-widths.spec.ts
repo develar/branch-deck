@@ -4,7 +4,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getBranchCells } from "../helpers/branch-helpers"
 import { expectColumnAligned } from "../helpers/column-helpers"
 import { availableRobots, robot } from "../helpers/patronus-helpers"
-import { pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
+import { finishedSyncCount, pressSyncHeld, releaseHeldSync, waitForBranchLayout, waitForBranchSyncComplete } from "../helpers/sync-helpers"
 import { resizeReportsDelivered, waitForStorePersistence } from "../helpers/wait-helpers"
 
 /** The width of a track as the root of the branch view has it (`--bd-track-<track>`), in px */
@@ -17,11 +17,12 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
   test("gives the free width to the branch name and keeps the other columns at content width", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await page.setViewportSize({ width: 1400, height: 900 })
     await setupRepo("long_subjects")
+    const syncs = await finishedSyncCount(page)
     await syncAndWaitForBranches()
 
     const branchRow = findBranchRow(page, "IJPL-215166")
     await waitForBranchSyncComplete(page, "IJPL-215166")
-    await waitForBranchLayout(page)
+    await waitForBranchLayout(page, syncs)
 
     const { branchName, commits, status, actions } = getBranchCells(branchRow)
     const row = await branchRow.boundingBox()
@@ -102,6 +103,7 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
   test("holds the width of a column while a sync runs, and follows what the rows show once it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const running = robot("JIRA-456", "running-robot")
     const repo = await setupRepo("issue_links", { patronus: availableRobots(running) })
+    const firstSyncs = await finishedSyncCount(page)
     await syncAndWaitForBranches()
     const row = findBranchRow(page, "JIRA-456")
     const chip = row.getByTestId("patronus-chip")
@@ -110,7 +112,7 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     await waitForStorePersistence(page, "repositoryState", states =>
       Object.values(states as Record<string, { settledLayout?: { tracks: Record<string, number> } }>).some(state => (state.settledLayout?.tracks["state"] ?? 0) > 0),
     )
-    await waitForBranchLayout(page)
+    await waitForBranchLayout(page, firstSyncs)
     // the running robot is the widest state of the view
     const content = row.locator("[data-track=state] > div")
     const runningWidth = await trackWidth(page, "state")
@@ -144,10 +146,11 @@ test.describe("Branch table column widths", { tag: "@webkit" }, () => {
     // name its subject
     await page.setViewportSize({ width: 768, height: 800 })
     await setupRepo("issue_links")
+    const syncs = await finishedSyncCount(page)
     await syncAndWaitForBranches()
     // the sync ended and the steps know their facts: a track that held "syncing 3/7…" or "Checking…" follows what the
     // rows show now, and no row shows a step (no Patronus), so the step column takes no room
-    await waitForBranchLayout(page)
+    await waitForBranchLayout(page, syncs)
     expect(await trackWidth(page, "step")).toBe(0)
 
     const summaries = page.getByTestId("branch-row").getByTestId("branch-summary")

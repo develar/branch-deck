@@ -969,7 +969,11 @@ branch at the commit it was pushed up to.
   closing menu gives the focus back only from its own popups now (the `data-rootownerid` of Base UI;
   `spec/branch/branch-row.spec.md`), and the test, unchanged, passed 40 of 40 traced runs, and 20 of 20 on the Studio
   beside 40 `yes` workers (load 4-62: 17.8 s on average, 19.8 s at most, no stalled action; the time is the setup, four
-  syncs and the push of the terminal, none of them waiting on another)
+  syncs and the push of the terminal, none of them waiting on another). Its test in `branch-row-layout.spec.ts` asserts
+  that each right-click reached the page while the menu of "⋯" was still there (a capture listener of `contextmenu`): a
+  right-click after the end of the exit plays no race, and the old code passes it too. Without load all 32 right-clicks
+  of 8 runs landed in the exit, and the old code lost the focus in 9 of them, so the test plays ten gestures: the old
+  code failed it 8 of 8 runs
 - **Logging**: a green run prints no warning or error. The server logs warnings and errors only
   (`TEST_SERVER_LOG=warn`): an error of the server is a bug, not the error of a command. The warnings of the Patronus
   client and of the YouTrack and GitHub clients and services are left out (`patronus::client=error`, `youtrack=error`,

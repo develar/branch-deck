@@ -127,14 +127,15 @@ export async function waitForSyncComplete(page: Page, previousCount: number, tim
 }
 
 /**
- * Waits until the branch view stands where what its rows show puts it: the sync after `previousCount`
- * (`finishedSyncCount`) ended, no step waits for a fact (`waitForStepFacts`), and the observer of the columns reported
+ * Waits until the branch view stands where what its rows show puts it: the sync after `previousCount` ended (the
+ * `finishedSyncCount` read before the action that started it, so a later sync is waited for too, never a count the
+ * page already passed), no step waits for a fact (`waitForStepFacts`), and the observer of the columns reported
  * the frame of the last answer (`resizeReportsDelivered`). What that `ResizeObserver` writes (the widths of the tracks
  * `--bd-track-*`, `data-wide`) and every box it moves is read after it, never at the first row of a running sync, as
  * `syncAndWaitForBranches` returns: while the sync runs a track only widens ("syncing 3/7…"), and a step says
  * "Checking…" until its facts came (docs/design/e2e-testing.md, "Under load")
  */
-export async function waitForBranchLayout(page: Page, previousCount = 0): Promise<void> {
+export async function waitForBranchLayout(page: Page, previousCount: number): Promise<void> {
   await waitForSyncComplete(page, previousCount)
   await waitForStepFacts(page.getByTestId("next-step-slot"))
   await resizeReportsDelivered(page)
