@@ -71,7 +71,10 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
       return review.current?.moveChange(direction)
     },
     focus: () => review.current?.focus(),
-    revealDeclaration: (place, from) => review.current?.revealDeclaration(place, from) ?? false,
+    revealDeclaration: (place, from) => {
+      setFileViews([])
+      return review.current?.revealDeclaration(place, from) ?? false
+    },
   }))
   const inReview = useSymbolNavigation(files, revisions, openFile)
   const shownFile = fileViews.at(-1)?.target

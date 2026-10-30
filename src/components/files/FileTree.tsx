@@ -12,6 +12,7 @@ import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/c
 import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
+import type { ReviewPlace } from "@/lib/review-place"
 import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
 
 interface FileTreeBaseProps {
@@ -31,8 +32,8 @@ export interface FileTreeBadges {
   readonly files: ReadonlyMap<string, FileBadges>
   /** The dependency changes of a module, on its directory row or on the row of its build file */
   readonly dependencies: ReadonlyMap<string, DependencyBadge>
-  /** Selects another file from a popover of a badge; must keep its identity: the rows are memoized */
-  readonly onSelectPath: (path: string) => void
+  /** Shows another file from a popover of a badge; must keep its identity: the rows are memoized */
+  readonly onSelectPlace: (place: ReviewPlace) => void
 }
 
 /** A file row expands its diff under it (the commit preview) */
@@ -201,7 +202,7 @@ export function FileTree(props: FileTreeProps) {
           owner={node.kind === "file" ? fileOwners?.get(node.file.path) : undefined}
           fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
           dependencyBadge={badges?.dependencies.get(node.key)}
-          onSelectPath={badges?.onSelectPath}
+          onSelectPlace={badges?.onSelectPlace}
           content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
@@ -231,7 +232,7 @@ interface FileTreeRowProps {
   /** The badges of the review plan */
   fileBadges: FileBadges | undefined
   dependencyBadge: DependencyBadge | undefined
-  onSelectPath: ((path: string) => void) | undefined
+  onSelectPlace: ((place: ReviewPlace) => void) | undefined
   /** The diff under an expanded file */
   content: ReactNode
 }
@@ -247,7 +248,7 @@ const FileTreeRow = memo(function FileTreeRow({
   owner,
   fileBadges,
   dependencyBadge,
-  onSelectPath,
+  onSelectPlace,
   content,
 }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
@@ -316,7 +317,7 @@ const FileTreeRow = memo(function FileTreeRow({
         )}
         {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} owner={owner} />}
         {dependencyBadge !== undefined && <DependencyBadgeView badge={dependencyBadge} />}
-        {fileBadges !== undefined && onSelectPath !== undefined && <FileRowBadges badges={fileBadges} onSelectPath={onSelectPath} />}
+        {fileBadges !== undefined && onSelectPlace !== undefined && <FileRowBadges badges={fileBadges} onSelectPlace={onSelectPlace} />}
         {node.kind === "directory" ? <DirectoryLineCounts node={node} /> : <FileLineCounts node={node} />}
       </FileContextMenu>
       {content !== null && (

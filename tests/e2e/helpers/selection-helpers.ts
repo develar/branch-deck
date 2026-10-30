@@ -130,3 +130,13 @@ export async function dropAt(page: Page, target: Locator): Promise<void> {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 })
   await page.mouse.up()
 }
+
+/** The selected text of the page and the file of the diff view it is in: the name a reveal of the diffs selected */
+export async function selectedInDiffs(page: Page): Promise<{ text: string; path: string | null }> {
+  return page.evaluate(() => {
+    const selection = document.getSelection()
+    const node = selection?.anchorNode ?? null
+    const element = node instanceof Element ? node : (node?.parentElement ?? null)
+    return { text: selection?.toString() ?? "", path: element?.closest<HTMLElement>("[data-testid=diff-view-file]")?.dataset.path ?? null }
+  })
+}

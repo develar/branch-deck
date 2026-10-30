@@ -1,8 +1,3 @@
-// The words of the review plan of a review window (spec/branch/review-plan.spec.md, Status: Experimental): the states
-// of the commits since the user's review, the API the reviewed commits remove or change with the uses left outside
-// the change, the dependency changes, the repeated edits, the new API, and the badges of the files. Rust pairs the
-// commits, ranks the API and the files and decides each fact (`review_plan::review_plan_core`); the card and the tree
-// only word them in the order Rust sent.
 import type {
   ApiChange,
   ApiChangeKind,
@@ -21,6 +16,13 @@ import type {
   ReviewPlan,
   Usages,
 } from "@/lib/bindings"
+// The words of the review plan of a review window (spec/branch/review-plan.spec.md, Status: Experimental): the states
+// of the commits since the user's review, the API the reviewed commits remove or change with the uses left outside
+// the change, the dependency changes, the repeated edits, the new API, and the badges of the files. Rust pairs the
+// commits, ranks the API and the files and decides each fact (`review_plan::review_plan_core`); the card and the tree
+// only word them in the order Rust sent.
+import type { ReviewPlace } from "@/lib/review-place"
+import { fileTop } from "@/lib/review-place"
 
 /** What the commit column says of a commit since the review: "New", "Rewritten"; nothing of the others */
 export function formatPairState(state: PairState): string | null {
@@ -113,8 +115,10 @@ export function formatOutsideUses(usages: Usages | null): string {
 /** An API the commits remove or change, as the card words it */
 export interface BreakageEntry {
   readonly key: string
-  /** The file that declares it: a click selects it */
+  /** The file that declares it */
   readonly path: string
+  /** Its declaration, before the commits for a removal: a click shows it */
+  readonly place: ReviewPlace
   readonly name: string
   /** "Removed", "Changed" */
   readonly kind: string
@@ -149,6 +153,7 @@ function breakageEntry(change: ApiChange): BreakageEntry {
   return {
     key: `${change.kind}:${change.key}:${change.path}:${change.line}`,
     path: change.path,
+    place: { path: change.path, side: change.kind === "removed" ? "old" : "new", line: change.line, name: change.name },
     name: change.name,
     kind: KIND_WORDS[change.kind],
     tone: change.kind === "removed" ? "destructive" : "warning",
@@ -204,9 +209,10 @@ export interface ModuleDependencies {
 /** A link the commits added between the files of two modules */
 export interface CrossModuleLink {
   readonly key: string
-  /** The file that uses: a click selects it */
   readonly from: string
   readonly to: string
+  /** The first use, in the file that uses: a click shows it */
+  readonly place: ReviewPlace
   /** "Reader.kt → Cache.kt" */
   readonly label: string
   /** "Cache, get · Reader.kt:3" */
@@ -234,7 +240,7 @@ export function presentDependencyChanges(plan: Pick<ReviewPlan, "dependencies" |
     .filter(link => link.crossModule && link.state === "added")
     .map(link => {
       const { key, symbols } = linkEntry(link, link.to)
-      return { key, from: link.from, to: link.to, label: `${fileName(link.from)} → ${fileName(link.to)}`, symbols }
+      return { key, from: link.from, to: link.to, place: firstUse(link), label: `${fileName(link.from)} → ${fileName(link.to)}`, symbols }
     })
   return { modules: [...modules.values()], links }
 }
@@ -257,23 +263,24 @@ export function presentRepeatedEdits(groups: readonly RepeatedEditGroup[]): Repe
 
 /** The public declarations the commits add to one file */
 export interface NewApiFile {
-  /** The file: a click selects it */
   readonly path: string
+  /** Its first new declaration: a click shows it */
+  readonly place: ReviewPlace
   /** "Cache, get" */
   readonly names: string
 }
 
 /** "New API" of the card: the added declarations per file, the files in the order of their first declaration */
 export function presentNewApi(api: readonly ApiChange[]): NewApiFile[] {
-  const byPath = new Map<string, string[]>()
+  const byPath = new Map<string, { line: number; names: string[] }>()
   for (const change of api) {
     if (change.kind === "added") {
-      const names = byPath.get(change.path) ?? []
-      names.push(change.name)
-      byPath.set(change.path, names)
+      const file = byPath.get(change.path) ?? { line: change.line, names: [] }
+      file.names.push(change.name)
+      byPath.set(change.path, file)
     }
   }
-  return [...byPath].map(([path, names]) => ({ path, names: names.join(", ") }))
+  return [...byPath].map(([path, file]) => ({ path, place: { path, side: "new", line: file.line, name: file.names[0] ?? null }, names: file.names.join(", ") }))
 }
 
 function count(n: number, one: string, many: string): string {
@@ -328,8 +335,10 @@ const LINK_SYMBOLS = 3
 /** A link of a file in its popover: the other file, the names it links on, where the first one is used */
 export interface LinkEntry {
   readonly key: string
-  /** The other file: a click selects it */
+  /** The other file */
   readonly path: string
+  /** The other file, at the first use when it is the file that uses: a click shows it */
+  readonly place: ReviewPlace
   /** Its name, "Cache.kt" */
   readonly name: string
   /** "get, Cache · Reader.kt:6": the names and the line of the first use, in the file that uses */
@@ -366,6 +375,13 @@ function fileName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1)
 }
 
+/** The first use of a link, in the file that uses; that file at its header without a name */
+function firstUse(link: FileLink): ReviewPlace {
+  const first = link.symbols[0]
+  // a removed link is a use before the commits
+  return { path: link.from, side: link.state === "removed" ? "old" : "new", line: first?.line ?? null, name: first?.name ?? null }
+}
+
 function linkEntry(link: FileLink, other: string): LinkEntry {
   const names = link.symbols.slice(0, LINK_SYMBOLS).map(symbol => symbol.name)
   const more = link.symbols.length - names.length
@@ -374,6 +390,7 @@ function linkEntry(link: FileLink, other: string): LinkEntry {
   return {
     key: `${link.from}\n${link.to}`,
     path: other,
+    place: other === link.from ? firstUse(link) : fileTop(other),
     name: fileName(other),
     symbols: `${names.join(", ")}${more > 0 ? ` +${more}` : ""}${site}`,
     state: link.state,

@@ -6,6 +6,7 @@ import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow } from "../helpers/branch-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
+import { selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { holdCommandCalls, holdNextAnswer, recordCommand } from "../helpers/wait-helpers"
 
@@ -73,9 +74,9 @@ async function wordIn(view: Locator, path: string, word: string): Promise<{ x: n
 async function expectHelperShownAndBack(code: Locator): Promise<void> {
   const page = code.page()
   await expect(code).toContainText("fun helper(value: Int)")
-  await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Store.kt" })
+  await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "helper", path: "src/Store.kt" })
   await page.keyboard.press(BACK)
-  await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Uses.kt" })
+  await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "helper", path: "src/Uses.kt" })
 }
 
 /** The file of `outsider` is open over the review once: one Back closes it and returns to the name in Uses.kt */
@@ -84,7 +85,7 @@ async function expectOutsiderFileAndBack(page: Page): Promise<void> {
   await expect(fileView).toContainText("src/Base.kt")
   await page.keyboard.press(BACK)
   await expect(fileView).toBeHidden()
-  await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
+  await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
 }
 
 /** ⌥F7 on `word` of the file `path`, selected by a double click */
@@ -92,23 +93,13 @@ async function findUsagesOf(code: Locator, path: string, word: string): Promise<
   const page = code.page()
   const at = await pointOf(code, path, word)
   await page.mouse.dblclick(at.x, at.y)
-  await expect.poll(async () => (await selected(page)).text).toBe(word)
+  await expect.poll(async () => (await selectedInDiffs(page)).text).toBe(word)
   await page.keyboard.press("Alt+F7")
 }
 
 /** Every command of the page has its answer: a held one the test released has reached the page */
 async function answered(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => (window as unknown as { __ipcStats: { pending: number } }).__ipcStats.pending)).toBe(0)
-}
-
-/** The selected text and the file of the view it is in */
-async function selected(page: Page): Promise<{ text: string; path: string | null }> {
-  return page.evaluate(() => {
-    const selection = document.getSelection()
-    const node = selection?.anchorNode ?? null
-    const element = node instanceof Element ? node : (node?.parentElement ?? null)
-    return { text: selection?.toString() ?? "", path: element?.closest<HTMLElement>("[data-testid=diff-view-file]")?.dataset.path ?? null }
-  })
 }
 
 test.describe("Go to Declaration", () => {
@@ -141,13 +132,13 @@ test.describe("Go to Declaration", () => {
     const at = await pointOf(code, "src/Uses.kt", "add")
     // ⌘B on the selection
     await page.mouse.dblclick(at.x, at.y)
-    await expect.poll(async () => (await selected(page)).text).toBe("add")
+    await expect.poll(async () => (await selectedInDiffs(page)).text).toBe("add")
     await page.keyboard.press(`${COMMAND}+B`)
     const chooser = page.getByRole("listbox", { name: "Declarations of add" })
     await expect(chooser.getByRole("option")).toHaveText(["Queue.addsrc/Queue.kt:2", "Store.addsrc/Store.kt:33"])
     await chooser.getByRole("option", { name: /Store\.add/ }).click()
     await expect(chooser).toBeHidden()
-    await expect.poll(() => selected(page)).toEqual({ text: "add", path: "src/Store.kt" })
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "add", path: "src/Store.kt" })
 
     // the item of the menu of the code, Enter on the first declaration
     const again = await pointOf(code, "src/Uses.kt", "add")
@@ -155,7 +146,7 @@ test.describe("Go to Declaration", () => {
     await page.getByRole("menuitem", { name: "Go to Declaration" }).click()
     await expect(chooser.getByRole("option").first()).toBeFocused()
     await page.keyboard.press("Enter")
-    await expect.poll(() => selected(page)).toEqual({ text: "add", path: "src/Queue.kt" })
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "add", path: "src/Queue.kt" })
   })
 
   test("should say when the review has no declaration of a name", async ({ page }) => {
@@ -182,11 +173,11 @@ test.describe("Go to Declaration", () => {
     await expect(fileView).toContainText("src/Base.kt")
     await expect(fileView).toContainText("outside the review")
     await expect(fileView.getByRole("region", { name: "File src/Base.kt" })).toContainText("fun outsider(value: Int) = helper(value)")
-    await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Base.kt" })
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "outsider", path: "src/Base.kt" })
     // Back: the review, at the name
     await page.keyboard.press(BACK)
     await expect(fileView).toBeHidden()
-    await expect.poll(() => selected(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "outsider", path: "src/Uses.kt" })
 
     // the button Back, then from the file outside the review to `helper` of Store.kt, in the review
     await page.keyboard.down(MODIFIER)
@@ -204,7 +195,7 @@ test.describe("Go to Declaration", () => {
     await page.keyboard.up(MODIFIER)
     await expect(fileView).toBeHidden()
     await expect(code).toContainText("fun helper(value: Int)")
-    await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Store.kt" })
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "helper", path: "src/Store.kt" })
 
     // a file of the tree, K (Uses.kt is the last file) and N show in the review: the file over it closes
     const openOutsider = async () => {
@@ -334,7 +325,7 @@ test.describe("Find Usages", () => {
     await page.keyboard.press("Enter")
     const fileView = page.getByTestId("declaration-file-view")
     await expect(fileView).toContainText("outside the review")
-    await expect.poll(() => selected(page)).toEqual({ text: "helper", path: "src/Base.kt" })
+    await expect.poll(() => selectedInDiffs(page)).toEqual({ text: "helper", path: "src/Base.kt" })
   })
 
   test("should keep what the review knows and say why when the index of the repository fails", async ({ page }) => {

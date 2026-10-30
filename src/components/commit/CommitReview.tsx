@@ -22,6 +22,7 @@ import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/l
 import { buildFileTree, buildReviewTree, dependencyRows, flattenTreeFiles, getInitiallyCollapsed, MECHANICAL_GROUP_KEY, revealInTree, toggleInSet } from "@/lib/file-tree"
 import type { FileTreeNode } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
+import type { ReviewPlace } from "@/lib/review-place"
 import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
@@ -124,9 +125,9 @@ export function CommitReview({
   }
   const forgetReveal = useCallback(() => setReveal(null), [])
   const revealHidden = useCallback(
-    (path: string) => {
+    (place: ReviewPlace) => {
       // a removed declaration names the path before a rename
-      const file = commitFiles?.files.find(it => it.path === path) ?? commitFiles?.files.find(it => it.oldPath === path)
+      const file = commitFiles?.files.find(it => it.path === place.path) ?? commitFiles?.files.find(it => it.oldPath === place.path)
       if (file === undefined) {
         return
       }
@@ -142,11 +143,17 @@ export function CommitReview({
         setFilterText("")
       }
       // the parent drops its filter in the same batch: All has no path filter
-      setReveal({ subjectId, path: file.path, filterText: hiddenBySearch ? "" : filterText, pathFilterKey: hiddenByOwner ? null : pathFilterKey })
+      setReveal({
+        subjectId,
+        place: { ...place, path: file.path },
+        filterText: hiddenBySearch ? "" : filterText,
+        pathFilterKey: hiddenByOwner ? null : pathFilterKey,
+      })
     },
     [commitFiles, pathFilter, pathFilterKey, filterText, onShowAllPaths, subjectId],
   )
-  const revealPath = reveal !== null && shownFiles?.some(file => file.path === reveal.path) === true ? reveal.path : null
+  const revealPlace = reveal !== null && shownFiles?.some(file => file.path === reveal.place.path) === true ? reveal.place : null
+  const revealPath = revealPlace?.path ?? null
 
   // by the id: the subject object may be new on every render
   useEffect(() => {
@@ -231,6 +238,7 @@ export function CommitReview({
       diffsComplete: entry?.kind === "loaded" && entry.complete,
       initialPath: revealPath ?? (initialPath !== null && shownFiles.some(file => file.path === initialPath) ? initialPath : null),
       revealPath,
+      revealPlace,
       // the commits of the sides: a declaration outside the review is read at them
       revisions: subject.kind === "commit" ? { old: `${subject.id}^`, new: subject.id } : { old: subject.base, new: subject.head },
       reviewFacts,
@@ -306,10 +314,10 @@ function filterFiles(files: readonly CommitFile[], pathFilter: ReadonlySet<strin
   return files.filter(file => pathFilter.has(file.path) || (file.oldPath !== null && pathFilter.has(file.oldPath)))
 }
 
-/** A file a link of a badge selected while a filter hid it, and the filters that show it */
+/** A place a link of a badge showed while a filter hid its file, at the last path of the file, and the filters that show it */
 interface PendingReveal {
   subjectId: string
-  path: string
+  place: ReviewPlace
   /** The search after the click: empty when the search hid the file */
   filterText: string
   /** The owner filter after the click: none when it hid the file, as the parent then drops it */
@@ -331,6 +339,8 @@ interface LoadedReview {
   initialPath: string | null
   /** The file a link of a badge selected while a filter hid it, now shown: the tree selects it */
   revealPath: string | null
+  /** Its place, which the diffs show once the tree selected it */
+  revealPlace: ReviewPlace | null
   revisions: DiffRevisions
   /** The facts of the review plan: the badges, the Mechanical group */
   reviewFacts: ReviewFacts | null
@@ -352,8 +362,8 @@ interface ReviewLayoutProps {
   filesHeader: CommitReviewProps["filesHeader"]
   codeTop: ReactNode
   search: FileSearch | null
-  /** A link of a badge selects a changed file that a filter hides */
-  onRevealHidden: (path: string) => void
+  /** A link of a badge shows a place of a changed file that a filter hides */
+  onRevealHidden: (place: ReviewPlace) => void
   /** The subject has changed files: the card selects one also while a filter hides every file */
   filesRead: boolean
   /** The tree selected `LoadedReview.revealPath`: it is not selected again */
@@ -425,6 +435,14 @@ function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[
 
 const NO_MECHANICAL: ReadonlyMap<string, MechanicalKind> = new Map()
 
+/** The diffs show `place` of a shown file: its line with its name selected, or its header without one */
+function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): void {
+  const line = place.line === null ? null : { path: place.path, side: place.side, line: place.line - 1, column: 0, endColumn: 0, ...(place.name !== null && { name: place.name }) }
+  if (line === null || code?.revealDeclaration(line, null) !== true) {
+    code?.scrollToFile(place.path)
+  }
+}
+
 /**
  * The width of the sidebar until its divider is dragged: what the names of a tree need, not a share of the window, so
  * a maximized window gives the diffs the rest (IntelliJ's commit tree is about as wide)
@@ -466,12 +484,16 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const { collapsed, selectedPath } = selection
   // the file of a link is selected once: a later key or search does not select it again
   const revealApplied = loaded !== null && loaded.revealPath !== null && selection.revealed === loaded.revealPath
+  const code = useRef<CommitReviewCodeHandle>(null)
+  const revealedPlace = loaded?.revealPlace ?? null
   useEffect(() => {
     if (revealApplied) {
+      if (revealedPlace !== null) {
+        showPlace(code.current, revealedPlace)
+      }
       onRevealApplied()
     }
-  }, [revealApplied, onRevealApplied])
-  const code = useRef<CommitReviewCodeHandle>(null)
+  }, [revealApplied, revealedPlace, onRevealApplied])
   const tree = useRef<HTMLDivElement>(null)
 
   // the diffs show the selected file of what the search kept
@@ -518,18 +540,19 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     [select],
   )
 
-  // a file of a popover or of the card of the review plan is selected as a row of the tree is, by its path or its old
-  // path; one that a filter hides is revealed
+  // a place of a popover or of the card of the review plan: its file is selected as a row of the tree is, by its path
+  // or its old path, and the diffs show its line; a file that a filter hides is revealed
   const selectChangedFile = useCallback(
-    (path: string) => {
-      const file = files.find(it => it.path === path) ?? files.find(it => it.oldPath === path)
+    (place: ReviewPlace) => {
+      const file = files.find(it => it.path === place.path) ?? files.find(it => it.oldPath === place.path)
       if (file === undefined) {
-        onRevealHidden(path)
-      } else {
-        selectInTree(file)
+        onRevealHidden(place)
+        return
       }
+      select(file.path)
+      showPlace(code.current, { ...place, path: file.path })
     },
-    [files, selectInTree, onRevealHidden],
+    [files, select, onRevealHidden],
   )
 
   // the badges of the review plan
@@ -544,7 +567,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         dependencies.set(key, badge)
       }
     }
-    return { files: presentFileBadges(reviewFacts), dependencies, onSelectPath: selectChangedFile }
+    return { files: presentFileBadges(reviewFacts), dependencies, onSelectPlace: selectChangedFile }
   }, [reviewFacts, nodes, selectChangedFile])
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)

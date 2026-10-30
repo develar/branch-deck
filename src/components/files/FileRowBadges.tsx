@@ -4,6 +4,8 @@ import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverSectionTitle, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import type { ReviewPlace } from "@/lib/review-place"
+import { fileTop } from "@/lib/review-place"
 import type { DependencyBadge, FileBadges, LinkEntry } from "@/presenters/review-plan"
 
 /*
@@ -21,11 +23,11 @@ function keepFromRow(event: MouseEvent) {
   event.stopPropagation()
 }
 
-/** The badges of a file row; `onSelectPath` selects another changed file */
-export function FileRowBadges({ badges, onSelectPath }: { badges: FileBadges; onSelectPath: (path: string) => void }) {
+/** The badges of a file row; `onSelectPlace` shows another changed file, at the first use of a link that uses this one */
+export function FileRowBadges({ badges, onSelectPlace }: { badges: FileBadges; onSelectPlace: (place: ReviewPlace) => void }) {
   return (
     <span className="flex shrink-0 items-center gap-1" onClick={keepFromRow} data-testid="file-badges">
-      {(badges.usesLinks.length > 0 || badges.usedByLinks.length > 0) && <FileLinksPopover badges={badges} onSelectPath={onSelectPath} />}
+      {(badges.usesLinks.length > 0 || badges.usedByLinks.length > 0) && <FileLinksPopover badges={badges} onSelectPlace={onSelectPlace} />}
       {badges.breaks !== null && (
         <Badge
           variant={badges.breaks.tone === "warning" ? "warning" : "outline"}
@@ -36,7 +38,7 @@ export function FileRowBadges({ badges, onSelectPath }: { badges: FileBadges; on
           {badges.breaks.label}
         </Badge>
       )}
-      {badges.sameEdit !== null && <SameEditPopover sameEdit={badges.sameEdit} onSelectPath={onSelectPath} />}
+      {badges.sameEdit !== null && <SameEditPopover sameEdit={badges.sameEdit} onSelectPlace={onSelectPlace} />}
       {badges.untested !== null && (
         <span className="text-xs text-muted-foreground" title="No test of this file changed" data-testid="file-untested-badge">
           {badges.untested}
@@ -99,7 +101,7 @@ function PopoverFile({
 }
 
 /** "uses 2 +1 new · used by 1": the links of the file among the changed files; its popover lists each link */
-function FileLinksPopover({ badges, onSelectPath }: { badges: FileBadges; onSelectPath: (path: string) => void }) {
+function FileLinksPopover({ badges, onSelectPlace }: { badges: FileBadges; onSelectPlace: (place: ReviewPlace) => void }) {
   const parts = [badges.uses, badges.usedBy].filter(part => part !== null)
   const label = (
     <>
@@ -122,7 +124,7 @@ function FileLinksPopover({ badges, onSelectPath }: { badges: FileBadges; onSele
             testId="file-link"
             onSelect={() => {
               close()
-              onSelectPath(link.path)
+              onSelectPlace(link.place)
             }}
           />
         ))}
@@ -141,7 +143,7 @@ function FileLinksPopover({ badges, onSelectPath }: { badges: FileBadges; onSele
 }
 
 /** "same edit ×4": the files that get the same edit; its popover lists the others */
-function SameEditPopover({ sameEdit, onSelectPath }: { sameEdit: NonNullable<FileBadges["sameEdit"]>; onSelectPath: (path: string) => void }) {
+function SameEditPopover({ sameEdit, onSelectPlace }: { sameEdit: NonNullable<FileBadges["sameEdit"]>; onSelectPlace: (place: ReviewPlace) => void }) {
   return (
     <FilesPopover label={sameEdit.label} testId="file-same-edit-badge">
       {close => (
@@ -159,7 +161,7 @@ function SameEditPopover({ sameEdit, onSelectPath }: { sameEdit: NonNullable<Fil
               testId="file-same-edit-file"
               onSelect={() => {
                 close()
-                onSelectPath(path)
+                onSelectPlace(fileTop(path))
               }}
             />
           ))}

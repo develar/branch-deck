@@ -6,6 +6,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { ReviewPlanState } from "@/hooks/useReviewPlan"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
+import type { ReviewPlace } from "@/lib/review-place"
+import { fileTop } from "@/lib/review-place"
 import type { BreakageEntry } from "@/presenters/review-plan"
 import {
   formatPairState,
@@ -22,8 +24,8 @@ import {
  * "Review Summary" above the diffs of a scope of the branch review, with the review plan on (spec/branch/review-plan.spec.md,
  * Status: Experimental). What can break leads: what changed since the user's review, the removed or changed API with
  * uses left outside the change or with uses unknown, then the dependency changes and the new links between modules,
- * the repeated edits and the new API, collapsed, and why the usages are missing. Each entry selects its file in the
- * review. Rust decides and ranks; the card words what it sent, in its order.
+ * the repeated edits and the new API, collapsed, and why the usages are missing. Each entry shows its place in the
+ * review: the line of the declaration or of the use, else the file. Rust decides and ranks; the card words what it sent, in its order.
  */
 export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
   const { plan, loading, error } = state
@@ -74,7 +76,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
                 {breakage.updated.entries.map(entry => (
                   <li key={entry.key} className="flex min-w-0 items-center gap-2" data-testid="review-plan-updated-entry" data-name={entry.name}>
                     <Badge variant={entry.tone}>{entry.kind}</Badge>
-                    <FileButton path={entry.path} title={entry.location}>
+                    <FileButton place={entry.place} title={entry.location}>
                       <code className="font-mono">{entry.name}</code>
                       <span className="text-xs text-muted-foreground">{entry.location}</span>
                     </FileButton>
@@ -90,7 +92,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
           <SectionLabel title="Dependencies" />
           {dependencies.modules.map(module => (
             <div key={module.manifest} className="flex min-w-0 flex-col" data-testid="review-plan-dependency-module" data-manifest={module.manifest}>
-              <FileButton path={module.manifest} title={module.manifest}>
+              <FileButton place={fileTop(module.manifest)} title={module.manifest}>
                 <span className="font-medium">{module.module}</span>
                 <span className="text-xs text-muted-foreground">{module.manifest}</span>
               </FileButton>
@@ -109,7 +111,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
               <ul className="flex flex-col pl-3">
                 {dependencies.links.map(link => (
                   <li key={link.key} className="flex min-w-0" data-testid="review-plan-module-link" data-from={link.from} data-to={link.to}>
-                    <FileButton path={link.from} title={`${link.from} → ${link.to}`}>
+                    <FileButton place={link.place} title={`${link.from} → ${link.to}`}>
                       <span>{link.label}</span>
                       <span className="text-xs text-muted-foreground">{link.symbols}</span>
                     </FileButton>
@@ -133,7 +135,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
                 </span>
                 <span className="flex flex-wrap gap-x-2 pl-3 text-xs">
                   {group.files.map(path => (
-                    <FileButton key={path} path={path} title={path} testId="review-plan-repeated-file">
+                    <FileButton key={path} place={fileTop(path)} title={path} testId="review-plan-repeated-file">
                       {path.slice(path.lastIndexOf("/") + 1)}
                     </FileButton>
                   ))}
@@ -148,7 +150,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
           <ul aria-label="New API" className="flex flex-col gap-0.5">
             {newApi.map(file => (
               <li key={file.path} className="flex min-w-0" data-testid="review-plan-new-api-file" data-path={file.path}>
-                <FileButton path={file.path} title={file.path}>
+                <FileButton place={file.place} title={file.path}>
                   <span>{file.path}</span>
                   <code className="truncate font-mono text-xs text-muted-foreground">{file.names}</code>
                 </FileButton>
@@ -173,7 +175,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
     <li className="flex min-w-0 flex-col" data-testid="review-plan-breakage-entry" data-name={entry.name} data-path={entry.path}>
       <div className="flex min-w-0 items-center gap-2">
         <Badge variant={entry.tone}>{entry.kind}</Badge>
-        <FileButton path={entry.path} title={entry.location} testId="review-plan-breakage-file">
+        <FileButton place={entry.place} title={entry.location} testId="review-plan-breakage-file">
           <code className="font-mono">{entry.name}</code>
           <span className="text-xs text-muted-foreground">{entry.location}</span>
         </FileButton>
@@ -215,8 +217,11 @@ function Folded({ title, count, testId, children }: { title: string; count?: num
   )
 }
 
-/** What a click selects in the review: a changed file, by its path or its old path; plain text outside a review */
-function FileButton({ path, title, testId = "review-plan-file", children }: { path: string; title: string; testId?: string; children: ReactNode }) {
+/**
+ * What a click shows in the review: a changed file, by its path or its old path, at the line of the entry; plain text
+ * outside a review
+ */
+function FileButton({ place, title, testId = "review-plan-file", children }: { place: ReviewPlace; title: string; testId?: string; children: ReactNode }) {
   const select = useSelectReviewFile()
   return (
     <button
@@ -225,8 +230,8 @@ function FileButton({ path, title, testId = "review-plan-file", children }: { pa
       title={title}
       disabled={select === null}
       data-testid={testId}
-      data-path={path}
-      onClick={() => select?.(path)}
+      data-path={place.path}
+      onClick={() => select?.(place)}
     >
       {children}
     </button>

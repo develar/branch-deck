@@ -103,6 +103,8 @@ export interface DeclarationPlace {
   line: number
   column: number
   endColumn: number
+  /** The name, when its columns are not known: the first whole word of it in the line is selected */
+  name?: string
 }
 
 export interface DiffViewProps {
@@ -776,7 +778,7 @@ export function DiffView({
     // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
     scroller.current?.focus({ preventScroll: true })
     // once the row of the name is painted with its text, whenever that is
-    painter.selectWord(index, side, place.line, place.column, place.endColumn)
+    painter.selectWord(index, side, place.line, place.column, place.endColumn, place.name ?? null)
   }, [layout, revealTick, painter, headerHeight])
 
   /** Back (⌘[) and Forward (⌘]): the places of the jumps */

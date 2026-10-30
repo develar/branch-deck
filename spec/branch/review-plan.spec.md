@@ -35,6 +35,7 @@ targets:
   - ../../src/hooks/useReviewPlan.ts
   - ../../src/hooks/useBranchReview.ts
   - ../../src/hooks/useSelectReviewFile.ts
+  - ../../src/lib/review-place.ts
   - ../../src/presenters/review-plan.ts
   - ../../src/components/review/ReviewPlanCard.tsx
   - ../../src/components/review/BranchReview.tsx
@@ -480,7 +481,7 @@ the repeated edits and the new API.
   modules · 1 repeated edit · 2 new declarations", or "No possible break". Then "Since your review" as before (a
   rewritten commit with the lines per path it changes against its reviewed version), and the `index_note` last when
   the usages are missing.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `sums the card up in its title, what can break first`)
 - "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless every use is
@@ -490,7 +491,7 @@ the repeated edits and the new API.
   `complete` says "At least N uses left outside", or "No use found outside, the count is incomplete" at 0. Only the
   entries with a `complete` count and no use outside fold into one collapsed line, "12 API changes, every use updated
   in this change": an unknown or incomplete count never reads as safe. An addition is not listed there.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0`)
@@ -500,33 +501,35 @@ the repeated edits and the new API.
   first use). "Repeated Edits" must list one line per group, "Same edit in 3 files:" with the edit and its files, and
   "New API" the added declarations per file. Both start collapsed.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../src/presenters/review-plan.test.ts (`groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules`, `words each repeated edit with its files, and the new API per file in the order of its first declaration`)
-- A click on an entry of the card must select its file in the review, as a link of a badge does: the file that
-  declares an API (by its old path too), the build file of a module, the file that uses of a link, a file of a
-  repeated edit, a file of the new API. A filter that hides the file is dropped as for a badge, also when the
-  filters hide every file.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+- A click on an entry of the card must select its file in the review and show its place in the diffs, its name
+  selected, as a link of a badge does: the declaration of an API (a removal on the side before the commits, by its old
+  path too), the first use of a link between modules in the file that uses, the first declaration of the new API of a
+  file; the build file of a module and a file of a repeated edit at its header. A filter that hides the file is
+  dropped as for a badge, also when the filters hide every file, and the place is shown once the file is.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of a card entry while a filter hides every file, and drop only the filter that hides it`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
 - The files must stay in the tree, in tree order, in All Changes and in "Since Your Review" as one range: the plan
   adds badges and the Mechanical group, and offers no other order. A commit of the column shows its plain tree.
   The facts apply once the plan of the shown scope is read, not while the next one is read.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
 - A file row must show `uses N` and `used by M`, the links among the changed files after the commits, with `+K new`
   for the links it uses that the commits added. Its popover must list each link it uses, then each link that uses it,
   a removed one too: the other file, the names and the line of the first use (`Cache, get · Reader.kt:3`), and the
-  state Added, Removed or Kept. A click on a link must select that file and close the popover.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover`)
+  state Added, Removed or Kept. A click on a link must select that file, close the popover and show the file: a file
+  that uses this one at its first use, the name selected, a file it uses at its header.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and show a linked file from its popover, a file that uses at its first use`)
 - A click on a file in a popover must select it also when a filter hides it. The owner filter then goes back to All
   when it hides the file, and the search is cleared when it hides the file. A filter that shows the file stays.
   The click selects the file once: a later change of the owner filter or the search must not select it again.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file that a filter hides, and drop only the filter that hides it`)
-  [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line and its state`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
 - A file row must show `breaks N` in the warning tone for the uses left outside the change of the API it removes or
   changes. When `breaks_complete` is false it must show `breaks N+`, or a quiet `breaks ?` at 0: a lower bound never
   reads as safe. `no test` must be a quiet text of an `untested` file.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and show a linked file from its popover, a file that uses at its first use`)
   [@test] ../../src/presenters/review-plan.test.ts (`says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0`, `lists no file without a badge`)
 - A file of a repeated edit must show `same edit ×N`. Its popover must name the edit (the first line removed and the
   first added, `a → b`) and list the other files of the group; a click selects one.

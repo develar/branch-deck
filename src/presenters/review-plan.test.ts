@@ -101,6 +101,8 @@ describe("the possible breakage of the card", () => {
     expect(entries.map(({ key: _key, ...entry }) => entry)).toEqual([
       {
         path: "src/a/Api.kt",
+        // a removal shows its declaration before the commits
+        place: { path: "src/a/Api.kt", side: "old", line: 3, name: "open" },
         name: "open",
         kind: "Removed",
         tone: "destructive",
@@ -115,6 +117,7 @@ describe("the possible breakage of the card", () => {
       },
       {
         path: "src/Store.kt",
+        place: { path: "src/Store.kt", side: "new", line: 34, name: "helper" },
         name: "helper",
         kind: "Changed",
         tone: "warning",
@@ -189,7 +192,14 @@ describe("the dependencies, the repeated edits and the new API of the card", () 
       { manifest: "src/b/b.iml", module: "b", lines: [["added", "New module b"]] },
     ])
     expect(section.links.map(({ key: _key, ...entry }) => entry)).toEqual([
-      { from: "src/a/Reader.kt", to: "src/b/Cache.kt", label: "Reader.kt → Cache.kt", symbols: "Cache, get · Reader.kt:3" },
+      {
+        from: "src/a/Reader.kt",
+        to: "src/b/Cache.kt",
+        // the first use, in the file that uses
+        place: { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" },
+        label: "Reader.kt → Cache.kt",
+        symbols: "Cache, get · Reader.kt:3",
+      },
     ])
   })
 
@@ -199,14 +209,15 @@ describe("the dependencies, the repeated edits and the new API of the card", () 
     ])
     expect(
       presentNewApi([
-        change({ kind: "added", name: "Cache", path: "src/b/Cache.kt" }),
+        change({ kind: "added", name: "Cache", path: "src/b/Cache.kt", line: 3 }),
         change({ kind: "changed", name: "helper" }),
-        change({ kind: "added", name: "Reader", path: "src/a/Reader.kt" }),
-        change({ kind: "added", name: "get", path: "src/b/Cache.kt" }),
+        change({ kind: "added", name: "Reader", path: "src/a/Reader.kt", line: 5 }),
+        change({ kind: "added", name: "get", path: "src/b/Cache.kt", line: 4 }),
       ]),
     ).toEqual([
-      { path: "src/b/Cache.kt", names: "Cache, get" },
-      { path: "src/a/Reader.kt", names: "Reader" },
+      // each at its first new declaration
+      { path: "src/b/Cache.kt", place: { path: "src/b/Cache.kt", side: "new", line: 3, name: "Cache" }, names: "Cache, get" },
+      { path: "src/a/Reader.kt", place: { path: "src/a/Reader.kt", side: "new", line: 5, name: "Reader" }, names: "Reader" },
     ])
   })
 })
@@ -231,7 +242,7 @@ function dependency(patch: Partial<DependencyChange>): DependencyChange {
 }
 
 describe("the badges of the files in the tree", () => {
-  it("counts the links among the changed files, the new ones apart, and lists each with its names, its line and its state", () => {
+  it("counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place", () => {
     const badges = presentFileBadges({
       files: [facts({ path: "src/a/Reader.kt", uses: 1, newLinks: 1, untested: true }), facts({ path: "src/b/Cache.kt", usedBy: 1 })],
       links: [link("src/a/Reader.kt", "src/b/Cache.kt", "added", ["Cache", "get", "put", "size"]), link("src/a/Reader.kt", "src/Old.kt", "removed")],
@@ -242,12 +253,30 @@ describe("the badges of the files in the tree", () => {
     expect([reader.uses, reader.usedBy, reader.newLinks, reader.untested, reader.breaks]).toEqual(["uses 1", null, "+1 new", "no test", null])
     expect(reader.description).toBe("uses 1, +1 new, no test")
     expect(reader.usesLinks.map(({ key: _key, ...entry }) => entry)).toEqual([
-      { path: "src/b/Cache.kt", name: "Cache.kt", symbols: "Cache, get, put +1 · Reader.kt:3", state: "added", stateWord: "Added" },
-      { path: "src/Old.kt", name: "Old.kt", symbols: "Cache · Reader.kt:3", state: "removed", stateWord: "Removed" },
+      // a file it uses at its header: the link names no line of it
+      {
+        path: "src/b/Cache.kt",
+        place: { path: "src/b/Cache.kt", side: "new", line: null, name: null },
+        name: "Cache.kt",
+        symbols: "Cache, get, put +1 · Reader.kt:3",
+        state: "added",
+        stateWord: "Added",
+      },
+      {
+        path: "src/Old.kt",
+        place: { path: "src/Old.kt", side: "new", line: null, name: null },
+        name: "Old.kt",
+        symbols: "Cache · Reader.kt:3",
+        state: "removed",
+        stateWord: "Removed",
+      },
     ])
     const cache = badges.get("src/b/Cache.kt")!
     expect([cache.uses, cache.usedBy, cache.newLinks]).toEqual([null, "used by 1", null])
-    expect(cache.usedByLinks.map(entry => [entry.path, entry.stateWord])).toEqual([["src/a/Reader.kt", "Added"]])
+    // a file that uses it at its first use
+    expect(cache.usedByLinks.map(entry => [entry.path, entry.stateWord, entry.place])).toEqual([
+      ["src/a/Reader.kt", "Added", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }],
+    ])
   })
 
   it("says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0", () => {

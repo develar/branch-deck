@@ -6,7 +6,7 @@ import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow } from "../helpers/branch-helpers"
-import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
+import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -112,7 +112,11 @@ async function markReviewed(window: Page): Promise<void> {
 }
 
 test.describe("The review plan in the branch review", () => {
-  test("should lead the Review Summary with what can break, select the file of an entry, and keep the files in the tree", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const { store, cache } = planRows(window)
@@ -138,15 +142,17 @@ test.describe("The review plan in the branch review", () => {
     await expect(newApi.getByTestId("review-plan-new-api-file")).toHaveCount(0)
     await captureHtmlSnapshot(card, "review-plan-card")
 
-    // an entry selects its file
+    // an entry selects its file and shows its declaration, the name selected
     await helper.getByTestId("review-plan-breakage-file").click()
     await expect(store).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
     await newApi.getByRole("button", { name: /New API/ }).click()
     await expect
       .poll(() => newApi.getByTestId("review-plan-new-api-file").evaluateAll(files => files.map(file => file.getAttribute("data-path"))))
       .toEqual(["src/a/Reader.kt", "src/b/Cache.kt"])
     await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
     await expect(cache).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
     await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
 
     // the files stay in the tree: the directories first, no order to choose
@@ -171,7 +177,11 @@ test.describe("The review plan in the branch review", () => {
     await expect(planRows(window).store.getByTestId("file-breaks-badge")).toHaveText("breaks ?")
   })
 
-  test("should badge each file with its links, the uses it breaks and no test, and select a linked file from its popover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should badge each file with its links, the uses it breaks and no test, and show a linked file from its popover, a file that uses at its first use", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const { tree, reader, cache, store } = planRows(window)
@@ -199,6 +209,12 @@ test.describe("The review plan in the branch review", () => {
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect(popover).toHaveCount(0)
     await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+
+    // the popover of Cache lists Reader, which uses it: a click shows its first use, the name selected
+    await cache.getByTestId("file-links-badge").click()
+    await popover.getByTestId("file-link").click()
+    await expect(reader).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/a/Reader.kt" })
   })
 
   test("should select a linked file that a filter hides, and drop only the filter that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -286,6 +302,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(store).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 8 \/ 8$/)
     await expect(header("src/Store.kt")).toBeInViewport()
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
 
     // the owner filter and a search that hides its only file: the entry of Cache drops the search, the owner stays
     await search.fill("nothing matches this")
@@ -299,6 +316,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 1 \/ 1$/)
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
 
     // the search keeps only Store and the owner filter hides it, so no file shows: the owner filter goes, the search stays
     await owner("All").click()

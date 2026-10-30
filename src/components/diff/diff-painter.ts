@@ -168,7 +168,7 @@ export class DiffPainter {
    * again when a paint drops it (a new layout paints every row again), until the user presses or types in the view or
    * selects elsewhere
    */
-  private revealedName: { file: number; side: number; line: number; start: number; end: number } | null = null
+  private revealedName: { file: number; side: number; line: number; start: number; end: number; word: string | null } | null = null
   /** The pages of tokens that arrived since the last repaint, as `blobId:page` */
   private readonly arrivedPages = new Set<string>()
   private textsChanged = false
@@ -959,13 +959,14 @@ export class DiffPainter {
   }
 
   /**
-   * Selects the columns `[start, end)` of a line of a side, the name a reveal shows: now if its row is painted with its
+   * Selects the columns `[start, end)` of a line of a side, or the first whole word `word` there when given, the name a
+   * reveal shows: now if its row is painted with its
    * text, else once a paint paints it so (the text of a file outside the review comes after its layout, later under
    * load), and again after a paint that dropped it. A later call replaces it; a press or a key in the view, or a
    * selection elsewhere, ends it
    */
-  selectWord(file: number, side: number, line: number, start: number, end: number): void {
-    this.revealedName = { file, side, line, start, end }
+  selectWord(file: number, side: number, line: number, start: number, end: number, word: string | null = null): void {
+    this.revealedName = { file, side, line, start, end, word }
     this.selectRevealedName()
   }
 
@@ -980,9 +981,11 @@ export class DiffPainter {
     if (cell === null) {
       return
     }
+    // a name without its columns is the first whole word of that name in the line
+    const at = name!.word === null ? -1 : wordColumn(cell.textContent ?? "", name!.word)
     const selection = document.getSelection()
     selection?.removeAllRanges()
-    selection?.addRange(cellRange(cell, name!.start, name!.end))
+    selection?.addRange(at < 0 ? cellRange(cell, name!.start, name!.end) : cellRange(cell, at, at + name!.word!.length))
   }
 
   /** The selection moved out of the view (the user selected in another one): the name a reveal selected is let go */
@@ -1156,4 +1159,15 @@ function resolvedEdges(row: LineRow): string {
 /** A file shows a column per side: Split, a merge */
 function sideBySide(file: PainterFile | undefined): boolean {
   return (file?.cells?.columns.length ?? 1) > 1
+}
+
+/** The UTF-16 column of the first whole-word `word` in `text`; -1 when the text has none */
+function wordColumn(text: string, word: string): number {
+  const part = (char: string | undefined) => char !== undefined && /[\p{L}\p{N}_$]/u.test(char)
+  for (let at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
+    if (!part(text[at - 1]) && !part(text[at + word.length])) {
+      return at
+    }
+  }
+  return -1
 }

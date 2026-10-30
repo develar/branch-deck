@@ -1,12 +1,14 @@
 import { createContext, useContext } from "react"
+import type { ReviewPlace } from "@/lib/review-place"
 
-/** Selects a changed file of the review around the component, as a link of a badge does; null outside a review */
-export const SelectReviewFileContext = createContext<((path: string) => void) | null>(null)
+/** Shows a place of the review around the component, as a link of a badge does; null outside a review */
+export const SelectReviewFileContext = createContext<((place: ReviewPlace) => void) | null>(null)
 
 /**
- * The selection of a changed file of the review around the component, by its last path or its old path; null outside a
- * review. A filter that hides the file is dropped first (`CommitReview`)
+ * The selection of a place of the review around the component: its changed file, by its last path or its old path, and
+ * the line of the place in its diff; null outside a review. A filter that hides the file is dropped first
+ * (`CommitReview`)
  */
-export function useSelectReviewFile(): ((path: string) => void) | null {
+export function useSelectReviewFile(): ((place: ReviewPlace) => void) | null {
   return useContext(SelectReviewFileContext)
 }
