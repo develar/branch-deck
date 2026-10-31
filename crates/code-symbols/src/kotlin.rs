@@ -192,6 +192,8 @@ pub(crate) static SPEC: Spec = Spec {
         node
       }
     },
+    entry_point,
+    unstable: |w, node| annotation_names(w, node).iter().any(|path| w.unstable_annotation(path)),
   }),
   call_shape: Some(call_shape),
   coroutine: Some(coroutine),
@@ -260,21 +262,51 @@ fn lambda_callee<'t>(w: &Walk<'t>, lambda: Node<'t>) -> Option<&'t str> {
   w.is(name, "simple_identifier").then(|| w.text(name)).flatten()
 }
 
-/// `@file:JvmName("Util")` names the JVM class of the top-level declarations
+/// `@file:JvmName("Util")` names the JVM class of the top-level declarations; `@file:ApiStatus.Internal` (any annotation
+/// of `Walk::unstable_annotation`) marks them as no stable API. One annotation or a list of them (`@file:[A B]`), with
+/// arguments or without
 fn file_annotation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
-  let invocation = w.child(node, Child::Kind(&["constructor_invocation"]));
-  let annotation = invocation.and_then(|it| w.child(it, Child::Kind(&["user_type"]))).map(|it| segments(w, it));
-  if annotation.is_some_and(|names| names == ["JvmName"] || names == ["kotlin", "jvm", "JvmName"])
-    && let Some(name) = invocation
-      .and_then(|it| w.child(it, Child::Kind(&["value_arguments"])))
-      .and_then(|it| w.child(it, Child::Kind(&["value_argument"])))
-      .and_then(|it| w.child(it, Child::Kind(&["string_literal"])))
-      .and_then(|it| w.child(it, Child::Kind(&["string_content"])))
-      .and_then(|it| w.text(it))
-  {
-    w.set_jvm_name(name.to_string());
+  let mut cursor = node.walk();
+  let annotations: Vec<Node<'t>> = node
+    .named_children(&mut cursor)
+    .filter(|it| w.is(*it, "constructor_invocation") || w.is(*it, "user_type"))
+    .collect();
+  for annotation in annotations {
+    let invocation = w.is(annotation, "constructor_invocation").then_some(annotation);
+    let user_type = if invocation.is_some() {
+      w.child(annotation, Child::Kind(&["user_type"]))
+    } else {
+      Some(annotation)
+    };
+    let Some(names) = user_type.map(|it| segments(w, it)) else { continue };
+    let jvm_name = names == ["JvmName"] || names == ["kotlin", "jvm", "JvmName"];
+    w.add_file_annotation(names);
+    if jvm_name
+      && let Some(name) = invocation
+        .and_then(|it| w.child(it, Child::Kind(&["value_arguments"])))
+        .and_then(|it| w.child(it, Child::Kind(&["value_argument"])))
+        .and_then(|it| w.child(it, Child::Kind(&["string_literal"])))
+        .and_then(|it| w.child(it, Child::Kind(&["string_content"])))
+        .and_then(|it| w.text(it))
+    {
+      w.set_jvm_name(name.to_string());
+    }
   }
   true
+}
+
+/// A top-level `fun main` without a receiver or type parameters (`JvmHooks::entry_point`): without parameters, of one
+/// `Array<String>` or of a `vararg` of `String`, as the Kotlin compiler takes it for the main function of a program
+fn entry_point<'t>(w: &Walk<'t>, node: Node<'t>, signature: &Signature) -> bool {
+  if w.holder().is_some() || w.field(node, "receiver").is_some() || w.child(node, Child::Kind(&["type_parameters"])).is_some() {
+    return false;
+  }
+  match signature.parameters.as_slice() {
+    [] => true,
+    [parameter] if parameter.vararg => w.type_is(parameter.type_ref.as_ref(), &["String"], 1),
+    [parameter] => w.type_is(parameter.type_ref.as_ref(), &["Array", "String"], 0),
+    _ => false,
+  }
 }
 
 fn package<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {

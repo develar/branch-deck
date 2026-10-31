@@ -148,6 +148,7 @@ pub(crate) static SPEC: Spec = Spec {
     "floating_point_type",
     "boolean_type",
     "array_type",
+    "void_type",
     "string_literal",
     "decimal_integer_literal",
     "hex_integer_literal",
@@ -185,6 +186,12 @@ pub(crate) static SPEC: Spec = Spec {
     implicit_constructor: |reach| reach,
     value_type,
     receiver_node: |_, node| node,
+    entry_point,
+    unstable: |w, node| {
+      // a declarator has the annotations of its statement
+      let owner = if w.is(node, "variable_declarator") { node.parent().unwrap_or(node) } else { node };
+      annotation_paths(w, owner).iter().any(|path| w.unstable_annotation(path))
+    },
   }),
   call_shape: Some(call_shape),
   coroutine: Some(|_, _| None),
@@ -424,13 +431,7 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
   }
   let modifiers = w.child(node, Child::Kind(&["modifiers"]));
   let has = |token: &str| modifiers.is_some_and(|it| w.has_token(it, token));
-  let annotations: Vec<Vec<&str>> = modifiers.map_or_else(Vec::new, |it| {
-    let mut cursor = it.walk();
-    it.named_children(&mut cursor)
-      .filter(|it| w.is(*it, "marker_annotation") || w.is(*it, "annotation"))
-      .filter_map(|it| w.field(it, "name").and_then(|name| w.path_of(name)))
-      .collect()
-  });
+  let annotations = annotation_paths(w, node);
   let overrides = annotations.iter().any(|path| matches!(path.as_slice(), ["Override"] | ["java", "lang", "Override"]));
   let test = annotations.iter().any(|path| path.last().is_some_and(|last| TEST_ANNOTATIONS.contains(last)));
   let open = match w.holder() {
@@ -449,6 +450,33 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
     setter: None,
     receiver: None,
   }
+}
+
+/// The names of the annotations among the modifiers of `node`, each as its path (`[org, junit, Test]`), with arguments
+/// or without
+fn annotation_paths<'t>(w: &Walk<'t>, node: Node<'t>) -> Vec<Vec<&'t str>> {
+  w.child(node, Child::Kind(&["modifiers"])).map_or_else(Vec::new, |it| {
+    let mut cursor = it.walk();
+    it.named_children(&mut cursor)
+      .filter(|it| w.is(*it, "marker_annotation") || w.is(*it, "annotation"))
+      .filter_map(|it| w.field(it, "name").and_then(|name| w.path_of(name)))
+      .collect()
+  })
+}
+
+/// `public static void main(String[] args)` of a type (`JvmHooks::entry_point`), `String... args` and `String args[]`
+/// too; a method of an interface is public without `public`
+fn entry_point<'t>(w: &Walk<'t>, node: Node<'t>, signature: &Signature) -> bool {
+  let holder = w.holder();
+  if !w.is(node, "method_declaration") || holder.is_none() {
+    return false;
+  }
+  let modifiers = w.child(node, Child::Kind(&["modifiers"]));
+  let has = |token: &str| modifiers.is_some_and(|it| w.has_token(it, token));
+  (has("public") || holder == Some(Holder::Interface))
+    && has("static")
+    && w.field(node, "type").is_some_and(|it| w.is(it, "void_type"))
+    && matches!(signature.parameters.as_slice(), [parameter] if w.type_is(parameter.type_ref.as_ref(), &["String"], 1))
 }
 
 /// Whether the class whose body holds the current member is `final` or a record

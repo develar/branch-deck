@@ -8,8 +8,8 @@ Value isEdtRequired in ToolWindowManagerImpl Container Instance 9-9 @9 <Boolean>
 Value coroutineScope in ToolWindowManagerImpl Module Instance 10-10 @10 <CoroutineScope> `val coroutineScope : CoroutineScope`
 Type Companion in ToolWindowManagerImpl Public Static 12-24 @12
 Function registerLocalToolWindowForTest in Companion Public Static 13-23 @13 (project: Project, buttonManager: ToolWindowButtonManager) `fun registerLocalToolWindowForTest : ToolWindowManagerImpl`
-Function getButtonManager in ToolWindowManagerImpl Module Instance 26-27 @27 (toolWindow: ToolWindow) `fun getButtonManager : ToolWindowButtonManager` overridable
-Function getButtonManager in ToolWindowManagerImpl Module Instance 29-30 @30 (paneId: String) `fun getButtonManager : ToolWindowButtonManager` overridable
+Function getButtonManager in ToolWindowManagerImpl Module Instance 26-27 @27 (toolWindow: ToolWindow) `fun getButtonManager : ToolWindowButtonManager` overridable unstable
+Function getButtonManager in ToolWindowManagerImpl Module Instance 29-30 @30 (paneId: String) `fun getButtonManager : ToolWindowButtonManager` overridable unstable
 Function dispose in ToolWindowManagerImpl Public Instance 32-32 @32 () `fun dispose` overrides overridable
 Function getToolWindowPane in ToolWindowManagerImpl Container Instance 34-34 @34 (paneId: String) `fun getToolWindowPane : ToolWindowPane`
 Function convert in ToolWindowManagerImpl Public Instance 36-36 @36 (value: _, into: _, onDone: ToolWindow/Unit) `fun < T > convert`

@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 19;
+pub const RULES_VERSION: u32 = 20;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -271,10 +271,25 @@ pub(crate) struct JvmHooks {
   pub(crate) value_type: for<'t> fn(&Walk<'t>, Node<'t>) -> Option<ValueType<'t>>,
   /// The node a receiver of a member names a value by: a name inside a Kotlin `m!!`, else the node itself
   pub(crate) receiver_node: for<'t> fn(&Walk<'t>, Node<'t>) -> Node<'t>,
+  /// Whether a function named `main`, not a local one, of this signature is one the JVM starts a program with
+  /// (`Declaration::entry_point`)
+  pub(crate) entry_point: for<'t> fn(&Walk<'t>, Node<'t>, &Signature) -> bool,
+  /// Whether an annotation of a declaration of any kind marks it as no stable API (`Walk::unstable_annotation`)
+  pub(crate) unstable: for<'t> fn(&Walk<'t>, Node<'t>) -> bool,
 }
 
 /// The last names of the annotations of a JVM function a test framework runs (`Declaration::test`)
 pub(crate) const TEST_ANNOTATIONS: &[&str] = &["Test", "ParameterizedTest", "RepeatedTest", "TestFactory", "TestTemplate"];
+
+/// The last names of the annotations that mark a JVM declaration as no stable API whatever their qualifier
+/// (`Declaration::unstable`): `org.jetbrains.annotations`, Guava and `AndroidX` name them alike
+pub(crate) const UNSTABLE_ANNOTATIONS: &[&str] = &["VisibleForTesting", "TestOnly"];
+
+/// The annotations of `API_STATUS` that mark a declaration as no stable API (`Declaration::unstable`)
+const API_STATUS_UNSTABLE: &[&str] = &["Internal", "Experimental"];
+
+/// The class whose nested annotations say the status of an API in the code of `JetBrains`
+const API_STATUS: &[&str] = &["org", "jetbrains", "annotations", "ApiStatus"];
 
 /// What the modifiers of a member say about overriding
 #[derive(Debug, Clone, Copy, Default)]
@@ -310,6 +325,8 @@ pub(crate) struct JvmFields {
   jvm_name: bool,
   lateinit: bool,
   test: bool,
+  entry_point: bool,
+  unstable: bool,
   setter: Option<Reach>,
   supertypes: Vec<Vec<u32>>,
   value_type: Option<Typed>,
@@ -713,6 +730,9 @@ pub(crate) struct Walk<'t> {
   leading_now: Option<u32>,
   /// The test attribute taken from the parent for the node being entered
   test_now: bool,
+  /// The paths of the annotations of a Kotlin file (`@file:ApiStatus.Internal`), which come before its imports: an
+  /// unstable one makes the top-level declarations `unstable`
+  file_annotations: Vec<Vec<&'t str>>,
   /// TypeScript `export { x }`: top-level names whose declarations become public
   exported: Vec<u32>,
 }
@@ -753,6 +773,7 @@ impl<'t> Walk<'t> {
       error_depth: 0,
       leading_now: None,
       test_now: false,
+      file_annotations: Vec::new(),
       exported: Vec::new(),
     }
   }
@@ -1232,6 +1253,7 @@ impl<'t> Walk<'t> {
     let Some(hooks) = &spec.jvm else { return JvmFields::default() };
     let name = self.child(node, rule.name).and_then(|it| self.name_node(it));
     let mut fields = self.overriding(hooks, node, name, rule.kind);
+    fields.unstable = (hooks.unstable)(self, node);
     match (hooks.supertypes)(self, node) {
       Some(supertypes) => {
         if rule.kind == DeclKind::Type {
@@ -1261,6 +1283,10 @@ impl<'t> Walk<'t> {
       self.override_references(name, kind == DeclKind::Function, modality.receiver, signature.as_ref());
     }
     let test = kind == DeclKind::Function && (modality.test || self.junit3_test(name, signature.as_ref()));
+    let entry_point = kind == DeclKind::Function
+      && !self.is_local()
+      && name.and_then(|it| self.text(it)) == Some("main")
+      && signature.as_ref().is_some_and(|it| (hooks.entry_point)(self, node, it));
     JvmFields {
       signature,
       overrides: modality.overrides,
@@ -1270,6 +1296,7 @@ impl<'t> Walk<'t> {
       jvm_name: modality.jvm_name,
       lateinit: modality.lateinit,
       test,
+      entry_point,
       setter: modality.setter,
       value_type: if kind == DeclKind::Value { self.value_type(hooks, node) } else { None },
       ..JvmFields::default()
@@ -1319,6 +1346,8 @@ impl<'t> Walk<'t> {
       jvm_name: fields.jvm_name,
       lateinit: fields.lateinit,
       test: fields.test || (traits.kind == DeclKind::Function && self.test_now),
+      entry_point: fields.entry_point,
+      unstable: fields.unstable || (traits.kind != DeclKind::Binding && self.container().is_none() && self.file_annotations.iter().any(|it| self.unstable_annotation(it))),
       setter: fields.setter,
       supertypes: fields.supertypes,
       value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
@@ -2005,6 +2034,45 @@ impl<'t> Walk<'t> {
     self.jvm_name = Some(name);
   }
 
+  /// An annotation of a Kotlin file, its path as written: an unstable one (`unstable_annotation`, asked once the
+  /// imports are known) marks the top-level declarations of the file (`Declaration::unstable`)
+  pub(crate) fn add_file_annotation(&mut self, path: Vec<&'t str>) {
+    self.file_annotations.push(path);
+  }
+
+  /// Whether an annotation of this path, as written, marks a declaration as no stable API (`Declaration::unstable`):
+  /// one of `UNSTABLE_ANNOTATIONS` by its last name; `Internal` or `Experimental` of `ApiStatus` qualified by
+  /// `ApiStatus` or by its full name, or bare when an import of the file brings it in from
+  /// `org.jetbrains.annotations.ApiStatus` (by its name, an alias of it, or `ApiStatus.*`), so that another `Internal`
+  /// is none
+  pub(crate) fn unstable_annotation(&self, path: &[&str]) -> bool {
+    let Some((last, qualifier)) = path.split_last() else { return false };
+    if UNSTABLE_ANNOTATIONS.contains(last) {
+      return true;
+    }
+    if !qualifier.is_empty() {
+      return API_STATUS_UNSTABLE.contains(last) && (qualifier == ["ApiStatus"] || qualifier == API_STATUS);
+    }
+    let name = |id: u32| self.names.get(id as usize).copied().unwrap_or_default();
+    self.imports.iter().any(|import| {
+      let from_api_status = import.path.len() == API_STATUS.len() && import.path.iter().zip(API_STATUS).all(|(id, segment)| name(*id) == *segment);
+      from_api_status
+        && match import.target {
+          ImportTarget::Name(target) => API_STATUS_UNSTABLE.contains(&name(target)) && name(import.alias.unwrap_or(target)) == *last,
+          ImportTarget::All => API_STATUS_UNSTABLE.contains(last),
+          ImportTarget::Default | ImportTarget::Namespace => false,
+        }
+    })
+  }
+
+  /// Whether a parameter type is not nullable and of these last names and array dimensions (`[String]` and 1 of Java
+  /// `String[]`)
+  pub(crate) fn type_is(&self, type_ref: Option<&TypeRef>, names: &[&str], arrays: u8) -> bool {
+    type_ref.is_some_and(|it| {
+      !it.nullable && it.arrays == arrays && it.names.len() == names.len() && it.names.iter().zip(names).all(|(id, name)| self.names.get(*id as usize) == Some(name))
+    })
+  }
+
   pub(crate) fn add_import(&mut self, import: Import) {
     self.imports.push(import);
   }
@@ -2134,7 +2202,10 @@ impl<'t> Walk<'t> {
   pub(crate) fn member_jvm_fields(&mut self, node: Node<'t>, name_node: Node<'t>, kind: DeclKind) -> JvmFields {
     let spec = self.spec;
     match &spec.jvm {
-      Some(hooks) => self.overriding(hooks, node, Some(name_node), kind),
+      Some(hooks) => JvmFields {
+        unstable: (hooks.unstable)(self, node),
+        ..self.overriding(hooks, node, Some(name_node), kind)
+      },
       None => JvmFields::default(),
     }
   }

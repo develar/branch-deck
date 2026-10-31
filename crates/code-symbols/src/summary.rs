@@ -113,6 +113,15 @@ pub struct Declaration {
   /// in a class named `…Test`, `…Tests` or `…TestCase` or that extends a `…TestCase`; Rust under `#[test]`,
   /// `#[tokio::test]`, `#[test_log::test]` or `#[rstest]`. Never in TypeScript, whose `test("…")` is a call
   pub test: bool,
+  /// A function the JVM starts a program with: a Kotlin top-level `fun main` without a receiver that takes no
+  /// parameters, one `Array<String>` or a `vararg` of `String`; a Java `public static void main(String[])` (`String...`
+  /// too) of a type. Never in Rust and TypeScript
+  pub entry_point: bool,
+  /// Annotated `@ApiStatus.Internal` or `@ApiStatus.Experimental` (qualified by `ApiStatus` or by its full name, or bare
+  /// `@Internal`/`@Experimental` imported from `org.jetbrains.annotations.ApiStatus`), `@VisibleForTesting` or
+  /// `@TestOnly` (by the last name); a top-level Kotlin declaration of a file annotated so (`@file:ApiStatus.Internal`)
+  /// too. A type around it is not asked: a member of a marked type is not marked itself. Never in Rust and TypeScript
+  pub unstable: bool,
   /// The reach of the setter of a Kotlin `var` (`private set` makes it `Container`); `None` for a `val` and other
   /// declarations
   pub setter: Option<Reach>,

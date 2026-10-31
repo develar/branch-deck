@@ -212,7 +212,8 @@ fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
   let summary = summary_of("kotlin/overrides.kt");
   assert_eq!(
     modalities(&summary, "getButtonManager"),
-    ["ToolWindowManagerImpl overridable", "ToolWindowManagerImpl overridable"]
+    ["ToolWindowManagerImpl overridable unstable", "ToolWindowManagerImpl overridable unstable"],
+    "`@VisibleForTesting` on the line above"
   );
   assert_eq!(modalities(&summary, "dispose"), ["ToolWindowManagerImpl overrides overridable"]);
   assert_eq!(modalities(&summary, "describe"), ["Base overridable", "Sub overrides"], "`final override`");
@@ -282,6 +283,138 @@ class Service {
   assert!(!test("helper"));
   assert!(!test("testConnection"), "no test class around it");
   assert!(!test("plain"), "another annotation");
+}
+
+#[test]
+fn a_top_level_main_is_an_entry_point() {
+  let source = b"fun main() {}
+fun main(args: Array<String>) {}
+suspend fun main(vararg args: String) {}
+fun main(args: kotlin.Array<kotlin.String>) {}
+fun main(count: Int) {}
+fun main(args: Array<String>?) {}
+fun String.main() {}
+fun <T> main() {}
+class Tool {
+  fun main(args: Array<String>) {}
+  companion object {
+    @JvmStatic fun main(args: Array<String>) {}
+  }
+}
+fun run() {
+  fun main() {}
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(
+    modalities(&summary, "main"),
+    [
+      "- entry_point",
+      "- entry_point",
+      "- entry_point",
+      "- entry_point",
+      "-",
+      "-",
+      "-",
+      "-",
+      "Tool",
+      "Companion jvm_static"
+    ],
+    "no parameters, an array or a vararg of strings, by the full name too; not another parameter, a receiver, type parameters, a member or a local"
+  );
+  assert!(!declaration(&summary, "run").entry_point);
+}
+
+#[test]
+fn an_unstable_annotation_marks_a_declaration() {
+  let source = b"package a
+
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Experimental
+import org.jetbrains.annotations.ApiStatus.Internal as JbInternal
+import org.jetbrains.annotations.TestOnly
+import com.other.Internal
+
+@ApiStatus.Internal fun internal() {}
+@org.jetbrains.annotations.ApiStatus.Internal
+fun qualified() {}
+@ApiStatus.Experimental class Trial
+@Experimental fun imported() {}
+@JbInternal val aliased = 1
+@Internal fun foreign() {}
+@VisibleForTesting internal fun forTests() {}
+@TestOnly const val ONLY = 1
+@ApiStatus.ScheduledForRemoval fun scheduled() {}
+@Suppress(\"x\") fun plain() {}
+@ApiStatus.Internal
+class Hidden(@VisibleForTesting val field: Int) {
+  fun member() {}
+  @get:TestOnly val getter = 1
+}
+enum class Level { @ApiStatus.Internal LOW, HIGH }
+";
+  let summary = summarize(Language::Kotlin, source);
+  let unstable = |name: &str| declaration(&summary, name).unstable;
+  assert!(unstable("internal"));
+  assert!(unstable("qualified"), "by the full name, on the line above");
+  assert!(unstable("Trial"), "a class, `Experimental`");
+  assert!(unstable("imported"), "bare, imported from `ApiStatus`");
+  assert!(unstable("aliased"), "by an alias of the import, a property");
+  assert!(!unstable("foreign"), "another `Internal`");
+  assert!(unstable("forTests"), "`VisibleForTesting` by its last name");
+  assert!(unstable("ONLY"), "a constant");
+  assert!(!unstable("scheduled"), "another status");
+  assert!(!unstable("plain"));
+  assert!(unstable("Hidden"));
+  assert!(unstable("field"), "a constructor property");
+  assert!(!unstable("member"), "a member of a marked class is not marked itself");
+  assert!(unstable("getter"), "with a use-site target");
+  assert!(unstable("LOW"), "an enum entry");
+  assert!(!unstable("HIGH"));
+}
+
+#[test]
+fn a_bare_internal_without_the_import_of_api_status_is_stable() {
+  let summary = summarize(Language::Kotlin, b"@Internal fun a() {}\n@Experimental class B\n");
+  assert!(!declaration(&summary, "a").unstable);
+  assert!(!declaration(&summary, "B").unstable);
+  let summary = summarize(Language::Kotlin, b"import org.jetbrains.annotations.ApiStatus.*\n\n@Internal fun a() {}\n");
+  assert!(declaration(&summary, "a").unstable, "imported with all of `ApiStatus`");
+}
+
+#[test]
+fn a_file_annotation_marks_the_top_level_declarations_unstable() {
+  let source = b"@file:ApiStatus.Internal
+@file:JvmName(\"Util\")
+
+package a
+
+import org.jetbrains.annotations.ApiStatus
+import b.Other as Alias
+
+fun top() {}
+val value = 1
+class Box {
+  fun member() {}
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(summary.jvm_name.as_deref(), Some("Util"), "beside another file annotation");
+  for name in ["top", "value", "Box"] {
+    assert!(declaration(&summary, name).unstable, "{name}");
+  }
+  assert!(!declaration(&summary, "member").unstable, "a member is marked by its class");
+  assert!(!declaration(&summary, "Alias").unstable, "an import binds a name, it declares no API");
+  // a bare annotation counts by the import that follows it
+  let summary = summarize(
+    Language::Kotlin,
+    b"@file:Internal\n\npackage a\n\nimport org.jetbrains.annotations.ApiStatus.Internal\n\nfun top() {}\n",
+  );
+  assert!(declaration(&summary, "top").unstable);
+  let summary = summarize(Language::Kotlin, b"@file:Internal\n\npackage a\n\nfun top() {}\n");
+  assert!(!declaration(&summary, "top").unstable);
+  let summary = summarize(Language::Kotlin, b"@file:Suppress(\"x\")\n\npackage a\n\nfun top() {}\n");
+  assert!(!declaration(&summary, "top").unstable);
 }
 
 #[test]

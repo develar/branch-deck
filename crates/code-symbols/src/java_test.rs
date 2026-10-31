@@ -23,6 +23,95 @@ fn a_method_a_test_framework_runs_is_a_test() {
 }
 
 #[test]
+fn a_public_static_void_main_of_strings_is_an_entry_point() {
+  let source = b"public class Tool {
+  public static void main(String[] args) {}
+  public static void main(String... args) {}
+  public static void main(final java.lang.String args[]) {}
+  static void main(String[] args) {}
+  public void main(String[] args) {}
+  public static int main(String[] args) { return 0; }
+  public static void main(String args) {}
+  public static void main(String[][] args) {}
+  public static void main(String[] args, int count) {}
+  public static void main() {}
+  void run() {
+    class Local {
+      public static void main(String[] args) {}
+    }
+  }
+}
+interface Launcher {
+  static void main(String[] args) {}
+}
+";
+  let summary = summarize(Language::Java, source);
+  assert_eq!(
+    modalities(&summary, "main"),
+    [
+      "Tool entry_point",
+      "Tool entry_point",
+      "Tool entry_point",
+      "Tool",
+      "Tool overridable",
+      "Tool",
+      "Tool",
+      "Tool",
+      "Tool",
+      "Tool",
+      "Launcher entry_point"
+    ],
+    "an array of strings, a vararg, the `[]` after the name, by the full name; not without `public` or `static`, of another return or parameters, nor of a local class; a method of an interface is public"
+  );
+}
+
+#[test]
+fn an_unstable_annotation_marks_a_declaration() {
+  let source = b"package a;
+
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.ApiStatus.Experimental;
+import org.jetbrains.annotations.TestOnly;
+import com.google.common.annotations.VisibleForTesting;
+import com.other.Internal;
+
+@ApiStatus.Internal
+public class Hidden {
+  public void member() {}
+  @org.jetbrains.annotations.ApiStatus.Internal public void qualified() {}
+  @Experimental public void imported() {}
+  @Internal public void foreign() {}
+  @VisibleForTesting public int counter, other;
+  @TestOnly public static final int ONLY = 1;
+  @ApiStatus.Experimental public interface Trial {}
+  @ApiStatus.ScheduledForRemoval public void scheduled() {}
+  @Override public String toString() { return \"\"; }
+  enum Level { @ApiStatus.Internal LOW, HIGH }
+}
+";
+  let summary = summarize(Language::Java, source);
+  let unstable = |name: &str| declaration(&summary, name).unstable;
+  assert!(unstable("Hidden"));
+  assert!(!unstable("member"), "a member of a marked class is not marked itself");
+  assert!(unstable("qualified"), "by the full name");
+  assert!(unstable("imported"), "bare, imported from `ApiStatus`");
+  assert!(!unstable("foreign"), "another `Internal`");
+  assert!(unstable("counter"), "a field, by the annotation of its statement");
+  assert!(unstable("other"), "the second declarator of the statement");
+  assert!(unstable("ONLY"), "a constant");
+  assert!(unstable("Trial"), "a nested type");
+  assert!(!unstable("scheduled"), "another status");
+  assert!(!unstable("toString"));
+  assert!(unstable("LOW"), "an enum constant");
+  assert!(!unstable("HIGH"));
+  let summary = summarize(Language::Java, b"class A {\n  @Internal void a() {}\n  @Experimental void b() {}\n}\n");
+  assert!(!declaration(&summary, "a").unstable, "without the import of `ApiStatus`");
+  assert!(!declaration(&summary, "b").unstable);
+  let summary = summarize(Language::Java, b"import org.jetbrains.annotations.ApiStatus.*;\nclass A {\n  @Internal void a() {}\n}\n");
+  assert!(declaration(&summary, "a").unstable, "imported with all of `ApiStatus`");
+}
+
+#[test]
 fn declarations() {
   let summary = summary_of("java/Declarations.java");
   assert_eq!(summary.package.as_deref(), Some("com.example.shapes"));

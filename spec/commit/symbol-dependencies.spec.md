@@ -79,6 +79,22 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_function_a_test_framework_runs_is_a_test`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_method_a_test_framework_runs_is_a_test`)
   [@test] ../../crates/code-symbols/src/rust_test.rs (`a_function_under_a_test_attribute_is_a_test`)
+- A function the JVM starts a program with must be an entry point (`entry_point`), for the API a review names: a Kotlin
+  top-level `fun main` without a receiver or type parameters that takes nothing, one `Array<String>` or a `vararg` of
+  `String`, `suspend` or not; a Java `public static void main` of one `String[]` (`String...`, `String args[]`) of a
+  type, `public` implied in an interface. A member `main`, a local one, another return type or other parameters are
+  none.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_top_level_main_is_an_entry_point`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_public_static_void_main_of_strings_is_an_entry_point`)
+- A Kotlin or Java declaration of any kind marked as no stable API must be `unstable`, for the API a review names:
+  annotated `@ApiStatus.Internal` or `@ApiStatus.Experimental` qualified by `ApiStatus` or by its full name, or a bare
+  `@Internal`/`@Experimental` that an import of the file brings in from `org.jetbrains.annotations.ApiStatus` (by its
+  name, an alias of it, or `ApiStatus.*`), never another `Internal`; `@VisibleForTesting` or `@TestOnly` by the last
+  name, whatever the qualifier; a Java field by the annotation of its statement. A top-level declaration of a Kotlin
+  file annotated so (`@file:ApiStatus.Internal`, the import after it counted) is `unstable` too; a member of a marked
+  type is not marked itself, an import binds no API.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_unstable_annotation_marks_a_declaration`, `a_bare_internal_without_the_import_of_api_status_is_stable`, `a_file_annotation_marks_the_top_level_declarations_unstable`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`an_unstable_annotation_marks_a_declaration`)
 - The summary of a Kotlin or Java file must hold the type of each property and field (`value_type`), as written without
   type arguments or the type its initializer constructs (a capitalized Kotlin call, a Java `new` without a body), and on
   a member reference the type of its receiver (`receiver_type`): of a parameter, a local or a typed lambda parameter

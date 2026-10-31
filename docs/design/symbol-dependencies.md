@@ -585,11 +585,13 @@ flowchart TD
 
 - `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
   `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides`,
-  `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, the `@file:JvmName`
-  (`FileSummary::jvm_name`), the `value_type` of a property and whether a constructor call gave it
-  (`JvmHooks::value_type`), the supertypes, and the `Role::Override` references with their `Shape::Override`, and the
-  constructors of a class (`JvmHooks::constructors` of its header, `Walk::add_constructor` of its body, the implicit
-  `()` by `JvmHooks::implicit_constructor` when the walk is done); `Spec::call_shape` of Kotlin and Java: the arguments
+  `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, `test`, `entry_point`
+  (`JvmHooks::entry_point`) and `unstable` (`JvmHooks::unstable`, `Walk::unstable_annotation` by the imports, a Kotlin
+  `@file:` one by `Walk::add_file_annotation`), the `@file:JvmName` (`FileSummary::jvm_name`), the `value_type` of a
+  property and whether a constructor call gave it (`JvmHooks::value_type`), the supertypes, and the `Role::Override`
+  references with their `Shape::Override`, and the constructors of a class (`JvmHooks::constructors` of its header,
+  `Walk::add_constructor` of its body, the implicit `()` by `JvmHooks::implicit_constructor` when the walk is done);
+  `Spec::call_shape` of Kotlin and Java: the arguments
   of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
   (`Walk::enclosed`), of `this(…)` and `super(…)` on the type they call (`Walk::emit_constructor_call`), and of a `new`
   and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`, before an object expression or an
