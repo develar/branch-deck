@@ -29,7 +29,6 @@ import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
 import { useRowOperation } from "@/hooks/useRowOperation"
 import { requestSafePush, useLandsByPush } from "@/hooks/useSafePush"
-import { getStatusBadge } from "@/hooks/useStatusBadge"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
 import { reviewBlockerOf } from "@/lib/branch-review"
@@ -46,8 +45,9 @@ import { formatTimestamp } from "@/lib/time"
 import { statusDotClassName } from "@/lib/ui-types"
 import { useRowPart } from "@/model/store"
 import { isActionEnabled } from "@/presenters/actions"
+import { presentPreviewStatus } from "@/presenters/row-status"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
-import { useBranch, useIsBranchPushing } from "@/stores/branch-sync"
+import { useBranch, useIsBranchPushing, useParkedState } from "@/stores/branch-sync"
 import { useBranchRobot, useLandedBy, usePatronusAvailable } from "@/stores/patronus"
 import { usePullRequest } from "@/stores/pull-requests"
 
@@ -248,7 +248,9 @@ function BranchPreviewMeta({ branch }: { branch: Branch }) {
   const robot = useBranchRobot(branch.name)
   const landedBy = useLandedBy(branch.name)
   const landedIn = useLandedIn(branch.name)
-  const status = getStatusBadge(branch, landedIn)
+  const parked = useParkedState(branch.name)
+  // the robot has its own chip here: the first fact of the cell that is not the robot, else the push state
+  const status = presentPreviewStatus(useRowPart(branch.name, "landing")?.status, { branch, landedIn, robot, parked })
   const lastPushTime = branch.remoteStatus?.lastPushTime ?? 0
   const items: ReactNode[] = []
   items.push(<span>{branch.commitCount === 1 ? "1 commit" : `${branch.commitCount} commits`}</span>)

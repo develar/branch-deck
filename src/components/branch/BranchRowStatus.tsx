@@ -7,16 +7,18 @@ import { RobotProgressBar, RobotRing } from "@/components/branch/RobotProgress"
 import { StatusChipDot } from "@/components/branch/StatusChip"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useRobotTiming } from "@/hooks/useRobotTiming"
-import { useRowRobotSlot } from "@/hooks/useRowRobot"
-import { statusOutranksRobot } from "@/hooks/useStatusBadge"
+import { useRowRobotChip } from "@/hooks/useRowRobot"
 import type { PatronusRobot } from "@/lib/bindings"
 import type { ParkedState } from "@/lib/parked"
 import { formatParkedLabel } from "@/lib/parked"
 import type { PatronusChipState } from "@/lib/patronus"
-import { formatPushMode, getRowRobotChip, isFailingChip, robotRingColor } from "@/lib/patronus"
+import { formatPushMode, isFailingChip, robotRingColor } from "@/lib/patronus"
 import { patronusChipIcons } from "@/lib/patronus-icons"
 import { countRender } from "@/lib/render-counts"
 import { formatRobotProgress, formatSpokenRobotProgress } from "@/lib/robot-eta"
+import { useRowPart } from "@/model/store"
+import type { RowMark } from "@/presenters/row-status"
+import { presentRowCell, presentRowMark } from "@/presenters/row-status"
 import type { Branch } from "@/stores/branch-sync"
 import { useBranch, useParkedState } from "@/stores/branch-sync"
 import { useBranchRobot } from "@/stores/patronus"
@@ -28,12 +30,12 @@ import { useBranchRobot } from "@/stores/patronus"
 const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
 
 /**
- * The first column of the Status cell of a branch row, its state in the life of the branch: the robot of the branch
- * while one runs (its ring, its time, the progress line under it; "Failing" in `destructive` for one that will fail) or
- * finished on the branch as it is ("Failed", "Needs review", "Merged", "Dry run passed", "Canceled"), else the status
- * text (`BranchStatusBadge`). A sync running, an error, a conflict, a block and a landed branch say more than the robot.
- * A parked branch says why it stays local instead of its push state, which it never changes; its error or conflict
- * still shows.
+ * The first column of the Status cell of a branch row, what happens to the branch, as Rust decides it (`RowStatus`,
+ * `presentRowCell`): its robot while one runs (its ring, its time, the progress line under it; "Failing" in
+ * `destructive` for one that will fail) or finished on the branch as it is ("Failed", "Needs review", "Merged", "Dry run
+ * passed", "Canceled"), what landed it, a failed sync, parked, a block by its parent, else the push state. The facts the
+ * first covers stay beside it as a mark whose hover names them: a running robot never hides a block or a conflict. A
+ * sync running lays over the cell.
  *
  * A leaf of its row: it reads the branch by its name, the status of its sync included, which the row leaves out
  * (`Branch.row`), so a sync that changes only the status of a branch renders this alone.
@@ -41,37 +43,41 @@ const ROW_ROBOT = "h-6 gap-2 px-0 text-sm"
 export function BranchRowStatus({ name }: { name: string }) {
   countRender(`status:${name}`)
   const branch = useBranch(name)
-  return branch === undefined ? null : <RowStatus branch={branch} />
+  return branch === undefined ? null : <RowStatusCell branch={branch} />
 }
 
-/** The state of the branch in its life; the robot's hooks only for a branch with a robot, a few of the rows */
-function RowStatus({ branch }: { branch: Branch }) {
+/** The first column and the mark beside it; the robot's hooks only for a row that shows its robot, a few of the rows */
+function RowStatusCell({ branch }: { branch: Branch }) {
   const landedIn = useLandedIn(branch.name)
   const robot = useBranchRobot(branch.name)
   const parked = useParkedState(branch.name)
-  if (robot !== undefined) {
-    return <RobotRowStatus branch={branch} robot={robot} landedIn={landedIn} parked={parked} />
+  const status = useRowPart(branch.name, "landing")?.status
+  const context = { branch, landedIn, robot, parked }
+  const cell = presentRowCell(status, context)
+  const mark = presentRowMark(status, context)
+  const first =
+    cell.kind === "robot" && robot !== undefined ? (
+      <RobotRowStatus branch={branch} robot={robot} running={cell.running} />
+    ) : cell.kind === "parked" && parked !== null ? (
+      <ParkedStatus state={parked} />
+    ) : cell.kind === "text" ? (
+      <BranchStatusBadge status={cell.texts} />
+    ) : null
+  if (mark === null) {
+    return first
   }
-  return parked !== null && saysParked(branch) ? <ParkedStatus state={parked} /> : <BranchStatusBadge branch={branch} landedIn={landedIn} />
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {first}
+      <RowStatusMark mark={mark} />
+    </div>
+  )
 }
 
-/** A parked branch says so, unless its sync runs or failed: its error or its conflict shows */
-function saysParked(branch: Branch): boolean {
-  const broken = branch.hasError || branch.status === "MergeConflict" || branch.status === "AnalyzingConflict" || branch.status === "Error"
-  return !broken && branch.status !== "Syncing"
-}
-
-/** The robot of the branch, running or finished on the branch as it is, unless the status says more */
-function RobotRowStatus({ branch, robot, landedIn, parked }: { branch: Branch; robot: PatronusRobot; landedIn: string | null; parked: ParkedState | null }) {
-  const slot = useRowRobotSlot(branch, robot)
-  const chip = getRowRobotChip(slot)
-  if (parked !== null && saysParked(branch) && slot.kind !== "running") {
-    return <ParkedStatus state={parked} />
-  }
-  if (chip === null || statusOutranksRobot(branch, landedIn)) {
-    return <BranchStatusBadge branch={branch} landedIn={landedIn} />
-  }
-  return slot.kind === "running" ? (
+/** The robot of the branch, running or finished on the branch as it is */
+function RobotRowStatus({ branch, robot, running }: { branch: Branch; robot: PatronusRobot; running: boolean }) {
+  const chip = useRowRobotChip(branch, robot)
+  return running ? (
     <RunningRowRobot branchName={branch.name} robot={robot} chip={chip} />
   ) : (
     <RobotStatusChip branchName={branch.name} robot={robot} chip={chip} label={formatRobotLabel(robot, chip)} className={ROW_ROBOT} stackPath>
@@ -79,6 +85,19 @@ function RobotRowStatus({ branch, robot, landedIn, parked }: { branch: Branch; r
       <span className="truncate">{chip.label}</span>
       {chip.outdated && <StatusChipDot color="warning" testId="patronus-outdated-dot" />}
     </RobotStatusChip>
+  )
+}
+
+/** The facts the first column covers ("blocked by auth" beside a running Safe Push): a dot, their lines on hover */
+function RowStatusMark({ mark }: { mark: RowMark }) {
+  const label = mark.lines.join("\n")
+  return (
+    <Tooltip lazy>
+      <TooltipTrigger delay={300} render={<span role="img" aria-label={label} className="flex size-4 shrink-0 items-center justify-center" data-testid="row-status-mark" />}>
+        <StatusChipDot color={mark.color} testId="row-status-mark-dot" />
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm break-words whitespace-pre-line">{label}</TooltipContent>
+    </Tooltip>
   )
 }
 

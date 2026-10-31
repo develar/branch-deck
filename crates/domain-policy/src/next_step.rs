@@ -239,15 +239,15 @@ pub struct StepFacts<'a> {
   pub listed: Option<&'a BTreeMap<String, PullRequest>>,
 }
 
-/// The robot of the row, as its slot shows it (`getSafePushSlot` of the page before)
+/// The robot of the row, as its slot shows it, and the Status cell (`row_status`)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Slot {
   /// No robot to show, nothing to start (Patronus doesn't answer, the branch can't be pushed)
   None,
   /// None to show: "Safe Push" starts one (also for a robot of an earlier state of the subject)
   Start,
-  /// The live robot: `dry_run` checks it, `failing` a required check failed
-  Running { dry_run: bool, failing: bool },
+  /// The live robot: `dry_run` checks it, `failing` a required check failed, `canceling` it stops and merges nothing
+  Running { dry_run: bool, failing: bool, canceling: bool },
   /// A finished robot of the subject as it is
   Finished(Chip),
 }
@@ -277,6 +277,7 @@ pub(crate) fn slot(facts: &StepFacts<'_>) -> Slot {
     return Slot::Running {
       dry_run: it.push_mode == PatronusPushMode::DryRun,
       failing: it.status == PatronusRobotStatus::Running && robot.failing,
+      canceling: it.status == PatronusRobotStatus::Canceling,
     };
   }
   // a merged robot is done; a subject with other commits since (the same name, new work) starts anew

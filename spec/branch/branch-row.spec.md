@@ -55,6 +55,9 @@ targets:
   - ../../src/hooks/useSafePush.ts
   - ../../src/components/branch/BranchRowStatus.tsx
   - ../../src/hooks/useRowRobot.ts
+  - ../../src/presenters/row-status.ts
+  - ../../crates/domain-policy/src/row_status.rs
+  - ../../crates/domain-policy/src/own_facts.rs
   - ../../src/hooks/useLandingNode.ts
   - ../../src/presenters/landing-node.ts
   - ../../src/components/branch/BranchGraphHelpPopover.tsx
@@ -70,7 +73,6 @@ targets:
   - ../../src/components/shared/DropdownMenuItems.tsx
   - ../../src/components/ui/dropdown-menu.tsx
   - ../../src/components/shared/TableHeader.tsx
-  - ../../src/hooks/useStatusBadge.ts
   - ../../src/presenters/push-button.ts
   - ../../src/hooks/useBranchPushes.ts
   - ../../src/hooks/useRowExpansion.ts
@@ -138,8 +140,9 @@ Date: 2026-10-15
 
 The branch table lists the active virtual branches, one row per branch; the archived table below it lists the branches
 a sync archived. A row reads from left to right: the folder that expands the commits and the branch name, the commit
-count, the Status cell and the actions. The Status cell says the state of the branch in its life, its robot while one
-runs or once it finished, else its status text, then up to two chips (the pull request, the landed commits), each kind in
+count, the Status cell and the actions. The Status cell says what happens to the branch, its robot while one runs or
+once it finished, else its status text, with the facts the first covers beside it as a mark (a block beside a running
+Safe Push), then up to two chips (the pull request, the landed commits), each kind in
 its own column, so a look down the table compares like with like. The actions are compact: the copy icon, the push as
 an arrow and its count, then the Safe Push slot, the one labelled action, the next step after the robot ("Safe Push",
 "Restart Safe Push", the pull request), and "⋯". Every branch has a node at the left edge that says where it is on its way into master; stacked
@@ -254,11 +257,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   |---|---|---|
   | `success`, filled | Ready to land: Patronus counts the approvals, Safe Push lands it | the next step is "Safe Push" or "Restart Safe Push" ([Next Step](next-step.spec.md) rows 2, 3, 11) and Patronus judged the approvals: `approved` or `notRequired`; a bot's approval or a GitHub decision is no judge of what Patronus counts |
   | `primary`, filled | Your step first: a pull request, a review, a retarget, a branch its build needs, a Safe Push whose approvals Patronus checks at the start | rows 1′ (the branch its Safe Push needs, [Next Step](next-step.spec.md#what-the-safe-push-needs)), 5, 6, 7 (not "In #12"), 9, the pull request of a robot that failed for approvals, and a Safe Push Patronus can't judge (`unknown`, `unavailable`, no pull requests GitHub lists: "Safe Push: Patronus checks the approvals when the robot starts"); without Patronus: no pull request, a draft, or (GitHub lists none) the remote lacks work of the branch and no push of it runs |
-  | `destructive`, filled | Needs a fix | a sync error, a conflict, its analysis, a Safe Push that failed on the branch as it is (unless a running Safe Push of a branch it is built on lands a part of it: it waits for that one), rows 8 and 8′ (changes requested); without Patronus the failing checks or changes requested of its open pull request |
-  | `primary`, hollow | Landing now | its own Safe Push runs (the ring around it), or a running Safe Push of a branch built on it or of the whole stack lands it ("Lands with oauth"); also while its Safe Push starts or restarts (from the target check on, the push included), before the robot exists: "Landing: Safe Push starting", "Landing: Safe Push restarting", and the branches it lands beside: "Lands with oauth: its Safe Push starts" |
-  | neutral, hollow | Waits for others | rows 10 and 10′ (awaiting, also the reviewer GitHub waits for while Patronus can't judge), 5′ (another base), "In #12", a robot of an ancestor that a start waits for (also over a failure of its own earlier piece; "Show auth" in the hover), Blocked, a Dry Run running, starting or restarting, while its pull request is created or a review is requested in it ("Creating the pull request of auth", "Requesting a review on #1078"), no commits, before the first answer of Patronus; without Patronus an open pull request ("Lands through #7") |
+  | `destructive`, filled | Needs a fix | a sync error, a conflict, its analysis (also while its own robot runs, with the ring, or a Safe Push of a branch built on it lands it: the conflict came after the push, of new work or of a baseline the robot meets too, and the robot lands the remote copy), a Safe Push that failed on the branch as it is (unless a running Safe Push of a branch it is built on lands a part of it: it waits for that one), rows 8 and 8′ (changes requested); without Patronus the failing checks or changes requested of its open pull request |
+  | `primary`, hollow | Landing now | its own Safe Push runs (the ring around it), or a running Safe Push of a branch built on it or of the whole stack lands it ("Lands with oauth"), also a blocked branch: the Safe Push lands the copy it took, whatever its parent builds to now, so the move is the robot's (not a Dry Run, nor one that will fail or cancels); also while its Safe Push starts or restarts (from the target check on, the push included), before the robot exists: "Landing: Safe Push starting", "Landing: Safe Push restarting", and the branches it lands beside: "Lands with oauth: its Safe Push starts" |
+  | neutral, hollow | Waits for others | rows 10 and 10′ (awaiting, also the reviewer GitHub waits for while Patronus can't judge), 5′ (another base), "In #12", a robot of an ancestor that a start waits for (also over a failure of its own earlier piece; "Show auth" in the hover), Blocked (no Safe Push that will land it runs), a Dry Run running, starting or restarting, while its pull request is created or a review is requested in it ("Creating the pull request of auth", "Requesting a review on #1078"), no commits, before the first answer of Patronus; without Patronus an open pull request ("Lands through #7") |
   | neutral, hollow | Parked: kept local, never pushed | the user parked it or a branch it is built on ([Parked Branches](parked-branches.spec.md)), also with a conflict ("It doesn't build: fix it before you unpark it"); not while a robot runs on it, a Safe Push of a branch built on it lands it, a move of it runs, or it landed |
-  | `info`, hollow | In master | landed in the baseline, landed with a merged Safe Push, merged by Patronus or by its pull request |
+  | `info`, hollow | In master | landed in the baseline, landed with a merged Safe Push, merged by Patronus or by its pull request; also with a conflict of what is left to build, which the update archives |
 
   A sync and an inline action of the row pass: the node keeps the state they started from. A move of the row is made
   when the user makes it (`RunningMove`): a start or a restart of its robot (Push and Restart included), the creation of
@@ -362,27 +365,39 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   ([Blocked](#blocked)). A missing chip leaves its column empty, and the next chip keeps its own column.
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
-- The first column must say the robot of the branch, the state of the branch in its life, while one runs (its ring,
-  its time, the progress line under it) or once it finished on the branch as it is ("Failed", "Needs review", "Merged",
-  "Dry run passed", "Canceled"), as the chip of the robot: hover for its details, a click opens it in Patronus
-  ([Patronus](patronus.spec.md#robot-of-a-row)). A sync running, an error or a conflict, a block and a landed branch say
-  more: the status text then, as for a branch without a robot. The robot reads as the status text it replaces
-  (`text-sm`, its icon where the dot is).
+- The first column must say what happens to the branch, as Rust decides it (`RowStatus`, `domain_policy::row_status`,
+  for the app and `bd status` alike; the page words it, `presentRowCell`): its robot while one runs (its ring, its time,
+  the progress line under it; also a Dry Run, one that will fail and one that cancels) or once it finished on the
+  branch as it is ("Failed", "Needs review", "Merged", "Dry run passed", "Canceled"), as the chip of the robot: hover
+  for its details, a click opens it in Patronus ([Patronus](patronus.spec.md#robot-of-a-row)). The robot reads as the
+  status text it replaces (`text-sm`, its icon where the dot is).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
-- The status text must follow the first that applies (a robot of the branch comes after the landed branch, before the
-  remote status, as above): the sync progress ("syncing 3/10…") of a branch the sync builds anew (a new or changed
-  branch, or one the last sync left with an error, a conflict or a block), an error or a conflict
-  ("merge conflict"), "analyzing conflict…", a blocked stacked branch ("blocked by auth"), a branch the fetched
-  baseline has all of ("landed", [Landed Commits](../repository/landed-commits.spec.md#before-the-update)), the remote
-  status ("not pushed", "3 (5)↑ · 2↓", "1↑ · 1 amended", "4↑ · restacked", "restacked",
-  [What is outgoing](../repository/outgoing.spec.md#what-is-outgoing)), then the result of the sync ("created",
-  "updated", "unchanged").
+- Work in flight must never hide behind the state of the row, nor the state behind it: the first that applies is the
+  first column, a running robot, then what landed all of it ("landed", its own merged robot "Merged"), a failed sync
+  ("merge conflict", "analyzing conflict…"), parked, a blocked stacked branch ("blocked by auth"), its robot finished
+  on the branch as it is; the exceptional facts it covers (a failed sync, a block, what landed it, parked, a failed
+  robot) stay beside it as a dot in the colour of the strongest (`destructive` for a failed sync or robot, `warning`
+  for a block or parked), each a line of its hover and of the hover of the node. A running Safe Push of a branch whose
+  parent conflicts shows the robot with "Blocked: parent auth has a merge conflict" beside it; a finished robot that
+  neither failed nor landed all of it covers nothing beside another fact. Every combination is pinned by one table
+  (`no_fact_of_a_row_drops_and_the_node_and_the_cell_tell_one_story`): no fact drops from the row, the node and the
+  cell tell one story, and a row whose next step is settled says why.
+  [@test] ../../crates/domain-policy/src/row_status_test.rs (`no_fact_of_a_row_drops_and_the_node_and_the_cell_tell_one_story`, `a_safe_push_of_a_blocked_branch_is_landing_and_its_block_stays_beside_the_robot`, `only_a_safe_push_that_lands_it_outranks_a_block_and_nothing_outranks_a_fix_but_master`, `a_finished_robot_shows_alone_and_beside_another_fact_only_when_it_failed`)
+  [@test] ../../src/presenters/row-status.test.ts (`shows the robot Rust puts first, a block and a conflict beside it as a mark that names them, and a sync over all of it`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show a running Safe Push of a blocked branch first, its block beside it, and its parent's conflict as the fix`)
+- Without such a fact the status text must say the push state or what the sync did; a sync lays over the cell as it
+  passes: the sync progress ("syncing 3/10…") of a branch the sync builds anew (a new or changed branch, or one the
+  last sync left with an error, a conflict or a block), then the remote status ("not pushed", "3 (5)↑ · 2↓",
+  "1↑ · 1 amended", "4↑ · restacked", "restacked", [What is outgoing](../repository/outgoing.spec.md#what-is-outgoing)),
+  then the result of the sync ("created", "updated", "unchanged"). A branch the fetched baseline has all of says
+  "landed" ([Landed Commits](../repository/landed-commits.spec.md#before-the-update)).
+  [@test] ../../src/presenters/row-status.test.ts (`says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters`, `is in the push colour for an amended or restacked branch: its push replaces older versions`, `says a failed sync as the badge of its error, a stack problem by its message`)
 - A branch up to date with its remote (pushed, the remote as the branch) must show nothing in the first column: it needs
   no action, and on most rows "up to date" drowned the states that do. Its node, its chips and the rest of the row
   stay; the branch preview says "up to date" with the last push (`StatusTexts.quiet`).
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should show nothing in the Status cell of a branch up to date with its remote, which needs no action`)
-  [@test] ../../src/hooks/useStatusBadge.test.ts (`is quiet for a branch up to date with its remote, which needs no action: the row shows nothing, the preview the text`)
+  [@test] ../../src/presenters/row-status.test.ts (`is quiet for a branch up to date with its remote, which needs no action: the row shows nothing, the preview the text`)
   [@test] ../../tests/e2e/branch-preview/branch-preview.spec.ts (`should push the branch with P`)
 - A branch a sync groups as it was, with the same commits, which the last sync built without a problem, must keep what
   its row shows while the sync rebuilds it (a quiet resync, `TableState` of the session): its status, its node, its synced hashes,
@@ -963,6 +978,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The status text is `text-sm text-muted-foreground`, truncated in its column, after a `size-1.5` dot. The badge is the
   subtle badge of its colour. The robot in its place is its chip at `text-sm`, `h-6` without padding, a `size-3.5` icon
   (the ring while it runs) where the dot is; the progress line under its time is `h-0.5`, in the padding of the cell.
+  The mark of the facts the first column covers follows it after `gap-2`: a `size-1.5` dot in the colour of its
+  strongest fact inside a `size-4` target (`row-status-mark`), its lines in its tooltip and in the hover of the node
+  (`lane-node-also`, muted).
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
   badges (its focus ring), without a border or an outline, and underlined on hover. The pull request chip colours its
   icon alone; its number is muted ([Pull Requests](pull-requests.spec.md#chip)). A dot is `size-1.5 rounded-full
@@ -1020,7 +1038,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 ## Testing / Local Run
 
 - `pnpm test:unit`: `src/stores/branch-table-rows.test.ts`, `src/lib/stack-lanes.test.ts`,
-  `src/lib/branch-row-keys.test.ts`, `src/stores/branch-sync.test.ts`, `src/hooks/useStatusBadge.test.ts`,
+  `src/lib/branch-row-keys.test.ts`, `src/stores/branch-sync.test.ts`, `src/presenters/row-status.test.ts`,
   `src/presenters/landing-node.test.ts`,
   `src/lib/push-summary.test.ts`, `src/lib/integration-commit.test.ts`, `src/stores/archived-branches.test.ts`.
 - `pnpm e2e`: `tests/e2e/branch-row-layout`, `tests/e2e/stacked-branches`, `tests/e2e/branch-graph`, `tests/e2e/branch-filter` (the keys),

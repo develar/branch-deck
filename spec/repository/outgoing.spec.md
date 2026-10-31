@@ -9,7 +9,7 @@ targets:
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/presenters/push-button.ts
   - ../../src/hooks/useBranchPushes.ts
-  - ../../src/hooks/useStatusBadge.ts
+  - ../../src/presenters/row-status.ts
   - ../../src/hooks/useLandedIn.ts
   - ../../src/lib/push-summary.ts
   - ../../src/stores/stack-collapse.ts

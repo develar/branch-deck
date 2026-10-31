@@ -353,6 +353,56 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "auth")).toHaveAttribute("data-state", "open")
   })
 
+  test(
+    "should show a running Safe Push of a blocked branch first, its block beside it, and its parent's conflict as the fix",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      // the Safe Push of login took a copy pushed before auth stopped building
+      await setupRepo("stacked_conflict", { patronus: availableRobots(robot("login", "login-robot", { sourceRevision: EARLIER_COMMIT })) })
+      await syncAndWaitForBranches()
+
+      // login: the robot is what happens to it, its move; the block stays beside it
+      const loginRow = findBranchRow(page, "login")
+      await expect(loginRow.getByTestId("robot-time")).toBeVisible()
+      await expect(loginRow.getByTestId("lane-ring")).toBeVisible()
+      await expect(loginRow.getByTestId("lane-node")).toHaveAttribute("data-kind", "landing")
+      await loginRow.getByTestId("row-status-mark").hover()
+      await expect(page.getByRole("tooltip").filter({ hasText: "Blocked" })).toHaveText("Blocked: parent auth has a merge conflict")
+      await page.mouse.move(0, 0)
+      await loginRow.getByTestId("lane-node-target").hover()
+      const node = page.getByTestId("lane-node-details")
+      await expect(node).toContainText("Landing: Safe Push running")
+      await expect(node.getByTestId("lane-node-also")).toHaveText("Blocked: parent auth has a merge conflict")
+      await expect(node.getByTestId("lane-node-robot")).toBeVisible()
+      await page.mouse.move(0, 0)
+
+      // auth: its conflict is the user's fix, the Safe Push that lands it beside
+      const authRow = findBranchRow(page, "auth")
+      await expect(authRow.getByTestId("branch-status")).toHaveText("merge conflict")
+      await expect(authRow.getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
+      await expect(authRow.getByTestId("landing-span")).toHaveText("lands with login")
+      await expect(authRow.getByTestId("row-status-mark")).toHaveCount(0)
+    },
+  )
+
+  test("should keep the landing of a collapsed stack beside the fix of another of its branches", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the Safe Push of oauth lands auth and login with it; session off auth changes a file only an unassigned commit
+    // creates: it doesn't build
+    const repo = await setupRepo("stacked_branches", { patronus: availableRobots(robot("oauth", "oauth-robot")) })
+    await repo.commit("Add config", { "config.js": "export const config = {}\n" }, 1704128400)
+    await repo.commit("(auth/session) Read the session config", { "config.js": "export const config = { session: true }\n" }, 1704130200)
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "oauth").getByTestId("robot-time")).toBeVisible()
+    await expect(findBranchRow(page, "session").getByTestId("lane-node")).toHaveAttribute("data-kind", "needsFix")
+    const chip = getStackChip(findBranchRow(page, "auth"))
+    await chip.click()
+    expect(await branchTree(page)).toEqual(["docs@0", "auth@0"])
+    // the fix first, the robot that lands login and oauth beside it, with its ring
+    await expect(chip.getByTestId("stack-chip-attention")).toHaveText("· 1 to fix")
+    await expect(chip.getByTestId("stack-chip-landing")).toHaveText("· 2 landing")
+    await expect(chip.getByTestId("stack-chip-landing").getByTestId("robot-ring")).toBeVisible()
+  })
+
   test("should stack a branch on another one and unstack it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("stacked_branches")
     await syncAndWaitForBranches()

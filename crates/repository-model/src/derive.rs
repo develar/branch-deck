@@ -53,7 +53,7 @@ use crate::table::{TableParts, TableState};
 use domain_policy::attention::{BranchCarriers, RobotOnSubject, StackCarriers, branch_attention, stack_attention};
 use domain_policy::facts::{RemoteBranch, Repository, Robots};
 use domain_policy::github_stack::chain_of;
-use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, is_pushing, push_blocker, restart_action, stack_branch_hold};
+use domain_policy::holds::{PushStep, StackHoldFacts, branch_hold, holds_pushes, is_active, push_blocker, restart_action, stack_branch_hold};
 use domain_policy::land::{
   BranchStart, BranchSubject, LandFacts, LandsBranch, StackStart, StackSubject, Start, SubjectFacts, TargetConflictFact, decide, offered_profiles, on_last_commit, restart_refusal,
   standing, start_refusal,
@@ -70,11 +70,12 @@ use domain_policy::push::{
 use domain_policy::readiness::wanted;
 use domain_policy::reasons::{held, stack_not_built};
 use domain_policy::review::candidates;
+use domain_policy::row_status::row_status;
 use domain_policy::stack::{WholeStack, build_ancestors, children, declared_parent, descendants, main_line, whole_stack_members, whole_stack_of, whole_stack_rest};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::landing::{BaselinePush, Land, LandDecision, LandDecisions, LandProfiles, Landed, LandingRefusal, ProfileChoice, Subject};
 use domain_types::landing_route::LandingRoute;
-use domain_types::next_step::{NextStepView, StackPullRequest};
+use domain_types::next_step::{NextStepView, RowStatus, StackPullRequest};
 use domain_types::patronus::{
   LandingAllowances, PatronusAvailability, PatronusPushMode, PatronusRobot, PatronusRobotProfile, PatronusRobotStatus, PatronusStartOptions, ReviewReadiness,
 };
@@ -1512,6 +1513,11 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       landed.is_some_and(|landed| landed.after.is_empty() && sources.robot(Some(&landed.by.robot_id)).is_some_and(|robot| robot.status == PatronusRobotStatus::Success))
     };
     let ancestors = build_ancestors(&repo, name);
+    // a canceling Safe Push lands nothing
+    let lands_with = facts
+      .and_then(|facts| facts.span.as_ref())
+      .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(holds_pushes))
+      .map(|span| &span.by);
     let step = StepFacts {
       subject: &subject,
       route: sources.route,
@@ -1551,15 +1557,14 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       step,
       status: row.status,
       blocked_by: row.blocked_by.as_deref(),
-      lands_with: facts
-        .and_then(|facts| facts.span.as_ref())
-        .filter(|span| sources.robot(Some(&span.by.robot_id)).is_some_and(is_pushing))
-        .map(|span| &span.by),
+      lands_with,
+      lands_failing: lands_with.is_some_and(|by| sources.robots.failing.contains(&by.robot_id)),
       push_pending: remote.is_some_and(|remote| !remote.up_to_date),
     };
     let view = NextStepView {
       step: next_step(&step),
       node: landing_node(&node),
+      status: row_status(&node),
     };
     steps.push((name.clone(), view));
   }
@@ -1623,11 +1628,13 @@ pub fn next_steps(sources: &StepSources<'_>) -> BTreeMap<String, NextStepView> {
       status: BranchStatus::Unchanged,
       blocked_by: None,
       lands_with: None,
+      lands_failing: false,
       push_pending: false,
     };
     let view = NextStepView {
       step: next_step(&step),
       node: landing_node(&node),
+      status: RowStatus::default(),
     };
     steps.push((key, view));
   }

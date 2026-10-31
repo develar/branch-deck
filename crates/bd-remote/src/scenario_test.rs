@@ -9,6 +9,7 @@
 use crate::land_command::{LandArgs, land as land_command};
 use crate::push_command::github_repository;
 use crate::safe_push_command::{SafePushArgs, SafePushOutput, safe_push as safe_push_command};
+use crate::status::{StatusArgs, status};
 use bd_cli::fixture_test::{PREFIX, commit_all, commit_changed_declaration, commit_dangling_reference, git, run_json, write};
 use bd_cli::remote_fixture_test::{
   LANDED_SUBJECTS, MASTER_RULES, Space, dismissing_rules, evaluated_review, fake_github, land_auth_by_content, list_pull_requests, minutes_ago, pull_request_json,
@@ -16,6 +17,7 @@ use bd_cli::remote_fixture_test::{
 };
 use bd_core::context::{Environment, RepoContext, RepoOptions};
 use bd_core::error::CliError;
+use bd_core::next_step_summary::NextStepSummary;
 use bd_core::services::{github_service, patronus_service};
 use bd_core::stack_summary::whole_stack;
 use bd_core::sync_command::{lock, sync_locked};
@@ -134,12 +136,15 @@ enum AsymmetryKind {
 }
 
 /// The one expectation of a case: `step` a subset of the next step of the subject (`step_answer`), `land` of the
-/// decision of its start (`land_answer`); `null` where the side has none
+/// decision of its start (`land_answer`); `null` where the side has none. `status`, where a case names it, the Status
+/// cell of a branch, the main fact first, by the names of `bd status` (`NextStepSummary::status`)
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expect {
   step: Value,
   land: Value,
+  #[serde(default)]
+  status: Option<Vec<String>>,
 }
 
 /// What `bd` answers instead of `expect`, by design: its own `step` or `land`, or the error of the command, which
@@ -150,6 +155,8 @@ struct BdExpect {
   step: Option<Value>,
   land: Option<Value>,
   error: Option<String>,
+  /// What `bd status` says of the Status cell: it reads the grouping without a sync, so no failure of one
+  status: Option<Vec<String>>,
 }
 
 /// A sync of the app that runs
@@ -698,13 +705,15 @@ fn add_profile_details(space: &Space, environment: &mut Environment, listed: &Va
 }
 
 /// The robots of the case as the list answers them, after the list `reviewed_on_github` left: `older` (`sourceRevision`
-/// `0000`), the others on the tips the sync built of their branch or of the stack branch; the first the newest
+/// `0000`), the others on the tips the sync built of their branch or of the stack branch (`0000` of a branch it never
+/// built); the first the newest
 fn add_robots(space: &Space, environment: &mut Environment, given: &Given) {
   let mut robots = space.fake.robots.lock().unwrap().take().unwrap_or_default();
   for (index, robot_of) in given.robots().iter().enumerate() {
     let state = format!("{:?}", robot_of.state).to_uppercase();
     let id = if robot_of.on == "older" { "older".to_string() } else { format!("robot-{index}") };
-    let tip_of = |name: &str| space.local_tip(name);
+    // a branch blocked by its parent from the first sync has no tip: its robot took a copy pushed before (`0000`)
+    let tip_of = |name: &str| space.repo.rev_parse(&format!("refs/heads/{name}")).unwrap_or_else(|_| "0000".to_string());
     let mut listed = match robot_of.on.split_once(':') {
       Some((_, other)) => robot(&id, &state, other, &tip_of(&virtual_branch(other))),
       None if robot_of.on == "tip" => robot(&id, &state, &given.branch, &tip_of(&virtual_branch(&given.branch))),
@@ -1012,6 +1021,13 @@ impl Situation {
     })
   }
 
+  /// `bd status`: the Status cell of `branch` by its names
+  fn status(&self, branch: &str) -> Result<Vec<String>, CliError> {
+    let output = status(&self.context()?, &StatusArgs::default(), &self.environment)?;
+    let branch = output.branches.unwrap_or_default().into_iter().find(|it| it.name == branch);
+    Ok(branch.and_then(|it| it.next_step).map_or_default(|step| step.status))
+  }
+
   fn context(&self) -> Result<RepoContext, CliError> {
     RepoContext::resolve(
       &self.environment,
@@ -1274,18 +1290,22 @@ impl AppSession<'_> {
     }
   }
 
-  /// What the session derives of the case: the next step of the subject and the decision of its start
-  fn answer(&self, given: &Given) -> (Value, Value) {
+  /// What the session derives of the case: the next step of the subject, the decision of its start, the Status cell of
+  /// the branch by the names of `bd status`
+  fn answer(&self, given: &Given) -> (Value, Value, Vec<String>) {
     let prefix = &self.context.prefix;
     let Some((key, subject)) = self.subject(given) else {
-      return (Value::Null, Value::Null);
+      return (Value::Null, Value::Null, Vec::new());
     };
     let open = session_open_pull_requests(&self.state, &self.facts, prefix);
     let landed = landed_states_of(&self.state, &self.facts);
     let steps = next_steps_of(&self.state, &self.facts, &open, &landed);
     let land = given.land(subject);
     let plan = with_land_sources(&self.state, &self.facts, prefix, |sources| plan_of(sources, &land)).flatten();
-    (step_answer(steps.get(&key).map(|view| &view.step)), land_answer(plan.as_ref()))
+    let status = steps
+      .get(&key)
+      .map_or_default(|view| NextStepSummary::new(&view.step, &key, &[]).with_status(&view.status).status);
+    (step_answer(steps.get(&key).map(|view| &view.step)), land_answer(plan.as_ref()), status)
   }
 }
 
@@ -1312,7 +1332,7 @@ impl ProgressReporter for UntilGrouped {
 impl Situation {
   /// What the app answers of the case: its session synced the repository and read the facts of the start, then (`sync:
   /// running`) its next sync of a new commit of the branch runs past its grouping
-  fn app(&self, given: &Given) -> (Value, Value) {
+  fn app(&self, given: &Given) -> (Value, Value, Vec<String>) {
     let context = self.context().unwrap();
     let mut session = AppSession::synced(&context, &self.environment);
     session.read(given);
@@ -1522,9 +1542,20 @@ fn answer(case: &Case) -> Vec<String> {
     return named(vec!["bd answers otherwise only by design: an asymmetry, with the answer bd".to_string()]);
   }
   let situation = Situation::of(given);
-  let (step, land) = situation.app(given);
+  let (step, land, status) = situation.app(given);
   let mut failures = differences("app", "step", &expect.step, &step);
   failures.extend(differences("app", "land", &expect.land, &land));
+  if let Some(expected) = &expect.status {
+    if status != *expected {
+      failures.push(format!("app: the status cell: expected {expected:?}, answers {status:?}"));
+    }
+    let expected = case.bd.as_ref().and_then(|bd| bd.status.as_ref()).unwrap_or(expected);
+    match situation.status(&given.branch) {
+      Ok(bd) if bd == *expected => {}
+      Ok(bd) => failures.push(format!("bd status: the status cell: expected {expected:?}, answers {bd:?}")),
+      Err(error) => failures.push(format!("bd status: {}", error.message)),
+    }
+  }
   let bd = case.bd.as_ref();
   let bd_step = bd.and_then(|bd| bd.step.as_ref()).unwrap_or(&expect.step);
   let bd_land = bd.and_then(|bd| bd.land.as_ref()).unwrap_or(&expect.land);

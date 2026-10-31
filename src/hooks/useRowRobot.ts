@@ -1,25 +1,15 @@
 import type { PatronusRobot } from "@/lib/bindings"
-import type { SafePushSlot } from "@/lib/patronus"
-import { getSafePushSlot, isLandedByOwnRobot } from "@/lib/patronus"
+import type { PatronusChipState } from "@/lib/patronus"
+import { getPatronusChipState } from "@/lib/patronus"
 import type { Branch } from "@/stores/branch-sync"
-import { useLandedBy, usePatronusAvailable, useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
+import { useRobotFailing, useRobotNeedsReview } from "@/stores/patronus"
 
 /**
- * The slot of the robot of a branch row, which its Status cell shows (`BranchRowStatus`): running, finished on the
- * branch as it is, or a start; only a row with a robot asks it
+ * The chip of the robot of a branch row, in the words of the robot (running, "Failing", "Needs review", the warning dot
+ * of a robot of an earlier state of the branch); whether the Status cell shows it Rust decides (`RowStatus`)
  */
-export function useRowRobotSlot(branch: Branch, robot: PatronusRobot): SafePushSlot {
-  const available = usePatronusAvailable()
+export function useRowRobotChip(branch: Branch, robot: PatronusRobot): PatronusChipState {
   const needsReview = useRobotNeedsReview(robot.id)
   const failing = useRobotFailing(robot.id)
-  const landedBy = useLandedBy(branch.name)
-  return getSafePushSlot({
-    robot,
-    localTip: branch.commits[0]?.hash,
-    remote: branch.remoteStatus,
-    needsReview,
-    failing,
-    canOffer: available && !branch.hasError && branch.commitCount > 0,
-    landed: isLandedByOwnRobot(landedBy, robot),
-  })
+  return getPatronusChipState(robot, branch.commits[0]?.hash, branch.remoteStatus, { needsReview, failing })
 }

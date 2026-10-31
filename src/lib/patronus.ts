@@ -302,14 +302,6 @@ export interface LandedBy {
   readonly after: readonly string[]
 }
 
-/**
- * The robot of the branch row (`robot`) is the merged one that landed all of it (`landed`): a rebuild since gave the
- * branch new hashes, not new work, so its row keeps the robot ("Merged") and offers no new start
- */
-export function isLandedByOwnRobot(landed: LandedBy | null | undefined, robot: PatronusRobot | undefined): boolean {
-  return isLandedWhole(landed) && landed.own === true && robot !== undefined && landed.robot.id === robot.id
-}
-
 /** All of the branch landed: nothing was added after the commits the robot took */
 export function isLandedWhole(landed: LandedBy | null | undefined): landed is LandedBy {
   return landed != null && landed.after.length === 0
@@ -330,61 +322,6 @@ export function formatLandedWith(landed: LandedBy): string | null {
     return landed.after.length === 0 ? null : `Landed${formatAfter(landed)}`
   }
   return `Landed with ${formatLandingSubject(landed)}${formatAfter(landed)}`
-}
-
-/**
- * The robot of a branch row (`getSafePushSlot`, which a row with a robot asks through `useRowRobotSlot`):
- * - `start`: none to show, "Safe Push" starts one; also for a robot of an earlier state of the branch (the details of
- *   that robot stay in the preview and in the landing overview);
- * - `running`: the live robot, its time and how long it usually takes;
- * - `finished`: the state of a robot of the branch as it is, in its hue; `offered`: a next step can be offered
- *   (Patronus answered, the branch can be pushed);
- * - `none`: nothing to show or to start.
- */
-export type SafePushSlot =
-  | { readonly kind: "start" }
-  | { readonly kind: "running"; readonly chip: PatronusChipState }
-  | { readonly kind: "finished"; readonly chip: PatronusChipState; readonly offered: boolean }
-  | { readonly kind: "none" }
-
-export interface SafePushSlotInput {
-  readonly robot: PatronusRobot | undefined
-  readonly localTip: string | undefined
-  readonly remote: RemoteStatus | null
-  readonly needsReview: boolean
-  /** The running robot will fail */
-  readonly failing: boolean
-  /** "Safe Push" is offered: Patronus answered and the branch can be pushed */
-  readonly canOffer: boolean
-  /**
-   * Its merged robot landed all of the branch as it is now, by content (`getLandedBy`): a rebuild since gave the branch
-   * new hashes, not new work
-   */
-  readonly landed?: boolean
-}
-
-/** The robot of a branch row (`NextStepSlot`, `BranchRowStatus`) */
-export function getSafePushSlot({ robot, localTip, remote, needsReview, failing, canOffer, landed = false }: SafePushSlotInput): SafePushSlot {
-  if (robot === undefined) {
-    return canOffer ? { kind: "start" } : { kind: "none" }
-  }
-  const chip = getPatronusChipState(robot, localTip, remote, { needsReview, failing })
-  if (isRobotActive(robot)) {
-    return { kind: "running", chip }
-  }
-  // a merged robot has no warning dot, yet a branch with other commits since (the same name, new work) starts anew
-  if (canOffer && !landed && isReviewCommitOutdated(getReviewCommitState(robot.sourceRevision, localTip, remote))) {
-    return { kind: "start" }
-  }
-  return { kind: "finished", chip, offered: canOffer }
-}
-
-/**
- * The robot the Status cell of a branch row shows: a running one (also of an earlier state of the branch, with its
- * warning dot), a finished one of the branch as it is; null for the git status
- */
-export function getRowRobotChip(slot: SafePushSlot): PatronusChipState | null {
-  return slot.kind === "running" || slot.kind === "finished" ? slot.chip : null
 }
 
 /**

@@ -130,6 +130,20 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   facts of the next step, a part of the view the row words, [Branch Row](../../spec/branch/branch-row.spec.md#tree)). Filled is the user's move on this row, hollow a
   wait or done; the push keeps the dot of the status text. A table without stacks keeps the column, a lane for the
   node alone.
+- **Work in flight.** A row has two slots for the same facts, each with its own question: the node says whose move it
+  is, the first column of the Status cell what happens to the branch. One set of the facts of the branch itself feeds
+  both (`domain_policy::own_facts`: its robot, its sync, its parent, what landed it, parked), each rule picking by its
+  own order (`landing_node`, `row_status`), and the cell keeps what it covers beside it as a mark, so no fact drops.
+  Before, three cascades ranked a problem above work in flight (the cell in the page, the node, the settled step that
+  pointed at the cell): a Safe Push of a branch whose parent stopped building showed only "blocked by tool-events", on
+  no surface of its row. Now a running robot is the first of the cell, the block or the conflict beside it. The node
+  answers by the move: a block yields to a Safe Push that will land the branch (it lands the copy it took, whatever the
+  parent builds to now), not to a Dry Run, one that will fail or one that cancels; a conflict stays the user's fix even
+  while a robot lands it, with the ring of that robot. A branch that pushed could build, so the conflict came after
+  the push: of new commits the robot doesn't land, or of a baseline that moved, which the robot meets too and fails on
+  hours later; a fix doesn't disturb the robot, which lands the remote copy whose push it holds. All of it in master
+  outranks a conflict of what is left: the update archives it. One table over every combination pins it
+  (`row_status_test.rs`), and `bd status` says the same cell (`next_step.status`).
 - **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
   Landing, Waiting, In Master ([Branch Filter](../../spec/branch/branch-filter.spec.md)). They replaced To Push,
   Running and Attention: a push is no state, a running robot is Landing (a Dry Run waits), and what needed attention is

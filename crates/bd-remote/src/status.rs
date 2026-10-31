@@ -773,7 +773,7 @@ fn next_steps_of_status(
     .filter(|(_, view)| view.step.kind != StepKind::Hidden)
     .map(|(key, view)| {
       let what = stack_root_of_readiness_key(&key).map_or_else(|| key.clone(), |root| Subject::whole_stack(root).words());
-      (key, NextStepSummary::new(&view.step, &what, facts.robots()))
+      (key, NextStepSummary::new(&view.step, &what, facts.robots()).with_status(&view.status))
     })
     .collect()
 }

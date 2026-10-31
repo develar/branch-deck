@@ -4,11 +4,14 @@ import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { RobotRow } from "@/components/repository/RobotRows"
 import { HoverDescription } from "@/components/shared/HoverDescription"
+import { useLandedIn } from "@/hooks/useLandedIn"
 import { getPatronusChipState } from "@/lib/patronus"
 import type { RobotOverviewEntry } from "@/lib/robot-overview"
 import { formatWholeStackStart } from "@/lib/whole-stack"
+import { useRowPart } from "@/model/store"
 import type { LandingNode } from "@/presenters/landing-node"
-import { useBranchRemoteStatus, useBranchTip, useStackBranch } from "@/stores/branch-sync"
+import { presentRowMark } from "@/presenters/row-status"
+import { useBranch, useBranchRemoteStatus, useBranchTip, useParkedState, useStackBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { useBranchRobot, useRobotFailing, useRobotNeedsReview, useStackRobot } from "@/stores/patronus"
 
@@ -53,8 +56,8 @@ export function LandingNodeHover({ node, subject, trigger, children, onReveal }:
 }
 
 /**
- * The state of the node a line each, the issue keys as links; "Show auth" of the branch it names; below it the robot
- * whose state it tells
+ * The state of the node a line each, the issue keys as links; "Show auth" of the branch it names; the facts the Status
+ * cell keeps beside what it says first; below it the robot whose state it tells
  */
 export function LandingNodeDetails({ node, subject, onReveal = revealBranch }: { node: LandingNode; subject: LandingNodeSubject; onReveal?: (name: string) => void }) {
   const shows = node.shows
@@ -66,8 +69,27 @@ export function LandingNodeDetails({ node, subject, onReveal = revealBranch }: {
           {`Show ${shows}`}
         </Button>
       )}
+      {subject.kind === "branch" && <BranchNodeAlso name={subject.name} />}
       {node.robot === true && (subject.kind === "branch" ? <BranchNodeRobot name={subject.name} /> : <StackNodeRobot root={subject.root} />)}
     </>
+  )
+}
+
+/** The facts its Status cell keeps beside what it says first ("Blocked: parent auth has a merge conflict"), a line each */
+function BranchNodeAlso({ name }: { name: string }) {
+  const branch = useBranch(name)
+  const landedIn = useLandedIn(name)
+  const robot = useBranchRobot(name)
+  const parked = useParkedState(name)
+  const status = useRowPart(name, "landing")?.status
+  const mark = branch === undefined ? null : presentRowMark(status, { branch, landedIn, robot, parked })
+  if (mark === null) {
+    return null
+  }
+  return (
+    <p className="break-words whitespace-pre-line text-muted-foreground" data-testid="lane-node-also">
+      {mark.lines.join("\n")}
+    </p>
   )
 }
 

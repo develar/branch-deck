@@ -51,7 +51,7 @@ export interface StackChipProps {
 /**
  * The header of a stack on its root row, after the name: "22 branches", which collapses the stack into its root and
  * expands it ("22 branches · 1 to fix" while collapsed: the strongest state of the hidden rows by their nodes, in the
- * colour of the node); "3 of 22 branches" under a filter. The tooltip sizes the stack and tells where its branches are
+ * colour of the node, and what lands beside it with its ring, "· 1 to fix · 1 landing"); "3 of 22 branches" under a filter. The tooltip sizes the stack and tells where its branches are
  * on their way into master: "Stack of vm-lane-daemon · 22 branches · 152 commits · 3 your step · 18 waiting".
  */
 export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackChipProps) {
@@ -77,6 +77,8 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
     )
   }
   const attention = collapsed ? (chips[0] ?? null) : null
+  // work in flight never hides behind a stronger state: a fix of one branch beside the landing of another
+  const landing = collapsed ? (chips.find(chip => chip.ring && chip !== attention) ?? null) : null
   return (
     <Tooltip lazy>
       <TooltipTrigger
@@ -103,6 +105,13 @@ export function StackChip({ root, collapsed, shown, filtered, onToggle }: StackC
             {"· "}
             {attention.ring && <RobotRing className="size-3" />}
             {attention.text}
+          </span>
+        )}
+        {landing !== null && (
+          <span className={cn("ml-1 inline-flex items-center gap-1", textColorClassName(landing.color))} data-testid="stack-chip-landing">
+            {"· "}
+            <RobotRing className="size-3" />
+            {landing.text}
           </span>
         )}
       </TooltipTrigger>

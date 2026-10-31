@@ -92,9 +92,13 @@ export function missingGroup(name: string, requested: readonly string[] = [], ex
   }
 }
 
-/** The part of the view of a subject with `step`, its node ready to land */
+/** The part of the view of a subject with `step`, its node ready to land, its Status cell the push state */
 export function testView(step: NextStep): NextStepView {
-  return { step, node: { kind: "ready", label: { kind: "ready", lands: step.lands }, pending: false, robot: false, shows: null, moveShows: true } }
+  return {
+    step,
+    node: { kind: "ready", label: { kind: "ready", lands: step.lands }, pending: false, robot: false, shows: null, moveShows: true, ring: false },
+    status: { main: null, also: [] },
+  }
 }
 
 /** The next steps of the view, by subject, as the session sends them (`RepositoryView.nextSteps`) */

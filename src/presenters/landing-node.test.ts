@@ -7,7 +7,7 @@ import type { FoundMove } from "@/presenters/running-move"
 import { missingGroup, testContext, testStep } from "@/test-support/next-step"
 
 function nodeView(kind: NodeView["kind"], label: NodeLabel, extra: Partial<NodeView> = {}): NodeView {
-  return { kind, label, pending: false, robot: false, shows: null, moveShows: true, ...extra }
+  return { kind, label, pending: false, robot: false, shows: null, moveShows: true, ring: false, ...extra }
 }
 
 function present(view: NodeView, move: FoundMove | null = null, statusText = ""): ReturnType<typeof presentLandingNode> {

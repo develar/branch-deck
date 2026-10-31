@@ -84,10 +84,14 @@ command without it, which must land, `landed: true`, when nothing refuses it and
   (the target a push of the copy lands into, `PlannedEffect::PushBaseline`; `null` without one).
   `blockers` and `confirmations` are `[]` where left out, and so is `waits` of a decision no blocker refuses: one that
   appears fails every case it appears in. `null` without a decision (no subject, no Patronus view).
+- `expect.status` (optional): the Status cell of a branch subject (`domain_types::next_step::RowStatus`), the main fact
+  first, by the names of `bd status` (`NextStepSummary::status`: `robot_running`, `blocked`, `merge_conflict`, …); the
+  app answers it of the next steps it derives, `bd` of `bd status`.
 - `asymmetry` (optional): `{ "kind": "byDesign", "why": "…" }`, where `bd` answers otherwise by design (the spec or the
   doc it names), always with `bd`: its own `step` or `land` instead of `expect`'s, or `error`, the code of the error of
   the command that refuses before it decides anything (what the table alone refuses, a target Patronus doesn't protect,
-  a repository not on Space, an argument). `bd` stands only beside an `asymmetry`, and an `asymmetry` only with it.
+  a repository not on Space, an argument), and its own `status` (`bd status` reads the grouping without a sync: no
+  failure of one). `bd` stands only beside an `asymmetry`, and an `asymmetry` only with it.
 
 ## The registry: `discrepancies.json`
 
@@ -124,7 +128,7 @@ fakes; both sides read that.
 | `commits` | `(prefix) subject` strings, `(parent/child)` stacked [`["(auth) Add auth"]`]; `[]` only with `dangling` | `f<i>.txt` of each, as `commit_subjects`; stacks on with a parent |
 | `target` | `protected` · `unprotected` [`protected`] | `robot-start-supported` answers `supported: false` |
 | `remote` | `none` · `upToDate` · `behind` · `unpushed` · `rebuiltOnNewerBaseline` [`none`] | `bd push`; `unpushed` one commit after it; `behind` a commit of someone else on the remote branch, fetched; `rebuiltOnNewerBaseline` the baseline moved and the branch rebased onto it (the same commits, not a fast-forward) |
-| `robot` | `{ state: running·failure·canceled·success, on: tip·older·remote·ancestor:<b>·child:<b>·stack, reason: approvals, fromPullRequest }`, or a list | the robot list, on the tips the sync built (`older`: `0000`); the i-th robot is `robot-<i>`, the one on an older commit `older`; the first started last (the newest), each next a minute earlier, the finishes in the order of the list; the problems of a robot say it failed for the approvals only with `reason: approvals` |
+| `robot` | `{ state: running·failure·canceled·success, on: tip·older·remote·ancestor:<b>·child:<b>·stack, reason: approvals, fromPullRequest }`, or a list | the robot list, on the tips the sync built (`older`: `0000`, and a branch the sync never built, blocked by its parent); the i-th robot is `robot-<i>`, the one on an older commit `older`; the first started last (the newest), each next a minute earlier, the finishes in the order of the list; the problems of a robot say it failed for the approvals only with `reason: approvals` |
 | `sync` | `running` | after the reads, a commit of the branch and the app's next sync past its grouping: its rows sync (`bd` syncs itself first) |
 | `conflicts` | a branch | its first commit changes `config.txt`, which only an unassigned commit creates |
 | `notOnSpace` | `true` | `origin` set to the bare repository |

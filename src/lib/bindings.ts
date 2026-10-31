@@ -3798,6 +3798,8 @@ export type LandingNode = {
 	 *  node of the subject itself (parked, a failure, landed, blocked, its robot running) stays
 	 */
 	moveShows: boolean,
+	/**  Its own robot runs: the ring around the node, whatever the node says (a conflict that needs a fix meanwhile) */
+	ring: boolean,
 };
 
 /**
@@ -4335,6 +4337,8 @@ export type NextStep = {
 export type NextStepView = {
 	step: NextStep,
 	node: LandingNode,
+	/**  The Status cell of a branch row; empty for a whole stack, which has none */
+	status: RowStatus,
 };
 
 /**  Why the node is what it is, with the facts its words need */
@@ -6871,6 +6875,31 @@ export type RouteGate =
 { kind: "confirm"; confirmations: Reason[] } | 
 /**  It can't land: `reason` */
 { kind: "refused"; reason: Reason };
+
+/**  An exceptional fact of a branch row */
+export type RowFact = 
+/**  Its robot: `running`, or finished on the branch as it is (`failed`: failed, also for the approvals) */
+{ kind: "robot"; running: boolean; failed: boolean } | 
+/**  The sync failed (`status`: an error, a conflict, its analysis) */
+{ kind: "syncFailed"; status: BranchStatus } | 
+/**  Its parent `by` doesn't build */
+{ kind: "blocked"; by: string | null } | 
+/**  The baseline or a merged Safe Push of another branch has all of it */
+{ kind: "landed" } | 
+/**  It stays local */
+{ kind: "parked" };
+
+/**
+ *  The Status cell of a branch row, what happens to it (spec/branch/branch-row.spec.md, "Status cell";
+ *  `domain_policy::row_status`): its first column says `main`, and the exceptional facts `main` covers stay beside it as a
+ *  mark whose hover names them, so a running robot never hides a conflict, nor a conflict a running robot
+ */
+export type RowStatus = {
+	/**  What the first column says; `None`: the sync or the push state of the branch, which the page words as it changes */
+	main: RowFact | null,
+	/**  The exceptional facts besides `main`, in its order */
+	also: RowFact[],
+};
 
 /**  An action of a row of Settings → Tools */
 export type RunCliToolActionParams = {

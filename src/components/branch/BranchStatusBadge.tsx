@@ -1,19 +1,16 @@
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useStatusBadge } from "@/hooks/useStatusBadge"
+import type { StatusTexts } from "@/lib/remote-status"
 import { statusDotClassName, subtleBadgeVariant } from "@/lib/ui-types"
-import type { Branch } from "@/stores/branch-sync"
 
 /**
- * Sync/remote status of an active branch; the full description is a tooltip, as in the branch preview.
+ * The status text of an active branch (`presentRowCell`); the full description is a tooltip, as in the branch preview.
  * Only an error or a conflict is a badge; a routine state ("not pushed", "1 (3)↑ · 2↓") is muted text with a dot in
  * the push colour. A state that needs no action ("up to date") shows nothing: most rows are in it, and the states that
  * need the user stand out. The node of the row says where the branch is on its way into master, not its push.
- * `landedIn`: the baseline that has every commit of the branch (`useLandedIn`), which the row reads once for its cell.
  */
-export function BranchStatusBadge({ branch, landedIn }: { branch: Branch; landedIn: string | null }) {
-  const status = useStatusBadge(branch, landedIn)
+export function BranchStatusBadge({ status }: { status: StatusTexts }) {
   const exceptional = status.badge === true
   if (status.quiet === true) {
     return null

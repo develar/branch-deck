@@ -42,6 +42,8 @@
 //! - `news`: what a window tells once of two answers of a fact: a robot known running that finished
 //!   (`robot_finished`), the approvals that arrived (`approval_news`), the review requests a listing adds
 //!   (`review_requested`)
+//! - `own_facts`: the facts of a subject itself (its robot, its sync, its parent, what landed it, parked), collected
+//!   once for its node and its Status cell, which pick from them by their own orders
 //! - `parked`: why a branch stays local (`parked_state`: its own line, or a parked branch it is built on), and the
 //!   parked member that keeps a stack branch local (`whole_stack_parked`)
 //! - `push`: what keeps a branch out of a push (`kept`), what a push of several branches covers and what each of them
@@ -63,6 +65,8 @@
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
 //! - `reviews`: the sections of Reviews beside the requests by name, each open pull request the user takes part in once
 //!   (`sections`), and the links that go (`gone_links`)
+//! - `row_status`: the Status cell of a branch row (`row_status`): the main fact, work in flight first, and the
+//!   exceptional facts it covers beside it, so none drops from the row
 //! - `robot_match`: which robot belongs to a virtual branch and which to the whole stack of a root (`RobotIndex`,
 //!   `match_table`)
 //! - `stack`: the stacks of a table: the declared parent (D8), the branch a branch is built on, the ancestors by
@@ -83,6 +87,7 @@ pub mod landing_node;
 pub mod landing_route;
 pub mod news;
 pub mod next_step;
+mod own_facts;
 pub mod parked;
 pub mod pull_request;
 pub mod push;
@@ -92,6 +97,7 @@ pub mod refresh;
 pub mod review;
 pub mod reviews;
 pub mod robot_match;
+pub mod row_status;
 pub mod stack;
 
 #[cfg(test)]
@@ -140,5 +146,7 @@ mod review_test;
 mod reviews_test;
 #[cfg(test)]
 mod robot_match_test;
+#[cfg(test)]
+mod row_status_test;
 #[cfg(test)]
 mod stack_test;

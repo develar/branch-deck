@@ -378,7 +378,8 @@ start beside it fails too). Tell the user before a Safe Push and run the fix (`b
 approve; `[]` is nothing, absent is unknown. `landed_by`: a merged Safe Push landed the branch, only its `after`
 commits are left (`bd safe-push --help`); `parked`: it stays local until the user unparks it; `unapplied`: the
 branches `bd unapply` took out; `stacks`: the stack branch of each stack that forks (`bd push --help`);
-`prefix_source`: where the branch prefix came from.
+`prefix_source`: where the branch prefix came from. `next_step.status`: what the app's Status cell says of the branch,
+the main fact first (`robot_running` before `blocked`): a Safe Push that runs is said even where the step is `settled`.
 ";
 
 /// `bd suggest --help`: the fields of the plan

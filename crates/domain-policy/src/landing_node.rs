@@ -1,8 +1,12 @@
 //! Where a branch or a whole stack is on its way into master, the node of its row (spec/branch/branch-row.spec.md,
 //! "Tree"; spec/branch/next-step.spec.md, "The surfaces"; docs/design/landing.md), for the app and `bd` alike: the first
 //! state that matches over the facts of its next step (`next_step::StepFacts`) with what the step doesn't tell apart.
-//! A sync of the row passes, so the node keeps the state it started from; a parked branch, a failure, a landing, a
-//! block and its own robot running are the subject's own; the rest the next step decides, as the slot shows it, with no
+//! A sync of the row passes, so the node keeps the state it started from; a parked branch, all of it in master, a
+//! failure, a block and its own robot running are the subject's own (`own_facts`, which the Status cell picks from too,
+//! `row_status`), in that order: a failure stays the user's fix while a robot lands it (the conflict came after the
+//! push, and the robot lands the remote copy), the ring of the node says the robot runs; a block yields to a Safe Push
+//! that will land it (its own or one that lands it with more, neither failing nor canceling), whose move it is. The rest
+//! the next step decides, as the slot shows it, with no
 //! start refused by the robots (a robot that lands an ancestor is said apart). The page lays a running move of the row
 //! (a start, a review request: the `moves` of an operation of the view) over the node: it shows in place of a node that
 //! says so (`move_shows`). A repository that lands by a push into the target is ready once its push can land it
@@ -11,7 +15,8 @@
 //! (`merge_held`) a fix, the user's step or a wait.
 
 use crate::land::merges_on_github;
-use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, landed_whole, next_step, problems_failed, problems_pending, slot};
+use crate::next_step::{Chip, Listing, Needs, PatronusAnswer, Slot, StepFacts, changes_requested_by, next_step, problems_failed, problems_pending};
+use crate::own_facts::{OwnFacts, own_facts};
 use crate::readiness::waiting_reviewers;
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::{LandingNode, LandingNodeKind, NextStep, NodeLabel, StepBlocker, StepFact, StepFailure, StepKind};
@@ -29,8 +34,10 @@ pub struct NodeFacts<'a> {
   pub status: BranchStatus,
   /// The parent of a blocked branch
   pub blocked_by: Option<&'a str>,
-  /// A running Safe Push (not a Dry Run) of a branch built on it, or of the whole stack, lands it
+  /// A running Safe Push (not a Dry Run, not canceling) of a branch built on it, or of the whole stack, lands it
   pub lands_with: Option<&'a RobotOf>,
+  /// That Safe Push will fail: a required check failed
+  pub lands_failing: bool,
   /// The remote lacks work of it: the step a repository without Patronus and GitHub shows. The page lays a push of it
   /// that runs over the node: it shows the pushed branch from the click on (`presentLandingNode`)
   pub push_pending: bool,
@@ -51,11 +58,12 @@ const fn node(kind: LandingNodeKind, label: NodeLabel) -> LandingNode {
     robot: false,
     shows: None,
     move_shows: true,
+    ring: false,
   }
 }
 
 /// A node of the subject itself, which a running move of the row doesn't replace
-fn own(kind: LandingNodeKind, label: NodeLabel) -> LandingNode {
+fn own_node(kind: LandingNodeKind, label: NodeLabel) -> LandingNode {
   LandingNode {
     move_shows: false,
     ..node(kind, label)
@@ -79,50 +87,59 @@ fn waits(label: NodeLabel) -> LandingNode {
   }
 }
 
-/// The sync failed on it, or left it conflicting
-const fn conflicts(facts: &NodeFacts<'_>) -> bool {
-  facts.step.sync_failed || matches!(facts.status, BranchStatus::Error | BranchStatus::MergeConflict | BranchStatus::AnalyzingConflict)
-}
-
-/// The node of the subject of `facts`: the first state that matches (module docs)
+/// The node of the subject of `facts`: the first state that matches (module docs), with the ring of its own robot running
 #[must_use]
 pub fn landing_node(facts: &NodeFacts<'_>) -> LandingNode {
+  let own = own_facts(facts);
+  LandingNode {
+    ring: matches!(own.slot, Slot::Running { .. }),
+    ..first_state(facts, &own)
+  }
+}
+
+fn first_state(facts: &NodeFacts<'_>, own: &OwnFacts) -> LandingNode {
   // a sync of the row passes: the node keeps the state it started from
   let step = StepFacts { syncing: false, ..facts.step };
-  let slot = slot(&step);
-  let landed = landed_whole(&step, slot);
+  let slot = own.slot;
   let running = matches!(slot, Slot::Running { .. });
   // a parked branch is no move, a conflict of it neither, unless something lands it already
-  if let Some(parked) = step.parked
-    && landed.is_none()
+  if own.parked
+    && let Some(parked) = step.parked
+    && own.landed.is_none()
     && !running
     && facts.lands_with.is_none()
   {
-    let conflict = conflicts(facts);
-    let label = NodeLabel::Parked { parked: parked.clone(), conflict };
+    let label = NodeLabel::Parked {
+      parked: parked.clone(),
+      conflict: own.conflict,
+    };
     return LandingNode {
-      move_shows: !conflict,
-      ..own(LandingNodeKind::Parked, label)
+      move_shows: !own.conflict,
+      ..own_node(LandingNodeKind::Parked, label)
     };
   }
-  if conflicts(facts) {
-    let problem = step.problem.map(str::to_owned);
-    return own(LandingNodeKind::NeedsFix, NodeLabel::SyncFailed { status: facts.status, problem });
+  // all of it is in master: a conflict of what is left to build is moot, the update archives it
+  if let Some(landed) = &own.landed {
+    return own_node(LandingNodeKind::InMaster, NodeLabel::Landed { landed: landed.clone() });
   }
-  if let Some(landed) = landed {
-    return own(LandingNodeKind::InMaster, NodeLabel::Landed { landed });
+  // the fix is the user's move even while a robot lands it: the conflict came after the push, of new work or of a
+  // baseline the robot meets too, and the robot lands the remote copy, whose push it holds
+  if own.conflict {
+    let problem = step.problem.map(str::to_owned);
+    return own_node(LandingNodeKind::NeedsFix, NodeLabel::SyncFailed { status: facts.status, problem });
   }
   if step.commit_count == 0 {
-    return own(LandingNodeKind::Waiting, NodeLabel::NoCommits);
+    return own_node(LandingNodeKind::Waiting, NodeLabel::NoCommits);
   }
-  if facts.status == BranchStatus::Blocked {
+  // a Safe Push that will land it lands it whatever its parent builds to locally: the move is the robot's
+  if own.blocked && !own.landing {
     let by = facts.blocked_by.map(str::to_owned);
     return LandingNode {
       shows: by.clone(),
-      ..own(LandingNodeKind::Waiting, NodeLabel::Blocked { by })
+      ..own_node(LandingNodeKind::Waiting, NodeLabel::Blocked { by })
     };
   }
-  if let Slot::Running { dry_run, failing } = slot {
+  if let Slot::Running { dry_run, failing, .. } = slot {
     let kind = if dry_run { LandingNodeKind::Waiting } else { LandingNodeKind::Landing };
     return robot(kind, NodeLabel::RobotRunning { dry_run, failing }, false);
   }

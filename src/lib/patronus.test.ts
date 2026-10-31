@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { PatronusRobot } from "@/lib/bindings"
-import type { RobotRestartAction, SafePushSlotInput } from "@/lib/patronus"
+import type { RobotRestartAction } from "@/lib/patronus"
 import {
   describeRobot,
   formatLandedWith,
@@ -12,8 +12,6 @@ import {
   formatReviewerGroupFiles,
   formatRobotCommitNotice,
   getPatronusChipState,
-  getRowRobotChip,
-  getSafePushSlot,
   isHoldingRobot,
 } from "@/lib/patronus"
 import type { RemoteStatus } from "@/stores/branch-sync"
@@ -201,59 +199,16 @@ describe("formatMergedRobotTitle", () => {
   })
 })
 
-describe("getSafePushSlot", () => {
-  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, failing: false, canOffer: true }
-
-  it("offers \"Safe Push…\" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed", () => {
-    expect(getSafePushSlot(input)).toEqual({ kind: "start" })
-    expect(getSafePushSlot({ ...input, canOffer: false })).toEqual({ kind: "none" })
-  })
-
+describe("the chip of the robot of a row", () => {
+  // whether the Status cell shows the robot Rust decides (`RowStatus`): these are its words
   it("is the live robot while it runs, also while it cancels", () => {
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }) })).toMatchObject({ kind: "running", chip: { label: "Running" } })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "canceling" }) })).toMatchObject({ kind: "running", chip: { label: "Canceling" } })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), failing: true })).toMatchObject({ kind: "running", chip: { label: "Failing", color: "error" } })
-    // a fix committed since keeps the robot in the slot, with the warning dot
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "running" }), localTip: "fixed", remote: unpushedOnRobot })).toMatchObject({
-      kind: "running",
-      chip: { outdated: true },
-    })
-  })
-
-  it("shows a finished robot of the branch as it is, and whether a next step can be offered", () => {
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }) })).toMatchObject({ kind: "finished", chip: { label: "Failed" }, offered: true })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }) })).toMatchObject({ kind: "finished", chip: { label: "Merged" }, offered: true })
-    // only rebuilt on a newer baseline: the same commits
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "rebuilt", remote: rebuiltOnRobot })).toMatchObject({ kind: "finished" })
-  })
-
-  it('offers "Safe Push…" for a branch changed since its robot, a merged one too', () => {
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot })).toEqual({ kind: "start" })
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }), localTip: "next", remote: unpushedOnRobot })).toEqual({ kind: "start" })
-    // the merged robot landed all of the branch as it is now, by content: a rebuild since gave it new hashes, not new work
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "success" }), localTip: "rebuilt", remote: unpushedOnRobot, landed: true })).toMatchObject({
-      kind: "finished",
-      chip: { label: "Merged" },
-    })
-    // nothing to start from where Patronus doesn't answer: the robot stays, with its dot
-    expect(getSafePushSlot({ ...input, robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot, canOffer: false })).toMatchObject({
-      kind: "finished",
-      chip: { outdated: true },
-      offered: false,
-    })
-  })
-})
-
-describe("getRowRobot", () => {
-  const input: SafePushSlotInput = { robot: undefined, localTip: "tip", remote: null, needsReview: false, failing: false, canOffer: true }
-  const slotOf = (patch: Partial<SafePushSlotInput>) => getSafePushSlot({ ...input, ...patch })
-
-  it("shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise", () => {
-    expect(getRowRobotChip(slotOf({ robot: robot({ status: "running" }) }))).toMatchObject({ label: "Running" })
-    expect(getRowRobotChip(slotOf({ robot: robot({ status: "failure" }) }))).toMatchObject({ label: "Failed" })
-    expect(getRowRobotChip(slotOf({}))).toBeNull()
-    // changed since: the robot gives way to the status of the branch as it is
-    expect(getRowRobotChip(slotOf({ robot: robot({ status: "failure" }), localTip: "fixed", remote: unpushedOnRobot }))).toBeNull()
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null)).toMatchObject({ label: "Running" })
+    expect(getPatronusChipState(robot({ status: "canceling" }), "tip", null)).toMatchObject({ label: "Canceling" })
+    expect(getPatronusChipState(robot({ status: "running" }), "tip", null, { failing: true })).toMatchObject({ label: "Failing", color: "error" })
+    // a fix committed since keeps the robot in the cell, with the warning dot
+    expect(getPatronusChipState(robot({ status: "running" }), "fixed", unpushedOnRobot)).toMatchObject({ outdated: true })
+    expect(getPatronusChipState(robot({ status: "failure" }), "tip", null)).toMatchObject({ label: "Failed" })
+    expect(getPatronusChipState(robot({ status: "success" }), "tip", null)).toMatchObject({ label: "Merged" })
   })
 })
 

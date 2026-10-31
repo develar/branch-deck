@@ -418,11 +418,16 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `bd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, `1″` `pick_remote_commits`:
   someone else pushed to the remote branch, `bd pick --remote` takes it in, … `11` a Safe Push), `step`,
   `waits_for` (the fact without an answer, or whose read failed), `pull_request`, and why a Safe
-  Push or a Dry Run can't start now (`safe_push_blocked`, `dry_run_blocked`, `null` when it can). `bd status` lists no
+  Push or a Dry Run can't start now (`safe_push_blocked`, `dry_run_blocked`, `null` when it can), and of a branch
+  `status`, what its Status cell in the app says by the same rule (`domain_policy::row_status`), the main fact first:
+  `robot_running` before `blocked`, so a step settled by a running robot says it (`robot_finished`, `robot_failed`,
+  `landed`, `sync_error`, `merge_conflict`, `analyzing_conflict`, `parked`; omitted when only the push state is to
+  say). `bd status` reads the grouping without a sync, so it names no failure of one: `bd sync` says it. `bd status` lists no
   pull request, asks no readiness and no problem of a failed robot: a step that needs them waits for them (row 0,
   `pull_requests`, `readiness`, `robot_problems`); `bd safe-push --check` reads them. Omitted off Space (the row has
   no slot), with `--brief` and `--unassigned`; no git process more.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row`)
+  [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - Each branch must show its `origin` (`prefix`, `issue_group` or `issue`) and, for an issue group, its `issue_keys`;
   the output must list `idle_issue_groups`, the keys of the issue groups that group no commit on this HEAD, and

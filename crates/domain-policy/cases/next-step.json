@@ -911,6 +911,66 @@
     }
   },
   {
+    "id": "stacked-blocked-safe-push-runs",
+    "group": "stack-and-whole-stack",
+    "title": "auth fails to sync while the Safe Push of login built on it runs: login says its robot first, the block beside it",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/branch-row.spec.md#status-cell", "spec/cli/agent-cli.spec.md#bd-status"],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "login",
+      "conflicts": "auth",
+      "robot": { "state": "running", "on": "tip" }
+    },
+    "expect": {
+      "step": { "row": "1", "kind": "settled", "safePush": "blocked", "dryRun": "blocked" },
+      "land": {
+        "blockers": ["cantPush", "blocked"],
+        "confirmations": ["landsMoreThanRow", "nonDefaultProfile", "cancelsRobot"],
+        "start": "api:lsc",
+        "cancels": "robot-0",
+        "lands": ["auth", "login"]
+      },
+      "status": ["robot_running", "blocked"]
+    },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "bd status reads the grouping without a sync, so it knows no failure of one, and bd safe-push refuses what its own sync left unbuilt before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#bd-status, spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "bd": {
+      "error": "push_refused",
+      "status": ["robot_running"]
+    }
+  },
+  {
+    "id": "stacked-parent-conflict-landed-by-child",
+    "group": "stack-and-whole-stack",
+    "title": "auth fails to sync while the Safe Push of login built on it lands it: auth says its conflict, its fix",
+    "spec": ["spec/branch/next-step.spec.md#the-table:1", "spec/branch/branch-row.spec.md#status-cell", "spec/cli/agent-cli.spec.md#bd-status"],
+    "given": {
+      "commits": ["(auth) Add auth", "(auth/login) Add login"],
+      "branch": "auth",
+      "conflicts": "auth",
+      "robot": { "state": "running", "on": "child:login" }
+    },
+    "expect": {
+      "step": { "row": "1", "kind": "settled", "safePush": "syncFailed", "dryRun": "syncFailed" },
+      "land": {
+        "blockers": ["cantPush", "descendant"],
+        "start": "api",
+        "lands": ["auth"]
+      },
+      "status": ["merge_conflict"]
+    },
+    "asymmetry": {
+      "kind": "byDesign",
+      "why": "bd status reads the grouping without a sync, so it knows no failure of one, and bd safe-push refuses what its own sync left unbuilt before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#bd-status, spec/cli/agent-cli.spec.md#bd-safe-push"
+    },
+    "bd": {
+      "error": "push_refused",
+      "status": []
+    }
+  },
+  {
     "id": "stacked-built-on-parked",
     "group": "stack-and-whole-stack",
     "title": "auth is parked: login built on it stays local too",

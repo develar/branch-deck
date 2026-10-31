@@ -344,9 +344,9 @@ reports in it and closes it once merged.
 
 ### Robot of a row
 
-- The Status cell of a branch row shows the robot of the branch as the state of the branch, in the first column of the
-  cell, where the status text is otherwise ([Branch Row](branch-row.spec.md#status-cell), `BranchRowStatus`,
-  `getRowRobotChip`):
+- The Status cell of a branch row shows the robot of the branch as what happens to the branch, in the first column of
+  the cell, where the status text is otherwise ([Branch Row](branch-row.spec.md#status-cell), `BranchRowStatus`; Rust
+  decides it, `domain_policy::row_status`, the slot of the robot `next_step::slot`):
   - while a robot runs (or cancels): a rotating ring, how long it runs and how long it has left ([Timing](#timing)),
     "Canceling" while it cancels; one that will fail ([Failing](#failing)) says "18m · Failing" instead of the time
     left, no use waiting for it;
@@ -358,10 +358,13 @@ reports in it and closes it once merged.
   - a robot of an earlier state of the branch (the warning dot below, a merged robot included: the same name with new
     work): the git status of the branch as it is. The robot stays in the branch preview and the landing overview, with
     the notice of what changed.
-  A sync running, an error or a conflict, a block by the stack parent and a landed branch say more than the robot: the
-  status text then.
+  A running robot is said first, whatever else holds the branch: a block by its stack parent, a conflict, an error,
+  what landed it stay beside it as a mark that names them ([Branch Row](branch-row.spec.md#status-cell)); a sync running
+  lays over it as it passes. A finished robot comes after what landed all of it, a failed sync, parked and a block,
+  and stays beside them when it failed.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
-  [@test] ../../src/lib/patronus.test.ts (`shows a running robot and a finished one of the branch as it is in the Status cell, the git status otherwise`, `is the live robot while it runs, also while it cancels`, `offers "Safe Push…" for a branch changed since its robot, a merged one too`, `names the change and the restart that tests the branch as it is`)
+  [@test] ../../crates/domain-policy/src/row_status_test.rs (`a_robot_of_an_earlier_state_of_the_branch_gives_way_to_its_push_state_unless_it_runs`, `no_fact_of_a_row_drops_and_the_node_and_the_cell_tell_one_story`)
+  [@test] ../../src/lib/patronus.test.ts (`is the live robot while it runs, also while it cancels`, `names the change and the restart that tests the branch as it is`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`, `the_whole_stack_takes_the_rows_of_its_stack_branch`)
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote`)
 - The Actions cell has the Safe Push slot after the push button ([Branch Row](branch-row.spec.md#actions-cell)), in a
@@ -383,7 +386,7 @@ reports in it and closes it once merged.
   Nothing hovers in: the state stays in the Status cell where the eye reads it, the step stays the step. A repository
   that is not on Space has no slot; a branch that can't be pushed (an error, no commits) has an empty one.
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`, `should restart a failed robot from its row, the state staying in the Status cell`)
-  [@test] ../../src/lib/patronus.test.ts (`offers "Safe Push…" without a robot, nothing where Patronus doesn't answer or the branch can't be pushed`, `shows a finished robot of the branch as it is, and whether a next step can be offered`)
+  [@test] ../../crates/domain-policy/src/next_step_test.rs (`row_1_offers_nothing_while_the_status_cell_says_why_and_disables_both_starts`, `row_11_safe_push_and_the_start_without_review_while_github_is_signed_out`)
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_2_and_3_restart_a_failed_robot_or_keep_the_pull_request_while_nobody_can_tell`)
   [@test] ../../src/presenters/next-step.test.ts (`rows 2 and 3: restarts the robot, or the pull request that collects the approvals, or a Safe Push where it can't restart`)
 - Running and canceling are muted, failing `destructive`, failed `destructive`, failed for missing approvals "Needs

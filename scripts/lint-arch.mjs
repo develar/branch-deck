@@ -15,7 +15,9 @@
 // what the view decides and decides nothing itself:
 // - `rule-module`: a rule module whose rule moved into Rust comes back (`RULE_MODULES`), or src/lib or src/hooks (their
 //   tests aside) exports a function or a constant named as a rule: `can…`, `needs…`, `allows…`, `…Blocker`,
-//   `…Decision`, `is…Blocked`; a formatter (`format…`) words a reason Rust gave and decides nothing.
+//   `…Decision`, `is…Blocked`, or an order of the facts of a row (`…Outranks…`, `…Precedes…`, `…Masks…`: which fact
+//   a surface shows is Rust's, `domain_policy::row_status`); a formatter (`format…`) words a reason Rust gave and
+//   decides nothing.
 // The operations are the session's (docs/design/operations.md): Rust admits, joins and queues every one of them and lays
 // them over the actions of the view; the page only knows which of its surfaces started one (`src/stores/indicators.ts`):
 // - `operations-store`: the deleted registry of the page comes back (`src/stores/operations.ts`), or src/stores or
@@ -79,7 +81,7 @@ const SOURCES = ["src/**/*.{ts,tsx}", "tests/e2e/**/*.ts"]
 const EXCEPTED_RULES = new Set(["poll-timer"])
 
 /** The rule modules of the page whose rules Rust decides now (`domain-policy`): deleted, they don't come back */
-export const RULE_MODULES = ["src/lib/branch-next-step.ts", "src/lib/landing-node.ts", "src/lib/safe-push-decision.ts"]
+export const RULE_MODULES = ["src/lib/branch-next-step.ts", "src/lib/landing-node.ts", "src/lib/safe-push-decision.ts", "src/hooks/useStatusBadge.ts"]
 /** The registry of the operations the page kept until the session admitted every one of them: deleted, it doesn't come back */
 export const OPERATIONS_MODULE = "src/stores/operations.ts"
 // the export of an admission of the page, its name the group
@@ -88,7 +90,8 @@ const ADMISSION_EXPORT =
 /** The sources whose exports an admission name refuses: the stores and the modules of the page, their tests aside */
 const ADMITTING = /^src\/(?:stores|lib)\/(?!.*\.test\.tsx?$)/
 // the export of a function or a constant named as a rule, its name the group
-const RULE_EXPORT = /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)((?:can|needs|allows)[A-Z][\w$]*|(?!format)[\w$]*(?:Blocker|Decision)|is[\w$]*Blocked)\b/
+const RULE_EXPORT =
+  /^\s*export\s+(?:async\s+)?(?:function\s*\*?\s*|const\s+|let\s+)((?:can|needs|allows)[A-Z][\w$]*|(?!format)[\w$]*(?:Blocker|Decision)|is[\w$]*Blocked|[\w$]+(?:Outranks|Precedes|Masks)[A-Z][\w$]*)\b/
 /** The sources whose exports a rule name refuses: the modules and the hooks of the page, their tests aside */
 const RULED = /^src\/(?:lib|hooks)\/(?!.*\.test\.tsx?$)/
 

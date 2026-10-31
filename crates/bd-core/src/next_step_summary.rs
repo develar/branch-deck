@@ -3,8 +3,9 @@
 //! and why a Safe Push or a Dry Run can't start now. `bd status` prints it of every branch and whole stack, `bd
 //! safe-push --check` of the subject it checks.
 
-use domain_types::next_step::{NextStep, StepBlocker, StepFact, StepFailure, StepKind};
+use domain_types::next_step::{NextStep, RowFact, RowStatus, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingReviewGroup, PatronusRobot, Person};
+use domain_types::session::BranchStatus;
 use repository_model::refusal_words::start_refusal_text;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -33,6 +34,13 @@ pub struct NextStepSummary {
   pub safe_push_blocked: Option<String>,
   /// Why a Dry Run can't start now: never the approvals, a draft, another base or a robot that lands an ancestor
   pub dry_run_blocked: Option<String>,
+  /// What happens to a branch, as the first column of its Status cell in the app says it, the main fact first, the
+  /// ones it covers after it (`domain_policy::row_status`): `robot_running`, `robot_finished`, `robot_failed`,
+  /// `landed`, `sync_error`, `merge_conflict`, `analyzing_conflict`, `parked`, `blocked`. A running robot comes first,
+  /// a block or a conflict stays beside it; empty when nothing but its sync or push state is to say, and of a whole
+  /// stack
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub status: Vec<String>,
 }
 
 impl NextStepSummary {
@@ -47,7 +55,35 @@ impl NextStepSummary {
       pull_request: pull_request_of(&step.kind),
       safe_push_blocked: blocked(step.safe_push.as_ref()),
       dry_run_blocked: blocked(step.dry_run.as_ref()),
+      status: Vec::new(),
     }
+  }
+
+  /// With what happens to the branch, as its Status cell says it
+  #[must_use]
+  pub fn with_status(self, status: &RowStatus) -> Self {
+    Self {
+      status: status.main.iter().chain(&status.also).map(|fact| row_fact_name(fact).to_owned()).collect(),
+      ..self
+    }
+  }
+}
+
+const fn row_fact_name(fact: &RowFact) -> &'static str {
+  match fact {
+    RowFact::Robot { running: true, .. } => "robot_running",
+    RowFact::Robot { failed: true, .. } => "robot_failed",
+    RowFact::Robot { .. } => "robot_finished",
+    RowFact::Landed => "landed",
+    RowFact::SyncFailed {
+      status: BranchStatus::MergeConflict,
+    } => "merge_conflict",
+    RowFact::SyncFailed {
+      status: BranchStatus::AnalyzingConflict,
+    } => "analyzing_conflict",
+    RowFact::SyncFailed { .. } => "sync_error",
+    RowFact::Parked => "parked",
+    RowFact::Blocked { .. } => "blocked",
   }
 }
 

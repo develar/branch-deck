@@ -162,6 +162,7 @@ test("a rule of the domain in the page is refused: a deleted rule module, an exp
     "export function getSafePushBlocker(branch) {}",
     "export async function startDecision() {}",
     "export function isStartBlocked() {}",
+    "export function statusOutranksRobot(branch, landedIn) {}",
     // words of a reason Rust gave, a type, a name of no rule, a function of the module only
     "export function formatParkedBlocker(state) {}",
     "export type LandingDecision = string",
@@ -169,7 +170,7 @@ test("a rule of the domain in the page is refused: a deleted rule module, an exp
     "function rewriteBlocker() {}",
   ].join("\n")
   const rules = file => findProblems(file, source).map(problem => `${problem.line} ${problem.rule}`)
-  const refused = ["1 rule-module", "2 rule-module", "3 rule-module", "4 rule-module", "5 rule-module", "6 rule-module"]
+  const refused = ["1 rule-module", "2 rule-module", "3 rule-module", "4 rule-module", "5 rule-module", "6 rule-module", "7 rule-module"]
   assert.deepEqual(rules("src/lib/example.ts"), refused)
   assert.deepEqual(rules("src/hooks/useExample.ts"), refused)
   assert.deepEqual(rules("src/lib/example.test.ts"), [])

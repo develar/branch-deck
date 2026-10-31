@@ -27,10 +27,10 @@ import { TRACK_GROUP_CLASS } from "@/lib/branch-columns"
 import { moveDrop } from "@/lib/branch-drop"
 import { inTableOrder } from "@/lib/branch-selection"
 import { formatCommitCount } from "@/lib/commit"
-import { isRobotActive } from "@/lib/patronus"
 import { countRender } from "@/lib/render-counts"
 import type { LaneSegments, StackLanes } from "@/lib/stack-lanes"
 import { branchRowDivider, dividerAttributes, laneContentInsetClass, rowBelowDivider } from "@/lib/stack-lanes"
+import { useRowPart } from "@/model/store"
 import { getBranchCommits, getBranchTableOrder, getDraggableBranchOrder, useBranchRowFacts, useParkedState } from "@/stores/branch-sync"
 import {
   clearBranchSelection,
@@ -45,7 +45,6 @@ import {
 } from "@/stores/commit-move"
 import type { InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor, useActiveInlineForRow, useInlineProcessing } from "@/stores/inline-row-action"
-import { useBranchRobot } from "@/stores/patronus"
 import { getShownBranchTableOrder, toggleSideStackCollapsed, toggleStackCollapsed } from "@/stores/stack-collapse"
 
 const InlineRenameBranchInput = lazy(() => import("@/components/branch/InlineRenameBranchInput").then(it => ({ default: it.InlineRenameBranchInput })))
@@ -118,9 +117,8 @@ export const BranchRow = memo(function BranchRow({
   countRender(`row:${name}`)
   const branch = useBranchRowFacts(name)
   const parked = useParkedState(name)
-  // the node of a branch whose robot runs has the ring of the Safe Push slot
-  const robot = useBranchRobot(name)
-  const robotRuns = robot !== undefined && isRobotActive(robot)
+  // the node of a branch whose robot runs has the ring of the Safe Push slot, whatever the node says (`LandingNode.ring`)
+  const robotRuns = useRowPart(name, "landing")?.node.ring ?? false
   const activeInline = useActiveInlineForRow(name)
   const { count: fixupCount } = useListFixups(name)
   // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too. A

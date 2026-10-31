@@ -452,6 +452,7 @@ pub enum NodeLabel {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of a node: a pending answer, its robot, a move over it, the ring")]
 pub struct LandingNode {
   pub kind: LandingNodeKind,
   pub label: NodeLabel,
@@ -465,6 +466,38 @@ pub struct LandingNode {
   /// A running move of the row (a start, a review request) shows in place of this node, the state after the move; a
   /// node of the subject itself (parked, a failure, landed, blocked, its robot running) stays
   pub move_shows: bool,
+  /// Its own robot runs: the ring around the node, whatever the node says (a conflict that needs a fix meanwhile)
+  pub ring: bool,
+}
+
+/// The Status cell of a branch row, what happens to it (spec/branch/branch-row.spec.md, "Status cell";
+/// `domain_policy::row_status`): its first column says `main`, and the exceptional facts `main` covers stay beside it as a
+/// mark whose hover names them, so a running robot never hides a conflict, nor a conflict a running robot
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RowStatus {
+  /// What the first column says; `None`: the sync or the push state of the branch, which the page words as it changes
+  pub main: Option<RowFact>,
+  /// The exceptional facts besides `main`, in its order
+  pub also: Vec<RowFact>,
+}
+
+/// An exceptional fact of a branch row
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RowFact {
+  /// Its robot: `running`, or finished on the branch as it is (`failed`: failed, also for the approvals)
+  Robot { running: bool, failed: bool },
+  /// The sync failed (`status`: an error, a conflict, its analysis)
+  SyncFailed { status: BranchStatus },
+  /// Its parent `by` doesn't build
+  Blocked { by: Option<String> },
+  /// The baseline or a merged Safe Push of another branch has all of it
+  Landed,
+  /// It stays local
+  Parked,
 }
 
 /// The next step and the node of a subject, the part of the view of a session (`RepositoryView.next_steps`)
@@ -474,4 +507,6 @@ pub struct LandingNode {
 pub struct NextStepView {
   pub step: NextStep,
   pub node: LandingNode,
+  /// The Status cell of a branch row; empty for a whole stack, which has none
+  pub status: RowStatus,
 }

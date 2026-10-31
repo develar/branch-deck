@@ -26,7 +26,7 @@ targets:
   - ../../src/components/repository/UpdateProjectButton.tsx
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/hooks/useLandedIn.ts
-  - ../../src/hooks/useStatusBadge.ts
+  - ../../src/presenters/row-status.ts
   - ../../src/presenters/push-button.ts
   - ../../src/hooks/useBranchPushes.ts
   - ../../crates/domain-policy/src/push.rs
@@ -194,7 +194,7 @@ by the next sync the same way.
   stack leaves it out ([Outgoing Commits](outgoing.spec.md#what-is-outgoing), `domain_policy::push::push_plan`). A part
   that landed changes nothing of this: the branch still has commits to push.
   [@test] ../../src/lib/landed.test.ts (`has nothing to push for a branch the fetched baseline has all of, before the update`)
-  [@test] ../../src/hooks/useStatusBadge.test.ts (`says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters`)
+  [@test] ../../src/presenters/row-status.test.ts (`says landed, in the merged hue, for a branch the baseline has all of: its push state no longer matters`)
   [@test] ../../src/presenters/push-button.test.ts (`is quiet for a branch the baseline has all of: the update archives it`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)

@@ -25,7 +25,7 @@ targets:
   - ../../crates/repository-model/src/table.rs
   - ../../src/model/structure.ts
   - ../../src/model/store.ts
-  - ../../src/hooks/useStatusBadge.ts
+  - ../../src/presenters/row-status.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/lib/stack-lanes.ts
   - ../../src/components/branch/BranchTableCard.tsx
@@ -454,10 +454,15 @@ menu stacks, unstacks and renames branches.
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should land a stacked branch with what it is built on in one Safe Push, Enter starts it`, `should land a stacked branch with what it is built on from the ⋯ of its row and Safe Push With Profile… of its menu`, `should land a stacked branch with what it is built on from S and the review window`, `should land a stacked branch with what it is built on from the footer of its preview and S in it, the popover at its row`, `should offer to land only a stacked branch that applies alone`)
   While it runs, the branches it lands say "lands with oauth" in their Status cell and offer no push and no Safe Push of their
   own; the lines of the graph from the root down to it are in the colour of the robot, its node has the ring of the
-  robot. Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the
+  robot. A branch it lands keeps what it is itself: a conflict of a branch below says "merge conflict", its node a fix
+  (the conflict came after the push, and the robot lands the remote copy); the branch the robot runs on, blocked by
+  that parent, says the robot first with "Blocked: parent auth has a merge conflict" beside it, its node landing
+  ([Branch Row](branch-row.spec.md#status-cell)).
+  Before the start, the same path is highlighted while the pointer is on the Safe Push slot and while the
   popover is open ([Branch Row](branch-row.spec.md#tree)). The branches it lands are those its commit has: a branch a
   restack placed below it after the start says no "lands with", pushes and starts its own Safe Push, and the colour of
   the robot starts below it ([Patronus](patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)).
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show a running Safe Push of a blocked branch first, its block beside it, and its parent's conflict as the fix`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a running Safe Push lands, and not start them on their own`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should push a branch a restack placed below a running Safe Push after it started, and hold what its commit has`)
   When a robot of a stacked branch merged, the open pull requests of the ancestors it landed are closed with a comment
@@ -644,7 +649,8 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   nodes of their rows (`summarizeStackState`, [Landing](../../docs/design/landing.md)), in the colour of the node, the
   user's moves first: "· 1 to fix" (`destructive`: a conflict, an error, a robot that failed on the branch as it is,
   changes requested), "· 2 your step" (`primary`), "· 3 ready" (`success`), then "· 4 landing" with the ring of the
-  robot, "· 2 waiting" (muted: reviewers, the parent, a robot that holds it) and "· 1 in master" (`info`). They are the
+  robot, "· 2 waiting" (muted: reviewers, the parent, a robot that holds it) and "· 1 in master" (`info`); what lands
+  never hides behind a stronger state: "· 1 to fix · 2 landing", the landing with its ring beside the fix. They are the
   words of the landing overview and of the filter chips; a push is no state of its own. A robot of an earlier state,
   fixed since, makes no fix: the row offers a new Safe Push. Stacks are expanded by default; a collapsed one
   is remembered per repository (`collapsedStacks`, by root; a rename of the root keeps it, a stack on another branch or
@@ -653,7 +659,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   elsewhere, expands its stack. The header counters, the landing overview (a stack is one row there, its root's) and Your Turn count every branch.
   [@test] ../../src/stores/branch-table-rows.test.ts (`collapses a stack to its root and keeps the lane count of the expanded table`, `marks no root collapsed whose stack has no other row, and finds the root from any row of a stack`, `keeps only the collapsed roots that still head a stack`)
   [@test] ../../src/lib/stack-state.test.ts (`counts the rows of a stack by their nodes, and nothing of a branch without one`, `puts the user's moves first, a fix before a step before ready, then what lands, waits and is in master, in the colours of the nodes`)
-  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should head a stack with its size and collapse it into its root, per repository`, `should name in the chip of a collapsed stack only the robots that failed on its branches as they are`, `should keep the landing of a collapsed stack beside the fix of another of its branches`, `should collapse and expand a stack with Alt+arrows from any of its rows`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should show a match deep in a collapsed stack, and expand the stack for a reveal`)
 - A side stack, a branch forked off the lane of its parent with a branch stacked on it, must have the chip of a stack
   root on its row ("2 branches", "· 1 to push" while collapsed, `sideStackSizes`), which collapses the side stack into
