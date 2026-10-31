@@ -388,7 +388,8 @@ pub struct Queued {
 /// gone processes leave the queue; a run that has a slot gets it again (a repeat is safe); the run's ticket joins the
 /// queue; a run gets an idle slot whose lease `leases.json` still holds as `ready` when fewer runs wait before it than
 /// there are such slots: the slot its affinity used last first, else the one used longest ago. An abandoned lend is not
-/// lent again: `reclaim` gives it back first, since its run may have left processes and changes in it. While a live
+/// lent again: `reclaim` or a waiting lend (`lend_waiting`) gives it back first, since its run may have left processes
+/// and changes in it. While a live
 /// process upgrades git (`ensure_host_git`) the run only queues, and while the git of the host stays below its floor a
 /// lend refuses (`OldGit`)
 pub fn lend(params: &HostSlotsParams<'_>, request: &LendRequest<'_>) -> Result<LendAnswer> {
@@ -768,14 +769,24 @@ const WAKE_FILES: [&str; 2] = [STATE_FILE, crate::lease::POOL_FILE];
 /// Lend a slot to the run of `request` (`lend`), waiting up to `timeout` while it is queued, as long as its process
 /// lives. The directory of the table is watched (`notify`) before the first look, so no change between the look and the
 /// wait is lost; the table is replaced by a rename, so the watch is on the directory, and only a change of the table or
-/// of the pool wakes it. Without a file event it looks again every 5 s: the end of a process makes none. `progress`
-/// hears the queue and the time waited once a minute. The answer is the lend, or the place in the queue once the time
-/// is up: the ticket stays while the process lives. A process that ended is `ProcessGone`, and its ticket leaves the
-/// queue
-pub fn lend_waiting(params: &HostSlotsParams<'_>, request: &LendRequest<'_>, timeout: Duration, progress: &dyn Fn(&Queued, Duration)) -> Result<LendAnswer> {
+/// of the pool wakes it. Without a file event it looks again every 5 s: the end of a process makes none. A queued run
+/// gives back a slot that no process acts on itself (`abandoned_give_back`: an abandoned lend or give-back, a
+/// quarantine whose processes are gone), under the same CAS as `reclaim`, and looks again at once, rather than waiting
+/// for the next tick of the keeper; a give-back that fails is left to `reclaim`. `progress` hears the queue and the time
+/// waited once a minute. The answer is the lend, or the place in the queue once the time is up: the ticket stays while
+/// the process lives. A process that ended is `ProcessGone`, and its ticket leaves the queue
+pub fn lend_waiting(
+  git_executor: &GitCommandExecutor,
+  params: &HostSlotsParams<'_>,
+  request: &LendRequest<'_>,
+  timeout: Duration,
+  progress: &dyn Fn(&Queued, Duration),
+) -> Result<LendAnswer> {
   let started = Instant::now();
   let wake = TableWake::start(params.table().dir());
   let mut said = started;
+  // the slots whose give-back by this wait failed: `reclaim` takes them up
+  let mut failed = HashSet::new();
   loop {
     if !is_running(request.pid, request.process_started) {
       leave_queue(params, request.run)?;
@@ -785,6 +796,18 @@ pub fn lend_waiting(params: &HostSlotsParams<'_>, request: &LendRequest<'_>, tim
       LendAnswer::Lent(lent) => return Ok(LendAnswer::Lent(lent)),
       LendAnswer::Queued(queued) => queued,
     };
+    let table: HostSlots = params.table().read()?;
+    if live_upgrade(&table).is_none()
+      && let Some((n, take, _)) = table.slots.iter().filter(|slot| !failed.contains(&slot.n)).find_map(|slot| abandoned_give_back(slot))
+    {
+      match give_back_core(git_executor, params, n, take) {
+        Ok(_) => continue,
+        Err(error) => {
+          debug!(n, error = %format!("{error:#}"), "a waiting lend could not give back an abandoned host slot: reclaim takes it up");
+          failed.insert(n);
+        }
+      }
+    }
     let waited = started.elapsed();
     if waited >= timeout {
       return Ok(LendAnswer::Queued(queued));
@@ -1768,17 +1791,11 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
     });
   };
   for slot in &table.slots {
+    if let Some((n, take, action)) = abandoned_give_back(slot) {
+      record(n, action, give_back_core(git_executor, params, n, take).map(drop));
+      continue;
+    }
     match &slot.state {
-      HostState::Lent(_) | HostState::GivingBack { .. } if is_abandoned(&slot.state) => {
-        record(slot.n, ReclaimAction::GaveBack, give_back_core(git_executor, params, slot.n, Take::Abandoned).map(drop));
-      }
-      HostState::Quarantined { processes } if !processes.iter().any(HostProcess::is_running) => {
-        record(
-          slot.n,
-          ReclaimAction::Requarantined,
-          give_back_core(git_executor, params, slot.n, Take::Quarantined).map(drop),
-        );
-      }
       HostState::Cleaning(_) if is_abandoned(&slot.state) => {
         record(
           slot.n,
@@ -1813,6 +1830,16 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
     record(n, ReclaimAction::Returned, returned.map(drop));
   }
   Ok(reclaimed)
+}
+
+/// The give-back that `slot` is due, as `reclaim` records it, when no process acts on it: an abandoned lend or
+/// give-back, or a quarantine whose processes are gone. A waiting lend (`lend_waiting`) runs it too
+fn abandoned_give_back(slot: &HostSlot) -> Option<(u32, Take<'static>, ReclaimAction)> {
+  match &slot.state {
+    HostState::Lent(_) | HostState::GivingBack { .. } if is_abandoned(&slot.state) => Some((slot.n, Take::Abandoned, ReclaimAction::GaveBack)),
+    HostState::Quarantined { processes } if !processes.iter().any(HostProcess::is_running) => Some((slot.n, Take::Quarantined, ReclaimAction::Requarantined)),
+    _ => None,
+  }
 }
 
 /// The shrink of one slot that a dead shrink left

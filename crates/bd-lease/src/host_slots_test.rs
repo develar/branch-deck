@@ -751,13 +751,13 @@ fn a_lend_that_waits_gets_the_slot_once_it_is_given_back() {
   let queue = || table(fixture).queue.into_iter().map(|ticket| ticket.run).collect::<Vec<_>>();
   let quiet = |_: &Queued, _: Duration| {};
 
-  let timed_out = lend_waiting(&params, &request("run-2"), Duration::from_secs(1), &quiet).unwrap();
+  let timed_out = lend_waiting(&context.git, &params, &request("run-2"), Duration::from_secs(1), &quiet).unwrap();
   assert!(matches!(timed_out, LendAnswer::Queued(Queued { ahead: 0, .. })), "{timed_out:?}");
   assert_eq!(queue(), ["run-2"], "the ticket stays while its process lives");
 
   let (params, context) = (&params, &context);
   let waited = std::thread::scope(|scope| {
-    let waiting = scope.spawn(|| lend_waiting(params, &request("run-3"), Duration::from_secs(120), &quiet).unwrap());
+    let waiting = scope.spawn(|| lend_waiting(&context.git, params, &request("run-3"), Duration::from_secs(120), &quiet).unwrap());
     while queue() != ["run-2", "run-3"] {
       std::thread::yield_now();
     }
@@ -777,7 +777,7 @@ fn a_lend_that_waits_gets_the_slot_once_it_is_given_back() {
     affinity: None,
   };
   let refused = std::thread::scope(|scope| {
-    let waiting = scope.spawn(|| lend_waiting(params, &gone, Duration::from_secs(120), &quiet));
+    let waiting = scope.spawn(|| lend_waiting(&context.git, params, &gone, Duration::from_secs(120), &quiet));
     while queue() != ["run-4"] {
       std::thread::yield_now();
     }
@@ -787,6 +787,41 @@ fn a_lend_that_waits_gets_the_slot_once_it_is_given_back() {
   });
   assert!(matches!(refusal(&refused), HostSlotRefusal::ProcessGone(gone) if *gone == child_pid), "{refused:#}");
   assert_eq!(queue(), Vec::<String>::new(), "the ticket of a gone process left the queue");
+}
+
+/// A waiting lend gives back a slot that no process acts on itself and gets it at once, without the tick of `reclaim`:
+/// an abandoned lend, its changes discarded, and a quarantine whose processes are gone
+#[test_log::test]
+fn a_waiting_lend_gives_back_an_abandoned_slot_itself() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  let pid = std::process::id();
+  let request = |run| LendRequest {
+    run,
+    pid,
+    process_started: process_started(pid),
+    affinity: None,
+  };
+  let quiet = |_: &Queued, _: Duration| {};
+  // a limit no run reaches: no file event tells that a process ended, so without its own give-back the wait would end
+  // queued
+  let wait = Duration::from_mins(2);
+  let abandoned = lend_to_gone(&params, "run-1");
+  std::fs::write(Path::new(&abandoned.path).join("a.txt"), "changed\n").unwrap();
+
+  let got = lent(lend_waiting(&context.git, &params, &request("run-2"), wait, &quiet).unwrap());
+  assert_eq!((got.n, got.generation), (1, 1), "the give-back discarded the changes of the gone run");
+  assert_eq!(slot_git(&got.path, &["status", "--porcelain"]), "");
+  give_back(&context.git, &params, 1, "run-2").unwrap();
+
+  let (gone, started_at) = gone_process();
+  edit_table(fixture, |table| {
+    table["slots"][0]["state"] = json!({
+      "kind": "quarantined",
+      "processes": [{ "pid": gone, "started": started_at, "name": "sleep", "command": "sleep 30" }],
+    });
+  });
+  assert_eq!(lent(lend_waiting(&context.git, &params, &request("run-3"), wait, &quiet).unwrap()).n, 1);
 }
 
 /// snapshot and changes: the tree of the slot of a run before its command is the tree of its commit, without a change of

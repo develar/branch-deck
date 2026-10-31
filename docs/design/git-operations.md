@@ -2236,8 +2236,11 @@ A lend that waits (`host_slots::lend_waiting`) watches `branch-deck/` of the com
 look, so a give-back between the look and the wait wakes it: the table is replaced by a rename, so the watch is on the
 directory, and only a change of `host-slots.json` or `leases.json` wakes it (the lock files and the stamp of bd change
 there too). A lend writes the table only when it changed it, so its own write wakes it at most once. The end of a
-process makes no file event: a slot of an abandoned lend or a ticket ahead in the queue comes free only by time, so it
-looks again every 5 s. Until 2026-10-28 each supervisor started `bd lease host lend` every 2 s for up to an hour.
+process makes no file event, so a queued lend gives back a slot that no process acts on itself (an abandoned lend or
+give-back, a quarantine whose processes are gone: `abandoned_give_back`, the same step and CAS as `reclaim`), then
+looks again at once. Until 2026-10-31 such a slot waited for the keeper's `reclaim`, up to a minute. A ticket ahead
+whose process ended comes free only by time, so the wait looks again every 5 s. Until 2026-10-28 each supervisor
+started `bd lease host lend` every 2 s for up to an hour.
 
 A give-back with `branchdeck.leaseMaintenance` starts `git maintenance run --auto --detach` in the common dir, as a
 return does, also for a run that had no slot: in idea-1, whose `maintenance.auto` is false, nothing else started it on
@@ -2251,17 +2254,17 @@ writes):
 | State | Meaning | Taken up when its process is gone |
 |---|---|---|
 | `idle` | ready for a run | — |
-| `lent` | a run has it, since `since_ms` | `reclaim` gives it back |
+| `lent` | a run has it, since `since_ms` | `reclaim` or a waiting lend gives it back |
 | `filling` | its get runs | the record goes |
-| `giving_back` | the processes of the run stop, the changes go | `reclaim` gives it back again |
+| `giving_back` | the processes of the run stop, the changes go | `reclaim` or a waiting lend gives it back again |
 | `cleaning` | the clean rules run | `reclaim` cleans it again |
 | `shrinking` | it goes back to the pool | `reclaim` returns it again |
-| `quarantined` | a process older than the lend, or one that outlived SIGKILL, works in it | `reclaim` once that process is gone |
+| `quarantined` | a process older than the lend, or one that outlived SIGKILL, works in it | `reclaim` or a waiting lend once that process is gone |
 
 Its lock, `host-slots.lock`, is a leaf: it is held while the table changes, never across git, a get, a scan or another
 lock of the pool. So the order host slots, clones, pool, worktrees holds by itself. The hand return reads the table
 without the lock. A lend is lent again only after a give-back, never straight away when its process died: the run may
-have left processes and changes, which is why `reclaim` gives an abandoned lend back first. The table names a slot by
+have left processes and changes, which is why `reclaim`, or a waiting lend, gives an abandoned lend back first. The table names a slot by
 its lease id, never by its path, since a record that a crashed shrink left behind would otherwise refuse the return of
 a session that leased the same path since.
 

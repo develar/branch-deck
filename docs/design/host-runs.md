@@ -69,7 +69,8 @@ bring back the rest. So a slot is lent to one run for the time of that run only.
 slots per repository (`branchdeck.hostSlots`, 4 by default) as plain `ready` leases of the holders `bd-host/<n>`.
 
 - A run gets the idle slot that its affinity (`checkout-<12 hex>` of the local checkout path) used last, else the idle
-  slot used longest ago, else it waits in a first-come queue.
+  slot used longest ago, else it waits in a first-come queue. A waiting run gives back a slot that a gone run left
+  itself, without waiting for the keeper.
 - The give-back at the end of each run stops the processes that the run left, keeps the Bazel servers of the slot,
   and discards the changes. The ignored files stay as the warm cache. A process older than the lend quarantines the
   slot.

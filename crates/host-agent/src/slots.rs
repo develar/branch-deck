@@ -55,7 +55,7 @@ pub(crate) fn lend(
       return Ok(None);
     }
     let chunk = wait.saturating_sub(started.elapsed()).min(STOP_CHECK);
-    let queued = match lend_waiting(&params, &request, chunk, &|_: &Queued, _: Duration| {}).map_err(refused)? {
+    let queued = match lend_waiting(&repo.git, &params, &request, chunk, &|_: &Queued, _: Duration| {}).map_err(refused)? {
       LendAnswer::Lent(lent) => return Ok(Some(LendAnswer::Lent(lent))),
       LendAnswer::Queued(queued) => queued,
     };

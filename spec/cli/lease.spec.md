@@ -630,6 +630,11 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   its place; the ticket stays while the process lives. A process that ends while it waits is `ProcessGone`, and its
   ticket leaves the queue.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_lend_that_waits_gets_the_slot_once_it_is_given_back`)
+- A queued `lend_waiting` must give back itself a slot that no process acts on (an abandoned lend or give-back, a
+  quarantine whose processes are gone), as `reclaim` gives it back and under the same CAS on its state, then look
+  again at once: the end of a process makes no file event, and the keeper's `reclaim` comes only once a minute. It
+  skips this while a live process upgrades git, and a give-back that fails is left to `reclaim`.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_waiting_lend_gives_back_an_abandoned_slot_itself`)
 - With `branchdeck.leaseMaintenance` true, a give-back must start `git maintenance run --auto --detach` in the common
   dir, as a return does, also for a run without a slot, and say so (`maintenance_started`); a failed start never fails
   the give-back. Without the setting it starts none.
@@ -649,7 +654,7 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
 - A lend must give the run the idle slot that its affinity (`checkout-<12 hex>` of the client's checkout) used last,
   else the idle slot used longest ago, else put the run in a first-come queue; a run gets a slot when fewer runs wait
   before it than slots are idle. A repeat of a lend gets the same slot. A ticket of a gone process leaves the queue.
-  An abandoned lend is not lent again before `reclaim` gave it back. Each waiting run must be a process of its own
+  An abandoned lend is not lent again before a give-back (of `reclaim` or of a waiting lend). Each waiting run must be a process of its own
   (the supervisor of the run), since its ticket lasts as long as its process.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_run_gets_the_slot_of_its_affinity_else_the_one_used_longest_ago_else_waits_in_line`)
 - A give-back must stop the processes in the slot that started after the lend (SIGTERM, up to 10 s, then SIGKILL, each
