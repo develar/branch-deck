@@ -1299,7 +1299,8 @@ fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_bac
 /// The app's update after its fetch (`update_project_core` without a fetch, as the engine runs it) under a git that logs
 /// each command with the state of the repository lock when it started (its holder record exists while it is held): the
 /// replay and the merges of the check run before the lock, under it only the witness, the local changes and the move
-/// (C11 of docs/design/rust-domain-authority.md), and the report of what the update did after it
+/// (C11 of docs/design/rust-domain-authority.md), and the report of what the update did after it. One stat pass under
+/// the lock: the refresh of the user's index, which the dry run of the local changes copies and the move takes as it is
 #[cfg(unix)]
 #[test]
 fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move() {
@@ -1323,6 +1324,8 @@ fn the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_
     ["read-tree", "rev-parse", "symbolic-ref", "update-index", "update-ref"],
     "{commands:#?}"
   );
+  let refreshes = commands.iter().filter(|(locked, args)| *locked && args.contains("update-index -q --refresh")).count();
+  assert_eq!(refreshes, 1, "one stat pass under the lock: {commands:#?}");
   assert!(!span.commands_after_the_lock().is_empty(), "the report after the lock: {commands:#?}");
 }
 

@@ -16,15 +16,19 @@ use tracing::{debug, instrument};
 
 /// Check that `read-tree -m -u <old_tree> <new_tree>` would succeed, on a copy of the index, so neither the index nor
 /// the working tree is written. Returns git's message if the update is refused.
-/// The copy is refreshed first: a file that was only touched (same content, new stat data) must not count as changed.
+/// A file that was only touched (same content, new stat data) must not count as changed: with `refresh_copy` the copy
+/// is refreshed first; without it the caller refreshed the user's index right before (`prepare_worktree_update`), and
+/// the copy has its stat data, so one stat pass serves the dry run and the move
 #[instrument(skip(git_executor))]
-pub(crate) fn dry_run_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str) -> Result<Option<String>> {
+pub(crate) fn dry_run_worktree_update(git_executor: &GitCommandExecutor, repo_path: &str, old_tree: &str, new_tree: &str, refresh_copy: bool) -> Result<Option<String>> {
   let copy = IndexCopy::new(git_executor, repo_path)?;
   let env = [("GIT_INDEX_FILE", copy.path())];
 
-  let refreshed = git_executor.cmd(&["update-index", "-q", "--refresh"], repo_path).env(&env).status()?;
-  if refreshed.code != 0 {
-    bail!("Failed to refresh a copy of the index: {}", refreshed.stderr);
+  if refresh_copy {
+    let refreshed = git_executor.cmd(&["update-index", "-q", "--refresh"], repo_path).env(&env).status()?;
+    if refreshed.code != 0 {
+      bail!("Failed to refresh a copy of the index: {}", refreshed.stderr);
+    }
   }
   let dry_run = git_executor
     .cmd(&["read-tree", "-m", "-u", "-n", "--no-recurse-submodules", old_tree, new_tree], repo_path)

@@ -300,7 +300,7 @@ taken and deletes it before the release), then runs the real git.
 | `bd move-hunk` (`move_hunk_core`) | `for-each-ref`, `update-ref` | `a_move_hunk_locks_only_the_witness_and_the_write` (`crates/bd-rewrite/src/move_hunk_test.rs`) |
 | Unapply and its undo (`unapply_branch_core`, `undo_unapply_core`) | `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` (`MOVE_UNDER_THE_LOCK`) | `an_unapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/unapply_branch_test.rs`) |
 | Reapply and its undo (`reapply_branch_core`, `undo_reapply_core`) | the same five | `a_reapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/reapply_branch_test.rs`) |
-| Update Project of the app (`update_project_core`, after its fetch) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref` (the witness, the local changes, the move) | `the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move` (`crates/update-core/src/update_project_test.rs`) |
+| Update Project of the app (`update_project_core`, after its fetch) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref` (the witness, the local changes, the move; one `update-index`, the refresh the dry run and the move share) | `the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move` (`crates/update-core/src/update_project_test.rs`) |
 | `bd update` (`update_and_resolve`, an update that applies) | the same five | `the_check_of_an_update_runs_before_the_lock` (`crates/bd-update/src/update_test.rs`) |
 | Undo of an update (`undo_update_core`) | `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `the_undo_of_an_update_locks_only_the_witness_and_the_move` (`update_project_test.rs`) |
 | The start of a resolve session (`prepare_session_start`, `PreparedStart::start`) | `fast-import`, `log`, `rev-parse`, `symbolic-ref`, `update-ref` (the mark and the witness, the state with the session ref, the copies) | `the_start_of_a_resolve_session_locks_only_the_witness_and_its_write` (`update_project_test.rs`) |
@@ -1166,10 +1166,10 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
 | 6. Replay | `replay --ref-action=print --onto=U --ref=refs/branch-deck/replay HEAD ^U ^<previous tips>` | exit 1: `Conflict`, see below |
-| 7. Dry run | under the lock; on a copy of the index: `update-index -q --refresh`, `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}` | `Blocked{paths}` |
+| 7. Dry run | the app's under the lock: `update-index -q --refresh` of the real index (the one stat pass under the lock, which step 10 takes as it is), then on a copy of it `read-tree -m -u -n --no-recurse-submodules H^{tree} N^{tree}`; `bd update`'s before the lock, on a copy of the index refreshed itself, which writes nothing | `Blocked{paths}` |
 | 8. Ignored files | `diff-tree -r -z --no-renames --name-status H N`; an added path that exists on disk | `Blocked{paths}` |
 | 9. Move | `update-ref --create-reflog --stdin`: `start`, `update HEAD N H`, `create refs/branch-deck/update-pending/<worktree id> H`, `prepare`, `symbolic-ref` under the locks, `commit`; `branch-deck: update project` | `BranchSwitched` or `HeadMoved`: HEAD switched or the branch moved meanwhile; `locked` with the path when `HEAD.lock` or the branch's lock file exists; nothing changed |
-| 10. Files | on the real index: `update-index -q --refresh`, `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
+| 10. Files | on the real index: `update-index -q --refresh` (not after the app's step 7, `FileMove::refreshed`), `read-tree -m -u --no-recurse-submodules H^{tree} N^{tree}`, then `delete refs/branch-deck/update-pending/<worktree id> H` | roll back: `update HEAD H N` and the mark deleted, `branch-deck: update project rolled back` |
 
 Details:
 
@@ -1278,7 +1278,12 @@ Details:
   dirty or staged path that the update changes, an untracked file where it adds one, or an untracked file inside a
   directory it replaces makes git refuse; the dry run on the index copy finds that before anything moves, and
   `Blocked` lists those paths (`status --porcelain=v1 -z --no-renames --untracked-files=all` ∩ the changed paths). The
-  copy is refreshed first, so a file that was only touched (same content, new stat data) does not block.
+  stat data the copy has is fresh, so a file that was only touched (same content, new stat data) does not block: the
+  app refreshes the real index right before, under the lock of the move, which then refreshes it no more (one stat
+  pass under the lock instead of two: `the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move`);
+  a dry run before the lock (`bd update`, its `--dry-run`, a pick, an unapply, an undo) refreshes the copy, since it
+  writes nothing of the user's, and its move refreshes the real index under the lock, which after the wait for the
+  index before the lock ("Index lock") finds the stat data fresh and needs no lock of git.
 - **Ignored files.** `read-tree -u` overwrites an ignored file where the update adds one, silently, as `checkout`
   does. Step 8 refuses that instead: an added path that exists on disk (or has a file in place of one of its
   directories) blocks the update.

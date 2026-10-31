@@ -1957,6 +1957,7 @@ fn finish(
       head: &head,
       new_head: &tip,
       files_change: !changed.is_empty(),
+      refreshed: false,
       operation: UPDATE_OPERATION,
       with: &with,
       rollback_with: &rollback_with,

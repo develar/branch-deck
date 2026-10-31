@@ -191,7 +191,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   restores the report from before it. A check that moves nothing (up to date, or a conflict, which starts no session in
   the app) is the answer at once, without waiting for the lock, unless an interrupted update left files to follow.
   A branch or an upstream moved during the check must be checked once more, under
-  the lock, and a file the update writes, edited during the check, must block it. A lock held for the whole wait
+  the lock, and a file the update writes, edited during the check, must block it. The app's update must read the
+  stat data of the whole worktree once under the lock: the refresh of the index that its check of the local changes
+  copies and its move takes as it is. A lock held for the whole wait
   (10 s in the app) is an error with only the fetch and the check done, `locked` with the holder its record names
   (`details.holder`: `bd` or the app, its command, pid and how long it has held the lock; none once the record is
   gone): the app shows "Cannot update the project" with "`bd push auth` (pid 4242) has held the repository for 40 s"

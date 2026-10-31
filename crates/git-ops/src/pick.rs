@@ -969,6 +969,7 @@ pub(crate) fn apply_pick_carrying(
         head: &check.head,
         new_head: &check.new_head,
         files_change: !plan.changed.is_empty(),
+        refreshed: false,
         operation,
         with,
         rollback_with,

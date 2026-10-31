@@ -103,6 +103,9 @@ pub struct UpdatePlan {
   changed: Vec<ChangedPath>,
   /// The check left the local changes to `recheck_update` (`check_update_before_lock`); `apply_update` refuses it
   blocks_unchecked: bool,
+  /// `recheck_update` refreshed the stat data of the user's index for its exact dry run, under the lock the move runs
+  /// under: the move refreshes it no more (`FileMove::refreshed`)
+  index_refreshed: bool,
   /// The revisions excluded from the replayed range besides the upstream (previous upstream tips)
   excluded: Vec<String>,
   /// What the check read, kept apart from the public `check`: a resolve session starts from these (`update_resolve`)
@@ -368,6 +371,7 @@ fn check_update_with(
     files_change: false,
     changed: Vec::new(),
     blocks_unchecked: false,
+    index_refreshed: false,
     excluded: Vec::new(),
     checked,
     replay: None,
@@ -479,7 +483,10 @@ pub fn recheck_update(git_executor: &GitCommandExecutor, repo_path: &str, plan: 
   if plan.blocks_unchecked
     && let (UpdateState::Clean { .. }, Some(new_head)) = (&plan.check.state, &plan.new_head)
   {
-    let blocked = blocking_paths(git_executor, repo_path, &head, new_head, &plan.changed)?;
+    // the one stat pass under the lock: the refresh of the user's index, which the dry run copies and the move then
+    // takes as it is
+    let blocked = blocking_paths_against(git_executor, repo_path, &head, new_head, &plan.changed, None, Refresh::Index)?;
+    plan.index_refreshed = true;
     if !blocked.is_empty() {
       plan.check.state = blocked_state(blocked);
       plan.new_head = None;
@@ -1063,14 +1070,20 @@ pub fn apply_update<'a>(git_executor: &GitCommandExecutor, repo_path: &str, plan
     bail!("The local changes of this check are not read yet: recheck_update under the lock first");
   }
   let check = &plan.check;
-  move_branch_and_files(
+  let none = RefTransaction::new();
+  move_branch_and_files_carrying(
     git_executor,
     repo_path,
-    &HeadRef::of(&check.branch),
-    &check.head,
-    new_head,
-    plan.files_change,
-    UPDATE_OPERATION,
+    &FileMove {
+      head_ref: &HeadRef::of(&check.branch),
+      head: &check.head,
+      new_head,
+      files_change: plan.files_change,
+      refreshed: plan.index_refreshed,
+      operation: UPDATE_OPERATION,
+      with: &none,
+      rollback_with: &none,
+    },
   )?;
   info!(?kind, %new_head, "updated the branch");
   Ok(MovedUpdate { plan, kind: *kind, new_head })
@@ -1279,6 +1292,7 @@ pub(crate) fn apply_move_undo_with(git_executor: &GitCommandExecutor, repo_path:
       head: &undo.head,
       new_head: &undo.new_head,
       files_change: undo.files_change,
+      refreshed: false,
       operation: undo.operation.undo,
       with,
       rollback_with,
@@ -1439,6 +1453,7 @@ pub(crate) fn move_branch_and_files(
       head,
       new_head,
       files_change,
+      refreshed: false,
       operation,
       with: &none,
       rollback_with: &none,
@@ -1454,6 +1469,7 @@ pub(crate) fn move_branch_and_files_carrying(git_executor: &GitCommandExecutor, 
     head,
     new_head,
     files_change,
+    refreshed,
     operation,
     ..
   } = move_;
@@ -1483,6 +1499,7 @@ pub(crate) fn move_branch_and_files_carrying(git_executor: &GitCommandExecutor, 
       head,
       new_head,
       files_change,
+      refreshed,
       operation,
       with: &with,
       rollback_with: &rollback_with,
@@ -1608,6 +1625,9 @@ pub(crate) struct FileMove<'a> {
   pub head: &'a str,
   pub new_head: &'a str,
   pub files_change: bool,
+  /// The exact check of the move refreshed the stat data of the user's index right before it, under the same lock
+  /// (`Refresh::Index`): the move refreshes it no more
+  pub refreshed: bool,
   pub operation: &'a str,
   /// More ref changes in the transaction of the move (the state of a resolve session, its notes)
   pub with: &'a RefTransaction,
@@ -1633,6 +1653,7 @@ fn move_with_index_lock(git_executor: &GitCommandExecutor, repo_path: &str, lock
     head,
     new_head,
     files_change,
+    refreshed,
     operation,
     with,
     rollback_with,
@@ -1641,7 +1662,7 @@ fn move_with_index_lock(git_executor: &GitCommandExecutor, repo_path: &str, lock
   if files_change {
     lock
       .wait_while_locked(INDEX_LOCK_WAIT)
-      .and_then(|()| prepare_worktree_update(git_executor, repo_path, lock))
+      .and_then(|()| if refreshed { Ok(()) } else { prepare_worktree_update(git_executor, repo_path, lock) })
       .map_err(|e| index_error(e, operation, "nothing was changed"))?;
   }
   let head_as_checked = || head_ref.ensure(git_executor, repo_path);
@@ -1795,7 +1816,7 @@ pub(crate) fn files_follow(
   rollback_with: &RefTransaction,
 ) -> Result<()> {
   head_ref.ensure(git_executor, repo_path)?;
-  let blocked = blocking_paths_against(git_executor, repo_path, head, new_head, changed, Some(head))?;
+  let blocked = blocking_paths_against(git_executor, repo_path, head, new_head, changed, Some(head), Refresh::Copy)?;
   if !blocked.is_empty() {
     roll_back(git_executor, repo_path, head_ref, head, new_head, operation, rollback_with)?;
     return Err(anyhow::Error::new(FilesBlocked { paths: blocked }));
@@ -1875,7 +1896,18 @@ fn display_path(path: &[u8]) -> String {
 /// adds a file (`read-tree -u` would silently overwrite them, as `git checkout` does). Exact, but the dry run refreshes
 /// the whole index: the check before an update.
 pub(crate) fn blocking_paths(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath]) -> Result<Vec<String>> {
-  blocking_paths_against(git_executor, repo_path, old, new, changed, None)
+  blocking_paths_against(git_executor, repo_path, old, new, changed, None, Refresh::Copy)
+}
+
+/// Whose stat data the exact dry run of `blocking_paths_against` refreshes: one full stat pass either way
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refresh {
+  /// A copy of the user's index, refreshed, which the dry run reads: a check that writes nothing (a dry run of `bd`, a
+  /// check before the lock), whose move refreshes the user's index itself
+  Copy,
+  /// The user's index, refreshed first (`prepare_worktree_update`, which waits for the index lock of another process),
+  /// and its copy as it is: the check under the lock of its move (`recheck_update`), which then refreshes it no more
+  Index,
 }
 
 /// `blocking_paths` once more, under the repository lock, of a move whose exact check ran before the lock (`bd pick`):
@@ -1890,9 +1922,21 @@ pub(crate) fn recheck_blocking_paths(git_executor: &GitCommandExecutor, repo_pat
 }
 
 /// `blocking_paths`; with `local_base`, the local changes are those against that commit, not against HEAD: after HEAD
-/// moved without the files, the index and the files of the old HEAD are not local changes
-fn blocking_paths_against(git_executor: &GitCommandExecutor, repo_path: &str, old: &str, new: &str, changed: &[ChangedPath], local_base: Option<&str>) -> Result<Vec<String>> {
-  if let Some(refusal) = dry_run_worktree_update(git_executor, repo_path, old, new)? {
+/// moved without the files, the index and the files of the old HEAD are not local changes. `refresh` says whose stat
+/// data the dry run refreshes
+fn blocking_paths_against(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  old: &str,
+  new: &str,
+  changed: &[ChangedPath],
+  local_base: Option<&str>,
+  refresh: Refresh,
+) -> Result<Vec<String>> {
+  if refresh == Refresh::Index {
+    prepare_worktree_update(git_executor, repo_path, &IndexLock::known(git_executor, repo_path))?;
+  }
+  if let Some(refusal) = dry_run_worktree_update(git_executor, repo_path, old, new, refresh == Refresh::Copy)? {
     let mut paths = overlapping_local_changes(git_executor, repo_path, changed)?;
     if let Some(local_base) = local_base {
       // tracked paths that differ from `local_base` in the index or the working tree; untracked ones stay

@@ -142,6 +142,7 @@ pub fn apply_unapply(git_executor: &GitCommandExecutor, repo_path: &str, plan: &
       head: plan.head(),
       new_head: plan.new_head(),
       files_change: plan.files_change,
+      refreshed: false,
       operation: UNAPPLY.done,
       with: &with,
       rollback_with: &rollback_with,

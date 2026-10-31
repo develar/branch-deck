@@ -9,7 +9,8 @@ use history_rewrite::repository_lock::LockWait;
 use test_utils::git_test_utils::TestRepo;
 use test_utils::process_budget::{assert_processes, counting};
 
-/// The processes of Update Project after its fetch (`an_update`, `an_update_after_its_fetch`)
+/// The processes of Update Project after its fetch (`an_update`, `an_update_after_its_fetch`): one `update-index`, the
+/// refresh of the user's index that the dry run of the local changes copies and the move takes as it is
 const UPDATE: &[(&str, u32)] = &[
   ("cat-file", 1),
   ("config", 1),
@@ -23,7 +24,7 @@ const UPDATE: &[(&str, u32)] = &[
   ("rev-list", 3),
   ("rev-parse", 5),
   ("symbolic-ref", 4),
-  ("update-index", 2),
+  ("update-index", 1),
   ("update-ref", 2),
 ];
 
