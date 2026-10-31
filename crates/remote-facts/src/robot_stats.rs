@@ -7,8 +7,9 @@
 //!   ended 2 days ago and each of its robots finished): never again. The other weeks are listed again when their list
 //!   is older than `LIST_TTL_SECONDS`, or on Refresh.
 //! - A read with nothing to ask answers from the cache at once; one that asks Patronus leads the read of its repository
-//!   and target (`RobotStatsReads`, a single flight), and one that comes meanwhile waits for that read to end, then
-//!   reads the cache again, so two reads of one repository ask once. Nothing is locked across the lists.
+//!   and target (`RobotStatsReads`, a single flight), and one that comes meanwhile shows its progress and waits for it
+//!   to end, then reads the cache again, so two reads of one repository ask once: what the read it waited for listed is
+//!   new enough even for a Refresh. Nothing is locked across the lists, and each two weeks are kept once listed.
 //! - A run is read once: a finished robot does not change. At most `MAX_RUNS_PER_READ` per read, the newest first; the
 //!   next read asks for the rest.
 //! - A failure keeps what was kept: the numbers are of it (`stale`), and a week never listed is missing.
@@ -22,8 +23,10 @@ use patronus::service::PatronusService;
 use patronus::stats::HistoryList;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-use sync_utils::single_flight::{Begin, SingleFlight};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, PoisonError};
+use sync_utils::single_flight::{Begin, Join, Lead, SingleFlight};
+use tokio::sync::watch;
 use tracing::{info, instrument};
 
 const DAY: u32 = 86_400;
@@ -51,8 +54,94 @@ pub struct RobotStatsSource<'a> {
 }
 
 /// The reads of the statistics that ask Patronus, by repository and target (`read_key`): the end of one is what the
-/// reads that come meanwhile wait for
-pub type RobotStatsReads = SingleFlight<[u8; 32], ()>;
+/// reads that come meanwhile wait for, and its progress what they show meanwhile
+#[derive(Default)]
+pub struct RobotStatsReads {
+  flights: SingleFlight<[u8; 32], ()>,
+  /// The progress of each read in flight; taken together with the flight, so a read that joins sees all of it
+  progress: Mutex<HashMap<[u8; 32], ProgressSender>>,
+}
+
+/// The last progress of a read in flight, which the reads that wait for it show
+type ProgressSender = Arc<watch::Sender<Option<RobotStatsEvent>>>;
+
+/// What a read does for its repository and target: lead the read that asks, or wait for the one in flight
+pub(crate) enum ReadTurn<'a> {
+  Lead(ReadLead<'a>),
+  Join(Join<()>, Option<watch::Receiver<Option<RobotStatsEvent>>>),
+}
+
+/// The read that asks Patronus for its repository and target; dropped, its joiners read the cache again
+pub(crate) struct ReadLead<'a> {
+  // dropped first: the joiners see the last progress before the end of the flight
+  progress: ProgressSender,
+  reads: &'a RobotStatsReads,
+  key: [u8; 32],
+  _flight: Lead<'a, [u8; 32], ()>,
+}
+
+impl RobotStatsReads {
+  pub(crate) fn begin(&self, key: [u8; 32]) -> ReadTurn<'_> {
+    let mut progress = self.progress.lock().unwrap_or_else(PoisonError::into_inner);
+    match self.flights.begin(key) {
+      Begin::Lead(flight) => {
+        let sender = Arc::new(watch::Sender::new(None));
+        progress.insert(key, Arc::clone(&sender));
+        ReadTurn::Lead(ReadLead {
+          progress: sender,
+          reads: self,
+          key,
+          _flight: flight,
+        })
+      }
+      Begin::Join(join) => ReadTurn::Join(join, progress.get(&key).map(|sender| sender.subscribe())),
+    }
+  }
+}
+
+impl ReadLead<'_> {
+  fn publish(&self, event: &RobotStatsEvent) {
+    self.progress.send_replace(Some(event.clone()));
+  }
+}
+
+impl Drop for ReadLead<'_> {
+  fn drop(&mut self) {
+    let mut progress = self.reads.progress.lock().unwrap_or_else(PoisonError::into_inner);
+    if progress.get(&self.key).is_some_and(|sender| Arc::ptr_eq(sender, &self.progress)) {
+      progress.remove(&self.key);
+    }
+  }
+}
+
+/// Waits for the read in flight to end, its progress going to `on_event` meanwhile
+async fn wait_for(join: Join<()>, progress: Option<watch::Receiver<Option<RobotStatsEvent>>>, on_event: &(dyn Fn(RobotStatsEvent) + Sync)) {
+  let Some(mut progress) = progress else {
+    join.await;
+    return;
+  };
+  let current = progress.borrow_and_update().clone();
+  if let Some(event) = current {
+    on_event(event);
+  }
+  tokio::pin!(join);
+  loop {
+    tokio::select! {
+      biased;
+      changed = progress.changed() => match changed {
+        Ok(()) => {
+          let event = progress.borrow_and_update().clone();
+          if let Some(event) = event {
+            on_event(event);
+          }
+        }
+        Err(_) => break,
+      },
+      _ = &mut join => return,
+    }
+  }
+  join.await;
+}
 
 /// A week of everyone's robots as it was listed
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -84,17 +173,23 @@ pub async fn robot_stats_core(
     .collect();
   let (mut kept, mut to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
   // the read of this repository and target, which ends with this one; a read in flight is waited for, and it may have
-  // kept what this one would ask
-  let _reading = match source.reads {
+  // kept what this one would ask: a week it listed meanwhile is not listed again, not even on Refresh
+  let mut listed_meanwhile = vec![false; weeks.len()];
+  let reading = match source.reads {
     Some(reads) => loop {
       if to_list.is_empty() && !runs_missing(source, &kept, runs_start) {
         break None;
       }
       match reads.begin(read_key(source)) {
-        Begin::Lead(lead) => break Some(lead),
-        Begin::Join(join) => {
-          join.await;
+        ReadTurn::Lead(lead) => break Some(lead),
+        ReadTurn::Join(join, progress) => {
+          let before: Vec<Option<u32>> = kept.iter().map(|week| week.as_ref().map(|week| week.fetched_at)).collect();
+          wait_for(join, progress, on_event).await;
           (kept, to_list) = kept_weeks(source, &weeks, &keys, now, refresh);
+          for (index, listed) in listed_meanwhile.iter_mut().enumerate() {
+            *listed |= kept[index].as_ref().map(|week| week.fetched_at) != before[index];
+          }
+          to_list.retain(|&index| !listed_meanwhile[index]);
         }
       }
     },
@@ -102,18 +197,21 @@ pub async fn robot_stats_core(
   };
   let lists_total = u32::try_from(to_list.len()).unwrap_or(u32::MAX);
   let progress = |lists_read: usize, runs_read: usize, runs_total: usize| {
-    on_event(RobotStatsEvent::Progress {
+    let event = RobotStatsEvent::Progress {
       lists_read: u32::try_from(lists_read).unwrap_or(u32::MAX),
       lists_total,
       runs_read: u32::try_from(runs_read).unwrap_or(u32::MAX),
       runs_total: u32::try_from(runs_total).unwrap_or(u32::MAX),
-    });
+    };
+    if let Some(lead) = &reading {
+      lead.publish(&event);
+    }
+    on_event(event);
   };
   progress(0, 0, 0);
 
   let mut failure: Option<PatronusAvailability> = None;
   let salt = if to_list.is_empty() { Vec::new() } else { salt(source) };
-  let mut listed = Vec::new();
   let mut lists_read = 0;
   // two weeks at once
   for pair in to_list.chunks(2) {
@@ -133,6 +231,7 @@ pub async fn robot_stats_core(
       [first] => vec![(*first, list(*first).await)],
       _ => Vec::new(),
     };
+    let mut listed = Vec::new();
     for (index, answer) in answers {
       match answer {
         Ok(HistoryList { me, robots }) => {
@@ -149,10 +248,11 @@ pub async fn robot_stats_core(
         Err(availability) => failure = Some(availability),
       }
     }
+    // kept at once: a read that comes meanwhile, or this one canceled, asks only for the rest
+    source.cache.put_patronus_history(&listed);
     lists_read += pair.len();
     progress(lists_read, 0, 0);
   }
-  source.cache.put_patronus_history(&listed);
 
   let weeks_missing = u32::try_from(kept.iter().filter(|week| week.is_none()).count()).unwrap_or(u32::MAX);
   let fetched_at = kept.iter().flatten().map(|week| week.fetched_at).max();

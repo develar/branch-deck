@@ -16,7 +16,10 @@ export interface RobotStatsProgress {
 export interface RobotStatsEntry {
   /** The last answer; kept while the next read runs, so nothing moves until it is there */
   readonly result: RobotStatsResult | null
-  /** The numbers of the lists of the read running, before the checks are read */
+  /**
+   * The numbers of the lists of the read running, before the checks are read; kept when another read starts (another
+   * period) until that one has its own or ends
+   */
   readonly partial: RobotStats | null
   readonly progress: RobotStatsProgress | null
   readonly loading: boolean
@@ -27,7 +30,7 @@ export interface RobotStatsEntry {
 export const IDLE_ROBOT_STATS: RobotStatsEntry = { result: null, partial: null, progress: null, loading: false, error: null }
 
 /** By repository path; what `get_robot_stats` answered. No timer reads: the view asks while it shows */
-const robotStatsStore = createStore<{ byRepository: Readonly<Record<string, RobotStatsEntry>> }>(() => ({ byRepository: {} }))
+export const robotStatsStore = createStore<{ byRepository: Readonly<Record<string, RobotStatsEntry>> }>(() => ({ byRepository: {} }))
 
 /** The read whose answer counts, by repository: an older one that answers later is dropped */
 const latestReads = new Map<string, number>()
@@ -52,7 +55,7 @@ export function readRobotStats(subject: RobotStatsSubject, refresh: boolean): vo
   const id = (latestReads.get(repositoryPath) ?? 0) + 1
   latestReads.set(repositoryPath, id)
   const isCurrent = () => latestReads.get(repositoryPath) === id
-  update(repositoryPath, entry => ({ ...entry, partial: null, loading: true, error: null }))
+  update(repositoryPath, entry => ({ ...entry, loading: true, error: null }))
   const events = new Channel<RobotStatsEvent>()
   events.onmessage = event => {
     if (isCurrent()) {
@@ -65,7 +68,7 @@ export function readRobotStats(subject: RobotStatsSubject, refresh: boolean): vo
       return
     }
     if (answer.status === "error") {
-      update(repositoryPath, entry => ({ ...entry, loading: false, progress: null, error: answer.error.message }))
+      update(repositoryPath, entry => ({ ...entry, partial: null, loading: false, progress: null, error: answer.error.message }))
       if (refresh) {
         notifyError("Cannot refresh the Safe Push statistics", answer.error)
       }

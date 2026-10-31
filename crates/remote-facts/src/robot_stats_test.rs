@@ -1,4 +1,4 @@
-use crate::robot_stats::{LIST_TTL_SECONDS, MAX_RUNS_PER_READ, RobotStatsReads, RobotStatsSource, read_key, robot_stats_core};
+use crate::robot_stats::{LIST_TTL_SECONDS, MAX_RUNS_PER_READ, ReadTurn, RobotStatsReads, RobotStatsSource, read_key, robot_stats_core};
 use domain_types::calendar::Calendar;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::robot_stats::{RobotStatsEvent, RobotStatsResult, StatsPeriod};
@@ -10,7 +10,6 @@ use pretty_assertions::assert_eq;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use sync_utils::single_flight::Begin;
 use sync_utils::timestamp::format_utc_timestamp;
 
 /// Friday 2026-10-23 10:00 UTC
@@ -77,6 +76,14 @@ async fn read_with(setup: &Setup, now: u32, period: StatsPeriod, refresh: bool, 
   let events = Mutex::new(Vec::new());
   let result = robot_stats_core(&source, &Calendar::utc(), now, period, refresh, &|event| events.lock().unwrap().push(event)).await;
   (result, events.into_inner().unwrap())
+}
+
+/// A Patronus of one merged robot of the user, its 30 days read once through `reads`
+async fn one_merge_read(reads: &RobotStatsReads) -> Setup {
+  let setup = setup(true).await;
+  *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1")]);
+  read_period(&setup, NOW, StatsPeriod::Days30, Some(reads)).await;
+  setup
 }
 
 fn lists(setup: &Setup) -> u32 {
@@ -201,13 +208,11 @@ async fn a_longer_period_lists_only_the_weeks_not_kept_and_a_shorter_one_asks_no
 
 #[tokio::test]
 async fn a_read_with_nothing_to_ask_does_not_wait_for_a_running_read() {
-  let setup = setup(true).await;
-  *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1")]);
   let reads = RobotStatsReads::default();
-  read_period(&setup, NOW, StatsPeriod::Days30, Some(&reads)).await;
+  let setup = one_merge_read(&reads).await;
 
   // another read asks Patronus: one from the cache answers, one that must ask waits for it
-  let Begin::Lead(running) = reads.begin(read_key(&source_of(&setup, None))) else {
+  let ReadTurn::Lead(running) = reads.begin(read_key(&source_of(&setup, None))) else {
     panic!("no read in flight");
   };
   let (kept, _) = tokio::time::timeout(Duration::from_secs(5), read_period(&setup, NOW + 60, StatsPeriod::Days14, Some(&reads)))
@@ -238,4 +243,56 @@ async fn two_reads_at_once_ask_once() {
   assert_eq!(lists(&setup), 6, "the second read waited and found the weeks kept");
   assert_eq!(setup.fake.checks_calls.lock().unwrap().len(), 1);
   assert_eq!(first.stats, second.stats);
+}
+
+#[tokio::test]
+async fn a_refresh_that_waits_for_a_running_read_shows_its_progress_and_lists_nothing_it_listed() {
+  let reads = RobotStatsReads::default();
+  let setup = one_merge_read(&reads).await;
+  assert_eq!(lists(&setup), 6);
+
+  // two Refreshes at once: the second waits, shows the lists of the first and lists none of the two weeks again
+  let ((_, _), (waited, events)) = tokio::join!(
+    read_with(&setup, NOW + 60, StatsPeriod::Days30, true, Some(&reads)),
+    read_with(&setup, NOW + 60, StatsPeriod::Days30, true, Some(&reads))
+  );
+  assert_eq!(lists(&setup), 6 + 2, "the weeks that have not settled are listed once");
+  assert_eq!(waited.stats.unwrap().mine.merged, 1);
+  assert!(
+    events.iter().any(|event| matches!(event, RobotStatsEvent::Progress { lists_total: 2, .. })),
+    "the waiting read shows the progress of the one it waits for: {events:?}"
+  );
+}
+
+#[tokio::test]
+async fn each_two_weeks_are_kept_once_listed() {
+  let setup = setup(true).await;
+  *setup.fake.robots.lock().unwrap() = Some(vec![robot("merged", "SUCCESS", DAY, "1")]);
+  let source = source_of(&setup, None);
+  let calendar = Calendar::utc();
+  // the lists after the first two weeks are held, and the read is dropped there: the next one asks only for the rest
+  let gate = Mutex::new(None);
+  let held = tokio::sync::Notify::new();
+  let on_event = |event| {
+    if matches!(event, RobotStatsEvent::Progress { lists_read: 2, .. }) {
+      *gate.lock().unwrap() = Some(setup.fake.hold("GET", "/app/rest/v1/robots"));
+      held.notify_one();
+    }
+  };
+  let read = robot_stats_core(&source, &calendar, NOW, StatsPeriod::Days30, false, &on_event);
+  let third_list_held = async {
+    held.notified().await;
+    let gate = gate.lock().unwrap().clone().unwrap();
+    // both lists of the pair: none reaches Patronus once the read is dropped
+    gate.arrived_times(2).await;
+  };
+  tokio::select! {
+    _ = read => panic!("the third list is held"),
+    () = third_list_held => {}
+  }
+  setup.fake.unhold("GET", "/app/rest/v1/robots");
+  assert_eq!(lists(&setup), 2);
+
+  read_period(&setup, NOW, StatsPeriod::Days30, None).await;
+  assert_eq!(lists(&setup), 6, "the two weeks kept are not listed again");
 }

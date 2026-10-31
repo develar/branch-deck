@@ -125,10 +125,14 @@ it for little.
   [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`the_weeks_are_listed_once_then_only_those_that_have_not_settled_after_the_ttl`, `a_longer_period_lists_only_the_weeks_not_kept_and_a_shorter_one_asks_nothing`)
 - A read with nothing to ask (every week kept within its TTL, every run kept) answers from the cache at once, whatever
   another read is asking. A read that asks leads the read of its repository and target, and one that comes meanwhile
-  waits for that read to end, then reads the cache again, so two reads at once ask once, and only the one that asks
-  makes the salt of the owner keys; nothing is locked across the lists. A read that waited writes its own start as when
-  it listed; a run Patronus keeps failing keeps the next reads on the path that asks.
-  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_read_with_nothing_to_ask_does_not_wait_for_a_running_read`, `two_reads_at_once_ask_once`)
+  shows its progress and waits for that read to end, then reads the cache again, so two reads at once ask once, and
+  only the one that asks makes the salt of the owner keys; nothing is locked across the lists. A week the read it
+  waited for listed is not listed again, not even on Refresh. A read that waited writes its own start as when it
+  listed; a run Patronus keeps failing keeps the next reads on the path that asks.
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_read_with_nothing_to_ask_does_not_wait_for_a_running_read`, `two_reads_at_once_ask_once`, `a_refresh_that_waits_for_a_running_read_shows_its_progress_and_lists_nothing_it_listed`)
+- The weeks are listed two at once, and each two are kept as soon as they are listed: a read canceled or failing
+  later, and one that comes meanwhile, ask only for the rest.
+  [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`each_two_weeks_are_kept_once_listed`)
 - The checks of a finished robot of the user are read once, with its problems when it failed and its changes when it
   merged; only of the merged and failed robots of the last 14 days, at most 4 robots at once and 120 per read, the
   newest first: the next read asks for the rest.
@@ -157,8 +161,10 @@ it for little.
 - `get_robot_stats` must answer the same `RobotStats` of the period it is asked for from the same core, the progress
   and the numbers of the lists (`RobotStatsEvent::Partial`) through its channel before the checks are read; two reads
   of one repository at once read once, and one from the cache waits for none. Its open of the object cache runs off
-  the async workers, and it waits for no sync: shown during one, the view reads them at once. The E2E server answers it
-  from the real core at the page's clock, in UTC, without a cache.
+  the async workers, and it waits for no sync: shown during one, the view reads them at once. The numbers of the lists
+  of a read stay while the read of another period starts, until it has its own or ends. The E2E server answers it from
+  the real core at the page's clock, in UTC, without a cache.
+  [@test] ../../src/stores/robot-stats.test.ts (`keeps the numbers of the lists of a read while the read of another period starts, until it has its own`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_history_robot_reads_back_through_the_parser_of_the_statistics`)
   [@test] ../../crates/app-api/src/command_scan_test.rs (`an_async_function_makes_the_blocking_reads_off_the_async_workers`)
   [@test] ../../tests/e2e/landing/statistics.spec.ts (`should read the statistics of the Landing view shown during a held sync at once, the sync ending once`)

@@ -189,7 +189,11 @@ that comes first leads and runs the read, the callers that ask meanwhile wait fo
 the read does (a process, a request, a file) holds a caller that asks for something else. `sync_utils::single_flight`
 is the one form of it: its map of flights is a `std` mutex held only to join or to register; a leader that goes away
 (its caller dropped) ends the flight, and the first of its joiners leads again. What should outlive the flight (a kept
-token, a list in the object cache) is kept by the read before it answers, so a caller after it reads nothing again.
+token, a list in the object cache) is kept by the read before it answers, so a caller after it reads nothing again;
+a long read keeps each part as it comes (the weeks of the Safe Push statistics, two at a time), so a canceled one
+loses none of it. A joiner waits for nothing it could show meanwhile: the statistics publish the leader's progress on a
+`watch` beside the flight, which a joiner shows while it waits, and what the leader read during the wait counts as
+fresh for the joiner, so its Refresh asks for none of it again.
 Where joining must be one step with reading a state (the renewal of `youtrack::service`: a lookup reads the token and
 joins the renewal of its generation under the one lock of the state), the flight lives in that state. A `std` mutex is
 held across no `.await` at all; one that a blocking write needs is taken on the thread of the write
