@@ -632,10 +632,24 @@ fn resolve<'a>(root: &'a Value, schema: &'a Value) -> &'a Value {
   schema
 }
 
+/// Of a `oneOf` of tagged objects (a Rust enum with `#[serde(tag = …)]`), the alternative whose tag the object `value`
+/// has: every `const` property of it equal in `value`; else `schema`
+fn tagged_alternative<'a>(root: &'a Value, schema: &'a Value, value: &Value) -> &'a Value {
+  let Some(alternatives) = schema.get("oneOf").and_then(Value::as_array) else { return schema };
+  alternatives
+    .iter()
+    .map(|alternative| resolve(root, alternative))
+    .find(|alternative| {
+      let tags = alternative["properties"].as_object().into_iter().flatten().filter_map(|(key, property)| Some((key, property.get("const")?)));
+      tags.clone().count() > 0 && tags.into_iter().all(|(key, tag)| value.get(key) == Some(tag))
+    })
+    .unwrap_or(schema)
+}
+
 /// Every key of `value` is a property of `schema` (or a key of a map), and every key the schema requires is in `value`,
 /// recursively through objects and arrays
 pub fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
-  let schema = resolve(root, schema);
+  let schema = tagged_alternative(root, resolve(root, schema), value);
   match value {
     Value::Object(object) => {
       // an output leaves an empty optional field out, so the schema must not require it; `operation_id` is checked and

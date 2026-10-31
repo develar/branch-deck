@@ -1603,6 +1603,51 @@ export type CommitSync = {
 /**  Status of a commit synchronization. */
 export type CommitSyncStatus = "Pending" | "Created" | "Unchanged" | "Error" | "Blocked";
 
+/**  A task of the range: parts of its units */
+export type Concern = {
+	/**  Names it in this plan, and in the next one while its first part stays: the fingerprint of that part */
+	id: string,
+	name: ConcernName,
+	/**  In the order of the story; a generated file after the parts of its source */
+	parts: ConcernPart[],
+	/**  The files of its parts, each once, in the order of its parts */
+	paths: string[],
+	/**  Why its parts are together, the evidence of the most joins first */
+	evidence: ConcernEvidence[],
+	/**  The set of the fingerprints of its parts */
+	fingerprint: string,
+};
+
+/**  One kind of evidence of a concern and how many joins it made */
+export type ConcernEvidence = {
+	kind: EvidenceKind,
+	/**  The name of a declaration of `uses`, the identifier of `token` */
+	detail: string | null,
+	joins: number,
+};
+
+/**  What a concern is called, by the evidence that made it; the page words it */
+export type ConcernName = 
+/**  The rare identifier that joined most of it */
+{ source: "token"; token: string } | 
+/**  A rare identifier its changed lines remove and one they add in its place, in the same changes */
+{ source: "replacement"; removed: string; added: string } | 
+/**  Its first changed declaration */
+{ source: "declaration"; name: string } | 
+/**  The directory its files share, `""` for the root */
+{ source: "directory"; directory: string } | 
+/**  What no evidence joined */
+{ source: "rest" };
+
+/**  What a concern holds of one unit in one file */
+export type ConcernPart = {
+	/**  `ReviewUnit::id` */
+	unit: string,
+	path: string,
+	/**  The blocks of the unit's slice of `path` it holds, by their index; `None` for the whole slice */
+	blocks: number[] | null,
+};
+
 /**  The config file an entry comes from, in git's order: a later scope wins over an earlier one */
 export type ConfigScope = "system" | "global" | 
 /**  `.git/config` of the repository, shared by its linked worktrees: the only one Branch Deck writes */
@@ -2519,6 +2564,16 @@ export type EveryoneDelivery = {
 	/**  Seconds */
 	merge_time: number,
 };
+
+export type EvidenceKind = 
+/**  A changed declaration and a change that names it */
+"uses" | 
+/**  The files of one group: a repeated edit, the deleted files of a directory */
+"group" | 
+/**  A rare identifier the changed lines of its files share */
+"token" | 
+/**  The largest concern of its file, of the subject of a test, of a file a generated file's header names */
+"rest";
 
 /**
  *  What a window asks to run (`execute`): the intent, the fingerprint of the plan it showed, and the confirmations the
@@ -6156,6 +6211,12 @@ export type ReviewPlan = {
 	 *  at least, in the order of the story
 	 */
 	units: ReviewUnit[],
+	/**
+	 *  The tasks the range does, each a set of parts of the units joined by evidence (`concerns`), in the order of the
+	 *  story; the parts no evidence joined last (`ConcernName::Rest`). No mechanical part but a generated file that
+	 *  follows its source
+	 */
+	concerns: Concern[],
 	/**
 	 *  Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
 	 *  again), in dependency order (`order`): a file that declares what another uses before it, a test right after its

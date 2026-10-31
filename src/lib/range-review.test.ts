@@ -55,6 +55,7 @@ describe("the local Since Your Review", () => {
       dependencies: [],
       repeatedEdits: [],
       units: [],
+      concerns: [],
       order: [],
       indexNote: null,
     }

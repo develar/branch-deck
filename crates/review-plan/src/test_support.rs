@@ -30,6 +30,7 @@ pub(crate) fn range(repo: &TestRepo, base: &str, head: &str) -> ReviewPlanParams
       head: head.to_string(),
     },
     since_reviewed: false,
+    concern_edges: crate::concerns::ConcernEdges::default(),
   }
 }
 
@@ -43,6 +44,7 @@ pub(crate) fn branch(repo: &TestRepo, since_reviewed: bool) -> ReviewPlanParams 
       baseline_branch: Some("master".to_string()),
     },
     since_reviewed,
+    concern_edges: crate::concerns::ConcernEdges::default(),
   }
 }
 

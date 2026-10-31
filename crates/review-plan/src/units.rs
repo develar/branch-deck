@@ -148,7 +148,7 @@ const MECHANICAL_ORDER: [MechanicalKind; 5] = [
 ];
 
 /// A stable digest of `parts`: the first 16 bytes of their SHA-256, in hex, each part ended by a NUL
-fn digest<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
+pub(crate) fn digest<'a>(parts: impl IntoIterator<Item = &'a str>) -> String {
   let mut hasher = Sha256::new();
   for part in parts {
     hasher.update(part.as_bytes());

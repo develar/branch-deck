@@ -6,12 +6,12 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 6` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 7` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
 //! made a deletion real work: no `mechanical: "deleted"`, a unit `deletedFile` per deleted file and `deletedFiles`
-//! with its `directory` for 3 or more deleted from one directory
+//! with its `directory` for 3 or more deleted from one directory, version 7 the `concerns`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -22,6 +22,7 @@ use file_diffs::accio::{AccioCli, SymbolIndex};
 use generated_files::generated_by::GeneratedBy;
 use git_ops::landed_pairing::PathLines;
 use review_plan::api::{ApiChange, ApiChangeKind, FormChange, UsageSite};
+use review_plan::concerns::{Concern, ConcernEdges};
 use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, PairState};
@@ -33,7 +34,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 6;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 7;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -70,6 +71,27 @@ pub struct ReviewPlanArgs {
   /// Only the commits added or rewritten since the branch was marked reviewed; not for a range
   #[arg(long)]
   pub since_reviewed: bool,
+  /// The edges the concerns join their parts by, for a measurement of each (`none` for none): all of them by default
+  #[arg(long, hide = true, value_delimiter = ',')]
+  pub concern_edges: Option<Vec<ConcernEdge>>,
+}
+
+/// An edge of the concerns (`review_plan::concerns::ConcernEdges`) that `--concern-edges` turns on
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ConcernEdge {
+  Uses,
+  Tokens,
+  Rest,
+  None,
+}
+
+/// The edges `--concern-edges` names, all of them without it
+fn concern_edges(args: &ReviewPlanArgs) -> ConcernEdges {
+  args.concern_edges.as_ref().map_or_else(ConcernEdges::default, |edges| ConcernEdges {
+    uses: edges.contains(&ConcernEdge::Uses),
+    tokens: edges.contains(&ConcernEdge::Tokens),
+    rest: edges.contains(&ConcernEdge::Rest),
+  })
 }
 
 /// `bd review-plan`
@@ -107,6 +129,11 @@ pub struct ReviewPlanOutput {
   /// and a change of no declaration (`other`). Every block of the diff is in one unit, every changed file in one at
   /// least; the mechanical units come last
   pub units: Vec<UnitOutput>,
+  /// The tasks of the range, in the order of the story: each a set of parts of the units (`unit`, `path`, the `blocks`
+  /// by index, `null` for the whole slice) joined by evidence (`evidence`: `uses` of a changed declaration, `group`,
+  /// `token` of a rare identifier, `rest`), named by its source (`token`, `declaration`, `directory`), the parts no
+  /// evidence joined last (`rest`). A mechanical file is in none, but a generated file whose header names a source
+  pub concerns: Vec<Concern>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
   /// between files with no edge
@@ -350,6 +377,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     repository_path: context.repository.clone(),
     subject: subject_of(args)?,
     since_reviewed: args.since_reviewed,
+    concern_edges: concern_edges(args),
   };
   let (cache, never_canceled) = (context.cache(), || false);
   let search = AccioCli::discover().map(|accio| accio.search(&never_canceled));
@@ -383,6 +411,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     dependencies: plan.dependencies,
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
     units: plan.units.into_iter().map(unit_output).collect(),
+    concerns: plan.concerns,
     order: plan.order,
     index_note: plan.index_note,
   })

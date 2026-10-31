@@ -122,7 +122,7 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
 ### In `bd`
-- `bd review-plan` must print `units` (`"schema": 6`): per unit its `id`, `kind` (`shape` with `changes`,
+- `bd review-plan` must print `units` (`"schema": 7`): per unit its `id`, `kind` (`shape` with `changes`,
   `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles` with `directory`, `mechanical` with
   `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `public`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)

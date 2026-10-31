@@ -116,7 +116,7 @@ the review.
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
-| Concerns (untangling) | In work | | | [Next](#next) |
+| Concerns (untangling) | Partial: in the plan and `bd`, not in the window | this change | a server dropped from six configs, one deleted, is one concern by its rare identifiers; weak precision 0.997 by tokens, 0.986 by uses, 0.955 with the rest; 12.7 ms for 168 units | the first token joins of singletons chained 16 files of one branch into one; a big block of prose shares words by chance (fixed: no unchanged words, cosine); a guide every commit edits stays in `rest`; the window still lists folders |
 | LLM tour with a hard coverage gate | Not started | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -143,6 +143,7 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 |---|---|---|---|---|
 | 2026-10-31 | idea-1 `accio-search-policy`, 5 commits | `dotnet/.codex/config.toml` under Mechanical → Deleted, though it is the change of five other configs | a deletion folded as noise | c60b21a1b |
 | 2026-10-31 | the same | the tree lists folders while the diffs tell the story; one task is scattered over five folders | the two sides of the window disagree | concerns ([Next](#next)) |
+| 2026-10-31 | idea-1 virtual branches | the first concerns joined a branch into one: single tokens chained singletons, prose blocks shared words | soft evidence chains (single linkage) | cosine of rare tokens without the unchanged words, a token bridges no two concerns ([Review Concerns](../../spec/branch/review-concerns.spec.md#measurements)) |
 
 ## Measurements
 

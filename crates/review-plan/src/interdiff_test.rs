@@ -33,6 +33,7 @@ fn plan(repo: &TestRepo, since_reviewed: bool) -> ReviewPlan {
       baseline_branch: Some("master".to_string()),
     },
     since_reviewed,
+    concern_edges: crate::concerns::ConcernEdges::default(),
   };
   plan_of(repo, None, &params).unwrap()
 }
@@ -244,6 +245,7 @@ fn a_range_has_no_interdiff() {
       head: "jane/virtual/auth".to_string(),
     },
     since_reviewed,
+    concern_edges: crate::concerns::ConcernEdges::default(),
   };
   let plan = plan_of(&repo, None, &params("master", false)).unwrap();
   assert_eq!((plan.branch, plan.base, plan.head, plan.interdiff), (None, base, logout, None));

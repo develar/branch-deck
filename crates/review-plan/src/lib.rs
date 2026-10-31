@@ -21,6 +21,7 @@
 //! `review_plan_core`, the one entry of `bd review-plan` and the app.
 
 pub mod api;
+pub mod concerns;
 pub mod dependencies;
 pub mod fan_in;
 pub mod files;
@@ -32,6 +33,7 @@ pub mod pair;
 pub mod units;
 
 use crate::api::{ApiChange, ApiChangeKind, api_changes};
+use crate::concerns::{Concern, ConcernEdges, review_concerns};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_usages;
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
@@ -67,6 +69,10 @@ pub struct ReviewPlanParams {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub since_reviewed: bool,
+  /// The edges the concerns join their parts by: all of them, unless `bd review-plan --concern-edges` measures a part
+  #[serde(skip)]
+  #[cfg_attr(feature = "specta", specta(skip))]
+  pub concern_edges: ConcernEdges,
 }
 
 /// What is reviewed
@@ -123,6 +129,10 @@ pub struct ReviewPlan {
   /// The changes of the pair the plan reads (`units`): every block of its diffs in one unit, every changed file in one
   /// at least, in the order of the story
   pub units: Vec<ReviewUnit>,
+  /// The tasks the range does, each a set of parts of the units joined by evidence (`concerns`), in the order of the
+  /// story; the parts no evidence joined last (`ConcernName::Rest`). No mechanical part but a generated file that
+  /// follows its source
+  pub concerns: Vec<Concern>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
   /// subject, the tree order inside a cycle and between files with no edge
@@ -298,6 +308,7 @@ pub fn review_plan_of(
   let generated = generated_of(&changed, &known, &texts);
   let kinds = file_kinds(&changed, &texts, &states, &generated);
   let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
+  let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, params.concern_edges);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -315,6 +326,7 @@ pub fn review_plan_of(
     dependencies,
     repeated_edits: Vec::new(),
     units,
+    concerns,
     order,
     index_note: None,
   };
@@ -368,3 +380,5 @@ mod order_test;
 mod test_support;
 #[cfg(test)]
 mod units_test;
+#[cfg(test)]
+mod concerns_test;

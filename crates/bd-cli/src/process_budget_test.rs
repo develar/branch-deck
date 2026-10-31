@@ -625,6 +625,7 @@ fn plan_since_the_review(repo: &TestRepo) -> (RepoContext, Vec<String>, bool) {
     subject: "auth".to_string(),
     base: None,
     since_reviewed: true,
+    concern_edges: None,
   };
   let interdiff = review_plan(&context, &args).unwrap().interdiff.unwrap();
   let states = interdiff.commits.iter().map(|commit| format!("{:?}", commit.state)).collect();
@@ -637,6 +638,7 @@ fn range_to_head() -> ReviewPlanArgs {
     subject: "origin/master..HEAD".to_string(),
     base: None,
     since_reviewed: false,
+    concern_edges: None,
   }
 }
 
