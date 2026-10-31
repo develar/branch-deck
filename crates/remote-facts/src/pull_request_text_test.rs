@@ -306,6 +306,53 @@ fn the_description_wins() {
   assert_eq!(text_of(&branch, &[issue("IJAI-1", Some("Auth"))]), ("Auth".to_string(), "Login and logout.".to_string()));
 }
 
+/// The issues of a pull request are asked of YouTrack at once: both requests reach it before either is answered
+#[tokio::test]
+async fn the_issues_are_asked_at_once() {
+  let (fake, url) = start_fake_server().await;
+  for (key, summary) in [("IJAI-1", "Login"), ("IJAI-2", "Logout")] {
+    fake.answer("GET", &format!("/api/issues/{key}"), FakeAnswer::ok(json!({"idReadable": key, "summary": summary})));
+  }
+  let (first, second) = (fake.hold("GET", "/api/issues/IJAI-1"), fake.hold("GET", "/api/issues/IJAI-2"));
+  let dir = tempfile::tempdir().unwrap();
+  let youtrack = signed_in_youtrack(dir.path(), &url);
+  let links = IssueNavigationConfig { links: vec![ijai_link(&url)] };
+  let keys = ["IJAI-1".to_string(), "IJAI-2".to_string()];
+  let both_asked = async {
+    first.arrived().await;
+    second.arrived().await;
+    first.open();
+    second.open();
+  };
+  let (issues, ()) = tokio::join!(issue_texts(&keys, Some(&links), Some(&youtrack)), both_asked);
+  let summaries: Vec<Option<&str>> = issues.iter().map(|issue| issue.summary.as_deref()).collect();
+  assert_eq!(summaries, [Some("Login"), Some("Logout")]);
+}
+
+/// The IJAI issues are pages of the YouTrack at `url`
+fn ijai_link(url: &str) -> IssueNavigationLink {
+  IssueNavigationLink {
+    issue_regexp: r"IJAI-\d+".to_string(),
+    link_regexp: format!("{url}/issue/$0"),
+  }
+}
+
+/// A YouTrack signed in to `url` as jane, its token in `dir`
+fn signed_in_youtrack(dir: &std::path::Path, url: &str) -> YouTrackService {
+  let file = token_file(dir);
+  let token = StoredToken {
+    url: url.to_owned(),
+    login: "jane".to_string(),
+    full_name: "Jane Doe".to_string(),
+    access_token: "access".to_string(),
+    access_expires_at: None,
+    refresh: None,
+    created_at: 0,
+  };
+  write_secret_json(&file, &token).unwrap();
+  YouTrackService::without_renewal(YouTrackClient::new("Branch Deck test"), None, Some(file))
+}
+
 #[tokio::test]
 async fn an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there() {
   let (fake, url) = start_fake_server().await;
@@ -315,24 +362,10 @@ async fn an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there
     FakeAnswer::ok(json!({"idReadable": "IJAI-4390", "summary": "Agent CLIs render without colors"})),
   );
   let dir = tempfile::tempdir().unwrap();
-  let file = token_file(dir.path());
-  let token = StoredToken {
-    url: url.clone(),
-    login: "jane".to_string(),
-    full_name: "Jane Doe".to_string(),
-    access_token: "access".to_string(),
-    access_expires_at: None,
-    refresh: None,
-    created_at: 0,
-  };
-  write_secret_json(&file, &token).unwrap();
-  let youtrack = YouTrackService::without_renewal(YouTrackClient::new("Branch Deck test"), None, Some(file));
+  let youtrack = signed_in_youtrack(dir.path(), &url);
   let links = IssueNavigationConfig {
     links: vec![
-      IssueNavigationLink {
-        issue_regexp: r"IJAI-\d+".to_string(),
-        link_regexp: format!("{url}/issue/$0"),
-      },
+      ijai_link(&url),
       IssueNavigationLink {
         issue_regexp: r"EA-\d+".to_string(),
         link_regexp: "https://ea.example.com/issue/$0".to_string(),

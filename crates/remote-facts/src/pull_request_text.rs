@@ -13,6 +13,8 @@ use domain_types::youtrack::YouTrackIssueAnswer;
 use git_ops::branch_description::Description;
 use std::borrow::Cow;
 use std::fmt::Write as _;
+use std::pin::Pin;
+use std::task::Poll;
 use std::time::Duration;
 use sync_core::issue_navigation::issue_link;
 use sync_core::sync::branch_summary;
@@ -100,49 +102,71 @@ fn is_autosquash(subject: &str) -> bool {
 }
 
 /// The issue texts of `keys`: the link of the repository's issue navigation (`.idea/vcs.xml`), and when that link is
-/// an issue page of the YouTrack `youtrack` is signed in to, the summary and the page YouTrack answers. A YouTrack that
-/// doesn't answer within `ISSUE_LOOKUP_TIMEOUT` for all the keys, or not at all, leaves the summary out.
+/// an issue page of the YouTrack `youtrack` is signed in to, the summary and the page YouTrack answers, every key asked
+/// at once. A YouTrack that doesn't answer a key within `ISSUE_LOOKUP_TIMEOUT`, or not at all, leaves its summary out.
 pub async fn issue_texts(keys: &[String], links: Option<&IssueNavigationConfig>, youtrack: Option<&YouTrackService>) -> Vec<IssueText> {
   let deadline = tokio::time::Instant::now() + ISSUE_LOOKUP_TIMEOUT;
   let youtrack_url = match youtrack {
     Some(service) => service.status().url,
     None => None,
   };
-  let mut issues = Vec::with_capacity(keys.len());
-  for key in keys {
+  let lookups = keys.iter().map(|key| {
     let url = links.and_then(|links| issue_link(links, key));
     let in_youtrack = youtrack_url
       .as_deref()
       .zip(url.as_deref())
       .is_some_and(|(base, url)| url.strip_prefix(&format!("{}/issue/", base.trim_end_matches('/'))) == Some(key.as_str()));
-    let found = match youtrack.filter(|_| in_youtrack) {
-      Some(service) => match tokio::time::timeout_at(deadline, service.issue(key)).await {
-        Ok(YouTrackIssueAnswer::Found { issue }) => Some(issue),
-        Ok(answer) => {
-          debug!(key, ?answer, "no issue summary for the pull request");
-          None
+    let service = youtrack.filter(|_| in_youtrack);
+    async move {
+      let found = match service {
+        Some(service) => match tokio::time::timeout_at(deadline, service.issue(key)).await {
+          Ok(YouTrackIssueAnswer::Found { issue }) => Some(issue),
+          Ok(answer) => {
+            debug!(key, ?answer, "no issue summary for the pull request");
+            None
+          }
+          Err(_) => {
+            debug!(key, "YouTrack did not answer in time: no issue summary for the pull request");
+            None
+          }
+        },
+        None => None,
+      };
+      match found {
+        Some(issue) => IssueText {
+          key: key.clone(),
+          summary: Some(issue.summary).filter(|summary| !summary.trim().is_empty()),
+          url: Some(issue.url),
+        },
+        None => IssueText {
+          key: key.clone(),
+          summary: None,
+          url,
+        },
+      }
+    }
+  });
+  join_all(lookups.collect()).await
+}
+
+/// The answers of `futures`, run at once on this task, in their order
+async fn join_all<F: Future>(futures: Vec<F>) -> Vec<F::Output> {
+  let mut futures: Vec<Pin<Box<F>>> = futures.into_iter().map(Box::pin).collect();
+  let mut answers: Vec<Option<F::Output>> = futures.iter().map(|_| None).collect();
+  std::future::poll_fn(|cx| {
+    let mut pending = false;
+    for (future, answer) in futures.iter_mut().zip(answers.iter_mut()) {
+      if answer.is_none() {
+        match future.as_mut().poll(cx) {
+          Poll::Ready(output) => *answer = Some(output),
+          Poll::Pending => pending = true,
         }
-        Err(_) => {
-          debug!(key, "YouTrack did not answer in time: no issue summary for the pull request");
-          None
-        }
-      },
-      None => None,
-    };
-    issues.push(match found {
-      Some(issue) => IssueText {
-        key: key.clone(),
-        summary: Some(issue.summary).filter(|summary| !summary.trim().is_empty()),
-        url: Some(issue.url),
-      },
-      None => IssueText {
-        key: key.clone(),
-        summary: None,
-        url,
-      },
-    });
-  }
-  issues
+      }
+    }
+    if pending { Poll::Pending } else { Poll::Ready(()) }
+  })
+  .await;
+  answers.into_iter().flatten().collect()
 }
 
 /// The title and the body of the pull request of `input`; `issues` are the texts of `input.issue_keys()`

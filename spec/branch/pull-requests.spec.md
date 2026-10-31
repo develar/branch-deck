@@ -395,9 +395,9 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   first subject, oldest first, that is no cleanup, without its key). A branch of several keys or of none is titled by
   the summary of the branch, else by its name as `gh pr create --fill` names it (`feature auth`). The summary comes
   from YouTrack only when the link of the key in `.idea/vcs.xml` is an issue page of the YouTrack signed in to, as the
-  issue popover asks it, within 3 s for all the keys; so the title depends on the sign-in.
+  issue popover asks it, every key at once, within 3 s for all of them; so the title depends on the sign-in.
   [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_branch_keeps_its_key_and_takes_the_issue_summary`, `without_an_issue_summary_the_title_is_the_key_and_the_branch_summary`, `a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary`)
-  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there`)
+  [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`an_issue_is_asked_from_youtrack_only_when_the_repository_links_it_there`, `the_issues_are_asked_at_once`)
   [@test] ../../crates/sync-core/src/issue_navigation.rs (`a_key_links_as_the_first_pattern_that_matches_all_of_it_names_it`)
 - The body starts with each issue of the branch once, `[IJAI-4390](<its page>)` joined by ` · ` (the bare key without
   a link). One commit then gives its body; several a numbered item each, oldest first: the subject in bold, without
