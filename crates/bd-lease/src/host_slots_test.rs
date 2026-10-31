@@ -363,7 +363,9 @@ struct FsmonitorDaemon(String);
 #[cfg(target_os = "macos")]
 impl FsmonitorDaemon {
   /// Start it in `dir` without `HOME`, so it keeps `dir` as its working directory, in a process group of its own, so
-  /// it is no process of the session that runs bd
+  /// it is no process of the session that runs bd, and without the pipes of the test: the daemon inherits them, and
+  /// nextest fails a test whose handles a process still holds after it ended (`LEAK-FAIL`), as the daemon may while
+  /// its `stop` finishes
   fn start(dir: &str) -> Self {
     use std::os::unix::process::CommandExt;
     let status = test_utils::git_test_utils::git_command()
@@ -371,6 +373,9 @@ impl FsmonitorDaemon {
       .current_dir(dir)
       .env_remove("HOME")
       .process_group(0)
+      .stdin(std::process::Stdio::null())
+      .stdout(std::process::Stdio::null())
+      .stderr(std::process::Stdio::null())
       .status()
       .unwrap();
     assert!(status.success(), "git fsmonitor--daemon start in {dir}: {status}");
