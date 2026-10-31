@@ -211,12 +211,15 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   assert_eq!(git(&fixture.repo, &["status", "--porcelain"]), "");
 }
 
-/// While `bd lease clean --free` cleans a free slot, the slot is `cleaning`: a get passes it over, so the clean never
-/// deletes in a slot that another agent leased meanwhile; after the clean it is free again
+/// While `bd lease clean --free` cleans a free slot, the slot is `cleaning`: a get neither leases it, so the clean never
+/// deletes in a slot that another agent leased meanwhile, nor adds a slot; it waits for the clean (`waiting for the
+/// clean of <slot>`) and leases the slot once the clean has freed it
 #[cfg(unix)]
 #[test_log::test]
 fn a_slot_that_clean_cleans_is_reserved_against_a_get() {
+  use crate::clones_lock_test::{get_with_steps, wait_for_the_slot};
   use crate::lease_test::{held_environment, slot_path, states};
+  use lease_pool::lease::GetStep;
   let fixture = Fixture::new();
   commit_rules(&fixture, RULES);
   let slot = path_of(&fixture.get(&[]));
@@ -224,27 +227,27 @@ fn a_slot_that_clean_cleans_is_reserved_against_a_get() {
   file(Path::new(&slot), "tests/results/trace.zip", 4096);
   let dir = tempfile::tempdir().unwrap();
   let environment = held_environment(&fixture, fixture.repo.path(), dir.path(), "*\" ls-files \"*");
-  let (other, (exit_code, output)) = std::thread::scope(|scope| {
+  let steps = std::sync::Mutex::new(Vec::new());
+  let (got, (exit_code, output)) = std::thread::scope(|scope| {
     let clean = scope.spawn(|| bd_cli::fixture_test::run_json(&environment, &["lease", "clean", "--free"]));
     while !dir.path().join("held").exists() && !clean.is_finished() {
       std::thread::yield_now();
     }
     assert!(dir.path().join("held").exists(), "the clean reached its rules");
     assert_eq!(states(&fixture.status()), [(slot_path(&slot), "cleaning".to_string())]);
-    let other = path_of(&fixture.get(&[]));
+    let get = scope.spawn(|| get_with_steps(&fixture, "other", &steps));
+    let wait = wait_for_the_slot(&steps, &get);
+    assert!(matches!(&wait, GetStep::WaitForSlot { slot: waited, clean: true, .. } if *waited == slot), "{wait:?}");
     std::fs::write(dir.path().join("go"), "").unwrap();
-    (other, clean.join().unwrap())
+    let cleaned = clean.join().unwrap();
+    (get.join().unwrap().unwrap(), cleaned)
   });
   assert_eq!(exit_code, 0, "{output}");
-  assert_ne!(other, slot, "a get passes the slot that is cleaned over");
+  assert_eq!((&got.path, got.reused), (&slot, true));
   assert_eq!(output["targets"][0]["path"], json!(slot));
   assert_eq!(output["targets"][0].get("skipped"), None, "{output}");
   assert!(!Path::new(&slot).join("tests/results").exists());
-  let mut actual = states(&fixture.status());
-  actual.sort();
-  let mut expected = vec![(slot_path(&slot), "free".to_string()), (slot_path(&other), "ready".to_string())];
-  expected.sort();
-  assert_eq!(actual, expected);
+  assert_eq!(states(&fixture.status()), [(slot_path(&slot), "ready".to_string())]);
 }
 
 /// A new slot cloned from the source leaves out what the `delete` rules of the source delete, but for their `except`

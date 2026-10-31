@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::clones_lock_test::{get_with_steps, kinds, wait_for_the_slot};
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
@@ -5,6 +7,8 @@ use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_on_baseline, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
+#[cfg(unix)]
+use lease_pool::lease::GetStep;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -1682,26 +1686,32 @@ fn a_return_retried_while_the_first_acts_on_the_slot_waits_for_it_and_answers_jo
   assert_eq!(states(&fixture.status()), [(slot_path(&path), "free".to_string())]);
 }
 
-/// While a return acts on the slot (`returning`), a get passes the slot over; the return then frees the slot
+/// While a return acts on the slot (`returning`), a get leases neither it nor a new slot: it waits for the return
+/// (`waiting for the return of <slot>`), the return frees the slot, and the get leases that slot
 #[cfg(unix)]
 #[test_log::test]
 fn a_running_return_reserves_the_slot_against_a_get() {
   let fixture = Fixture::new();
   let path = path_of(&fixture.get(&["-b", "feature"]));
-  let mut other = String::new();
-  // the detach of HEAD, after the reservation
-  let (exit_code, output) = return_held_while(&fixture, &path, "*\" update-ref \"*", || {
-    assert_eq!(states(&fixture.status()), [(slot_path(&path), "returning".to_string())]);
-    other = path_of(&fixture.get(&[]));
-    assert_ne!(other, path, "a get passes the returning slot over");
+  let steps = std::sync::Mutex::new(Vec::new());
+  let (got, (exit_code, output)) = std::thread::scope(|scope| {
+    let mut get = None;
+    // the detach of HEAD, after the reservation
+    let returned = return_held_while(&fixture, &path, "*\" update-ref \"*", || {
+      assert_eq!(states(&fixture.status()), [(slot_path(&path), "returning".to_string())]);
+      let waiting = scope.spawn(|| get_with_steps(&fixture, "other", &steps));
+      let wait = wait_for_the_slot(&steps, &waiting);
+      assert!(matches!(&wait, GetStep::WaitForSlot { slot, clean: false, .. } if *slot == path), "{wait:?}");
+      assert_eq!(states(&fixture.status()), [(slot_path(&path), "returning".to_string())], "the get reserved nothing");
+      get = Some(waiting);
+    });
+    (get.unwrap().join().unwrap().unwrap(), returned)
   });
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["detached_branch"], json!("feature"));
-  let mut expected = vec![(slot_path(&path), "free".to_string()), (slot_path(&other), "ready".to_string())];
-  let mut actual = states(&fixture.status());
-  expected.sort();
-  actual.sort();
-  assert_eq!(actual, expected);
+  assert_eq!((&got.path, got.reused), (&path, true));
+  assert_eq!(kinds(&steps), ["reserve", "reserve adding", "wait for slot", "reserve adding", "status", "checkout"]);
+  assert_eq!(states(&fixture.status()), [(slot_path(&path), "ready".to_string())]);
 }
 
 /// An agent leases a worktree and gives it back while another agent's `bd sync` of the repository is held in its

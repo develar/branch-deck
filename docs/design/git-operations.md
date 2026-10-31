@@ -1866,7 +1866,10 @@ slot there that its reserve may take and has not tried (`reservable`: free, or a
 the wait (`LockWaitCanceled`); the get reserves that slot without the lock. Before, it noticed the slot only once the
 holder's clone and checkout were done, 40 s and more in idea-1. A slot the reserve looked at is tried before any check
 of it, so a dirty or busy one ends a wait once. Not the modification time of the state: two writes within one tick of
-the clock look like one, and the wake-up is lost. The lock is beside the
+the clock look like one, and the wake-up is lost. Under the lock, a slot whose return or clean runs (`returning`,
+`cleaning`, its process alive) is free in a moment, where a clone takes 40 s and more: the get waits for it
+(`GetStep::WaitForSlot`, the state read every 20 ms as a second return of the same lease waits) and reserves again,
+once for each return or clean, since a return that fails leaves the lease `ready`. The lock is beside the
 state, not in the pool directory: the reserve under it reads that state, and the directory is only config
 (`branchdeck.leasePool`). The wait is the one of the app's repository lock (`lock_file_while_held` of
 `history_rewrite::repository_lock`): it lasts while the record of the holder (`clones.lock.holder`, its command, pid,
@@ -2150,7 +2153,8 @@ local changes and a process of another session in the slot refuse it; with
 for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it. The return acts on the
 slot only after it reserved it: once every check passed, under the pool lock and with CAS on the lease id, the lease
-becomes `returning`, of the return's process. A get passes the slot over. A repeat joins (an agent whose tool call
+becomes `returning`, of the return's process. A get leases nothing else for it: one that needs a slot waits for the
+return under the clones lock (Lease, above) and leases the slot it frees. A repeat joins (an agent whose tool call
 timed out returns again): a return that finds its lease `returning` waits for that return, reading the pool without
 its lock, and answers `joined` once the slot is freed (or returns the lease itself once that return failed or its
 process died); a return that another overtook (the slot freed, then perhaps leased again) answers `joined` too and

@@ -14,18 +14,16 @@ use bd_core::error::CliError;
 use domain_types::error::ErrorCode;
 #[cfg(unix)]
 use lease_pool::lease::AddingSlot;
-use lease_pool::lease::{CloneHolder, GetStep, Pool, canonical_path};
+use lease_pool::lease::{CloneHolder, GetStep, LeaseState, Pool, canonical_path};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Mutex;
 use std::thread::ScopedJoinHandle;
-use std::time::Duration;
-#[cfg(unix)]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// `bd lease get --holder <holder>` in the repository of the fixture, each step recorded in `steps`
-fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) -> Result<LeaseGetOutput, CliError> {
+pub(crate) fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) -> Result<LeaseGetOutput, CliError> {
   let environment = fixture.environment(fixture.repo.path());
   let context = LeaseContext::resolve(&environment, None)?;
   let args = LeaseGetArgs {
@@ -44,7 +42,7 @@ fn printed(fixture: &Fixture, output: &LeaseGetOutput) -> Value {
 }
 
 /// The kind of each step; a wait told again (another holder, a minute later) counts once
-fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
+pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
   let mut kinds: Vec<&'static str> = steps
     .lock()
     .unwrap()
@@ -53,6 +51,7 @@ fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Reserve { adding: false } => "reserve",
       GetStep::Reserve { adding: true } => "reserve adding",
       GetStep::WaitForClone(_) => "wait",
+      GetStep::WaitForSlot { .. } => "wait for slot",
       GetStep::StopServers { .. } => "stop servers",
       GetStep::Status { .. } => "status",
       GetStep::Clone { .. } => "clone",
@@ -187,8 +186,7 @@ fn a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot() {
 }
 
 /// Until `done` holds, polled every 10 ms; past 30 s the test fails with `what`
-#[cfg(unix)]
-fn wait_until(what: &str, done: impl Fn() -> bool) {
+pub(crate) fn wait_until(what: &str, done: impl Fn() -> bool) {
   let deadline = Instant::now() + Duration::from_secs(30);
   while !done() {
     assert!(Instant::now() < deadline, "{what} for 30 s");
@@ -255,6 +253,64 @@ fn a_dirty_slot_freed_while_a_get_waits_ends_the_wait_once() {
   assert_eq!(
     kinds(&steps),
     [&["reserve", "wait", "reserve", "status", "reserve", "wait", "reserve adding"][..], new_slot_steps()].concat()
+  );
+}
+
+/// Until the get of `steps` waits for the return or the clean of a slot (`GetStep::WaitForSlot`): that step. The get
+/// must not end first
+pub(crate) fn wait_for_the_slot<T>(steps: &Mutex<Vec<GetStep>>, get: &ScopedJoinHandle<'_, T>) -> GetStep {
+  wait_until("the get waited for the slot", || {
+    assert!(!get.is_finished(), "the get ended without waiting for the slot: {:?}", steps.lock().unwrap());
+    kinds(steps).contains(&"wait for slot")
+  });
+  let step = steps.lock().unwrap().last().unwrap().clone();
+  let line = step.to_string();
+  assert!(
+    line.starts_with("no free slot; waiting for the ") && line.ends_with("the slot it frees is leased rather than a new one"),
+    "{line}"
+  );
+  step
+}
+
+/// Set the state of the lease of `path` (of this process: the fixture runs bd in it) as a return or a clean marks it
+fn mark_lease(fixture: &Fixture, path: &str, state: LeaseState) {
+  let common_dir = canonical_path(&fixture.repo.path().join(".git"));
+  Pool::new(Path::new(&common_dir))
+    .update(Duration::from_secs(10), |store| {
+      let lease = store.slots.iter_mut().find(|slot| slot.path == path).and_then(|slot| slot.lease.as_mut()).unwrap();
+      assert_eq!(lease.pid, std::process::id());
+      lease.state = state;
+      Ok(())
+    })
+    .unwrap();
+}
+
+/// A get under the clones lock that waited for the return of a slot (`a_running_return_reserves_the_slot_against_a_get`)
+/// adds a slot when that return fails: the lease is `ready` again, and the get waits for it no more
+#[test_log::test]
+fn a_get_that_waited_for_a_failed_return_adds_a_slot() {
+  let fixture = Fixture::new();
+  let returning = path_of(&fixture.get(&["--holder", "returning"]));
+  mark_lease(&fixture, &returning, LeaseState::Returning);
+  let steps = Mutex::new(Vec::new());
+  let got = std::thread::scope(|scope| {
+    let get = scope.spawn(|| get_with_steps(&fixture, "after", &steps));
+    let wait = wait_for_the_slot(&steps, &get);
+    assert_eq!(
+      wait,
+      GetStep::WaitForSlot {
+        slot: returning.clone(),
+        pid: std::process::id(),
+        clean: false
+      }
+    );
+    mark_lease(&fixture, &returning, LeaseState::Ready);
+    printed(&fixture, &get.join().unwrap().unwrap())
+  });
+  assert_eq!(got["reused"], json!(false), "{got}");
+  assert_eq!(
+    kinds(&steps),
+    [&["reserve", "reserve adding", "wait for slot", "reserve adding"][..], new_slot_steps()].concat()
   );
 }
 

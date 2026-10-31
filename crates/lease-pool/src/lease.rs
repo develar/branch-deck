@@ -663,6 +663,9 @@ pub enum GetStep {
   /// No free slot, and another get holds the clones lock while it adds a slot: told when the wait starts, when the
   /// holder or the slot it adds changes, and once a minute
   WaitForClone(CloneHolder),
+  /// Under the clones lock, no free slot, and the return or the clean of the slot `slot` by the process `pid` runs: the
+  /// get waits for it to end rather than add a slot (`clean`: a clean, else a return)
+  WaitForSlot { slot: String, pid: u32, clean: bool },
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -691,6 +694,11 @@ impl fmt::Display for GetStep {
       Self::Reserve { adding: false } => f.write_str("reserving a free slot"),
       Self::Reserve { adding: true } => f.write_str("reserving a slot freed meanwhile, else a new one"),
       Self::WaitForClone(holder) => write!(f, "no free slot; {holder}"),
+      Self::WaitForSlot { slot, pid, clean } => write!(
+        f,
+        "no free slot; waiting for the {} of {slot} (pid {pid}): the slot it frees is leased rather than a new one",
+        if *clean { "clean" } else { "return" }
+      ),
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
       Self::Clone { template, slot } => write!(f, "cloning {template} into {slot}"),
@@ -790,6 +798,9 @@ enum Reserved {
   },
   /// A new slot at `path`; `template` is a free slot marked `templating` for its clone
   New { path: PathBuf, template: Option<String> },
+  /// Nothing reserved: the slot `path` is free in a moment, once the return or the clean of `lease_id` by the process
+  /// `pid` ends. The get waits for it under the clones lock rather than add a slot
+  Freeing { path: String, lease_id: String, pid: u32, clean: bool },
   /// No free slot, and the get does not hold the clones lock yet: nothing is reserved
   NoFreeSlot,
 }
@@ -801,8 +812,9 @@ enum Reserved {
 /// slot is marked, skipped, and the next one tried), `checkout --force` to the source HEAD (only the diff is written),
 /// the seed. No free slot: the clones lock (`Pool::lock_clones`), waited for while another get adds a slot; a slot freed
 /// during the wait ends it, and the get reserves that one without the lock. After a wait the minimum and the processes
-/// as they are now; the free space again, and the reserve again, where a slot freed meanwhile wins. Else, under the
-/// lock until the slot is ready, a clone of a template without what the `delete` rules
+/// as they are now; the free space again, and the reserve again, where a slot freed meanwhile wins, and a slot whose
+/// return or clean runs is waited for. Else, under the lock until the slot is ready, a clone of a template without
+/// what the `delete` rules
 /// delete (`add_cloned_slot`), else a registration and the only full checkout. A failure after the lease was recorded
 /// gives the slot back
 ///
@@ -890,6 +902,8 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
 
   let mut skipped = Vec::new();
   let mut tried = HashSet::new();
+  // the returns and the cleans the get waited for (`Reserved::Freeing`), each once
+  let mut awaited = HashSet::new();
   let mut created_by = None;
   let mut cloned_from = None;
   let mut stopped_servers = Vec::new();
@@ -904,7 +918,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
     report(GetStep::Reserve { adding });
     let takes_over = take_over == TakeOver::Idle && idle_checks < IDLE_CHECKS_PER_GET;
     let reserved = pool.update(params.lock_timeout, |store| {
-      let reserved = reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut skipped, &lease, adding, takes_over);
+      let reserved = reserve(store, &git_common_dir, &pool_dir, &scan, &mut tried, &mut awaited, &mut skipped, &lease, adding, takes_over);
       if matches!(reserved, Reserved::New { .. }) {
         idle = idle_leases(store);
       }
@@ -934,6 +948,11 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
           continue;
         }
       },
+      Reserved::Freeing { path, lease_id, pid, clean } => {
+        report(GetStep::WaitForSlot { slot: path.clone(), pid, clean });
+        wait_while_freeing(&pool, &path, &lease_id)?;
+        continue;
+      }
       Reserved::Free { path, name, servers } => {
         // a slot freed while the get waited for the clones lock: the next get that adds a slot goes on
         clones_lock = None;
@@ -1259,7 +1278,7 @@ fn clone_holder(store: &LeaseStore, process: &LockHolder) -> CloneHolder {
 
 /// Under the pool lock: free the leases whose get died while preparing, drop the free slots whose directory is gone, and
 /// reserve a free slot (clean ones first, the one returned last first, then in the order they joined the pool) or, with
-/// `may_add` (the get holds the clones lock), a new one. The slot returned last has the warmest index, fsmonitor daemon
+/// `may_add` (the get holds the clones lock), a new one, unless the return or the clean of a slot runs (`Freeing`). The slot returned last has the warmest index, fsmonitor daemon
 /// and build caches and the commit closest to the source; the order they joined left the other slots idle for days,
 /// cold and far behind. A free slot with a process in it is skipped as busy; one with only its Bazel servers in it is
 /// reserved with them, for the get to stop them
@@ -1270,6 +1289,7 @@ fn reserve(
   pool_dir: &Path,
   scan: &ProcessScan,
   tried: &mut HashSet<String>,
+  awaited: &mut HashSet<String>,
   skipped: &mut Vec<SkippedSlot>,
   lease: &Lease,
   may_add: bool,
@@ -1312,6 +1332,19 @@ fn reserve(
   }
   if !may_add {
     return Reserved::NoFreeSlot;
+  }
+  // a slot whose return or clean runs (a dead one's lease was settled above) is free in a moment, a clone takes 40 s and
+  // more in idea-1: the get waits for it, once for each (`awaited`), as a failed return leaves the lease `ready`
+  let freeing = store.slots.iter().find_map(|slot| {
+    let lease = slot
+      .lease
+      .as_ref()
+      .filter(|lease| matches!(lease.state, LeaseState::Returning | LeaseState::Cleaning) && !awaited.contains(&lease.id))?;
+    Some((slot.path.clone(), lease.id.clone(), lease.pid, lease.state == LeaseState::Cleaning))
+  });
+  if let Some((path, lease_id, pid, clean)) = freeing {
+    awaited.insert(lease_id.clone());
+    return Reserved::Freeing { path, lease_id, pid, clean };
   }
   let template = CLONE_AVAILABLE.then(|| mark_template(store, git_common_dir, scan, lease)).flatten();
   let path = next_slot_path(store, pool_dir, git_common_dir);
@@ -2077,7 +2110,7 @@ fn return_lease(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_
       ReturnStep::Done(returned) => return Ok(*returned),
       ReturnStep::WaitFor(slot) => {
         if let Some(lease) = &slot.lease {
-          wait_while_returning(&pool, &path, &lease.id)?;
+          wait_while_freeing(&pool, &path, &lease.id)?;
         }
         waited_for = Some(*slot);
       }
@@ -2134,9 +2167,9 @@ fn holds_lease(pool: &Pool, slot: &Slot) -> Result<bool> {
   )
 }
 
-/// Until the return of `lease_id` in `path` ends: it freed the slot, it failed (`ready` again) or its process died.
-/// No lock is held: the pool is only read
-fn wait_while_returning(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
+/// Until the return or the clean of `lease_id` in `path` ends: it freed the slot, it failed (`ready` again) or its
+/// process died. No lock of the state is held: it is only read
+fn wait_while_freeing(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
   loop {
     let store = pool.read()?;
     let returning = store
@@ -2144,7 +2177,7 @@ fn wait_while_returning(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
       .iter()
       .filter(|slot| slot.path == path)
       .filter_map(|slot| slot.lease.as_ref())
-      .any(|lease| lease.id == lease_id && lease.state == LeaseState::Returning && !lease.is_abandoned());
+      .any(|lease| lease.id == lease_id && matches!(lease.state, LeaseState::Returning | LeaseState::Cleaning) && !lease.is_abandoned());
     if !returning {
       return Ok(());
     }
