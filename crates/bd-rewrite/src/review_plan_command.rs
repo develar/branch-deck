@@ -133,7 +133,9 @@ pub struct ReviewPlanOutput {
   /// The tasks of the range, in the order of the story: each a set of parts of the units (`unit`, `path`, the `blocks`
   /// by index, `null` for the whole slice) joined by evidence (`evidence`: `uses` of a changed declaration, `group`,
   /// `token` of a rare identifier, `rest`), named by its source (`token`, `replacement`, `declaration`, `file`, `directory`), the parts no
-  /// evidence joined last (`rest`). A mechanical file is in none, but a generated file whose header names a source
+  /// evidence joined last (`rest`). A mechanical file is in none, but a consequence of a concern follows it: a generated
+  /// file of the source its header names, a build file of the code that needs its new dependency, a file of imports
+  /// alone of the declaration it imports
   pub concerns: Vec<Concern>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and

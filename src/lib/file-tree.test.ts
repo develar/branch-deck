@@ -208,7 +208,7 @@ describe("the tree of a review with its plan", () => {
     expect(fileMenuItems(fileActionTarget(group), { copyKey: true }).map(item => item.label)).toEqual(["Copy Changed Paths"])
   })
 
-  it("shows the dependency changes of a build file on the directory row of its module, else on the row of the build file", () => {
+  it("shows the dependency changes of a build file on the row of its concern, else on the directory row of its module, else on the Mechanical group that folds it", () => {
     const change = (manifest: string, name: string): DependencyChange => ({
       manifest,
       module: name,
@@ -224,9 +224,23 @@ describe("the tree of a review with its plan", () => {
     const rows = dependencyRows(tree, [change("src/b/b.iml", "b"), change("Cargo.toml", "serde"), change("lib/x/x.iml", "x"), change("gone/y.iml", "y")])
     expect([...rows].map(([key, changes]) => [key, changes.map(it => it.name)])).toEqual([
       ["src/b/", ["b"]],
-      ["Cargo.toml", ["serde"]],
-      ["lib/x/x.iml", ["x"]],
+      ["//mechanical/", ["serde", "x"]],
     ])
+    // a build file that follows the code of its module is held by the concern of that code, which shows its changes
+    const holding: Concern = {
+      id: "s",
+      name: { source: "declaration", name: "Store" },
+      parts: [
+        { unit: "declaration:app/User.kt", path: "app/User.kt", blocks: null },
+        { unit: "mechanical:buildModel", path: "app/app.iml", blocks: null },
+      ],
+      paths: ["app/User.kt", "app/app.iml"],
+      elsewhere: [],
+      evidence: [],
+      fingerprint: "s",
+    }
+    const withConcern = buildReviewTree([file("app/User.kt"), file("app/app.iml")], new Map([["app/app.iml", "buildModel"]]), [holding])
+    expect([...dependencyRows(withConcern, [change("app/app.iml", "store")]).keys()]).toEqual(["//concern/s/"])
     // the directory a merged row holds: `plugins/air/` is in the row `plugins/air/backend/`
     const merged = buildFileTree([file("plugins/air/backend/A.kt"), file("README.md")])
     expect([...dependencyRows(merged, [change("plugins/air/air.iml", "air")]).keys()]).toEqual(["plugins/air/backend/"])

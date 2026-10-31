@@ -296,34 +296,40 @@ function groupNode(
 }
 
 /**
- * The row that shows the dependency changes of each build file, by its key: the directory row whose chain of
- * directories holds the directory of the build file (its module), else the row of the build file itself (a build file
- * at the root, a module whose only change is its build file, folded into the Mechanical group). A build file the tree
- * does not show has no row
+ * The row that shows the dependency changes of each build file, by its key: the row of the concern that holds the build
+ * file (Rust made it follow the code that needs the new dependency), else the directory row whose chain of directories
+ * holds the directory of the build file (its module), else the row of the build file itself (a build file at the root),
+ * which the Mechanical group stands for while the build file is folded into it. A build file the tree does not show has
+ * no row
  */
 export function dependencyRows(nodes: readonly FileTreeNode[], dependencies: readonly DependencyChange[]): Map<string, DependencyChange[]> {
   const rows = new Map<string, DependencyChange[]>()
   const directories: FileTreeDirectory[] = []
-  const files = new Set<string>()
-  const visit = (list: readonly FileTreeNode[]) => {
+  // a file row -> the concern or the Mechanical group that holds it
+  const holders = new Map<string, string>()
+  const visit = (list: readonly FileTreeNode[], holder: string | undefined) => {
     for (const node of list) {
       if (node.kind === "file") {
-        files.add(node.key)
+        holders.set(node.key, holder ?? node.key)
       } else if (node.kind === "directory") {
         if (node.group === undefined) {
           directories.push(node)
         }
-        visit(node.children)
+        const group = node.group === "concern" || node.group === "mechanical" ? node.key : holder
+        visit(node.children, group)
       }
     }
   }
-  visit(nodes)
+  visit(nodes, undefined)
   for (const change of dependencies) {
     const directory = change.manifest.slice(0, change.manifest.lastIndexOf("/") + 1)
+    const holder = holders.get(change.manifest)
+    const inConcern = holder !== undefined && holder.startsWith(CONCERN_KEY)
     // the row whose merged chain holds the directory: its key starts with it, its parent's key is shorter
     const row =
+      (inConcern ? holder : undefined) ??
       (directory === "" ? undefined : directories.find(node => node.key.startsWith(directory) && (node.parentKey ?? "").length < directory.length)?.key) ??
-      (files.has(change.manifest) ? change.manifest : undefined)
+      holder
     if (row !== undefined) {
       rows.set(row, [...(rows.get(row) ?? []), change])
     }

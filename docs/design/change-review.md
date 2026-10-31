@@ -117,7 +117,7 @@ the review.
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
-| Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 86.2 vs 84.7, Java 95.4 vs 89.9); a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
+| Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
 | LLM tour with a hard coverage gate | Not started | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -148,6 +148,7 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 | 2026-10-31 | the lab: 739 tangled ranges of four corpora | purity below a group per file: `uses` from a body change, words of prose and comments, names of libraries joined tasks; 28 ranges crashed | evidence that is no evidence; a loop in the Rust path resolver | `uses` from a changed form only, tokens from code the change declares, the rest off; 5c20eed6 |
 | 2026-10-31 | the `review_concerns` template | the guide, cut by two concerns, showed whole in the first one: its unit of a file of no language is a slice the story shows whole | a whole slice ignores the blocks a concern holds of it | a part with its blocks lays them out as a section, the other blocks one row "Shown in grep → accio" ([Review Concerns](../../spec/branch/review-concerns.spec.md#in-the-review-window)) |
 | 2026-10-31 | the screenshots of the window of ec08de74 | a guide with its two renderings was the concern "Root"; a block of a Markdown file in a concern got the heading "guide.md" under the header that names it | names that say nothing | a concern of one file is named by it (`file`), a file of no parsed language gets no heading (this change) |
+| 2026-10-31 | the dependency badge in the window of ec08de74 | the files of a module sat in a concern, so the badge of its new dependency fell to the build file inside the collapsed Mechanical group | a consequence filed away from its cause | a build file follows the code that needs the new dependency, a file of imports alone the declaration it imports, as a generated file its source; the badge shows on the row of the concern, else on the Mechanical group (this change) |
 
 ## Measurements
 
@@ -166,6 +167,8 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
   groups next to the recall, against a group per file.
 - A change of a body forces no caller to change; only a changed form is evidence that its uses belong to it.
 - A word of prose, a comment or a name of a library is no evidence of a task; a name the change itself declares is.
+- A consequence belongs to its cause, not to the noise at the end: a generated file to its source, a new dependency to
+  the code that needs it, an import to the declaration it brings in.
 
 ## Next
 

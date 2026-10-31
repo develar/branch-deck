@@ -643,13 +643,14 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../src/lib/diff/rows.test.ts (`plays down a block of the imports alone in a review: pale, and N and P pass it; elsewhere it is a change as any`)
   [@test] ../../crates/file-diffs/src/service_test.rs (`a_block_of_import_statements_alone_is_marked_by_the_syntax`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`the_import_lines_are_the_import_and_package_statements`)
-- The dependency changes of a build file must show on the directory row whose chain holds the directory of the build
-  file, else on the row of the build file (one at the root, a module whose only change is its build file, or whose
-  files are in concerns, which have no directory rows):
+- The dependency changes of a build file must show on the row of the concern that holds the build file (it follows the
+  code that needs the dependency, [Review Concerns](review-concerns.spec.md#the-rest)), else on the directory row whose
+  chain holds the directory of the build file, else on the row of the build file (one at the root), which the
+  Mechanical group stands for while it folds the build file, so that a collapsed group hides no dependency change:
   `+N deps −M ~K`, `new module`, `deleted module`. Its tooltip must list each change, a changed version as
   `1.2 → 1.3` and a changed scope as `test → main`.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
-  [@test] ../../src/lib/file-tree.test.ts (`shows the dependency changes of a build file on the directory row of its module, else on the row of the build file`)
+  [@test] ../../src/lib/file-tree.test.ts (`shows the dependency changes of a build file on the row of its concern, else on the directory row of its module, else on the Mechanical group that folds it`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts the dependency changes of a module, a version change as one changed entry with both versions`, `words a version, a scope and a new module`)
 
 ## User Experience

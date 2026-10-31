@@ -331,3 +331,47 @@ fn a_source_and_its_generated_copies_are_named_by_the_file() {
   };
   assert_eq!(concerns(&plan), [(file, vec!["docs/guide.md", "AGENTS.md"])]);
 }
+
+/// A build file whose change is mechanical follows the concern of the code of its module that a link now joins to
+/// another module: the new dependency is a consequence of the code that needs it
+#[test]
+fn a_build_file_follows_the_code_of_its_module_that_needs_another_module() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("app/BUILD.bazel", "# app\n"),
+      ("store/BUILD.bazel", "# store\n"),
+      ("app/src/a/User.kt", "package a\n\nclass User(val name: String)\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Keep the user in the store",
+    &[
+      ("app/BUILD.bazel", "# app\ndeps = [\"//store\"]\n"),
+      ("app/src/a/User.kt", "package a\n\nimport b.Store\n\nclass User(val name: String, val store: Store)\n"),
+      ("store/src/b/Store.kt", "package b\n\nclass Store\n"),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(concerns(&plan)[0].1, ["app/src/a/User.kt", "app/BUILD.bazel"], "{:#?}", plan.concerns);
+}
+
+/// A file whose imports alone changed follows the concern of the declaration its import lines name
+#[test]
+fn a_file_of_imports_alone_follows_the_declaration_it_imports() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[("src/a/Api.kt", "package a\n\nfun open() = 1\n"), ("src/c/Other.kt", "package c\n\nfun other() = 1\n")],
+  );
+  let head = repo.create_commit_with_files(
+    "Add fresh",
+    &[
+      ("src/a/Api.kt", "package a\n\nfun open() = 1\n\nfun fresh() = 2\n"),
+      ("src/c/Other.kt", "package c\n\nimport a.fresh\n\nfun other() = 1\n"),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(concerns(&plan), [(declaration("fresh"), vec!["src/a/Api.kt", "src/c/Other.kt"])], "{:#?}", plan.files);
+}

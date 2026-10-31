@@ -17,8 +17,11 @@
 //!   soft edge joins two concerns only when one is a single node or two tokens join them, so one shared word bridges
 //!   nothing.
 //! - **The rest**, off by default (it costs more purity than it adds recall): a node joined to nothing goes to the
-//!   largest concern of its file, a test to the largest of its subject. A generated file goes to the largest concern of
-//!   the files its header names by their path (a glob names none); what is left is the last concern, `Rest`.
+//!   largest concern of its file, a test to the largest of its subject. What is left is the last concern, `Rest`.
+//! - **Consequences** follow the largest concern of their cause, folded at its end, the rest on or off: a generated file
+//!   of the files its header names by their path (a glob names none), a build file of the code of its module that a
+//!   link between two modules now starts or no longer starts from, a file of imports alone of the declaration its
+//!   import lines name.
 //! - **The order** is that of the units, the story: each concern at its first part. **The identity**: `id` the
 //!   fingerprint of its first part, `fingerprint` the set of the fingerprints of its parts.
 //! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else its
@@ -27,7 +30,7 @@
 //!   of the others), so that the tree lists each file once and the others point to it.
 
 use crate::files::{ChangedFile, MechanicalKind, subject_stem, test_subject};
-use crate::links::FileLink;
+use crate::links::{FileLink, LinkState};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice, digest};
 use code_symbols::language::language_of;
 use generated_files::generated_by::GeneratedBy;
@@ -340,7 +343,7 @@ pub(crate) fn review_concerns(
   edges: ConcernEdges,
 ) -> Vec<Concern> {
   let file_of: HashMap<&str, usize> = files.iter().enumerate().map(|(index, file)| (file.path, index)).collect();
-  let (nodes, groups, generated_parts) = graph_nodes(units, files, &file_of, texts);
+  let (nodes, groups, followers) = graph_nodes(units, files, &file_of, texts);
   if nodes.is_empty() {
     return Vec::new();
   }
@@ -392,18 +395,51 @@ pub(crate) fn review_concerns(
       }
     }
   }
-  // a generated file follows the largest concern of the files its header names
+  // a consequence follows the largest concern of its cause: a generated file of the files its header names, a build file
+  // of the code of its module that a link between modules now joins or no longer joins to another module, a file of
+  // imports alone of the declarations its import lines name
   let roots: Vec<usize> = (0..nodes.len()).map(|node| components.root(node)).collect();
-  let mut generated_of: BTreeMap<usize, Vec<(usize, &str)>> = BTreeMap::new();
-  for (unit, path) in generated_parts {
-    let Some(GeneratedBy::Header { line }) = file_of.get(path).and_then(|&place| generated.get(place)).cloned().flatten() else {
-      continue;
+  let mut followers_of: BTreeMap<usize, Vec<(usize, &str)>> = BTreeMap::new();
+  for Follower { kind, node: follower } in &followers {
+    let path = follower.path;
+    let cause: Vec<usize> = match kind {
+      MechanicalKind::Generated => {
+        let Some(GeneratedBy::Header { line }) = file_of.get(path).and_then(|&place| generated.get(place)).cloned().flatten() else {
+          continue;
+        };
+        (0..nodes.len()).filter(|&node| names_path(&line, nodes[node].path)).collect()
+      }
+      MechanicalKind::BuildModel => {
+        let module = path.rsplit_once('/').map_or("", |(directory, _)| directory);
+        let across: HashSet<&str> = links
+          .iter()
+          .filter(|link| link.cross_module && (link.new_between_modules || link.state == LinkState::Removed))
+          .map(|link| link.from.as_str())
+          .collect();
+        (0..nodes.len())
+          .filter(|&node| across.contains(nodes[node].path) && in_directory(nodes[node].path, module))
+          .collect()
+      }
+      _ => {
+        let named: HashSet<&str> = links.iter().filter(|link| link.from == path).map(|link| link.to.as_str()).collect();
+        (0..nodes.len())
+          .filter(|&node| {
+            let unit = &units[nodes[node].unit];
+            named.contains(nodes[node].path)
+              && matches!(unit.kind, UnitKind::Shape { .. } | UnitKind::Added | UnitKind::Removed)
+              && unit
+                .name
+                .as_deref()
+                .is_some_and(|name| follower.removed.iter().chain(&follower.added).any(|line| names_word(line, name)))
+          })
+          .collect()
+      }
     };
-    if let Some(root) = largest(&nodes, &roots, (0..nodes.len()).filter(|&node| names_path(&line, nodes[node].path))) {
-      generated_of.entry(root).or_default().push((unit, path));
+    if let Some(root) = largest(&nodes, &roots, cause.into_iter()) {
+      followers_of.entry(root).or_default().push((follower.unit, path));
     }
   }
-  assemble(units, &nodes, &mut components, &joins, &rare, &generated_of)
+  assemble(units, &nodes, &mut components, &joins, &rare, &followers_of)
 }
 
 /// The root of the component of `candidates` (nodes, by their `roots`) with the most changed lines among them; of two
@@ -417,7 +453,14 @@ fn largest(nodes: &[Node<'_>], roots: &[usize], candidates: impl Iterator<Item =
 }
 
 /// The nodes of the graph, the nodes of each group, and the generated slices (unit, path)
-type GraphNodes<'a> = (Vec<Node<'a>>, Vec<Vec<usize>>, Vec<(usize, &'a str)>);
+type GraphNodes<'a> = (Vec<Node<'a>>, Vec<Vec<usize>>, Vec<Follower<'a>>);
+
+/// A mechanical slice that may follow a concern, a consequence of it: a generated file, a build file whose dependency
+/// entries alone changed, a file whose imports alone changed; its changed lines as a node has them
+struct Follower<'a> {
+  kind: MechanicalKind,
+  node: Node<'a>,
+}
 
 /// The nodes of the graph (`GraphNodes`)
 fn graph_nodes<'a>(units: &'a [ReviewUnit], files: &[ChangedFile<'a>], file_of: &HashMap<&str, usize>, texts: &'a HashMap<String, String>) -> GraphNodes<'a> {
@@ -428,17 +471,36 @@ fn graph_nodes<'a>(units: &'a [ReviewUnit], files: &[ChangedFile<'a>], file_of: 
   };
   let mut nodes: Vec<Node<'a>> = Vec::new();
   let mut groups: Vec<Vec<usize>> = Vec::new();
-  let mut generated: Vec<(usize, &'a str)> = Vec::new();
+  let mut followers: Vec<Follower<'a>> = Vec::new();
   for (index, unit) in units.iter().enumerate() {
+    let follows = match unit.kind {
+      UnitKind::Mechanical { mechanical } if matches!(mechanical, MechanicalKind::Generated | MechanicalKind::BuildModel | MechanicalKind::ImportsOnly) => Some(mechanical),
+      UnitKind::Mechanical { .. } => continue,
+      _ => None,
+    };
     match unit.kind {
-      UnitKind::Mechanical { mechanical } => {
-        if mechanical == MechanicalKind::Generated {
-          generated.extend(unit.slices.iter().map(|slice| (index, slice.path.as_str())));
-        }
-        continue;
-      }
       UnitKind::RepeatedEdit { .. } | UnitKind::DeletedFiles { .. } => groups.push(Vec::new()),
       _ => {}
+    }
+    if let Some(kind) = follows {
+      for slice in &unit.slices {
+        let Some(&place) = file_of.get(slice.path.as_str()) else { continue };
+        let file = &files[place];
+        let (old, new) = (lines(file.before), lines(file.after));
+        let mut node = Node {
+          unit: index,
+          path: slice.path.as_str(),
+          block: None,
+          removed: Vec::new(),
+          added: Vec::new(),
+        };
+        for block in &slice.blocks {
+          node.removed.extend(take(&old, block.old_start..block.old_end));
+          node.added.extend(take(&new, block.new_start..block.new_end));
+        }
+        followers.push(Follower { kind, node });
+      }
+      continue;
     }
     let per_block = unit.kind == UnitKind::Other { reason: OtherReason::NoLanguage };
     for slice in &unit.slices {
@@ -484,7 +546,7 @@ fn graph_nodes<'a>(units: &'a [ReviewUnit], files: &[ChangedFile<'a>], file_of: 
       }
     }
   }
-  (nodes, groups, generated)
+  (nodes, groups, followers)
 }
 
 /// Joins each node that changes a declaration to the nodes whose changed lines name it, in its file or in a file that
@@ -747,6 +809,11 @@ fn token_name(nodes: &[Node<'_>], rare: &[RareToken], inside: &HashSet<usize>) -
   }
 }
 
+/// Whether `path` lies in `directory`, `""` for the root
+fn in_directory(path: &str, directory: &str) -> bool {
+  directory.is_empty() || path.strip_prefix(directory).is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// Whether `line` holds `name` as a whole word
 fn names_word(line: &str, name: &str) -> bool {
   let is_word = |c: char| c.is_alphanumeric() || c == '_';
@@ -773,7 +840,7 @@ fn assemble(
   components: &mut Components,
   joins: &[(usize, EvidenceKind, Option<String>)],
   rare: &[RareToken],
-  generated_of: &BTreeMap<usize, Vec<(usize, &str)>>,
+  followers_of: &BTreeMap<usize, Vec<(usize, &str)>>,
 ) -> Vec<Concern> {
   let mut members: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
   for node in 0..nodes.len() {
@@ -789,7 +856,7 @@ fn assemble(
   let mut concerns: Vec<(usize, Concern, Vec<usize>)> = Vec::new();
   let mut rest: Vec<usize> = Vec::new();
   for (root, mut of) in members {
-    let generated = generated_of.get(&root);
+    let generated = followers_of.get(&root);
     if of.len() == 1 && generated.is_none() {
       rest.extend(of);
       continue;

@@ -130,8 +130,8 @@ pub struct ReviewPlan {
   /// at least, in the order of the story
   pub units: Vec<ReviewUnit>,
   /// The tasks the range does, each a set of parts of the units joined by evidence (`concerns`), in the order of the
-  /// story; the parts no evidence joined last (`ConcernName::Rest`). No mechanical part but a generated file that
-  /// follows its source
+  /// story; the parts no evidence joined last (`ConcernName::Rest`). No mechanical part but a consequence that follows
+  /// its cause: a generated file, a build file, a file of imports alone
   pub concerns: Vec<Concern>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its

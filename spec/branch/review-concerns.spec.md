@@ -47,7 +47,8 @@ the measurements: [Change Review](../../docs/design/change-review.md).
 
 ### Nodes
 - A node must be a unit; one per block for a unit `other` of a file of no language the summaries parse; one per file
-  for a repeated edit and for `deletedFiles`. A mechanical unit must give no node.
+  for a repeated edit and for `deletedFiles`. A mechanical unit must give no node; a generated file, a build file and a
+  file of imports alone may follow a concern as a consequence of it ([The Rest](#the-rest)).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
 
 ### Edges
@@ -81,9 +82,16 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   names by its whole path, of the most changed lines, at the end of its parts; a glob (`edit docs/*`) names none, and
   such a file stays in the Mechanical group.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_test_follows_its_subject_and_a_change_alone_the_concern_of_its_file`)
-- A generated file must follow the concern of the changed file its header names by its whole path, also with the rest
-  off.
-  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`)
+- A consequence must follow the concern of its cause, folded at the end of its parts, also with the rest off; of
+  several, the one of the most changed lines among the causes:
+  - a generated file: the changed file its header names by its whole path;
+  - a build file whose change is mechanical (its dependency entries alone, or of the build model by its name): the code
+    of its module (a file below its directory) that a link the commits add between two modules, or one they remove,
+    starts from, the code that needs the new dependency or no longer needs the old one; a version alone joins nothing
+    and stays in the Mechanical group;
+  - a file whose imports alone changed: a new, removed or changed declaration its import lines name, of a file it links
+    to.
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `a_build_file_follows_the_code_of_its_module_that_needs_another_module`, `a_file_of_imports_alone_follows_the_declaration_it_imports`)
 - The nodes no edge joined must be the last concern, `rest`.
 
 ### Order, Identity, Name
@@ -195,10 +203,17 @@ Merge precision alone says little: one group over a whole range scores 91–98% 
 
 | Corpus | Cases, hunks | One group per file: recall / purity | `uses,tokens` (default): recall / purity | With `rest`: recall / purity |
 |---|---|---|---|---|
-| this repository, 2–3 atomic commits tangled | 200, 6047 | 72.9 / 91.4 (89.6) | 67.8 / 93.9 (92.2) | 74.7 / 90.8 (88.7) |
+| this repository, 2–3 atomic commits tangled | 200, 6047 | 72.9 / 91.4 (89.6) | 71.2 / 93.5 (91.6) | 74.7 / 90.8 (88.7) |
 | tangled-ccs-commits (HF), 2–5 concerns | 245, 7750 | 80.8 / 100 (99.7) | 75.0 / 98.8 (98.0) | 78.3 / 98.7 (97.8) |
-| jsoup, gson, commons-lang tangled | 200, 3511 | 81.4 / 89.9 (87.1) | 46.4 / 95.4 (93.3) | 57.0 / 88.4 (85.2) |
-| idea-1 branches, a label per line by the commit | 94, 9451 | 77.8 / 84.7 (82.6) | 67.0 / 86.2 (84.2) | 79.3 / 81.0 (78.4) |
+| jsoup, gson, commons-lang tangled | 200, 3511 | 81.4 / 89.9 (87.1) | 46.7 / 95.3 (93.2) | 57.0 / 88.4 (85.2) |
+| idea-1 branches, a label per line by the commit | 94, 9451 | 77.8 / 84.7 (82.6) | 67.4 / 85.4 (83.2) | 79.3 / 81.0 (78.4) |
+
+The other groupers on the same corpora, recall / purity: `inspect` (Ataraxy Labs, its entity groups; its entities
+cover 14% of the idea-1 hunks, Kotlin barely, the rest one group per file) 62.8 / 90.9, 72.9 / 97.3, 58.1 / 88.4, 75.0
+/ 84.9; `sem` (its entities) 33.7 / 96.8 on this repository, timing out on 5 idea-1 ranges; SmartCommit gave no group
+on any range, so it has no score yet. RefactoringMiner, the oracle of moves and renames to come, takes 9.4 s median
+on a Java range and 16 s (p95 101 s) on one of idea-1, where 17 of 30 ranges have a refactoring (75 moves and
+renames): an oracle offline, never in a review.
 
 The default is purer than a group per file on three corpora and joins changes across files and formats a group per
 file never does; its recall is lower, the rest buys it back at the cost of purity, so it stays off. The rounds that
@@ -214,6 +229,10 @@ led here, each measured on the same corpora:
   declares. Wrong token joins on idea-1 64 → 61, on the synthetic corpus 10 → 5; what remains are names the project
   declares that two tasks share (`turnEnded`).
 - A crash of the symbol dependencies on `use m::m;` (5c20eed6) had scored 28 cases as singletons.
+- A build file and a file of imports alone sat in the Mechanical group apart from the task that needed them: they
+  follow its concern now, as a generated file its source. Of the mechanical slices that joined a concern, 230 of 232
+  are right on this repository and 170 of 174 judged on idea-1; the false merges of mechanical slices fell from 27 to
+  12 on idea-1, the recall rose (this repository 67.8 → 71.2), the purity of idea-1 eased 86.2 → 85.4.
 
 A range takes 0.13–0.19 s median for the whole plan (concerns 12.7 ms for 168 units). The false merges left are of
 three kinds: a concern (146 on idea-1), a mechanical slice that holds lines of two tasks (27), and a unit, one
