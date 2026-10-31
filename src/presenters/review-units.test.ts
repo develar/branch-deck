@@ -196,10 +196,11 @@ describe("the concerns in the story", () => {
       ["file:src/App.kt", "r", "Other changes", null, null],
       ["group:mechanical:AGENTS.md:pnpm-lock.yaml", null, null, "Generated (1)", "Generated"],
     ])
-    // the guide shows the block of each concern, the other one a row that opens its section
+    // the guide shows the block of each concern, the other one a row that opens its section; a file of no language the
+    // review parses gets no heading, its header names it
     const [, ofProxy, , ofSearch] = sections
-    expect([[...ofProxy!.units!.marks.keys()], [...ofProxy!.units!.elsewhere]]).toEqual([[1], [[0, "Shown in grep → accio"]]])
-    expect([[...ofSearch!.units!.marks.keys()], ofSearch!.targets.get(1)]).toEqual([[0], "file:docs/guide.md"])
+    expect([[...ofProxy!.units!.marks.keys()], [...ofProxy!.units!.elsewhere]]).toEqual([[], [[0, "Shown in grep → accio"]]])
+    expect([[...ofSearch!.units!.marks.keys()], ofSearch!.targets.get(1)]).toEqual([[], "file:docs/guide.md"])
   })
 
   it("keeps the order of the units while the plan has no concern but the rest", () => {

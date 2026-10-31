@@ -122,7 +122,7 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
 ### In `bd`
-- `bd review-plan` must print `units` (`"schema": 8`): per unit its `id`, `kind` (`shape` with `changes`,
+- `bd review-plan` must print `units` (`"schema": 9`): per unit its `id`, `kind` (`shape` with `changes`,
   `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles` with `directory`, `mechanical` with
   `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `public`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)
@@ -133,7 +133,8 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 - With the plan, the diffs of All Changes and of Since Your Review must be the story of the units, in their order
   (`presentNarrative`), by the concerns when the plan has more than the rest, each concern's parts together
   ([Review Concerns](review-concerns.spec.md#in-the-review-window)): a run of units of one file is one section, each change under its heading ("open — form
-  changed: parameters", "close — body changed", "fresh — new", "Changes outside a declaration"), a unit with no block
+  changed: parameters", "close — body changed", "fresh — new", "Changes outside a declaration"; none over a block of a file of no language the review parses, whose header names
+  it), a unit with no block
   of its own beside the heading before it; a group is a section per file of it.
   [@test] ../../src/presenters/review-units.test.ts (`makes a run of changes of one file one section with a heading per change, and a group a section per file`, `words a change by its kind`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`)

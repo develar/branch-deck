@@ -21,8 +21,8 @@
 //!   the files its header names by their path (a glob names none); what is left is the last concern, `Rest`.
 //! - **The order** is that of the units, the story: each concern at its first part. **The identity**: `id` the
 //!   fingerprint of its first part, `fingerprint` the set of the fingerprints of its parts.
-//! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else the
-//!   directory its files share.
+//! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else its
+//!   one file (a source with its generated copies), else the directory its files share.
 //! - **The main row** of a file in several concerns is in the one whose parts of it change the most lines (`elsewhere`
 //!   of the others), so that the tree lists each file once and the others point to it.
 
@@ -233,6 +233,8 @@ pub enum ConcernName {
   Replacement { removed: String, added: String },
   /// Its first changed declaration
   Declaration { name: String },
+  /// The one file of its own parts, beside the generated files that follow it
+  File { path: String },
   /// The directory its files share, `""` for the root
   Directory { directory: String },
   /// What no evidence joined
@@ -819,8 +821,17 @@ fn assemble(
           .and_then(|unit| unit.name.clone())
           .map(|name| ConcernName::Declaration { name })
       })
-      .unwrap_or_else(|| ConcernName::Directory {
-        directory: shared_directory(parts.iter().map(|part| part.path.as_str())),
+      .unwrap_or_else(|| {
+        // a source with its generated copies is named by its file, more than one file by the directory they share
+        let mut own = of.iter().map(|&node| nodes[node].path);
+        let path = own.next().unwrap_or_default();
+        if own.all(|other| other == path) {
+          ConcernName::File { path: path.to_string() }
+        } else {
+          ConcernName::Directory {
+            directory: shared_directory(parts.iter().map(|part| part.path.as_str())),
+          }
+        }
       });
     let first = nodes[of[0]].unit;
     concerns.push((first, concern(units, nodes, name, parts, evidence, &of), of));

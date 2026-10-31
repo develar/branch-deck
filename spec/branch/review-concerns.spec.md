@@ -97,13 +97,13 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_concern_keeps_its_id_as_it_grows`)
 - The name must be the evidence of the concern: of a concern a token joined, the rare token with the most of its nodes
   in it (more than half), a simple word before a compound one, the one its changed lines name first; a removed and an
-  added token of the same nodes `replacement`; else its first changed declaration; else the directory its files
-  share.
+  added token of the same nodes `replacement`; else its first changed declaration; else its one file (`file`: a source
+  with the generated copies that follow it); else the directory its files share.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
 
 ### In `bd`
-- `bd review-plan` must print `concerns` (`"schema": 8`): per concern its `id`, `name` (`source` `token` with
-  `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `directory` with `directory`, `rest`),
+- `bd review-plan` must print `concerns` (`"schema": 9`): per concern its `id`, `name` (`source` `token` with
+  `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `file` with `path`, `directory` with `directory`, `rest`),
   its `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
   `detail` and `joins`, the most joins first) and its `fingerprint`. The hidden `--concern-edges uses,tokens,rest`
   (or `none`) picks the edges for a measurement of each; without it `uses,tokens`.

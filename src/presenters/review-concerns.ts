@@ -9,7 +9,7 @@ import type { ConcernEvidence, ConcernName, EvidenceKind } from "@/lib/bindings"
 /** What no evidence joined, as a group of the tree and the heading of its part of the story */
 export const OTHER_CHANGES = "Other changes"
 
-/** "proxy", "grep → accio", "open", "docs/guide", "Root", "Other changes" */
+/** "proxy", "grep → accio", "open", "guide.md", "docs/guide", "Root", "Other changes" */
 export function formatConcernName(name: ConcernName): string {
   switch (name.source) {
     case "token":
@@ -18,6 +18,8 @@ export function formatConcernName(name: ConcernName): string {
       return `${name.removed} → ${name.added}`
     case "declaration":
       return name.name
+    case "file":
+      return name.path.slice(name.path.lastIndexOf("/") + 1)
     case "directory":
       return name.directory === "" ? "Root" : name.directory
     case "rest":

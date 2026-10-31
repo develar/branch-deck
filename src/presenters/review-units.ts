@@ -276,7 +276,8 @@ export function presentNarrative(
       continue
     }
     placed.add(slice.path)
-    const heading = formatUnitHeading(unit)
+    // a file of no language the review parses has no declaration to name: its header names it already
+    const heading = unit.kind.kind === "other" && unit.kind.reason === "noLanguage" ? null : formatUnitHeading(unit)
     let draft: Draft | undefined = last?.draft.path === slice.path ? last.draft : undefined
     if (draft === undefined) {
       draft = push({ key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: null, folded: null, ghosts: [] })
@@ -285,11 +286,13 @@ export function presentNarrative(
     if (first === undefined) {
       // a declaration whose block another unit holds: its words join the heading before it
       const before = [...draft.marks.keys()].at(-1)
-      if (before !== undefined) {
+      if (before !== undefined && heading !== null) {
         draft.marks.set(before, `${draft.marks.get(before)} · ${heading}`)
       }
     } else {
-      draft.marks.set(first.index, heading)
+      if (heading !== null) {
+        draft.marks.set(first.index, heading)
+      }
       for (const block of slice.blocks) {
         draft.blocks!.add(block.index)
       }

@@ -6,13 +6,13 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 8` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 9` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
 //! made a deletion real work: no `mechanical: "deleted"`, a unit `deletedFile` per deleted file and `deletedFiles`
 //! with its `directory` for 3 or more deleted from one directory, version 7 the `concerns`, version 8 the `elsewhere`
-//! of each concern, its files whose main row is in another one
+//! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -35,7 +35,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 8;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 9;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -132,7 +132,7 @@ pub struct ReviewPlanOutput {
   pub units: Vec<UnitOutput>,
   /// The tasks of the range, in the order of the story: each a set of parts of the units (`unit`, `path`, the `blocks`
   /// by index, `null` for the whole slice) joined by evidence (`evidence`: `uses` of a changed declaration, `group`,
-  /// `token` of a rare identifier, `rest`), named by its source (`token`, `declaration`, `directory`), the parts no
+  /// `token` of a rare identifier, `rest`), named by its source (`token`, `replacement`, `declaration`, `file`, `directory`), the parts no
   /// evidence joined last (`rest`). A mechanical file is in none, but a generated file whose header names a source
   pub concerns: Vec<Concern>,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file

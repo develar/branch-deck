@@ -466,7 +466,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByTestId("review-plan-repeated-file")).toHaveCount(0)
     // the first file of the tree without the plan, a generated one, gave way to the first of the real work
     await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).toHaveAttribute("aria-selected", "true")
-    const concern = tree.getByRole("treeitem", { name: "Root", exact: true })
+    const concern = tree.getByRole("treeitem", { name: "guide.md", exact: true })
     await expect(concern).toHaveAttribute("aria-expanded", "true")
     const renderings = tree.getByRole("treeitem", { name: "Generated (2)" })
     await expect(renderings).toHaveAttribute("aria-expanded", "false")

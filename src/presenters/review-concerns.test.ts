@@ -6,6 +6,7 @@ describe("the words of the concerns", () => {
     expect(formatConcernName({ source: "token", token: "proxy" })).toBe("proxy")
     expect(formatConcernName({ source: "replacement", removed: "grep", added: "accio" })).toBe("grep → accio")
     expect(formatConcernName({ source: "declaration", name: "open" })).toBe("open")
+    expect(formatConcernName({ source: "file", path: "src/guide.md" })).toBe("guide.md")
     expect(formatConcernName({ source: "directory", directory: "docs/guide" })).toBe("docs/guide")
     expect(formatConcernName({ source: "directory", directory: "" })).toBe("Root")
     expect(formatConcernName({ source: "rest" })).toBe("Other changes")

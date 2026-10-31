@@ -314,3 +314,15 @@ fn a_file_of_two_concerns_has_its_main_row_in_the_one_of_its_most_changed_lines(
   let part = quokka.parts.iter().find(|part| part.path == "notes.md").unwrap();
   assert_eq!(part.blocks, Some(vec![1]));
 }
+
+/// A source with the generated copies its header names, and no other evidence, is a concern named by its file
+#[test]
+fn a_source_and_its_generated_copies_are_named_by_the_file() {
+  let agents = |tool: &str| format!("<!-- Generated from docs/guide.md by tools/render.mjs -->\n\nSearch the source with {tool}.\n");
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("docs/guide.md", "# Guide\n\nSearch with grep.\n"), ("AGENTS.md", &agents("grep"))]);
+  let head = repo.create_commit_with_files("Search with accio", &[("docs/guide.md", "# Guide\n\nSearch with accio.\n"), ("AGENTS.md", &agents("accio"))]);
+  let plan = plan(&repo, &base, &head);
+  let file = ConcernName::File { path: "docs/guide.md".to_string() };
+  assert_eq!(concerns(&plan), [(file, vec!["docs/guide.md", "AGENTS.md"])]);
+}

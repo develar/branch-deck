@@ -1639,6 +1639,8 @@ export type ConcernName =
 { source: "replacement"; removed: string; added: string } | 
 /**  Its first changed declaration */
 { source: "declaration"; name: string } | 
+/**  The one file of its own parts, beside the generated files that follow it */
+{ source: "file"; path: string } | 
 /**  The directory its files share, `""` for the root */
 { source: "directory"; directory: string } | 
 /**  What no evidence joined */
