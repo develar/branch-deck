@@ -5,7 +5,7 @@ use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::beside_a_held_sync;
-use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, repo_on_baseline, repo_with_baseline, run_json};
+use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, gone_process, repo_on_baseline, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
 #[cfg(unix)]
@@ -1160,9 +1160,7 @@ fn the_status_tells_whether_the_holder_of_a_lease_is_alive() {
   assert!(lease["holder_pid"].as_u64().unwrap() > 1, "{lease}");
 
   // the holder exits: a child's pid with its start time, once it has been reaped
-  let mut child = std::process::Command::new("true").spawn().unwrap();
-  let (pid, started) = (child.id(), sync_utils::process_scan::process_started(child.id()));
-  child.wait().unwrap();
+  let (pid, started) = gone_process();
   let mut state: Value = serde_json::from_slice(&std::fs::read(fixture.state_file()).unwrap()).unwrap();
   state["slots"][0]["lease"]["holder_pid"] = json!(pid);
   state["slots"][0]["lease"]["holder_started"] = json!(started.unwrap_or(1));
@@ -1669,14 +1667,13 @@ fn lane_beside_a_held(fixture: &Fixture, dir: &Path, pattern: &str) -> (TestWork
 /// A directory of 1 MiB in the trash of the pool, as a run leaves it: of a process that is gone (`gone`), else of
 /// this one, which still runs
 pub(crate) fn trash_of_a_run(fixture: &Fixture, gone: bool) -> PathBuf {
-  let (pid, name) = if gone {
-    let mut child = std::process::Command::new("true").spawn().unwrap();
-    child.wait().unwrap();
-    (child.id(), "gone")
+  let (pid, started, name) = if gone {
+    let (pid, started) = gone_process();
+    (pid, started, "gone")
   } else {
-    (std::process::id(), "running")
+    (std::process::id(), sync_utils::process_scan::process_started(std::process::id()), "running")
   };
-  let started = sync_utils::process_scan::process_started(pid).unwrap_or(1);
+  let started = started.unwrap_or(1);
   let dir = fixture.repo.path().join(".git/branch-deck/trash").join(format!("{pid}-{started}-{name}"));
   std::fs::create_dir_all(dir.join("0")).unwrap();
   std::fs::write(dir.join("0").join("out.bin"), vec![1; 1 << 20]).unwrap();

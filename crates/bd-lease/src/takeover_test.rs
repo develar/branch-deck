@@ -343,7 +343,8 @@ fn reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free() {
 }
 
 /// Below the minimum free space a get deletes the trash of the runs that are gone before it refuses, which a takeover
-/// leaves for later, and names what the trash of a running process keeps
+/// leaves for later, and names what the trash of a running process keeps. Windows does not tell the free space: the
+/// get checks nothing there, and the trash stays for the next return or clean
 #[test_log::test]
 fn a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first() {
   let fixture = Fixture::new();
@@ -351,8 +352,13 @@ fn a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first() {
   let running = trash_of_a_run(&fixture, false);
 
   let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
-  assert_error(&output, exit_code, (4, "low_disk_space"));
-  assert!(!gone.exists(), "the trash of a gone run is deleted");
+  if cfg!(unix) {
+    assert_error(&output, exit_code, (4, "low_disk_space"));
+    assert!(!gone.exists(), "the trash of a gone run is deleted");
+    assert!(output["error"]["message"].as_str().unwrap().contains("in the trash of a run that still runs"), "{output}");
+  } else {
+    assert_eq!((exit_code, output.get("free_bytes")), (0, None), "{output}");
+    assert!(gone.exists(), "nothing below a minimum that is not measured");
+  }
   assert!(running.exists(), "the trash of a running process stays");
-  assert!(output["error"]["message"].as_str().unwrap().contains("in the trash of a run that still runs"), "{output}");
 }

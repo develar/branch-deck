@@ -9,7 +9,7 @@ use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git};
-use bd_cli::fixture_test::{assert_error, git};
+use bd_cli::fixture_test::{assert_error, git, gone_process};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
@@ -96,22 +96,6 @@ fn lent(answer: LendAnswer) -> Lend {
     LendAnswer::Lent(lend) => lend,
     LendAnswer::Queued(queued) => panic!("queued: {queued:?}"),
   }
-}
-
-/// The pid and the start of a process that has exited
-pub(crate) fn gone_process() -> (u32, Option<u64>) {
-  let mut command = if cfg!(windows) {
-    let mut command = std::process::Command::new("cmd");
-    command.args(["/C", "exit"]);
-    command
-  } else {
-    std::process::Command::new("true")
-  };
-  let mut child = command.spawn().unwrap();
-  let pid = child.id();
-  let started = process_started(pid);
-  child.wait().unwrap();
-  (pid, started)
 }
 
 /// A lend of `run` to a process that is gone

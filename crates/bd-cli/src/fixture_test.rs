@@ -722,13 +722,28 @@ pub fn writable_state(repo: &TestRepo) -> (String, String, String, Vec<u8>, Stri
   )
 }
 
+/// The pid of a process that has exited, and its start while it ran (none where the system tells it only then, and
+/// Windows tells none of a process that exited): `true`, `cmd /C exit` on Windows, which has no `true`
+pub fn gone_process() -> (u32, Option<u64>) {
+  let mut command = if cfg!(windows) {
+    let mut command = std::process::Command::new("cmd");
+    command.args(["/C", "exit"]);
+    command
+  } else {
+    std::process::Command::new("true")
+  };
+  let mut child = command.spawn().unwrap();
+  let pid = child.id();
+  let started = sync_utils::process_scan::process_started(pid);
+  assert!(child.wait().unwrap().success());
+  (pid, started)
+}
+
 /// The lease of the slot at `slot` (canonical, as the pool names it) in the pool state `state_file` idle: its holder a
 /// process that is gone, its get and the last move of the slot's HEAD (the mtime of its `logs/HEAD`) two hours ago,
 /// past the quiet time of a takeover. After the last commit in the slot
 pub fn make_lease_idle(state_file: &Path, slot: &str) {
-  let mut child = std::process::Command::new("true").spawn().unwrap();
-  let (pid, started) = (child.id(), sync_utils::process_scan::process_started(child.id()));
-  child.wait().unwrap();
+  let (pid, started) = gone_process();
   let long_ago = std::time::SystemTime::now() - std::time::Duration::from_hours(2);
   let mut state: Value = serde_json::from_slice(&std::fs::read(state_file).unwrap()).unwrap();
   let entry = state["slots"].as_array_mut().unwrap().iter_mut().find(|entry| entry["path"] == json!(slot)).unwrap();

@@ -4,8 +4,9 @@
 //! and the lends queue while it runs; a second upgrade never records over the one of a live process. Unix only: the
 //! fakes are shell scripts
 
-use crate::host_slots_test::{context, edit_table, gone_process, host_fixture, params, record_live_upgrade, remove_upgrade};
+use crate::host_slots_test::{context, edit_table, host_fixture, params, record_live_upgrade, remove_upgrade};
 use crate::lease_test::Fixture;
+use bd_cli::fixture_test::gone_process;
 use lease_pool::host_git::{TEST_BREW, TEST_MIN_VERSION, find_git, min_version, run_path};
 use lease_pool::host_slots::{EnsuredGit, HostGitState, HostSlotRefusal, LendAnswer, LendRequest, Queued, ensure_host_git, fill, give_back_run, lend, read_host_slots};
 use pretty_assertions::assert_eq;
