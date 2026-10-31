@@ -881,13 +881,27 @@ fn a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id() {
 #[cfg(unix)]
 struct FakeServer {
   child: std::process::Child,
+  _ready: tempfile::TempDir,
 }
+
+/// How long a test waits for a state of a fake server that a healthy run reaches at once: a limit no run reaches, which
+/// turns a hang into a failure
+#[cfg(unix)]
+const SERVER_STATE: Duration = Duration::from_mins(2);
 
 #[cfg(unix)]
 impl FakeServer {
   fn start(workspace: &str, cwd: &Path, ignore_term: bool) -> Self {
     use std::os::unix::process::CommandExt;
-    let script = if ignore_term { "trap '' TERM; read line" } else { "read line" };
+    // the file says that `sh` runs the script: its argv shows from the exec on, its `trap` only once `sh` ran it, and a
+    // SIGTERM before that ends a server meant to ignore it. Outside the slot, which it would make dirty
+    let ready = tempfile::tempdir().unwrap();
+    let ready_file = ready.path().join("ready");
+    let script = if ignore_term {
+      "trap '' TERM; : > \"$FAKE_SERVER_READY\"; read line"
+    } else {
+      ": > \"$FAKE_SERVER_READY\"; read line"
+    };
     // a group of its own, as a Bazel server leads its own session
     let child = std::process::Command::new("sh")
       .process_group(0)
@@ -898,22 +912,25 @@ impl FakeServer {
         "--output_base=/tmp/fake-output-base",
         &format!("--workspace_directory={workspace}"),
       ])
+      .env("FAKE_SERVER_READY", &ready_file)
       .current_dir(cwd)
       .stdin(std::process::Stdio::piped())
       .spawn()
       .unwrap();
-    // its argv is the one of `sh` once it runs: wait until a scan sees the workspace
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    let pid = child.id();
-    while !sync_utils::process_scan::ProcessScan::scan()
-      .inside(Path::new(workspace))
-      .iter()
-      .any(|process| process.pid == pid)
+    let mut server = Self { child, _ready: ready };
+    let deadline = std::time::Instant::now() + SERVER_STATE;
+    let pid = server.pid();
+    while !ready_file.exists()
+      || !sync_utils::process_scan::ProcessScan::scan()
+        .inside(Path::new(workspace))
+        .iter()
+        .any(|process| process.pid == pid)
     {
+      assert!(server.running(), "the fake server exited before it was ready");
       assert!(std::time::Instant::now() < deadline, "the fake server never showed up");
       std::thread::sleep(Duration::from_millis(20));
     }
-    Self { child }
+    server
   }
 
   fn pid(&self) -> u32 {
@@ -923,6 +940,19 @@ impl FakeServer {
   /// Whether it still runs; reaps it once it exited
   fn running(&mut self) -> bool {
     self.child.try_wait().unwrap().is_none()
+  }
+
+  /// Whether it exits: a stop names a server gone once the system tells its pid gone, a moment before its parent (the
+  /// test) can reap it on macOS, so `running` right after a stop may still see it
+  fn exits(&mut self) -> bool {
+    let deadline = std::time::Instant::now() + SERVER_STATE;
+    while self.running() {
+      if std::time::Instant::now() >= deadline {
+        return false;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    true
   }
 }
 
@@ -963,7 +993,7 @@ fn a_return_stops_the_bazel_servers_of_the_slot() {
   ];
   expected.sort();
   assert_eq!(stopped, expected);
-  assert!(!root.running() && !community.running());
+  assert!(root.exits() && community.exits());
   assert_eq!(states(&fixture.status())[0].1, "free");
 }
 
@@ -1025,7 +1055,7 @@ fn a_get_stops_the_bazel_server_of_a_free_slot_and_leases_it() {
     (&json!(server.pid()), &json!(first)),
     "{second}"
   );
-  assert!(!server.running());
+  assert!(server.exits());
   fixture.give_back(&first);
 
   let stubborn = FakeServer::start(&first, fixture.home.path(), true);
