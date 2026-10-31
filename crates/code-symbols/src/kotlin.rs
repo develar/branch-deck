@@ -295,10 +295,17 @@ fn file_annotation<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   true
 }
 
-/// A top-level `fun main` without a receiver or type parameters (`JvmHooks::entry_point`): without parameters, of one
-/// `Array<String>` or of a `vararg` of `String`, as the Kotlin compiler takes it for the main function of a program
+/// A top-level `fun main` without a receiver or type parameters (`JvmHooks::entry_point`), returning `Unit` if it has a
+/// declared return type: without parameters, of one `Array<String>` or of a `vararg` of `String`, as the Kotlin compiler
+/// takes it for the main function of a program
 fn entry_point<'t>(w: &Walk<'t>, node: Node<'t>, signature: &Signature) -> bool {
   if w.holder().is_some() || w.field(node, "receiver").is_some() || w.child(node, Child::Kind(&["type_parameters"])).is_some() {
+    return false;
+  }
+  if w
+    .child(node, Child::Kind(TYPES))
+    .is_some_and(|it| !w.is(it, "user_type") || !w.type_path(it).is_some_and(|path| matches!(path.as_slice(), ["Unit"] | ["kotlin", "Unit"])))
+  {
     return false;
   }
   match signature.parameters.as_slice() {

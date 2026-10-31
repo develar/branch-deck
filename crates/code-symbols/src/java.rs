@@ -5,8 +5,8 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Header, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TEST_ANNOTATIONS,
-  TYPE_IDENTIFIER, Traits, ValueType, Walk, binder, decl, function_decl, line_of, type_decl,
+  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Header, Holder, IDENTIFIER, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TEST_ANNOTATIONS, TYPE_IDENTIFIER,
+  Traits, ValueType, Walk, binder, decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
@@ -291,7 +291,8 @@ fn parameter<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
       receiver: None,
       holder: Holder::Leaf,
     };
-    w.add_declaration(node, name, &traits, JvmFields::default());
+    let fields = w.unstable_jvm_fields(node);
+    w.add_declaration(node, name, &traits, fields);
   } else {
     w.type_binding(name, node);
     w.bind_node(name);
@@ -465,7 +466,7 @@ fn annotation_paths<'t>(w: &Walk<'t>, node: Node<'t>) -> Vec<Vec<&'t str>> {
 }
 
 /// `public static void main(String[] args)` of a type (`JvmHooks::entry_point`), `String... args` and `String args[]`
-/// too; a method of an interface is public without `public`
+/// too; `public` is implied only for a non-private method of an interface
 fn entry_point<'t>(w: &Walk<'t>, node: Node<'t>, signature: &Signature) -> bool {
   let holder = w.holder();
   if !w.is(node, "method_declaration") || holder.is_none() {
@@ -473,7 +474,7 @@ fn entry_point<'t>(w: &Walk<'t>, node: Node<'t>, signature: &Signature) -> bool 
   }
   let modifiers = w.child(node, Child::Kind(&["modifiers"]));
   let has = |token: &str| modifiers.is_some_and(|it| w.has_token(it, token));
-  (has("public") || holder == Some(Holder::Interface))
+  (has("public") || (holder == Some(Holder::Interface) && !has("private")))
     && has("static")
     && w.field(node, "type").is_some_and(|it| w.is(it, "void_type"))
     && matches!(signature.parameters.as_slice(), [parameter] if w.type_is(parameter.type_ref.as_ref(), &["String"], 1))

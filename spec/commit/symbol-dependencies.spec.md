@@ -81,9 +81,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/rust_test.rs (`a_function_under_a_test_attribute_is_a_test`)
 - A function the JVM starts a program with must be an entry point (`entry_point`), for the API a review names: a Kotlin
   top-level `fun main` without a receiver or type parameters that takes nothing, one `Array<String>` or a `vararg` of
-  `String`, `suspend` or not; a Java `public static void main` of one `String[]` (`String...`, `String args[]`) of a
-  type, `public` implied in an interface. A member `main`, a local one, another return type or other parameters are
-  none.
+  `String`, `suspend` or not, returning `Unit` or `kotlin.Unit` when its return type is declared; a Java `public static
+  void main` of one `String[]` (`String...`, `String args[]`) of a type, with `public` implied for a non-private
+  interface method. A member `main`, a local one, another return type or other parameters are none.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_top_level_main_is_an_entry_point`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_public_static_void_main_of_strings_is_an_entry_point`)
 - A Kotlin or Java declaration of any kind marked as no stable API must be `unstable`, for the API a review names:

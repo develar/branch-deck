@@ -44,6 +44,9 @@ fn a_public_static_void_main_of_strings_is_an_entry_point() {
 interface Launcher {
   static void main(String[] args) {}
 }
+interface PrivateLauncher {
+  private static void main(String[] args) {}
+}
 ";
   let summary = summarize(Language::Java, source);
   assert_eq!(
@@ -59,9 +62,10 @@ interface Launcher {
       "Tool",
       "Tool",
       "Tool",
-      "Launcher entry_point"
+      "Launcher entry_point",
+      "PrivateLauncher"
     ],
-    "an array of strings, a vararg, the `[]` after the name, by the full name; not without `public` or `static`, of another return or parameters, nor of a local class; a method of an interface is public"
+    "an array of strings, a vararg, the `[]` after the name, by the full name; not without `public` or `static`, of another return or parameters, nor of a local class; an interface method is public unless private"
   );
 }
 
@@ -88,10 +92,12 @@ public class Hidden {
   @Override public String toString() { return \"\"; }
   enum Level { @ApiStatus.Internal LOW, HIGH }
 }
+record Payload(@ApiStatus.Internal int component) {}
 ";
   let summary = summarize(Language::Java, source);
   let unstable = |name: &str| declaration(&summary, name).unstable;
   assert!(unstable("Hidden"));
+  assert!(unstable("component"), "an annotated record component");
   assert!(!unstable("member"), "a member of a marked class is not marked itself");
   assert!(unstable("qualified"), "by the full name");
   assert!(unstable("imported"), "bare, imported from `ApiStatus`");

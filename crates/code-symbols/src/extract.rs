@@ -2210,6 +2210,14 @@ impl<'t> Walk<'t> {
     }
   }
 
+  /// The unstable annotation of a declaration which does not use `member_jvm_fields` for its other JVM facts
+  pub(crate) fn unstable_jvm_fields(&self, node: Node<'t>) -> JvmFields {
+    self.spec.jvm.as_ref().map_or_else(JvmFields::default, |hooks| JvmFields {
+      unstable: (hooks.unstable)(self, node),
+      ..JvmFields::default()
+    })
+  }
+
   /// Makes `supertypes` those whose members the declarations directly below the current node override, until the walk
   /// leaves it
   pub(crate) fn push_supertypes(&mut self, supertypes: Vec<Vec<u32>>) {

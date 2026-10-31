@@ -288,6 +288,10 @@ class Service {
 #[test]
 fn a_top_level_main_is_an_entry_point() {
   let source = b"fun main() {}
+fun main(): Unit {}
+fun main(): kotlin.Unit {}
+fun main(): Int {}
+fun main() = Unit
 fun main(args: Array<String>) {}
 suspend fun main(vararg args: String) {}
 fun main(args: kotlin.Array<kotlin.String>) {}
@@ -312,6 +316,10 @@ fun run() {
       "- entry_point",
       "- entry_point",
       "- entry_point",
+      "-",
+      "- entry_point",
+      "- entry_point",
+      "- entry_point",
       "- entry_point",
       "-",
       "-",
@@ -320,7 +328,7 @@ fun run() {
       "Tool",
       "Companion jvm_static"
     ],
-    "no parameters, an array or a vararg of strings, by the full name too; not another parameter, a receiver, type parameters, a member or a local"
+    "no parameters, an array or a vararg of strings; an omitted return type or `Unit`; not another return type, parameter, a receiver, type parameters, a member or a local"
   );
   assert!(!declaration(&summary, "run").entry_point);
 }
