@@ -374,12 +374,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   base>/execroot/<name>/bazel-out`; the pid in `<output base>/server/server.pid.txt` runs and started before the file
   was written (a pid that is gone, or that the system gave to a later process, is no server). Each is asked to exit
   with `bazel --output_base=<output base> shutdown` in its workspace, without a console window and killed after the
-  30 s, then waited for as SIGTERM is elsewhere: `stopped_servers` names the ones that exited (pid, workspace, output
+  30 s, the shutdowns of the servers of the slot side by side, each with the whole 30 s, then waited for as SIGTERM is
+  elsewhere: `stopped_servers` names the ones that exited (pid, workspace, output
   base), one that does not exit keeps the slot busy, and the pid itself is never signalled. A workspace whose link is
   missing or named otherwise shows no server, and its server keeps running. Other processes stay unchecked
   (`processes_checked: false`).
   [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`a_server_is_told_by_the_pid_file_of_the_output_base_its_bazel_out_link_leads_to`, `no_server_is_told_without_a_running_pid_of_the_pid_file`)
   [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`the_stop_of_a_server_told_by_its_output_base_names_it_stopped`, `a_server_that_does_not_exit_when_asked_is_not_stopped`)
+  [@test] ../../crates/lease-pool/src/bazel_servers_test.rs (`the_bazel_shutdowns_of_the_servers_run_side_by_side`)
 - `bazel` must be found as `cmd` finds it: by the directories of the `PATH` and, on Windows, the extensions of
   `PATHEXT` (`bazel.exe`, a `bazel.cmd` of an npm Bazelisk, a `bazel.bat`), which `CreateProcess` alone does not try.
   A `bazel shutdown` that can't run (no `bazel` there, a program that does not start) or that fails (a non-zero exit,

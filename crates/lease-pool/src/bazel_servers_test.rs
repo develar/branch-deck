@@ -294,6 +294,54 @@ fn a_server_whose_bazel_shutdown_cannot_run_or_fails_is_named_running_with_why()
   assert!(server.child.try_wait().unwrap().is_none(), "the server still runs");
 }
 
+/// The `bazel shutdown`s of the servers run side by side, each with the whole timeout: a `bazel.cmd` that ends its
+/// server only once the shutdowns of both servers started, which one after the other never happens, as the first
+/// waits for the second until its timeout kills it
+#[cfg(windows)]
+#[test]
+fn the_bazel_shutdowns_of_the_servers_run_side_by_side() {
+  let servers = [
+    FakeServer::new("", "MODULE.bazel", "out/bazel-out", sleeper()),
+    FakeServer::new("", "MODULE.bazel", "out/bazel-out", sleeper()),
+  ];
+  let found: Vec<ProcessInfo> = servers.iter().flat_map(|server| servers_by_output_base(&server.slot)).collect();
+  assert_eq!(found.len(), 2);
+  let scripts = tempfile::tempdir().unwrap();
+  // the output base from `--output_base=<dir>`, the pid of its server, a file per started shutdown named by that pid,
+  // then the kill of the pid once both files are there
+  let script = scripts.path().join("bazel.cmd");
+  std::fs::write(
+    &script,
+    [
+      "@echo off",
+      "set \"OB=%~1\"",
+      "set \"OB=%OB:--output_base=%\"",
+      "set \"OB=%OB:~1%\"",
+      "set /p PID=<\"%OB%\\server\\server.pid.txt\"",
+      "echo.> \"%~dp0started-%PID%\"",
+      ":wait",
+      "for /f %%c in ('dir /b \"%~dp0started-*\" ^| find /c /v \"\"') do if %%c GEQ 2 goto stop",
+      "ping -n 2 127.0.0.1 >NUL",
+      "goto wait",
+      ":stop",
+      "taskkill /F /PID %PID% >NUL 2>&1",
+      "exit /b 0",
+    ]
+    .join("\r\n"),
+  )
+  .unwrap();
+
+  // a limit no healthy run reaches: of two shutdowns one after the other, the first waits for the second until its
+  // timeout kills it
+  let stop = stop_servers(&found.iter().collect::<Vec<_>>(), Some(script.as_os_str()), Duration::from_mins(2));
+  assert_eq!(stop.running, Vec::new());
+  let mut stopped: Vec<u32> = stop.stopped.iter().map(|stopped| stopped.pid).collect();
+  stopped.sort_unstable();
+  let mut pids: Vec<u32> = servers.iter().map(FakeServer::pid).collect();
+  pids.sort_unstable();
+  assert_eq!(stopped, pids);
+}
+
 /// A bare program name is looked up as `cmd` looks it up: by the directories of the `PATH` in order, in each by the
 /// extensions of `PATHEXT` in order (`bazel.bat` before `bazel.cmd`), the name alone where no extensions are (Unix)
 #[test]

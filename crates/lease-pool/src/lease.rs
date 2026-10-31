@@ -41,6 +41,7 @@ use sync_utils::fs_retry;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, process_started, terminate};
 use sync_utils::size::parse_size;
+use sync_utils::span::in_current_span;
 use tracing::{debug, instrument, warn};
 
 /// The state of the pool in `branch-deck/` of the common dir
@@ -2517,7 +2518,8 @@ pub(crate) struct ServerStop {
 
 /// Ask each Bazel server to exit and wait up to `timeout` for them. On macOS and Linux with SIGTERM; on Windows, which
 /// has no signals, with `bazel shutdown` for its output base (`bazel_servers::shutdown`, through `bazel`, else `bazel`
-/// of the `PATH`), all within the same `timeout`. A `bazel shutdown` that could not run or failed is not waited for:
+/// of the `PATH`), the shutdowns side by side, each with the whole `timeout`: one after the other, a slow shutdown left
+/// the next one only the rest of it. A `bazel shutdown` that could not run or failed is not waited for:
 /// its server, unless gone anyway, runs on with the error as its `stop_error`. No other process is ever signalled: the
 /// caller passes only processes with `--workspace_directory` in the slot, and each is asked only while its pid still
 /// has the start time of the scan, checked right before its `kill`. Between the scan and the signal a server can exit
@@ -2526,25 +2528,42 @@ pub(crate) struct ServerStop {
 pub(crate) fn stop_servers(servers: &[&ProcessInfo], bazel: Option<&OsStr>, timeout: Duration) -> ServerStop {
   let deadline = Instant::now() + timeout;
   let running = |server: &ProcessInfo| server.started.is_none_or(|started| is_running(server.pid, Some(started)));
-  // the servers whose `bazel shutdown` could not run or failed, with why
-  let mut failed: Vec<(u32, String)> = Vec::new();
-  for server in servers {
-    let Some(started) = server.started else {
-      debug!(pid = server.pid, "a Bazel server without a start time is not signalled");
-      continue;
-    };
-    if is_running(server.pid, Some(started)) {
-      debug!(pid = server.pid, argv = ?server.argv, "stopping a Bazel server of the slot");
-      if cfg!(windows) {
-        if let Err(error) = shutdown(bazel, server, deadline.saturating_duration_since(Instant::now())) {
-          warn!(pid = server.pid, argv = ?server.argv, error = %error, "cannot stop a Bazel server of the slot");
-          failed.push((server.pid, error));
-        }
-      } else {
-        terminate(server.pid);
+  // the servers to ask, each checked right before it is asked (lazily)
+  let asked = || {
+    servers.iter().copied().filter(|server| {
+      let Some(started) = server.started else {
+        debug!(pid = server.pid, "a Bazel server without a start time is not signalled");
+        return false;
+      };
+      let asks = is_running(server.pid, Some(started));
+      if asks {
+        debug!(pid = server.pid, argv = ?server.argv, "stopping a Bazel server of the slot");
       }
+      asks
+    })
+  };
+  // the servers whose `bazel shutdown` could not run or failed, with why
+  let failed: Vec<(u32, String)> = if cfg!(windows) {
+    std::thread::scope(|scope| {
+      #[expect(clippy::needless_collect, reason = "every shutdown starts before the first one is joined")]
+      let shutdowns: Vec<_> = asked()
+        .map(|server| (server, scope.spawn(in_current_span(move || shutdown(bazel, server, timeout)))))
+        .collect();
+      shutdowns
+        .into_iter()
+        .filter_map(|(server, shutdown)| {
+          let error = shutdown.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)).err()?;
+          warn!(pid = server.pid, argv = ?server.argv, error = %error, "cannot stop a Bazel server of the slot");
+          Some((server.pid, error))
+        })
+        .collect()
+    })
+  } else {
+    for server in asked() {
+      terminate(server.pid);
     }
-  }
+    Vec::new()
+  };
   let stop_error = |server: &ProcessInfo| failed.iter().find(|(pid, _)| *pid == server.pid).map(|(_, error)| error.clone());
   while servers.iter().any(|server| stop_error(server).is_none() && running(server)) && Instant::now() < deadline {
     std::thread::sleep(Duration::from_millis(50));

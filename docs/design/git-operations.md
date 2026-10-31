@@ -2166,7 +2166,9 @@ right in it with `MODULE.bazel` or `WORKSPACE(.bazel)`; its `bazel-out` link (`b
 server into `<output base>/server/server.pid.txt`. A pid that is gone, or whose process started after the file was
 written (a pid the system gave away since), is no server. The return runs `bazel --output_base=<output base>
 shutdown` in the workspace instead of SIGTERM, the clean stop of Bazel, killed after the 30 s, and waits for the pid
-as elsewhere; the pid itself is never signalled. `bazel` is looked up as `cmd` looks it up, with the extensions of
+as elsewhere; the pid itself is never signalled. The shutdowns of the servers of a slot (the slot and `community/` of
+the monorepo) run side by side, each with the whole 30 s: until 2026-10-31 they ran one after the other within one
+30 s, so a slow first shutdown left the second only the rest of it. `bazel` is looked up as `cmd` looks it up, with the extensions of
 `PATHEXT`: Bazelisk installed by npm is a `bazel.cmd`, which `CreateProcess` never finds, and the return then waited
 the 30 s for a server nothing had asked and refused it as one that did not exit. A `bazel shutdown` that can't run or
 fails is not waited for: its server keeps the slot busy at once, its `stop_error` naming the program and the error. A
