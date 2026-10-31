@@ -40,6 +40,11 @@ export interface ReviewRequestActionContext {
   readonly words: OperationWords
   /** What runs for it now */
   readonly busy: ReviewAction | undefined
+  /**
+   * What an approval counts for in the review window (`presentApprovalScope`): "Counts for Design · You opened 3 of its 5
+   * files"; none without groups, and in the row menu
+   */
+  readonly approvalScope?: string | null
   readonly onReview: () => void
   readonly onApprove: () => void
   readonly onSafePush: () => void
@@ -57,6 +62,8 @@ export interface ReviewRequestActions {
   readonly approve: MenuItem
   /** The user approved the commit the review shows: Approve is done, Safe Push… is the next step */
   readonly approved: boolean
+  /** What the approval counts for, in the description of Approve and the confirmation of Approve and Safe Push; never a blocker */
+  readonly approvalScope: string | null
   /** Absent where Patronus doesn't merge */
   readonly safePush: MenuItem | null
   readonly requestChanges: MenuItem
@@ -101,6 +108,9 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
   const writeBlocked = !inReview ? null : reviewedCommit.id === null ? reviewedCommit.reason : busy !== undefined ? "Wait for GitHub to answer" : null
   const keys = (key: string) => (inReview ? [key] : undefined)
   const approveRefused = writeBlocked ?? refusal(actions, "approve", request, words)
+  const approvalScope = inReview && !approved ? (context.approvalScope ?? null) : null
+  // the reason it waits first, then what it counts for: information only
+  const approveDescription = [approveRefused, approvalScope].filter(it => it !== null).join(". ")
 
   const approve: MenuItem = {
     id: "approve",
@@ -108,7 +118,7 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
     icon: CheckIcon,
     kbds: keys("a"),
     disabled: approveRefused !== null || approved,
-    description: approved ? `You approved ${formatShortHash(approvedCommit)}` : (approveRefused ?? undefined),
+    description: approved ? `You approved ${formatShortHash(approvedCommit)}` : approveDescription === "" ? undefined : approveDescription,
     onSelect: context.onApprove,
   }
 
@@ -134,6 +144,7 @@ export function getReviewRequestActions(request: ReviewRequest, context: ReviewR
     review: { id: "review", label: "Review", icon: UserCheckIcon, kbds: inReview ? ["d"] : ["enter"], onSelect: context.onReview },
     approve,
     approved,
+    approvalScope,
     safePush,
     requestChanges: {
       id: "request-changes",

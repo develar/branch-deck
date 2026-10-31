@@ -95,6 +95,18 @@ describe("getReviewRequestActions", () => {
     expect([mine.approve.disabled, mine.approve.description, mine.requestChanges.disabled]).toEqual([true, "Your own pull request: GitHub takes no review of its author", true])
   })
 
+  it("says in Approve what it counts for after the reason it waits, never disabling it, and nothing once approved or in the row menu", () => {
+    const scope = "Counts for Design · You opened 1 of its 2 files"
+    const window = getReviewRequestActions(reviewRequest(7), context({ approvalScope: scope }), "window")
+    expect([window.approve.description, window.approve.disabled, window.approvalScope]).toEqual([scope, false, scope])
+    const busy = getReviewRequestActions(reviewRequest(7), context({ approvalScope: scope, busy: "requestChanges" }), "window")
+    expect(busy.approve.description).toBe(`Wait for GitHub to answer. ${scope}`)
+    const row = getReviewRequestActions(reviewRequest(7), context({ approvalScope: scope }), "rowMenu")
+    expect([row.approve.description, row.approvalScope]).toEqual([undefined, null])
+    const approved = getReviewRequestActions(reviewRequest(7), context({ approvalScope: scope, actions: rust(["approve", { code: "approved", commit: HEAD }]) }), "window")
+    expect([approved.approved, approved.approve.description, approved.approvalScope]).toEqual([true, "You approved 01234567", null])
+  })
+
   it("offers Show Branch of an own pull request and Remove from Reviews of a link where Rust offers them", () => {
     const actions = [...OFFERED, ...rust("show-branch", "remove-from-reviews")]
     const row = getReviewRequestActions(reviewRequest(7), context({ actions, onShowBranch: () => {}, onRemoveFromReviews: () => {} }), "rowMenu")

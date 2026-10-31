@@ -865,6 +865,14 @@ async function showOtherRequest(window: Page, review: ReturnType<Page["getByTest
   await showChanges(window, review)
 }
 
+/** A new head of `login` (#7 and #8) with ui/button.css, which the next focus polls and the open window fetches */
+async function commitNewHead(page: Page, repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<void>): Promise<void> {
+  await repo.commit("(login) Style the button", { "ui/button.css": "button {}\n" }, 1704124800)
+  await syncAndWaitForBranches()
+  await repo.advanceBackendClock(121_000)
+  await emitTauriEvent(page, "tauri://focus")
+}
+
 test.describe("Owner chips", () => {
   test("should open on the user's group that needs an approval, then on the chip the user chose, which All forgets", async ({
     page,
@@ -1065,13 +1073,111 @@ test.describe("Owner chips", () => {
         },
       },
     })
-    await repo.commit("(login) Style the button", { "ui/button.css": "button {}\n" }, 1704124800)
-    await syncAndWaitForBranches()
-    await repo.advanceBackendClock(121_000)
-    await emitTauriEvent(page, "tauri://focus")
+    await commitNewHead(page, repo, syncAndWaitForBranches)
     await expect.poll(() => ownerChips(window)).toEqual(["All3", "Design· You2", "Auth Team0", "Monorepo1"])
     await expect(column.nth(1)).toHaveAttribute("aria-selected", "true")
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+  })
+})
+
+/** Patronus's answer of a request of `login` whose group Design owes `paths` and has `member` */
+function loginGroupsWithDesign(paths: string[], member = "user-name") {
+  const design = evaluatedGroup("Design", false, [codeOwner("Test User", member, { suggested: true, approvalState: "reviewing" })], { paths, branchWide: false })
+  return { ...LOGIN_GROUPS, groups: [LOGIN_GROUPS.groups[0]!, design] }
+}
+
+/** What the footer of the review window says */
+function reviewPosition(window: Page) {
+  return window.getByTestId("review-file-position")
+}
+
+/** J from the diffs, which have the focus once the changes show: the footer says where it went */
+async function pressJ(window: Page, position: string): Promise<void> {
+  await expect(window.locator("[aria-label='Changes of the commit']")).toBeFocused()
+  await window.keyboard.press("j")
+  await expect(reviewPosition(window)).toHaveText(position)
+}
+
+/** The description of Approve, by its hover */
+async function approveDescription(window: Page, review: ReturnType<Page["getByTestId"]>): Promise<string> {
+  await review.getByTestId("review-approve").hover()
+  const tooltip = window.getByRole("tooltip")
+  await expect(tooltip).toBeVisible()
+  const text = (await tooltip.textContent()) ?? ""
+  await window.mouse.move(0, 0)
+  await expect(tooltip).toBeHidden()
+  return text
+}
+
+test.describe("Owner part and Approve", () => {
+  test("should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["ui/login.css", "ui/login.js"]) } })
+    const { window, review } = await openOwnedChanges(page)
+    await expect.poll(() => ownerChips(window)).toEqual(["All4", "Design· You2", "Auth Team1", "Monorepo1", "UI Team1"])
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+
+    // the first file of the tree is Auth Team's: the footer counts Design's files, Approve names the group, none opened
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 2 files")
+
+    // J moves through Design's files: the footer counts the place among them, Approve what the window showed
+    await pressJ(window, "All Changes · File 2 / 4 · Design 1 / 2")
+    await pressJ(window, "All Changes · File 3 / 4 · Design 2 / 2")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
+    // All: no owner part
+    await ownerChip(window, "All").click()
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 3 / 4")
+
+    // the confirmation of Approve and Safe Push says it too; Escape closes it
+    await pressDecisionKey(window, review, "m")
+    const form = window.getByTestId("review-safe-push-form")
+    await expect(form.getByTestId("review-safe-push-scope")).toHaveText("Counts for Design · You opened 2 of its 2 files")
+    await window.keyboard.press("Escape")
+    await expect(form).toBeHidden()
+
+    // information only: Approve submits
+    await pressDecisionKey(window, review, "a")
+    await expect(review.getByTestId("review-approve")).toHaveText("Approved")
+    expect(await gitHubRequests(repo, "POST", "pulls", 7, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
+  })
+
+  test("should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    // Design of #8 is someone else's
+    await repo.setReviewAnswers({
+      answers: { "request:7": loginGroupsWithDesign(["ui/login.css", "ui/login.js"]), "request:8": loginGroupsWithDesign(["ui/login.css"], "bob") },
+    })
+    const { window, review } = await openOwnedChanges(page)
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
+    await pressJ(window, "All Changes · File 2 / 4 · Design 1 / 2")
+    await pressJ(window, "All Changes · File 3 / 4 · Design 2 / 2")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
+
+    // a new head with a third file of Design: of what the window showed, only the file on screen counts for it
+    await repo.setReviewAnswers({
+      answers: { "request:7": loginGroupsWithDesign(["ui/button.css", "ui/login.css", "ui/login.js"]), "request:8": loginGroupsWithDesign(["ui/login.css"], "bob") },
+    })
+    await commitNewHead(page, repo, syncAndWaitForBranches)
+    await expect.poll(() => ownerChips(window)).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 4 / 5 · Design 3 / 3")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 3 files")
+
+    // #8: the user is in no group that still needs an approval
+    await showOtherRequest(window, review, "ArrowDown", "Style the login form")
+    // the groups of #8 came (Auth Team approved), in the order of the check: none is the user's
+    await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
+    await expect.poll(() => ownerChips(window)).toEqual(["All5", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
+    expect(await approveDescription(window, review)).toBe("Counts for no group that still needs an approval")
   })
 })
 

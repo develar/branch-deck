@@ -62,6 +62,8 @@ targets:
   - ../../src/components/review/ReviewOwnerChips.tsx
   - ../../src/hooks/useFileOwners.ts
   - ../../src/hooks/useReviewOwnerFilter.ts
+  - ../../src/lib/review-position.ts
+  - ../../src/presenters/reviews.ts
   - ../../src/lib/review-owners.ts
   - ../../src/components/review/ReviewHeader.tsx
   - ../../src/components/review/ReviewDecisions.tsx
@@ -489,6 +491,10 @@ Safe Push it allows.
   The chips are told apart by their filter, not their name (`ownerChipKey`).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should make the owner chip chosen or remembered before the groups came the group of its name once they come, one chip the user can choose`)
   [@test] ../../src/lib/review-owners.test.ts (`makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files`)
+- While a chip that marks files is chosen, the footer adds the part of its owner as in the branch window: "All Changes
+  · File 1 / 4 · Design 2" on a file of another owner, "All Changes · File 2 / 4 · Design 1 / 2" on the first of
+  Design's two; J moves through them, "Design 2 / 2". All adds nothing.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`)
 
 ### Reviews
 
@@ -509,6 +515,17 @@ Safe Push it allows.
   is disabled ("You approved <hash>"); a poll that brings new commits fetches them, the header says "#101 got new
   commits while it was open: the review shows <hash> now", and they can be approved.
   [@test] ../../src/lib/review-request-actions.test.ts (`disables the writes of the review until the commit the user saw is there, an approval of the same commit, and an own pull request`)
+- Approve says what it counts for, in its description (on hover, after the reason it is disabled) and in the
+  confirmation of Approve and Safe Push…: "Counts for Design · You opened 1 of its 2 files" ("Design and Air Plugin
+  · … of their 4 files"), the user's groups that still need an approval (`yours`, not `approved`), whatever chip is
+  chosen, and how many of their files among all changes the window showed (the file on screen, as the footer counts
+  it) for the head it shows. "Counts for no group that still needs an approval" when the user is in none of them;
+  just "Counts for Design" when nobody tells their files; nothing without groups (also while a new head is fetched)
+  and once the shown commit is approved. A new head (or another request) counts the opened files from zero. It is
+  information only: Approve is never disabled by it.
+  [@test] ../../src/lib/review-request-actions.test.ts (`says in Approve what it counts for after the reason it waits, never disabling it, and nothing once approved or in the row menu`)
+  [@test] ../../src/presenters/reviews.test.ts (`names the user's groups that still need an approval and how many of their files the window showed`, `leaves out the groups of others and the approved ones`, `says when the approval counts for no group that still needs one`, `names the groups alone when their files are unknown or none here, and says nothing without groups`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`SubmitReview`, its effect `submitReview`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)),
   in the repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below
@@ -548,7 +565,9 @@ Safe Push it allows.
 - It opens a confirmation below its button: "Approves 1a2b3c4d, then comments /patronus merge on #101: Patronus rebases
   alice/feature onto master, runs the checks, merges it and deletes the branch. It reports in the pull request.", with
   "Approve and Safe Push" (↵, focused on each open) and Esc Cancel; the keys of the review wait while it is open. After
-  an approval of the commit it is "Safe Push…" and the text starts with "Comments".
+  an approval of the commit it is "Safe Push…" and the text starts with "Comments". Before the approval, a muted line
+  below says what it counts for, as Approve does ("Counts for Design · You opened 2 of its 2 files").
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`)
 - One operation (`SubmitReview` with `thenLand`; once the user approved that commit, without a verdict: the Safe Push
   alone): the approval first, said as soon as it is in; then one `GET repos/<owner>/<name>/pulls/<n>` for its
   `head.sha`: a head other than the approved commit skips the start (`plan_changed`), "Cannot start the Safe Push" /

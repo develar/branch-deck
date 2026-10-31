@@ -841,11 +841,17 @@ function ReviewLayout({
   const accept = marked === null ? undefined : (path: string) => marked.has(path)
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
+  // the part of the chosen owner chip in the footer: the place of the file among its files in the order of the tree
+  const ownerFiles = useMemo(() => (marked === null ? null : files.filter(file => marked.has(file.path))), [marked, files])
+  const ownerLabel = ownerFiles === null ? null : (ownerMarks?.label ?? null)
+  const ownerIndex = ownerFiles === null ? -1 : ownerFiles.findIndex(file => file.path === selectedPath)
+  const ownerCount = ownerFiles?.length ?? 0
   useEffect(() => {
     if (loadedKey !== null) {
-      onPositionChange({ path: selectedPath, index: selectedIndex, count: files.length })
+      const owner = ownerLabel === null ? undefined : { label: ownerLabel, index: ownerIndex, count: ownerCount }
+      onPositionChange({ path: selectedPath, index: selectedIndex, count: files.length, ...(owner !== undefined && { owner }) })
     }
-  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length])
+  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, ownerIndex, ownerCount])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (loaded === null || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {

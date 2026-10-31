@@ -364,7 +364,7 @@ test.describe("The review plan in the branch review", () => {
     await selectCacheFromReader()
     await expect(owner("Monorepo")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 7 \/ 8$/)
+    await expect(position).toHaveText(/File 7 \/ 8 · Monorepo \d+$/)
     await owner("All").click()
     await expect(cache).not.toHaveAttribute("data-muted")
 
@@ -463,7 +463,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(search).toHaveValue("")
     await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
-    await expect(position).toHaveText(/File 7 \/ 8$/)
+    await expect(position).toHaveText(/File 7 \/ 8 · Cache Team \d+ \/ \d+$/)
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
 
     // the chip of Cache Team hides nothing: the search keeps Store, muted, and the entry selects it; chip and search stay

@@ -6,6 +6,7 @@ import {
   formatReviewMeta,
   formatReviewsNoMatch,
   pickVisibleEntries,
+  presentApprovalScope,
   returnedTexts,
   reviewEntryTexts,
   reviewMark,
@@ -143,5 +144,34 @@ describe("a row of Reviews", () => {
     // all of a short section show: the same list
     const three = entries.slice(0, 3)
     expect(pickVisibleEntries(three, new Set())).toBe(three)
+  })
+})
+
+describe("presentApprovalScope", () => {
+  const group = (name: string, files: string[] | null, { yours = true, approved = false } = {}) => ({ name, yours, approved, files: files === null ? null : new Set(files) })
+
+  it("names the user's groups that still need an approval and how many of their files the window showed", () => {
+    const design = group("Design", ["a.css", "b.css", "c.css"])
+    expect(presentApprovalScope([design], new Set(["a.css", "README.md"]))).toBe("Counts for Design · You opened 1 of its 3 files")
+    expect(presentApprovalScope([design], new Set(["a.css", "b.css", "c.css"]))).toBe("Counts for Design · You opened 3 of its 3 files")
+    const air = group("Air Plugin", ["c.css", "plugin.kt"])
+    expect(presentApprovalScope([design, air], new Set())).toBe("Counts for Design and Air Plugin · You opened 0 of their 4 files")
+    expect(presentApprovalScope([group("Design", ["a.css"])], new Set(["a.css"]))).toBe("Counts for Design · You opened 1 of its 1 file")
+  })
+
+  it("leaves out the groups of others and the approved ones", () => {
+    const groups = [group("Design", ["a.css"]), group("Air Plugin", ["p.kt"], { yours: false }), group("Auth Team", ["auth.kt"], { approved: true })]
+    expect(presentApprovalScope(groups, new Set(["p.kt"]))).toBe("Counts for Design · You opened 0 of its 1 file")
+  })
+
+  it("says when the approval counts for no group that still needs one", () => {
+    expect(presentApprovalScope([group("Air Plugin", ["p.kt"], { yours: false })], new Set())).toBe("Counts for no group that still needs an approval")
+    expect(presentApprovalScope([group("Design", ["a.css"], { approved: true })], new Set())).toBe("Counts for no group that still needs an approval")
+  })
+
+  it("names the groups alone when their files are unknown or none here, and says nothing without groups", () => {
+    expect(presentApprovalScope([group("Design", null)], new Set(["a.css"]))).toBe("Counts for Design")
+    expect(presentApprovalScope([group("Design", [])], new Set())).toBe("Counts for Design")
+    expect(presentApprovalScope([], new Set(["a.css"]))).toBeNull()
   })
 })

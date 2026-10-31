@@ -389,7 +389,8 @@ test.describe("Branch review window", () => {
     await page.getByTestId("branch-review-owner").filter({ hasText: "UI Team" }).click()
     await expect(fileHeader(page, "README.md")).toHaveAttribute("data-muted", "")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
-    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 3 / 4")
+    // the footer counts the part of the chip too: login.js is the one file of UI Team
+    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 3 / 4 · UI Team 1 / 1")
 
     // all files again: nothing muted, the review still at the file it showed
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
@@ -459,12 +460,14 @@ test.describe("Branch review window", () => {
     await expect(tree.getByRole("treeitem", { name: "README.md" })).not.toHaveAttribute("data-muted")
     await expect(fileHeader(page, "auth/token.js")).toHaveAttribute("data-muted", "")
     await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
+    // the footer counts the files of Monorepo, the file shown being another owner's
+    await expect(position).toHaveText("All Changes · File 1 / 4 · Monorepo 1")
 
     // N from the first file passes the blocks of the others to README.md; P finds none of Monorepo before it, and moves
     // nothing: with All it goes back to ui/login.js
     await focusDiffs()
     await page.keyboard.press("n")
-    await expect(position).toHaveText("All Changes · File 4 / 4")
+    await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
     await page.keyboard.press("p")
     await owner("All").click()
     await focusDiffs()
@@ -478,7 +481,7 @@ test.describe("Branch review window", () => {
     await owner("Monorepo").click()
     await focusDiffs()
     await page.keyboard.press("j")
-    await expect(position).toHaveText("All Changes · File 4 / 4")
+    await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
     await page.keyboard.press("k")
     await owner("All").click()
     await expect(tree.getByRole("treeitem", { name: "auth", exact: true })).not.toHaveAttribute("data-muted")

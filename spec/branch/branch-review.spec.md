@@ -366,6 +366,12 @@ keys.
   says "1 file · Auth Team".
   [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chosen chip when the files have none of its own, so it can be turned off`, `names the chosen owner, and says when it has no files in the part`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all`)
+- While a chip that marks files of the shown changes is chosen, the footer must add the part of its owner after the
+  file: "All Changes · File 3 / 12 · Design 2 / 5" when the file shown is the second of Design's five in the order of
+  the tree, "… · Design 5" when it is another owner's. A chip at 0, a branch-wide group and a group whose files nobody
+  tells add nothing, nor does All; the search of the files counts among the files it keeps.
+  [@test] ../../src/lib/review-position.test.ts (`counts the part of the chosen owner chip after the file: its place on a file of its own, its files on another`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`, `should review a stacked branch on its parent, then the whole stack, by owner`)
 - The chips, their marks and their keys must be the same in the review window of a pull request
   ([Review Requests](../repository/review-requests.spec.md#owner-chips)): one header of the files and one reading of
   the owners for both windows.

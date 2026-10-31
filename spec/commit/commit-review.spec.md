@@ -267,7 +267,9 @@ where a dialog would cover it.
   status colour, the name `font-medium` in the status colour, the directory muted after it), the copy button on hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
-- The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits, and on the
+- The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows
+  of a branch and of a pull request add the part of a chosen owner chip, "· Design 2 / 5", [Branch
+  Review](../branch/branch-review.spec.md#code-owners); the window of a commit has no chips), and on the
   right the hints `J K Files`, `N P Changes`, `F Sidebar`, `I Details` while a row of the tree has the focus
   ([Review Plan](../branch/review-plan.spec.md)), `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
   `Esc Close`.

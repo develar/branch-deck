@@ -8,6 +8,7 @@ import { formatShortHash } from "@/lib/hash"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatReturnedMeta } from "@/lib/outgoing-attention"
 import { VISIBLE_ROW_CAP, formatDuration, formatRequestMeta, pickVisibleRequests, reviewRequestKey, withSearchText } from "@/lib/review-requests"
+import { joinNames } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
 /** The title of each section after the requests by name */
@@ -289,4 +290,41 @@ export function formatAskedBy(request: ReviewRequest, involvement: ReviewInvolve
     case "authored":
       return "Your pull request"
   }
+}
+
+/** A reviewer group of the pull request as Approve words it, with its files among the changes of the shown head */
+export interface ApprovalScopeGroup {
+  readonly name: string
+  /** The user can approve for the group (`ReviewerGroupView.yours`) */
+  readonly yours: boolean
+  /** The group has its approvals (`ReviewerGroupView.approved`) */
+  readonly approved: boolean
+  /** Its files among the changes of the pull request; null when Patronus doesn't tell them */
+  readonly files: ReadonlySet<string> | null
+}
+
+/**
+ * What an approval counts for, in the description of Approve and in the confirmation of Approve and Safe Push
+ * (spec/repository/review-requests.spec.md, "Approve"): "Counts for Design · You opened 3 of its 5 files", the user's
+ * groups that still need an approval and how many of their files the window showed for this head; "Counts for no group
+ * that still needs an approval" when the user is in none; null without groups. Information only: it never blocks
+ */
+export function presentApprovalScope(groups: readonly ApprovalScopeGroup[], opened: ReadonlySet<string>): string | null {
+  if (groups.length === 0) {
+    return null
+  }
+  const yours = groups.filter(group => group.yours && !group.approved)
+  if (yours.length === 0) {
+    return "Counts for no group that still needs an approval"
+  }
+  const counts = `Counts for ${joinNames(yours.map(group => group.name))}`
+  if (yours.some(group => group.files === null)) {
+    return counts
+  }
+  const files = new Set(yours.flatMap(group => [...group.files!]))
+  if (files.size === 0) {
+    return counts
+  }
+  const seen = [...files].filter(path => opened.has(path)).length
+  return `${counts} · You opened ${seen} of ${yours.length === 1 ? "its" : "their"} ${files.size} ${files.size === 1 ? "file" : "files"}`
 }

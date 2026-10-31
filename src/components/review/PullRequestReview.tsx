@@ -30,12 +30,13 @@ import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
-import { reviewFilterChips, reviewOwnerMarks } from "@/lib/review-owners"
+import { ownerPaths, reviewFilterChips, reviewOwnerMarks } from "@/lib/review-owners"
 import type { ReviewOwners } from "@/lib/review-owners"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
+import { presentApprovalScope } from "@/presenters/reviews"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
 import { reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
@@ -110,12 +111,30 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
   // a file chosen in the rail: the review starts over at it
   const [jump, setJump] = useState(0)
   const [filePosition, setFilePosition] = useState<ReviewPosition | null>(null)
-  const showPosition = useCallback((next: ReviewPosition) => {
-    setFilePosition(next)
-    if (next.path !== null) {
-      setLastPath(next.path)
-    }
-  }, [])
+  // the files the window showed of the head it shows, for what Approve counts ("You opened 3 of its 5 files"): a report
+  // is of the head of the render that made its callback, another head counts from zero
+  const shownHead = fetch?.status === "fetched" ? `${request.number}@${fetch.range.head}` : null
+  const [opened, setOpened] = useState<{ head: string; paths: ReadonlySet<string> } | null>(null)
+  const showPosition = useCallback(
+    (next: ReviewPosition) => {
+      setFilePosition(next)
+      const path = next.path
+      if (path !== null) {
+        setLastPath(path)
+        if (shownHead !== null) {
+          setOpened(previous =>
+            previous?.head !== shownHead
+              ? { head: shownHead, paths: new Set([path]) }
+              : previous.paths.has(path)
+                ? previous
+                : { head: shownHead, paths: new Set([...previous.paths, path]) },
+          )
+        }
+      }
+    },
+    [shownHead],
+  )
+  const openedPaths = opened !== null && opened.head === shownHead ? opened.paths : NOTHING_OPENED
   const [isRequestingChanges, setRequestingChanges] = useState(false)
   const [isConfirmingSafePush, setConfirmingSafePush] = useState(false)
   // the head of the first range of this request: a poll that brings new commits fetches them, and the review says so
@@ -207,6 +226,20 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     named: null,
   })
   const owners: ReviewOwners = { files: subjectFiles, groups: host.reviewGroups, owners: fileOwners }
+  // what Approve counts for: the user's groups still to approve and their files among all changes of the head, whatever
+  // chip is chosen; nothing while the head is fetched or Patronus hasn't told the groups of it
+  const approvalScope =
+    rangeFiles === undefined
+      ? null
+      : presentApprovalScope(
+          host.reviewGroups.map(group => ({
+            name: group.name,
+            yours: group.yours,
+            approved: group.approved,
+            files: group.branchWide ? new Set(rangeFiles.map(file => file.path)) : ownerPaths({ kind: "group", name: group.name }, rangeFiles, host.reviewGroups, fileOwners),
+          })),
+          openedPaths,
+        )
 
   /** Shows the overview or the changes; the changes at a file of the rail (of all changes) or at a commit */
   const showTab = (next: ReviewTab, at: { path?: string; item?: string } = {}) => {
@@ -240,6 +273,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
       actions: host.actions,
       words,
       busy: host.busy,
+      approvalScope,
       onReview: () => showTab("changes"),
       onApprove: () => {
         if (reviewedCommit.id !== null) {
@@ -481,6 +515,8 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
     </WindowPage>
   )
 }
+
+const NOTHING_OPENED: ReadonlySet<string> = new Set()
 
 /** The request ↑ shows; null at the top */
 function previousOf(host: PullRequestReviewHost): number | null {

@@ -111,6 +111,7 @@ export function ReviewDecisions(props: ReviewDecisionsProps) {
             request={request}
             commitId={commitId}
             approved={actions.approved}
+            approvalScope={actions.approvalScope}
             pending={busy === "safePush" || busy === "approve"}
             anchor={safePushRef}
             open={props.isConfirmingSafePush && commitId !== null && actions.safePush.disabled !== true}
@@ -165,12 +166,14 @@ function useFocusWhenOpen(open: boolean, target: RefObject<HTMLElement | null>):
 
 /**
  * What Approve and Safe Push does, before it does it: the approval of the commit the user saw, then the `/patronus
- * merge` comment, which merges and deletes the branch; Enter confirms. While Patronus is asked, the form says so.
+ * merge` comment, which merges and deletes the branch; Enter confirms. While Patronus is asked, the form says so. Before
+ * the approval, what it counts for (`approvalScope`), never a blocker.
  */
 function SafePushPopover({
   request,
   commitId,
   approved,
+  approvalScope,
   pending,
   anchor,
   open,
@@ -180,6 +183,7 @@ function SafePushPopover({
   request: ReviewRequest
   commitId: string | null
   approved: boolean
+  approvalScope: string | null
   pending: boolean
   anchor: RefObject<HTMLButtonElement | null>
   open: boolean
@@ -201,6 +205,11 @@ function SafePushPopover({
         <p className="text-sm" data-testid="review-safe-push-description">
           {`${approved ? "Comments" : `Approves ${hash}, then comments`} /patronus merge on #${request.number}: Patronus rebases ${request.headRefName} onto ${request.baseRefName}, runs the checks, merges it and deletes the branch. It reports in the pull request.`}
         </p>
+        {!approved && approvalScope !== null && (
+          <p className="text-sm text-muted-foreground" data-testid="review-safe-push-scope">
+            {approvalScope}
+          </p>
+        )}
         <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
           {pending ? (
             <span className="mr-auto flex items-center gap-2" data-testid="review-safe-push-progress">
