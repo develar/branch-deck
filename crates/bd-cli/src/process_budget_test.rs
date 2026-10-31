@@ -1127,7 +1127,8 @@ fn a_lease_return_that_starts_the_maintenance() {
 /// the host slots, then gets the slot as `bd lease get` does; a lend runs no git; the checkout of a run reads the config
 /// and HEAD and moves by the diff with one `reset`, no `status`; a give-back reads the config and one `status`, and only
 /// a dirty slot adds `reset` and `clean`; a shrink reads the config, one `status` and HEAD, which is at the leased commit
-/// again, then returns the slot as `bd lease return` does (with its `show-ref` of the slot's resolve session). The agent
+/// again, then returns the slot as `bd lease return` does (with its `show-ref` of the slot's resolve session), but
+/// without a second config and `status`: the shrink checked the slot. The agent
 /// lends on macOS and Linux only; on Windows, where git has no file mode and no symlinks, a scan stages a copy of the
 /// index instead, another budget
 #[cfg(unix)]
@@ -1205,7 +1206,7 @@ fn the_host_slots_lend_give_back_and_shrink() {
   );
   host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, ["made.txt"]));
   let git = host(&|git, params| assert!(matches!(shrink(git, params, 0).unwrap()[0].outcome, ShrinkOutcome::Returned(_))));
-  assert_git_processes(&git, &[("config", 2), ("log", 1), ("reset", 1), ("rev-parse", 3), ("show-ref", 1), ("status", 2)]);
+  assert_git_processes(&git, &[("config", 1), ("log", 1), ("reset", 1), ("rev-parse", 3), ("show-ref", 1), ("status", 1)]);
 }
 
 /// `bd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of

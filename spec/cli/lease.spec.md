@@ -686,8 +686,10 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   fills until it is lifted. It takes a slot that is idle, in quarantine or abandoned, also without a running
   agent, and refuses a slot that a live process has. It signals no process (a process in the slot refuses
   it), discards the changes, checks the slot out at the commit it was leased at, so the snapshot commits of the runs
-  count as landed, and returns it through the return of the pool without `--confirm-preserved`.
+  count as landed, and returns it through the return of the pool without `--confirm-preserved` and without a second
+  `status`. It deletes the trash of all the slots it returned once the last one is free.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_returns_the_host_slots_past_the_count_also_without_the_agent`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_deletes_the_trash_once_every_slot_it_returns_is_free`)
 - `reclaim` must take up what no process acts on: drop the record of a fill that died before its get, give back an
   abandoned lend or give-back, run an abandoned clean or shrink again, and return a `bd-host/<n>` lease that the table
   does not name and whose number no live fill holds.
@@ -703,8 +705,9 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   and the slot may be another run's by then. A run without a slot is `NoSlot`, another run's slot `NotLent`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_run_checks_out_its_commit_in_its_slot_by_the_diff`)
 - A lend runs no git, a checkout the config, HEAD and one `reset`, a give-back one `status` (plus `reset` and `clean`
-  for a dirty slot, and the `maintenance` of `branchdeck.leaseMaintenance`), a shrink one `status`, HEAD, a `reset` when the slot is not at the commit it was leased at, and
-  the processes of a return.
+  for a dirty slot, and the `maintenance` of `branchdeck.leaseMaintenance`), a shrink one config read, one `status`,
+  HEAD, a `reset` when the slot is not at the commit it was leased at, and the processes of a return but its config
+  read and its `status`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
   [@test] ../../crates/sync-utils/src/process_scan_test.rs (`a_kill_signals_only_the_process_that_has_the_start_time`)
 

@@ -2264,9 +2264,15 @@ writes):
 Its lock, `host-slots.lock`, is a leaf: it is held while the table changes, never across git, a get, a scan or another
 lock of the pool. So the order host slots, clones, pool, worktrees holds by itself. The hand return reads the table
 without the lock. A lend is lent again only after a give-back, never straight away when its process died: the run may
-have left processes and changes, which is why `reclaim`, or a waiting lend, gives an abandoned lend back first. The table names a slot by
-its lease id, never by its path, since a record that a crashed shrink left behind would otherwise refuse the return of
-a session that leased the same path since.
+have left processes and changes, which is why `reclaim`, or a waiting lend, gives an abandoned lend back first. The
+table names a slot by its lease id, never by its path, since a record that a crashed shrink left behind would otherwise
+refuse the return of a session that leased the same path since.
+
+A shrink checks each slot it takes once: a process scan, one `status`, the discard of the changes and the move to the
+commit it was leased at. Then it returns the slot through the return of the pool (`return_host_slot`), which runs no
+config read and no `status` of its own for it, and moves what its clean rules remove into the trash of the shrink. That
+trash is deleted once, after the last slot is back in the pool, as `bd lease clean` and `bd lease reclaim` delete
+theirs, so no slot waits for the delete of the build output of the one before it.
 
 A lend gives the run the idle slot of its affinity (the checkout it comes from), else the idle slot used longest ago,
 else a first-come queue. It does not rank slots by the distance between trees, because the commit can arrive after the

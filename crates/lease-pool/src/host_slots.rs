@@ -1586,8 +1586,8 @@ pub enum ShrinkOutcome {
 /// refused. Each taken slot: a process in it refuses it (none is signalled: it is older than any lend), its changes are
 /// discarded, it is checked out at the commit it was leased at, which `unlanded_commits` counts as landed, so the
 /// snapshot commits of the runs never refuse it, and its lease goes back through the return of the pool, with its clean
-/// rules. A slot the return refuses stays idle. While a live process upgrades git, the limit is set and each slot past
-/// it is refused with `GitUpgrading`
+/// rules. A slot the return refuses stays idle. What the returns moved into the trash is deleted once, after the last
+/// slot. While a live process upgrades git, the limit is set and each slot past it is refused with `GitUpgrading`
 pub fn shrink(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, keep: u32) -> Result<Vec<Shrunk>> {
   let me = Owner::this();
   let taken: Vec<Result<HostSlot, Shrunk>> = params.update(|table| {
@@ -1622,6 +1622,7 @@ pub fn shrink(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, k
     )
   })?;
   let mine = |state: &HostState| matches!(state, HostState::Shrinking(owner) if *owner == me);
+  let trash = Trash::new(&params.pool().trash_dir());
   let mut shrunk = Vec::new();
   for slot in taken {
     let slot = match slot {
@@ -1631,12 +1632,12 @@ pub fn shrink(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, k
         continue;
       }
     };
-    let outcome = match return_slot(git_executor, params, &slot.path, &slot.lease_id) {
+    let outcome = match return_slot(git_executor, params, &slot.path, &slot.lease_id, &trash) {
       Ok(Some(returned)) => ShrinkOutcome::Returned(Box::new(returned)),
       Ok(None) => ShrinkOutcome::Dropped,
       Err(error) => ShrinkOutcome::Refused(format!("{error:#}")),
     };
-    params.update(|table| {
+    let recorded = params.update(|table| {
       match outcome {
         ShrinkOutcome::Refused(_) => {
           if let Some(record) = table.slots.iter_mut().find(|record| record.n == slot.n && mine(&record.state)) {
@@ -1646,14 +1647,37 @@ pub fn shrink(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, k
         _ => table.slots.retain(|record| !(record.n == slot.n && mine(&record.state))),
       }
       Ok(())
-    })?;
+    });
     shrunk.push(Shrunk {
       n: slot.n,
       path: slot.path,
       outcome,
     });
+    if let Err(error) = recorded {
+      empty_trash(&trash, shrunk.iter_mut().map(|slot| &mut slot.outcome));
+      return Err(error);
+    }
+    debug!(n = slot.n, "a shrink is done with the host slot");
   }
+  // every returned slot is free: the delete of their build output keeps no slot waiting
+  debug!(slots = shrunk.len(), "deleting the trash of the shrink");
+  empty_trash(&trash, shrunk.iter_mut().map(|slot| &mut slot.outcome));
   Ok(shrunk)
+}
+
+/// Delete what the returns of `outcomes` moved into `trash`, each counted in its rules (`trash_left` of its return)
+fn empty_trash<'a>(trash: &Trash, outcomes: impl Iterator<Item = &'a mut ShrinkOutcome>) {
+  let mut emptied = false;
+  for outcome in outcomes {
+    if let ShrinkOutcome::Returned(returned) = outcome {
+      returned.trash_left = trash.empty(&mut returned.cleaned);
+      emptied = true;
+    }
+  }
+  if !emptied {
+    // what a return moved in before it failed (its seeded paths)
+    trash.empty(&mut []);
+  }
 }
 
 /// Lift the limit of the last shrink (`None`), or set one
@@ -1675,8 +1699,9 @@ pub fn is_abandoned(state: &HostState) -> bool {
 }
 
 /// The return of the host slot at `path` with the lease `lease_id` to the pool: `None` when the pool has no such lease
-/// (only the record is left)
-fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, path: &str, lease_id: &str) -> Result<Option<LeaseReturned>> {
+/// (only the record is left). Its one `status` is this one: the return of the pool runs none after it. What the return
+/// removes goes into `trash`, which the caller deletes once the slot is free (`empty_trash`)
+fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, path: &str, lease_id: &str, trash: &Trash) -> Result<Option<LeaseReturned>> {
   if lease_id.is_empty() {
     return Ok(None);
   }
@@ -1726,6 +1751,8 @@ fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, 
       clean: Some(CleanOverrides::default()),
       lock_timeout: params.lock_timeout,
     },
+    &config,
+    trash,
   )?;
   Ok(Some(returned))
 }
@@ -1823,11 +1850,14 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
     if filling.contains(&n) {
       continue;
     }
+    let trash = Trash::new(&params.pool().trash_dir());
     let returned = HostUser::unless_upgrading(Path::new(&params.repository.git_common_dir), params.lock_timeout).and_then(|_user| {
       warn!(slot = %slot.path, holder = %lease.holder, "returning a host slot lease that the table does not name");
-      return_slot(git_executor, params, &slot.path, &lease.id)
+      return_slot(git_executor, params, &slot.path, &lease.id, &trash)
     });
-    record(n, ReclaimAction::Returned, returned.map(drop));
+    let mut outcome = returned.map(|returned| returned.map(|returned| ShrinkOutcome::Returned(Box::new(returned))));
+    empty_trash(&trash, outcome.iter_mut().flatten());
+    record(n, ReclaimAction::Returned, outcome.map(drop));
   }
   Ok(reclaimed)
 }
@@ -1854,15 +1884,19 @@ fn shrink_one(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
     slot.state = HostState::Shrinking(me.clone());
     Ok(slot.clone())
   })?;
-  let returned = return_slot(git_executor, params, &slot.path, &slot.lease_id);
+  let trash = Trash::new(&params.pool().trash_dir());
+  let returned = return_slot(git_executor, params, &slot.path, &slot.lease_id, &trash);
   let mine = |state: &HostState| matches!(state, HostState::Shrinking(owner) if *owner == me);
-  params.update(|table| {
+  let recorded = params.update(|table| {
     if returned.is_ok() {
       table.slots.retain(|record| !(record.n == n && mine(&record.state)));
     } else if let Some(record) = table.slots.iter_mut().find(|record| record.n == n && mine(&record.state)) {
       record.state = HostState::Idle;
     }
     Ok(())
-  })?;
-  returned.map(drop)
+  });
+  let mut outcome = returned.map(|returned| returned.map(|returned| ShrinkOutcome::Returned(Box::new(returned))));
+  empty_trash(&trash, outcome.iter_mut().flatten());
+  recorded?;
+  outcome.map(drop)
 }

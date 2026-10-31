@@ -2035,21 +2035,24 @@ pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturn
   return_lease(git_executor, params, ReturnAs::Hand)
 }
 
-/// The return of a host slot by `host_slots::shrink`, which a hand return is refused
-pub(crate) fn return_host_slot(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
-  return_lease(git_executor, params, ReturnAs::HostSlot)
+/// The return of a host slot by `host_slots::shrink`, which a hand return is refused. The shrink checked the slot
+/// before: `config` is its config and its changes are discarded, so the return runs no `status` of its own. What the
+/// return removes goes into `trash` and stays there, in `cleaned`: the shrink deletes it once every slot it returns is
+/// free
+pub(crate) fn return_host_slot(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>, config: &LeaseConfig, trash: &Trash) -> Result<LeaseReturned> {
+  return_lease(git_executor, params, ReturnAs::HostSlot { config, trash })
 }
 
 /// Who returns a lease
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ReturnAs {
+#[derive(Clone, Copy)]
+enum ReturnAs<'a> {
   /// `bd lease return`: a host slot is refused
   Hand,
-  /// The shrink of the host slots
-  HostSlot,
+  /// The shrink of the host slots, with the config it read of the clean slot and the trash it deletes
+  HostSlot { config: &'a LeaseConfig, trash: &'a Trash },
 }
 
-fn return_lease(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>, returning_as: ReturnAs) -> Result<LeaseReturned> {
+fn return_lease(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>, returning_as: ReturnAs<'_>) -> Result<LeaseReturned> {
   let mut path = canonical_path(Path::new(&params.workspace.top_level));
   let pool = Pool::new(Path::new(&canonical_path(Path::new(&params.workspace.git_common_dir))));
   if let (true, Some(lease_id)) = (params.find_by_lease_id, params.lease_id)
@@ -2153,7 +2156,7 @@ fn wait_while_returning(pool: &Pool, path: &str, lease_id: &str) -> Result<()> {
 fn return_once(
   git_executor: &GitCommandExecutor,
   params: &LeaseReturnParams<'_>,
-  returning_as: ReturnAs,
+  returning_as: ReturnAs<'_>,
   pool: &Pool,
   path: &str,
   waited_for: Option<&Slot>,
@@ -2184,7 +2187,7 @@ fn return_once(
       actual: lease.id,
     });
   }
-  if returning_as == ReturnAs::Hand
+  if matches!(returning_as, ReturnAs::Hand)
     && let Some(n) = host_slot_number(Path::new(&params.workspace.git_common_dir), &lease)?
   {
     bail!(LeaseRefusal::HostSlot { path, n });
@@ -2220,8 +2223,16 @@ fn return_once(
       check: landed_check,
     });
   }
-  let config = lease_config(git_executor, &path)?;
-  let changes = slot_changes(git_executor, &path, config.untracked)?;
+  let read_config;
+  let (config, changes) = match returning_as {
+    ReturnAs::Hand => {
+      read_config = lease_config(git_executor, &path)?;
+      let changes = slot_changes(git_executor, &path, read_config.untracked)?;
+      (&read_config, changes)
+    }
+    // the shrink discarded the changes of the slot it checked
+    ReturnAs::HostSlot { config, .. } => (config, Vec::new()),
+  };
   if !changes.is_empty() && !params.confirm_preserved {
     bail!(LeaseRefusal::DirtyWorktree { path, paths: changes });
   }
@@ -2242,8 +2253,15 @@ fn return_once(
     Reservation::Returning => return Ok(ReturnStep::WaitFor(Box::new(slot))),
     Reservation::Returned => return Ok(ReturnStep::Done(Box::new(joined_return(slot, Some(landed_check), scan.is_available())))),
   }
-  let trash = Trash::new(&pool.trash_dir());
-  let returned = finish_return(git_executor, &path, &lease, &changes, params.clean, &trash);
+  let own_trash;
+  let (trash, deletes_trash) = match returning_as {
+    ReturnAs::Hand => {
+      own_trash = Trash::new(&pool.trash_dir());
+      (&own_trash, true)
+    }
+    ReturnAs::HostSlot { trash, .. } => (trash, false),
+  };
+  let returned = finish_return(git_executor, &path, &lease, &changes, params.clean, trash);
   let FinishedReturn {
     removed,
     detached_branch,
@@ -2263,7 +2281,9 @@ fn return_once(
         warn!(slot = %path, error = %format!("{restore_error:#}"), "cannot give the lease back after a failed return");
       }
       // what went into the trash before the error goes for good (the seeded paths)
-      trash.empty(&mut []);
+      if deletes_trash {
+        trash.empty(&mut []);
+      }
       return Err(error);
     }
   };
@@ -2282,7 +2302,7 @@ fn return_once(
     && start_deferred_maintenance(git_executor, &params.workspace.git_common_dir)
       .inspect_err(|error| warn!(error = %format!("{error:#}"), "cannot start git's maintenance after the return"))
       .is_ok();
-  let trash_left = trash.empty(&mut cleaned);
+  let trash_left = if deletes_trash { trash.empty(&mut cleaned) } else { Vec::new() };
   Ok(ReturnStep::Done(Box::new(LeaseReturned {
     slot,
     discarded: changes,

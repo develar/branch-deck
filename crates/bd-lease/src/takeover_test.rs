@@ -1,7 +1,7 @@
 //! The takeover of an idle lease by a get, `bd lease reclaim` and the refusal of a resumed session
 //! (spec/cli/lease.spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
 //! older than the quiet time
-use crate::lease_test::{Fixture, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states};
+use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states};
 #[cfg(unix)]
 use bd_cli::fixture_test::PREFIX;
 use bd_cli::fixture_test::{assert_covered, assert_error, make_lease_idle, run_in};
@@ -339,12 +339,7 @@ fn reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free() {
     assert_eq!(output["trash_left"], Value::Null, "nothing is left in the trash: {output}");
     assert!(output["cleaned"][0]["freed_bytes"].as_u64().unwrap() > 0, "{output}");
   }
-  let trash = fixture.repo.path().join(".git/branch-deck/trash");
-  assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0, "the trash is empty");
-  let text = log.text();
-  let freed: Vec<usize> = text.match_indices("an idle lease is reclaimed").map(|(at, _)| at).collect();
-  let deleted = text.find("deleting the trash of the reclaimed slots").expect("the trash is deleted");
-  assert!(freed.len() == 2 && freed.iter().all(|&at| at < deleted), "{text}");
+  assert_trash_deleted_once_free(&fixture, &log.text(), ("an idle lease is reclaimed", 2), "deleting the trash of the reclaimed slots");
 }
 
 /// Below the minimum free space a get deletes the trash of the runs that are gone before it refuses, which a takeover

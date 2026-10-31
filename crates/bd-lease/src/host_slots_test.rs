@@ -8,7 +8,7 @@
 use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
-use crate::lease_test::{Fixture, path_of, slot_git};
+use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git};
 use bd_cli::fixture_test::{assert_error, git};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
@@ -548,6 +548,29 @@ fn a_shrink_returns_the_host_slots_past_the_count_also_without_the_agent() {
   assert!(fill(&context.git, &params, None).unwrap().is_empty(), "the limit of the shrink holds");
   set_limit(&params, None).unwrap();
   assert_eq!(fill(&context.git, &params, None).unwrap().len(), 2);
+}
+
+/// A shrink returns each slot without deleting its trash, and deletes what the clean rules of all of them moved there
+/// once the last one is free; nothing is left
+#[test]
+fn a_shrink_deletes_the_trash_once_every_slot_it_returns_is_free() {
+  let log = test_utils::captured_log::CapturedLog::install(false);
+  let host = Host::filled(2);
+  let (fixture, context, params) = host.parts();
+  for slot in &host.filled {
+    std::fs::create_dir_all(Path::new(&slot.path).join("out")).unwrap();
+    std::fs::write(Path::new(&slot.path).join("out/cache"), vec![b'x'; 1 << 16]).unwrap();
+  }
+
+  let shrunk = shrink(&context.git, &params, 0).unwrap();
+  for (slot, filled) in shrunk.iter().zip(&host.filled) {
+    let ShrinkOutcome::Returned(returned) = &slot.outcome else {
+      panic!("not returned: {slot:?}")
+    };
+    assert_eq!((returned.cleaned[0].freed_bytes > 0, &returned.trash_left), (true, &Vec::new()), "{returned:?}");
+    assert!(!Path::new(&filled.path).join("out/cache").exists());
+  }
+  assert_trash_deleted_once_free(fixture, &log.text(), ("a shrink is done with the host slot", 2), "deleting the trash of the shrink");
 }
 
 /// `reclaim` drops the record of a fill that died before its get and returns a `bd-host/<n>` lease that the table does

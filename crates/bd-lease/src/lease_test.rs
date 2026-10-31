@@ -532,6 +532,16 @@ fn a_clone_that_fails_falls_back_to_a_checkout() {
   assert_eq!(std::fs::read_to_string(Path::new(&path).join("b.txt")).unwrap(), "b\n");
 }
 
+/// The trash of the pool of `fixture` is empty, and the log `text` has `freed.1` lines `freed.0`, one per slot a command
+/// freed, each before the line `deleted` of the delete of their trash: the command deleted it once every slot was free
+pub(crate) fn assert_trash_deleted_once_free(fixture: &Fixture, text: &str, freed: (&str, usize), deleted: &str) {
+  let trash = fixture.repo.path().join(".git/branch-deck/trash");
+  assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0, "the trash is empty");
+  let lines: Vec<usize> = text.match_indices(freed.0).map(|(at, _)| at).collect();
+  let deleted = text.find(deleted).unwrap_or_else(|| panic!("no {deleted:?} in {text}"));
+  assert!(lines.len() == freed.1 && lines.iter().all(|&at| at < deleted), "{text}");
+}
+
 /// Commit `file` in the slot at `path`
 pub(crate) fn commit_in(path: &str, subject: &str, file: &str) -> String {
   commit_content(path, subject, file, &format!("{subject}\n"))
