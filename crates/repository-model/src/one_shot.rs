@@ -10,7 +10,6 @@
 use crate::branch_table::BranchTable;
 use crate::derive::LandingFacts;
 use crate::facts::{FactResult, FactStore, Needs, Observation, Seq, derive_patronus, listed_robots};
-use crate::patronus_view::lock_memo;
 use crate::readiness_facts::ReadinessDigest;
 use crate::session::SessionKey;
 use crate::table::TableState;
@@ -92,7 +91,7 @@ impl OneShot {
     let Some(derivation) = self.facts.begin_patronus(&self.state, Duration::ZERO) else {
       return;
     };
-    let view = derive_patronus(git, &self.key.worktree, &derivation.of(), &mut lock_memo(&self.facts.memo));
+    let view = derive_patronus(git, &self.key.worktree, &derivation.of(), &self.facts.memo);
     let observation = Observation {
       inputs: derivation.inputs,
       ..self.observation()

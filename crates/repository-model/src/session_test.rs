@@ -221,7 +221,7 @@ impl SessionHost for ScriptedHost {
   }
 
   /// By the hashes only: the scripted tables are of no repository
-  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, ApiError> {
     *self.derivations.lock().unwrap_or_else(PoisonError::into_inner) += 1;
     if let Some(gate) = self.view_gate.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
       let _ = gate.started.send(());

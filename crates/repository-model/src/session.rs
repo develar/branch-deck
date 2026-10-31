@@ -175,7 +175,7 @@ pub trait SessionHost: Send + Sync + 'static {
   ///
   /// # Errors
   /// Why there is no view (the E2E server fails it as a test sets)
-  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError>;
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, ApiError>;
 
   /// The landing needs of the current grouping of `key` with `landed`, the commits merged Safe Pushes landed
   /// (`trial_check::landing_gate::landing_needs_of`, through the host). Blocking: the runtime calls it on the blocking

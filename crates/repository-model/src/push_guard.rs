@@ -41,7 +41,7 @@ pub fn guard_facts(git_executor: &GitCommandExecutor, repository_path: &str, tab
     needs_review: &BTreeMap::new(),
     failing: &[],
   };
-  let view = derive_patronus(git_executor, repository_path, &of, &mut table.memo());
+  let view = derive_patronus(git_executor, repository_path, &of, &table.memo);
   GuardFacts { synced, robots, view }
 }
 

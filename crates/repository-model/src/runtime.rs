@@ -46,7 +46,7 @@ use crate::branch_table::BranchTable;
 use crate::derive::wanted_readiness;
 use crate::facts::{AppliedFacts, AskedRobots, FactResult, FactStore, FactTicket, Needs, Observation, PatronusOf, RobotsDigest, Seq, TableFacts, derive_patronus, robots_digest};
 use crate::moved_remote::{FetchedRemote, MovedFetches};
-use crate::patronus_view::{ContentMemo, lock_memo};
+use crate::patronus_view::ContentMemo;
 use crate::pull_request_facts::{PullRequestSubject, PullRequestWrite, PushedHead};
 use crate::readiness_facts::ReadinessDigest;
 use crate::session::{Busy, EventSink, RunReporter, SessionEventKind, SessionHost, SessionKey, SessionLife, Subscriber, SubscriptionId, SyncRun, SyncedTable, Waiter};
@@ -928,7 +928,7 @@ impl Actor {
     let (host, key, memo) = (Arc::clone(&self.host), self.key.clone(), Arc::clone(&self.facts.memo));
     tokio::spawn(
       async move {
-        let derive = move || host.derive_patronus(&key, &derivation.of(), &mut lock_memo(&memo));
+        let derive = move || host.derive_patronus(&key, &derivation.of(), &memo);
         let result = tokio::task::spawn_blocking(in_current_span(derive))
           .await
           .unwrap_or_else(|error| Err(ApiError::internal(format!("The view of the robots failed: {error}"))));
@@ -1278,7 +1278,7 @@ impl<E: SessionEnvironment> SessionHost for GitSessionHost<E> {
     self.environment.syncs_on_focus(key)
   }
 
-  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, ApiError> {
     self.environment.before_patronus_view(key)?;
     Ok(derive_patronus(&self.git_of(key), &key.worktree, of, memo))
   }

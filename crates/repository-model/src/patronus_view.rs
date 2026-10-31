@@ -36,21 +36,29 @@ use tracing::{debug, instrument};
 const MEMO_LIMIT: usize = 512;
 
 /// The answers by content of earlier views, by the state they depend on (`content_key`: the robot's commit, the tip of
-/// its subject and the commits of the branches with their copies): a view of the same state runs no git
+/// its subject and the commits of the branches with their copies): a view of the same state runs no git. Shared by the
+/// views of a session and the checks of its pushes, locked only to look up and to keep answers, never across git
 #[derive(Debug, Default)]
 pub struct ContentMemo {
+  answers: Mutex<MemoAnswers>,
+}
+
+#[derive(Debug, Default)]
+struct MemoAnswers {
   landings: HashMap<String, Vec<BranchLanding>>,
   spans: HashMap<String, Option<Vec<BranchSpan>>>,
 }
 
-/// `memo`; a poisoned one (a panic in a content walk) starts again
-pub fn lock_memo(memo: &Mutex<ContentMemo>) -> MutexGuard<'_, ContentMemo> {
-  memo.lock().unwrap_or_else(|poisoned| {
-    memo.clear_poison();
-    let mut memo = poisoned.into_inner();
-    *memo = ContentMemo::default();
-    memo
-  })
+impl ContentMemo {
+  /// The answers; poisoned ones (a panic while they were locked) start again
+  fn answers(&self) -> MutexGuard<'_, MemoAnswers> {
+    self.answers.lock().unwrap_or_else(|poisoned| {
+      self.answers.clear_poison();
+      let mut answers = poisoned.into_inner();
+      *answers = MemoAnswers::default();
+      answers
+    })
+  }
 }
 
 /// The robot of each branch and of each whole stack of the table (`domain_policy::robot_match`: started on the branch,
@@ -194,6 +202,25 @@ fn ask_content<'r, T>(
   }
 }
 
+/// The answers `kept` has of the questions by content of `planned`, taken while the memo is locked
+fn known_answers<T, V: Clone>(planned: &[Planned<'_, T>], kept: &HashMap<String, V>) -> HashMap<String, V> {
+  planned
+    .iter()
+    .filter_map(|planned| match &planned.told {
+      Told::Content(key) => kept.get(key).map(|answer| (key.clone(), answer.clone())),
+      Told::Hashes(_) => None,
+    })
+    .collect()
+}
+
+/// Keeps `answered` in `kept`, which starts again past `MEMO_LIMIT`
+fn keep_answers<V: Clone>(kept: &mut HashMap<String, V>, answered: &[(String, V)]) {
+  if kept.len() > MEMO_LIMIT {
+    kept.clear();
+  }
+  kept.extend(answered.iter().cloned());
+}
+
 /// What one merged robot landed, before the merge of all robots
 struct RobotLanded<'r> {
   robot: &'r PatronusRobot,
@@ -210,7 +237,7 @@ fn merged_landings<'r>(
   table: &BranchTable,
   remote: &RemoteFacts,
   robots: &'r [PatronusRobot],
-  memo: &mut ContentMemo,
+  memo: &ContentMemo,
 ) -> Vec<RobotLanded<'r>> {
   let mut merged: Vec<&PatronusRobot> = robots
     .iter()
@@ -218,9 +245,10 @@ fn merged_landings<'r>(
     .collect();
   merged.sort_by_key(|robot| robot.finish_time.unwrap_or(0));
 
-  // by robot: the subject, and what the hashes told or the key of the content
+  // by robot: the subject, and what the hashes told or the key of the content; the memo is locked for the lookups only
   let mut asked: Vec<(String, RobotLandingRequest)> = Vec::new();
   let mut planned: Vec<Planned<'_, Vec<BranchLanding>>> = Vec::new();
+  let kept = memo.answers();
   for robot in merged {
     let source = robot.source_revision.as_deref().unwrap_or_default();
     let subject = match (&robot.branch_name, &robot.stack_root) {
@@ -256,7 +284,6 @@ fn merged_landings<'r>(
         told: Told::Hashes(branches),
       });
     } else {
-      let landings = &memo.landings;
       planned.push(ask_content(
         table,
         robot,
@@ -264,25 +291,29 @@ fn merged_landings<'r>(
         source,
         candidates,
         Vec::new(),
-        |key| landings.contains_key(key),
+        |key| kept.landings.contains_key(key),
         &mut asked,
       ));
     }
   }
+  let mut known = known_answers(&planned, &kept.landings);
+  drop(kept);
   if !asked.is_empty() {
-    if memo.landings.len() > MEMO_LIMIT {
-      memo.landings.clear();
-    }
     let requests: Vec<RobotLandingRequest> = asked.iter().map(|(_, request)| request.clone()).collect();
     match robot_landings_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
       Ok(answers) => {
-        for (key, request) in asked {
-          let branches = answers
-            .iter()
-            .find(|landing| landing.robot_id == request.robot_id)
-            .map_or_else(Vec::new, |landing| landing.branches.clone());
-          memo.landings.insert(key, branches);
-        }
+        let answered: Vec<(String, Vec<BranchLanding>)> = asked
+          .into_iter()
+          .map(|(key, request)| {
+            let branches = answers
+              .iter()
+              .find(|landing| landing.robot_id == request.robot_id)
+              .map_or_else(Vec::new, |landing| landing.branches.clone());
+            (key, branches)
+          })
+          .collect();
+        keep_answers(&mut memo.answers().landings, &answered);
+        known.extend(answered);
       }
       // nothing landed by content for this view; the next view asks again
       Err(error) => debug!(error = %format!("{error:#}"), "no robot landings: nothing landed by content"),
@@ -293,7 +324,7 @@ fn merged_landings<'r>(
     .map(|Planned { robot, subject, told, .. }| {
       let branches = match told {
         Told::Hashes(branches) => branches,
-        Told::Content(key) => memo.landings.get(&key).cloned().unwrap_or_default(),
+        Told::Content(key) => known.remove(&key).unwrap_or_default(),
       };
       RobotLanded {
         robot,
@@ -326,7 +357,7 @@ fn running_spans<'r>(
   remote: &RemoteFacts,
   robot_of: impl Fn(&str) -> Option<&'r PatronusRobot>,
   stack_robot_of: impl Fn(&str) -> Option<&'r PatronusRobot>,
-  memo: &mut ContentMemo,
+  memo: &ContentMemo,
 ) -> Vec<RobotSpanFacts<'r>> {
   let lands = |robot: &&PatronusRobot| is_active(robot) && is_pushing(robot);
   let mut subjects: Vec<(&PatronusRobot, Subject, Vec<String>)> = Vec::new();
@@ -360,8 +391,10 @@ fn running_spans<'r>(
       })
       .collect()
   };
+  // the memo is locked for the lookups only
   let mut asked: Vec<(String, RobotLandingRequest)> = Vec::new();
   let mut planned: Vec<Planned<'_, Option<HashMap<String, Carried>>>> = Vec::new();
+  let kept = memo.answers();
   for (robot, subject, candidates) in subjects {
     let Some(source) = robot.source_revision.as_deref() else {
       // just started: its commit is not known yet
@@ -387,19 +420,26 @@ fn running_spans<'r>(
       Subject::Branch { name } => candidates.iter().cloned().chain(std::iter::once(name.clone())).collect(),
       Subject::WholeStack { .. } => candidates.clone(),
     };
-    let spans = &memo.spans;
-    planned.push(ask_content(table, robot, subject, source, branches, candidates, |key| spans.contains_key(key), &mut asked));
+    planned.push(ask_content(
+      table,
+      robot,
+      subject,
+      source,
+      branches,
+      candidates,
+      |key| kept.spans.contains_key(key),
+      &mut asked,
+    ));
   }
+  let mut known = known_answers(&planned, &kept.spans);
+  drop(kept);
   if !asked.is_empty() {
-    if memo.spans.len() > MEMO_LIMIT {
-      memo.spans.clear();
-    }
     let requests: Vec<RobotLandingRequest> = asked.iter().map(|(_, request)| request.clone()).collect();
     match robot_spans_of_grouped(git_executor, repository_path, &table.prefix, &table.baseline, &requests, &table.branches) {
       Ok(answers) => {
-        for ((key, _), answer) in asked.into_iter().zip(answers) {
-          memo.spans.insert(key, answer.branches);
-        }
+        let answered: Vec<(String, Option<Vec<BranchSpan>>)> = asked.into_iter().zip(answers).map(|((key, _), answer)| (key, answer.branches)).collect();
+        keep_answers(&mut memo.answers().spans, &answered);
+        known.extend(answered);
       }
       // the stack as it is now holds, asked again by the next view
       Err(error) => debug!(error = %format!("{error:#}"), "no robot spans: the stack as it is now tells"),
@@ -410,7 +450,7 @@ fn running_spans<'r>(
     .map(|Planned { robot, subject, candidates, told }| {
       let carried = match told {
         Told::Hashes(carried) => carried,
-        Told::Content(key) => memo.spans.get(&key).cloned().flatten().map(|branches| {
+        Told::Content(key) => known.remove(&key).flatten().map(|branches| {
           branches
             .into_iter()
             .map(|span| {
@@ -457,7 +497,7 @@ fn spans_by_branch(spans: &[RobotSpanFacts<'_>], counts: impl Fn(&PatronusRobot)
 /// git error is an answer of nothing by content: a merged robot landed nothing, a running one lands what the stack as
 /// it is now says.
 #[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
-pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &mut ContentMemo) -> PatronusView {
+pub fn patronus_view(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, matched: &RobotMatches, memo: &ContentMemo) -> PatronusView {
   let PatronusOf {
     table,
     remote,

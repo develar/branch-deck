@@ -4894,10 +4894,12 @@ process when the hashes tell:
 
 else the robot landing and the robot span ask the content, one call each for every robot the memo lacks
 (`ContentMemo`, by the robot's commit, the tip of its subject and the commits of the candidate branches with their
-copies): a view of the same state asks no git again. A git error is an answer of nothing by content: a merged robot
+copies): a view of the same state asks no git again. The memo is shared by the views of a session and the checks of
+its pushes, and locked only to look up and to keep answers, never across the git of a view, so a push does not wait for
+the content walk of a view. A git error is an answer of nothing by content: a merged robot
 landed nothing, a running one lands what the stack as it is now says. `patronus_view_content_test.rs` pins the
 processes: none for a robot at its tip or under new commits, one `cat-file --batch-check` and two `rev-list` after a
-restack, none for the same state again.
+restack, none for the same state again, and the memo free while git runs (`the_memo_is_free_while_git_tells_the_content`).
 
 The session derives the view itself (`facts::derive_patronus` = the matching of `domain_policy::robot_match`, which
 names the robot of each branch and whole stack as `robotId`, and `patronus_view`; `PatronusFact`, the actor in

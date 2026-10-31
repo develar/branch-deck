@@ -815,7 +815,7 @@ impl SessionHost for Seeded {
     self.host.syncs_on_focus(key)
   }
 
-  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+  fn derive_patronus(&self, key: &SessionKey, of: &PatronusOf<'_>, memo: &ContentMemo) -> Result<PatronusView, ApiError> {
     self.host.derive_patronus(key, of, memo)
   }
 

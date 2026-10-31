@@ -1201,13 +1201,13 @@ impl AppSession<'_> {
     let Some(derivation) = self.facts.begin_patronus(&self.state, Duration::ZERO) else {
       return;
     };
-    let context = self.context;
-    let view = derive_patronus(&context.git, &context.repository, &derivation.of(), &mut self.facts.memo.lock().unwrap());
+    let (context, memo) = (self.context, &self.facts.memo);
+    let answer = Ok(derive_patronus(&context.git, &context.repository, &derivation.of(), memo));
     let observation = Observation {
       inputs: derivation.inputs,
       ..self.observation()
     };
-    self.facts.patronus.answer(observation, Ok(view));
+    self.facts.patronus.answer(observation, answer);
     let table = derivation.table;
     let mut compute = self.facts.patronus.publish(&table);
     while let Some((inputs, landed)) = compute {

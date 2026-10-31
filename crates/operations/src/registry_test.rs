@@ -38,7 +38,7 @@ impl SessionHost for IdleHost {
     false
   }
 
-  fn derive_patronus(&self, _key: &SessionKey, _of: &PatronusOf<'_>, _memo: &mut ContentMemo) -> Result<PatronusView, ApiError> {
+  fn derive_patronus(&self, _key: &SessionKey, _of: &PatronusOf<'_>, _memo: &ContentMemo) -> Result<PatronusView, ApiError> {
     Ok(PatronusView::default())
   }
 

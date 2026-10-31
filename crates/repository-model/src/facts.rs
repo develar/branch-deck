@@ -65,7 +65,7 @@ use crate::branch_table::{BranchTable, RemoteFacts, remote_fact};
 use crate::derive::landed_subject;
 use crate::landed_closes::{LandedCloses, push_closes};
 use crate::moved_remote::{FetchedRemote, MovedRemoteAsk};
-use crate::patronus_view::{ContentMemo, landed_commits, lock_memo, match_robots, patronus_view, with_landing_needs};
+use crate::patronus_view::{ContentMemo, landed_commits, match_robots, patronus_view, with_landing_needs};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, local_tip};
 use crate::review_request_facts::ReviewRequestsFact;
@@ -92,7 +92,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::instrument;
 
@@ -392,7 +392,7 @@ pub struct AppliedFacts {
 #[derive(Clone, Debug)]
 pub struct TableFacts {
   pub table: Arc<BranchTable>,
-  pub memo: Arc<Mutex<ContentMemo>>,
+  pub memo: Arc<ContentMemo>,
   pub remote: RemoteFacts,
 }
 
@@ -406,11 +406,6 @@ impl TableFacts {
       memo: Arc::default(),
     }
   }
-
-  /// The memo; a poisoned one (a panic in a content walk) starts again
-  pub fn memo(&self) -> MutexGuard<'_, ContentMemo> {
-    lock_memo(&self.memo)
-  }
 }
 
 /// The facts of a session
@@ -420,7 +415,7 @@ pub struct FactStore {
   /// succeeded, `Stale` with the error of a later run that failed (a deferred run changes nothing)
   pub table: FactRecord<Arc<BranchTable>>,
   /// What the views of the table asked by content (`patronus_view`), kept across its syncs
-  pub memo: Arc<Mutex<ContentMemo>>,
+  pub memo: Arc<ContentMemo>,
   /// The user's robots of Patronus
   pub robots: RobotsFact,
   /// What the robots land, landed and hold of the table, with its landing needs
@@ -461,7 +456,7 @@ impl FactStore {
   pub fn new() -> Self {
     Self {
       table: FactRecord::loading(),
-      memo: Arc::new(Mutex::new(ContentMemo::default())),
+      memo: Arc::default(),
       robots: RobotsFact::default(),
       patronus: PatronusFact::default(),
       pull_requests: PullRequestsFact::default(),
@@ -1374,7 +1369,7 @@ pub type Needs = BTreeMap<String, Vec<LandingRefusal>>;
 /// decide over that (`patronus_view` over `match_robots`, `derive::decide_landing`): the one derivation of the session
 /// and of `bd` (`one_shot::OneShot::derive_patronus`); runs git for the robots the hashes and `memo` don't answer: blocking
 #[instrument(skip_all, fields(robots = of.robots.len(), branches = of.table.branches.len()))]
-pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, memo: &mut ContentMemo) -> PatronusView {
+pub fn derive_patronus(git_executor: &GitCommandExecutor, repository_path: &str, of: &PatronusOf<'_>, memo: &ContentMemo) -> PatronusView {
   let matched = match_robots(of.table, of.remote, of.robots);
   patronus_view(git_executor, repository_path, of, &matched, memo)
 }

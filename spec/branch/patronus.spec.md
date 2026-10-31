@@ -1095,9 +1095,11 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   commits the robot tested and whose other commits were added after them landed, those commits the only work left:
   "Landed with oauth · 1 commit after it" ("Landed · 1 commit after it" of the robot's own branch), its push and Safe
   Push offered for them. A branch with a commit changed since, or a new one below a tested one, is not landed. Asked
-  once per state of the branches (`ContentMemo`, keyed by the robot's commit and the commits of the branches), on the
-  table the last sync left; of several robots that landed a branch, the one that left the fewest commits after it counts.
+  once per state of the branches (`ContentMemo`, keyed by the robot's commit and the commits of the branches, locked only
+  to look up and to keep answers, never while git runs), on the table the last sync left; of several robots that landed
+  a branch, the one that left the fewest commits after it counts.
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_commit_added_below_the_robots_commit_is_the_only_work_left`)
+  [@test] ../../crates/repository-model/src/patronus_view_content_test.rs (`the_memo_is_free_while_git_tells_the_content`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`the_merged_robot_that_left_the_least_work_names_the_landing`)
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../crates/sync-core/src/robot_landing_test.rs (`a_robot_at_the_tip_landed_the_branch_and_what_it_is_built_on`, `a_commit_added_below_the_robots_commit_is_the_only_work_left`, `a_reworded_commit_below_keeps_the_branches_landed`, `an_amended_commit_leaves_its_branch_not_landed`, `a_commit_not_synced_yet_is_after_the_landed_ones`, `the_robot_of_the_whole_stack_landed_every_branch_of_it`, `a_missing_source_lands_nothing`)

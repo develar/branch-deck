@@ -56,7 +56,7 @@ fn running(id: &str, branch: &str, source: &str) -> PatronusRobot {
 }
 
 /// The view of `table` with `robots` on a counting executor, and the processes it ran by subcommand
-fn counted_view(repo: &TestRepo, table: &BranchTable, robots: &[PatronusRobot], memo: &mut ContentMemo) -> (PatronusView, Vec<(String, u32)>) {
+fn counted_view(repo: &TestRepo, table: &BranchTable, robots: &[PatronusRobot], memo: &ContentMemo) -> (PatronusView, Vec<(String, u32)>) {
   let git = GitCommandExecutor::new().with_process_stats("test");
   let remote = RemoteFacts::default();
   let matched = match_robots(table, &remote, robots);
@@ -93,14 +93,14 @@ async fn the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_
   let source = login_on_auth(&repo).await;
   let robots = [running("r", "login", &source)];
   let table = synced(&repo).await;
-  let (view, processes) = counted_view(&repo, &table, &robots, &mut ContentMemo::default());
+  let (view, processes) = counted_view(&repo, &table, &robots, &ContentMemo::default());
   assert_eq!(processes, []);
   assert_eq!(view.branches["auth"].landing.hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Span));
 
   commit(&repo, "(auth/login) Add the button", "button.rs", "// button", 1002);
   let table = synced(&repo).await;
   assert_ne!(table.tip_of("login"), Some(source.as_str()));
-  let (view, processes) = counted_view(&repo, &table, &robots, &mut ContentMemo::default());
+  let (view, processes) = counted_view(&repo, &table, &robots, &ContentMemo::default());
   assert_eq!(processes, []);
   assert_eq!(
     view.branches["auth"]
@@ -112,27 +112,78 @@ async fn the_hashes_answer_a_robot_at_its_tip_and_one_under_new_commits_without_
   );
 }
 
+/// The robot of auth started, then a restack placed a new root env below auth: the table synced since and the robot
+async fn restacked_below_a_robot(repo: &TestRepo) -> (BranchTable, [PatronusRobot; 1]) {
+  commit(repo, "(auth) Add auth", "auth.rs", "// auth", 1000);
+  let source = synced(repo).await.tip_of("auth").unwrap().to_string();
+  repo.git(&["reset", "--hard", "origin/master"]);
+  commit(repo, "(env) Add env", "env.rs", "// env", 1001);
+  commit(repo, "(env/auth) Add auth", "auth.rs", "// auth", 1000);
+  (synced(repo).await, [running("r", "auth", &source)])
+}
+
 /// A restack after the start placed a new root below the robot's branch: only the content tells, one
 /// `cat-file --batch-check` and the two walks; the new root is not held; the same state again asks no git
 #[tokio::test]
 async fn a_root_restacked_below_a_running_robot_is_told_by_content_once() {
   let repo = repo();
-  commit(&repo, "(auth) Add auth", "auth.rs", "// auth", 1000);
-  let source = synced(&repo).await.tip_of("auth").unwrap().to_string();
-  repo.git(&["reset", "--hard", "origin/master"]);
-  commit(&repo, "(env) Add env", "env.rs", "// env", 1001);
-  commit(&repo, "(env/auth) Add auth", "auth.rs", "// auth", 1000);
-  let table = synced(&repo).await;
-  let robots = [running("r", "auth", &source)];
+  let (table, robots) = restacked_below_a_robot(&repo).await;
 
-  let mut memo = ContentMemo::default();
-  let (view, processes) = counted_view(&repo, &table, &robots, &mut memo);
+  let memo = ContentMemo::default();
+  let (view, processes) = counted_view(&repo, &table, &robots, &memo);
   assert_eq!(processes, [("cat-file".to_string(), 1), ("rev-list".to_string(), 2)]);
   assert_eq!(view.branches.get("env").and_then(|facts| facts.landing.hold.clone()), None);
   assert_eq!(view.branches["auth"].landing.hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Own));
 
-  let (again, processes) = counted_view(&repo, &table, &robots, &mut memo);
+  let (again, processes) = counted_view(&repo, &table, &robots, &memo);
   assert_eq!((processes, again), (Vec::new(), view));
+}
+
+/// The memo is locked only to look up and to keep answers: while git tells the content of a robot (a git here that
+/// waits until the test lets it go), another view, or the checks of a push, takes the memo
+#[cfg(unix)]
+#[tokio::test]
+async fn the_memo_is_free_while_git_tells_the_content() {
+  use git_executor::git_info::GitInfo;
+  use test_utils::fake_executable::{fake_executable, shell_path};
+  let repo = repo();
+  let (table, robots) = restacked_below_a_robot(&repo).await;
+
+  let dir = tempfile::tempdir().unwrap();
+  let (started, go) = (dir.path().join("started"), dir.path().join("go"));
+  let body = format!(
+    "touch '{}'\nwhile [ ! -f '{}' ]; do sleep 0.01; done\nexec git \"$@\"",
+    shell_path(&started),
+    shell_path(&go)
+  );
+  let script = fake_executable(dir.path(), "git", &body);
+  let git = GitCommandExecutor::with_info(GitInfo {
+    version: GitCommandExecutor::new().get_info().unwrap().version.clone(),
+    path: script.to_str().unwrap().to_owned(),
+  });
+  let remote = RemoteFacts::default();
+  let matched = match_robots(&table, &remote, &robots);
+  let of = PatronusOf {
+    table: &table,
+    remote: &remote,
+    robots: &robots,
+    needs_review: &std::collections::BTreeMap::new(),
+    failing: &[],
+  };
+  let memo = ContentMemo::default();
+  let view = std::thread::scope(|scope| {
+    let view = scope.spawn(|| patronus_view(&git, repo.path_str(), &of, &matched, &memo));
+    while !started.exists() {
+      assert!(!view.is_finished(), "the view asked git nothing");
+      std::thread::yield_now();
+    }
+    let free = memo.answers.try_lock().is_ok();
+    std::fs::write(&go, "").unwrap();
+    assert!(free, "the memo is free while git runs");
+    view.join().unwrap()
+  });
+  assert_eq!(view.branches["auth"].landing.hold.as_ref().map(|hold| hold.kind), Some(HoldKind::Own));
+  assert_eq!(counted_view(&repo, &table, &robots, &memo).1, [], "the answer was kept");
 }
 
 /// An amend of the parent below the robot's commit rewrites the child's copy in the same sync: its mapping note, read at
@@ -146,7 +197,7 @@ async fn an_amend_below_the_robot_is_told_by_the_copies_the_sync_wrote() {
   commit(&repo, "(auth) Add auth", "auth.rs", "// auth v2", 1000);
   commit(&repo, "(auth/login) Add login", "login.rs", "// login", 1001);
   let table = synced(&repo).await;
-  let (view, processes) = counted_view(&repo, &table, &[running("r", "login", &source)], &mut ContentMemo::default());
+  let (view, processes) = counted_view(&repo, &table, &[running("r", "login", &source)], &ContentMemo::default());
   assert!(!processes.is_empty(), "the content was asked");
   let carried = view.branches["auth"].span.as_ref().and_then(|span| span.carried.clone()).unwrap();
   assert_eq!(carried.amended, carried.commits);

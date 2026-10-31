@@ -123,7 +123,7 @@ fn view_with(table: &BranchTable, remote: &RemoteFacts, robots: &[PatronusRobot]
     needs_review: &BTreeMap::new(),
     failing: &[],
   };
-  patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &mut ContentMemo::default())
+  patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &ContentMemo::default())
 }
 
 fn view_of(table: &BranchTable, robots: &[PatronusRobot]) -> PatronusView {
@@ -540,7 +540,7 @@ fn a_robot_offers_its_restart_with_why_it_cannot_start_now() {
     needs_review: &needs_review,
     failing: &[],
   };
-  let view = patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &mut ContentMemo::default());
+  let view = patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &ContentMemo::default());
   assert!(view.restarts.is_empty());
 
   // a running one on the commit of oauth only once a required check of it failed: its restart cancels it first
@@ -556,7 +556,7 @@ fn a_robot_offers_its_restart_with_why_it_cannot_start_now() {
     needs_review: &BTreeMap::new(),
     failing: &failing,
   };
-  let view = patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &mut ContentMemo::default());
+  let view = patronus_view(&GitCommandExecutor::new(), "/nonexistent", &of, &matched, &ContentMemo::default());
   let restart = view.restarts.get("r").cloned();
   assert_eq!(restart.map(|restart| (restart.action, restart.refusal)), Some((RestartAction::Restart, None)));
 }
