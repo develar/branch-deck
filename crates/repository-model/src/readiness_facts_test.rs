@@ -388,11 +388,22 @@ fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_go
   requests.answer(review_at(3), review_available(vec![request(7, "head-2", true, carol(ReviewerState::Commented))]));
   update(&mut fact, &mut requests, &windows);
   assert_eq!(fact.digest().subjects, [], "the new head is not fetched yet");
+  let waiting = fact.fact("request:7").unwrap();
+  assert_eq!(
+    (waiting.value.is_none(), waiting.state.clone()),
+    (true, FactState::Loading),
+    "the answer of the earlier head is no answer for the new one, so no groups while its fetch runs or after it failed"
+  );
   requests.fetched(7, "head-2".to_owned());
   update(&mut fact, &mut requests, &windows);
   let moved = subject(&fact, "request:7").clone();
-  assert_eq!((moved.ask.tip.as_str(), state_of(&fact, "request:7")), ("head-2", FactState::Stale { reason: None }));
+  assert_eq!((moved.ask.tip.as_str(), fact.fact("request:7").unwrap().value.is_none()), ("head-2", true));
   fact.answer(at(4), answer(&moved, missing()));
+  let answered = fact.fact("request:7").unwrap();
+  assert_eq!(
+    (answered.state.clone(), answered.value.as_ref().map(|value| value.ask.tip.as_str())),
+    (FactState::Fresh, Some("head-2"))
+  );
 
   // a new review asks again; its approval is no news
   requests.answer(review_at(5), review_available(vec![request(7, "head-2", true, carol(ReviewerState::Approved))]));

@@ -1349,7 +1349,10 @@ the session asks Patronus about the pull request a review window shows, as the r
   head waits for its fetch and is asked again, and a new review asks again; an approval it tells is no news (the
   review requests tell their own). Nothing is asked for a pull request into another branch, before its fetch, or once
   its window closed: its record goes with the window, a fetch that ends after the close asks nothing, and a frame of
-  the session never seeds it.
+  the session never seeds it. The answer of an earlier head is never kept for a new one: from the moment the listing
+  names a head the review fetch has not brought, the readiness of the request has no answer (so no groups in the view),
+  until the fetch brought it and Patronus answered; when that fetch fails, it stays without one and the chips come
+  from the `OWNERSHIP` files alone.
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_goes_with_the_window`)
   [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_pull_request_of_someone_else_is_asked_about_as_its_head_branch`)
 - The view gives the row `pull:<n>` its reviewer groups (`reviewGroups`, `domain_policy::reviewer_groups`): every

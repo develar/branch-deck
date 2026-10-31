@@ -236,7 +236,11 @@ impl ReadinessFact {
       let priority = readiness_priority(demanded, shown, awaits);
       let record = self.subjects.entry(key.clone()).or_insert_with(SubjectRecord::new);
       let Some(ask) = ask else {
-        // no tip to ask about: the record waits for the sync, a pull request for the fetch of its head
+        // no tip to ask about: the record waits for the sync, a pull request for the fetch of its head; what a pull
+        // request was answered for its earlier head is no answer for this one, nor for good when the fetch fails
+        if request_of_readiness_key(&key).is_some() {
+          *record = SubjectRecord::new();
+        }
         continue;
       };
       let inputs = inputs_of(&ask, record.rechecks);
