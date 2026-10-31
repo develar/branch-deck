@@ -52,7 +52,7 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
   `process_budget_test.rs` that pins its processes by subcommand; a core that takes the repository lock, its row of
   [Lock spans](../design/git-operations.md#lock-spans) and the test of its span; the scan tests stay green, the
   concurrency scan beside the git scans (`concurrency_scan_test.rs`: no guard of an async mutex across another await,
-  no repository lock across a network call).
+  no repository lock across a network call, a sync or a wait for the index lock).
 
 ## Layers
 
@@ -129,7 +129,8 @@ modules by area; the layers are the
   `bd` command on `bd_cli::fixture_test::LockSpanGit`); the scan tests stay green (`worktree_safety_test.rs`,
   `git_usage_scan_test.rs`, [Scan tests](git-rules.md#scan-tests)), and the concurrency scan beside them
   (`concurrency_scan_test.rs`: no guard of an async mutex across another `.await`, no guard of the repository lock
-  across `execute_remote_command*`, `fetch_baseline`, `push_baseline`, HTTP or `block_on`); an exemption added only
+  across `execute_remote_command*`, `fetch_baseline`, `push_baseline`, HTTP or `block_on`, a sync or a wait for the
+  index lock); an exemption added only
   with its reason and its number of hits. All of them: `cargo nextest run -p git-executor`.
 
 ## Helpers

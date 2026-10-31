@@ -201,7 +201,7 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
 - **Scan tests** (`git_usage_scan_test.rs`): no `--no-pager`, no `credential.helper=`; `update-ref` only in
   `ref_transaction.rs`, `cat-file --batch*` only in `cat_file_batch.rs`; `-z` with `--name-only`/`--raw`;
   `--literal-pathspecs` after `--`; `concurrency_scan_test.rs`: no async guard across another `.await`, no repository
-  lock across a network call, no std mutex guard across git; an exemption names its file, reason and exact count.
+  lock across a network call, a sync or a wait for the index lock, no std mutex guard across git; an exemption names its file, reason and exact count.
 - **Never write to the working tree** (`worktree_safety_test.rs`): no `checkout`, `reset`, `rebase`, `stash`, `commit`,
   `merge`, `apply` without `--cached` and the like. The single exception is the guarded `read-tree -m -u` of
   `worktree_update.rs`, called only by `update_branch.rs`; a lease slot's resets live in `lease_slot.rs` only. Never

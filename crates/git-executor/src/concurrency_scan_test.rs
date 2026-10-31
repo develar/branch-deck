@@ -4,7 +4,8 @@
 //! across no call of the network: a git of the remote (`execute_remote_command*`), the fetch and the push of the baseline
 //! (`fetch_baseline`, `push_baseline`), the leased push (`push_leased`, `push::send`), HTTP (`reqwest`, the `.send()` of a
 //! request, a method of a `GitHubService`, `PatronusService`, `YouTrackService` or `ServiceFactSources` or of what the
-//! hosts answer for one), a runtime blocked on a future (`block_on`).
+//! hosts answer for one), a runtime blocked on a future (`block_on`); nor across a sync or a wait for the index lock of
+//! another process (its own check, below).
 //!
 //! Checked on the production sources like the git scans (`source_scan_test.rs`), on their code without literals and
 //! comments, by the `let` bindings: a guard lives from its statement to the end of the block that holds it or to the
@@ -352,6 +353,12 @@ fn guards_across_await(source: &Source) -> Vec<usize> {
 
 /// The lines of `source` that bind the repository lock where it lives across a call of the network
 fn locks_across_network(source: &Source) -> Vec<usize> {
+  locks_across(source, reaches_network)
+}
+
+/// The lines of `source` that bind the repository lock where `reaches` finds a call in its life; `reaches` gets that
+/// life and the names of the file's services
+fn locks_across(source: &Source, reaches: impl Fn(&str, &[&str]) -> bool) -> Vec<usize> {
   let code = code_text(&source.text);
   let all = bindings(&code);
   let services = service_names(&code, &all);
@@ -360,7 +367,7 @@ fn locks_across_network(source: &Source) -> Vec<usize> {
     .iter()
     // a `Locker` holds the closure that takes the lock, not the lock
     .filter(|binding| binding.ty.as_ref().is_none_or(|ty| words(&code[ty.clone()], "Locker").next().is_none()))
-    .filter(|binding| takes_repository_lock(&code[binding.value.clone()], &takers) && reaches_network(lifetime(&code, &all, binding), &services))
+    .filter(|binding| takes_repository_lock(&code[binding.value.clone()], &takers) && reaches(lifetime(&code, &all, binding), &services))
     .map(|binding| line_at(&code, binding.at))
     .collect()
 }
@@ -731,4 +738,74 @@ fn a_std_guard_lives_across_no_git_and_is_handed_to_no_call_that_runs_it() {
     "}",
   ]);
   assert_eq!(std_guards_across_git(&source), hits);
+}
+
+// The repository lock across a sync or a wait for the index: a check of its own, beside the one of the network above.
+// A sync (`bd_core::sync_command::sync`, `sync_core::sync::sync_branches`) merges and copies every branch, and its refs
+// move by compare-and-swap, so it takes no lock (`bd push` and `bd safe-push` held it for theirs until 2026-10-31); a
+// wait for the `index.lock` of another process (an IDE's `git status`, up to 30 s) comes before the lock
+// (`update_branch::wait_for_index`, `PickPlan::wait_for_index_locks`, `IndexLock::wait_while_locked`), and under it
+// a move only looks (`index_held`). The guard lives as above; a call inside a function the scope calls is not followed
+// (the fallback wait of a move under the lock its caller holds, `bd update --continue`).
+
+/// The calls, by their whole name, that the repository lock never lives across
+const LONG_CALLS: [&str; 5] = ["sync", "sync_branches", "wait_while_locked", "wait_for_index", "wait_for_index_locks"];
+
+/// No repository lock lives across a sync or a wait for the index today; an exemption names its file, reason and count
+const EXEMPT_LONG_LOCKS: [Exemption; 0] = [];
+
+/// Whether `scope` calls a sync or waits for the index lock
+fn reaches_a_long_call(scope: &str, _services: &[&str]) -> bool {
+  LONG_CALLS.iter().any(|name| calls(scope, name, true, |_| true).next().is_some())
+}
+
+/// The lines of `source` that bind the repository lock where it lives across a sync or a wait for the index lock
+fn locks_across_a_long_call(source: &Source) -> Vec<usize> {
+  locks_across(source, reaches_a_long_call)
+}
+
+#[test]
+fn no_repository_lock_lives_across_a_sync_or_a_wait_for_the_index() {
+  check(
+    "the repository lock lives across a sync or a wait for the index lock of another process, so every writer of every process waits for its merges or for git's lock",
+    "sync before or after the lock (its refs move by compare-and-swap) and wait for the index before it (`wait_for_index`, `lock_for_files`); under it only the witness and the write (git-operations.md, \"Lock spans\", \"Index lock\")",
+    &EXEMPT_LONG_LOCKS,
+    locks_across_a_long_call,
+  );
+}
+
+#[test]
+fn a_repository_lock_lives_across_no_sync_and_no_wait_for_the_index() {
+  let (source, hits) = marked(&[
+    "fn the_sync_under_the_lock(context: &RepoContext) -> Result<SyncOutput, CliError> {",
+    "  let _lock = lock(context)?; // hit",
+    "  sync(context)",
+    "}",
+    "fn the_sync_after_the_lock(context: &RepoContext) -> Result<SyncOutput, CliError> {",
+    "  let synced = sync(context)?;",
+    "  let lock = lock(context)?;",
+    "  witness(&synced)?;",
+    "  drop(lock);",
+    "  Ok(synced)",
+    "}",
+    "fn the_wait_under_the_lock(options: &RewriteOptions, git: &GitCommandExecutor, plan: &PickPlan) -> Result<()> {",
+    "  let lock = options.lock(git, target)?; // hit",
+    "  plan.wait_for_index_locks(git, target)?;",
+    "  Ok(())",
+    "}",
+    "fn the_wait_before_the_lock(wait: LockWait<'_>, git: &GitCommandExecutor) -> Result<()> {",
+    "  wait_for_index(git, path)?;",
+    "  let lock = wait.lock_with(git, path, &|| {})?;",
+    "  if index_held(git, path) { drop(lock); }",
+    "  Ok(())",
+    "}",
+    "fn a_sync_of_the_core_under_its_lock(git: &GitCommandExecutor) -> Result<()> {",
+    "  let held = try_lock_repository(git, path)?; // hit",
+    "  runtime_sync_branches(git);",
+    "  sync_branches(git, path, prefix, reporter, options);",
+    "  Ok(())",
+    "}",
+    "use bd_core::sync_command::{SyncOutput, lock, sync};",
+  ]);
+  assert_eq!(locks_across_a_long_call(&source), hits);
 }
