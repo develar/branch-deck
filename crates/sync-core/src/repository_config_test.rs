@@ -513,7 +513,8 @@ fn the_agent_keys_are_written_globally_and_a_repository_keeps_its_own() {
 fn the_review_experiments_are_off_until_the_config_turns_them_on() {
   let test_repo = TestRepo::new();
   let path = test_repo.path_str();
-  let git = test_repo.git_executor();
+  let (_global, git) = with_own_global_config(&test_repo);
+  let git = &git;
   let config = set_config(git, path, &RepositoryConfigChange::ReviewExperimental(Some(true)), WriteScope::Local).unwrap();
   assert_eq!((config.review_experimental.value, config.review_experimental.scope), (true, Some(ConfigScope::Local)));
   assert_eq!(local_entries(&test_repo), [entry(ConfigScope::Local, "branchdeck.reviewexperimental", Some("true"))]);

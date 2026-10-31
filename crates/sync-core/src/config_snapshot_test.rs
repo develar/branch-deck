@@ -180,13 +180,17 @@ fn the_resolve_by_words_is_on_unless_the_config_turns_it_off() {
 #[test]
 fn the_review_experiments_are_off_unless_the_config_turns_them_on() {
   let repo = TestRepo::new();
-  assert!(!snapshot(&repo).review_experimental());
+  // an empty global config: the developer's own `branchdeck.reviewExperimental` must not reach the test
+  let global = tempfile::NamedTempFile::new().unwrap();
+  let git = repo.git_executor().with_env("GIT_CONFIG_GLOBAL", global.path().to_str().unwrap());
+  let on = || ConfigSnapshot::read(&git, repo.path_str()).unwrap().review_experimental();
+  assert!(!on());
   repo.set_config("branchdeck.reviewExperimental", "no").unwrap();
-  assert!(!snapshot(&repo).review_experimental());
+  assert!(!on());
   repo.set_config("branchdeck.reviewExperimental", "yes").unwrap();
-  assert!(snapshot(&repo).review_experimental());
+  assert!(on());
   repo.set_config("branchdeck.reviewExperimental", "maybe").unwrap();
-  assert!(!snapshot(&repo).review_experimental());
+  assert!(!on());
 }
 
 #[test]
