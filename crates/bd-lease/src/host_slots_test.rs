@@ -199,6 +199,31 @@ fn a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_al
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
 
+/// The gets of a fill run side by side: the get of the first slot waits, inside its first step, for the first step of
+/// the second, which a fill of one get after the other never reaches
+#[test_log::test]
+fn the_gets_of_a_fill_run_side_by_side() {
+  let fixture = host_fixture(2);
+  let context = context(&fixture);
+  let (second_started, started) = std::sync::mpsc::channel();
+  let (second_started, started) = (std::sync::Mutex::new(second_started), std::sync::Mutex::new(Some(started)));
+  let progress = |n: u32, _: lease_pool::lease::GetStep| {
+    if n == 2 {
+      let _ = second_started.lock().unwrap().send(());
+    } else {
+      let first = started.lock().unwrap().take();
+      // a limit no healthy run reaches: one get after the other would wait here for ever
+      if let Some(started) = first {
+        started.recv_timeout(Duration::from_mins(2)).expect("the get of slot 2 runs beside the get of slot 1");
+      }
+    }
+  };
+
+  let filled = fill(&context.git, &params(&fixture, &context), Some(&progress)).unwrap();
+  assert_eq!(filled.iter().map(|slot| slot.n).collect::<Vec<_>>(), [1, 2]);
+  assert!(table(&fixture).slots.iter().all(|slot| slot.state == HostState::Idle));
+}
+
 /// A hand `bd lease return` of a host slot is refused with `host_slot`, and the slot stays leased
 #[test_log::test]
 fn a_hand_return_of_a_host_slot_is_refused() {
@@ -571,6 +596,62 @@ fn a_shrink_deletes_the_trash_once_every_slot_it_returns_is_free() {
     assert!(!Path::new(&filled.path).join("out/cache").exists());
   }
   assert_trash_deleted_once_free(fixture, &log.text(), ("a shrink is done with the host slot", 2), "deleting the trash of the shrink");
+}
+
+/// The steps of `reclaim` run side by side: of two abandoned lends, the process of the run in the first slot exits on
+/// SIGTERM only once the process in the second got its own, which a give-back of one slot after the other sends only
+/// after it killed the first
+#[cfg(unix)]
+#[test_log::test]
+fn the_steps_of_reclaim_run_side_by_side() {
+  use std::os::unix::process::CommandExt;
+  let host = Host::filled(2);
+  let (fixture, context, params) = host.parts();
+  let signals = tempfile::tempdir().unwrap();
+  let second_signalled = signals.path().join("second");
+  let scripts = [
+    format!(
+      "trap 'while [ ! -e \"{}\" ]; do sleep 0.05; done; exit 0' TERM; touch \"$0\"; while :; do sleep 0.05; done",
+      second_signalled.display()
+    ),
+    format!("trap 'touch \"{}\"; exit 0' TERM; touch \"$0\"; while :; do sleep 0.05; done", second_signalled.display()),
+  ];
+  let runs: Vec<crate::lease_test::Killed> = scripts
+    .iter()
+    .enumerate()
+    .map(|(index, script)| {
+      let slot = lend_to_gone(&params, &format!("run-{index}"));
+      let ready = signals.path().join(format!("ready-{index}"));
+      let child = std::process::Command::new("sh")
+        .args(["-c", script, &ready.display().to_string()])
+        .current_dir(&slot.path)
+        .process_group(0)
+        .spawn()
+        .unwrap();
+      while !ready.exists() {
+        std::thread::sleep(Duration::from_millis(10));
+      }
+      crate::lease_test::Killed(child)
+    })
+    .collect();
+  // the lends a moment earlier: on Linux the start of a process is known to the second
+  edit_table(fixture, |table| {
+    for slot in table["slots"].as_array_mut().unwrap() {
+      let since = slot["state"]["since_ms"].as_u64().unwrap();
+      slot["state"]["since_ms"] = Value::from(since - 5000);
+    }
+  });
+
+  let reclaimed = reclaim(&context.git, &params).unwrap();
+  assert_eq!(
+    reclaimed.iter().map(|done| (done.n, done.action, done.error.clone())).collect::<Vec<_>>(),
+    [(1, ReclaimAction::GaveBack, None), (2, ReclaimAction::GaveBack, None)]
+  );
+  for mut run in runs {
+    let status = run.0.wait().unwrap();
+    assert!(status.success(), "the process exited on its SIGTERM, not killed: {status}");
+  }
+  assert!(table(fixture).slots.iter().all(|slot| slot.state == HostState::Idle));
 }
 
 /// `reclaim` drops the record of a fill that died before its get and returns a `bd-host/<n>` lease that the table does

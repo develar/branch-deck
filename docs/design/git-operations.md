@@ -2302,6 +2302,11 @@ config read and no `status` of its own for it, and moves what its clean rules re
 trash is deleted once, after the last slot is back in the pool, as `bd lease clean` and `bd lease reclaim` delete
 theirs, so no slot waits for the delete of the build output of the one before it.
 
+A fill runs the gets of the missing slots side by side (`std::thread::scope`): a free slot of the pool is reused at
+once, and the clones lock still makes the clones one at a time. `reclaim` runs its steps side by side too, each on a
+slot of its own under the CAS of its state, since a give-back waits up to 10 s for the processes of its run. Until
+2026-10-31 both went one slot after the other, so a reuse waited for a clone, and a slot for the give-back of another.
+
 A lend gives the run the idle slot of its affinity (the checkout it comes from), else the idle slot used longest ago,
 else a first-come queue. It does not rank slots by the distance between trees, because the commit can arrive after the
 start. The give-back runs off the client's path:

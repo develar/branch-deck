@@ -39,6 +39,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::{ProcessInfo, ProcessScan, is_running, kill, process_started, terminate};
 use sync_utils::size::parse_size;
+use sync_utils::span::in_current_span;
 use tracing::{debug, warn};
 
 /// The prefix of the holders of the host slots: `bd-host/1`, `bd-host/2`, …
@@ -1482,12 +1483,12 @@ pub struct Filled {
 }
 
 /// Lease the missing host slots, up to `branchdeck.hostSlots` (4 by default) and the limit of the last shrink: each
-/// number reserved as `filling` under the lock of the table, then, without it, the get of the pool with the holder
-/// `bd-host/<n>` at the HEAD of the host checkout (a free slot reused, else one clone at a time), detached; then idle.
-/// A get that fails frees the numbers it had not got and is the error; the slots got so far stay. `progress` hears each
-/// step of each get with the number of its slot. While a live process upgrades git, it adds none and runs no git:
-/// `GitUpgrading`
-pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, progress: Option<&dyn Fn(u32, GetStep)>) -> Result<Vec<Filled>> {
+/// number reserved as `filling` under the lock of the table, then, without it, the gets of the pool with the holders
+/// `bd-host/<n>` at the HEAD of the host checkout, detached, side by side: a free slot reused at once, the clones one
+/// at a time behind the clones lock; then each idle. A get that fails frees its number, and the first failure is the
+/// error; the slots got stay. `progress` hears each step of each get with the number of its slot, from the thread of
+/// that get. While a live process upgrades git, it adds none and runs no git: `GitUpgrading`
+pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, progress: Option<&(dyn Fn(u32, GetStep) + Sync)>) -> Result<Vec<Filled>> {
   refuse_while_upgrading(&params.table().read()?)?;
   let count = slot_count(&lease_config(git_executor, &params.repository.top_level)?)?;
   let me = Owner::this();
@@ -1513,53 +1514,79 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
     Ok(missing)
   })?;
   let mine = |state: &HostState| matches!(state, HostState::Filling(owner) if *owner == me);
+  // side by side: a reuse waits for no clone, and the clones lock still makes the clones one at a time
+  let gets: Vec<Result<Filled>> = std::thread::scope(|scope| {
+    #[expect(clippy::needless_collect, reason = "every get starts before the first one is joined")]
+    let gets: Vec<_> = missing
+      .iter()
+      .map(|&n| scope.spawn(in_current_span(move || fill_one(git_executor, params, n, progress, mine))))
+      .collect();
+    gets.into_iter().map(|get| get.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))).collect()
+  });
   let mut filled = Vec::new();
-  for (index, &n) in missing.iter().enumerate() {
-    let report = |step: GetStep| {
-      if let Some(progress) = progress {
-        progress(n, step);
-      }
-    };
-    let got = get_host_slot(
-      git_executor,
-      &LeaseGetParams {
-        source: params.repository,
-        home: params.home,
-        holder: Some(format!("{HOST_HOLDER_PREFIX}{n}")),
-        branch: None,
-        min_free: None,
-        server_timeout: params.server_timeout,
-        bazel: None,
-        lock_timeout: params.lock_timeout,
-        progress: Some(&report),
-      },
-    );
-    let got = match got {
-      Ok(got) => got,
+  let mut failed = None;
+  for get in gets {
+    match get {
+      Ok(got) => filled.push(got),
       Err(error) => {
-        let unfilled: HashSet<u32> = missing[index..].iter().copied().collect();
-        params.update(|table| {
-          table.slots.retain(|slot| !(unfilled.contains(&slot.n) && mine(&slot.state)));
-          Ok(())
-        })?;
-        return Err(error);
+        failed.get_or_insert(error);
       }
-    };
-    let lease_id = got.slot.lease.as_ref().map_or_default(|lease| lease.id.clone());
-    let path = got.slot.path.clone();
-    set_state(params, n, mine, |slot| {
-      slot.lease_id = lease_id;
-      slot.path.clone_from(&path);
-      slot.cleaned_at = now_secs();
-      slot.state = HostState::Idle;
-    })?;
-    filled.push(Filled {
-      n,
-      path,
-      reused: got.created_by.is_none(),
-    });
+    }
   }
-  Ok(filled)
+  failed.map_or(Ok(filled), Err)
+}
+
+/// The get of the host slot `n`, which this fill reserved as `filling` (`mine`), then idle; a get that fails frees the
+/// number
+fn fill_one(
+  git_executor: &GitCommandExecutor,
+  params: &HostSlotsParams<'_>,
+  n: u32,
+  progress: Option<&(dyn Fn(u32, GetStep) + Sync)>,
+  mine: impl Fn(&HostState) -> bool,
+) -> Result<Filled> {
+  let report = |step: GetStep| {
+    if let Some(progress) = progress {
+      progress(n, step);
+    }
+  };
+  let got = get_host_slot(
+    git_executor,
+    &LeaseGetParams {
+      source: params.repository,
+      home: params.home,
+      holder: Some(format!("{HOST_HOLDER_PREFIX}{n}")),
+      branch: None,
+      min_free: None,
+      server_timeout: params.server_timeout,
+      bazel: None,
+      lock_timeout: params.lock_timeout,
+      progress: Some(&report),
+    },
+  );
+  let got = match got {
+    Ok(got) => got,
+    Err(error) => {
+      params.update(|table| {
+        table.slots.retain(|slot| !(slot.n == n && mine(&slot.state)));
+        Ok(())
+      })?;
+      return Err(error);
+    }
+  };
+  let lease_id = got.slot.lease.as_ref().map_or_default(|lease| lease.id.clone());
+  let path = got.slot.path.clone();
+  set_state(params, n, mine, |slot| {
+    slot.lease_id = lease_id;
+    slot.path.clone_from(&path);
+    slot.cleaned_at = now_secs();
+    slot.state = HostState::Idle;
+  })?;
+  Ok(Filled {
+    n,
+    path,
+    reused: got.created_by.is_none(),
+  })
 }
 
 /// What a shrink did to a slot
@@ -1786,9 +1813,9 @@ pub enum ReclaimAction {
 /// command of the host slots: the tickets of gone processes leave the queue; the record of a fill that died before its
 /// get goes; an abandoned lend or give-back is given back; a slot in quarantine whose processes are gone is given back;
 /// an abandoned clean runs again; an abandoned shrink returns its slot; a `ready` lease of the holder `bd-host/<n>`
-/// that the table does not name, and whose number no live fill holds, goes back to the pool. While a live process
-/// upgrades git, each step but the first two is skipped: its `error` is `GitUpgrading`, and a later `reclaim` takes
-/// it up again
+/// that the table does not name, and whose number no live fill holds, goes back to the pool. The steps on the slots run
+/// side by side, each on a slot of its own. While a live process upgrades git, each step but the first two is skipped:
+/// its `error` is `GitUpgrading`, and a later `reclaim` takes it up again
 pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) -> Result<Vec<Reclaimed>> {
   let table = params.update(|table| {
     table.queue.retain(|ticket| is_running(ticket.pid, ticket.process_started));
@@ -1810,30 +1837,15 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
       error: None,
     })
     .collect();
-  let mut record = |n: u32, action: ReclaimAction, result: Result<()>| {
-    reclaimed.push(Reclaimed {
-      n,
-      action,
-      error: result.err().map(|error| format!("{error:#}")),
-    });
-  };
+  let mut steps: Vec<(u32, ReclaimAction, ReclaimStep)> = Vec::new();
   for slot in &table.slots {
     if let Some((n, take, action)) = abandoned_give_back(slot) {
-      record(n, action, give_back_core(git_executor, params, n, take).map(drop));
+      steps.push((n, action, ReclaimStep::GiveBack(take)));
       continue;
     }
     match &slot.state {
-      HostState::Cleaning(_) if is_abandoned(&slot.state) => {
-        record(
-          slot.n,
-          ReclaimAction::Cleaned,
-          clean_core(git_executor, params, slot.n, CleanOverrides::default(), Take::Abandoned).map(drop),
-        );
-      }
-      HostState::Shrinking(_) if is_abandoned(&slot.state) => {
-        let result = shrink_one(git_executor, params, slot.n);
-        record(slot.n, ReclaimAction::Returned, result);
-      }
+      HostState::Cleaning(_) if is_abandoned(&slot.state) => steps.push((slot.n, ReclaimAction::Cleaned, ReclaimStep::Clean)),
+      HostState::Shrinking(_) if is_abandoned(&slot.state) => steps.push((slot.n, ReclaimAction::Returned, ReclaimStep::Shrink)),
       _ => {}
     }
   }
@@ -1850,16 +1862,63 @@ pub fn reclaim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) 
     if filling.contains(&n) {
       continue;
     }
-    let trash = Trash::new(&params.pool().trash_dir());
-    let returned = HostUser::unless_upgrading(Path::new(&params.repository.git_common_dir), params.lock_timeout).and_then(|_user| {
-      warn!(slot = %slot.path, holder = %lease.holder, "returning a host slot lease that the table does not name");
-      return_slot(git_executor, params, &slot.path, &lease.id, &trash)
-    });
-    let mut outcome = returned.map(|returned| returned.map(|returned| ShrinkOutcome::Returned(Box::new(returned))));
-    empty_trash(&trash, outcome.iter_mut().flatten());
-    record(n, ReclaimAction::Returned, outcome.map(drop));
+    let step = ReclaimStep::ReturnLease {
+      path: slot.path.clone(),
+      lease_id: lease.id.clone(),
+      holder: lease.holder.clone(),
+    };
+    steps.push((n, ReclaimAction::Returned, step));
   }
+  // side by side: each step acts on a slot of its own under the CAS of its state, and a give-back may wait 12 s for the
+  // processes of its run
+  std::thread::scope(|scope| {
+    // every step starts before the first one is joined
+    let running: Vec<_> = steps
+      .into_iter()
+      .map(|(n, action, step)| (n, action, scope.spawn(in_current_span(move || step.run(git_executor, params, n)))))
+      .collect();
+    for (n, action, step) in running {
+      let result = step.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+      reclaimed.push(Reclaimed {
+        n,
+        action,
+        error: result.err().map(|error| format!("{error:#}")),
+      });
+    }
+  });
   Ok(reclaimed)
+}
+
+/// What `reclaim` does to one slot
+enum ReclaimStep {
+  /// An abandoned lend or give-back, or a quarantine whose processes are gone (`abandoned_give_back`)
+  GiveBack(Take<'static>),
+  /// An abandoned clean
+  Clean,
+  /// An abandoned shrink
+  Shrink,
+  /// The `ready` lease `lease_id` of `holder` at `path`, which the table does not name
+  ReturnLease { path: String, lease_id: String, holder: String },
+}
+
+impl ReclaimStep {
+  fn run(self, git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32) -> Result<()> {
+    match self {
+      Self::GiveBack(take) => give_back_core(git_executor, params, n, take).map(drop),
+      Self::Clean => clean_core(git_executor, params, n, CleanOverrides::default(), Take::Abandoned).map(drop),
+      Self::Shrink => shrink_one(git_executor, params, n),
+      Self::ReturnLease { path, lease_id, holder } => {
+        let trash = Trash::new(&params.pool().trash_dir());
+        let returned = HostUser::unless_upgrading(Path::new(&params.repository.git_common_dir), params.lock_timeout).and_then(|_user| {
+          warn!(slot = %path, %holder, "returning a host slot lease that the table does not name");
+          return_slot(git_executor, params, &path, &lease_id, &trash)
+        });
+        let mut outcome = returned.map(|returned| returned.map(|returned| ShrinkOutcome::Returned(Box::new(returned))));
+        empty_trash(&trash, outcome.iter_mut().flatten());
+        outcome.map(drop)
+      }
+    }
+  }
 }
 
 /// The give-back that `slot` is due, as `reclaim` records it, when no process acts on it: an abandoned lend or

@@ -651,11 +651,13 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
 
 - A fill must lease the missing host slots up to `branchdeck.hostSlots` (git config of the host, 4 by default) as plain
   `ready` leases of the holders `bd-host/1`, `bd-host/2`, … at the HEAD of the host checkout, detached, through the get
-  of the pool (a free slot reused, one clone at a time). `leases.json` keeps its format, so another bd and the app read
-  the pool as before. A plain `bd lease get` never takes a host slot, `bd lease clean --free` skips it, the hint at idle
+  of the pool. Its gets must run side by side: a free slot is reused at once, and the clones lock makes the clones one
+  at a time. A get that fails frees its number, and the first failure is the error; the slots got stay. `leases.json`
+  keeps its format, so another bd and the app read the pool as before. A plain `bd lease get` never takes a host slot, `bd lease clean --free` skips it, the hint at idle
   leases does not name it, and a get with a holder `bd-host/…` is refused as `invalid_arguments`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_alone`)
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_lease_keeps_the_format_of_leases_json`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_gets_of_a_fill_run_side_by_side`)
 - The lend table is `$GIT_COMMON_DIR/branch-deck/host-slots.json`, written only under `host-slots.lock`, a leaf lock:
   held while the table changes, never across git, a clone, a process scan or another lock of the pool. Every state of
   a slot but `idle` and `quarantined` names the process that acts on it (`lent`, `filling`, `giving_back`, `cleaning`,
@@ -701,8 +703,10 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_deletes_the_trash_once_every_slot_it_returns_is_free`)
 - `reclaim` must take up what no process acts on: drop the record of a fill that died before its get, give back an
   abandoned lend or give-back, run an abandoned clean or shrink again, and return a `bd-host/<n>` lease that the table
-  does not name and whose number no live fill holds.
+  does not name and whose number no live fill holds. Its steps must run side by side, each on a slot of its own under
+  the CAS of its state: a give-back waits up to 10 s for the processes of its run, and no other slot waits for it.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`reclaim_drops_a_dead_fill_and_returns_a_lease_the_table_does_not_name`)
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_steps_of_reclaim_run_side_by_side`)
 - A hand `bd lease return` of a host slot (its holder is `bd-host/<n>`, or the table names its lease id) must be refused
   as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd-host slots --local --shrink`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_hand_return_of_a_host_slot_is_refused`)
