@@ -1076,15 +1076,7 @@ fn a_lease_get_that_passes_over_an_idle_lease_it_checked() {
   assert_eq!(serde_json::to_value(&got).unwrap()["skipped"][0]["reason"], "idle_with_work", "{got:?}");
   assert_git_processes(
     &context.git,
-    &[
-      ("checkout", 1),
-      ("clean", 1),
-      ("config", 1),
-      ("rev-parse", 3),
-      ("status", 1),
-      ("update-index", 1),
-      ("worktree", 2),
-    ],
+    &[("checkout", 1), ("config", 1), ("rev-parse", 3), ("status", 2), ("update-index", 1), ("worktree", 2)],
   );
 }
 
@@ -1178,7 +1170,16 @@ fn the_host_slots_lend_give_back_and_shrink() {
   host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
   std::fs::write(std::path::Path::new(&added.path).join("untracked.txt"), "x\n").unwrap();
   let git = host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, ["untracked.txt"]));
-  assert_git_processes(&git, &[("clean", 1), ("config", 1), ("reset", 1), ("rev-parse", 1), ("status", 1)]);
+  // the `status` of the give-back, the one that lists the untracked files for the `clean -fd` and the one that finds
+  // nothing left
+  assert_git_processes(&git, &[("clean", 1), ("config", 1), ("reset", 1), ("rev-parse", 1), ("status", 3)]);
+  // an untracked `.gitignore` that hides a file: removed before the `clean -fd`, which removes that file too
+  host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
+  std::fs::write(std::path::Path::new(&added.path).join(".gitignore"), "/hidden.txt\n").unwrap();
+  std::fs::write(std::path::Path::new(&added.path).join("hidden.txt"), "x\n").unwrap();
+  let git = host(&|git, params| assert_eq!(give_back(git, params, 1, "run-1").unwrap().discarded, [".gitignore"]));
+  assert_git_processes(&git, &[("clean", 1), ("config", 1), ("reset", 1), ("rev-parse", 1), ("status", 3)]);
+  assert!(!std::path::Path::new(&added.path).join("hidden.txt").exists());
   // with `branchdeck.leaseMaintenance` the give-back starts the maintenance, and so does one of a run without a slot
   repo.git_executor().execute_command(&["config", "branchdeck.leaseMaintenance", "true"], path).unwrap();
   host(&|_, params| assert!(matches!(lend(params, &request).unwrap(), LendAnswer::Lent(_))));
@@ -1370,7 +1371,8 @@ fn a_lease_pick() {
 
 /// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
 /// config, `worktree add --force --no-checkout --lock` and its `worktree unlock` once the clone is in place (no
-/// `worktree prune`), the refresh of the copied index, one `checkout` of the diff, `clean -fd` and one `status`
+/// `worktree prune`), the refresh of the copied index, one `checkout` of the diff, the `status` of the clean in the
+/// untracked mode of the repository, which runs no `clean -fd` with nothing untracked, and the `status` of the clone
 #[cfg(target_os = "macos")]
 #[test]
 fn a_lease_get_of_a_new_slot_by_a_clone() {
@@ -1381,15 +1383,7 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
   assert!(matches!(got.created_by, Some(bd_lease::lease_command::CreatedByOutput::Clone)), "{got:?}");
   assert_git_processes(
     &context.git,
-    &[
-      ("checkout", 1),
-      ("clean", 1),
-      ("config", 1),
-      ("rev-parse", 2),
-      ("status", 1),
-      ("update-index", 1),
-      ("worktree", 2),
-    ],
+    &[("checkout", 1), ("config", 1), ("rev-parse", 2), ("status", 2), ("update-index", 1), ("worktree", 2)],
   );
 }
 
@@ -1422,15 +1416,7 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
   if cfg!(target_os = "macos") {
     assert_git_processes(
       &context.git,
-      &[
-        ("checkout", 1),
-        ("clean", 1),
-        ("config", 2),
-        ("rev-parse", 2),
-        ("status", 1),
-        ("update-index", 1),
-        ("worktree", 2),
-      ],
+      &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("status", 2), ("update-index", 1), ("worktree", 2)],
     );
   } else {
     assert_git_processes(&context.git, &[("checkout", 1), ("config", 2), ("rev-parse", 2), ("worktree", 1)]);

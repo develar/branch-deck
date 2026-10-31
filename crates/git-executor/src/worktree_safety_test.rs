@@ -62,7 +62,7 @@ const MOVE_CALLERS: [(&str, usize); 5] = [
 const SLOT_WRITE_EXEMPTIONS: [(&str, &str, usize); 3] = [
   ("crates/git-ops/src/lease_slot.rs", "checkout", 2),
   ("crates/git-ops/src/lease_slot.rs", "reset", 2),
-  ("crates/git-ops/src/lease_slot.rs", "clean", 2),
+  ("crates/git-ops/src/lease_slot.rs", "clean", 1),
 ];
 
 /// The file that applies the patch of the changes of a remote run to the user's working tree, on the user's request

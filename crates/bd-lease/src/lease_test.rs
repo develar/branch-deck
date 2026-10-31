@@ -208,7 +208,7 @@ fn a_dirty_free_slot_is_skipped_and_a_new_slot_is_added() {
 
 /// A get skips a dirty slot without a `status` while one of its dirty paths has its stat of the `status` that found it
 /// and the slot did not move: an edit elsewhere in the tree keeps it skipped; a change of `info/exclude`, which may hide
-/// the stray file, brings the `status` back (`.gitignore`: `a_dirty_verdict_holds_while_one_dirty_path_has_its_stat`)
+/// the stray file, brings the `status` back, and so does one of `.gitignore`
 #[test_log::test]
 fn a_dirty_slot_that_its_files_prove_dirty_is_skipped_without_a_status() {
   let fixture = Fixture::new();
@@ -231,6 +231,13 @@ fn a_dirty_slot_that_its_files_prove_dirty_is_skipped_without_a_status() {
   assert_eq!(
     get("a change of info/exclude"),
     (json!(["another.txt"]), [&["reserve", "status", "reserve", "reserve adding"][..], new_slot_steps()].concat())
+  );
+  // the clone of this template, whose untracked `.gitignore` hides a file, is clean too
+  // (`a_clone_of_a_template_with_an_untracked_gitignore_is_clean`)
+  std::fs::write(Path::new(&first).join(".gitignore"), "/another.txt\n").unwrap();
+  assert_eq!(
+    get("a change of .gitignore"),
+    (json!([".gitignore"]), [&["reserve", "status", "reserve", "reserve adding"][..], new_slot_steps()].concat())
   );
 }
 
@@ -1330,6 +1337,51 @@ fn a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot() {
   let listed = git(&fixture.repo, &["worktree", "list", "--porcelain"]);
   let registered = format!("worktree {}", git_path(&path));
   assert_eq!(listed.lines().filter(|line| *line == registered).count(), 1, "{listed}");
+}
+
+/// A free slot with an untracked top-level `.gitignore` that ignores the untracked `left.txt`
+#[cfg(target_os = "macos")]
+fn free_slot_with_an_untracked_gitignore(fixture: &Fixture) -> String {
+  let slot = path_of(&fixture.get(&[]));
+  fixture.give_back(&slot);
+  write_a_hidden_file(&slot);
+  slot
+}
+
+/// An untracked top-level `.gitignore` in `slot` that ignores the untracked `left.txt`
+fn write_a_hidden_file(slot: &str) {
+  std::fs::write(Path::new(slot).join(".gitignore"), "/left.txt\n").unwrap();
+  std::fs::write(Path::new(slot).join("left.txt"), "left\n").unwrap();
+}
+
+/// The slot at `path` holds its commit's tree and nothing else: no change, no untracked file, no ignored one
+fn assert_pristine(path: &str) {
+  assert_eq!(slot_git(path, &["status", "--porcelain", "--untracked-files=all", "--ignored"]), "", "{path}");
+}
+
+/// One `clean -fd` judges what is ignored by the ignore files as it finds them when it starts: it deleted an untracked
+/// `.gitignore` and kept the file it ignored, untracked from then on, and the clone of such a template was rolled back.
+/// The clone removes the untracked `.gitignore` first: the new slot is clean, and the template keeps its files
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn a_clone_of_a_template_with_an_untracked_gitignore_is_clean() {
+  let fixture = Fixture::new();
+  let template = free_slot_with_an_untracked_gitignore(&fixture);
+  let got = fixture.get(&[]);
+  assert_eq!((&got["created_by"], &got["cloned_from"]), (&json!("clone"), &json!(template)), "{got}");
+  assert_pristine(&path_of(&got));
+  assert!(Path::new(&template).join(".gitignore").exists() && Path::new(&template).join("left.txt").exists());
+}
+
+/// A return with `--confirm-preserved` discards an untracked `.gitignore` and the file it ignored: the slot is clean
+#[test_log::test]
+fn a_confirmed_return_discards_the_file_an_untracked_gitignore_hid() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  write_a_hidden_file(&path);
+  let (exit_code, returned) = fixture.run(&["lease", "return", "--workspace", &path, "--confirm-preserved"]);
+  assert_eq!((exit_code, &returned["discarded"]), (0, &json!([".gitignore"])), "{returned}");
+  assert_pristine(&path);
 }
 
 /// A return refuses unlanded commits, a dirty tree and a busy slot, each with nothing changed; --confirm-preserved

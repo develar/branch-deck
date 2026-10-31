@@ -1191,7 +1191,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         report(GetStep::CleanTakenOver { slot: path.clone() });
         // the trash stays: the next return or clean deletes it as the trash of a gone run, and the get goes on
         let trash = Trash::new(&pool.trash_dir());
-        finish_return(git_executor, &path, &old, &[], Some(CleanOverrides::default()), &trash)
+        finish_return(git_executor, &path, &old, None, Some(CleanOverrides::default()), &trash)
           .map_err(|error| give_back(&pool, params.lock_timeout, &path, &lease.id, false, error))?;
         move_leased_slot(git_executor, &pool, params, &path, &lease.id, &source_head, config.workers)?;
         took_over = Some(TookOver { lease: *old, landed });
@@ -1774,17 +1774,14 @@ fn template_marker(lease_id: &str) -> String {
 }
 
 /// Under the pool lock: mark a free slot of this repository `templating` for the clone of a new slot, one without a
-/// process in it first; `None` without one, and the source checkout is the template. The free slots left here are the
-/// ones the get passed over (dirty or busy): the checkout and the clean of the clone make them right
+/// process in it first, and among those a clean one before a dirty one, so the clone starts with the least to undo;
+/// `None` without one, and the source checkout is the template. The free slots left here are the ones the get passed
+/// over (dirty or busy): the checkout and the clean of the clone make them right
 fn mark_template(store: &mut LeaseStore, git_common_dir: &Path, scan: &ProcessScan, lease: &Lease) -> Option<String> {
-  let candidates: Vec<usize> = (0..store.slots.len())
+  let index = (0..store.slots.len())
     .filter(|&index| store.slots[index].lease.is_none() && is_worktree_of(Path::new(&store.slots[index].path), git_common_dir))
-    .collect();
-  let index = candidates
-    .iter()
-    .copied()
-    .find(|&index| scan.inside(Path::new(&store.slots[index].path)).is_empty())
-    .or_else(|| candidates.first().copied())?;
+    // the first of the best: no process, then clean
+    .min_by_key(|&index| (!scan.inside(Path::new(&store.slots[index].path)).is_empty(), store.slots[index].dirty))?;
   let slot = &mut store.slots[index];
   slot.lease = Some(Lease {
     id: template_marker(&lease.id),
@@ -1897,9 +1894,9 @@ enum Cloned {
 /// 2. `worktree add --no-checkout`, its `.git` file moved over the cloned `.git` (a directory when the template is a
 ///    main checkout), `<path>.cloning` renamed to `<path>`;
 /// 3. the template's index copied in and refreshed (`refresh_cloned_index`);
-/// 4. `checkout --force` to the commit, `clean -fd`, one `status`: the changes and the untracked files of the
-///    template never reach the lease, and its ignored files stay as the warm cache. A tracked file under a skipped path
-///    comes back with the checkout
+/// 4. `checkout --force` to the commit, its untracked files removed (`clean_cloned_slot`), one `status`: the changes
+///    and the untracked files of the template never reach the lease, and its ignored files stay as the warm cache. A
+///    tracked file under a skipped path comes back with the checkout
 fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, release_template: &dyn Fn()) -> Result<(), Cloned> {
   let path = request.path;
   let slot = display_path(path);
@@ -1955,7 +1952,7 @@ fn add_cloned_slot(git_executor: &GitCommandExecutor, request: &NewSlot<'_>, rel
     commit: request.commit.to_string(),
   });
   checkout_slot(git_executor, &slot, request.commit, request.branch, request.workers).map_err(registered)?;
-  clean_cloned_slot(git_executor, &slot).map_err(registered)?;
+  clean_cloned_slot(git_executor, &slot, request.untracked).map_err(registered)?;
   (request.progress)(GetStep::Status { slot: slot.clone() });
   let changes = slot_changes(git_executor, &slot, request.untracked).map_err(registered)?;
   if !changes.is_empty() {
@@ -2484,7 +2481,7 @@ fn return_once(
     }
     ReturnAs::HostSlot { trash, .. } => (trash, false),
   };
-  let returned = finish_return(git_executor, &path, &lease, &changes, params.clean, trash);
+  let returned = finish_return(git_executor, &path, &lease, (!changes.is_empty()).then_some(config.untracked), params.clean, trash);
   let FinishedReturn {
     removed,
     detached_branch,
@@ -2601,11 +2598,19 @@ struct FinishedReturn {
   clean_error: Option<String>,
 }
 
-/// What a reserved return does to the slot: discard the `changes` it may give up, remove the seeded paths, detach HEAD
-/// and apply the clean rules, moving what a `delete` removes into `trash`
-fn finish_return(git_executor: &GitCommandExecutor, path: &str, lease: &Lease, changes: &[String], clean: Option<CleanOverrides>, trash: &Trash) -> Result<FinishedReturn> {
-  if !changes.is_empty() {
-    discard_slot_changes(git_executor, path)?;
+/// What a reserved return does to the slot: discard the changes it may give up (`discard`: the untracked mode of the
+/// repository, when it found any), remove the seeded paths, detach HEAD and apply the clean rules, moving what a
+/// `delete` removes into `trash`
+fn finish_return(
+  git_executor: &GitCommandExecutor,
+  path: &str,
+  lease: &Lease,
+  discard: Option<UntrackedFiles>,
+  clean: Option<CleanOverrides>,
+  trash: &Trash,
+) -> Result<FinishedReturn> {
+  if let Some(untracked) = discard {
+    discard_slot_changes(git_executor, path, untracked)?;
   }
   let removed = remove_seeded(Path::new(path), &lease.seeded, trash)?;
   let detached_branch = read_head(git_executor, path)?.and_then(|(_, branch)| branch);
@@ -3145,7 +3150,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       answer.skipped.push(skip(IdleSkip::Busy { processes: running }));
       continue;
     }
-    match finish_return(git_executor, &path, &lease, &[], Some(params.clean), &trash) {
+    match finish_return(git_executor, &path, &lease, None, Some(params.clean), &trash) {
       Ok(finished) => reclaimed.cleaned = finished.cleaned,
       Err(error) => {
         restore_ready(&pool, params.lock_timeout, &path, &lease.id);

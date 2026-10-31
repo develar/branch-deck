@@ -205,20 +205,20 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/git-ops/src/lease_slot_test.rs (`an_untracked_file_in_a_path_of_the_diff_refuses_the_move`, `a_new_branch_is_attached_in_one_transaction_and_an_existing_one_fails_it`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_removes_the_index_lock_a_killed_git_left_in_the_slot`)
 - On macOS a new slot must be an APFS clone (`created_by: "clone"`, `cloned_from`) of a template: a free slot of this
-  repository that the get passed over, marked `templating` while it is cloned, else the source checkout. The clone
-  must get the `.git` file of a `worktree add --no-checkout --lock` (unlocked once the clone is at its path, so a
-  `worktree prune` beside it, the user's or a gc's, never deletes the registration), the template's index refreshed
-  with `core.checkStat=minimal`, then `checkout --force` to the source HEAD, `clean -fd` and a clean `status`: the
-  template's local changes, staged files and untracked files never reach the lease, its ignored files do, but for
-  what the `delete` clean rules of the source delete: those paths are left out of the clone, but for their `except`
-  entries (a rule below a kept entry applies too), a link among them as the link, and the `.git` of the template with
-  them, so a new slot starts as a
-  returned one and a clone of a main checkout never copies its build output (in idea-1 188 GB and 760,000 files of
-  `out/`, its `bazel-*` links into the output base of the main checkout among them). The directories on the way to a
-  left-out path are made anew and the rest of each is cloned entry by entry (`clonefile` with `CLONE_NOFOLLOW`);
-  without such rules the whole tree is one `clonefile`. A tracked file under a left-out path comes back with the
-  checkout. A rules file that can't be read clones everything. The template must be free again afterwards, and the
-  source unchanged.
+  repository that the get passed over (one without a process first, among those a clean one first), marked
+  `templating` while it is cloned, else the source checkout. The clone must get the `.git` file of a `worktree add
+  --no-checkout --lock` (unlocked once the clone is at its path, so a `worktree prune` beside it, the user's or a
+  gc's, never deletes the registration), the template's index refreshed with `core.checkStat=minimal`, then `checkout
+  --force` to the source HEAD, the removal of the untracked files (the discard below) and a clean `status`: the
+  template's local changes, staged files and untracked files never reach the lease, its ignored files do, but for what
+  the `delete` clean rules of the source delete: those paths are left out of the clone, but for their `except` entries
+  (a rule below a kept entry applies too), a link among them as the link, and the `.git` of the template with them, so
+  a new slot starts as a returned one and a clone of a main checkout never copies its build output (in idea-1 188 GB
+  and 760,000 files of `out/`, its `bazel-*` links into the output base of the main checkout among them). The
+  directories on the way to a left-out path are made anew and the rest of each is cloned entry by entry (`clonefile`
+  with `CLONE_NOFOLLOW`); without such rules the whole tree is one `clonefile`. A tracked file under a left-out path
+  comes back with the checkout. A rules file that can't be read clones everything. The template must be free again
+  afterwards, and the source unchanged.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_new_slot_is_a_clone_of_the_source_without_its_local_work`, `a_new_slot_is_a_clone_of_a_free_slot`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
   [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_prune_while_a_cloned_slot_is_away_keeps_its_registration_until_the_unlock`)
@@ -423,8 +423,15 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   whose process is gone is abandoned.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_that_a_retry_overtook_answers_joined_and_leaves_the_next_lease_of_the_slot_alone`, `a_return_retried_while_the_first_acts_on_the_slot_waits_for_it_and_answers_joined`, `a_running_return_reserves_the_slot_against_a_get`)
 - `--confirm-preserved` must give up the unlanded commits (`given_up`) and discard the local changes (`discarded`)
-  with `reset --hard HEAD` and `clean -fd`: the ignored files stay.
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`)
+  with `reset --hard HEAD` and the removal of the untracked files: the ignored files stay. The slot must hold its
+  commit's tree and what the commit's own ignore rules ignore, so an untracked `.gitignore` goes before the
+  `clean -fd`, which would delete it and keep the file it hid. Every discard of a slot (a return, a takeover, a
+  reclaim, the give-back of a host slot) and the clean of a clone remove the untracked files so: a `status` in the
+  untracked mode of the repository lists them, with none no `clean -fd` runs, and after a `clean -fd` one more
+  `status` must find none (at most four passes).
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_refuses_unlanded_commits_a_dirty_tree_and_a_busy_slot`, `a_confirmed_return_discards_the_file_an_untracked_gitignore_hid`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_clone_of_a_template_with_an_untracked_gitignore_is_clean`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`, `a_lease_get_of_a_new_slot_by_a_clone`)
 
 ### Pick
 

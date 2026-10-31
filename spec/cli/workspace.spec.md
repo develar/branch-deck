@@ -57,8 +57,9 @@ in the session wins over both.
   it ([bd lease](lease.spec.md)), `lease_id` and `holder` its lease, and `next` the same as the get's: `bd -C <top
   level> lease pick` and the return of this lease. When the shared checkout has another branch checked out now than
   at the get, `home.switched_to` names it (`null`: a detached HEAD), so the agent asks the user before it picks. `active_leases` must list every
-  ready lease of the pool, so a session that lost its path finds its own by `holder`, with `holder_alive` and, for one
-  whose holder is gone, `idle` as `bd lease status` shows it (`idle_with_work` with its work: tell the user). In a slot
+  ready lease of the pool, so a session that lost its path finds its own by `holder`, with `holder_alive` (omitted
+  without a scan of the processes, on Windows, where the get records no holder process) and, for one whose holder is
+  gone, `idle` as `bd lease status` shows it (`idle_with_work` with its work: tell the user). In a slot
   whose lease a get or `bd lease reclaim` took over, `bd workspace` of another session than the one that holds it now
   is `lease_reclaimed` (exit 4), so a resumed session of the old holder learns it before its first edit.
   [@test] ../../crates/bd-lease/src/workspace_test.rs (`by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it`)

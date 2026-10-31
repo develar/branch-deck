@@ -1157,7 +1157,7 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
       // the new generation is written before the discard: a give-back that dies after the discard leaves a clean slot,
       // whose retry by `reclaim` discards nothing and would move no generation
       set_state(params, n, mine, |slot| slot.generation = slot.generation.saturating_add(1))?;
-      discard_slot_changes(git_executor, &path)?;
+      discard_slot_changes(git_executor, &path, config.untracked)?;
     }
     Ok::<_, anyhow::Error>((config, changes))
   })();
@@ -1751,7 +1751,7 @@ fn return_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, 
   }
   let config = lease_config(git_executor, path)?;
   if !slot_changes(git_executor, path, config.untracked)?.is_empty() {
-    discard_slot_changes(git_executor, path)?;
+    discard_slot_changes(git_executor, path, config.untracked)?;
   }
   move_reused_slot(
     git_executor,

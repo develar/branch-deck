@@ -14,6 +14,7 @@ use crate::revs::{is_object_id, read_head};
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::path::{Path, PathBuf};
+use sync_utils::fs_retry;
 use sync_utils::git_bool::parse_git_bool;
 
 /// A linked worktree, as its `.git` file and its admin directory name it
@@ -85,17 +86,22 @@ pub fn slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: Un
     .cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot)
     .env(&[("GIT_OPTIONAL_LOCKS", "1")])
     .bytes()?;
-  let mut paths = Vec::new();
+  Ok(status_entries(&output).into_iter().map(|(_, path)| path).collect())
+}
+
+/// The entries of a `status --porcelain=v1 -z`: the two status letters and the path (of a rename or a copy, the new one)
+fn status_entries(output: &[u8]) -> Vec<([u8; 2], String)> {
+  let mut found = Vec::new();
   let mut entries = output.split(|&byte| byte == 0).filter(|entry| !entry.is_empty());
   while let Some(entry) = entries.next() {
-    let Some(path) = entry.get(3..) else { continue };
-    paths.push(String::from_utf8_lossy(path).into_owned());
+    let (Some(&[x, y]), Some(path)) = (entry.get(..2), entry.get(3..)) else { continue };
+    found.push(([x, y], String::from_utf8_lossy(path).into_owned()));
     // a rename or a copy names its source in the next entry
-    if matches!(entry.first(), Some(b'R' | b'C')) {
+    if matches!(x, b'R' | b'C') {
       entries.next();
     }
   }
-  Ok(paths)
+  found
 }
 
 /// What a checkout or a move of the pool runs with (`checkout_slot`, `move_clean_slot`): `checkout.workers=0`, one
@@ -254,10 +260,35 @@ pub fn refresh_cloned_index(git_executor: &GitCommandExecutor, slot: &str) -> Re
 }
 
 /// Remove the untracked files of `slot` that a clone brought from its template, not the ignored ones (the warm build
-/// outputs): `clean -fd`
-pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
-  git_executor.execute_command(&["clean", "-fd", "--quiet"], slot)?;
-  Ok(())
+/// outputs): `remove_untracked`
+pub fn clean_cloned_slot(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<()> {
+  remove_untracked(git_executor, slot, untracked)
+}
+
+/// How many passes `remove_untracked` makes at most: one more for each untracked ignore file that hid another
+const UNTRACKED_PASSES: usize = 4;
+
+/// Remove the untracked files of `slot` and keep the ignored ones (the warm build outputs), so the slot holds its
+/// commit's tree and what the commit's own ignore rules ignore. A `status` in the `untracked` mode of the repository
+/// lists them (its untracked cache serves that mode alone: 2 s in a slot of idea-1, where `clean -fd` walks every
+/// directory, 49 s); with none untracked nothing more runs. Else the untracked `.gitignore` files it lists go first,
+/// then one `clean -fd`, and one more `status` checks that nothing is left: a `clean` judges what is ignored by the
+/// ignore files as it finds them when it starts, so it deleted an untracked `.gitignore` and kept the file that
+/// `.gitignore` hid, untracked from then on. A `.gitignore` inside an untracked directory (one entry in the `normal`
+/// mode) is found so, by the pass after
+fn remove_untracked(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<()> {
+  for _ in 0..UNTRACKED_PASSES {
+    let output = git_executor.cmd(&["status", "--porcelain=v1", "-z", untracked.arg()], slot).bytes()?;
+    let found: Vec<String> = status_entries(&output).into_iter().filter(|(code, _)| code == b"??").map(|(_, path)| path).collect();
+    if found.is_empty() {
+      return Ok(());
+    }
+    for path in found.iter().filter(|path| Path::new(path).file_name().is_some_and(|name| name == ".gitignore")) {
+      fs_retry::remove_file(Path::new(slot).join(path))?;
+    }
+    git_executor.execute_command(&["clean", "-fd", "--quiet"], slot)?;
+  }
+  bail!("{slot} still has untracked files after {UNTRACKED_PASSES} passes of `clean -fd`")
 }
 
 /// Move the linked worktree `from` to `to` with `worktree move`, which renames the directory and fixes the links of its
@@ -343,12 +374,12 @@ fn head_commits_without(git_executor: &GitCommandExecutor, slot: &str, not: &[&s
   )
 }
 
-/// Discard the local changes of `slot` that its holder confirmed: `reset --hard HEAD`, then `clean -fd`, which removes
-/// the untracked files and keeps the ignored ones (build outputs keep the next lease warm)
-pub fn discard_slot_changes(git_executor: &GitCommandExecutor, slot: &str) -> Result<()> {
+/// Discard the local changes of `slot` that its holder confirmed: `reset --hard HEAD`, which also restores a tracked
+/// ignore file, then `remove_untracked`, which removes the untracked files and keeps the ignored ones (build outputs
+/// keep the next lease warm)
+pub fn discard_slot_changes(git_executor: &GitCommandExecutor, slot: &str, untracked: UntrackedFiles) -> Result<()> {
   IndexLock::of(git_executor, slot).retry(INDEX_LOCK_WAIT, || git_executor.execute_command(&["reset", "--quiet", "--hard", "HEAD"], slot).map(drop))?;
-  git_executor.execute_command(&["clean", "-fd", "--quiet"], slot)?;
-  Ok(())
+  remove_untracked(git_executor, slot, untracked)
 }
 
 /// Start git's maintenance as a commit would, once a return freed its slot: `maintenance run --auto --detach` in the

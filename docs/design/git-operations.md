@@ -2027,8 +2027,8 @@ same tree takes several minutes.
    `core.checkStat=minimal`, `core.trustctime=false` and `core.fsmonitor=false`. A clone keeps the mtime and the size
    of every file, but its inodes and ctimes are new: the default check rehashes every file (288 s on idea-1, against 14
    s). The refresh writes the new stat data, so every later git runs with the default check.
-5. `checkout --force --detach <source HEAD>` (parallel, as above) writes the diff from the template's index, `clean -fd`
-   removes the untracked files of the template, and one `status` must find nothing. The template's changes, staged
+5. `checkout --force --detach <source HEAD>` (parallel, as above) writes the diff from the template's index, the
+   untracked files of the template go (`remove_untracked`, below), and one `status` must find nothing. The template's changes, staged
    files and untracked files never reach the lease; its ignored files stay as the warm cache. The seed runs as for
    any get, so the return removes the seeded files also when the source template carried them.
 
@@ -2189,8 +2189,17 @@ fails is not waited for: its server keeps the slot busy at once, its `stop_error
 server whose link is missing or named otherwise is not found and keeps running, as before. There is no flag to keep a server: `--keep-servers` turned the stop into a refusal that could never pass
 while the server ran, and a wrong note that a return stopped a shared server made agents pass it. Unlanded commits,
 local changes and a process of another session in the slot refuse it; with
-`--confirm-preserved` the changes go with `reset --hard HEAD` and `clean -fd`, and the ignored build outputs stay
-for the next lease. The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
+`--confirm-preserved` the changes go with `reset --hard HEAD` and `remove_untracked`, and the ignored build outputs
+stay for the next lease. `remove_untracked` (`git_ops::lease_slot`, every discard of a slot and the clean of a clone)
+lists the untracked files with one `status` in the untracked mode of the repository, whose untracked cache serves that
+mode alone (2 s in a slot of idea-1; `clean -fd` walks every directory, 49 s, and `ls-files --others` 54 s), and with
+none runs nothing more. Else it removes the untracked `.gitignore` files it lists, runs one `clean -fd`, and one more
+`status` must find nothing, at most four passes: a `clean` judges what is ignored by the ignore files as it finds them
+when it starts, so it deleted an untracked `.gitignore` and kept the file that file hid, which then made the slot dirty
+(a clone of such a template was rolled back); a `.gitignore` inside an untracked directory, one entry in the `normal`
+mode, is found by the pass after
+(`a_confirmed_return_discards_the_file_an_untracked_gitignore_hid`,
+`a_clone_of_a_template_with_an_untracked_gitignore_is_clean`). The seeded paths are removed, and a branch HEAD is on is detached with a `RefTransaction` (`option
 no-deref`, `branch-deck: lease return`). The slot stays at its commit: the next get moves it. The return acts on the
 slot only after it reserved it: once every check passed, under the pool lock and with CAS on the lease id, the lease
 becomes `returning`, of the return's process. A get leases nothing else for it: one that needs a slot waits for the
