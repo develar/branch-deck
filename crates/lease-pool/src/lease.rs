@@ -82,6 +82,9 @@ pub struct Slot {
   /// A get found local changes in the free slot and skipped it; the next gets try it last
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub dirty: bool,
+  /// The `status` that found it dirty, while `dirty`: a later get skips the slot without another while it holds
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub dirty_check: Option<DirtyCheck>,
   /// The number of its last return in the pool, higher for a later one: a get takes the free slot returned last first
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub returned: Option<u64>,
@@ -159,6 +162,31 @@ impl IdleCheck {
   /// slot did not change (its holder is gone), the commits while the home branch did not move either
   fn holds(&self, mark: &SlotMark, home_tip: Option<&str>) -> bool {
     self.mark == *mark && (!self.paths.is_empty() || self.operation.is_some() || self.home_tip.as_deref() == home_tip)
+  }
+}
+
+/// How long the verdict of a `status` that found a free slot dirty holds while the slot does not move (`DirtyCheck`): a
+/// stray file deleted by hand moves no mark, so a slot cleaned so comes back after it. A `status` of a slot of idea-1
+/// takes 2 to 40 s, and every get that finds no clean free slot paid it before it added a slot
+pub const DIRTY_RECHECK: Duration = Duration::from_hours(1);
+
+/// The `status` that found a free slot dirty (`Slot::dirty_check`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirtyCheck {
+  /// Unix seconds
+  pub at: u64,
+  /// The slot as its files told it then, no git: a commit, a reset or a checkout changes it
+  pub mark: SlotMark,
+  /// The local changes it found
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub paths: Vec<String>,
+}
+
+impl DirtyCheck {
+  /// Whether the verdict holds for the slot as `mark` tells it at `now`: the slot did not move, and the `status` is
+  /// younger than `DIRTY_RECHECK`
+  fn holds(&self, mark: &SlotMark, now: u64) -> bool {
+    self.mark == *mark && now.saturating_sub(self.at) < DIRTY_RECHECK.as_secs()
   }
 }
 
@@ -1019,6 +1047,11 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             if let Some(slot) = leased_slot(store, &path, &lease.id) {
               slot.lease = None;
               slot.dirty = true;
+              slot.dirty_check = Some(DirtyCheck {
+                at: now(),
+                mark: SlotMark::of(Path::new(&path)),
+                paths: changes.clone(),
+              });
             }
             Ok(())
           })?;
@@ -1146,6 +1179,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       let slot = leased_slot(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} was taken back while it was being prepared"))?;
       slot.name = name;
       slot.dirty = false;
+      slot.dirty_check = None;
       if let Some(lease) = slot.lease.as_mut() {
         lease.state = LeaseState::Ready;
         lease.seeded = seeded;
@@ -1378,6 +1412,19 @@ fn reserve(
       if !is_worktree_of(Path::new(&slot.path), git_common_dir) {
         continue;
       }
+      // a dirty slot that did not move since a recent `status` is skipped without another
+      if let Some(check) = slot
+        .dirty_check
+        .as_ref()
+        .filter(|check| slot.dirty && check.holds(&SlotMark::of(Path::new(&slot.path)), now()))
+      {
+        skipped.push(SkippedSlot {
+          name: slot.name.clone(),
+          path: slot.path.clone(),
+          reason: SkipReason::Dirty { paths: check.paths.clone() },
+        });
+        continue;
+      }
       // a Bazel server serves only its slot, and a free slot is the pool's: the get stops it. A `--watchfs` server could
       // miss the events of the checkout and build stale
       let Some(servers) = servers_alone(scan, slot, skipped) else {
@@ -1418,6 +1465,7 @@ fn reserve(
     name: String::new(),
     path: display_path(&path),
     dirty: false,
+    dirty_check: None,
     returned: None,
     lease: Some(lease.clone()),
     reclaimed: None,
@@ -2391,6 +2439,7 @@ fn return_once(
     let slot = leased_slot(store, &path, &lease.id).ok_or_else(|| anyhow!("The lease of {path} changed while it was returned"))?;
     slot.lease = None;
     slot.dirty = false;
+    slot.dirty_check = None;
     slot.returned = Some(last_return + 1);
     Ok(())
   })?;
@@ -3033,6 +3082,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       if let Some(slot) = leased_slot(store, &path, &lease.id) {
         slot.lease = None;
         slot.dirty = false;
+        slot.dirty_check = None;
         slot.returned = Some(last_return + 1);
         slot.reclaimed = Some(Reclaimed::of(&lease, None));
       }
@@ -3162,6 +3212,7 @@ const fn free_slot(name: String, path: String) -> Slot {
     name,
     path,
     dirty: false,
+    dirty_check: None,
     returned: None,
     lease: None,
     reclaimed: None,

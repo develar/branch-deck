@@ -215,6 +215,7 @@ fn an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents() {
         name: "1".to_string(),
         path: canonical_path(slot.path()),
         dirty: false,
+        dirty_check: None,
         returned: None,
         lease: None,
         reclaimed: None,

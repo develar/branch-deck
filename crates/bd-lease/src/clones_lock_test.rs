@@ -71,7 +71,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
 
 /// The steps that add a new slot, after its reserve: on macOS an APFS clone of a template, its index refreshed, the
 /// checkout of the diff and the status of the clone; elsewhere a registration and a full checkout
-fn new_slot_steps() -> &'static [&'static str] {
+pub(crate) fn new_slot_steps() -> &'static [&'static str] {
   if cfg!(target_os = "macos") {
     &["clone", "refresh", "checkout", "status"]
   } else {

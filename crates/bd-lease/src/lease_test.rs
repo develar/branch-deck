@@ -1,5 +1,6 @@
 #[cfg(unix)]
-use crate::clones_lock_test::{get_with_steps, kinds, wait_for_the_slot};
+use crate::clones_lock_test::wait_for_the_slot;
+use crate::clones_lock_test::{get_with_steps, kinds, new_slot_steps};
 use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
@@ -175,7 +176,9 @@ fn a_free_slot_is_reused_after_master_was_rewritten_past_its_commit() {
   fixture.give_back(&path);
 }
 
-/// A free slot with local changes is skipped, marked dirty and tried last; with no other free slot the pool grows
+/// A free slot with local changes is skipped, marked dirty and tried last; with no other free slot the pool grows. The
+/// next get skips it without a `status` while it did not move, for an hour (`DIRTY_RECHECK`); then one `status` again
+/// finds it clean, and the slot is reused
 #[test_log::test]
 fn a_dirty_free_slot_is_skipped_and_a_new_slot_is_added() {
   let fixture = Fixture::new();
@@ -192,10 +195,23 @@ fn a_dirty_free_slot_is_skipped_and_a_new_slot_is_added() {
   );
   assert_eq!(fixture.status()["slots"][0]["dirty"], json!(true));
 
-  // once clean, the dirty slot is reused, the mark cleared
+  // the next get skips it as dirty without a `status`, and a deleted stray file moves no mark
   std::fs::remove_file(Path::new(&first).join("left.txt")).unwrap();
-  let third = fixture.get(&[]);
-  assert_eq!((path_of(&third), &third["reused"]), (first, &json!(true)));
+  let steps = std::sync::Mutex::new(Vec::new());
+  let third = serde_json::to_value(get_with_steps(&fixture, "third", &steps).unwrap()).unwrap();
+  assert_eq!((&third["reused"], &third["skipped"]), (&json!(false), &second["skipped"]), "{third}");
+  assert_eq!(kinds(&steps), [&["reserve", "reserve adding"][..], new_slot_steps()].concat());
+
+  // an hour later the verdict is checked again: one `status` finds the slot clean, and it is reused, the mark cleared
+  lease_pool::lease::Pool::new(Path::new(&slot_path(&fixture.repo.path().join(".git").to_string_lossy())))
+    .update(Duration::from_secs(10), |store| {
+      let check = store.slots.iter_mut().find(|slot| slot.path == first).and_then(|slot| slot.dirty_check.as_mut()).unwrap();
+      check.at -= lease_pool::lease::DIRTY_RECHECK.as_secs();
+      Ok(())
+    })
+    .unwrap();
+  let fourth = fixture.get(&[]);
+  assert_eq!((path_of(&fourth), &fourth["reused"]), (first, &json!(true)));
   assert_eq!(fixture.status()["slots"][0].get("dirty"), None);
 }
 

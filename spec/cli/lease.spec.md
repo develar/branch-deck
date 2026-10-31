@@ -169,10 +169,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
-  skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
-  later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot
-  (`reused: false`).
+  skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty; later gets must try a dirty slot
+  after the clean ones. With no free slot left, the get must add a new slot (`reused: false`). The verdict is
+  recorded with the slot's mark (its HEAD and reflog, no git): a later get must skip the slot as dirty without a
+  `status`, naming the paths found then, while the mark is unchanged and the verdict younger than an hour; a moved
+  slot, or an older verdict, gets one `status` again (a stray file deleted by hand moves no mark).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`)
+  [@test] ../../crates/lease-pool/src/lease_test.rs (`a_dirty_verdict_holds_while_the_slot_did_not_move_and_for_an_hour`)
 - Every `status` of the pool (a get, the check of a clone, a return, an adopt) must list untracked files with
   `--untracked-files=all` when the repository's `status.showUntrackedFiles` is `all`, else with `normal`, also for
   `no`: git's untracked cache answers only in the mode it was built for, and git builds it only in the configured mode.
@@ -919,7 +922,8 @@ and one `write-tree`. Both give the same commit for the same tree.
   finish one after the other instead of all failing together, and a freed slot ends the wait of the next get.
 - A seeded path that a later commit tracks is removed by the return, and the slot shows a deletion; the next get skips
   it as dirty.
-- A free slot left dirty stays in the pool, and each get that needs it pays one `status` of it.
+- A free slot left dirty stays in the pool, and a get that needs it pays one `status` of it an hour, or once it
+  moved; a slot cleaned by hand waits up to that hour before a get takes it.
 - A takeover can't tell a resumed session of the old holder from one of the new holder once the new holder is gone
   too, nor any session where no process scan runs (Windows): there `lease_reclaimed` refuses nothing.
 - A bd older than `taking_over`, `idle_check` and `reclaimed` drops them when it writes the state: the get gives the

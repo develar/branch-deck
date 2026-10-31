@@ -847,6 +847,7 @@ pub async fn journal_agent_operation(
           name: "e2e-agent-slot".to_string(),
           path: slot.clone(),
           dirty: false,
+          dirty_check: None,
           returned: None,
           lease: None,
           reclaimed: None,

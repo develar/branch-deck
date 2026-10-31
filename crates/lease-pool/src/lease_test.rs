@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
+use crate::lease::{DIRTY_RECHECK, DirtyCheck, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -48,6 +48,33 @@ fn the_seed_candidates_are_literal_paths_and_globs_of_one_directory() {
   assert_eq!(
     seed_candidates(root.path(), text),
     [".claude/settings.local.json", "config/a.local.json", "config/b.local.json", ".env", "cache"]
+  );
+}
+
+/// The verdict of a `status` that found a free slot dirty holds while the slot did not move and for `DIRTY_RECHECK`
+/// only: a stray file deleted by hand moves no mark, so a slot cleaned so is checked again after the bound
+#[test]
+fn a_dirty_verdict_holds_while_the_slot_did_not_move_and_for_an_hour() {
+  let mark = SlotMark {
+    head: "ref: refs/heads/master".to_string(),
+    log_len: 120,
+    log_modified: 1_000,
+  };
+  let check = DirtyCheck {
+    at: 10_000,
+    mark: mark.clone(),
+    paths: vec!["left.txt".to_string()],
+  };
+  let recheck = DIRTY_RECHECK.as_secs();
+  let moved = SlotMark { log_len: 180, ..mark.clone() };
+  assert_eq!(
+    [
+      check.holds(&mark, 10_000),
+      check.holds(&mark, 10_000 + recheck - 1),
+      check.holds(&mark, 10_000 + recheck),
+      check.holds(&moved, 10_001),
+    ],
+    [true, true, false, false]
   );
 }
 
@@ -132,6 +159,7 @@ fn a_commit_during_the_check_stops_the_takeover() {
       name: "slot".to_string(),
       path: path.clone(),
       dirty: false,
+      dirty_check: None,
       returned: None,
       lease: Some(get.clone()),
       reclaimed: None,
