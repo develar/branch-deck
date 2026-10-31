@@ -3933,8 +3933,6 @@ export type MechanicalKind =
 "whitespace" | 
 /**  Moved, no line changed */
 "renamed" | 
-/**  Deleted */
-"deleted" | 
 /**
  *  Nobody writes it by hand: a lock file, a file the attributes mark generated, a file whose header says a tool wrote
  *  it (`FileFacts::generated` says which)
@@ -8048,6 +8046,10 @@ export type UnitKind =
 { kind: "removed" } | 
 /**  A file the commits add */
 { kind: "newFile" } | 
+/**  A file the commits delete, its author's decision */
+{ kind: "deletedFile" } | 
+/**  The files the commits delete from one directory, `MIN_DELETED_GROUP` or more, the deletion of a part of the tree */
+{ kind: "deletedFiles"; directory: string } | 
 /**  A change the review folds: of one kind, over every file that has it */
 { kind: "mechanical"; mechanical: MechanicalKind } | 
 /**  The same edit in 3 or more files: the group of `ReviewPlan::repeated_edits` it is */

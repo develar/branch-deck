@@ -187,8 +187,8 @@ fn a_repeated_edit_and_the_whitespace_are_one_unit_each_over_their_files() {
   );
 }
 
-/// The generated files are one unit over all of them, the last of the mechanical units, after a deletion: a reviewer
-/// skips them whole
+/// The generated files are one unit over all of them, the last of the mechanical units: a reviewer skips them whole; a
+/// deleted file is no mechanical change
 #[test]
 fn the_generated_files_are_one_unit_after_the_other_mechanical_ones() {
   let repo = TestRepo::new();
@@ -218,10 +218,43 @@ fn the_generated_files_are_one_unit_after_the_other_mechanical_ones() {
     .filter(|unit| matches!(unit.kind, UnitKind::Mechanical { .. }))
     .map(|unit| (unit.id.as_str(), unit.slices.iter().map(|slice| slice.path.as_str()).collect()))
     .collect();
-  assert_eq!(
-    mechanical,
-    [("mechanical:deleted", vec!["src/a/Gone.kt"]), ("mechanical:generated", vec!["AGENTS.md", "pnpm-lock.yaml"])]
+  assert_eq!(mechanical, [("mechanical:generated", vec!["AGENTS.md", "pnpm-lock.yaml"])]);
+}
+
+/// A deleted file is a unit of its own in the story, its author's decision; three or more deleted from one directory
+/// are one unit, the deletion of a part of the tree
+#[test]
+fn a_deleted_file_is_a_unit_and_the_deleted_files_of_a_directory_are_one() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("dotnet/.codex/config.toml", "[mcp_servers.ijproxy]\ntype = \"stdio\"\n"),
+      ("old/a/A.kt", "package a\n"),
+      ("old/a/B.kt", "package a\n"),
+      ("old/a/C.kt", "package a\n"),
+      ("src/a/App.kt", "package a\n\nfun app() = 1\n"),
+    ],
   );
+  repo.git(&["rm", "-q", "dotnet/.codex/config.toml", "old/a/A.kt", "old/a/B.kt", "old/a/C.kt"]);
+  let head = repo.create_commit_with_files("Delete", &[("src/a/App.kt", "package a\n\nfun app() = 2\n")]);
+  let plan = plan(&repo, &base, &head);
+  let kinds: Vec<(&str, &UnitKind, Vec<&str>)> = plan
+    .units
+    .iter()
+    .map(|unit| (unit.id.as_str(), &unit.kind, unit.slices.iter().map(|slice| slice.path.as_str()).collect()))
+    .collect();
+  let directory = UnitKind::DeletedFiles { directory: "old/a".to_string() };
+  assert_eq!(
+    kinds,
+    [
+      ("deleted:dotnet/.codex/config.toml", &UnitKind::DeletedFile, vec!["dotnet/.codex/config.toml"]),
+      ("deleted:old/a/", &directory, vec!["old/a/A.kt", "old/a/B.kt", "old/a/C.kt"]),
+      ("declaration:src/a/App.kt:a.app:", &UnitKind::Behaviour, vec!["src/a/App.kt"]),
+    ]
+  );
+  let deleted = plan.files.iter().filter(|file| file.path != "src/a/App.kt");
+  assert!(deleted.clone().all(|file| file.mechanical.is_none() && !file.untested), "{:#?}", plan.files);
 }
 
 /// A unit's fingerprint is that of its change, not of where it sits: the same change of a body on another base gives

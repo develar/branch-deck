@@ -1,11 +1,11 @@
-import type { ApiChange, FileFacts, ReviewUnit, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, ReviewUnit, UnitBlock } from "@/lib/bindings"
 import type { SectionUnits } from "@/lib/diff/rows"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
 
 /*
  * The story of a review (spec/branch/review-units.spec.md, "In the Review Window"): the sections of the diffs in the
  * order Rust gave the units, each run of units of one file one section with the heading of each change, each group (a
- * kind of mechanical change, a repeated edit) a section per file of it. Rust decides what each unit is and the order;
+ * kind of mechanical change, a repeated edit, the files deleted from one directory) a section per file of it. Rust decides what each unit is and the order;
  * this words them and lays them out over the files the review shows.
  */
 
@@ -53,6 +53,10 @@ export function formatUnitHeading(unit: ReviewUnit): string {
       return `${name} — removed`
     case "newFile":
       return `${name} — new file`
+    case "deletedFile":
+      return `${name} — deleted file`
+    case "deletedFiles":
+      return `Deleted from ${unit.kind.directory}/`
     case "mechanical":
       return MECHANICAL_WORDS[unit.kind.mechanical]
     case "repeatedEdit":
@@ -68,11 +72,29 @@ function groupHeading(unit: ReviewUnit): string {
   if (unit.kind.kind === "repeatedEdit") {
     return `Same edit in ${count} files`
   }
+  if (unit.kind.kind === "deletedFiles") {
+    return `Deleted from ${unit.kind.directory}/ (${count})`
+  }
   return unit.kind.kind === "mechanical" ? `${MECHANICAL_WORDS[unit.kind.mechanical]} (${count})` : formatUnitHeading(unit)
 }
 
 function isGroup(unit: ReviewUnit): boolean {
-  return unit.kind.kind === "mechanical" || unit.kind.kind === "repeatedEdit"
+  return unit.kind.kind === "mechanical" || unit.kind.kind === "repeatedEdit" || unit.kind.kind === "deletedFiles"
+}
+
+/**
+ * Why the section of the `index`th shown file of a group starts collapsed: the kind of a mechanical change (of a
+ * generated file why, `generated`), a deletion from a directory, a file of a repeated edit after the first
+ */
+function groupFolded(unit: ReviewUnit, shown: readonly { readonly path: string }[], index: number, generated: GeneratedBy | undefined): string | null {
+  switch (unit.kind.kind) {
+    case "mechanical":
+      return generated === undefined ? FOLDED_WORDS[unit.kind.mechanical] : formatGenerated(generated)
+    case "deletedFiles":
+      return "Deleted"
+    default:
+      return index === 0 ? null : `Same edit as ${fileName(shown[0]!.path)}`
+  }
 }
 
 /** The blocks of a slice match those of the file's diff as the window reads it: the same lines on each side */
@@ -147,15 +169,7 @@ export function presentNarrative(units: readonly ReviewUnit[], files: readonly N
         }
         placed.add(slice.path)
         const first = index === 0
-        const generated = generatedOf.get(slice.path)
-        const folded =
-          unit.kind.kind === "mechanical"
-            ? generated === undefined
-              ? FOLDED_WORDS[unit.kind.mechanical]
-              : formatGenerated(generated)
-            : first
-              ? null
-              : `Same edit as ${fileName(shown[0]!.path)}`
+        const folded = groupFolded(unit, shown, index, generatedOf.get(slice.path))
         drafts.push({
           key: nextKey(`group:${unit.id}`, slice.path),
           path: slice.path,

@@ -133,13 +133,13 @@ describe("the tree of a review with its plan", () => {
     file("src/b/Cache.kt"),
     file("src/b/b.iml", 3, 0, "added"),
     file("src/Base.kt", 1, 1),
-    file("src/a/Old.kt", 0, 4, "deleted"),
+    file("src/a/Old.lock", 0, 4, "deleted"),
     file("README.md"),
   ]
   const mechanical = new Map<string, MechanicalKind>([
     ["src/b/b.iml", "buildModel"],
     ["src/Base.kt", "whitespace"],
-    ["src/a/Old.kt", "deleted"],
+    ["src/a/Old.lock", "generated"],
   ])
 
   it("folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last", () => {
@@ -156,10 +156,10 @@ describe("the tree of a review with its plan", () => {
       "    src/b/b.iml",
       "  Whitespace only (1)/",
       "    src/Base.kt",
-      "  Deleted (1)/",
-      "    src/a/Old.kt",
+      "  Generated (1)/",
+      "    src/a/Old.lock",
     ])
-    expect(flattenTreeFiles(tree).map(it => it.path)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "README.md", "src/b/b.iml", "src/Base.kt", "src/a/Old.kt"])
+    expect(flattenTreeFiles(tree).map(it => it.path)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "README.md", "src/b/b.iml", "src/Base.kt", "src/a/Old.lock"])
     const group = tree.at(-1) as FileTreeDirectory
     expect([group.key, group.group, group.fileCount, group.additions, group.deletions]).toEqual([MECHANICAL_GROUP_KEY, "mechanical", 3, 4, 5])
     // a tree without a mechanical file has no group
@@ -170,18 +170,18 @@ describe("the tree of a review with its plan", () => {
     const facts = (path: string, mechanical: MechanicalKind | null) => ({ path, mechanical }) as FileFacts
     const unit = (mechanical: MechanicalKind) => ({ kind: { kind: "mechanical", mechanical } }) as ReviewUnit
     const kinds = mechanicalKindsOf({
-      files: [facts("src/Base.kt", "whitespace"), facts("src/a/Reader.kt", null), facts("src/a/Old.kt", "deleted"), facts("src/b/b.iml", "buildModel")],
-      units: [unit("deleted"), unit("buildModel"), unit("whitespace")],
+      files: [facts("src/Base.kt", "whitespace"), facts("src/a/Reader.kt", null), facts("src/a/Old.lock", "generated"), facts("src/b/b.iml", "buildModel")],
+      units: [unit("generated"), unit("buildModel"), unit("whitespace")],
     })
     expect([...kinds]).toEqual([
-      ["src/a/Old.kt", "deleted"],
+      ["src/a/Old.lock", "generated"],
       ["src/b/b.iml", "buildModel"],
       ["src/Base.kt", "whitespace"],
     ])
     expect(outline(buildReviewTree(files, kinds)).slice(-7)).toEqual([
       "Mechanical (3)/",
-      "  Deleted (1)/",
-      "    src/a/Old.kt",
+      "  Generated (1)/",
+      "    src/a/Old.lock",
       "  Build files (1)/",
       "    src/b/b.iml",
       "  Whitespace only (1)/",
@@ -200,7 +200,7 @@ describe("the tree of a review with its plan", () => {
 
   it("copies the paths of a group, which has no path of its own", () => {
     const group = buildReviewTree(files, mechanical).at(-1)!
-    expect(fileActionTarget(group)).toEqual({ kind: "group", files: ["src/b/b.iml", "src/Base.kt", "src/a/Old.kt"] })
+    expect(fileActionTarget(group)).toEqual({ kind: "group", files: ["src/b/b.iml", "src/Base.kt", "src/a/Old.lock"] })
     expect(fileMenuItems(fileActionTarget(group), { copyKey: true }).map(item => item.label)).toEqual(["Copy Changed Paths"])
   })
 

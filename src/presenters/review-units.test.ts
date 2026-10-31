@@ -65,6 +65,23 @@ describe("the story of a review", () => {
     expect(api.targets.get(0)).toBe("group:mechanical:src/Api.kt:src/Api.kt")
   })
 
+  it("shows a deleted file whole in its place, and the files deleted from one directory as a group, each collapsed", () => {
+    expect(formatUnitHeading(unit({ kind: "deletedFile" }, "config.toml", []))).toBe("config.toml — deleted file")
+    const units = [
+      unit({ kind: "deletedFile" }, "config.toml", [{ path: "dotnet/.codex/config.toml", blocks: [], whole: true }]),
+      unit({ kind: "deletedFiles", directory: "old/a" }, null, [
+        { path: "old/a/A.kt", blocks: [], whole: true },
+        { path: "old/a/B.kt", blocks: [], whole: true },
+      ]),
+    ]
+    const files = [file("dotnet/.codex/config.toml", null), file("old/a/A.kt", null), file("old/a/B.kt", null)]
+    expect(presentNarrative(units, files, [], []).map(section => [section.key, section.heading, section.folded])).toEqual([
+      ["dotnet/.codex/config.toml", null, null],
+      ["group:deletedFiles:old/a/A.kt:old/a/A.kt", "Deleted from old/a/ (2)", "Deleted"],
+      ["group:deletedFiles:old/a/A.kt:old/a/B.kt", null, "Deleted"],
+    ])
+  })
+
   it("shows a file whole where its blocks are not those of the units, and a file no unit names after the story", () => {
     const units = [
       unit({ kind: "behaviour" }, "open", [{ path: "src/Api.kt", blocks: [block(0, 10)] }]),

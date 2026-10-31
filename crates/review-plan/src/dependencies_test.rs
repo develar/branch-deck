@@ -179,7 +179,7 @@ fn the_dependency_tables_of_a_cargo_toml_are_its_dependency_changes() {
       ("crates/broken/Cargo.toml", None),
       ("crates/c/Cargo.toml", None),
       ("crates/fmt/Cargo.toml", Some(MechanicalKind::Whitespace)),
-      ("crates/gone/Cargo.toml", Some(MechanicalKind::Deleted)),
+      ("crates/gone/Cargo.toml", None),
       ("crates/new/Cargo.toml", None),
     ]
   );

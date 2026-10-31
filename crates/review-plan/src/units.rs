@@ -4,8 +4,9 @@
 //! - **A block** of a file goes to one unit: the repeated edit of its file's group when it is that edit, else the
 //!   imports or the whitespace when it changes only those, else the declaration that holds most of its changed lines
 //!   (on the new side, on the old one for a removal alone; the innermost one, never a local), else a change outside
-//!   any declaration. A file whose change is mechanical (`files::mechanical_kind`), added, without text or of no known
-//!   declarations is one unit as a whole.
+//!   any declaration. A file whose change is mechanical (`files::mechanical_kind`), added, deleted, without text or of
+//!   no known declarations is one unit as a whole; `MIN_DELETED_GROUP` or more files deleted from one directory are one
+//!   unit `DeletedFiles`.
 //! - **A declaration** is paired with itself across the two sides by its key and, among overloads, by an equal form,
 //!   then in order: a pair whose form differs is `Shape`, one whose form is the same and whose text is not (without
 //!   whitespace) `Behaviour`, one whose text is the same too whitespace; a declaration of one side alone, its lines
@@ -47,6 +48,10 @@ pub enum UnitKind {
   Removed,
   /// A file the commits add
   NewFile,
+  /// A file the commits delete, its author's decision
+  DeletedFile,
+  /// The files the commits delete from one directory, `MIN_DELETED_GROUP` or more, the deletion of a part of the tree
+  DeletedFiles { directory: String },
   /// A change the review folds: of one kind, over every file that has it
   Mechanical { mechanical: MechanicalKind },
   /// The same edit in 3 or more files: the group of `ReviewPlan::repeated_edits` it is
@@ -134,12 +139,11 @@ pub struct ReviewUnit {
 
 /// The order of the mechanical units, as the tree of the review lists the kinds: the generated files last, which a
 /// reviewer skips whole
-const MECHANICAL_ORDER: [MechanicalKind; 6] = [
+const MECHANICAL_ORDER: [MechanicalKind; 5] = [
   MechanicalKind::BuildModel,
   MechanicalKind::ImportsOnly,
   MechanicalKind::Whitespace,
   MechanicalKind::Renamed,
-  MechanicalKind::Deleted,
   MechanicalKind::Generated,
 ];
 
@@ -272,7 +276,12 @@ struct Cut {
   mechanical: BTreeMap<usize, Vec<UnitSlice>>,
   /// group -> its place in the story and its slices
   repeated: BTreeMap<u32, (Place, Vec<UnitSlice>)>,
+  /// directory -> the units of the files the commits delete from it, one per file
+  deleted: BTreeMap<String, Vec<Placed>>,
 }
+
+/// The fewest deleted files of one directory that make one unit `DeletedFiles`
+const MIN_DELETED_GROUP: usize = 3;
 
 /// One file of the pair, with what the units read of it
 struct PairFile<'a> {
@@ -364,8 +373,12 @@ pub(crate) fn review_units(
     match pair {
       PairBlocks::Added => cut.placed.push(pair_file.whole_unit(pair, UnitKind::NewFile, "new")),
       PairBlocks::Deleted => {
-        let slice = pair_file.whole(pair, "mechanical");
-        cut.mechanical.entry(mechanical_place(MechanicalKind::Deleted)).or_default().push(slice);
+        let directory = file.path.rsplit_once('/').map_or("", |(directory, _)| directory);
+        cut
+          .deleted
+          .entry(directory.to_string())
+          .or_default()
+          .push(pair_file.whole_unit(pair, UnitKind::DeletedFile, "deleted"));
       }
       PairBlocks::TypeChanged => cut.placed.push(other(OtherReason::TypeChanged)),
       PairBlocks::NoText => cut.placed.push(other(OtherReason::NoText)),
@@ -395,7 +408,35 @@ pub(crate) fn review_units(
       }
     }
   }
-  let Cut { mut placed, mechanical, repeated } = cut;
+  let Cut {
+    mut placed,
+    mechanical,
+    repeated,
+    deleted,
+  } = cut;
+  for (directory, files) in deleted {
+    if files.len() < MIN_DELETED_GROUP {
+      placed.extend(files);
+      continue;
+    }
+    let at = files.iter().map(|file| file.at).min().unwrap_or_default();
+    let slices: Vec<UnitSlice> = files.into_iter().flat_map(|file| file.unit.slices).collect();
+    let fingerprint = group_fingerprint(&slices);
+    placed.push(Placed {
+      at,
+      unit: ReviewUnit {
+        id: format!("deleted:{directory}/"),
+        kind: UnitKind::DeletedFiles { directory },
+        name: None,
+        key: None,
+        signature: None,
+        public: false,
+        line: None,
+        slices,
+        fingerprint,
+      },
+    });
+  }
   for (group, (at, slices)) in repeated {
     let fingerprint = group_fingerprint(&slices);
     placed.push(Placed {
@@ -468,7 +509,6 @@ const fn mechanical_tag(kind: MechanicalKind) -> &'static str {
     MechanicalKind::ImportsOnly => "importsOnly",
     MechanicalKind::Whitespace => "whitespace",
     MechanicalKind::Renamed => "renamed",
-    MechanicalKind::Deleted => "deleted",
     MechanicalKind::Generated => "generated",
   }
 }

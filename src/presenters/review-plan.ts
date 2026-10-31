@@ -320,7 +320,6 @@ export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
   renamed: "Renamed",
-  deleted: "Deleted",
   generated: "Generated",
 }
 
@@ -330,7 +329,6 @@ export const FOLDED_WORDS: Readonly<Record<MechanicalKind, string>> = {
   importsOnly: "Imports only",
   whitespace: "Whitespace only",
   renamed: "Renamed only",
-  deleted: "Deleted",
   generated: "Generated",
 }
 

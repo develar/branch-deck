@@ -6,10 +6,12 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 5` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 6` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
-//! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story, and
-//! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them
+//! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
+//! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
+//! made a deletion real work: no `mechanical: "deleted"`, a unit `deletedFile` per deleted file and `deletedFiles`
+//! with its `directory` for 3 or more deleted from one directory
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -31,9 +33,9 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 5;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 6;
 
-/// The `"schema": 4` field the output of `bd review-plan` starts with
+/// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReviewPlanSchemaVersion;
 
@@ -156,8 +158,8 @@ pub struct FileFactsOutput {
   pub path: String,
   /// The path before the first commit that changes it, when the commits rename it
   pub old_path: Option<String>,
-  /// Why its change is mechanical (a build file, only imports, only whitespace, a pure rename, a deletion, a generated
-  /// file); `null` for real work
+  /// Why its change is mechanical (a build file, only imports, only whitespace, a pure rename, a generated file);
+  /// `null` for real work, a deletion too
   pub mechanical: Option<MechanicalKind>,
   /// Why it is generated, when `mechanical` is `generated`: its name (a lock file, a minified file, a source map), the
   /// attributes of the head (`linguist-generated`, `-diff`), or the header a tool wrote into it, with its line
@@ -213,6 +215,9 @@ pub struct UnitOutput {
   /// Of an `other` unit: why no declaration holds it
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<OtherReason>,
+  /// Of a `deletedFiles` unit: the directory the commits delete its files from
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub directory: Option<String>,
   /// Of a declaration its name, of a file the name of the file
   pub name: Option<String>,
   /// Of a declaration: namespace, containers and name, as the `api` entry of a public one
@@ -242,6 +247,10 @@ pub enum UnitKindOutput {
   Removed,
   /// A file the commits add
   NewFile,
+  /// A file the commits delete
+  DeletedFile,
+  /// 3 or more files the commits delete from one directory
+  DeletedFiles,
   /// One kind of mechanical change, over every file that has it
   Mechanical,
   /// The same edit in 3 or more files
@@ -442,23 +451,14 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     blocks: slice.blocks.into_iter().map(block).collect(),
     fingerprint: slice.fingerprint,
   };
-  let (kind, changes, mechanical, group, reason) = match unit.kind {
-    UnitKind::Shape { changes } => (UnitKindOutput::Shape, changes, None, None, None),
-    UnitKind::Behaviour => (UnitKindOutput::Behaviour, Vec::new(), None, None, None),
-    UnitKind::Added => (UnitKindOutput::Added, Vec::new(), None, None, None),
-    UnitKind::Removed => (UnitKindOutput::Removed, Vec::new(), None, None, None),
-    UnitKind::NewFile => (UnitKindOutput::NewFile, Vec::new(), None, None, None),
-    UnitKind::Mechanical { mechanical } => (UnitKindOutput::Mechanical, Vec::new(), Some(mechanical), None, None),
-    UnitKind::RepeatedEdit { group } => (UnitKindOutput::RepeatedEdit, Vec::new(), None, Some(group), None),
-    UnitKind::Other { reason } => (UnitKindOutput::Other, Vec::new(), None, None, Some(reason)),
-  };
-  UnitOutput {
+  let mut output = UnitOutput {
     id: unit.id,
-    kind,
-    changes,
-    mechanical,
-    group,
-    reason,
+    kind: UnitKindOutput::Other,
+    changes: Vec::new(),
+    mechanical: None,
+    group: None,
+    reason: None,
+    directory: None,
     name: unit.name,
     key: unit.key,
     signature: unit.signature,
@@ -466,7 +466,35 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     line: unit.line,
     slices: unit.slices.into_iter().map(slice).collect(),
     fingerprint: unit.fingerprint,
-  }
+  };
+  output.kind = match unit.kind {
+    UnitKind::Shape { changes } => {
+      output.changes = changes;
+      UnitKindOutput::Shape
+    }
+    UnitKind::Behaviour => UnitKindOutput::Behaviour,
+    UnitKind::Added => UnitKindOutput::Added,
+    UnitKind::Removed => UnitKindOutput::Removed,
+    UnitKind::NewFile => UnitKindOutput::NewFile,
+    UnitKind::DeletedFile => UnitKindOutput::DeletedFile,
+    UnitKind::DeletedFiles { directory } => {
+      output.directory = Some(directory);
+      UnitKindOutput::DeletedFiles
+    }
+    UnitKind::Mechanical { mechanical } => {
+      output.mechanical = Some(mechanical);
+      UnitKindOutput::Mechanical
+    }
+    UnitKind::RepeatedEdit { group } => {
+      output.group = Some(group);
+      UnitKindOutput::RepeatedEdit
+    }
+    UnitKind::Other { reason } => {
+      output.reason = Some(reason);
+      UnitKindOutput::Other
+    }
+  };
+  output
 }
 
 fn repeated_edit_output(group: RepeatedEditGroup) -> RepeatedEditOutput {

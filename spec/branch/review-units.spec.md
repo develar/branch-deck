@@ -89,19 +89,24 @@ is anchored to.
   are its blocks.
   [@test] ../../crates/review-plan/src/units_test.rs (`each_change_of_a_file_is_one_unit_and_every_block_is_in_one`, `an_overload_is_a_unit_of_its_own`)
   [@test] ../../crates/review-plan/src/units_test.rs (`a_member_of_a_new_type_is_part_of_the_type`)
-- A file whose change is mechanical (`files`: a build file, imports only, whitespace only, a pure rename, a deletion, a
-  generated file) must be one slice of the unit of its kind, the file whole; a generated file the commits add too. A file the commits add is one unit `newFile`. A binary
+- A file whose change is mechanical (`files`: a build file, imports only, whitespace only, a pure rename, a generated
+  file) must be one slice of the unit of its kind, the file whole; a generated file the commits add or delete too. A
+  file the commits add is one unit `newFile`, a file they delete one unit `deletedFile` in its place in the story;
+  3 or more files deleted from one directory are one unit `deletedFiles` with the directory, a section per file, each
+  collapsed ("Deleted"), under "Deleted from old/a/ (3)". A binary
   file, a file over 8 MiB, a change of its type, a change of the line ends alone where the indentation has a meaning,
   and a file of no language the review parses are each one unit `other` with the reason.
 - One kind of mechanical change must be one unit over every file that has it, and one repeated edit one unit over its
   files.
   [@test] ../../crates/review-plan/src/units_test.rs (`a_repeated_edit_and_the_whitespace_are_one_unit_each_over_their_files`)
+  [@test] ../../crates/review-plan/src/units_test.rs (`a_deleted_file_is_a_unit_and_the_deleted_files_of_a_directory_are_one`)
+  [@test] ../../src/presenters/review-units.test.ts (`shows a deleted file whole in its place, and the files deleted from one directory as a group, each collapsed`)
 
 ### Order
 - The units must come in the order of the files of the plan (`order`: a declaration before its uses, a test right
   after its subject), each unit at the first block it holds, a unit without a block right after the unit of the block
   that changed its lines; a repeated edit at the place of its first file; the mechanical units last, by kind: build
-  files, imports, whitespace, renames, deletions, the generated files last of all (`mechanical:generated`), which a
+  files, imports, whitespace, renames, the generated files last of all (`mechanical:generated`), which a
   reviewer skips whole.
   [@test] ../../crates/review-plan/src/units_test.rs (`the_units_follow_the_order_of_the_files_and_the_pair_of_a_file_changed_twice`)
   [@test] ../../crates/review-plan/src/units_test.rs (`the_generated_files_are_one_unit_after_the_other_mechanical_ones`)
@@ -116,9 +121,9 @@ is anchored to.
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
 ### In `bd`
-- `bd review-plan` must print `units` (`"schema": 5`): per unit its `id`, `kind` (`shape` with `changes`,
-  `behaviour`, `added`, `removed`, `newFile`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, `other` with
-  `reason`), `name`, `key`, `signature`, `public`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
+- `bd review-plan` must print `units` (`"schema": 6`): per unit its `id`, `kind` (`shape` with `changes`,
+  `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles` with `directory`, `mechanical` with
+  `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `public`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)
   and its `fingerprint`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)

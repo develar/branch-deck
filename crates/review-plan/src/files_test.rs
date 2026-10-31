@@ -105,7 +105,7 @@ fn a_source_file_changed_without_its_test_is_untested() {
     [
       ("src/a/Back.kt", None),
       ("src/a/Session.kt", None),
-      ("src/a/Gone.kt", Some(MechanicalKind::Deleted)),
+      ("src/a/Gone.kt", None),
       ("src/a/Login.kt", None),
       ("src/test/kotlin/a/LoginTest.kt", None),
       ("README.md", None)
@@ -243,10 +243,10 @@ fn mechanical(repo: &TestRepo, base: &str, head: &str) -> Vec<(String, Option<Me
   kinds
 }
 
-/// Only imports, only whitespace, a pure rename, a deletion and a file of the build model are mechanical; a hunk of an
-/// import and a line of code, a file of no known language whose `import` line changes, and an added file are not
+/// Only imports, only whitespace, a pure rename and a file of the build model are mechanical; a hunk of an import and a
+/// line of code, a file of no known language whose `import` line changes, an added file and a deleted one are not
 #[test]
-fn imports_whitespace_renames_deletions_and_the_build_model_are_mechanical() {
+fn imports_whitespace_renames_and_the_build_model_are_mechanical_a_deletion_is_not() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files(
     "Add files",
@@ -281,7 +281,7 @@ fn imports_whitespace_renames_deletions_and_the_build_model_are_mechanical() {
       ("docs/import.txt".to_string(), None),
       ("docs/new.txt".to_string(), Some(MechanicalKind::Renamed)),
       ("src/a/Added.kt".to_string(), None),
-      ("src/a/Gone.kt".to_string(), Some(MechanicalKind::Deleted)),
+      ("src/a/Gone.kt".to_string(), None),
       ("src/a/Imports.kt".to_string(), Some(MechanicalKind::ImportsOnly)),
       ("src/a/Indent.kt".to_string(), Some(MechanicalKind::Whitespace)),
       ("src/a/Mixed.kt".to_string(), None),
@@ -520,8 +520,8 @@ fn generated_facts(repo: &TestRepo, base: &str, head: &str) -> Vec<(String, Opti
 }
 
 /// A lock file, a minified file and a source map by their name, a file the attributes of the head mark, and a file
-/// whose header a tool wrote, added or changed, are `Generated` with why; a snapshot, an unknown `*.lock`, a deleted
-/// generated file and the real work are not
+/// whose header a tool wrote, added, changed or deleted, are `Generated` with why; a snapshot, an unknown `*.lock` and
+/// the real work are not
 #[test]
 fn a_generated_file_is_mechanical_by_its_name_its_attributes_or_its_header() {
   let repo = TestRepo::new();
@@ -535,6 +535,8 @@ fn a_generated_file_is_mechanical_by_its_name_its_attributes_or_its_header() {
       ("tools/build.lock", "a\n"),
       ("gen/api.json", "{\"a\": 1}\n"),
       ("gen/old.json", "{\"b\": 1}\n"),
+      ("old/Cargo.lock", "version = 3\n"),
+      ("docs/OLD.md", AGENTS),
       ("AGENTS.md", AGENTS),
       ("src/App.kt", "class App\n"),
     ],
@@ -555,7 +557,7 @@ fn a_generated_file_is_mechanical_by_its_name_its_attributes_or_its_header() {
       ("src/App.kt", "class App {\n  fun run() = 1\n}\n"),
     ],
   );
-  repo.git(&["rm", "-q", "gen/old.json"]);
+  repo.git(&["rm", "-q", "gen/old.json", "old/Cargo.lock", "docs/OLD.md"]);
   let head = repo.commit_with(&["-m", "Remove a generated file"], &[]);
   let header = || {
     Some(GeneratedBy::Header {
@@ -573,8 +575,10 @@ fn a_generated_file_is_mechanical_by_its_name_its_attributes_or_its_header() {
       ("dist/app.js.map".to_string(), generated, named(GeneratedName::SourceMap)),
       ("dist/app.min.js".to_string(), generated, named(GeneratedName::Minified)),
       ("docs/AGENTS.md".to_string(), generated, header()),
+      ("docs/OLD.md".to_string(), generated, header()),
       ("gen/api.json".to_string(), generated, Some(GeneratedBy::Attribute)),
-      ("gen/old.json".to_string(), Some(MechanicalKind::Deleted), None),
+      ("gen/old.json".to_string(), generated, Some(GeneratedBy::Attribute)),
+      ("old/Cargo.lock".to_string(), generated, named(GeneratedName::LockFile)),
       ("src/App.kt".to_string(), None, None),
       ("src/__snapshots__/view.test.ts.snap".to_string(), None, None),
       ("tools/build.lock".to_string(), Some(MechanicalKind::BuildModel), None),
