@@ -8,13 +8,16 @@
 //!   `READINESS_PARALLEL` at a time, the next one as one answers.
 //! - A subject whose inputs changed is asked again only while it has a reason (the session leaves a hidden one of
 //!   another tip out); one Patronus didn't answer is asked again after `READINESS_RETRY` on the clock of the session.
+//! - A pull request of a review window (`request:<n>`) that leaves the digest leaves with its record in the session
+//!   (the window shows another one, or its new head is not fetched yet): what was read of it goes too, and an answer
+//!   that ends after is not recorded, so its return asks again, as the session has nothing of it then.
 //! - The calls of a session are its own: a repository change opens another session, whose task waits for none of them.
 
 use super::{Input, Reply, SessionFacts};
 use domain_policy::refresh::{READINESS_PARALLEL, READINESS_RETRY, ReadinessRead, readiness_asks, readiness_due};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{BranchReviewReadiness, ReviewReadiness};
-use domain_types::session::Version;
+use domain_types::session::{Version, request_of_readiness_key};
 use repository_model::facts::FactResult;
 use repository_model::readiness_facts::{ReadinessAnswer, ReadinessDigest, ReadinessSubject};
 use std::collections::{BTreeMap, BTreeSet};
@@ -68,7 +71,11 @@ impl ReadinessSchedule {
 impl SessionFacts {
   /// The session tells what it asks the readiness of now
   pub(super) fn readiness_told(&mut self, digest: ReadinessDigest) {
-    self.readiness.digest = digest;
+    let readiness = &mut self.readiness;
+    readiness.digest = digest;
+    let digest = &readiness.digest;
+    readiness.read.retain(|key, _| is_told(digest, key));
+    readiness.missed.retain(|key, _| is_told(digest, key));
     self.ask_readiness();
   }
 
@@ -215,7 +222,9 @@ impl SessionFacts {
         if readiness.asking.get(&subject.key) == Some(&subject.inputs) {
           readiness.asking.remove(&subject.key);
         }
-        if let Some(unavailable) = unavailable {
+        if let Some(unavailable) = unavailable
+          && is_told(&readiness.digest, &subject.key)
+        {
           readiness.read.insert(
             subject.key.clone(),
             ReadinessRead {
@@ -235,7 +244,7 @@ impl SessionFacts {
       }
       ReadinessEnded::Cached { subjects, hits } => {
         readiness.cache_reading = None;
-        for (key, inputs) in subjects {
+        for (key, inputs) in subjects.into_iter().filter(|(key, _)| is_told(&readiness.digest, key)) {
           if hits.contains(&key) {
             readiness.read.insert(
               key,
@@ -253,6 +262,12 @@ impl SessionFacts {
     }
     self.ask_readiness();
   }
+}
+
+/// Whether what was read of `key` is kept: a branch's always, a pull request's while the session tells it (the module's
+/// header)
+fn is_told(digest: &ReadinessDigest, key: &str) -> bool {
+  request_of_readiness_key(key).is_none() || digest.subjects.iter().any(|subject| subject.key == key)
 }
 
 /// The answer of `subject` among the answers of its call, by its key and tip

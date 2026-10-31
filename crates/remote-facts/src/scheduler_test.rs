@@ -1200,6 +1200,39 @@ async fn asks_the_shown_rows_before_the_hidden_awaiting_ones_at_most_four_in_par
   assert_eq!((session.readiness_calls(), session.kept_calls()), (Vec::new(), Vec::new()));
 }
 
+/// A pull request of a review window leaves the digest with its record in the session (the window shows another one):
+/// back with the same inputs, it is asked again; a branch that leaves and comes back with an answer of its inputs is not
+#[tokio::test]
+async fn asks_a_pull_request_of_a_review_window_again_once_it_comes_back() {
+  let session = Harness::watched().await;
+  let request = readiness_subject("request:7", ReadinessPriority::Demanded, 1);
+  let branch = readiness_subject("login", ReadinessPriority::Demanded, 1);
+  session.send(readiness_told(vec![request.clone(), branch.clone()])).await;
+  session.release().await;
+  let mut calls = session.readiness_calls();
+  calls.sort();
+  assert_eq!(calls, calls_of(&["login", "request:7"], false));
+  session.send(readiness_told(vec![request.clone(), branch.clone()])).await;
+  assert_eq!(session.readiness_calls(), [], "an answer of the same inputs asks nothing more");
+
+  // the window shows #8, then #7 again
+  session.send(readiness_told(Vec::new())).await;
+  session.send(readiness_told(vec![request.clone(), branch.clone()])).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["request:7"], false));
+  session.release().await;
+
+  // an answer that ends after its pull request left is not kept either
+  session.hold_readiness(true);
+  session.send(readiness_told(Vec::new())).await;
+  session.send(readiness_told(vec![request.clone()])).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["request:7"], false));
+  session.send(readiness_told(Vec::new())).await;
+  session.hold_readiness(false);
+  session.release().await;
+  session.send(readiness_told(vec![request])).await;
+  assert_eq!(session.readiness_calls(), calls_of(&["request:7"], false));
+}
+
 /// The kept answers of the queue are read first, in one read: a hit asks no pre-check, the misses queue
 #[tokio::test]
 async fn answers_the_cache_before_the_queue() {

@@ -36,6 +36,7 @@ targets:
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus-failing.ts
   - ../../crates/remote-facts/src/scheduler.rs
+  - ../../crates/remote-facts/src/scheduler_readiness.rs
   - ../../crates/remote-facts/src/fact_sources.rs
   - ../../crates/repository-model/src/facts.rs
   - ../../src/lib/patronus.ts
@@ -1357,6 +1358,12 @@ the session asks Patronus about the pull request a review window shows, as the r
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_goes_with_the_window`)
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_late_answer_of_an_earlier_head_of_a_pull_request_never_becomes_its_readiness`)
   [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_pull_request_of_someone_else_is_asked_about_as_its_head_branch`)
+- A pull request that comes back to a review window (the window shows another one and returns to it, or closes and
+  opens it again) is asked again with the same inputs: the schedule of the session forgets what it read of
+  `request:<n>` once the key leaves the facts (`scheduler_readiness.rs`), and an ask that ends after it left records
+  nothing; the cache of the answers (`review_answer`) still saves the call to Patronus. A branch's readiness is
+  remembered as before.
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`asks_a_pull_request_of_a_review_window_again_once_it_comes_back`)
 - The view gives the row `pull:<n>` its reviewer groups (`reviewGroups`, `domain_policy::reviewer_groups`): every
   group the changes need, in the order of Patronus, with its paths, `branchWide`, `approved` (Patronus's evaluation,
   else whether the readiness still misses it) and `yours`: the GitHub login of the app's sign-in is the `githubLogin`
