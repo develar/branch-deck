@@ -1,7 +1,9 @@
-//! The commits and the regroup plans of the unit tests of the crates that build on this one
+//! The commits, the regroup plans and the mapping notes of the unit tests of the crates that build on this one
 
-use domain_types::commit::Commit;
+use domain_types::commit::{Commit, NoteSource};
 use domain_types::rewrite::RegroupPlan;
+use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::notes::{MappingNote, write_commit_notes};
 use std::collections::BTreeMap;
 use sync_utils::commit_subject::subject_parts;
 
@@ -49,4 +51,31 @@ pub fn issue_group_plan(name: &str, keys: &[&str]) -> RegroupPlan {
     issue_groups: BTreeMap::from([(name.to_string(), keys.iter().map(|key| (*key).to_string()).collect())]),
     ..RegroupPlan::default()
   }
+}
+
+/// A mapping note on each of `commits`, as a sync leaves them: its source the trees of the commit and of its first
+/// parent, its copy a made-up id; one `rev-parse`, one `fast-import`. A rewrite that keeps those trees carries them
+///
+/// # Panics
+/// The trees not read, the notes not written
+pub fn write_mapping_notes(git_executor: &GitCommandExecutor, repo_path: &str, commits: &[&str]) {
+  let revs: Vec<String> = commits.iter().flat_map(|commit| [format!("{commit}^{{tree}}"), format!("{commit}^^{{tree}}")]).collect();
+  let mut args = vec!["rev-parse"];
+  args.extend(revs.iter().map(String::as_str));
+  let trees = git_executor.execute_command_lines(&args, repo_path).unwrap();
+  let notes: Vec<MappingNote> = commits
+    .iter()
+    .zip(trees.chunks(2))
+    .zip(1u32..)
+    .map(|((commit, trees), copy)| MappingNote {
+      original: (*commit).to_string(),
+      mapped: format!("{copy:040x}"),
+      source: NoteSource {
+        tree: trees[0].clone(),
+        parent_tree: trees[1].clone(),
+      },
+      resolved: None,
+    })
+    .collect();
+  write_commit_notes(git_executor, repo_path, &notes).unwrap();
 }

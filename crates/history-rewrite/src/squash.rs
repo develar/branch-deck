@@ -43,15 +43,22 @@ pub struct RestoreBranchHeadParams {
 
 /// Squashes the commits into the oldest of them, which keeps its place and its author; the others leave the history.
 /// One history rewrite that keeps HEAD's tree, so the index and the working tree are not touched. The history, the
-/// merges and the new commits come before the repository lock; under it only the witness of HEAD and the
-/// compare-and-swap move of the branch (`RewriteOptions::lock_prepared`). The next sync rebuilds the virtual branches.
+/// merges, the new commits and the mapping notes the replayed commits carry come before the repository lock; under it
+/// only the witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`). The next sync rebuilds the virtual branches.
 #[instrument(skip(git_executor, params, options), fields(count = params.commit_ids.len()))]
 pub fn squash_commits_core(git_executor: &GitCommandExecutor, params: &SquashCommitsParams, options: &RewriteOptions) -> Result<SquashCommitsResult> {
   let message = checked_message(params)?;
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let prepare = || prepare_squash_commits(git_executor, params, &message, options);
+  // ready before the lock: the carried mapping notes are written there
+  let prepare = || -> Result<PreparedSquash> {
+    let PreparedSquash { rewrite, target } = prepare_squash_commits(git_executor, params, &message, options)?;
+    Ok(PreparedSquash {
+      rewrite: rewrite.ready(git_executor, repo_path)?,
+      target,
+    })
+  };
   let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, prepare(), prepare)?;
   let squashed_count = params.commit_ids.len();
   let rewrite = &prepared.rewrite;

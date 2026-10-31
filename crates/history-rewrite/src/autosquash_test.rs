@@ -4,7 +4,7 @@ use crate::autosquash::{
 };
 use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
-use crate::test_commit::commit;
+use crate::test_commit::{commit, write_mapping_notes};
 use domain_types::commit::Commit;
 use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult};
 use git_ops::rewrite_guard::HeadMoved;
@@ -437,16 +437,20 @@ fn the_plan_reads_the_stacks_setting_of_the_repository() {
   assert_eq!(plan.orphans, []);
 }
 
-/// A fold computes its plan and the squashed commits before the repository lock; under it only the witness of HEAD and
-/// the compare-and-swap move of the branch (C11 of docs/design/rust-domain-authority.md)
+/// A fold computes its plan, the squashed commits and the mapping note the replayed commit after the fixup carries
+/// before the repository lock; under it only the witness of HEAD and the compare-and-swap move of the branch (C11 of
+/// docs/design/rust-domain-authority.md)
 #[cfg(unix)]
 #[test]
 fn a_fold_locks_only_the_witness_and_the_write() {
   let test_repo = TestRepo::new();
   test_repo.create_commit("Initial", "README.md", "readme");
-  test_repo.create_commit("(auth) Add login", "login.txt", "login");
-  test_repo.create_commit("(ui) Add button", "button.txt", "button");
-  let head = test_repo.create_commit("fixup! (auth) Add login", "login.txt", "fixed");
+  let login = test_repo.create_commit("(auth) Add login", "login.txt", "login");
+  let button = test_repo.create_commit("(ui) Add button", "button.txt", "button");
+  let fixup = test_repo.create_commit("fixup! (auth) Add login", "login.txt", "fixed");
+  let head = test_repo.create_commit("(ui) Add icon", "icon.txt", "icon");
+  // the notes of a synced branch: the one of `Add icon` stays with its replayed copy
+  write_mapping_notes(test_repo.git_executor(), test_repo.path_str(), &[&login, &button, &fixup, &head]);
   let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
   let params = SquashFixupsParams {
     repository_path: test_repo.path_str().to_owned(),
@@ -459,5 +463,6 @@ fn a_fold_locks_only_the_witness_and_the_write() {
   let result = squash_fixup_commits_core(span.executor(), &params, &options).unwrap();
   assert_eq!(result.squashed_count, 1);
   assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
-  assert!(span.commands_before_the_lock().iter().any(|command| command == "fast-import"), "{:#?}", span.commands());
+  span.assert_before_the_lock(&["fast-import", "notes"]);
+  assert_ne!(test_repo.git(&["notes", "show", "HEAD"]), "", "the replayed commit carries its note");
 }

@@ -232,8 +232,8 @@ pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_pa
 /// reads it, which must be `options.expect_head` when the request names one (the app: the HEAD its rewrite resolved;
 /// `bd fold --expect-head`): HEAD, the commits the plan is made of and the history the rewrite replays must all end at
 /// it, else the error is `HeadMoved`, which a request that named no HEAD computes once more under the lock. A scope with
-/// nothing to squash is `NothingToSquash`. The plan and the new commits come before the repository lock; under it only
-/// the witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
+/// nothing to squash is `NothingToSquash`. The plan, the new commits and the mapping notes the replayed commits carry
+/// come before the repository lock; under it only the witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
 pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions) -> Result<SquashFixupsResult> {
   squash_fixup_commits_on(git_executor, params, options, None)
 }
@@ -350,7 +350,8 @@ fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, 
     }
   }
 
-  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups)?;
+  // ready before the lock: the carried mapping notes are written there
+  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups)?.ready(git_executor, repo_path)?;
   Ok(PreparedFold { rewrite, groups, orphans })
 }
 

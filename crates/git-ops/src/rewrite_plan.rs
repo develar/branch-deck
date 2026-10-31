@@ -111,18 +111,26 @@ impl PreparedRewrite {
     self.carried_notes.iter().map(|(commit, _)| commit.as_str())
   }
 
-  /// Move the branch in one transaction with `transaction` (other ref changes of the same operation), then let the
-  /// index follow. Nothing changes if a staged change would be lost or the branch moved meanwhile. The carried mapping
-  /// notes are written before the branch moves, so a sync that the move wakes finds them; a note of a commit the branch
-  /// never reaches harms nothing, and a note that is not written only costs a sync the copy
-  #[instrument(skip(self, git_executor, transaction), fields(new_head = %self.new_head))]
-  pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, mut transaction: RefTransaction, operation: &str) -> Result<(), CopyCommitError> {
+  /// What the rewrite runs once it is computed, before the repository lock of a core and before `apply`: the preflight
+  /// of the index (a staged change the move would lose refuses it, its temporary refs deleted, nothing changed) and the
+  /// carried mapping notes, written before the branch moves, so a sync that the move wakes finds them. A note of a
+  /// commit the branch never reaches harms nothing, a note that is not written only costs a sync the copy, and the notes
+  /// ref moves by its own compare-and-swap (`write_cache_notes`), so neither needs the lock. A trial that only checks
+  /// the rewrite runs neither
+  #[instrument(skip(self, git_executor), fields(new_head = %self.new_head))]
+  pub fn ready(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self, CopyCommitError> {
     if let Err(e) = self.index_update.preflight(git_executor, repo_path) {
       self.discard(git_executor, repo_path);
       return Err(CopyCommitError::BranchError(BranchError::Generic(format!("{e:#}"))));
     }
     self.write_carried_notes(git_executor, repo_path);
+    Ok(self)
+  }
 
+  /// Move the branch of a rewrite that is `ready` in one transaction with `transaction` (other ref changes of the same
+  /// operation), then let the index follow. Nothing changes if the branch moved meanwhile
+  #[instrument(skip(self, git_executor, transaction), fields(new_head = %self.new_head))]
+  pub fn apply(&self, git_executor: &GitCommandExecutor, repo_path: &str, mut transaction: RefTransaction, operation: &str) -> Result<(), CopyCommitError> {
     transaction.update(&self.target.full_ref(), &self.new_head, Some(&self.target.head));
     for written in &self.written {
       written.delete_temp_refs(&mut transaction);
@@ -627,7 +635,7 @@ pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, 
 /// Drop `commit_ids_to_drop` from the checked out branch; returns the new HEAD
 #[instrument(skip(git_executor))]
 pub fn drop_commits_from_head(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String]) -> Result<String, CopyCommitError> {
-  let prepared = prepare_drop_commits(git_executor, repo_path, commit_ids_to_drop)?;
+  let prepared = prepare_drop_commits(git_executor, repo_path, commit_ids_to_drop)?.ready(git_executor, repo_path)?;
   prepared.apply(git_executor, repo_path, RefTransaction::new(), &format!("drop {} commits", commit_ids_to_drop.len()))?;
   Ok(prepared.new_head)
 }

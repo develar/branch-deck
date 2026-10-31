@@ -40,7 +40,7 @@ pub struct AmendResult {
 pub fn amend_to_commit_in_main(git_executor: &GitCommandExecutor, repo_path: &str, params: AmendToCommitParams) -> Result<AmendResult, CopyCommitError> {
   let original_commit_id = params.original_commit_id.clone();
   let history = History::read_to(git_executor, repo_path, &[original_commit_id.as_str()])?;
-  let prepared = prepare_amend(git_executor, repo_path, &history, params)?;
+  let prepared = prepare_amend(git_executor, repo_path, &history, params)?.ready(git_executor, repo_path)?;
   apply_amend(git_executor, repo_path, &prepared, &original_commit_id)
 }
 

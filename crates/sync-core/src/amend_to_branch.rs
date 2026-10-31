@@ -51,7 +51,9 @@ pub fn amend_uncommitted_to_branch_core(git_executor: &GitCommandExecutor, param
       original_commit_id: original_commit_id.clone(),
       files: files.clone(),
     };
-    prepare_amend(git_executor, repo, &history, amend).map_err(failed)
+    prepare_amend(git_executor, repo, &history, amend)
+      .and_then(|prepared| prepared.ready(git_executor, repo))
+      .map_err(failed)
   };
   // under the lock, once its witness missed: a HEAD other than the expected one is refused by one `rev-parse`, before
   // the history is read again, which on a history another process rewrote goes down to its root

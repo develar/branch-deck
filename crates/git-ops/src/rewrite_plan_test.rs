@@ -27,7 +27,7 @@ fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) ->
 }
 
 fn prepare(repo: &TestRepo, history: &History, plan: &RewritePlan) -> Result<PreparedRewrite, CopyCommitError> {
-  prepare_plan(repo.git_executor(), repo_path(repo), history, plan, SQUASH_CHECKS)
+  prepare_plan(repo.git_executor(), repo_path(repo), history, plan, SQUASH_CHECKS)?.ready(repo.git_executor(), repo_path(repo))
 }
 
 fn squash(repo: &TestRepo, target: &str, folded: &[&str], message: &str) -> Result<()> {

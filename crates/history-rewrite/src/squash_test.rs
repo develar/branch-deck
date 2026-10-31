@@ -1,5 +1,6 @@
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
+use crate::test_commit::write_mapping_notes;
 use domain_types::rewrite::SquashCommitsResult;
 use git_ops::rewrite_guard::HeadMoved;
 use pretty_assertions::assert_eq;
@@ -109,14 +110,16 @@ fn undo_restores_the_previous_head_and_refuses_after_a_new_commit() {
   assert_eq!(test_repo.head(), later);
 }
 
-/// A squash and its undo compute before the repository lock (the history, the merges, the replay, the new commits; the
-/// checks of the undo); under it only the witness of HEAD and the compare-and-swap move of the branch (C11 of
-/// docs/design/rust-domain-authority.md)
+/// A squash and its undo compute before the repository lock (the history, the merges, the replay, the new commits, the
+/// mapping note the replayed commit carries; the checks of the undo); under it only the witness of HEAD and the
+/// compare-and-swap move of the branch (C11 of docs/design/rust-domain-authority.md)
 #[cfg(unix)]
 #[test]
 fn a_squash_locks_only_the_witness_and_the_write() {
   let (test_repo, a, b) = repo_with_two_commits();
-  test_repo.create_commit("Add c", "c.txt", "c");
+  let c = test_repo.create_commit("Add c", "c.txt", "c");
+  // the notes of a synced branch: the one of `Add c` stays with its replayed copy
+  write_mapping_notes(test_repo.git_executor(), test_repo.path_str(), &[&a, &b, &c]);
   let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
   let params = SquashCommitsParams {
     repository_path: repo_path(&test_repo),
@@ -130,7 +133,8 @@ fn a_squash_locks_only_the_witness_and_the_write() {
   let result = squash_commits_core(span.executor(), &params, &options).unwrap();
   assert_eq!(subjects(&test_repo), "Add c\nAdd a and b\nInitial");
   assert_eq!(span.commands_under_the_lock(), ["for-each-ref", "update-ref"], "{:#?}", span.commands());
-  span.assert_before_the_lock(&["replay", "fast-import"]);
+  span.assert_before_the_lock(&["replay", "fast-import", "notes"]);
+  assert_ne!(test_repo.git(&["notes", "show", "HEAD"]), "", "the replayed commit carries its note");
 
   let span = test_utils::lock_span::LockSpan::new(&test_repo.path().join(".git"));
   let undo = RestoreBranchHeadParams {

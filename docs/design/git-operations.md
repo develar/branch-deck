@@ -293,8 +293,8 @@ taken and deletes it before the release), then runs the real git.
 | Undo of a regroup (`undo_regroup_core`) | `for-each-ref`, `update-ref`; of the stores alone `update-ref` (its CAS the witness) | `an_undo_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
 | Park, unpark (`park_core`, `unpark_core`) | `update-ref` (its CAS the witness) | `a_park_and_an_unpark_lock_only_the_write` (`regroup_test.rs`) |
 | The drop of the lines of integrated branches in a sync (`drop_store_lines`, only while the lock is free) | `cat-file` (the store), `var`, `fast-import`, `update-ref` | `a_drop_of_store_lines_locks_only_its_read_and_its_write` (`regroup_test.rs`) |
-| Squash and its undo (`squash_commits_core`, `restore_branch_head_core`) | `for-each-ref`, `update-ref` | `a_squash_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/squash_test.rs`) |
-| Fold, `bd fold` (`squash_fixup_commits_core`) | `for-each-ref`, `update-ref` | `a_fold_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/autosquash_test.rs`) |
+| Squash and its undo (`squash_commits_core`, `restore_branch_head_core`; the carried mapping notes before the lock) | `for-each-ref`, `update-ref` | `a_squash_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/squash_test.rs`) |
+| Fold, `bd fold` (`squash_fixup_commits_core`; the carried mapping notes before the lock) | `for-each-ref`, `update-ref` | `a_fold_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/autosquash_test.rs`) |
 | Amend (`amend_uncommitted_to_branch_core`) | `for-each-ref`, `update-index`, `update-ref` | `an_amend_and_an_issue_reference_lock_only_the_witness_and_the_write` (`crates/sync-core/src/repository_lock_test.rs`) |
 | Add issue reference (`add_issue_reference_to_commits_core`) | `for-each-ref`, `update-ref` | the same test |
 | `bd move-hunk` (`move_hunk_core`) | `for-each-ref`, `update-ref` | `a_move_hunk_locks_only_the_witness_and_the_write` (`crates/bd-rewrite/src/move_hunk_test.rs`) |
@@ -1007,12 +1007,13 @@ text or the target's own message and encoding):
    are the commits after the newest folded one, whose virtual copies the next sync then reuses, since `replay` gave
    them a new committer and a copy made again would get a new id. The squashed commit and the commits between the
    target and the newest folded one change their trees and keep none; the originals keep theirs, for an undo.
-7. Take the repository lock: steps 1 to 6 ran before it. Read the witness, HEAD and its branch (one `for-each-ref`);
-   HEAD elsewhere runs steps 1 to 6 once more under the lock, where a HEAD other than the expected one is `HeadMoved`.
-   Write the carried notes first (`notes get-ref` and one `fast-import` from `<notes ref>^0`, best effort as
-   `write_cache_notes`), so a sync the move wakes finds them; a note on a commit the branch never reaches harms
-   nothing. Then move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary
-   refs.
+7. Write the carried notes (`PreparedRewrite::ready`: `notes get-ref` and one `fast-import` from `<notes ref>^0`,
+   best effort as `write_cache_notes`, whose own compare-and-swap of the notes ref needs no lock), so a sync the move
+   wakes finds them; a note on a commit the branch never reaches harms nothing. A drop runs its index preflight here
+   too (`IndexUpdate::preflight`, on a copy of the index).
+8. Take the repository lock: steps 1 to 7 ran before it. Read the witness, HEAD and its branch (one `for-each-ref`);
+   HEAD elsewhere runs steps 1 to 7 once more under the lock, where a HEAD other than the expected one is `HeadMoved`.
+   Then move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.
 
 `bd squash <into> <commit>…` finds its commits first (`select_squash`: the commits ahead of the baseline with one
 `log` and the grouping stores, no lock): all ahead of the baseline, `<into>` the oldest, every one in its branch, and a
@@ -1057,8 +1058,8 @@ at the same head, or a commit between them would give a plan for one head and a 
 names a HEAD as the other rewrites do, by `RewriteOptions::expect_head`: the app's rewrite the head it resolved on the
 table the user confirmed the plan on, `bd fold` its `--expect-head` alone. The history is read last, down to the oldest
 target of the scope (see "Rewrite history"), once the plan names the targets. The branch moves with `branch-deck: squash
-fixups` and a CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits before the
-repository lock and holds it for the witness of HEAD and the move, as the squash does, and answers what it squashed
+fixups` and a CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits and the
+carried notes before the repository lock and holds it for the witness of HEAD and the move, as the squash does, and answers what it squashed
 (`SquashFixupsResult`: each target with its subject, its new id and its fixups, the orphans of the scope).
 `bd fold` passes its `--expect-head`, its lock timeout and the range its plan was made of (`FoldRange`: HEAD, the
 commits ahead and the grouping inputs, one listing) to it (`squash_fixup_commits_on`) and prints that answer: the first
