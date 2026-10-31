@@ -1,5 +1,5 @@
-//! Kotlin on `tree-sitter-kotlin-sg` (never `-kotlin-ng`: both export the C symbol `tree_sitter_kotlin`). The grammar
-//! marks few fields, so most rules select children by kind.
+//! Kotlin on fwcd's grammar, `tree-sitter-kotlin` (never `-kotlin-ng`: both export the C symbol `tree_sitter_kotlin`).
+//! The grammar marks few fields, so most rules select children by kind.
 //!
 //! Grammar quirks handled here:
 //! - **Misread declarations**: a declaration with two modifiers before `class` or `interface` and anything after it
@@ -152,8 +152,8 @@ const RULES: &[(&str, Rule)] = &[
 
 pub(crate) static SPEC: Spec = Spec {
   language: Language::Kotlin,
-  grammar: || tree_sitter_kotlin_sg::LANGUAGE.into(),
-  node_types: tree_sitter_kotlin_sg::NODE_TYPES,
+  grammar: || tree_sitter_kotlin::LANGUAGE.into(),
+  node_types: tree_sitter_kotlin::NODE_TYPES,
   rules: RULES,
   binding_names: &["simple_identifier"],
   reserved: &[],

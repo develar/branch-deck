@@ -45,7 +45,9 @@ Type Registry in - Public TopLevel 106-110 @106 : Listener
 Function changed in Registry Public Static 107-107 @107 (paths: List/String) `fun changed` overrides
 Function reset in Registry Public Static 109-109 @109 () `fun reset`
 Value quiet in - Public TopLevel 112-112 @112 `val quiet`
-Type Delegating in - Public TopLevel 114-118 @114 new(listener: Listener) : Listener
+Type Delegating in - Public TopLevel 114-116 @114 new(listener: Listener) : Listener
+Function changed in Delegating Public Instance 115-115 @115 (paths: List/String) `fun changed` overrides overridable
+Function afterDelegating in - Public TopLevel 118-118 @118 () `fun afterDelegating`
 Function localSized in - Public TopLevel 120-123 @120 () `fun localSized : Sized`
 Type Factory in - Public TopLevel 125-129 @125 new()
 Type Companion in Factory Public Static 126-128 @126 : Creator
@@ -106,10 +108,9 @@ Function local in Lanes Public Instance 163-165 @163 () `fun local`
 @101 :List :String
 @106 :Listener
 @107 :List :String ~Listener.changed(List/String)
-@112 :List :Listener :String
+@112 :List :Listener :String ~Listener.changed(List/String)
 @114 :Listener
 @115 :List :String ~Listener.changed(List/String)
-@118 afterDelegating(Lambda) ?.fun()
 @120 :Sized
 @121 :Int :Sized ~Sized.size
 @126 :Creator :Factory

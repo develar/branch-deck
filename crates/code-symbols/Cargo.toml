@@ -9,7 +9,7 @@ description = "Declarations, imports and references of one source file, on tree-
 serde.workspace = true
 tree-sitter = "0.27.1"
 tree-sitter-java = { version = "0.23.5", optional = true }
-tree-sitter-kotlin-sg = { version = "0.4.1", optional = true }
+tree-sitter-kotlin = { git = "https://github.com/develar/tree-sitter-kotlin", rev = "3dacb0e60705d494a737744ca86cfe63d16bb071", optional = true }
 tree-sitter-rust = { version = "0.24.2", optional = true }
 tree-sitter-typescript = { version = "0.23.2", optional = true }
 
@@ -19,7 +19,7 @@ serde_json.workspace = true
 
 [features]
 default = ["kotlin", "java", "rust", "typescript"]
-kotlin = ["dep:tree-sitter-kotlin-sg"]
+kotlin = ["dep:tree-sitter-kotlin"]
 java = ["dep:tree-sitter-java"]
 rust = ["dep:tree-sitter-rust"]
 typescript = ["dep:tree-sitter-typescript"]

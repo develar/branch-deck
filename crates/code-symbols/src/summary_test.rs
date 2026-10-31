@@ -5,7 +5,7 @@ use crate::test_support::{check_golden, declaration, fixture, render, summary_of
 
 /// The value for the grammars and rules of this build. A change of `RULES_VERSION` or of a grammar version changes it:
 /// replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 4_197_954_873;
+const EXTRACTOR_VERSION: u32 = 279_782_637;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -61,9 +61,9 @@ fn every_fixture_matches_its_golden_file() {
 
 #[test]
 fn no_kotlin_ng_in_the_lock_file() {
-  // tree-sitter-kotlin-ng exports the same C symbol as tree-sitter-kotlin-sg: linking both picks one grammar at random
+  // tree-sitter-kotlin-ng exports the same C symbol as tree-sitter-kotlin: linking both picks one grammar at random
   let lock = include_str!("../../../Cargo.lock");
-  assert!(lock.contains("name = \"tree-sitter-kotlin-sg\""));
+  assert!(lock.contains("name = \"tree-sitter-kotlin\"\nversion = \"0.4.0\"\nsource = \"git+https://github.com/develar/tree-sitter-kotlin"));
   assert!(!lock.contains("name = \"tree-sitter-kotlin-ng\""));
 }
 

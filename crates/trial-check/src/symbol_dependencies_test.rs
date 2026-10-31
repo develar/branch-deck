@@ -1028,13 +1028,15 @@ fn an_override_of_another_receiver_or_kind_is_no_edge() {
 /// its key, which is only present or absent then; the same commit over a clean file is an edge
 #[test]
 fn a_before_side_in_error_changes_no_state() {
+  // a parse error of a few bytes leaves a large file readable
   let callback = |body: &str| {
     format!(
-      "package p\n\nclass Window\n\nclass Registry {{\n  fun first(): Int = 1\n\n  fun second(): Int = 2\n\n  fun third(): Int = 3\n\n  fun fourth(): Int = 4\n\n  fun fifth(): Int = 5\n\n  fun sixth(): Int = 6\n}}\n\ninterface Callback {body}\n"
+      "package p\n\n// {}\n\nclass Window\n\nclass Registry {{\n  fun first(): Int = 1\n\n  fun second(): Int = 2\n\n  fun third(): Int = 3\n\n  fun fourth(): Int = 4\n\n  fun fifth(): Int = 5\n\n  fun sixth(): Int = 6\n}}\n\ninterface Callback {body}\n",
+      "padding ".repeat(80)
     )
   };
-  // the grammar misreads a function without a body before the `}` of its line, at the end of the file
-  let misread = callback("{ fun call() }");
+  // a `)` after the last `}` puts the interface and its function in an error
+  let misread = callback("{ fun call() } )");
   let summary = summarize(Language::Kotlin, misread.as_bytes());
   assert!(summary.declarations.iter().any(|declaration| declaration.in_error) && !summary.is_degraded(), "{summary:?}");
   let graph = |before: &str| {
@@ -1708,7 +1710,12 @@ fn entries_go_with_their_file_into_a_version_the_parser_cannot_read() {
       (true, Some(false)),
     ),
     (large(""), large("fun helper(x: Int) = x"), large("fun helper(x: Int) = x }"), (false, Some(true))),
-    (small(""), small("fun helper(x: Int) = x"), small("fun broken(\n\nfun helper(x: Int) = x"), (true, None)),
+    (
+      small(""),
+      small("fun helper(x: Int) = x"),
+      small("fun broken() = listOf(\n\nfun helper(x: Int) = x"),
+      (true, None),
+    ),
   ];
   for (without, with, unreadable, unread) in &versions {
     let summary = summarize(Language::Kotlin, unreadable.as_bytes());

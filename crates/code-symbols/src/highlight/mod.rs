@@ -168,7 +168,7 @@ impl Grammar {
   fn language(self) -> Option<tree_sitter::Language> {
     match self {
       #[cfg(feature = "kotlin")]
-      Self::Kotlin => Some(tree_sitter_kotlin_sg::LANGUAGE.into()),
+      Self::Kotlin => Some(tree_sitter_kotlin::LANGUAGE.into()),
       #[cfg(feature = "java")]
       Self::Java => Some(tree_sitter_java::LANGUAGE.into()),
       #[cfg(feature = "rust")]

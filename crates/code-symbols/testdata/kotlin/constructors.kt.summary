@@ -56,7 +56,7 @@ Type Stamp in - Public TopLevel 88-90 @88 new(date: Date) Container new(date: Da
 @76 ~ToolWindowManagerImpl.toString()
 @78 Base(Number){}@co? run(Lambda)
 @79 :Suppress
-@80 Base(Number) :Runnable
+@80 Base(Number) :Runnable ~Base.run() ~Runnable.run()
 @81 Hidden(Text,Number,Number)
 @85 Box(_) :List <List>.first()
 @88 :java.util.Date :java :java.util

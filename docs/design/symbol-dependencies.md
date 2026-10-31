@@ -126,13 +126,18 @@ flowchart TD
    **Rationale**: shadowing needs a walk of the scopes anyway, the shipped `tags.scm` files are too thin, and a test
    checks every node kind of the tables against the grammar, so a grammar upgrade can't silently break a rule.
 
-6. **Decision**: `tree-sitter-kotlin-sg`, and one TSX grammar for TypeScript and JavaScript.
-   **Rationale**: the maintained Kotlin grammar (the fwcd main, republished by ast-grep); `-ng` is dormant and parses
-   far worse, and both export the same C symbol. TSX parses TypeScript and JavaScript but `<T>expr` casts, which make
-   a file degraded and send it back to the lines; one grammar less is about 1 MB of binary. The highlighting of the
-   diffs (`code_symbols::highlight`, [Diff View](diff-view.md#syntax-highlighting)) reads `.ts`, `.mts` and `.cts` by
-   the TypeScript grammar of the same crate: a generic arrow or a cast there is an error under TSX, and a colour that
-   changes at it is visible.
+6. **Decision**: fwcd's Kotlin grammar with the commits of fwcd/tree-sitter-kotlin#329, pinned at
+   `develar/tree-sitter-kotlin` `3dacb0e` as accio pins it, and one TSX grammar for TypeScript and JavaScript.
+   **Rationale**: the series follows Kotlin's own parser (`KotlinParsing`) and reserves Kotlin's hard keywords, so
+   `internal sealed interface X { … }`, a one-line object expression and the body of a class after its delegate are
+   declarations, not calls with a lambda and no ERROR node. Of the 122 197 non-test Kotlin files of the IntelliJ
+   monorepo, 2 446 had a parse error with `tree-sitter-kotlin-sg` 0.4.1 (ast-grep's republish of fwcd), 4 have one
+   with the fork (Velocity templates named `.kt`), at the same speed; the grammar takes 3.4 MB less of a binary. The
+   pin goes back to fwcd's crate once fwcd releases the series. `-ng` is dormant, parses far worse and exports the same
+   C symbol. TSX parses TypeScript and JavaScript but `<T>expr` casts, which make a file degraded and send it back to
+   the lines; one grammar less is about 1 MB of binary. The highlighting of the diffs (`code_symbols::highlight`,
+   [Diff View](diff-view.md#syntax-highlighting)) reads `.ts`, `.mts` and `.cts` by the TypeScript grammar of the same
+   crate: a generic arrow or a cast there is an error under TSX, and a colour that changes at it is visible.
 
 7. **Decision**: the key (namespace, containers and name) of a JVM type or a member of one holds entries, not one
    declaration. An entry is one declaration of the key, an overload of a member or a constructor of a type (decision
@@ -207,8 +212,7 @@ flowchart TD
    supertype by their names; that is left out, because an object expression in a class with supertypes is everywhere and
    such a shadow is rare. A class with several supertypes, a function type among them, is no edge: its member may come
    from any, and the members of a type outside the range are unknown. Nor is an override of a Java method whose class
-   has supertypes: that method may itself override one without `@Override`. An override in a one-line object expression,
-   which the grammar reads as a call with a trailing lambda, or in a declaration the grammar misread overrides nothing
+   has supertypes: that method may itself override one without `@Override`. A declaration in a lambda overrides nothing
    of the class around it. An override that an earlier commit removed is a removed use: the commit that then removes the
    member it overrides depends on that one (`removes_after`).
 

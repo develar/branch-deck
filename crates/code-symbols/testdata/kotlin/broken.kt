@@ -10,4 +10,4 @@ class Broken {
   fun second() = first()
 }
 
-fun interface Callback { fun call() }
+class Unclosed { fun call() = 2 )

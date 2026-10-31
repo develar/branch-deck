@@ -65,9 +65,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   of a `var` (`private set`), the `@file:JvmName` of a Kotlin file, and the direct supertypes of each type without type
   arguments, a Kotlin function type as an empty path. An `override` or `@Override` member must be one `Override`
   reference per direct supertype of the class around it (an object expression, an anonymous class and the body of an
-  enum entry included), qualified by the path of the supertype, with its kind, receiver and parameter types as its
-  shape; an override in a lambda (a one-line object expression the grammar reads as a call) must have none.
-  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `a_member_knows_whether_it_is_jvm_static`, `an_override_in_a_lambda_gets_no_supertype`)
+  enum entry included, also on one line), qualified by the path of the supertype, with its kind, receiver and
+  parameter types as its shape.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `a_member_knows_whether_it_is_jvm_static`, `an_override_in_a_one_line_object_expression_overrides_its_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - A function a test framework runs must be a test (`test`), for the tests a review names: of Kotlin and Java one annotated `@Test`, `@ParameterizedTest`,

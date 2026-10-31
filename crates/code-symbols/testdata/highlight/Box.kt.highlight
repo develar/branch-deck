@@ -50,5 +50,5 @@
  29: typealias Name = String
      keyword "typealias"
  30: fun interface Action { fun run() }
-     keyword "fun" · keyword "interface" · keyword "fun"
+     keyword "fun" · keyword "interface" · keyword "fun" · functionDeclaration "run"
  31: 

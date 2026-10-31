@@ -154,8 +154,15 @@ fn an_override_is_a_reference_per_supertype() {
   assert_eq!(refs(&summary, "decorate"), ["84 ~Base.decorate[String](Int)"], "an extension with its receiver");
   assert_eq!(refs(&summary, "run"), ["77 ~Runnable.run()"], "a local class");
   assert_eq!(refs(&summary, "weight"), ["93 ~Level.weight()"], "the body of an enum entry overrides its enum");
-  // an object declaration, and a class body the grammar reads as the trailing lambda of its delegate
-  assert_eq!(refs(&summary, "changed"), ["107 ~Listener.changed(List/String)", "115 ~Listener.changed(List/String)"]);
+  // an object declaration, a one-line object expression and the body of a class after its delegate
+  assert_eq!(
+    refs(&summary, "changed"),
+    [
+      "107 ~Listener.changed(List/String)",
+      "112 ~Listener.changed(List/String)",
+      "115 ~Listener.changed(List/String)"
+    ]
+  );
   assert_eq!(declarations_of(&summary, "toString"), ["Function toString in Nested"]);
   assert_eq!(refs(&summary, "toString"), NONE, "a class without supertypes");
 }
@@ -204,7 +211,10 @@ fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
     assert!(!modalities(&summary, name)[0].contains("overrid"), "{name}: {:?}", modalities(&summary, name));
   }
   // a member of an interface can be overridden, one of an object can't
-  assert_eq!(modalities(&summary, "changed"), ["Listener overridable", "Registry overrides"]);
+  assert_eq!(
+    modalities(&summary, "changed"),
+    ["Listener overridable", "Registry overrides", "Delegating overrides overridable"]
+  );
 }
 
 #[test]
@@ -263,9 +273,7 @@ class Service {
 }
 
 #[test]
-fn an_override_in_a_lambda_gets_no_supertype() {
-  // the grammar reads a one-line object expression as a call of the literal with a trailing lambda: its override is
-  // no member of the class around it
+fn an_override_in_a_one_line_object_expression_overrides_its_supertype() {
   let source = b"class Holder : Base() {
   val quiet = object : Foo() { override fun one() = 1 }
   val loud = object : Foo() {
@@ -275,13 +283,9 @@ fn an_override_in_a_lambda_gets_no_supertype() {
 }
 ";
   let summary = summarize(Language::Kotlin, source);
+  assert_eq!(refs(&summary, "one"), ["2 ~Foo.one()"]);
   assert_eq!(refs(&summary, "two"), ["4 ~Foo.two()"]);
-  assert_eq!(refs(&summary, "one"), NONE);
-  assert_eq!(refs(&summary, "three"), NONE);
-  // the same one-line literal in the fixture
-  let summary = summary_of("kotlin/overrides.kt");
-  assert!(summary.references_to("changed").all(|it| it.line != 112), "{:?}", refs(&summary, "changed"));
-  assert!(summary.references_to("changed").any(|it| it.role == Role::Override));
+  assert_eq!(refs(&summary, "three"), ["6 ~Foo.three()"], "in a lambda");
 }
 
 #[test]
@@ -378,8 +382,7 @@ fn a_class_knows_its_constructors() {
   // two that the summary can't tell apart are both there, neither replaces the other
   assert_eq!(constructors_of(&summary, "Box").unwrap(), ["new(value: _)", "new(list: _)"]);
   assert_eq!(constructors_of(&summary, "Stamp").unwrap(), ["new(date: Date)", "Container new(date: Date)"]);
-  // a class the grammar misread, and one with a parse error in it, which may have swallowed a constructor
-  assert_eq!(declaration(&summary_of("kotlin/misread.kt"), "Base").constructors, None);
+  // a class with a parse error in it, which may have swallowed a constructor
   let broken = summary_of("kotlin/broken.kt");
   assert_eq!(declaration(&broken, "Broken").constructors, None);
   assert_eq!(constructors_of(&broken, "Valid").unwrap(), ["new()"]);

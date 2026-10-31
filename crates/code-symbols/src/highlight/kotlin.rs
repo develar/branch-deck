@@ -1,4 +1,4 @@
-//! The highlighting rules of Kotlin (`tree-sitter-kotlin-sg`), after `KotlinHighlightingColors` of the IntelliJ Kotlin
+//! The highlighting rules of Kotlin (`tree-sitter-kotlin`), after `KotlinHighlightingColors` of the IntelliJ Kotlin
 //! plugin: what its lexer and its annotators colour that a syntax tree shows without resolving a name.
 
 use crate::highlight::lex::Lex;

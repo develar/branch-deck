@@ -38,6 +38,8 @@ Value shout in - Public TopLevel 61-61 @61 receiver String <String> `val String 
 Function orEmpty in - Public TopLevel 62-62 @62 receiver Shape () `fun Shape ? . orEmpty : Shape`
 Function largest in - Public TopLevel 63-63 @63 receiver List () `fun < T : Shape > List < T > . largest : T ?`
 Function platformName in - Public TopLevel 64-64 @64 () `expect fun platformName : String`
+Type Callback in - Public TopLevel 65-65 @65
+Function call in Callback Public Instance 65-65 @65 (value: Int) `fun call` overridable
 @1 :JvmName
 @6 :Double
 @7 :String
@@ -60,3 +62,4 @@ Function platformName in - Public TopLevel 64-64 @64 () `expect fun platformName
 @62 Registry :Shape
 @63 :List :Shape ?.area@co? maxByOrNull(Lambda)
 @64 :String
+@65 :Int

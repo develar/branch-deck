@@ -3,7 +3,7 @@
 //! offsets of the view, and the roles of the view.
 
 use crate::highlight::lines::LineRuns;
-use crate::highlight::{BOLD, Grammar, ITALIC, ROLE_BITS, Role, UNDERLINE, grammar_of, highlight};
+use crate::highlight::{BOLD, Grammar, ITALIC, ROLE_BITS, Role, STATIC_FIELD, UNDERLINE, grammar_of, highlight};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -96,8 +96,8 @@ fn splits_lines_and_counts_utf16_offsets_as_the_view() {
   let runs = highlight(Grammar::Kotlin, text).unwrap();
   assert_eq!(runs.line_count(), 4);
   let third: Vec<u32> = runs.line(2).to_vec();
-  // `val` at 0, `"x"` after `𝔸 = ` (𝔸 is two UTF-16 units): offset 4 + 2 + 3 = 9
-  assert_eq!(third, [0, Role::Keyword.style(), 3, 0, 9, Role::String.style()]);
+  // `val` at 0, the top-level property `𝔸` at 4 (two UTF-16 units), `"x"` after `𝔸 = `: offset 4 + 2 + 3 = 9
+  assert_eq!(third, [0, Role::Keyword.style(), 3, 0, 4, STATIC_FIELD, 6, 0, 9, Role::String.style()]);
   assert_eq!(runs.line(3), &[] as &[u32]);
 }
 

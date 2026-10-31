@@ -62,3 +62,4 @@ val String.shout: String get() = uppercase()
 fun Shape?.orEmpty(): Shape = this ?: Registry
 fun <T : Shape> List<T>.largest(): T? = maxByOrNull { it.area }
 expect fun platformName(): String
+fun interface Callback { fun call(value: Int) }
