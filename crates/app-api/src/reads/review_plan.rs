@@ -17,11 +17,11 @@
 
 use crate::context::AppContext;
 use crate::operation::run_blocking;
+use crate::session::windows::PlanSlot;
 use crate::transport::{Call, Sink};
 use domain_types::error::ApiError;
 use file_diffs::accio::SearchCanceled;
 use moka::sync::Cache;
-use crate::session::windows::PlanSlot;
 use review_plan::{PlanSources, ResolvedSubject, ReviewPlan, ReviewPlanEvent, ReviewPlanParams, ReviewSubject, resolve_subject, review_plan_of};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,7 +49,10 @@ impl PlanKey {
       branch: subject.branch.clone(),
       base: subject.base.clone(),
       head: subject.head.clone(),
-      reviewed: subject.interdiff.as_ref().map(|interdiff| (interdiff.reviewed_base.clone(), interdiff.reviewed_tip.clone())),
+      reviewed: subject
+        .interdiff
+        .as_ref()
+        .map(|interdiff| (interdiff.reviewed_base.clone(), interdiff.reviewed_tip.clone())),
       since_reviewed: params.since_reviewed,
     }
   }
@@ -77,7 +80,11 @@ impl Default for ReviewPlans {
 /// repository (`PrefixInputs`), through its object cache, as the plan of the window of `call`
 #[instrument(skip_all, fields(repository_path = %params.repository_path, subject = ?params.subject, since_reviewed = params.since_reviewed))]
 pub async fn get_review_plan(ctx: &AppContext, call: &Call, params: ReviewPlanParams, events: Sink<ReviewPlanEvent>) -> Result<(), ApiError> {
-  let slot = if matches!(params.subject, ReviewSubject::Commit { .. }) { PlanSlot::Commit } else { PlanSlot::Scope };
+  let slot = if matches!(params.subject, ReviewSubject::Commit { .. }) {
+    PlanSlot::Commit
+  } else {
+    PlanSlot::Scope
+  };
   let request = ctx.windows.begin_plan(&call.window, slot);
   let (inputs, repository_state, file_diffs, indexes, plans) = (
     ctx.prefix_inputs(),

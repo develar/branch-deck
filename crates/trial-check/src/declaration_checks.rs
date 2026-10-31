@@ -426,7 +426,11 @@ pub struct FileDeclarations {
 /// (none inside a function or a value), with their lines and forms; no `Binding` and none the parser may have misread
 /// (`in_error`). `None` when the summary of `blob` is missing, degraded or truncated: its declarations are not known
 pub fn spanned_declarations(input: &SymbolInput, path: &str, blob: &str) -> Option<FileDeclarations> {
-  let summary = input.summaries.get(blob).map(AsRef::as_ref).filter(|summary| !summary.is_degraded() && !summary.truncated)?;
+  let summary = input
+    .summaries
+    .get(blob)
+    .map(AsRef::as_ref)
+    .filter(|summary| !summary.is_degraded() && !summary.truncated)?;
   let ctx = input.file_ctx(path, summary);
   let local = |declaration: &Declaration| outward(summary, declaration.container).any(|(_, container)| matches!(container.kind, DeclKind::Function | DeclKind::Value));
   let declarations = summary

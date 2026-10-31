@@ -12,7 +12,10 @@ async fn plan_events(client: &reqwest::Client, addr: SocketAddr, params: &Value)
 /// Sets `branchdeck.reviewExperimental` of the repository at `path`, which the global config of the server turns off
 fn review_plan_on(path: &str, on: bool) {
   let value = if on { "true" } else { "false" };
-  let status = test_utils::git_test_utils::git_command().args(["config", "branchdeck.reviewExperimental", value]).current_dir(path).status();
+  let status = test_utils::git_test_utils::git_command()
+    .args(["config", "branchdeck.reviewExperimental", value])
+    .current_dir(path)
+    .status();
   assert!(status.unwrap().success());
 }
 
@@ -73,7 +76,11 @@ async fn the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_
   let (events, answer) = plan_events(&client, addr, &params).await;
   // the plan without the usages while the index is asked, then with them
   let pending: Vec<(&Value, &Value)> = events.iter().map(|event| (&event["kind"], &event["pending"])).collect();
-  assert_eq!((pending, &answer["status"]), (vec![(&json!("plan"), &json!(true)), (&json!("plan"), &json!(false))], &json!("ok")), "{events:?}");
+  assert_eq!(
+    (pending, &answer["status"]),
+    (vec![(&json!("plan"), &json!(true)), (&json!("plan"), &json!(false))], &json!("ok")),
+    "{events:?}"
+  );
   assert_eq!(events[0]["plan"]["api"][0]["usages"], Value::Null, "{events:?}");
   let plan = &events[1]["plan"];
   let interdiff = &plan["interdiff"];

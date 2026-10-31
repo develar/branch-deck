@@ -5,9 +5,9 @@ use crate::test_support::{plan_of, range};
 use file_diffs::accio::{ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
-use test_utils::git_test_utils::TestRepo;
 use std::sync::Mutex;
 use test_log::test;
+use test_utils::git_test_utils::TestRepo;
 
 /// A hit after the declaration: path, kind, snippet; its line is its place in the answer, from 1
 type Hit<'a> = (&'a str, &'a str, &'a str);
@@ -462,7 +462,10 @@ fn a_use_is_inside_only_on_a_line_the_commits_changed() {
   );
   repo.create_commit_with_files(
     "Change api",
-    &[("src/a/Api.kt", "package a\n\nfun open(x: Int, y: Int) {}\n"), ("src/a/Twice.kt", "open(1)\nopen(2, 0)\nopen(3)\n")],
+    &[
+      ("src/a/Api.kt", "package a\n\nfun open(x: Int, y: Int) {}\n"),
+      ("src/a/Twice.kt", "open(1)\nopen(2, 0)\nopen(3)\n"),
+    ],
   );
   let head = repo.create_commit_with_files(
     "Use api",
@@ -474,7 +477,13 @@ fn a_use_is_inside_only_on_a_line_the_commits_changed() {
   );
   let index = Counts::calls(&[(
     "a.open",
-    vec![("src/a/Twice.kt", 1), ("src/a/Twice.kt", 2), ("src/a/Once.kt", 2), ("src/a/Once.kt", 3), ("src/a/New.kt", 1)],
+    vec![
+      ("src/a/Twice.kt", 1),
+      ("src/a/Twice.kt", 2),
+      ("src/a/Once.kt", 2),
+      ("src/a/Once.kt", 3),
+      ("src/a/New.kt", 1),
+    ],
   )]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   let usages = plan.api[0].usages.as_ref().unwrap();

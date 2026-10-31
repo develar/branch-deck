@@ -89,7 +89,11 @@ pub(crate) fn pair_blocks(
       [change] if change.binary => Some(PairBlocks::NoText),
       [change] => {
         let line_ends = change.hunks.len() == 1 && matches!((texts.get(before), texts.get(after)), (Some(a), Some(b)) if same_but_line_ends(a, b));
-        Some(if line_ends { PairBlocks::LineEnds } else { PairBlocks::Blocks(change.hunks.iter().map(block_of).collect()) })
+        Some(if line_ends {
+          PairBlocks::LineEnds
+        } else {
+          PairBlocks::Blocks(change.hunks.iter().map(block_of).collect())
+        })
       }
       _ => {
         compared.push((
@@ -153,7 +157,11 @@ impl ChangedLines {
         PairBlocks::Added | PairBlocks::TypeChanged | PairBlocks::LineEnds => lines.add_whole(file.path),
         PairBlocks::NoText => lines.add_ranges(file.path, Vec::new()),
         PairBlocks::Blocks(blocks) => {
-          let ranges = blocks.iter().filter(|block| !block.new.is_empty()).map(|block| block.new.start + 1..block.new.end + 1).collect();
+          let ranges = blocks
+            .iter()
+            .filter(|block| !block.new.is_empty())
+            .map(|block| block.new.start + 1..block.new.end + 1)
+            .collect();
           lines.add_ranges(file.path, ranges);
         }
       }
