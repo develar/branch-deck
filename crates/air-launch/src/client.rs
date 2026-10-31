@@ -1,9 +1,16 @@
-//! One request and its response over the socket of an IDE: the client writes one line of JSON, reads one line within
-//! the timeout of the response (`RESPONSE_TIMEOUT`, the consent dialog and the launch of the session), and closes. A
+//! One request and its response over the socket of an IDE, after the local peer handshake v2: the client writes the
+//! opener, reads the greeting, writes the envelope with the echo of its nonce and the request, reads one line within the
+//! timeout of the response (`RESPONSE_TIMEOUT`, the consent dialog and the launch of the session), and closes. A
 //! `watch` reads its lines one by one without a timeout, until its end or a close (`Watch`). Blocking: a caller of an
 //! async runtime runs it on a blocking thread.
+//!
+//! An IDE before handshake v2 answers the opener as a request: its line is the answer (a refusal such as
+//! `UNSUPPORTED_VERSION`), and the client sends nothing more.
 
-use crate::protocol::{Envelope, Launch, LaunchRequest, PROTOCOL_VERSION, Targets, TargetsRequest, WatchLine, WatchRequest};
+use crate::protocol::{
+  ENVELOPE_FRAME_BYTES, Envelope, HandshakeLine, HandshakeRefusal, Launch, LaunchRequest, OPENER_LINE, PROTOCOL_VERSION, Targets, TargetsRequest, WatchLine, WatchRequest,
+  envelope_line, handshake_line,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::io::{self, Read, Write};
@@ -21,7 +28,11 @@ use uds_windows::UnixStream;
 /// session (up to 60 s), with a margin
 pub const RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// The longest line, a request or a response: the server answers a longer request with `BAD_REQUEST`
+/// How long the client waits for the greeting: the IDE reads the opener within 5 s and greets before any dialog. It
+/// bounds the greeting of a watch too, which has no timeout of its lines
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The longest line, a request in its envelope or a response: the server answers a longer line with `BAD_REQUEST`
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 
 /// Why an exchange gave no response
@@ -37,8 +48,11 @@ pub enum ClientError {
   Closed,
   #[error("The answer of the IDE is longer than {MAX_LINE_BYTES} bytes")]
   ResponseTooLarge,
-  #[error("The answer of the IDE is not a response of protocol v1: {0}")]
+  #[error("The answer of the IDE is not a line of the launch protocol: {0}")]
   BadResponse(String),
+  /// The IDE refused the local peer handshake, and did not read the request
+  #[error("The IDE refused the handshake of the connection ({0})")]
+  Handshake(HandshakeRefusal),
   #[error("Cannot talk to the IDE: {0}")]
   Io(io::Error),
 }
@@ -82,48 +96,96 @@ impl Client {
   /// Watches the session `session_id` of the project of `project`: the IDE holds the connection and sends a line now
   /// and after each change, with no timeout of the client; the watch ends with its last line or a close
   pub fn watch(&self, project: &str, session_id: &str) -> Result<Watch, ClientError> {
-    let stream = self.send("watch", &WatchRequest { project, session_id })?;
-    stream.set_read_timeout(None).map_err(ClientError::Io)?;
+    let Connection { stream, lines, answer } = self.open("watch", &WatchRequest { project, session_id }, HANDSHAKE_TIMEOUT)?;
+    match stream.set_read_timeout(None) {
+      // macOS refuses the option once the IDE closed its end: the read then returns at once
+      Err(error) if error.kind() != io::ErrorKind::InvalidInput => return Err(ClientError::Io(error)),
+      _ => {}
+    }
     Ok(Watch {
       stream,
-      lines: Lines::default(),
+      lines,
+      answer,
+      first: true,
       ended: false,
     })
   }
 
   fn exchange<T: Serialize, R: DeserializeOwned>(&self, method: &'static str, fields: &T) -> Result<R, ClientError> {
     let deadline = Instant::now() + self.timeout;
-    let mut stream = self.send(method, fields)?;
-    let response = Lines::default().next(&mut stream, Some((deadline, self.timeout)))?.ok_or(ClientError::Closed)?;
-    parse(&response)
+    let Connection { mut stream, mut lines, answer } = self.open(method, fields, self.timeout.min(HANDSHAKE_TIMEOUT))?;
+    let response = match answer {
+      Some(answer) => answer,
+      None => lines.next(&mut stream, Some((deadline, self.timeout)))?.ok_or(ClientError::Closed)?,
+    };
+    parse_first(&response)
   }
 
-  /// Connects and writes the request line of `method`
-  fn send<T: Serialize>(&self, method: &'static str, fields: &T) -> Result<UnixStream, ClientError> {
-    let mut line = serde_json::to_vec(&Envelope {
+  /// Connects and runs the handshake: the opener, the greeting within `greeting_timeout`, and the envelope with the
+  /// request of `method`
+  fn open<T: Serialize>(&self, method: &'static str, fields: &T, greeting_timeout: Duration) -> Result<Connection, ClientError> {
+    let request = serde_json::to_vec(&Envelope {
       v: PROTOCOL_VERSION,
       method,
       fields,
     })
     .map_err(|error| ClientError::Io(io::Error::other(error)))?;
-    if line.len() > MAX_LINE_BYTES {
+    if request.len() + ENVELOPE_FRAME_BYTES > MAX_LINE_BYTES {
       return Err(ClientError::RequestTooLarge);
     }
-    line.push(b'\n');
 
     let mut stream = UnixStream::connect(&self.socket).map_err(|source| ClientError::Connect {
       socket: self.socket.clone(),
       source,
     })?;
     stream.set_write_timeout(Some(self.timeout)).map_err(ClientError::Io)?;
-    stream.write_all(&line).map_err(|error| io_error(error, self.timeout))?;
-    stream.flush().map_err(|error| io_error(error, self.timeout))?;
-    Ok(stream)
+    self.write_line(&mut stream, OPENER_LINE)?;
+
+    let mut lines = Lines::default();
+    let first = lines
+      .next(&mut stream, Some((Instant::now() + greeting_timeout, greeting_timeout)))?
+      .ok_or(ClientError::Closed)?;
+    match handshake_line(&first) {
+      HandshakeLine::Greeting { nonce } => {
+        self.write_line(&mut stream, &envelope_line(&nonce, &request))?;
+        Ok(Connection { stream, lines, answer: None })
+      }
+      HandshakeLine::Refused(code) => Err(ClientError::Handshake(code)),
+      HandshakeLine::BadGreeting(reason) => Err(ClientError::BadResponse(reason)),
+      // an IDE before handshake v2 read the opener as a request
+      HandshakeLine::Application => Ok(Connection {
+        stream,
+        lines,
+        answer: Some(first),
+      }),
+    }
   }
+
+  fn write_line(&self, stream: &mut UnixStream, line: &[u8]) -> Result<(), ClientError> {
+    stream.write_all(line).map_err(|error| io_error(error, self.timeout))?;
+    stream.flush().map_err(|error| io_error(error, self.timeout))
+  }
+}
+
+/// A connection after the handshake
+struct Connection {
+  stream: UnixStream,
+  lines: Lines,
+  /// The answer of an IDE before handshake v2 to the opener: the first line of the application, already read
+  answer: Option<Vec<u8>>,
 }
 
 fn parse<R: DeserializeOwned>(line: &[u8]) -> Result<R, ClientError> {
   serde_json::from_slice(line).map_err(|error| ClientError::BadResponse(error.to_string()))
+}
+
+/// The first line after the envelope: a refusal of the handshake (the IDE did not run the request), else the response
+fn parse_first<R: DeserializeOwned>(line: &[u8]) -> Result<R, ClientError> {
+  match handshake_line(line) {
+    HandshakeLine::Refused(code) => Err(ClientError::Handshake(code)),
+    HandshakeLine::Greeting { .. } | HandshakeLine::BadGreeting(_) => Err(ClientError::BadResponse("a second line of the handshake".to_owned())),
+    HandshakeLine::Application => parse(line),
+  }
 }
 
 fn io_error(error: io::Error, timeout: Duration) -> ClientError {
@@ -138,6 +200,10 @@ fn io_error(error: io::Error, timeout: Duration) -> ClientError {
 pub struct Watch {
   stream: UnixStream,
   lines: Lines,
+  /// The first line of an IDE before handshake v2, read during the handshake
+  answer: Option<Vec<u8>>,
+  /// No line came yet: the first can be a refusal of the handshake
+  first: bool,
   /// The IDE sent the end or a refusal: no line comes after it
   ended: bool,
 }
@@ -160,7 +226,12 @@ impl Iterator for Watch {
     if self.ended {
       return None;
     }
-    let line = self.lines.next(&mut self.stream, None).transpose()?.and_then(|line| parse::<WatchLine>(&line));
+    let line = match self.answer.take() {
+      Some(answer) => Ok(answer),
+      None => self.lines.next(&mut self.stream, None).transpose()?,
+    };
+    let first = std::mem::replace(&mut self.first, false);
+    let line = line.and_then(|line| if first { parse_first::<WatchLine>(&line) } else { parse::<WatchLine>(&line) });
     self.ended = !matches!(line, Ok(WatchLine::Session { .. }));
     Some(line)
   }

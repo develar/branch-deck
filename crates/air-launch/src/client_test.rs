@@ -1,5 +1,5 @@
 use crate::client::{Client, ClientError, MAX_LINE_BYTES};
-use crate::protocol::{Activity, Launch, LaunchRequest, Mode, ModeKind, Model, Refusal, RefusalCode, Session, StartKind, Target, Targets, WatchLine};
+use crate::protocol::{Activity, HandshakeRefusal, Launch, LaunchRequest, Mode, ModeKind, Model, Refusal, RefusalCode, Session, StartKind, Target, Targets, WatchLine};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -10,16 +10,39 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 #[cfg(unix)]
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 #[cfg(windows)]
-use uds_windows::UnixListener;
+use uds_windows::{UnixListener, UnixStream};
 
-/// The fake socket of an IDE: it takes one connection, reads its request line and answers as `reply` says
+/// The nonce the fake IDE greets with
+const NONCE: &str = "q1Zx-Ab_9kTn0sLw4eRt2Y";
+
+/// The fake socket of an IDE: it takes one connection, runs the handshake as `handshake` says, reads the request and
+/// answers as `reply` says
 struct FakeIde {
   _dir: TempDir,
   socket: PathBuf,
-  request: mpsc::Receiver<Value>,
+  /// Each line the server read, as JSON
+  read: mpsc::Receiver<Value>,
   server: JoinHandle<()>,
+}
+
+/// How the fake IDE runs the handshake
+enum Handshake {
+  /// Handshake v2: the opener, the greeting with `NONCE`, the envelope with its echo
+  V2,
+  /// Handshake v2, but the server expects another nonce than it sent: it refuses the envelope with `BAD_NONCE`
+  WrongNonce,
+  /// The greeting, then the refusal `code` after the envelope (`PEER_CHANGED`)
+  RefuseEnvelope(&'static str),
+  /// The refusal `code` instead of the greeting (`BAD_OPENER`)
+  RefuseOpener(&'static str),
+  /// `line` instead of the greeting
+  Greet(String),
+  /// An IDE before handshake v2: it reads the opener as the request and answers it at once
+  Legacy,
+  /// The opener, then no greeting until the client closes the connection
+  Silent,
 }
 
 enum Reply {
@@ -34,18 +57,66 @@ enum Reply {
   Never,
 }
 
+fn refusal_line(code: &str) -> String {
+  json!({"proto": "local-peer", "v": 2, "error": code}).to_string()
+}
+
 impl FakeIde {
   fn start(reply: Reply) -> Self {
+    Self::with_handshake(Handshake::V2, reply)
+  }
+
+  fn with_handshake(handshake: Handshake, reply: Reply) -> Self {
     let dir = tempfile::Builder::new().prefix("air").tempdir().unwrap();
     let socket = dir.path().join("launch.sock");
     let listener = UnixListener::bind(&socket).unwrap();
-    let (sender, request) = mpsc::channel();
+    let (sender, read) = mpsc::channel();
     let server = std::thread::spawn(move || {
       let (stream, _) = listener.accept().unwrap();
       let mut reader = BufReader::new(stream);
-      let mut line = String::new();
-      reader.read_line(&mut line).unwrap();
-      sender.send(serde_json::from_str(&line).unwrap()).unwrap();
+      let read_line = |reader: &mut BufReader<UnixStream>| {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap();
+        sender.send(value.clone()).unwrap();
+        value
+      };
+      let opener = read_line(&mut reader);
+      let write = |reader: &mut BufReader<UnixStream>, line: &str| reader.get_mut().write_all(format!("{line}\n").as_bytes()).unwrap();
+      match handshake {
+        Handshake::Legacy => {}
+        Handshake::RefuseOpener(code) => {
+          write(&mut reader, &refusal_line(code));
+          return;
+        }
+        Handshake::Silent => {
+          let mut rest = Vec::new();
+          let _ = std::io::Read::read_to_end(&mut reader, &mut rest);
+          assert!(rest.is_empty(), "the client sends nothing before the greeting");
+          return;
+        }
+        Handshake::Greet(line) => {
+          write(&mut reader, &line);
+          // the client closes the connection without an envelope
+          let mut rest = Vec::new();
+          let _ = std::io::Read::read_to_end(&mut reader, &mut rest);
+          return;
+        }
+        Handshake::V2 | Handshake::WrongNonce | Handshake::RefuseEnvelope(_) => {
+          assert_eq!(opener, json!({"proto": "local-peer", "v": 2}));
+          write(&mut reader, &json!({"proto": "local-peer", "v": 2, "nonce": NONCE}).to_string());
+          let envelope = read_line(&mut reader);
+          let expected = if matches!(handshake, Handshake::WrongNonce) { "another" } else { NONCE };
+          if envelope["nonce"] != expected {
+            write(&mut reader, &refusal_line("BAD_NONCE"));
+            return;
+          }
+          if let Handshake::RefuseEnvelope(code) = handshake {
+            write(&mut reader, &refusal_line(code));
+            return;
+          }
+        }
+      }
       let mut stream = reader.into_inner();
       match reply {
         Reply::Line(line) => stream.write_all(format!("{line}\n").as_bytes()).unwrap(),
@@ -69,22 +140,26 @@ impl FakeIde {
         }
       }
     });
-    Self {
-      _dir: dir,
-      socket,
-      request,
-      server,
-    }
+    Self { _dir: dir, socket, read, server }
   }
 
   fn client(&self) -> Client {
     Client::new(&self.socket)
   }
 
-  /// The request line the server read, once it answered
-  fn finish(self) -> Value {
+  /// Each line the server read, once it answered
+  fn finish_lines(self) -> Vec<Value> {
     self.server.join().unwrap();
-    self.request.recv().unwrap()
+    self.read.try_iter().collect()
+  }
+
+  /// The request object of the envelope the server read, once it answered
+  fn finish(self) -> Value {
+    let lines = self.finish_lines();
+    assert_eq!(lines.len(), 2, "the opener and the envelope: {lines:?}");
+    assert_eq!(lines[1]["nonce"], NONCE, "the envelope echoes the nonce of the greeting");
+    assert_eq!(lines[1].as_object().unwrap().len(), 2, "the envelope holds the nonce and the request: {}", lines[1]);
+    lines[1]["request"].clone()
   }
 }
 
@@ -113,7 +188,7 @@ fn launch_request(start: StartKind) -> LaunchRequest {
 }
 
 #[test]
-fn the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_models_and_modes() {
+fn the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_models_modes_and_whether_they_still_load() {
   let ide = FakeIde::start(Reply::Line(
     json!({"status": "ok", "targets": [
       {"agentId": "codex", "launchTargetId": "codex", "interactionSurfaceId": "native", "name": "Codex",
@@ -121,7 +196,7 @@ fn the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_mode
        "modes": [{"id": "plan", "name": "Plan", "kind": "plan"}, {"id": "auto", "name": "Auto", "kind": "auto_review"},
                  {"id": "yolo", "name": "Full Access", "kind": "full_access"}, {"id": "later", "name": "Later", "kind": "later_kind"}],
        "plan": true},
-      {"agentId": "claude", "launchTargetId": "claude-acp", "interactionSurfaceId": "acp", "name": "Claude", "models": [], "later": 1},
+      {"agentId": "claude", "launchTargetId": "claude-acp", "interactionSurfaceId": "acp", "name": "Claude", "models": [], "listsLoading": true, "later": 1},
       {"agentId": "claude", "launchTargetId": "terminal.claude", "interactionSurfaceId": "terminal", "name": "Claude in Terminal"}
     ]})
     .to_string(),
@@ -150,6 +225,7 @@ fn the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_mode
             mode("later", "Later", ModeKind::Other),
           ],
           plan: true,
+          lists_loading: false,
         },
         Target {
           agent_id: "claude".to_string(),
@@ -159,6 +235,7 @@ fn the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_mode
           models: Vec::new(),
           modes: Vec::new(),
           plan: false,
+          lists_loading: true,
         },
         Target {
           agent_id: "claude".to_string(),
@@ -168,6 +245,7 @@ fn the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_mode
           models: Vec::new(),
           modes: Vec::new(),
           plan: false,
+          lists_loading: false,
         },
       ],
     }
@@ -398,4 +476,96 @@ fn a_garbled_line_of_a_watch_is_a_bad_response_and_ends_it() {
   assert!(watch.next().is_none());
   drop(watch);
   ide.finish();
+}
+
+#[test]
+fn the_handshake_writes_the_opener_then_the_envelope_with_the_echo_of_the_nonce_and_the_request() {
+  let ide = FakeIde::start(Reply::Line(r#"{"status":"ok","targets":[]}"#.to_string()));
+  assert_eq!(ide.client().targets("/work/idea").unwrap(), Targets::Listed { targets: Vec::new() });
+  assert_eq!(
+    ide.finish_lines(),
+    vec![
+      json!({"proto": "local-peer", "v": 2}),
+      json!({"nonce": NONCE, "request": {"v": 1, "method": "targets", "project": "/work/idea"}}),
+    ]
+  );
+}
+
+#[test]
+fn a_refusal_of_the_handshake_is_a_typed_error_of_the_exchange_and_of_a_watch() {
+  for (handshake, code) in [
+    (Handshake::RefuseOpener("BAD_OPENER"), HandshakeRefusal::BadOpener),
+    (Handshake::WrongNonce, HandshakeRefusal::BadNonce),
+    (Handshake::RefuseEnvelope("PEER_CHANGED"), HandshakeRefusal::PeerChanged),
+    (Handshake::RefuseEnvelope("LATER_CODE"), HandshakeRefusal::Other("LATER_CODE".to_string())),
+  ] {
+    let ide = FakeIde::with_handshake(handshake, Reply::Never);
+    let error = ide.client().launch(&launch_request(StartKind::Run)).unwrap_err();
+    assert!(matches!(&error, ClientError::Handshake(refused) if *refused == code), "{error:?}");
+    ide.finish_lines();
+  }
+
+  let ide = FakeIde::with_handshake(Handshake::RefuseOpener("BAD_OPENER"), Reply::Never);
+  let error = ide.client().watch("/work/idea", "s-1").unwrap_err();
+  assert!(matches!(error, ClientError::Handshake(HandshakeRefusal::BadOpener)), "{error:?}");
+  ide.finish_lines();
+
+  let ide = FakeIde::with_handshake(Handshake::RefuseEnvelope("PEER_CHANGED"), Reply::Never);
+  let mut watch = ide.client().watch("/work/idea", "s-1").unwrap();
+  let error = watch.next().unwrap().unwrap_err();
+  assert!(matches!(error, ClientError::Handshake(HandshakeRefusal::PeerChanged)), "{error:?}");
+  assert!(watch.next().is_none());
+  drop(watch);
+  ide.finish_lines();
+}
+
+#[test]
+fn a_greeting_of_another_version_or_without_a_nonce_is_a_bad_response_and_no_greeting_in_time_is_a_timeout() {
+  for greeting in [
+    json!({"proto": "local-peer", "v": 3, "nonce": NONCE}),
+    json!({"proto": "local-peer", "v": 2}),
+    json!({"proto": "local-peer", "v": 2, "nonce": "not base64url!"}),
+    json!({"proto": "local-peer", "v": 2, "nonce": "a".repeat(65)}),
+  ] {
+    let ide = FakeIde::with_handshake(Handshake::Greet(greeting.to_string()), Reply::Never);
+    let error = ide.client().targets("/work/idea").unwrap_err();
+    assert!(matches!(error, ClientError::BadResponse(_)), "{greeting}: {error:?}");
+    ide.finish_lines();
+  }
+
+  let ide = FakeIde::with_handshake(Handshake::Silent, Reply::Never);
+  let error = ide.client().with_timeout(Duration::from_millis(200)).targets("/work/idea").unwrap_err();
+  assert!(matches!(error, ClientError::Timeout(_)), "{error:?}");
+  assert_eq!(ide.finish_lines(), vec![json!({"proto": "local-peer", "v": 2})]);
+}
+
+#[test]
+fn an_ide_before_handshake_v2_answers_the_opener_and_its_answer_is_the_response() {
+  let ide = FakeIde::with_handshake(
+    Handshake::Legacy,
+    Reply::Line(r#"{"status":"refused","code":"UNSUPPORTED_VERSION","message":"protocol version 2 is not supported"}"#.to_string()),
+  );
+  assert_eq!(
+    ide.client().targets("/work/idea").unwrap(),
+    Targets::Refused(Refusal {
+      code: RefusalCode::UnsupportedVersion,
+      message: Some("protocol version 2 is not supported".to_string()),
+    })
+  );
+  assert_eq!(
+    ide.finish_lines(),
+    vec![json!({"proto": "local-peer", "v": 2})],
+    "no envelope after an answer to the opener"
+  );
+
+  let ide = FakeIde::with_handshake(Handshake::Legacy, Reply::Line(r#"{"status":"refused","code":"UNSUPPORTED_VERSION"}"#.to_string()));
+  let lines: Vec<WatchLine> = ide.client().watch("/work/idea", "s-1").unwrap().map(Result::unwrap).collect();
+  assert_eq!(
+    lines,
+    vec![WatchLine::Refused(Refusal {
+      code: RefusalCode::UnsupportedVersion,
+      message: None,
+    })]
+  );
+  ide.finish_lines();
 }

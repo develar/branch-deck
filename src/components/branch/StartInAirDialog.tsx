@@ -25,11 +25,15 @@ import {
   formatRefusal,
   formatStartHint,
   initialForm,
+  isListing,
   isModeLocked,
   launchInAir,
   launchRequest,
+  LIST_REFRESH_DELAY_MS,
+  LIST_REFRESH_LIMIT,
   modesOf,
   readAirTargets,
+  refreshedForm,
   targetKey,
   withModel,
   withPlan,
@@ -143,6 +147,34 @@ function StartInAirForm({
     }
   }, [repositoryPath, attempt])
 
+  // while an agent still lists its models, ask again a few times; a later answer replaces the list only with a list
+  const [refreshes, setRefreshes] = useState(0)
+  const refreshing = targets.status === "listed" && isListing(targets.targets) && refreshes < LIST_REFRESH_LIMIT
+  useEffect(() => {
+    if (!refreshing) {
+      return
+    }
+    let current = true
+    const timer = setTimeout(() => {
+      readAirTargets(repositoryPath)
+        .then(answer => {
+          if (current && answer.status === "listed") {
+            setTargets(answer)
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (current) {
+            setRefreshes(count => count + 1)
+          }
+        })
+    }, LIST_REFRESH_DELAY_MS)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+  }, [refreshing, refreshes, repositoryPath])
+
   const [promptState, setPromptState] = useState<PromptState>({ status: "loading" })
   const [prompt, setPrompt] = useState("")
   useEffect(() => {
@@ -171,7 +203,7 @@ function StartInAirForm({
   const [formOf, setFormOf] = useState<AirTarget[] | null>(null)
   if (listed !== null && formOf !== listed) {
     setFormOf(listed)
-    setForm(initialForm(listed, remembered))
+    setForm(form === null || formOf === null ? initialForm(listed, remembered) : refreshedForm(listed, form, formOf, remembered))
   }
   const target = form === null || listed === null ? undefined : findTarget(listed, form.target)
   const [refusal, setRefusal] = useState<AirRefusal | null>(null)
@@ -236,6 +268,12 @@ function StartInAirForm({
       <PreviewDialogBody>
         <div className="flex flex-col gap-4" onKeyDown={handleKeyDown}>
           <TargetsNotice state={targets} onRetry={() => setAttempt(attempt + 1)} />
+          {refreshing && (
+            <p data-testid="start-in-air-lists-loading" className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner />
+              Some agents are still listing their models and modes…
+            </p>
+          )}
           {refusal !== null && (
             <Alert variant="destructive" data-testid="start-in-air-refusal">
               <TriangleAlertIcon />

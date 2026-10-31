@@ -689,6 +689,11 @@ export type AirTarget = {
 	modes?: AirMode[],
 	/**  A launch can start in Plan (`LaunchRequest::plan`) */
 	plan?: boolean,
+	/**
+	 *  The IDE answered before the agent listed its models and modes: they can still change, and the targets asked again
+	 *  later have them
+	 */
+	listsLoading?: boolean,
 };
 
 /**  The agents of the IDE of a directory */

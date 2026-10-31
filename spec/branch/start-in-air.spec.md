@@ -1,6 +1,6 @@
 ---
 name: Start in Air
-description: Requirements for "Start in Air…" of a failed robot — the dialog that starts the prompt of the robot as an agent session in the IDE with Air that has the repository open, over the local launch socket of Air (protocol v1, IJAI-5465) — the discovery of the IDE, the agent, model, effort, mode, Plan and start pickers, the choice remembered per repository, the refusals of the IDE, and the toast that follows the started session.
+description: Requirements for "Start in Air…" of a failed robot — the dialog that starts the prompt of the robot as an agent session in the IDE with Air that has the repository open, over the local launch socket of Air (the local peer handshake v2 and the requests of protocol v1, IJAI-5465) — the discovery of the IDE, the agent, model, effort, mode, Plan and start pickers, the choice remembered per repository, the refusals of the IDE, and the toast that follows the started session.
 style: plain-1
 targets:
   - ../../crates/air-launch/src/lib.rs
@@ -57,18 +57,32 @@ one dialog.
 
 ### The exchange
 
-- One connection per request: the client writes one JSON line (`"v":1`, the method and its fields), reads one line
-  within 120 s (`RESPONSE_TIMEOUT`: the consent dialog and the launch), and closes. A request longer than 1 MiB is not
-  sent; a response longer than 1 MiB, one that is not JSON or has an unknown `status`, a close without an answer, and
-  no answer in time are errors of the command. AF_UNIX on every platform, on Windows through `uds_windows`.
+- One connection per request. The client runs the local peer handshake v2 first: it writes the opener
+  `{"proto":"local-peer","v":2}`, reads the greeting `{"proto":"local-peer","v":2,"nonce":"…"}` within 10 s
+  (`HANDSHAKE_TIMEOUT`, and never later than the timeout of the response), and writes the envelope
+  `{"nonce":"<the echo>","request":{…}}`. The request object is the request of v1 (`"v":1`, the method and its
+  fields). The client then reads one line within 120 s (`RESPONSE_TIMEOUT`: the consent dialog and the launch), and
+  closes. A request longer than 1 MiB in its envelope is not sent; a response longer than 1 MiB, one that is not JSON or
+  has an unknown `status`, a close without an answer, and no answer in time are errors of the command. AF_UNIX on every
+  platform, on Windows through `uds_windows`.
   A target has its models, its modes (`id`, `name`, `kind`: `plan`, `auto_review`, `standard`, `full_access`, a kind of
-  a later protocol as `other`) and `plan` (a launch can start in Plan); an older IDE sends no modes and no `plan`. A
-  launch sends `mode`, `plan` and `planEffort` only when set.
-  [@test] ../../crates/air-launch/src/client_test.rs (`the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_models_and_modes`, `an_accepted_launch_sends_every_field_and_reads_the_session_id`, `a_draft_without_a_model_an_effort_a_mode_plan_and_a_prompt_leaves_them_out`, `an_ide_that_does_not_answer_in_time_is_a_timeout`, `a_response_longer_than_the_limit_is_refused`, `a_garbled_response_or_an_unknown_status_is_a_bad_response`, `a_close_without_an_answer_is_closed_and_a_line_without_its_end_is_read_whole`, `a_request_longer_than_the_limit_is_not_sent`, `a_socket_nobody_listens_on_is_a_connect_error`)
+  a later protocol as `other`), `plan` (a launch can start in Plan) and `listsLoading` (the IDE answered before the
+  agent listed its models and modes); an older IDE sends no modes, no `plan` and no `listsLoading`. A launch sends
+  `mode`, `plan` and `planEffort` only when set.
+  [@test] ../../crates/air-launch/src/client_test.rs (`the_handshake_writes_the_opener_then_the_envelope_with_the_echo_of_the_nonce_and_the_request`, `the_targets_round_trip_names_the_project_and_reads_the_agents_with_their_models_modes_and_whether_they_still_load`, `an_accepted_launch_sends_every_field_and_reads_the_session_id`, `a_draft_without_a_model_an_effort_a_mode_plan_and_a_prompt_leaves_them_out`, `an_ide_that_does_not_answer_in_time_is_a_timeout`, `a_response_longer_than_the_limit_is_refused`, `a_garbled_response_or_an_unknown_status_is_a_bad_response`, `a_close_without_an_answer_is_closed_and_a_line_without_its_end_is_read_whole`, `a_request_longer_than_the_limit_is_not_sent`, `a_socket_nobody_listens_on_is_a_connect_error`)
 - A refusal (`"status":"refused"`) is an answer with its code and message, never an error; a code of a later protocol
   stays as its text.
   [@test] ../../crates/air-launch/src/client_test.rs (`a_refusal_of_a_launch_or_of_the_targets_reads_its_code_and_message`, `a_refusal_code_of_a_later_protocol_stays_as_its_text`)
   [@test] ../../crates/air-launch/src/protocol_test.rs (`every_refusal_code_of_protocol_v1_reads_back_as_its_text`)
+- A refusal of the handshake (`{"proto":"local-peer","v":2,"error":"…"}`: `BAD_OPENER`, `BAD_NONCE`, `PEER_CHANGED`, a
+  code of a later handshake as its text) is an error of the command: the IDE did not read the request. It comes instead
+  of the greeting or as the first line after the envelope, also of a watch. A greeting of another version, without a
+  nonce or with a nonce that is not base64url without padding is a bad response, and the client sends no envelope.
+  [@test] ../../crates/air-launch/src/client_test.rs (`a_refusal_of_the_handshake_is_a_typed_error_of_the_exchange_and_of_a_watch`, `a_greeting_of_another_version_or_without_a_nonce_is_a_bad_response_and_no_greeting_in_time_is_a_timeout`)
+  [@test] ../../crates/air-launch/src/protocol_test.rs (`every_refusal_code_of_handshake_v2_reads_back_as_its_text`, `a_line_of_local_peer_is_a_greeting_or_a_refusal_and_any_other_line_is_the_applications`, `the_envelope_holds_the_echo_of_the_nonce_and_the_request_object_on_one_line`, `a_target_without_lists_loading_has_its_lists`)
+- An IDE before handshake v2 reads the opener as a request and answers it at once (`UNSUPPORTED_VERSION`): that line
+  is the answer of the request or the first line of the watch, and the client sends no envelope.
+  [@test] ../../crates/air-launch/src/client_test.rs (`an_ide_before_handshake_v2_answers_the_opener_and_its_answer_is_the_response`)
 - A watch (`watch`, the project and the session id) holds its connection without a timeout of the client: the IDE
   sends the status of the session (its title and activity) now and after each change, and ends with `end` (`timeout`
   after 4 h), with the refusal `NO_SESSION`, or with a close. Nothing is read after the end. A refusal of v1 can come
@@ -97,6 +111,11 @@ one dialog.
   model, the default effort, the default mode, Plan off and Run; another agent takes its default model, an effort and
   a plan effort stay only while the model takes them, and a mode and Plan only while the agent offers them. A choice
   remembered by an older version has no mode and no Plan.
+  While an agent of the list still lists its models and modes (`listsLoading`), the dialog says "Some agents are still
+  listing their models and modes…" and asks the IDE for its agents again after 3 s, at most 4 times. A newer list
+  replaces the old one only when the IDE lists its agents. The pickers keep the choice made in the dialog while the
+  newer list offers it; a target that was still listing takes its remembered model, effort, mode and Plan.
+  [@test] ../../src/lib/air-launch.test.ts (`is listing while an agent still lists its models`, `a newer list keeps the agent, the model, the effort and the start chosen in the dialog while it offers them`, `a newer list gives a target that was still listing its remembered model and effort, with the start of the dialog`)
   [@test] ../../src/lib/air-launch.test.ts (`starts with the first agent, its default model, the default effort and Run`, `starts with the remembered agent, model, effort and start while the IDE still offers them`, `drops a remembered model or effort the agent no longer offers`, `takes the first agent when the remembered one is gone, and keeps the remembered start`, `has no model and no effort for an agent without models, and no form without agents`, `offers the efforts of the chosen model, none for an agent without models`, `another agent takes its default model and keeps the effort only while that model takes it`, `another model keeps the effort only while it takes it`, `offers the modes without the mode of Plan, and Plan only for a target that can start in it`, `starts with the remembered mode, Plan and plan effort while the IDE still offers them`, `keeps the plan effort only with Plan and while the model takes it`, `another agent keeps the mode and Plan only while it offers them`, `sends no other mode with Plan of a mode, and the mode with Plan of a target whose Plan is not a mode`)
 - Start (⌘↵; "Open Draft" for a draft) sends the target, the model id, the effort, the mode, Plan, the plan effort,
   the prompt and the title "Fix the Safe Push of auth"; a draft with a blank prompt sends none, and Run refuses a blank

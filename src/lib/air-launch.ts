@@ -131,6 +131,32 @@ export function initialForm(targets: readonly AirTarget[], remembered: AirLaunch
   }
 }
 
+/**
+ * The dialog asks the IDE for its targets again after this delay while an agent still lists its models and modes
+ * (`AirTarget.listsLoading`), at most `LIST_REFRESH_LIMIT` times: the IDE answers within 2 s and lists the rest later,
+ * and each ask is one connection of the 10 the IDE allows in 60 s
+ */
+export const LIST_REFRESH_DELAY_MS = 3000
+export const LIST_REFRESH_LIMIT = 4
+
+/** An agent of the list still lists its models and modes */
+export function isListing(targets: readonly AirTarget[]): boolean {
+  return targets.some(target => target.listsLoading === true)
+}
+
+/**
+ * The pickers over a newer list of the same IDE: the choice made in the dialog while the list still offers it. For a
+ * target that was still listing, its remembered model, effort, mode and Plan, which the older list could not offer yet
+ */
+export function refreshedForm(targets: readonly AirTarget[], form: AirLaunchForm, before: readonly AirTarget[], remembered: AirLaunchChoice | undefined): AirLaunchForm | null {
+  const target = findTarget(before, form.target)
+  if (target === undefined) {
+    return initialForm(targets, remembered)
+  }
+  const stillRemembered = target.listsLoading === true && remembered !== undefined && targetKey(remembered) === form.target
+  return initialForm(targets, stillRemembered ? { ...remembered, start: form.start } : choiceOf(form, target))
+}
+
 /** Another target: its default model, the effort and the plan effort while that model takes them, the mode and Plan while the target offers them */
 export function withTarget(form: AirLaunchForm, targets: readonly AirTarget[], key: string): AirLaunchForm {
   const target = findTarget(targets, key)

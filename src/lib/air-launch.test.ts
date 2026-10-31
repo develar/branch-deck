@@ -11,11 +11,13 @@ import {
   formatStartHint,
   formatWatchEnd,
   initialForm,
+  isListing,
   isModeLocked,
   launchInAir,
   launchRequest,
   modesOf,
   readAirTargets,
+  refreshedForm,
   stopAirWatch,
   targetKey,
   watchAirSession,
@@ -98,6 +100,31 @@ describe("initialForm", () => {
   it("has no model and no effort for an agent without models, and no form without agents", () => {
     expect(initialForm([CLAUDE], undefined)).toEqual(claudeForm())
     expect(initialForm([], undefined)).toBeNull()
+  })
+})
+
+describe("lists that still load", () => {
+  /** Codex before it listed its models */
+  const CODEX_LISTING: AirTarget = { ...CODEX, models: [], listsLoading: true }
+
+  it("is listing while an agent still lists its models", () => {
+    expect(isListing([CODEX_LISTING, CLAUDE])).toBe(true)
+    expect(isListing(TARGETS)).toBe(false)
+    expect(isListing([{ ...CODEX, listsLoading: false }])).toBe(false)
+  })
+
+  it("a newer list keeps the agent, the model, the effort and the start chosen in the dialog while it offers them", () => {
+    const chosen = form({ model: "gpt-5.4", effort: "low", start: "draft" })
+    expect(refreshedForm(TARGETS, chosen, TARGETS, undefined)).toEqual(chosen)
+    expect(refreshedForm([CLAUDE], chosen, TARGETS, undefined)).toEqual(claudeForm({ start: "draft" }))
+  })
+
+  it("a newer list gives a target that was still listing its remembered model and effort, with the start of the dialog", () => {
+    const remembered: AirLaunchChoice = { launchTargetId: "codex", interactionSurfaceId: "native", model: "gpt-5.4", effort: "medium", start: "run" }
+    const before = [CODEX_LISTING, CLAUDE]
+    const opened = initialForm(before, remembered)
+    expect(opened).toEqual(form({ model: null, effort: null }))
+    expect(refreshedForm(TARGETS, { ...opened!, start: "draft" }, before, remembered)).toEqual(form({ model: "gpt-5.4", effort: "medium", start: "draft" }))
   })
 })
 

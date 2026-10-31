@@ -91,13 +91,26 @@ fn a_page_that_went_away_stops_the_watch_at_its_first_status() {
   assert_eq!(follow(lines.into_iter(), &|| false, &page).unwrap(), AirWatchEnd::Stopped);
 }
 
-/// A watch connected to a socket nobody answers on: its `next` waits until a stop
+/// A watch connected to a socket that greets in the handshake and then answers nothing: its `next` waits until a stop
 #[cfg(unix)]
-fn waiting_watch(dir: &std::path::Path, name: &str) -> (air_launch::client::Watch, std::os::unix::net::UnixListener) {
+fn waiting_watch(dir: &std::path::Path, name: &str) -> air_launch::client::Watch {
+  use std::io::{BufRead, Read, Write};
   let socket = dir.join(format!("{name}.sock"));
   let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
-  let watch = air_launch::client::Client::new(&socket).watch("/work/idea", name).unwrap();
-  (watch, listener)
+  std::thread::spawn(move || {
+    let (stream, _) = listener.accept().unwrap();
+    let mut reader = std::io::BufReader::new(stream);
+    let mut opener = String::new();
+    reader.read_line(&mut opener).unwrap();
+    reader
+      .get_mut()
+      .write_all(b"{\"proto\":\"local-peer\",\"v\":2,\"nonce\":\"q1Zx-Ab_9kTn0sLw4eRt2Y\"}\n")
+      .unwrap();
+    // the envelope, then nothing until the client closes the connection
+    let mut rest = Vec::new();
+    let _ = reader.read_to_end(&mut rest);
+  });
+  air_launch::client::Client::new(&socket).watch("/work/idea", name).unwrap()
 }
 
 #[cfg(unix)]
@@ -109,15 +122,15 @@ fn a_stop_a_newer_watch_of_the_session_and_a_page_that_went_away_end_the_watches
   let review = WindowId::new("review-1");
 
   // the page stops its watch
-  let (mut stopped, _listener) = waiting_watch(dir.path(), "s-1");
+  let mut stopped = waiting_watch(dir.path(), "s-1");
   let running = watches.start(&main, "s-1", stopped.stopper().unwrap());
   watches.stop(&main, "s-1".to_owned());
   assert!(running.stopped.load(std::sync::atomic::Ordering::SeqCst));
   assert!(stopped.next().is_none());
 
   // a newer watch of the same session stops the one before; the end of the older one keeps the newer
-  let (mut older, _older_listener) = waiting_watch(dir.path(), "s-2");
-  let (newer, _newer_listener) = waiting_watch(dir.path(), "s-3");
+  let mut older = waiting_watch(dir.path(), "s-2");
+  let newer = waiting_watch(dir.path(), "s-3");
   let first = watches.start(&main, "s-2", older.stopper().unwrap());
   let second = watches.start(&main, "s-2", newer.stopper().unwrap());
   assert!(older.next().is_none());
@@ -125,7 +138,7 @@ fn a_stop_a_newer_watch_of_the_session_and_a_page_that_went_away_end_the_watches
   assert!(!second.stopped.load(std::sync::atomic::Ordering::SeqCst));
 
   // the page of the main window goes away: its watches stop, those of another window go on
-  let (other, _other_listener) = waiting_watch(dir.path(), "s-4");
+  let other = waiting_watch(dir.path(), "s-4");
   let elsewhere = watches.start(&review, "s-4", other.stopper().unwrap());
   watches.forget_window(&main);
   assert!(second.stopped.load(std::sync::atomic::Ordering::SeqCst));

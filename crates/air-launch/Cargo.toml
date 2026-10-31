@@ -3,7 +3,7 @@ name = "air-launch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The client of the local launch socket of Air (protocol v1): the instance files of the IDEs, the IDE of a directory, the targets and the launch of a session"
+description = "The client of the local launch socket of Air (the local peer handshake v2, requests of protocol v1): the instance files of the IDEs, the IDE of a directory, the targets and the launch of a session"
 publish = false
 
 [dependencies]
