@@ -77,7 +77,7 @@ use remote_facts::pull_requests::failure_message;
 use repository_model::branch_table::BranchTable;
 use repository_model::facts::BaselineRefusal;
 use repository_model::pull_request_facts::PullRequestWrite;
-use repository_model::ref_claims::claim_refs;
+use repository_model::ref_claims::claim_free_refs;
 use repository_model::refusal_words::start_refusal_text;
 use repository_model::runtime::sleep_until;
 use repository_model::table::{RemoteSubject, TableState};
@@ -983,8 +983,10 @@ impl Run<'_> {
     self.steps.step(OperationStep::Pushing);
     let subjects: Vec<RemoteSubject> = self.planned.pushes.iter().map(PushedRef::subject).collect();
     let names: Vec<String> = self.planned.pushes.iter().map(|pushed| pushed.full_name.clone()).collect();
-    // a fetch of a remote branch whose pull request moved writes the remote-tracking ref too: the push is newer
-    let _claim = claim_refs(&self.services.git_common_dir, &names, || debug!("the push of the start waits for the fetch of its refs")).await;
+    // a fetch of a remote branch whose pull request moved writes the remote-tracking ref too, from the tip it read
+    // (compare-and-swap), so it never writes over the head this push sets: the push waits for none, and a fetch that
+    // starts while it runs leaves its refs to it
+    let (_claim, _) = claim_free_refs(&self.services.git_common_dir, &names);
     let shown = self.host.shown_remote(&self.planned.pushes).await;
     self.host.begin_push(subjects.clone());
     let (git, progress) = (self.services.git.clone(), Arc::clone(&self.steps.progress));

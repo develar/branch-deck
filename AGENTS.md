@@ -209,7 +209,8 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
 - **The user's index** changes only where HEAD's tree changed (`IndexUpdate`); never `reset --mixed`.
 - **Index lock**: a write of the user's index goes through `git_ops::index_lock`; never a removal of another lock of git.
 - **Ref moves**: one `RefTransaction` with old-value CAS and a `branch-deck: <op>` reflog message; the named exceptions
-  are the notes `fast-import` writes, the temporary refs of `commit_chain.rs` and the refs of the review fetch.
+  are the notes `fast-import` writes, the temporary refs of `commit_chain.rs` and of `fetch_remote_branches`, and the
+  refs of the review fetch.
 - **Who writes the refs of Branch Deck**: every ref of `refs/branch-deck/`, `{prefix}/unapplied/` and `{prefix}/stack/`
   has its named writers, with CAS; a sync mostly only reads them.
 - **Repository lock** (`$GIT_COMMON_DIR/branch-deck.lock`, `repository_lock.rs`): a rewrite of the checked-out branch,

@@ -123,7 +123,8 @@ pub fn fetch_asked(git_executor: &GitCommandExecutor, git_common_dir: &Path, rep
   };
   let full_names: Vec<Option<String>> = asks.iter().map(|ask| to_final_branch_name(&table.prefix, &ask.branch).ok()).collect();
   let names: Vec<String> = full_names.iter().flatten().cloned().collect();
-  // a push of the same remote ref writes it: its outcome is newer than this fetch, which would race it for the ref
+  // a push of the same remote ref writes it: its outcome is newer, so this fetch leaves it to the push (the push waits
+  // for no fetch: the fetch moves a remote-tracking ref only from the tip it read)
   let (_claim, claimed) = claim_free_refs(git_common_dir, &names);
   let mut fetched: Vec<FetchedRemote> = asks.iter().map(unsettled).collect();
   let mut branches = Vec::new();

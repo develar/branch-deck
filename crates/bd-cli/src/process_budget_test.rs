@@ -319,8 +319,9 @@ fn a_push() {
 
 /// `bd push auth` over a remote branch someone moved back to an older commit of the branch since the sync: the witness of
 /// its plan, the tip of the branch read before the repository lock and again under it (one `for-each-ref` each, the
-/// lock held for that read and the freeze only), then the refused push fetches it and computes what it has now, then
-/// the push again over it, once, and nothing else (D4)
+/// lock held for that read and the freeze only), then the refused push fetches it (into a temporary ref, its
+/// remote-tracking ref moved from the tip read before: one `for-each-ref` and one `update-ref`) and computes what it
+/// has now, then the push again over it, once, and nothing else (D4)
 #[test]
 fn a_push_over_a_moved_remote() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
@@ -342,7 +343,7 @@ fn a_push_over_a_moved_remote() {
       ("config", 1),
       ("fast-import", 2),
       ("fetch", 1),
-      ("for-each-ref", 4),
+      ("for-each-ref", 5),
       ("log", 6),
       ("merge-base", 1),
       ("notes", 1),
@@ -353,7 +354,7 @@ fn a_push_over_a_moved_remote() {
       ("rev-parse", 1),
       ("show-ref", 1),
       ("symbolic-ref", 1),
-      ("update-ref", 1),
+      ("update-ref", 2),
       ("var", 1),
     ],
   );
@@ -891,7 +892,7 @@ fn a_pick() {
 }
 
 /// `bd pick --remote auth` of a commit someone else pushed: the sync of `bd sync` first, then the fetch of the branch
-/// before the lock, the walks of its remote status (the commits it lacks), the grouping inputs (whose subject groups
+/// before the lock (its remote-tracking ref moved from the tip read before: one `for-each-ref`, one `update-ref`), the walks of its remote status (the commits it lacks), the grouping inputs (whose subject groups
 /// elsewhere), the check (the listed commits, one `replay`, the copies, one `cat-file` and one `fast-import` of the
 /// prefixed copies, whose temporary ref goes at once), then the move under the lock and the grouping of the picked commit
 #[test]
@@ -912,7 +913,7 @@ fn a_remote_pick() {
       ("diff-tree", 1),
       ("fast-import", 1),
       ("fetch", 1),
-      ("for-each-ref", 3),
+      ("for-each-ref", 4),
       ("log", 9),
       ("merge-base", 1),
       ("read-tree", 2),
@@ -923,7 +924,7 @@ fn a_remote_pick() {
       ("rev-parse", 6),
       ("symbolic-ref", 5),
       ("update-index", 2),
-      ("update-ref", 3),
+      ("update-ref", 4),
     ],
   );
 }
@@ -1687,8 +1688,8 @@ fn a_safe_push_check_of_the_whole_stack() {
 
 /// `bd safe-push auth --whole-stack` over a stack branch someone moved back on the remote to an older build since the
 /// sync (D4): the sync of a stack it built already (no build), what the start is decided on and the review of the stack
-/// branch's commits, then the refused push of the stack branch, the fetch of what the remote has now and its remote
-/// status, the push again over it, once, each push with the size check of what it adds (`log`, `cat-file`); the witness
+/// branch's commits, then the refused push of the stack branch, the fetch of what the remote has now (its
+/// remote-tracking ref moved from the tip read before: one `for-each-ref`, one `update-ref`) and its remote status, the push again over it, once, each push with the size check of what it adds (`log`, `cat-file`); the witness
 /// of the engine (one `for-each-ref` before the lock, one under it, one of the pushed stack branch before the start);
 /// and the target conflict check (`TARGET_CHECK`)
 #[test]
@@ -1712,7 +1713,7 @@ fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
       ("config", 1),
       ("diff-tree", 1),
       ("fetch", 1),
-      ("for-each-ref", 6),
+      ("for-each-ref", 7),
       ("log", 11),
       ("merge-base", 1),
       ("push", 2),
@@ -1721,6 +1722,7 @@ fn a_safe_push_of_the_whole_stack_over_a_moved_remote() {
       ("rev-list", 2),
       ("rev-parse", 1),
       ("symbolic-ref", 1),
+      ("update-ref", 1),
     ],
   );
 }

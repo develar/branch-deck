@@ -6,11 +6,12 @@
 //!
 //! One `for-each-ref` reads the tips, one `cat-file --batch-check` tells which heads are here; a head the tip has (a
 //! pull request GitHub still shows at an older head after a push of the user) fetches nothing, after one
-//! `merge-base --is-ancestor`. The rest is one `fetch_remote_branches` of all of them, then the remote status of each
-//! against the tip it fetched. The lease of a push is the head of the status the user saw, so this fetch never makes a
+//! `merge-base --is-ancestor`. The rest is one `fetch_remote_branches_from` of all of them, which moves each
+//! remote-tracking ref only from the tip read here (a push of it meanwhile keeps its head), then the remote status of
+//! each against the tip it has. The lease of a push is the head of the status the user saw, so this fetch never makes a
 //! push overwrite what the user didn't see: the status it leaves lists the fetched commits as the ones a push drops.
 
-use crate::push_lease::fetch_remote_branches;
+use crate::push_lease::fetch_remote_branches_from;
 use crate::remote_status::{AncestorCommits, StackParent, StatusBranch, compute_remote_statuses};
 use anyhow::Result;
 use domain_types::RemoteStatusUpdate;
@@ -71,7 +72,8 @@ pub fn fetch_moved_remotes(git_executor: &GitCommandExecutor, repository_path: &
   }
   let names: Vec<String> = fetched.iter().map(|branch| branch.full_name.to_string()).collect();
   info!(branches = ?names, "the pull requests show heads the remote-tracking refs lack: fetching them");
-  fetch_remote_branches(git_executor, repository_path, remote, &names)?;
+  // the tips read above are the old values of the moves: a push of one of them meanwhile keeps its head
+  fetch_remote_branches_from(git_executor, repository_path, remote, &names, &tips)?;
 
   branches
     .iter()

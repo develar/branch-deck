@@ -1,4 +1,4 @@
-use crate::push_lease::{LeaseSource, PushedRefStatus, parse_push_porcelain, prepare_push_expecting};
+use crate::push_lease::{LeaseSource, PushedRefStatus, fetch_remote_branches, parse_push_porcelain, prepare_push_expecting};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use test_log::test;
@@ -67,4 +67,36 @@ fn parses_porcelain_lines() {
   );
   assert!(statuses["refs/heads/b"].accepted());
   assert!(!statuses["refs/heads/c"].accepted());
+}
+
+/// A clone whose remote has `BRANCH` at a commit someone else pushed, which its remote-tracking ref lacks (at the first
+/// commit): the remote-tracking ref, that commit and the clone's newer commit a push of the branch would set
+fn clone_behind_its_remote() -> (TestRepo, TestRepo, String, String) {
+  let (upstream, clone) = TestRepo::upstream_and_clone(&[("a.txt", "a\n")]);
+  let first = clone.head();
+  let theirs = upstream.create_commit("Their change", "b.txt", "b\n");
+  update_ref(&upstream, &format!("refs/heads/{BRANCH}"), &theirs);
+  update_ref(&clone, &format!("refs/remotes/origin/{BRANCH}"), &first);
+  let pushed = clone.create_commit("Pushed", "c.txt", "c\n");
+  (upstream, clone, theirs, pushed)
+}
+
+/// The fetch moves the remote-tracking ref from the tip it read before: alone, to the remote's head; when a push of
+/// the branch set its own head meanwhile (here between the read and the fetch, as git's push writes the
+/// remote-tracking ref when it ends), that head stays, the fetched one does not write over it, and no temporary ref
+/// is left
+#[cfg(unix)]
+#[test]
+fn a_fetch_that_ends_after_a_push_of_its_ref_leaves_the_head_of_the_push() {
+  let tracking = format!("refs/remotes/origin/{BRANCH}");
+  let (_upstream, clone, theirs, _) = clone_behind_its_remote();
+  fetch_remote_branches(clone.git_executor(), clone.path_str(), "origin", &[BRANCH.to_string()]).unwrap();
+  assert_eq!(clone.rev_parse(&tracking).unwrap(), theirs);
+
+  let (_upstream, clone, theirs, pushed) = clone_behind_its_remote();
+  let wrapped = test_utils::wrapped_git::WrappedGit::new(&format!("*\" fetch \"*) git update-ref {tracking} {pushed}; touch '{{dir}}/pushed';;"));
+  fetch_remote_branches(wrapped.executor(), clone.path_str(), "origin", &[BRANCH.to_string()]).unwrap();
+  assert!(wrapped.marked("pushed"), "the push ran during the fetch");
+  assert_eq!(clone.rev_parse(&tracking).unwrap(), pushed, "not {theirs}, which the fetch brought");
+  assert_eq!(clone.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "");
 }

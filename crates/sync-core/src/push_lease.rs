@@ -12,9 +12,11 @@ use crate::remote_command::{execute_remote_command, execute_remote_command_accep
 use crate::transfer_progress::{TransferProgress, TransferProgressAnalyzer};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::commit_writer::unique_temp_ref;
 use git_ops::ref_transaction::RefTransaction;
+use git_ops::revs::ref_tips;
 use std::collections::{HashMap, HashSet};
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 /// Where the lease of a push comes from
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,14 +191,29 @@ pub fn parse_push_porcelain(output: &str) -> HashMap<String, PushedRefStatus> {
     .collect()
 }
 
-/// Fetch `full_names` from `remote` into their remote-tracking refs, after a rejected push: the remote branches moved,
-/// and the caller shows what they have now. Only these refs move, as `fetch_baseline` moves only the baseline's.
-/// A branch deleted on the remote can't be fetched: `ls-remote` tells it from a failed connection, and its
-/// remote-tracking ref is deleted
+/// Fetch `full_names` from `remote` into their remote-tracking refs: after a rejected push (the remote branches moved,
+/// and the caller shows what they have now), for the remote commits of a pick, and for the branches whose pull requests
+/// moved (`moved_remote`). Only these refs move, as `fetch_baseline` moves only the baseline's, and each only from the
+/// tip it had before the fetch: the fetch writes temporary refs (`unique_temp_ref`, `--refmap=`, so git moves no
+/// remote-tracking ref itself), and one transaction moves each remote-tracking ref with that tip as its old value
+/// (`move_fetched`). A push of the same ref meanwhile wrote a newer head, which the fetch leaves; so no push waits for a
+/// fetch. A branch deleted on the remote can't be fetched: `ls-remote` tells it from a failed connection, and its
+/// remote-tracking ref is deleted, from the tip it had too
 #[instrument(skip(git_executor, full_names))]
 pub fn fetch_remote_branches(git_executor: &GitCommandExecutor, repository_path: &str, remote: &str, full_names: &[String]) -> Result<()> {
-  let fetch = |names: &[&String]| {
-    let refspecs: Vec<String> = names.iter().map(|full_name| format!("+refs/heads/{full_name}:refs/remotes/{remote}/{full_name}")).collect();
+  let tracking_refs: Vec<String> = full_names.iter().map(|full_name| format!("refs/remotes/{remote}/{full_name}")).collect();
+  let patterns: Vec<&str> = tracking_refs.iter().map(String::as_str).collect();
+  let before = ref_tips(git_executor, repository_path, &patterns)?;
+  fetch_remote_branches_from(git_executor, repository_path, remote, full_names, &before)
+}
+
+/// `fetch_remote_branches` whose caller read the tips of the remote-tracking refs already (`before`, one
+/// `for-each-ref`): the old values of the moves
+pub fn fetch_remote_branches_from(git_executor: &GitCommandExecutor, repository_path: &str, remote: &str, full_names: &[String], before: &HashMap<String, String>) -> Result<()> {
+  let tracking = |full_name: &str| format!("refs/remotes/{remote}/{full_name}");
+  let temp = unique_temp_ref();
+  let fetch = |names: &[&String]| -> Result<()> {
+    let refspecs: Vec<String> = names.iter().map(|full_name| format!("+refs/heads/{full_name}:{temp}/{full_name}")).collect();
     let mut args = vec![
       "fetch",
       "--porcelain",
@@ -204,10 +221,14 @@ pub fn fetch_remote_branches(git_executor: &GitCommandExecutor, repository_path:
       "--no-write-fetch-head",
       "--no-recurse-submodules",
       "--no-auto-maintenance",
+      "--no-prune",
+      "--refmap=",
       remote,
     ];
     args.extend(refspecs.iter().map(String::as_str));
-    execute_remote_command(git_executor, &args, repository_path).map(|_| ())
+    let output = execute_remote_command(git_executor, &args, repository_path)?;
+    let moves = names.iter().map(|full_name| (tracking(full_name), format!("{temp}/{full_name}")));
+    move_fetched(git_executor, repository_path, &fetched_tips(&output), moves, before)
   };
   let all: Vec<&String> = full_names.iter().collect();
   let Err(fetch_error) = fetch(&all) else {
@@ -228,10 +249,64 @@ pub fn fetch_remote_branches(git_executor: &GitCommandExecutor, repository_path:
   }
   let mut transaction = RefTransaction::new();
   for full_name in &deleted {
-    transaction.delete(&format!("refs/remotes/{remote}/{full_name}"), None);
+    let tracking_ref = tracking(full_name);
+    if let Some(tip) = before.get(&tracking_ref) {
+      transaction.delete(&tracking_ref, Some(tip));
+    }
   }
   transaction.commit(git_executor, repository_path, "remote branch deleted")?;
   if present.is_empty() { Ok(()) } else { fetch(&present) }
+}
+
+/// The new tip of each ref a `fetch --porcelain` wrote, by ref: `<flag> <old> <new> <ref>` per updated ref, and a
+/// temporary ref is always new
+fn fetched_tips(output: &str) -> HashMap<String, String> {
+  output
+    .lines()
+    .filter_map(|line| {
+      let mut fields = line.split(' ');
+      let (_flag, _old, new, reference) = (fields.next()?, fields.next()?, fields.next()?, fields.next()?);
+      Some((reference.to_string(), new.to_string()))
+    })
+    .collect()
+}
+
+/// Move each remote-tracking ref of `moves` (`(tracking ref, temporary ref)`) to the tip the fetch wrote into its
+/// temporary ref (`fetched`), from its tip `before` the fetch (`create` when it had none), and delete the temporary
+/// refs, in one transaction. A ref that moved since (a push of it wrote a newer head) refuses that transaction: the tips
+/// are read again, and a second one moves only the refs still at their old value, the others left as their writer left
+/// them. One `update-ref`; when a push raced, one `for-each-ref` and one `update-ref` more
+fn move_fetched(
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  fetched: &HashMap<String, String>,
+  moves: impl Iterator<Item = (String, String)>,
+  before: &HashMap<String, String>,
+) -> Result<()> {
+  let moves: Vec<(String, String, String)> = moves
+    .filter_map(|(tracking_ref, temp_ref)| Some((tracking_ref, fetched.get(&temp_ref)?.clone(), temp_ref)))
+    .collect();
+  let transaction = |still: &dyn Fn(&str) -> bool| {
+    let mut transaction = RefTransaction::new();
+    for (tracking_ref, tip, temp_ref) in &moves {
+      if still(tracking_ref) {
+        match before.get(tracking_ref) {
+          Some(old) => transaction.update(tracking_ref, tip, Some(old)),
+          None => transaction.create(tracking_ref, tip),
+        };
+      }
+      transaction.delete(temp_ref, Some(tip));
+    }
+    transaction
+  };
+  if transaction(&|_| true).commit(git_executor, repository_path, "fetch remote branches").is_ok() {
+    return Ok(());
+  }
+  let tracking_refs: Vec<&str> = moves.iter().map(|(tracking_ref, _, _)| tracking_ref.as_str()).collect();
+  let now = ref_tips(git_executor, repository_path, &tracking_refs)?;
+  let unmoved = |tracking_ref: &str| now.get(tracking_ref) == before.get(tracking_ref);
+  debug!(moved = ?tracking_refs.iter().filter(|tracking_ref| !unmoved(tracking_ref)).collect::<Vec<_>>(), "a remote-tracking ref moved during the fetch: its writer's head stays");
+  transaction(&unmoved).commit(git_executor, repository_path, "fetch remote branches")
 }
 
 #[cfg(test)]

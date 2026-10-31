@@ -179,8 +179,9 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 - `--expect-remote <id>`: a fetched remote branch at another commit must pick nothing, `lease_rejected` (exit 4), as
   the lease of a push. A remote branch with no commit the branch lacks is `nothing_to_pick` (exit 4).
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_remote_pick_from_another_head_than_the_one_seen_picks_nothing`, `a_remote_pick_takes_in_the_commit_someone_pushed_and_the_push_then_drops_nothing`)
-- Its processes are one sync, one `fetch`, the walks of the remote status, one `cat-file` and one `fast-import` of the
-  prefixed copies besides those of a pick.
+- Its processes are one sync, one `fetch` (with the `for-each-ref` of the tip it moves the remote-tracking ref from
+  and that `update-ref`), the walks of the remote status, one `cat-file` and one `fast-import` of the prefixed copies
+  besides those of a pick.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_remote_pick`)
 
 ### The lock

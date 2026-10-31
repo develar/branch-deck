@@ -299,7 +299,7 @@ pub fn delete_stale_temp_refs(git_executor: &GitCommandExecutor, repo_path: &str
 }
 
 /// A ref name no other operation of this or another Branch Deck process uses
-pub(crate) fn unique_temp_ref() -> String {
+pub fn unique_temp_ref() -> String {
   static COUNTER: AtomicU32 = AtomicU32::new(0);
   let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
   format!("{TEMP_REF_PREFIX}{}-{nanos}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))

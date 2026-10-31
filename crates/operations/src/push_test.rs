@@ -302,6 +302,26 @@ async fn a_push_of_a_branch_alone_is_planned_and_run_by_the_engine() {
   assert_eq!(fixture.plan(&pushed).await.effects, Vec::new(), "nothing left to push");
 }
 
+/// A push of a ref whose moved-remote fetch runs (its claim held) goes at once: the fetch moves the remote-tracking ref
+/// only from the tip it read (`sync_core::push_lease::fetch_remote_branches`), so it never writes over the head the push
+/// sets, and the push waits for no fetch
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_does_not_wait_for_the_fetch_of_its_ref() {
+  let fixture = fixture(true).await;
+  let common_dir = git_ops::revs::git_common_dir(fixture.repo.git_executor(), fixture.repo.path_str()).unwrap();
+  let (_fetching, claimed) = repository_model::ref_claims::claim_free_refs(std::path::Path::new(&common_dir), &names(&["test/virtual/beta"]));
+  assert_eq!(claimed.len(), 1, "the fetch holds beta");
+  let outcome = fixture.execute(&alone("beta", None), Vec::new()).await.unwrap();
+  assert!(
+    outcome.effects.iter().all(|record| record.status == EffectStatus::Done),
+    "pushed while the fetch holds beta: {outcome:?}"
+  );
+  assert_eq!(
+    fixture.repo.rev_parse("refs/remotes/origin/test/virtual/beta").ok(),
+    fixture.repo.rev_parse("test/virtual/beta").ok()
+  );
+}
+
 /// The same push twice side by side is one push (the second joins the first); another push of the same ref, clicked
 /// while the first one runs, waits for it (`Queued` behind it, here behind the repository lock the test holds) and is
 /// decided again on what it left: the remote has the branch, so it pushes nothing, and no `plan_changed` refuses it

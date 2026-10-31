@@ -384,8 +384,12 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
 - A listing of the pull requests that shows the open pull request of a branch at a head that is not the tip of its
   remote-tracking ref must fetch that branch (`fetch_remote_branches`, the branch alone) and put the status against
   what it fetched into the row, with no push and no sync: the row shows `· 1↓` in `warning` and the push asks first,
-  as for any remote commit a push drops. A branch the app pushes is not fetched (the push leaves its own status), and
-  a push of the same remote ref waits for a fetch that writes it.
+  as for any remote commit a push drops. A branch the app pushes is not fetched (the push leaves its own status). The
+  fetch must move the remote-tracking ref only from the tip it read before it, so a push of the same remote ref never
+  waits for it: a push that ends during the fetch keeps the head it wrote.
+  [@test] ../../crates/sync-core/src/push_lease_test.rs (`a_fetch_that_ends_after_a_push_of_its_ref_leaves_the_head_of_the_push`)
+  [@test] ../../crates/operations/src/push_test.rs (`a_push_does_not_wait_for_the_fetch_of_its_ref`)
+  [@test] ../../crates/repository-model/src/ref_claims_test.rs (`a_claim_takes_the_free_refs_at_once_and_leaves_the_held_ones`)
   [@test] ../../crates/domain-policy/src/refresh_test.rs (`a_remote_branch_whose_pull_request_moved_is_fetched_once_per_head`)
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`a_listing_that_shows_a_moved_remote_branch_asks_its_fetch`)
   [@test] ../../crates/repository-model/src/moved_remote_test.rs (`a_moved_head_is_asked_once_and_a_new_head_again`, `a_pushed_branch_and_a_closed_pull_request_are_not_fetched`)

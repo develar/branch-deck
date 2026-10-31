@@ -4373,14 +4373,25 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   one to show it to). A push of several refs is `--atomic` in both (below); one ref goes without it, which a remote
   may not support.
 - A rejected ref is `!` in `push --porcelain` (exit 1); the summary is only logged. `fetch_remote_branches` then
-  fetches just the rejected branches, `+refs/heads/<b>:refs/remotes/<remote>/<b>` with the flags of the baseline fetch
-  (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), so the caller shows
-  what the remote has now. A branch deleted on the remote fails the fetch: `ls-remote --exit-code` (2: no such ref)
-  tells it from a failed connection, and its remote-tracking ref is deleted.
+  fetches just the rejected branches, so the caller shows what the remote has now. Compare-and-swap, as every ref move:
+  one `for-each-ref` of the remote-tracking refs (their old values; the moved-remote fetch reuses its own), then
+  `+refs/heads/<b>:<unique_temp_ref>/<b>` with the flags of the baseline fetch
+  (`--porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance`), `--no-prune` and
+  `--refmap=` (git moves no remote-tracking ref on its own), the new tips from its porcelain lines, and one
+  `RefTransaction` that moves each `refs/remotes/<remote>/<b>` from its old value and deletes the temporary refs. A
+  push of the branch that wrote its head meanwhile (git's push writes the remote-tracking ref as it ends) fails that
+  transaction; the tips are read again and a second one moves only the refs still at their old value, so the push's
+  head stays (`a_fetch_that_ends_after_a_push_of_its_ref_leaves_the_head_of_the_push`). A branch deleted on the remote
+  fails the fetch: `ls-remote --exit-code` (2: no such ref) tells it from a failed connection, and its remote-tracking
+  ref is deleted from its old value.
 - The session fetches a branch whose pull request shows a head its remote-tracking ref lacks
-  ([Remote Status](remote-status.md#moved-remote-branches)) with the same `fetch_remote_branches`, never while the app
-  pushes it, and a push of the ref waits for the fetch (`repository_model::ref_claims`); the status it leaves lists
-  the fetched commits as dropped, so the lease holds as after any fetch.
+  ([Remote Status](remote-status.md#moved-remote-branches)) with the same `fetch_remote_branches`. It leaves a branch
+  the app pushes now to that push (`repository_model::ref_claims::claim_free_refs`), and a push waits for no fetch of
+  its ref (`a_push_does_not_wait_for_the_fetch_of_its_ref`): the fetch can no longer write over the push's head. The
+  status it leaves lists the fetched commits as dropped, so the lease holds as after any fetch. Left: git's push and
+  the transaction of a fetch may meet on the ref lock of the remote-tracking ref (milliseconds); git then leaves the
+  push's tracking update undone with a warning, the remote-tracking ref behind the remote, which the next push lease
+  refuses and its fetch corrects; nothing is overwritten.
 - The push effect of the intent `Push` fails as `lease_rejected` (`LeasedPush::RemoteMoved`), its end
   in the session with the new remote status, when the fetched head differs from the expected one: the row turns into
   the push the remote now needs, and a toast offers it (a push that drops the fetched

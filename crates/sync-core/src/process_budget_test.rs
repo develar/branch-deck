@@ -767,7 +767,8 @@ fn an_atomic_push_of_a_stack() {
 }
 
 /// The fetch of a remote branch whose pull request shows a head someone else pushed (`moved_remote`): the tips one
-/// `for-each-ref`, which heads are here one `cat-file`, the fetch one `fetch`, then the status against the fetched tip:
+/// `for-each-ref`, which heads are here one `cat-file`, the fetch one `fetch` into a temporary ref and the move of the
+/// remote-tracking ref from the tip read first one `update-ref`, then the status against the fetched tip:
 /// one `for-each-ref` of the tips, the two walks and, as a commit is left dropped, the walk of the baseline by its
 /// author that finds the landed ones (three `rev-list`), and the push time (`reflog`)
 #[test]
@@ -791,7 +792,10 @@ fn a_fetch_of_a_moved_remote_branch() {
   let git = counting();
   let fetched = fetch_moved_remotes(&git, &path(&repo), "origin", "master", &[branch]).unwrap();
   assert!(fetched[0].settled);
-  assert_processes(&git, &[("cat-file", 1), ("fetch", 1), ("for-each-ref", 2), ("reflog", 1), ("rev-list", 3)]);
+  assert_processes(
+    &git,
+    &[("cat-file", 1), ("fetch", 1), ("for-each-ref", 2), ("reflog", 1), ("rev-list", 3), ("update-ref", 1)],
+  );
 }
 
 /// The question about the robot of `beta`, which ran on `source` and may land `alpha` and `beta`

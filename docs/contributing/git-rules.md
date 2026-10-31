@@ -95,8 +95,10 @@ warn, `write_cache_notes`, but an identity git cannot form (`NoIdentity`) fails 
 once more, then fail it; the resolve notes move in the
 session's transaction); the temporary ref of a sync chain's commit writer (`commit_chain.rs`): one per writer
 (`unique_temp_ref`), deleted in its own `fast-import` stream after a `checkpoint` wrote it (`reset` from the null
-id), and a sync deletes the stale temporary refs its listing found (`is_stale_temp_ref`); and the refs of the review
-fetch (below). A move that the files follow (an update and its undo) updates `HEAD` itself (deref) and commits only if
+id), and a sync deletes the stale temporary refs its listing found (`is_stale_temp_ref`); the temporary refs a fetch
+of remote branches writes (`fetch_remote_branches`: `<unique_temp_ref>/<branch>`, with `--refmap=` so git moves no
+remote-tracking ref itself), which one `RefTransaction` deletes as it moves each remote-tracking ref from the tip read
+before the fetch, so a push's newer head is never overwritten; and the refs of the review fetch (below). A move that the files follow (an update and its undo) updates `HEAD` itself (deref) and commits only if
 `symbolic-ref HEAD`, read while git holds the locks after `prepare`, is still the checked branch
 (`RefTransaction::commit_while`, else `BranchSwitched`); git refuses `symref-verify HEAD` next to either form of the
 update. The finish of a resolve session moves the session ref and the notes ref (`refs/notes/branch-deck/resolve`,
