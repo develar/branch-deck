@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { initialOwnerFilter } from "@/lib/review-owners"
+import { canonicalOwnerFilter, initialOwnerFilter } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { setReviewOwnerChip, useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -24,7 +24,8 @@ interface Held {
  * window on a request): until the user chooses one, the chip it opens on (`initialOwnerFilter`) of the remembered chip
  * as the scope began, so a choice in another window does not move it. While that is All, the chips that come later (the
  * groups of the readiness of the request, the owners) choose again; once it is another chip, it holds. A chip the user
- * chooses holds, All too, and is remembered for the repository; All forgets it.
+ * chooses holds, All too, and is remembered for the repository; All forgets it. A chip held as an owner of the
+ * `OWNERSHIP` files is the group of its name once the groups come (`canonicalOwnerFilter`): one chip, the group's.
  */
 export function useReviewOwnerFilter(repositoryPath: string, scope: string, start: OwnerFilterStart): readonly [ReviewFilter, (filter: ReviewFilter) => void] {
   const remembered = useRecentProjects(projects => projects.find(it => it.path === repositoryPath)?.reviewOwnerChip)
@@ -41,6 +42,7 @@ export function useReviewOwnerFilter(repositoryPath: string, scope: string, star
       setHeld({ ...current, filter })
     }
   }
+  filter = canonicalOwnerFilter(start.chips, filter)
   const choose = (next: ReviewFilter) => {
     setHeld({ scope, remembered, filter: next })
     setReviewOwnerChip(repositoryPath, next)

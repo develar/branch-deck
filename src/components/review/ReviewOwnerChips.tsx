@@ -3,7 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { FilesCount } from "@/components/commit/CommitReview"
 import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import { ownerEmptyText, ownerPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
+import { canonicalOwnerFilter, ownerChipKey, ownerEmptyText, ownerPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip, ReviewOwners } from "@/lib/review-owners"
 
 /*
@@ -55,14 +55,14 @@ export function ReviewOwnerChips({
 }
 
 function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[]; filter: ReviewFilter; onFilterChange: (filter: ReviewFilter) => void }) {
-  // a chip by its label, the one shown by the filter of the review
-  const chosen = chips.find(chip => sameFilter(chip.filter, filter))?.label ?? ""
+  // a chip by its filter (a group and an owner may share a label), the one shown by the filter of the review
+  const chosen = ownerChipKey(canonicalOwnerFilter(chips, filter))
   return (
     <FilterChips
       label="Files of"
       value={chosen}
-      onValueChange={label => {
-        const chip = chips.find(it => it.label === label)
+      onValueChange={key => {
+        const chip = chips.find(it => ownerChipKey(it.filter) === key)
         if (chip !== undefined) {
           onFilterChange(chip.filter)
         }
@@ -72,7 +72,7 @@ function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly Review
       data-testid="branch-review-owners"
     >
       {chips.map(chip => (
-        <OwnerChip key={chip.label} chip={chip} />
+        <OwnerChip key={ownerChipKey(chip.filter)} chip={chip} />
       ))}
     </FilterChips>
   )
@@ -82,7 +82,7 @@ function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly Review
 function OwnerChip({ chip }: { chip: ReviewFilterChip }) {
   const button = (
     <FilterChip
-      value={chip.label}
+      value={ownerChipKey(chip.filter)}
       count={chip.count}
       disabled={chip.count === null}
       data-testid="branch-review-owner"

@@ -482,6 +482,13 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open on the user's group that needs an approval, then on the chip the user chose, which All forgets`, `should keep the chip the user chose when the groups of the request come later`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move from All to the user's group when the groups of the request come later, unless the user chose All`, `should open again on the remembered chip when the main window opens the same request again, a chip chosen in another window not moving the one shown`)
   [@test] ../../src/lib/review-owners.test.ts (`opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All`)
+- A group and an owner of the `OWNERSHIP` files of one name are one owner, and one chip: the group's, without the owner
+  chip of its name. A chip chosen, or opened on (remembered as the group), as the owner while Patronus has not
+  answered becomes the group's chip once the groups come: one chip, pressed, with "· You", the group's count and the
+  group's files marked; a press of it keeps it as the group (remembered so), and the user can always choose it again.
+  The chips are told apart by their filter, not their name (`ownerChipKey`).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should make the owner chip chosen or remembered before the groups came the group of its name once they come, one chip the user can choose`)
+  [@test] ../../src/lib/review-owners.test.ts (`makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files`)
 
 ### Reviews
 

@@ -918,6 +918,52 @@ test.describe("Owner chips", () => {
     await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
   })
 
+  test("should make the owner chip chosen or remembered before the groups came the group of its name once they come, one chip the user can choose", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+    testStore,
+  }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    const { window, review } = await openOwnedChangesBeforeGroups(page, repo)
+    const design = ownerChip(window, "Design")
+    const expectOneDesignGroup = async () => {
+      // one chip of the name, the group's, with its count: no owner chip "Design0" beside it
+      await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
+      await expect(design).toHaveCount(1)
+      await expect(design).toHaveAttribute("data-yours", "")
+      await expect(design).toHaveAttribute("aria-pressed", "true")
+      await expect(window.locator("[data-testid=branch-review-owner][aria-pressed=true]")).toHaveCount(1)
+      await expect(diffHeader(window, "ui/login.css")).not.toHaveAttribute("data-muted")
+      await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+    }
+
+    // the user chooses the owner Design of the OWNERSHIP files before Patronus answers
+    await design.click()
+    await expect(design).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expectOneDesignGroup()
+    // a press of it keeps it, now the group's
+    await design.click()
+    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "group", name: "Design" } }])
+    await expectOneDesignGroup()
+
+    // the next request, its answer held: the remembered group is the owner of its name, then the group again
+    await repo.holdRemoteAnswers({ hold: ["readiness"] })
+    await showOtherRequest(window, review, "ArrowDown", "Style the login form")
+    await expect.poll(() => ownerChips(window)).toEqual(OWNERSHIP_CHIPS)
+    await expect(design).toHaveAttribute("aria-pressed", "true")
+    await expect(design).not.toHaveAttribute("data-yours")
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expectOneDesignGroup()
+    // another chip, then the group again: the user reaches it
+    await ownerChip(window, "UI Team").click()
+    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+    await design.click()
+    await expectOneDesignGroup()
+  })
+
   test("should mark by the OWNERSHIP files alone where Patronus doesn't answer, opening on All", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches, { patronus: undefined })
     const { window } = await openOwnedChanges(page)

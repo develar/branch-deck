@@ -111,8 +111,8 @@ export function reviewFilterChips(
     }
   }
   if (active.kind !== "all") {
-    // the chosen chip shows while it is chosen, so it can be turned off
-    if (!chips.some(chip => sameFilter(chip.filter, active))) {
+    // the chosen chip shows while it is chosen, so it can be turned off; a group and an owner of one name are one chip
+    if (chipOf(chips, active) === undefined) {
       chips.push({ filter: active, label: ownerLabel(active)!, count: 0, needsApproval: false, yours: false, approved: false })
     }
     return chips
@@ -130,10 +130,7 @@ export function reviewFilterChips(
 export function initialOwnerFilter(chips: readonly ReviewFilterChip[], remembered: ReviewFilter | undefined, preferYours: boolean): ReviewFilter {
   const marks = (chip: ReviewFilterChip) => chip.count !== null && chip.count > 0
   if (remembered !== undefined && remembered.kind !== "all") {
-    const name = ownerLabel(remembered)!
-    const chip =
-      chips.find(it => sameFilter(it.filter, remembered)) ??
-      (remembered.kind === "unowned" ? undefined : chips.find(it => (it.filter.kind === "group" || it.filter.kind === "owner") && sameName(it.label, name)))
+    const chip = chipOf(chips, remembered)
     if (chip !== undefined && marks(chip)) {
       return chip.filter
     }
@@ -145,6 +142,32 @@ export function initialOwnerFilter(chips: readonly ReviewFilterChip[], remembere
     }
   }
   return { kind: "all" }
+}
+
+/**
+ * The chip of a filter: its own, else the chip of the other kind with the same name, a group of the check and an owner by
+ * the `OWNERSHIP` files being one owner (the groups list no owner chip of their names)
+ */
+function chipOf(chips: readonly ReviewFilterChip[], filter: ReviewFilter): ReviewFilterChip | undefined {
+  const own = chips.find(chip => sameFilter(chip.filter, filter))
+  if (own !== undefined || (filter.kind !== "group" && filter.kind !== "owner")) {
+    return own
+  }
+  return chips.find(chip => (chip.filter.kind === "group" || chip.filter.kind === "owner") && sameName(chip.filter.name, filter.name))
+}
+
+/**
+ * The filter a chosen chip stands for among the chips now: a chip held as the owner of the `OWNERSHIP` files is the group
+ * of its name once the groups come (and the other way round once they go), so one chip shows, pressed, with the files of
+ * the group; a filter without a chip here stays as it is
+ */
+export function canonicalOwnerFilter(chips: readonly ReviewFilterChip[], filter: ReviewFilter): ReviewFilter {
+  return chipOf(chips, filter)?.filter ?? filter
+}
+
+/** The value of a chip among the chips of a review, one per filter (a group and an owner may share a label) */
+export function ownerChipKey(filter: ReviewFilter): string {
+  return filter.kind === "group" || filter.kind === "owner" ? `${filter.kind}:${filter.name}` : filter.kind
 }
 
 /** The owner of every file, when one owner (by the `OWNERSHIP` files) has them all: "18 files · Air Plugin" */

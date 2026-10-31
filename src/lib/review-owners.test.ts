@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
-import { initialOwnerFilter, ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, reviewOwnerMarks, soleOwner } from "@/lib/review-owners"
+import { canonicalOwnerFilter, initialOwnerFilter, ownerChipKey, ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, reviewOwnerMarks, soleOwner } from "@/lib/review-owners"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
@@ -106,6 +106,39 @@ describe("the groups of a pull request", () => {
     expect(initialOwnerFilter(chips, undefined, true)).toEqual({ kind: "group", name: "Bazel QA" })
     // it marks every file: nothing is muted
     expect(reviewOwnerMarks({ kind: "group", name: "Bazel QA" }, { files, groups: wide, owners })).toBeNull()
+  })
+
+  it("makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files", () => {
+    // Design owns README.md and B.kt by the OWNERSHIP files; its group owes README.md alone
+    const designOwners = new Map([...owners, ["README.md", "Design"], ["plugins/air/B.kt", "Design"]])
+    const design = requestGroups.filter(group => group.name === "Design")
+    const before = reviewFilterChips(files, [], designOwners)
+    // remembered as the group, or chosen as the owner, before Patronus answers: the owner chip
+    const held = initialOwnerFilter(before, { kind: "group", name: "Design" }, true)
+    expect(held).toEqual({ kind: "owner", name: "Design" })
+    expect(canonicalOwnerFilter(before, held)).toEqual(held)
+
+    const after = reviewFilterChips(files, design, designOwners)
+    const filter = canonicalOwnerFilter(after, held)
+    expect(filter).toEqual({ kind: "group", name: "Design" })
+    // the held owner adds no chip of its own beside the group's, and no two chips share a value
+    for (const active of [held, filter]) {
+      const chips = reviewFilterChips(files, design, designOwners, active)
+      expect(chips.map(chip => [chip.label, chip.count, chip.yours])).toEqual([
+        ["All", 4, false],
+        ["Design", 1, true],
+        ["Air Plugin", 1, false],
+        ["IJ Build Scripts Maintainers", 1, false],
+      ])
+      expect(new Set(chips.map(chip => ownerChipKey(chip.filter))).size).toBe(chips.length)
+    }
+    expect([...reviewOwnerMarks(filter, { files, groups: design, owners: designOwners })!.paths]).toEqual(["README.md"])
+    // the groups go again: the owner chip of the name
+    expect(canonicalOwnerFilter(before, filter)).toEqual({ kind: "owner", name: "Design" })
+    // a chip of another name, All and No Owner stay as they are
+    expect(canonicalOwnerFilter(after, { kind: "owner", name: "Kotlin" })).toEqual({ kind: "owner", name: "Kotlin" })
+    expect(canonicalOwnerFilter(after, { kind: "all" })).toEqual({ kind: "all" })
+    expect(canonicalOwnerFilter(after, { kind: "unowned" })).toEqual({ kind: "unowned" })
   })
 
   it("marks the files of the chosen chip by its name", () => {
