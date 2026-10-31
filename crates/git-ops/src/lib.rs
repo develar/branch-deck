@@ -24,6 +24,7 @@
 //!
 //! Writing objects and refs:
 //! - `ref_transaction`: `RefTransaction`, every ref move in one `update-ref --stdin` with compare-and-swap
+//! - `pushed_tracking`: the remote-tracking refs git's push left behind, moved to the pushed heads by compare-and-swap
 //! - `commit_writer`: commits, store commits and notes from one `fast-import`, with exact metadata, and temporary refs
 //! - `reviewed_refs`: the base and the tip a local branch had when the user marked it reviewed
 //! - `carried_review`: the reviewed change of a branch carried onto its base now, for the diff since the review
@@ -111,6 +112,7 @@ pub mod ownership;
 pub mod paths;
 pub mod pick;
 pub mod push_contents;
+pub mod pushed_tracking;
 pub mod reapply;
 pub mod ref_transaction;
 pub mod replay;
@@ -190,6 +192,9 @@ mod ownership_test;
 
 #[cfg(test)]
 mod push_contents_test;
+
+#[cfg(test)]
+mod pushed_tracking_test;
 
 #[cfg(test)]
 mod ref_transaction_test;

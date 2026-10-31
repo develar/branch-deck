@@ -217,7 +217,8 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   lists its remote commits as `=`, nothing behind, and is no fast-forward: the push replaces them with their copies.
 - **Branch not on the remote**: the same walk without the remote, `git rev-list ^baseline local`.
 - **Push time** (`last_push_time`): the newest entry of the remote-tracking ref's reflog that git's push wrote,
-  `update by push`, a literal git never translates, so a fetch that moved the ref later doesn't count. The time is the
+  `update by push`, a literal git never translates, so a fetch that moved the ref later doesn't count, or that the push
+  wrote itself where git's push left the ref behind (`branch-deck: push tracking ref`, `git_ops::pushed_tracking`). The time is the
   selector's, `<ref>@{<time>}` with `--date=unix`, cut at the last `@{`: a ref name may hold a `{`, never an `@{`. No
   push from this clone (or no reflog) is 0. The sync and `bd push --remote` read the push times of all their branches
   with one process (`PushTimes`), when the first status needs one: `git reflog show --stdin

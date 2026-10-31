@@ -737,25 +737,31 @@ fn an_update_check() {
   );
 }
 
-/// The app's push of a stack (Push Stack, Push with Children): `alpha` and `beta` built on it, to a bare `origin` that
-/// has neither, in one atomic push. The tips are one `for-each-ref`, the push size limit one `config`, the files the
-/// push adds one `log` and one `cat-file` (the size check), the push one `push`, the remote statuses after it one
-/// `for-each-ref` of the local and the remote tips of both and one `reflog` of their push times: no walk, each remote
-/// branch is at its tip
-#[test]
-fn an_atomic_push_of_a_stack() {
-  let repo = stack_ahead_of_bare_origin();
+/// The push of `alpha` and `beta` built on it, of `repo`
+fn alpha_and_beta_push(repo: &TestRepo) -> PushBranchesParams {
   let branch = |name: &str, parent: Option<&str>| StackPushBranch {
     branch_name: name.to_string(),
     parent_branch: parent.map(str::to_string),
     ..StackPushBranch::default()
   };
-  let params = PushBranchesParams {
-    repository_path: path(&repo),
+  PushBranchesParams {
+    repository_path: path(repo),
     my_email: None,
     baseline_branch: "origin/master".to_string(),
     branches: vec![branch("alpha", None), branch("beta", Some("alpha"))],
-  };
+  }
+}
+
+/// The app's push of a stack (Push Stack, Push with Children): `alpha` and `beta` built on it, to a bare `origin` that
+/// has neither, in one atomic push. The tips are one `for-each-ref`, the push size limit one `config`, the files the
+/// push adds one `log` and one `cat-file` (the size check), the push one `push` and the check of the remote-tracking
+/// refs it should have moved one `for-each-ref` (no `update-ref`: they are at the pushed heads), the remote statuses after it one
+/// `for-each-ref` of the local and the remote tips of both and one `reflog` of their push times: no walk, each remote
+/// branch is at its tip
+#[test]
+fn an_atomic_push_of_a_stack() {
+  let repo = stack_ahead_of_bare_origin();
+  let params = alpha_and_beta_push(&repo);
 
   let git = counting();
   let outcome = push_branches(&git, PREFIX, &params, &mut |_| {}).unwrap();
@@ -763,7 +769,44 @@ fn an_atomic_push_of_a_stack() {
     matches!(outcome, PushBranchesOutcome::Pushed { ref remote_statuses, .. } if remote_statuses.len() == 2),
     "{outcome:?}"
   );
-  assert_processes(&git, &[("cat-file", 1), ("config", 1), ("for-each-ref", 2), ("log", 1), ("push", 1), ("reflog", 1)]);
+  assert_processes(&git, &[("cat-file", 1), ("config", 1), ("for-each-ref", 3), ("log", 1), ("push", 1), ("reflog", 1)]);
+}
+
+/// The atomic push of `an_atomic_push_of_a_stack` whose remote-tracking refs git's push left behind (another git held
+/// their locks as it ended: a fetch of the remote branches beside it; here the refs it created deleted after it): the
+/// check of those refs finds them at what the push replaced, and one `update-ref` moves both to the pushed heads, with
+/// the replaced value (none, both branches new) as its compare-and-swap; the statuses after it see them there
+#[cfg(unix)]
+#[test]
+fn an_atomic_push_whose_tracking_refs_git_left_behind() {
+  let repo = stack_ahead_of_bare_origin();
+  let params = alpha_and_beta_push(&repo);
+  let wrapped = test_utils::wrapped_git::WrappedGit::new(
+    "*\" push --progress \"*) git \"$@\"; code=$?; git update-ref -d refs/remotes/origin/test/virtual/alpha; git update-ref -d refs/remotes/origin/test/virtual/beta; exit $code;;",
+  );
+  let git = wrapped.executor().clone().with_process_stats("test");
+  let outcome = push_branches(&git, PREFIX, &params, &mut |_| {}).unwrap();
+  let PushBranchesOutcome::Pushed { remote_statuses, .. } = outcome else {
+    panic!("{outcome:?}")
+  };
+  for (name, status) in ["alpha", "beta"].iter().zip(&remote_statuses) {
+    let tip = repo.rev_parse(&format!("refs/heads/test/virtual/{name}")).unwrap();
+    assert_eq!(repo.rev_parse(&format!("refs/remotes/origin/test/virtual/{name}")).ok(), Some(tip.clone()));
+    assert_eq!(status.remote_tip.as_deref(), Some(tip.as_str()), "{status:?}");
+    assert_ne!(status.last_push_time, 0, "the entry of the move counts as a push of this clone: {status:?}");
+  }
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("for-each-ref", 3),
+      ("log", 1),
+      ("push", 1),
+      ("reflog", 1),
+      ("update-ref", 1),
+    ],
+  );
 }
 
 /// The fetch of a remote branch whose pull request shows a head someone else pushed (`moved_remote`): the tips one

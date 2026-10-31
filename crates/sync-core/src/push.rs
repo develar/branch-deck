@@ -14,7 +14,9 @@ use anyhow::{Context, Result};
 use domain_types::RemoteStatusUpdate;
 use domain_types::stack::BlockReason;
 use git_executor::git_command_executor::GitCommandExecutor;
-use std::collections::HashMap;
+use git_ops::pushed_tracking::{PushedTracking, catch_up_pushed_tracking};
+use git_ops::revs::ref_tips;
+use std::collections::{BTreeMap, HashMap};
 use tracing::{info, instrument, warn};
 
 /// The remote the pushes of the virtual branches go to: the remote-tracking refs `refs/remotes/origin/<full name>` they
@@ -173,12 +175,33 @@ pub enum LeasedPush {
   TooLarge(PushTooLarge),
 }
 
+/// The remote-tracking refs of a push that went, as git's push should have left them: one `for-each-ref`, and only when
+/// git left one at the head the push replaced (another git held its lock as the push ended) one `update-ref` that
+/// moves it to the pushed head (`git_ops::pushed_tracking`)
+fn catch_up_tracking(git_executor: &GitCommandExecutor, target: &PushTarget<'_>, branches: &[LeasedBranch]) -> Result<()> {
+  let tracking_refs: Vec<String> = branches.iter().map(|branch| format!("refs/remotes/{}/{}", target.remote, branch.push.full_name)).collect();
+  let patterns: Vec<&str> = tracking_refs.iter().map(String::as_str).collect();
+  let mut tips = ref_tips(git_executor, target.repository_path, &patterns)?;
+  let now: BTreeMap<String, Option<String>> = tracking_refs.iter().map(|name| (name.clone(), tips.remove(name))).collect();
+  let pushed: Vec<PushedTracking<'_>> = branches
+    .iter()
+    .zip(&tracking_refs)
+    .map(|(branch, tracking_ref)| PushedTracking {
+      tracking_ref,
+      replaced: branch.push.lease.as_deref(),
+      pushed: &branch.push.tip,
+    })
+    .collect();
+  catch_up_pushed_tracking(git_executor, target.repository_path, &pushed, &now);
+  Ok(())
+}
+
 /// The one leased push of the app and of `bd push`: first the size check of the files the push adds
 /// (`check_push_size`, under `target.size_limit`), then one `git push --porcelain` of every branch to `target.remote`,
 /// each with its lease (`push_refs`), `--atomic` for a stack, so the remote takes all of them or none. A refused push
 /// fetches every branch (`fetch_remote_branches`, not on a dry run) and compares the fetched heads with the leases: the
 /// branches whose remote moved are named, with the remote statuses after the fetch; when none moved, the remote
-/// refused for another reason.
+/// refused for another reason. A push that went checks its remote-tracking refs (`catch_up_tracking`).
 #[instrument(skip(git_executor, branches, on_progress), fields(remote = %target.remote, branches = branches.len()))]
 fn send_leased(
   git_executor: &GitCommandExecutor,
@@ -199,6 +222,9 @@ fn send_leased(
   let report_of = |branch: &LeasedBranch| report.refs.get(&format!("refs/heads/{}", branch.push.full_name));
   let refused: Vec<&LeasedBranch> = branches.iter().filter(|branch| report_of(branch).is_none_or(|report| !report.accepted())).collect();
   if refused.is_empty() {
+    if !options.dry_run {
+      catch_up_tracking(git_executor, target, branches)?;
+    }
     return Ok(LeasedPush::Pushed(report.refs));
   }
   if options.dry_run {

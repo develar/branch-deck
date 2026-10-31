@@ -386,7 +386,11 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
   what it fetched into the row, with no push and no sync: the row shows `· 1↓` in `warning` and the push asks first,
   as for any remote commit a push drops. A branch the app pushes is not fetched (the push leaves its own status). The
   fetch must move the remote-tracking ref only from the tip it read before it, so a push of the same remote ref never
-  waits for it: a push that ends during the fetch keeps the head it wrote.
+  waits for it: a push that ends during the fetch keeps the head it wrote. A push that went must leave the
+  remote-tracking ref of each ref it pushed at the pushed head also when git's push left it behind (another git held its
+  lock as the push ended), by compare-and-swap on the head it replaced, so a fetch that moved it meanwhile keeps its own.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_atomic_push_whose_tracking_refs_git_left_behind`)
+  [@test] ../../crates/git-ops/src/pushed_tracking_test.rs (`a_tracking_ref_left_at_the_replaced_head_moves_to_the_pushed_one_and_a_fetched_one_stays`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`a_fetch_that_ends_after_a_push_of_its_ref_leaves_the_head_of_the_push`)
   [@test] ../../crates/operations/src/push_test.rs (`a_push_does_not_wait_for_the_fetch_of_its_ref`)
   [@test] ../../crates/repository-model/src/ref_claims_test.rs (`a_claim_takes_the_free_refs_at_once_and_leaves_the_held_ones`)

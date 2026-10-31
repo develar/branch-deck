@@ -27,6 +27,11 @@ pub const DROPPED_COMMITS_LIMIT: usize = 10;
 /// The entries of a remote-tracking ref's reflog that git's push wrote: `update by push`, a literal git never translates
 const PUSH_ENTRY: &str = "--grep-reflog=^update by push$";
 
+/// The entries of a push whose remote-tracking ref git left behind, which the push moved itself
+/// (`git_ops::pushed_tracking::PUSH_TRACKING_OPERATION` after `REFLOG_PREFIX`): a push of this clone too; a second
+/// `--grep-reflog` adds its entries to those of `PUSH_ENTRY`
+const CAUGHT_UP_PUSH_ENTRY: &str = "--grep-reflog=^branch-deck: push tracking ref$";
+
 /// `<ref>@{<time>}`, the selector of a reflog entry with `--date=unix`, as `(ref, time)`, cut at the last `@{`: a ref
 /// name may hold a `{`, never an `@{`
 fn parse_selector(selector: &str) -> Option<(&str, u32)> {
@@ -38,7 +43,10 @@ fn parse_selector(selector: &str) -> Option<(&str, u32)> {
 /// only fetches moved it); `-1` stops the walk of the reflog at the newest push entry
 fn read_push_time(git_executor: &GitCommandExecutor, repository_path: &str, remote_ref: &str) -> u32 {
   git_executor
-    .execute_command(&["reflog", "show", "-1", PUSH_ENTRY, "--date=unix", "--format=%gd", remote_ref], repository_path)
+    .execute_command(
+      &["reflog", "show", "-1", PUSH_ENTRY, CAUGHT_UP_PUSH_ENTRY, "--date=unix", "--format=%gd", remote_ref],
+      repository_path,
+    )
     .ok()
     .and_then(|selector| parse_selector(&selector).map(|(_, time)| time))
     .unwrap_or(0)
@@ -57,7 +65,10 @@ fn read_push_times(git_executor: &GitCommandExecutor, repository_path: &str, rem
     input
   });
   let selectors = git_executor
-    .cmd(&["reflog", "show", "--stdin", PUSH_ENTRY, "--date=unix", "--format=%gD"], repository_path)
+    .cmd(
+      &["reflog", "show", "--stdin", PUSH_ENTRY, CAUGHT_UP_PUSH_ENTRY, "--date=unix", "--format=%gD"],
+      repository_path,
+    )
     .stdin(input.as_bytes())
     .lines()
     .inspect_err(|e| debug!(error = %e, "cannot read the push times at once"))

@@ -772,8 +772,8 @@ pub(crate) fn assert_done(outcome: &Result<Outcome, ApiError>) {
 
 /// The push of a stack runs the git processes of a run of the engine and of the core push, and nothing more: the
 /// common dir of the lock (`rev-parse`) and the size limit (`config`) of the start, the cheap witness and the freeze
-/// under the lock (`for-each-ref` of the tips and the leases), the size check (`log`, `cat-file`), one `push`, the
-/// remote statuses after it (`for-each-ref`, `reflog`); no robot is asked off Space. Before the first sync it has no
+/// under the lock (`for-each-ref` of the tips and the leases), the size check (`log`, `cat-file`), one `push` and the
+/// check of its remote-tracking refs (`for-each-ref`), the remote statuses after it (`for-each-ref`, `reflog`); no robot is asked off Space. Before the first sync it has no
 /// plan
 #[tokio::test(flavor = "multi_thread")]
 async fn a_push_of_a_stack_runs_the_processes_of_the_core_push() {
@@ -799,7 +799,7 @@ async fn a_push_of_a_stack_runs_the_processes_of_the_core_push() {
 const PROCESSES_OF_A_STACK_PUSH: [(&str, u32); 7] = [
   ("cat-file", 1),
   ("config", 1),
-  ("for-each-ref", 3),
+  ("for-each-ref", 4),
   ("log", 1),
   ("push", 1),
   ("reflog", 1),

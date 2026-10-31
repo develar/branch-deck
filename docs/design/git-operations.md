@@ -4388,10 +4388,15 @@ either one leaves the next push of the other valid. A push replaces exactly the 
   ([Remote Status](remote-status.md#moved-remote-branches)) with the same `fetch_remote_branches`. It leaves a branch
   the app pushes now to that push (`repository_model::ref_claims::claim_free_refs`), and a push waits for no fetch of
   its ref (`a_push_does_not_wait_for_the_fetch_of_its_ref`): the fetch can no longer write over the push's head. The
-  status it leaves lists the fetched commits as dropped, so the lease holds as after any fetch. Left: git's push and
-  the transaction of a fetch may meet on the ref lock of the remote-tracking ref (milliseconds); git then leaves the
-  push's tracking update undone with a warning, the remote-tracking ref behind the remote, which the next push lease
-  refuses and its fetch corrects; nothing is overwritten.
+  status it leaves lists the fetched commits as dropped, so the lease holds as after any fetch.
+- git's push writes the remote-tracking ref of each ref it pushed as it ends, and leaves it as it was, with a warning,
+  when another git holds that ref's lock then (the transaction of such a fetch). A push that went checks those refs
+  (`sync_core::push` `catch_up_tracking`, the core of the app's push, `bd push` and `bd safe-push`: one `for-each-ref`)
+  and decides from their values, never from git's words (`git_ops::pushed_tracking`): a ref still at the head the push
+  replaced (its lease; none for a new branch) moves to the pushed head in one `RefTransaction` with that head as its
+  old value, one `update-ref` only then (`an_atomic_push_whose_tracking_refs_git_left_behind`); a ref a fetch moved
+  meanwhile keeps the fetch's head, as the compare-and-swap refuses
+  (`a_tracking_ref_left_at_the_replaced_head_moves_to_the_pushed_one_and_a_fetched_one_stays`).
 - The push effect of the intent `Push` fails as `lease_rejected` (`LeasedPush::RemoteMoved`), its end
   in the session with the new remote status, when the fetched head differs from the expected one: the row turns into
   the push the remote now needs, and a toast offers it (a push that drops the fetched

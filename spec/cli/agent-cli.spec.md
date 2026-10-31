@@ -1060,8 +1060,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
 - It must not read again what its sync read: the stack, the tips, the remote tips, the remotes, the descriptions and
   the push size limit come from the sync of the same run; besides the push only the push URL of `origin`, once, the
-  Space settings for a GitHub mirror, the size check (one `log`, one `cat-file`) and the witness of its plan (one
-  `for-each-ref` before the lock and one under it; none for `--dry-run`, which moves nothing).
+  Space settings for a GitHub mirror, the size check (one `log`, one `cat-file`), the witness of its plan (one
+  `for-each-ref` before the lock and one under it; none for `--dry-run`, which moves nothing) and the check of the
+  remote-tracking refs of a push that went (one `for-each-ref`, an `update-ref` only for one git left behind).
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push`, `a_push_over_a_moved_remote`)
 - A stacked branch must take the branches it is built on along, parents first, in the same atomic push, when they
   have commits for the remote, as the app's push button does ([Stacked Branches](../branch/stacked-branches.spec.md));
