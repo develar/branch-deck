@@ -14,15 +14,20 @@ export type FileMergesEntry = FileStreamEntry<FileMerge>
 /** The conflicts kept: the ones the views show and the few before them */
 export const MAX_CACHED_MERGES = 8
 
-const stream = createFileStream<FileMergeHeader, MergeContent, FileMerge, FileMergeEvent>(MAX_CACHED_MERGES, "Cannot read the merges of the conflicting files", (file, event) => {
-  if (file.content.kind !== "text") {
-    return null
-  }
-  const content: MergeContent = { ...file.content, leftScopes: event.leftScopes, baseScopes: event.baseScopes, rightScopes: event.rightScopes }
-  // the same merge with its labels: the lines it expanded stay expanded
-  setFoldLevels(content, getFoldLevels(file.content))
-  return { ...file, content }
-})
+const stream = createFileStream<FileMergeHeader, MergeContent, FileMerge, FileMergeEvent>(
+  MAX_CACHED_MERGES,
+  "Cannot read the merges of the conflicting files",
+  (header, event) => ({ ...header, content: event.content }),
+  (file, event) => {
+    if (file.content.kind !== "text") {
+      return null
+    }
+    const content: MergeContent = { ...file.content, leftScopes: event.leftScopes, baseScopes: event.baseScopes, rightScopes: event.rightScopes }
+    // the same merge with its labels: the lines it expanded stay expanded
+    setFoldLevels(content, getFoldLevels(file.content))
+    return { ...file, content }
+  },
+)
 
 /** By `fileMergesKey`, the least recently loaded first */
 export const fileMergesStore = stream.store

@@ -28,7 +28,9 @@ targets:
   - ../../crates/trial-check/src/diff_scan.rs
   - ../../crates/bd-remote/src/numstat.rs
   - ../../crates/trial-check/src/dependencies.rs
-  - ../../crates/commit-clustering/src/generated.rs
+  - ../../crates/commit-clustering/src/hub_files.rs
+  - ../../crates/generated-files/src/attributes.rs
+  - ../../crates/generated-files/src/names.rs
   - ../../crates/bd-cli/src/schema.rs
   - ../../crates/bd-core/src/version.rs
   - ../../crates/bd-core/build.rs
@@ -493,7 +495,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`brief_view_with_units_and_areas`, `brief_keeps_a_prefix_that_says_more_than_the_group`)
 - An area must be the first `--depth` directories of a path (default 3; `.` at the top level); a commit must list at
   most three areas by added plus deleted lines, without those under 5 % of its lines except the first, and without
-  the hub files of `HUB_FILES` (`crates/commit-clustering/src/generated.rs`). `--depth` must need `--brief`.
+  the hub files of `HUB_FILES` (`crates/commit-clustering/src/hub_files.rs`). `--depth` must need `--brief`.
   [@test] ../../crates/commit-clustering/src/areas_test.rs (`an_area_keeps_at_most_depth_directories`, `hub_files_match_by_name`, `top_areas_by_lines_without_hub_files`)
 
 ### Generated files

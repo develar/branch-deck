@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { buildFileRows } from "@/lib/diff/rows"
-import { fileNotice, lineEndsNotice, startsCollapsed, withEngineCounts } from "@/lib/diff/view-files"
+import { fileNotice, lineEndsNotice, withEngineCounts } from "@/lib/diff/view-files"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { block, textDiff } from "@/test-support/diff-blocks"
 
@@ -23,6 +23,7 @@ function textFile(extra: Partial<ReturnType<typeof textDiff>> = {}): FileDiff {
     oldId: OLD_ID,
     newId: NEW_ID,
     content: { kind: "text", ...textDiff(2, 2, [block(1, 2, 1, 2)]), additions: 1, deletions: 1, ...extra },
+    collapse: null,
   }
 }
 
@@ -64,14 +65,5 @@ describe("fileNotice", () => {
     expect(noticeOf(textFile({ lineEnds }))).toBe("Line endings: LF → CRLF")
     expect(noticeOf(textFile({ lineEnds: { ...lineEnds, only: true }, blocks: [] }))).toBe("Only line endings changed: LF → CRLF")
     expect(lineEndsNotice(textDiff(1, 1, []))).toBeNull()
-  })
-})
-
-describe("startsCollapsed", () => {
-  it("collapses a file without lines, a lock or generated file, and a file over 1,000 changed lines", () => {
-    expect(startsCollapsed(gitFile(), textFile())).toBe(false)
-    expect(startsCollapsed(gitFile(), undefined)).toBe(true)
-    expect(startsCollapsed(gitFile("pnpm-lock.yaml"), { ...textFile(), path: "pnpm-lock.yaml" })).toBe(true)
-    expect(startsCollapsed(gitFile(), textFile({ additions: 900, deletions: 200 }))).toBe(true)
   })
 })

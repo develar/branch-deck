@@ -41,12 +41,13 @@ export interface FileStream<F extends { path: string }, E> {
 }
 
 /**
- * A file stream that keeps the last `maxEntries` complete reads. `scopesOf` gives the file with the scopes of a
- * `scopes` event, null when the file has no text.
+ * A file stream that keeps the last `maxEntries` complete reads. `fileOf` gives the file of its header and its
+ * `content` event; `scopesOf` the file with the scopes of a `scopes` event, null when the file has no text.
  */
 export function createFileStream<H extends { path: string }, C, F extends H & { content: C }, E extends FileStreamEvent<H, C>>(
   maxEntries: number,
   failure: string,
+  fileOf: (header: H, event: Extract<E, { kind: "content" }>) => F,
   scopesOf: (file: F, event: Extract<E, { kind: "scopes" }>) => F | null,
 ): FileStream<F, E> {
   const store = createStore<FileStreamState<F>>(() => ({ byKey: new Map() }))
@@ -112,7 +113,7 @@ export function createFileStream<H extends { path: string }, C, F extends H & { 
         case "content": {
           const header = headers?.[event.index]
           if (header !== undefined) {
-            files[event.index] = { ...header, content: event.content } as F
+            files[event.index] = fileOf(header, event as Extract<E, { kind: "content" }>)
             schedule()
           }
           break

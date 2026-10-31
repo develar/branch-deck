@@ -10,12 +10,6 @@ import type { BlobTextEntry } from "@/stores/blob-texts"
  * notice under its header, whether it starts collapsed, the grammar of its path.
  */
 
-/** A file with more changed lines starts collapsed: its header is enough to know it is there */
-export const COLLAPSE_CHANGED_LINES = 1000
-
-/** Lock files and generated files start collapsed */
-const GENERATED_FILE = /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|Cargo\.lock|Gemfile\.lock|poetry\.lock|go\.sum)$|\.(min\.js|min\.css|snap|map)$/
-
 const megabytes = new Intl.NumberFormat("en", { maximumFractionDigits: 1 })
 
 /** The Shiki language of a path; "text" for a file without a bundled grammar */
@@ -161,12 +155,9 @@ export function isEmptyNotice(diff: FileDiff | undefined, rows: FileRows | null)
   return diff === undefined || diff.content.kind !== "text" || (rows !== null && rows.rowCount === 0)
 }
 
-/** Lock and generated files, files over `COLLAPSE_CHANGED_LINES` and files without lines start collapsed */
-export function startsCollapsed(file: CommitFile, diff: FileDiff | undefined): boolean {
-  if (diff === undefined || diff.content.kind !== "text") {
-    return true
-  }
-  return diff.content.additions + diff.content.deletions > COLLAPSE_CHANGED_LINES || GENERATED_FILE.test(file.path)
+/** A file starts collapsed when Rust says why (`collapse`), and when the stream has no diff of it */
+export function startsCollapsed(diff: FileDiff | undefined): boolean {
+  return diff === undefined || diff.collapse !== null
 }
 
 /** The text of a blob once it is read; null while it is read, or when it is not text */

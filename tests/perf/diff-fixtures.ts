@@ -73,6 +73,8 @@ export function syntheticFile(fileIndex: number, spec: FileSpec): SyntheticFile 
       status: spec.changeEvery === 0 ? "added" : "modified",
       oldId,
       newId,
+      // as the backend's `collapse_of` says it: over 1,000 changed lines a file starts collapsed
+      collapse: additions + changed > 1000 ? { kind: "large", changed: additions + changed } : null,
       content: {
         kind: "text",
         // the engine counts the empty line after the final line end, and the one line of an empty text

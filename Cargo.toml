@@ -31,6 +31,7 @@ members = [
   "crates/bd-rewrite",
   "crates/bd-update",
   "crates/commit-clustering",
+  "crates/generated-files",
   "crates/object-cache",
   "crates/patronus",
   "crates/github",

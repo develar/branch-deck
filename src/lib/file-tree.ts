@@ -1,4 +1,4 @@
-import type { CommitFile, DependencyChange, MechanicalKind } from "@/lib/bindings"
+import type { CommitFile, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
 import type { FileActionTarget } from "@/lib/file-actions"
 import { formatMechanicalGroup } from "@/presenters/review-plan"
 
@@ -115,13 +115,21 @@ function toNodes(directory: MutableDirectory, prefix: string, depth: number, par
 /** The key of the Mechanical group: a git path never starts with `/` */
 export const MECHANICAL_GROUP_KEY = "//mechanical/"
 
-/** The order of the groups of one kind in the Mechanical group */
-const MECHANICAL_KINDS: readonly MechanicalKind[] = ["buildModel", "importsOnly", "whitespace", "renamed", "deleted"]
+/**
+ * The kind Rust gave each mechanical file of a plan (`FileFacts.mechanical`), the kinds in the order of their units (the
+ * order of the story, `MECHANICAL_ORDER` of `units.rs`), which the Mechanical group keeps
+ */
+export function mechanicalKindsOf(plan: Pick<ReviewPlan, "files" | "units">): Map<string, MechanicalKind> {
+  const order = plan.units.flatMap(unit => (unit.kind.kind === "mechanical" ? [unit.kind.mechanical] : []))
+  const rank = (kind: MechanicalKind) => (order.includes(kind) ? order.indexOf(kind) : order.length)
+  const files = plan.files.flatMap(file => (file.mechanical === null ? [] : [[file.path, file.mechanical] as const]))
+  return new Map(files.toSorted((a, b) => rank(a[1]) - rank(b[1])))
+}
 
 /**
  * The tree of a review with its plan: the files of real work as `buildFileTree` groups them, then the Mechanical group
- * with a group per kind (`mechanical`, the kind Rust gave each path), each file named by its path. The diffs and J and
- * K follow this order, so the mechanical files come last
+ * with a group per kind (`mechanical`, the kind Rust gave each path, the kinds in its order: `mechanicalKindsOf`), each
+ * file named by its path. The diffs and J and K follow this order, so the mechanical files come last
  */
 export function buildReviewTree(files: readonly CommitFile[], mechanical: ReadonlyMap<string, MechanicalKind>): FileTreeNode[] {
   const kindOf = (file: CommitFile) => mechanical.get(file.path)
@@ -131,7 +139,7 @@ export function buildReviewTree(files: readonly CommitFile[], mechanical: Readon
     return nodes
   }
   const groups: FileTreeDirectory[] = []
-  for (const kind of MECHANICAL_KINDS) {
+  for (const kind of new Set(mechanical.values())) {
     const ofKind = folded.filter(file => kindOf(file) === kind)
     if (ofKind.length > 0) {
       const key = `${MECHANICAL_GROUP_KEY}${kind}/`

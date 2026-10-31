@@ -574,7 +574,8 @@ the repeated edits and the new API.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the same edit of a group of files and the other files that get it`)
 - The mechanical files must leave the tree for one group at its end, `Mechanical (N)`, with a group per kind in the
-  order Build files, Imports only, Whitespace only, Renamed, Deleted, each file by its path. The group must start
+  order Build files, Imports only, Whitespace only, Renamed, Deleted (the order of the mechanical units, which the
+  page takes from the plan), each file by its path. The group must start
   collapsed, also when the plan comes after the files, unless it holds the selected file. The diffs, J and K must
   reach these files last, and a file selected in it opens it. Its menu and ⌘C copy its changed paths.
 - The diffs must be the story of the units ([Review Units](review-units.spec.md#in-the-review-window)): a mechanical
@@ -583,7 +584,7 @@ the repeated edits and the new API.
   of the header opens either.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`, `should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
-  [@test] ../../src/lib/file-tree.test.ts (`folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last`, `starts with the Mechanical group collapsed, and opens it to reveal a file in it`, `copies the paths of a group, which has no path of its own`)
+  [@test] ../../src/lib/file-tree.test.ts (`folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last`, `orders the kinds as the units of the plan, the order Rust gave the story`, `starts with the Mechanical group collapsed, and opens it to reveal a file in it`, `copies the paths of a group, which has no path of its own`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the Mechanical group and its groups by kind`)
 - A block whose every changed line of each side is an import or a package statement or blank
   (`TextDiff::import_blocks`, from the syntax of the texts: the import and package statements of Kotlin, Java, Rust and

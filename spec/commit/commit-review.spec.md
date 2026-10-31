@@ -20,6 +20,9 @@ targets:
   - ../../src/lib/diff/rows.ts
   - ../../src/lib/diff/layout.ts
   - ../../src/lib/diff/view-files.ts
+  - ../../crates/file-diffs/src/collapse.rs
+  - ../../crates/generated-files/src/names.rs
+  - ../../src/presenters/collapse.ts
   - ../../src/lib/file-tree.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/stores/file-diffs.ts
@@ -188,10 +191,16 @@ where a dialog would cover it.
   review itself keeps the focus, so ⌥↑/⌥↓ and Escape still work. What the user works in beside the diffs (the commits,
   the owner chips) keeps the focus when the diffs of the next subject mount; J, K, N and P work from there too.
 - A binary file, a file without changed lines and a file the patch left out must show only their header, which says
-  so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified and snapshot files, files with more than 1,000
-  changed lines and the files the review plan folds, their header saying why
-  ([Review Plan](../branch/review-plan.spec.md#in-the-review-window)), must start collapsed; the chevron of the
-  header expands them.
+  so. Lock files (`pnpm-lock.yaml`, `Cargo.lock`, …), minified files, source maps and snapshot files, files with more
+  than 1,000 changed lines and the files the review plan folds
+  ([Review Plan](../branch/review-plan.spec.md#in-the-review-window)) must start collapsed; the chevron of the header
+  expands them. Rust decides it for every view of a diff (`collapse_of`, the `collapse` of each file's content), by
+  the names of `generated-files`; the header of a generated file says what its name makes it ("Lock file",
+  "Minified", "Source map", "Snapshot"), the header of a folded file why the plan folds it.
+  [@test] ../../crates/file-diffs/src/collapse_test.rs (`a_generated_name_no_text_and_many_changed_lines_start_a_file_collapsed`)
+  [@test] ../../crates/generated-files/src/names_test.rs (`a_lock_file_a_minified_file_a_source_map_and_a_snapshot_are_generated_by_their_name`)
+  [@test] ../../src/presenters/collapse.test.ts (`names the generated file by its name, and leaves a file without text and a large file to their notice and counts`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should start a lock file and a minified file collapsed, their header saying why, and open one with its chevron`)
 - The unchanged lines between hunks must expand as in the Files section ([Commit Files](commit-files.spec.md)).
 - A copy of a selection in the diffs must give the lines its rows show, from the texts, also of rows no longer on
   screen: without the line numbers, the folds and the deleted parts of an Inline row, the old and the new line of a

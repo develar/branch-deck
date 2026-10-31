@@ -418,7 +418,7 @@ fn the_stream_lists_the_files_then_the_files_in_view_first_and_their_scopes_afte
   let contents: Vec<u32> = events
     .iter()
     .filter_map(|event| match event {
-      FileDiffEvent::Content { index, content } if !matches!(content, DiffContent::Binary) => Some(*index),
+      FileDiffEvent::Content { index, content, .. } if !matches!(content, DiffContent::Binary) => Some(*index),
       _ => None,
     })
     .collect();

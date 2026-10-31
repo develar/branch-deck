@@ -38,6 +38,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("commit_whitespace", |path| templates::commit_whitespace().build(path)),
   ("symbol_navigation", |path| templates::symbol_navigation().build(path)),
   ("repeated_edit", |path| templates::repeated_edit().build(path)),
+  ("generated_files", |path| templates::generated_files().build(path)),
   ("script_colors", |path| templates::script_colors().build(path)),
   ("stacked_branches", |path| templates::stacked_branches().build(path)),
   ("stacked_chain", |path| templates::stacked_chain().build(path)),

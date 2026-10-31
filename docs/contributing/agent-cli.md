@@ -447,7 +447,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   commit has no other lines.
 - Lock files and generated files don't count without `--include-generated`. Hub files never count: changes in many
   unrelated areas touch them, so they say nothing about where a commit belongs. `HUB_FILES` in
-  `crates/commit-clustering/src/generated.rs` lists them: module and build registries, file lists and top-level docs. It matches
+  `crates/commit-clustering/src/hub_files.rs` lists them: module and build registries, file lists and top-level docs. It matches
   by file name, and a pattern with a `/` (`.idea/modules.xml`) by the end of the path.
 - `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
 
@@ -465,9 +465,9 @@ Nobody edits them by hand, and they link every commit that touches them, so by d
 generated when:
 
 - its name is a lock file: `Cargo.lock`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `go.sum`,
-  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/commit-clustering/src/generated.rs`);
+  `poetry.lock`, `Gemfile.lock` and the others in `LOCK_FILES` (`crates/generated-files/src/names.rs`);
 - or the attributes of HEAD mark it `linguist-generated` or `-diff` (which `binary` implies). One
-  `git check-attr --source=HEAD --stdin -z` process checks all paths.
+  `git check-attr --source=HEAD --stdin -z` process checks all paths (`crates/generated-files/src/attributes.rs`).
 
 Other generated files, such as bindings or snapshots, count until `.gitattributes` marks them, e.g.
 `src/lib/bindings.ts linguist-generated`.

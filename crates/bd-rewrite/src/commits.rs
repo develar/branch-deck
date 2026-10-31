@@ -5,9 +5,9 @@ use bd_core::error::CliError;
 use bd_core::output::{ResolvedByWords, SchemaVersion, ShortIds};
 use clap::builder::RangedU64ValueParser;
 use commit_clustering::areas::{DEFAULT_AREA_DEPTH, DirLines, top_areas};
-use commit_clustering::generated::generated_paths;
 use domain_types::commit::Commit;
 use domain_types::error::ErrorCode;
+use generated_files::attributes::generated_paths;
 use history_rewrite::autosquash::{FixupKind, plan_autosquash};
 use history_rewrite::commit_grouper::GroupingInputs;
 use history_rewrite::commit_ids::{ResolvedIds, resolve_commit_ids};
@@ -278,7 +278,7 @@ pub(crate) fn read_linked_diffs(context: &RepoContext, ids: &[String], include_g
       .iter()
       .flat_map(|diff| &diff.files)
       .flat_map(|change| std::iter::once(change.path.as_str()).chain(change.old_path.as_deref()));
-    generated_paths(&context.git, &context.repository, paths)?
+    generated_paths(&context.git, &context.repository, "HEAD", paths)?
   } else {
     HashSet::new()
   };

@@ -761,3 +761,35 @@ simpleTest("should review a commit of a branch in conflict and of a blocked one 
   await page.keyboard.press("d")
   expect((await openedCommitReview(page, 2)).data).toMatchObject({ listLabel: "auth" })
 })
+
+simpleTest(
+  "should start a lock file and a minified file collapsed, their header saying why, and open one with its chevron",
+  async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // the `generated_files` template, without the review plan: the names alone collapse a file
+    await setupRepo("generated_files")
+    await syncAndWaitForBranches()
+    await findBranchRow(page, "search").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    const review = await openLinkedSubWindow(page, await openedWindow(page, 1))
+    const header = (path: string) => review.locator(`[data-testid="diff-view-file"][data-path="${path}"]`).getByTestId("review-file-header")
+    const name = (path: string) => path.split("/").at(-1)!
+    const collapsed: [string, string][] = [
+      ["pnpm-lock.yaml", "Lock file"],
+      ["dist/app.min.js", "Minified"],
+    ]
+    for (const [path, why] of collapsed) {
+      await expect(header(path).getByTestId("review-file-folded")).toHaveText(why)
+      await expect(header(path).getByRole("button", { name: `Expand ${name(path)}` })).toHaveAttribute("aria-expanded", "false")
+    }
+    // the real work starts open, and so does a file only its attributes or its header call generated
+    for (const path of ["src/App.kt", "config/mcp.json", "AGENTS.md"]) {
+      await expect(header(path).getByRole("button", { name: `Collapse ${name(path)}` })).toHaveAttribute("aria-expanded", "true")
+      await expect(header(path).getByTestId("review-file-folded")).toHaveCount(0)
+    }
+
+    // the chevron opens the lock file
+    await header("pnpm-lock.yaml").getByRole("button", { name: "Expand pnpm-lock.yaml" }).click()
+    await expect(header("pnpm-lock.yaml").getByRole("button", { name: "Collapse pnpm-lock.yaml" })).toHaveAttribute("aria-expanded", "true")
+    await expect(review.getByTestId("diff-view")).toContainText("b@2.0.0")
+  },
+)

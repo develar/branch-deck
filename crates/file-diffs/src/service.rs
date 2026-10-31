@@ -18,8 +18,9 @@
 //!   subject, so the result does not depend on the load of the machine or the order of the files. A diff that the time
 //!   cut short (`line_level_only` within the size limits) stays in memory only: the store never keeps it.
 
+use crate::collapse::collapse_of;
 use crate::merge::{ConflictPath, MergeMemoryKey, merge_weight};
-use crate::model::{BlobRequest, BlobText, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
+use crate::model::{BlobRequest, BlobText, Collapse, DiffContent, DiffFile, DiffFileHeader, DiffSource, FileDiffEvent, GetFileDiffsParams, MergeContent, MergeSource};
 use crate::range_files::RangeFilesCache;
 use crate::scopes::scopes_of_summary;
 use crate::syntax::{SYNTAX_CACHE_BYTES, syntax_weight};
@@ -232,7 +233,7 @@ impl FileDiffs {
   /// The diff of each changed file of `source` under `policy`, in the order of git, at once: `stream` collected
   pub fn read(&self, git: &GitCommandExecutor, repository_path: &str, cache: &ObjectCache, source: &DiffSource, policy: WhitespacePolicy) -> Result<Vec<DiffFile>> {
     let mut headers = Vec::new();
-    let mut contents: Vec<Option<DiffContent>> = Vec::new();
+    let mut contents: Vec<Option<(DiffContent, Option<Collapse>)>> = Vec::new();
     let params = GetFileDiffsParams {
       repository_path: repository_path.to_string(),
       source: source.clone(),
@@ -244,14 +245,14 @@ impl FileDiffs {
         contents = vec![None; files.len()];
         headers = files;
       }
-      FileDiffEvent::Content { index, content } => contents[index as usize] = Some(content),
+      FileDiffEvent::Content { index, content, collapse } => contents[index as usize] = Some((content, collapse)),
       FileDiffEvent::Scopes {
         index,
         old_scopes,
         new_scopes,
         import_blocks,
       } => {
-        if let Some(DiffContent::Text(diff)) = &mut contents[index as usize] {
+        if let Some((DiffContent::Text(diff), _)) = &mut contents[index as usize] {
           diff.old_scopes = old_scopes;
           diff.new_scopes = new_scopes;
           diff.import_blocks = import_blocks;
@@ -262,14 +263,18 @@ impl FileDiffs {
       headers
         .into_iter()
         .zip(contents)
-        .map(|(header, content)| DiffFile {
-          path: header.path,
-          old_path: header.old_path,
-          status: header.status,
-          old_id: header.old_id,
-          new_id: header.new_id,
+        .map(|(header, content)| {
           // every file gets a content; one left out would be a bug, shown as missing rather than failing the subject
-          content: content.unwrap_or(DiffContent::Missing),
+          let (content, collapse) = content.unwrap_or_else(|| (DiffContent::Missing, collapse_of(&header.path, &DiffContent::Missing)));
+          DiffFile {
+            path: header.path,
+            old_path: header.old_path,
+            status: header.status,
+            old_id: header.old_id,
+            new_id: header.new_id,
+            content,
+            collapse,
+          }
         })
         .collect(),
     )
@@ -290,7 +295,11 @@ impl FileDiffs {
     let paths: Vec<&str> = entries.iter().map(|entry| entry.path.as_str()).collect();
     let order = priority_order(&paths, &params.priority_paths);
     let keys: Vec<MemoryKey> = entries.iter().map(|entry| memory_key(entry, policy)).collect();
-    let content_event = |index: usize, content: DiffContent| FileDiffEvent::Content { index: to_u32(index), content };
+    let content_event = |index: usize, content: DiffContent| FileDiffEvent::Content {
+      index: to_u32(index),
+      collapse: collapse_of(&entries[index].path, &content),
+      content,
+    };
 
     let mut missed = Vec::new();
     for &index in &order {
@@ -591,7 +600,13 @@ fn work(job: Job, outcomes: &Sender<Outcome>, context: &WorkContext<'_>) {
     // the receiver stays until every worker ends
     let _ = outcomes.send(outcome);
   };
-  let content_event = |content: DiffContent| Outcome::Event(FileDiffEvent::Content { index: to_u32(index), content });
+  let content_event = |content: DiffContent| {
+    Outcome::Event(FileDiffEvent::Content {
+      index: to_u32(index),
+      collapse: collapse_of(&entry.path, &content),
+      content,
+    })
+  };
   let sides = [old.as_deref(), new.as_deref()];
   let has = |kind: fn(&BlobText) -> bool| sides.iter().flatten().any(|blob| kind(blob));
   if has(|blob| matches!(blob, BlobText::Missing { .. })) {

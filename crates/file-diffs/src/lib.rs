@@ -7,6 +7,7 @@
 
 pub mod accio;
 pub mod blocks;
+pub mod collapse;
 pub mod declarations;
 mod merge;
 pub mod model;
@@ -23,6 +24,8 @@ mod worktree;
 mod accio_test;
 #[cfg(test)]
 mod blocks_test;
+#[cfg(test)]
+mod collapse_test;
 #[cfg(test)]
 mod declarations_test;
 #[cfg(test)]

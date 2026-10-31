@@ -14,15 +14,20 @@ export type FileDiffsEntry = FileStreamEntry<FileDiff>
 /** The subjects kept: the commits and ranges a preview or a review shows and the few before them */
 export const MAX_CACHED_SUBJECTS = 8
 
-const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffEvent>(MAX_CACHED_SUBJECTS, "Cannot read the diffs of the files", (file, event) => {
-  if (file.content.kind !== "text") {
-    return null
-  }
-  const content: DiffContent = { ...file.content, oldScopes: event.oldScopes, newScopes: event.newScopes, importBlocks: event.importBlocks }
-  // the same diff with its labels: the lines it expanded stay expanded
-  setFoldLevels(content, getFoldLevels(file.content))
-  return { ...file, content }
-})
+const stream = createFileStream<DiffFileHeader, DiffContent, FileDiff, FileDiffEvent>(
+  MAX_CACHED_SUBJECTS,
+  "Cannot read the diffs of the files",
+  (header, event) => ({ ...header, content: event.content, collapse: event.collapse }),
+  (file, event) => {
+    if (file.content.kind !== "text") {
+      return null
+    }
+    const content: DiffContent = { ...file.content, oldScopes: event.oldScopes, newScopes: event.newScopes, importBlocks: event.importBlocks }
+    // the same diff with its labels: the lines it expanded stay expanded
+    setFoldLevels(content, getFoldLevels(file.content))
+    return { ...file, content }
+  },
+)
 
 /** By `fileDiffsKey`, the least recently loaded first */
 export const fileDiffsStore = stream.store

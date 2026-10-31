@@ -22,7 +22,17 @@ import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
 import type { SectionUnits } from "@/lib/diff/rows"
 import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
-import { buildFileTree, buildReviewTree, dependencyRows, flattenTreeFiles, getInitiallyCollapsed, MECHANICAL_GROUP_KEY, revealInTree, toggleInSet } from "@/lib/file-tree"
+import {
+  buildFileTree,
+  buildReviewTree,
+  dependencyRows,
+  flattenTreeFiles,
+  getInitiallyCollapsed,
+  MECHANICAL_GROUP_KEY,
+  mechanicalKindsOf,
+  revealInTree,
+  toggleInSet,
+} from "@/lib/file-tree"
 import type { FileTreeNode } from "@/lib/file-tree"
 import { isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewPlace } from "@/lib/review-place"
@@ -464,6 +474,8 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: st
     status: "modified",
     oldId: blobId,
     newId: blobId,
+    // a view of one file opened on purpose: it never starts collapsed
+    collapse: null,
     content: {
       kind: "text",
       oldLineCount: lineCount,
@@ -507,11 +519,8 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const reviewFacts = loaded?.reviewFacts ?? null
-  // the files of real work as the tree, the mechanical ones in one group at the end, as Rust classed them
-  const mechanical = useMemo(
-    () => (reviewFacts === null ? NO_MECHANICAL : new Map(reviewFacts.files.flatMap(file => (file.mechanical === null ? [] : [[file.path, file.mechanical] as const])))),
-    [reviewFacts],
-  )
+  // the files of real work as the tree, the mechanical ones in one group at the end, as Rust classed and ordered them
+  const mechanical = useMemo(() => (reviewFacts === null ? NO_MECHANICAL : mechanicalKindsOf(reviewFacts)), [reviewFacts])
   const nodes = useMemo(() => {
     if (loadedFiles === undefined) {
       return []

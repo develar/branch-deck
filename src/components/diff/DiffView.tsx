@@ -43,6 +43,7 @@ import { visualLineCount } from "@/lib/diff/wrap"
 import type { TextMetrics } from "@/lib/diff/wrap"
 import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
+import { formatCollapse } from "@/presenters/collapse"
 import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-texts"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { useAppSettings } from "@/stores/settings/appSettings"
@@ -105,7 +106,7 @@ export interface DiffHeaderProps {
   notice: string | null
   /** The notice says why the file shows no rows: nothing to expand */
   empty: boolean
-  /** Why the review folds the file (`DiffViewFile.folded`) */
+  /** Why the file starts collapsed: the review folds it (`DiffViewFile.folded`), or the words of Rust's `collapse` */
   folded: string | null
   /** The group of a section of a review (`DiffSection.heading`) */
   heading: string | null
@@ -218,7 +219,7 @@ interface PreparedFile {
   /** The texts the view reads: the blobs of the sides, the new side of an uncommitted change by its path too */
   reads: readonly BlobRequest[]
   collapsed: boolean
-  /** Why the review folds the file (`DiffViewFile.folded`) */
+  /** Why the file starts collapsed: the review folds it (`DiffViewFile.folded`), or the words of Rust's `collapse` */
   folded: string | null
   section: DiffSection | null
   /** The columns of the line numbers: the digits of the largest one, and its padding */
@@ -279,7 +280,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
   const rows = text === null ? null : buildFileRows(text, fileLayoutOf(mode, oneSide), folds.get(foldKey!) ?? getFoldLevels(foldKey!), entry.quietImports, section?.units ?? null)
   const digits = String(Math.max(text?.oldLineCount ?? 0, text?.newLineCount ?? 0, 1)).length
   // without a header nothing collapses: the row above the view is the header
-  const collapsed = toggled !== null && !pending && (startsCollapsed(file, diff) || entry.folded !== undefined) !== toggled.has(key)
+  const collapsed = toggled !== null && !pending && (startsCollapsed(diff) || entry.folded !== undefined) !== toggled.has(key)
   const ids = diff === undefined ? [] : [diff.oldId, diff.newId]
   const reads: BlobRequest[] = []
   if (text !== null && diff!.oldId !== null) {
@@ -306,7 +307,7 @@ function prepareFile(entry: DiffViewFile | MergeViewFile, { mode, middle, folds,
     worktreePaths: diff === undefined ? [] : [null, worktree ? diff.path : null],
     reads,
     collapsed,
-    folded: entry.folded ?? null,
+    folded: entry.folded ?? formatCollapse(diff?.collapse ?? null),
     section,
     gutterColumns: digits + 2,
   }

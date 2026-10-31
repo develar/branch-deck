@@ -1,7 +1,7 @@
 //! Areas: the directories a commit changes, cut to a fixed depth, so that an agent sees where a commit belongs without
 //! its file list (`bd commits --brief`)
 
-use crate::generated::is_hub_file;
+use crate::hub_files::is_hub_file;
 use object_cache::commit_diff::FileChange;
 use schemars::JsonSchema;
 use serde::Serialize;

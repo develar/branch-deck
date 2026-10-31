@@ -1,5 +1,6 @@
 //! The types that the app reads (specta): what a diff compares, the diff of each file, and the texts of blobs.
 
+use generated_files::names::GeneratedName;
 use object_cache::commit_files::FileStatus;
 use serde::{Deserialize, Serialize};
 use text_diff::merge_model::TextMerge;
@@ -57,6 +58,8 @@ pub struct DiffFile {
   /// that git would give its bytes (`git hash-object --no-filters`).
   pub new_id: Option<String>,
   pub content: DiffContent,
+  /// Why the views start the file collapsed (`collapse_of`)
+  pub collapse: Option<Collapse>,
 }
 
 /// A changed file before its content: the first event of `get_file_diffs` lists them
@@ -83,9 +86,10 @@ pub struct DiffFileHeader {
 pub enum FileDiffEvent {
   /// The changed files in the order of git; `index` of the other events points into this list
   Files { files: Vec<DiffFileHeader> },
-  /// The content of a file. A `TextDiff` that the caches did not have comes with empty scopes, which a `scopes` event
-  /// of the same file fills later: the parse costs more than the comparison
-  Content { index: u32, content: DiffContent },
+  /// The content of a file, and why the views start it collapsed (`collapse_of`). A `TextDiff` that the caches did not
+  /// have comes with empty scopes, which a `scopes` event of the same file fills later: the parse costs more than the
+  /// comparison
+  Content { index: u32, content: DiffContent, collapse: Option<Collapse> },
   /// The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone
   #[serde(rename_all = "camelCase")]
   Scopes {
@@ -94,6 +98,19 @@ pub enum FileDiffEvent {
     new_scopes: Vec<Scope>,
     import_blocks: Vec<u32>,
   },
+}
+
+/// Why the views start a file collapsed: its header is enough to know it is there, its chevron expands it
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Collapse {
+  /// Its name is that of a generated file: a lock file, a minified file, a source map, a snapshot
+  Generated { name: GeneratedName },
+  /// No text to show: a binary file, one too large to read, a submodule, a blob git cannot read
+  NoText,
+  /// More changed lines than `MAX_OPEN_CHANGED_LINES`
+  Large { changed: u32 },
 }
 
 /// What the views show of a file

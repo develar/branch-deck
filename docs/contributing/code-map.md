@@ -172,11 +172,12 @@ crates/
 ├── host-link/       # The link of the remote runs: identity, TLS 1.3 with pinned certificates on the provider of the app, frames, protocol host-link; no git
 ├── host-client/     # The client of a remote run: the commit of the working tree, the pack, the follow, the fetch; git through git-ops
 ├── host-agent/      # The agent on a host: serve, the supervisors, the keeper, the upgrade; the host slots through lease-pool in process
-├── commit-clustering/ # What `bd suggest` and `bd commits` compute: the clustering, the areas of a commit, the generated files; no CLI, a library of bd-rewrite and bd-remote
+├── commit-clustering/ # What `bd suggest` and `bd commits` compute: the clustering, the areas of a commit, the hub files; no CLI, a library of bd-rewrite and bd-remote
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd: the answers of the Patronus pre-check, the robots, the passed builds, the last frame of each session
 ├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file on tree-sitter, no git; the highlighting of the diffs (`highlight/`)
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
-├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, and blob texts by id
+├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, why a view starts it collapsed (`collapse.rs`), and blob texts by id
+├── generated-files/ # The files nobody writes by hand: by their name (lock files, minified, source maps, snapshots), the attributes of a revision; one rule for `bd`, the plan and every view of a diff
 ├── patronus/        # Patronus REST client, Space token of the Safe Push CLI, request policy
 ├── github/          # GitHub REST and GraphQL client (rate limits, SSO, conditional GETs), fake GitHub for tests
 ├── youtrack/        # YouTrack REST client, the sign-in through its Hub (OAuth, PKCE, refresh token), issues and commands

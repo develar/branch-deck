@@ -17,7 +17,7 @@ use commit_clustering::clustering::{
   Cluster, ClusterChange, ClusterInput, ClusterOptions, Clustering, CommitFeatures, Conflict, DEFAULT_MAX_COMMITS, FileLines, MAX_REPAIR_ROUNDS, Placement, Restack, Warning,
   anonymize, cluster_change, cluster_with_repair, is_issue_only, leaf_of_path, name_clusters, place_clusters, stacked_without_need, subject_words, why,
 };
-use commit_clustering::generated::is_hub_file;
+use commit_clustering::hub_files::is_hub_file;
 use domain_types::branch_names::{BranchKind, sanitize_branch_name, strip_branch_namespace};
 use domain_types::commit::Commit;
 use domain_types::rewrite::RegroupPlan;

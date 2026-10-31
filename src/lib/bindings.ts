@@ -1459,6 +1459,15 @@ export type CliToolStatus = {
 	signInWith: string | null,
 };
 
+/**  Why the views start a file collapsed: its header is enough to know it is there, its chevron expands it */
+export type Collapse = 
+/**  Its name is that of a generated file: a lock file, a minified file, a source map, a snapshot */
+{ kind: "generated"; name: GeneratedName } | 
+/**  No text to show: a binary file, one too large to read, a submodule, a blob git cannot read */
+{ kind: "noText" } | 
+/**  More changed lines than `MAX_OPEN_CHANGED_LINES` */
+{ kind: "large"; changed: number };
+
 /**  Struct to hold commit data returned by git CLI */
 export type Commit = {
 	originalHash: string,
@@ -2768,10 +2777,11 @@ export type FileDiffEvent =
 /**  The changed files in the order of git; `index` of the other events points into this list */
 { kind: "files"; files: DiffFileHeader[] } | 
 /**
- *  The content of a file. A `TextDiff` that the caches did not have comes with empty scopes, which a `scopes` event
- *  of the same file fills later: the parse costs more than the comparison
+ *  The content of a file, and why the views start it collapsed (`collapse_of`). A `TextDiff` that the caches did not
+ *  have comes with empty scopes, which a `scopes` event of the same file fills later: the parse costs more than the
+ *  comparison
  */
-{ kind: "content"; index: number; content: DiffContent } | 
+{ kind: "content"; index: number; content: DiffContent; collapse: Collapse | null } | 
 /**  The scopes of the text of a file, for the labels of its hunks, and its blocks of the imports alone */
 { kind: "scopes"; index: number; oldScopes: Scope[]; newScopes: Scope[]; importBlocks: number[] };
 
@@ -3008,6 +3018,17 @@ export type FoundUsages = {
 	/**  Why the index of the repository did not answer, when it was asked */
 	indexError: string | null,
 };
+
+/**  What the name of a generated file says it is */
+export type GeneratedName = 
+/**  A lock file of a package manager (`Cargo.lock`, `pnpm-lock.yaml`, `go.sum`, …) */
+"lockFile" | 
+/**  `*.min.js`, `*.min.css` */
+"minified" | 
+/**  `*.map` */
+"sourceMap" | 
+/**  `*.snap`: the expected output of a snapshot test, written by its tool */
+"snapshot";
 
 export type GetAutosquashPlanParams = {
 	repositoryPath: string,

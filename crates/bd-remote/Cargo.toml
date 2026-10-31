@@ -10,6 +10,7 @@ publish = false
 repository-model = { path = "../repository-model" }
 operations = { path = "../operations" }
 commit-clustering = { path = "../commit-clustering" }
+generated-files = { path = "../generated-files" }
 bd-core = { path = "../bd-core" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 git-executor = { path = "../git-executor" }

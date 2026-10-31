@@ -31,7 +31,7 @@ const UNCOMMITTED = { kind: "uncommitted", repositoryPath: "/repo" } as const
 async function answer(params: GetFileDiffsParams, events: Events) {
   const path = params.source.kind === "commit" ? params.source.id : params.source.kind
   events.onmessage({ kind: "files", files: [header(path)] })
-  events.onmessage({ kind: "content", index: 0, content: BINARY })
+  events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
   return { status: "ok", data: null }
 }
 
@@ -73,7 +73,7 @@ describe("loadFileDiffs", () => {
       { repositoryPath: "/repo", source: { kind: "commit", id: "c1" }, policy: "default", priorityPaths: ["src/a.kt"] },
       { repositoryPath: "/repo", source: { kind: "commit", id: "c1" }, policy: "ignore", priorityPaths: [] },
     ])
-    expect(entryOf({ kind: "commit", id: "c1" }, "ignore")).toEqual({ kind: "loaded", files: [{ ...header("c1"), content: BINARY }], complete: true })
+    expect(entryOf({ kind: "commit", id: "c1" }, "ignore")).toEqual({ kind: "loaded", files: [{ ...header("c1"), content: BINARY, collapse: { kind: "noText" } }], complete: true })
   })
 
   it("shows each file as its content arrives, and the late scopes of a text keep the lines it expanded", async () => {
@@ -85,7 +85,7 @@ describe("loadFileDiffs", () => {
     expect([entryOf(subject), fileDiffOf(entryOf(subject), "a.kt")]).toEqual([{ kind: "loaded", files: [], complete: false }, "pending"])
 
     const text: DiffContent = { kind: "text", ...textDiff(10, 10, [block(5, 6, 5, 6)]) }
-    events().onmessage({ kind: "content", index: 1, content: text })
+    events().onmessage({ kind: "content", index: 1, content: text, collapse: null })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(subject), "b.kt")).toMatchObject({ path: "b.kt", content: text }))
     setFoldLevels(text, [3])
     const scopes = [{ startLine: 0, endLine: 10, label: "class B" }]
@@ -107,7 +107,7 @@ describe("loadFileDiffs", () => {
     whenFileDiffsEnded(shown, "default", prefetch)
     // the files and a content arrived: the shown stream still runs, the neighbour waits
     events().onmessage({ kind: "files", files: [header("a.kt"), header("b.kt")] })
-    events().onmessage({ kind: "content", index: 0, content: BINARY })
+    events().onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
     await vi.waitFor(() => expect(fileDiffOf(entryOf(shown), "a.kt")).toMatchObject({ path: "a.kt" }))
     expect(getFileDiffs.mock.calls.map(([params]) => (params as GetFileDiffsParams).source)).toEqual([shown])
     end()
@@ -135,15 +135,15 @@ describe("loadFileDiffs", () => {
         new Promise(resolve => {
           events.onmessage({ kind: "files", files: [header("next")] })
           release = () => {
-            events.onmessage({ kind: "content", index: 0, content: BINARY })
+            events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
             resolve({ status: "ok", data: null })
           }
         }),
     )
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
-    expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("uncommitted"), content: BINARY }], complete: true })
+    expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("uncommitted"), content: BINARY, collapse: { kind: "noText" } }], complete: true })
     release()
-    await vi.waitFor(() => expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("next"), content: BINARY }], complete: true }))
+    await vi.waitFor(() => expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("next"), content: BINARY, collapse: { kind: "noText" } }], complete: true }))
   })
 
   it("reads the uncommitted changes once more after a refresh asked during a read, never dropping it", async () => {
@@ -158,13 +158,15 @@ describe("loadFileDiffs", () => {
     // the files change during the read: the form asks again, twice
     getFileDiffs.mockImplementationOnce(async (_params: GetFileDiffsParams, events: Events) => {
       events.onmessage({ kind: "files", files: [header("changed")] })
-      events.onmessage({ kind: "content", index: 0, content: BINARY })
+      events.onmessage({ kind: "content", index: 0, content: BINARY, collapse: { kind: "noText" } })
       return { status: "ok", data: null }
     })
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
     loadFileDiffs(UNCOMMITTED, "default", { refresh: true })
     release()
-    await vi.waitFor(() => expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("changed"), content: BINARY }], complete: true }))
+    await vi.waitFor(() =>
+      expect(entryOf(UNCOMMITTED)).toEqual({ kind: "loaded", files: [{ ...header("changed"), content: BINARY, collapse: { kind: "noText" } }], complete: true }),
+    )
     // one read after the one that ran, for both refreshes
     expect(getFileDiffs).toHaveBeenCalledTimes(2)
   })

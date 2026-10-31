@@ -7,6 +7,8 @@ description = "The typed diffs of the files of a commit, a range or the working 
 
 [dependencies]
 code-symbols = { path = "../code-symbols" }
+# the names of the generated files, which start collapsed (`collapse_of`)
+generated-files = { path = "../generated-files" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 object-cache = { path = "../object-cache" }
@@ -28,7 +30,7 @@ test-utils = { path = "../test-utils" }
 
 [features]
 default = []
-specta = ["dep:specta", "object-cache/specta", "text-diff/specta"]
+specta = ["dep:specta", "object-cache/specta", "text-diff/specta", "generated-files/specta"]
 
 [lints]
 workspace = true

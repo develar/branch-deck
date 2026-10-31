@@ -674,6 +674,7 @@ dependencies = [
  "commit-clustering",
  "domain-policy",
  "domain-types",
+ "generated-files",
  "git-executor",
  "git-ops",
  "github",
@@ -712,6 +713,7 @@ dependencies = [
  "commit-clustering",
  "domain-types",
  "file-diffs",
+ "generated-files",
  "git-executor",
  "git-ops",
  "history-rewrite",
@@ -1326,10 +1328,7 @@ dependencies = [
 name = "commit-clustering"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "domain-types",
- "git-executor",
- "git-ops",
  "history-rewrite",
  "object-cache",
  "pretty_assertions",
@@ -1337,7 +1336,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sync-utils",
- "tracing",
 ]
 
 [[package]]
@@ -2165,6 +2163,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "code-symbols",
+ "generated-files",
  "git-executor",
  "git-ops",
  "moka",
@@ -2472,6 +2471,21 @@ dependencies = [
  "libc",
  "system-deps",
  "x11",
+]
+
+[[package]]
+name = "generated-files"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git-executor",
+ "git-ops",
+ "pretty_assertions",
+ "schemars 1.2.3",
+ "serde",
+ "specta",
+ "test-utils",
+ "tracing",
 ]
 
 [[package]]

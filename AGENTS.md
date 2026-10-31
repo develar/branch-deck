@@ -353,7 +353,7 @@ commands come from the registry of app-api. The crates, each mapped by the `//!`
 [Code Map → File Structure](docs/contributing/code-map.md#file-structure)):
 - git: `git-executor` (the one place git starts, the scan tests), `git-ops` (the git), `object-cache`;
 - cores: `history-rewrite`, `sync-core`, `update-core`, `trial-check`, `lease-pool`, `branch-integration`,
-  `commit-clustering`, `code-symbols`, `text-diff`, `file-diffs`;
+  `commit-clustering`, `generated-files`, `code-symbols`, `text-diff`, `file-diffs`;
 - domain: `domain-types` (the types across boundaries), `domain-policy` (the rules), `repository-model` (the session),
   `operations` (the engine of the intents, the registry, the journal), `remote-facts` (GitHub and Patronus over HTTP);
 - clients: `github`, `patronus`, `youtrack`;

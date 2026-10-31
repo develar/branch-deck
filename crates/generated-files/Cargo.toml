@@ -1,0 +1,29 @@
+[package]
+name = "generated-files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The files nobody writes by hand: by their name, their git attributes or their header"
+publish = false
+
+[dependencies]
+git-executor = { path = "../git-executor" }
+git-ops = { path = "../git-ops" }
+anyhow.workspace = true
+serde.workspace = true
+tracing.workspace = true
+# the schema of `bd schema` (`GeneratedBy` of the review plan)
+schemars = { workspace = true, optional = true }
+# the types of the app's commands in `src/lib/bindings.ts`
+specta = { workspace = true, optional = true }
+
+[features]
+schemars = ["dep:schemars"]
+specta = ["dep:specta"]
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

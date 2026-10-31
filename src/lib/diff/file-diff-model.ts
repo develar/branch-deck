@@ -1,4 +1,4 @@
-import type { DiffContent, DiffFileHeader, DiffSource } from "@/lib/bindings"
+import type { Collapse, DiffContent, DiffFileHeader, DiffSource } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 
 /*
@@ -8,9 +8,10 @@ import type { DiffSubject } from "@/lib/commit-files"
 
 export type { BlockKind, DiffBlock, DiffContent, LineEndKind, LineEnds, Scope, TextDiff, WhitespacePolicy } from "@/lib/bindings"
 
-/** A changed file with its content, once the stream gave it */
+/** A changed file with its content, once the stream gave it, and why the views start it collapsed (Rust's `collapse_of`) */
 export interface FileDiff extends DiffFileHeader {
   content: DiffContent
+  collapse: Collapse | null
 }
 
 /**

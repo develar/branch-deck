@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitFile, DependencyChange, FileStatus, MechanicalKind } from "@/lib/bindings"
+import type { CommitFile, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewUnit } from "@/lib/bindings"
 import { fileMenuItems } from "@/lib/file-actions"
 import {
   buildFileTree,
@@ -12,6 +12,7 @@ import {
   getInitiallyCollapsed,
   getVisibleRows,
   MECHANICAL_GROUP_KEY,
+  mechanicalKindsOf,
   revealInTree,
 } from "@/lib/file-tree"
 import type { FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
@@ -163,6 +164,29 @@ describe("the tree of a review with its plan", () => {
     expect([group.key, group.group, group.fileCount, group.additions, group.deletions]).toEqual([MECHANICAL_GROUP_KEY, "mechanical", 3, 4, 5])
     // a tree without a mechanical file has no group
     expect(outline(buildReviewTree(files.slice(0, 2), mechanical))).toEqual(outline(buildFileTree(files.slice(0, 2))))
+  })
+
+  it("orders the kinds as the units of the plan, the order Rust gave the story", () => {
+    const facts = (path: string, mechanical: MechanicalKind | null) => ({ path, mechanical }) as FileFacts
+    const unit = (mechanical: MechanicalKind) => ({ kind: { kind: "mechanical", mechanical } }) as ReviewUnit
+    const kinds = mechanicalKindsOf({
+      files: [facts("src/Base.kt", "whitespace"), facts("src/a/Reader.kt", null), facts("src/a/Old.kt", "deleted"), facts("src/b/b.iml", "buildModel")],
+      units: [unit("deleted"), unit("buildModel"), unit("whitespace")],
+    })
+    expect([...kinds]).toEqual([
+      ["src/a/Old.kt", "deleted"],
+      ["src/b/b.iml", "buildModel"],
+      ["src/Base.kt", "whitespace"],
+    ])
+    expect(outline(buildReviewTree(files, kinds)).slice(-7)).toEqual([
+      "Mechanical (3)/",
+      "  Deleted (1)/",
+      "    src/a/Old.kt",
+      "  Build files (1)/",
+      "    src/b/b.iml",
+      "  Whitespace only (1)/",
+      "    src/Base.kt",
+    ])
   })
 
   it("starts with the Mechanical group collapsed, and opens it to reveal a file in it", () => {

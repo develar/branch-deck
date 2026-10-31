@@ -6,8 +6,8 @@ use bd_core::context::RepoContext;
 use bd_core::error::CliError;
 use bd_core::output::ShortIds;
 use commit_clustering::areas::DirLines;
-use commit_clustering::generated::generated_paths;
 use domain_types::commit::Commit;
+use generated_files::attributes::generated_paths;
 use git_ops::commit_files::read_files_from_base;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -98,7 +98,7 @@ pub fn branch_stats(
     None => HashMap::new(),
   };
   let paths = numstats.values().chain(diffstats.values()).flatten().map(|entry| entry.path.as_str());
-  let generated = generated_paths(&context.git, &context.repository, paths)?;
+  let generated = generated_paths(&context.git, &context.repository, "HEAD", paths)?;
   let counted = |entry: &NumstatEntry| include_generated || !generated.contains(&entry.path);
 
   let mut result = HashMap::new();

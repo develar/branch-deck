@@ -193,7 +193,7 @@ async function routeCommit(window: Page, commitId: string, files: SyntheticFile[
   // a `{ progress }`, then the `{ result }` of the command
   const events = [
     { kind: "files", files: files.map(({ diff: { content: _, ...header } }) => header) },
-    ...files.map((it, index) => ({ kind: "content", index, content: it.diff.content })),
+    ...files.map((it, index) => ({ kind: "content", index, content: it.diff.content, collapse: it.diff.collapse })),
   ]
   const messages = [...events.map(event => ({ progress: event })), { result: { status: "ok", data: null } }]
   await window.route("**/invoke/get_file_diffs", route =>

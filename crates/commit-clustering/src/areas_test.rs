@@ -1,5 +1,5 @@
 use crate::areas::{area_of, top_areas};
-use crate::generated::is_hub_file;
+use crate::hub_files::is_hub_file;
 use object_cache::commit_diff::FileChange;
 use pretty_assertions::assert_eq;
 use serde_json::json;

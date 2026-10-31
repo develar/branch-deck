@@ -114,7 +114,7 @@ function FileMergeView({ merge, labels, middle, onMiddleChange, resolved }: File
   if (content.kind === "oneSided") {
     // the diff of the base to the side that kept the file
     const newId = content.deleted === "left" ? merge.rightId : merge.leftId
-    const diff: FileDiff = { path: merge.path, oldPath: null, status: "modified", oldId: merge.baseId, newId, content: { kind: "text", ...content.diff } }
+    const diff: FileDiff = { path: merge.path, oldPath: null, status: "modified", oldId: merge.baseId, newId, content: { kind: "text", ...content.diff }, collapse: null }
     const file: CommitFile = { path: merge.path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: merge.baseId, newId, submodule: false }
     return (
       <>
