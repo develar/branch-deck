@@ -190,8 +190,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   another update already moved past only adds what it landed: the state keeps naming the later update, whose undo
   restores the report from before it. A check that moves nothing (up to date, or a conflict, which starts no session in
   the app) is the answer at once, without waiting for the lock, unless an interrupted update left files to follow.
-  A branch or an upstream moved during the check must be checked once more, under
-  the lock, and a file the update writes, edited during the check, must block it. The app's update must read the
+  A branch or an upstream moved during the check must be checked once more without the lock, so no other writer
+  waits for its replay, and the second time under the lock, and a file the update writes, edited during the check,
+  must block it. The app's update must read the
   stat data of the whole worktree once under the lock: the refresh of the index that its check of the local changes
   copies and its move takes as it is. A lock held for the whole wait
   (10 s in the app) is an error with only the fetch and the check done, `locked` with the holder its record names
@@ -205,7 +206,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/errors.test.ts (`names the holder of a held repository lock and how long it has held it, as the lock record says it`, `says another operation holds the repository when the holder left no record, never the lock file`)
   [@test] ../../src/lib/errors.test.ts (`toasts a held repository lock with its holder, without the holder the other operation, and a plain Error with its message`)
   [@test] ../../crates/update-core/src/landed_test.rs (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`)
-  [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
+  [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
   [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
 - An update refused after its fetch by an error that the same request may pass (`retry: same`, a held lock) offers
   "Retry Without Fetch" on its toast: the check and the apply against the baseline that fetch got (the intent

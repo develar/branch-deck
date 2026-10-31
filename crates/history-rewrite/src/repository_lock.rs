@@ -713,7 +713,7 @@ impl<'a> RewriteOptions<'a> {
     git_executor: &GitCommandExecutor,
     repository_path: &str,
     prepared: Result<P, E>,
-    again: impl FnOnce() -> Result<P, E>,
+    mut again: impl FnMut() -> Result<P, E>,
   ) -> Result<(P, Option<RepositoryLock>), E> {
     match prepared {
       Err(error) if self.computes_again(&error) => {
@@ -735,7 +735,7 @@ impl<'a> RewriteOptions<'a> {
     git_executor: &GitCommandExecutor,
     repository_path: &str,
     prepared: Result<P>,
-    again: impl FnOnce() -> Result<P>,
+    mut again: impl FnMut() -> Result<P>,
   ) -> Result<(P, Option<RepositoryLock>)> {
     match prepared {
       Err(error) if self.computes_again(&error) => {
@@ -880,6 +880,11 @@ macro_rules! prepared_on_head {
   )+};
 }
 
+/// How many times a core computes without the repository lock: a writer that moves a ref it computed on between its
+/// computation and its witness under the lock sends it out of the lock to compute again, and after these it computes
+/// under the lock, where nothing moves (`lock_prepared`, Update Project, a pick)
+pub const CHECKS_WITHOUT_THE_LOCK: usize = 2;
+
 /// How often a move whose files follow goes out of the repository lock to wait for the index lock of another process
 /// that appeared after its wait before the lock (`lock_prepared`); past that it moves under the lock, whose move waits
 /// for git's lock itself (`INDEX_LOCK_WAIT`)
@@ -900,10 +905,11 @@ impl Prepared for CheckedRestore {
 /// The lock of a rewrite that computed `prepared` before it (docs/contributing/git-rules.md, "Repository lock"): `(lock_wait, held_lock)`.
 /// Under the lock only the witness is read, one process; when it holds, `prepared` is written as it is. When a ref it
 /// computed on moved meanwhile (another process rewrote HEAD, a sync dropped the lines of a store), `prepared` is
-/// discarded and `again` computes it once more, under the lock now, so nothing it reads moves again: the HEAD it
-/// expects is checked there, and another HEAD is `HeadMoved`. The caller writes under the lock it gets back: the
-/// compare-and-swap ref transaction, then the move of the index. A lock not taken discards `prepared`. A caller that
-/// holds the lock (`held_lock`) computed under it: no witness then
+/// discarded, the lock released, and `again` computes it once more without it, so no other writer waits for the
+/// computation, then the lock and the witness again; after `CHECKS_WITHOUT_THE_LOCK` computations `again` runs under
+/// the lock, so nothing it reads moves again. The HEAD it expects is checked in each, and another HEAD is `HeadMoved`.
+/// The caller writes under the lock it gets back: the compare-and-swap ref transaction, then the move of the index. A
+/// lock not taken discards `prepared`. A caller that holds the lock (`held_lock`) computed under it: no witness then
 ///
 /// # Errors
 /// The lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the witness not read, the error of `again`
@@ -912,28 +918,55 @@ pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   prepared: P,
-  again: impl FnOnce() -> Result<P, E>,
+  again: impl FnMut() -> Result<P, E>,
+) -> Result<(P, Option<RepositoryLock>), E> {
+  lock_witnessed((lock_wait, held_lock), git_executor, repository_path, prepared, again, |_| Ok(false))
+}
+
+/// `lock_prepared` whose witness, when it missed, first runs `under_the_lock` there: `true` when it changed what the
+/// computation reads (the files of an interrupted move followed), so `again` computes under the lock at once
+fn lock_witnessed<P: Prepared, E: From<anyhow::Error>>(
+  (lock_wait, held_lock): (LockWait<'_>, Option<&RepositoryLock>),
+  git_executor: &GitCommandExecutor,
+  repository_path: &str,
+  mut prepared: P,
+  mut again: impl FnMut() -> Result<P, E>,
+  under_the_lock: impl Fn(&RepositoryLock) -> Result<bool>,
 ) -> Result<(P, Option<RepositoryLock>), E> {
   if held_lock.is_some() {
     return Ok((prepared, None));
   }
-  let lock = match lock_for_files(lock_wait, git_executor, repository_path, prepared.moves_files(), &|| {}) {
-    Ok(lock) => lock,
-    Err(error) => {
-      prepared.discard(git_executor, repository_path);
-      return Err(error.into());
-    }
-  };
-  match prepared.witness().holds(git_executor, repository_path) {
-    Ok(true) => Ok((prepared, Some(lock))),
-    Ok(false) => {
-      prepared.discard(git_executor, repository_path);
-      debug!("a ref moved since the rewrite read it: computed once more under the lock");
-      Ok((again()?, Some(lock)))
-    }
-    Err(error) => {
-      prepared.discard(git_executor, repository_path);
-      Err(error.into())
+  let mut computed = 1;
+  loop {
+    let lock = match lock_for_files(lock_wait, git_executor, repository_path, prepared.moves_files(), &|| {}) {
+      Ok(lock) => lock,
+      Err(error) => {
+        prepared.discard(git_executor, repository_path);
+        return Err(error.into());
+      }
+    };
+    // `None`: the witness holds; else whether `under_the_lock` changed what the computation reads
+    let missed = prepared
+      .witness()
+      .holds(git_executor, repository_path)
+      .and_then(|holds| if holds { Ok(None) } else { under_the_lock(&lock).map(Some) });
+    match missed {
+      Ok(None) => return Ok((prepared, Some(lock))),
+      Ok(Some(changed)) => {
+        prepared.discard(git_executor, repository_path);
+        if changed || computed >= CHECKS_WITHOUT_THE_LOCK {
+          debug!(changed, "a ref moved since the rewrite read it: computed once more under the lock");
+          return Ok((again()?, Some(lock)));
+        }
+        drop(lock);
+        debug!("a ref moved since the rewrite read it: computed once more without the lock");
+        prepared = again()?;
+        computed += 1;
+      }
+      Err(error) => {
+        prepared.discard(git_executor, repository_path);
+        return Err(error.into());
+      }
     }
   }
 }
@@ -980,7 +1013,7 @@ pub fn lock_prepared_move<P: Prepared>(
   git_executor: &GitCommandExecutor,
   repository_path: &str,
   prepared: Result<P>,
-  again: impl FnOnce() -> Result<P>,
+  mut again: impl FnMut() -> Result<P>,
 ) -> Result<(P, Option<RepositoryLock>)> {
   let discard = |prepared: &Result<P>| {
     if let Ok(prepared) = prepared {
@@ -1017,11 +1050,10 @@ pub fn lock_prepared_move<P: Prepared>(
     }
   };
   let marked = Marked { prepared, mark: &mark };
-  let again = || -> Result<Marked<'_, P>> {
-    finish_pending_update(git_executor, repository_path)?;
-    Ok(Marked { prepared: again()?, mark: &mark })
-  };
-  let (marked, lock) = lock_prepared((lock_wait, None), git_executor, repository_path, marked, again)?;
+  let again = || -> Result<Marked<'_, P>> { Ok(Marked { prepared: again()?, mark: &mark }) };
+  // a mark there: the files of that move follow under the lock first, and the move computes again under it
+  let follow_first = |_: &RepositoryLock| finish_pending_update(git_executor, repository_path).map(|followed| followed.is_some());
+  let (marked, lock) = lock_witnessed((lock_wait, None), git_executor, repository_path, marked, again, follow_first)?;
   Ok((marked.prepared, lock))
 }
 

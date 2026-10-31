@@ -911,10 +911,10 @@ repository». Аудит всех функций в тот же день наш�
   замороженного head (`the_landing_of_a_pick_is_read_after_the_lock`); `bd sync` и `--sync` rewrite `bd` (после
   unlock) — без lock (`a_rewrite_beside_a_running_sync_does_not_wait_for_it`,
   `the_sync_of_a_rewrite_runs_after_the_lock`), раньше s11; check Update Project (replay, resolve by words, landed
-  candidates) — до lock на замороженных HEAD и upstream, под lock — witness (сдвиг — один re-prepare под lock),
+  candidates) — до lock на замороженных HEAD и upstream, под lock — witness (сдвиг — re-prepare без lock, второй — под lock; с 2026-10-31),
   `blocking_paths` и move, notes resolve by words, счёт `rev-list` и landed report — после unlock (C11;
   `the_check_of_an_update_runs_before_the_lock`,
-  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again`), re-prepare под lock — снова шаг
+  `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock`), re-prepare под lock — снова шаг
   `Checking` (`the_check_again_after_the_wait_for_the_lock_is_the_check_step`); запись `landed.json` после unlock — под
   своим `landed.lock`, и поздняя запись update, чей HEAD уже сдвинут, только добавляет отчёт
   (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`); законченная resolve session удаляет свои копии

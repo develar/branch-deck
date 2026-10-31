@@ -140,8 +140,8 @@ puts its commits back on top of the current branch, their files and their groupi
 - The unapply, the reapply and their undo must read and compute before the repository lock (the grouping, the build
   of the virtual branch, the drop or the pick, the dry run of the files, the reflog of an undo) and hold it only for
   the witness of what they read (HEAD, its branch, the refs they computed on and the mark of an interrupted move) and
-  the move; a ref that moved meanwhile, HEAD between two reads of the computation too, computes it once more under the
-  lock. A move of the files that a crash
+  the move; a ref that moved meanwhile releases the lock and computes it once more without it (the second time under
+  it), HEAD between two reads of the computation once more under the lock. A move of the files that a crash
   interrupted must have its files follow under the lock first, and never refuse the next unapply as local changes.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`an_unapply_and_its_undo_lock_only_the_witness_and_the_move`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_head_moved_between_two_reads_of_a_rewrite_computes_it_once_more_under_the_lock`)

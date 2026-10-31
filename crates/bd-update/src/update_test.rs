@@ -382,17 +382,18 @@ fn update_held_in_its_replay(clone: &TestRepo, during: impl FnOnce()) -> (LockSp
 }
 
 /// A regroup while the update replays (the app's Move, or `bd` of an agent) is done at once; the update then finds HEAD
-/// moved under the lock, checks once more there, and applies onto the regrouped commits
+/// moved under the lock, releases it, checks once more without it, so no other writer waits for its replay, and applies
+/// onto the regrouped commits
 #[cfg(unix)]
 #[test_log::test]
-fn a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again() {
+fn a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock() {
   let (upstream, clone) = clone_with_a_fetched_change();
   let (wrapped, exit_code, output) = update_held_in_its_replay(&clone, || {
     let (exit_code, renamed) = run_in(&clone, &["rename", "auth", "login"]);
     assert_eq!(exit_code, 0, "the regroup does not wait for the update: {renamed}");
   });
   assert_eq!((exit_code, &output["state"]), (0, &json!("rebase")), "{output}");
-  assert_eq!(wrapped.locked_runs("replay"), [false, true], "one check again, under the lock");
+  assert_eq!(wrapped.locked_runs("replay"), [false, false], "one check again, without the lock");
   assert_eq!(git(&clone, &["log", "-1", "--format=%s"]), "(login) Add login");
   assert_eq!(git(&clone, &["rev-parse", "HEAD~1"]), upstream.head());
 }

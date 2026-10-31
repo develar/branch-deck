@@ -17,7 +17,7 @@ use git_ops::update_branch::{
 use git_ops::update_resolve::{PreparedStart, prepare_session_start};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{LockWait, lock_checked_undo, lock_for_files};
+use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, lock_checked_undo, lock_for_files};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
@@ -220,26 +220,39 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // a conflict that starts a session: its first round (the replays up to the conflict the check found, the merge, the
   // words) is computed before the lock too
   let mut start = session_start(git_executor, repo_path, &prepared, resolve)?;
-  let locked = (|| -> Result<_> {
-    // the index lock of another process is waited for before the repository lock, not under it
-    let lock = lock_for_files(options.lock_wait, git_executor, repo_path, prepared.plan.moves_files(), &|| {
-      on_progress(UpdatePhase::Waiting.into());
-    })?;
-    // an update or undo that a crash stopped before its files followed: they follow first
-    let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
-    let holds = !recovered && recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)?;
-    Ok((lock, recovered, holds))
-  })();
-  let (lock, recovered, holds) = locked.inspect_err(|_| discard_start(git_executor, repo_path, start.as_ref()))?;
-  if !holds {
-    // HEAD or the upstream moved during the check: once more, under the lock now, so it can't move again. The step is
-    // the check again, no longer the wait for another operation
-    info!(recovered, "the update is checked again under the lock");
+  let mut checks = 1;
+  let lock = loop {
+    let locked = (|| -> Result<_> {
+      // the index lock of another process is waited for before the repository lock, not under it
+      let lock = lock_for_files(options.lock_wait, git_executor, repo_path, prepared.plan.moves_files(), &|| {
+        on_progress(UpdatePhase::Waiting.into());
+      })?;
+      // an update or undo that a crash stopped before its files followed: they follow first
+      let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
+      let holds = !recovered && recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)?;
+      Ok((lock, recovered, holds))
+    })();
+    let (lock, recovered, holds) = locked.inspect_err(|_| discard_start(git_executor, repo_path, start.as_ref()))?;
+    if holds {
+      break lock;
+    }
+    // HEAD or the upstream moved during the check (another session's update, a commit): once more without the lock, so
+    // no other writer waits for its replay, `CHECKS_WITHOUT_THE_LOCK` times; then, and after files that followed under
+    // the lock, under it, so nothing moves again. The step is the check again, no longer the wait for another operation
     discard_start(git_executor, repo_path, start.take().as_ref());
     on_progress(UpdatePhase::Checking.into());
-    prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
+    if recovered || checks >= CHECKS_WITHOUT_THE_LOCK {
+      info!(recovered, "the update is checked again under the lock");
+      prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::Held)?;
+      start = session_start(git_executor, repo_path, &prepared, resolve)?;
+      break lock;
+    }
+    drop(lock);
+    info!("the branch or its upstream moved during the check: it checks again without the lock");
+    prepared = prepare_update(git_executor, repo_path, upstream_ref, Lock::NotHeld)?;
     start = session_start(git_executor, repo_path, &prepared, resolve)?;
-  }
+    checks += 1;
+  };
   let Prepared { grouping, mut plan, .. } = prepared;
   plan.check.fetched_at = fetched_at;
 

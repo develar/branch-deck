@@ -226,10 +226,10 @@ impl crate::repository_lock::Prepared for Computed {
 }
 
 /// `lock_prepared` writes what was computed before the lock while its witness holds; a witness that missed discards it
-/// and computes once more under the lock; a lock not taken discards it and computes nothing more; a caller that holds
-/// the lock computed under it, so no witness is read
+/// and computes once more (`a_witness_that_missed_computes_once_more_without_the_lock`); a lock not taken discards it
+/// and computes nothing more; a caller that holds the lock computed under it, so no witness is read
 #[test]
-fn a_rewrite_computed_before_the_lock_is_written_while_its_witness_holds_else_computed_once_more_under_it() {
+fn a_rewrite_computed_before_the_lock_is_written_while_its_witness_holds_else_computed_once_more() {
   use crate::repository_lock::lock_prepared;
   let fixture = OneCommit::new();
   let (repo, head, discarded) = (&fixture.repo, &fixture.head, &fixture.discarded);
@@ -331,4 +331,31 @@ fn a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock
     holder.join().unwrap()
   });
   assert!(taken_meanwhile, "the repository lock was free while the move waited for the index");
+}
+
+/// A witness that missed (another process moved HEAD after the computation) releases the repository lock and computes
+/// once more without it, so no other writer waits for the computation; the second computation holds, and the lock comes
+/// back with it. A second miss computes under the lock, where nothing moves
+#[test]
+fn a_witness_that_missed_computes_once_more_without_the_lock() {
+  use crate::repository_lock::lock_prepared;
+  let fixture = OneCommit::new();
+  let (repo, head) = (&fixture.repo, &fixture.head);
+  let (git, path, git_dir) = (repo.git_executor(), repo.path_str(), repo.path().join(".git"));
+  let moved = "0000000000000000000000000000000000000000";
+  let free_meanwhile = std::cell::RefCell::new(Vec::new());
+  let computed_on = |at: &str| {
+    free_meanwhile.borrow_mut().push(lock_repository_as_another_process(&git_dir, "bd group").is_ok());
+    anyhow::Ok(fixture.computed(2, at))
+  };
+
+  let (written, held) = lock_prepared((LockWait::default(), None), git, path, fixture.computed(1, moved), || computed_on(head)).unwrap();
+  assert_eq!((written.round, held.is_some()), (2, true));
+  assert_eq!(*free_meanwhile.borrow(), [true], "computed once more, without the lock");
+  drop(held);
+
+  free_meanwhile.borrow_mut().clear();
+  let (written, _held) = lock_prepared((LockWait::default(), None), git, path, fixture.computed(1, moved), || computed_on(moved)).unwrap();
+  assert_eq!(written.round, 2, "the computation under the lock is the answer, not witnessed again");
+  assert_eq!(*free_meanwhile.borrow(), [true, false], "once without the lock, then under it");
 }

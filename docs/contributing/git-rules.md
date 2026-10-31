@@ -154,8 +154,9 @@ once (the snapshot or the history, merge-tree, replay, the dry run of the files 
 write (`lock_prepared`: HEAD, its branch and the refs they computed on in one `for-each-ref`; a move that the files
 follow reads the mark of an interrupted move with them and lets those files follow first, `lock_prepared_move`,
 `lock_checked_undo`; a write of the stores alone has the compare-and-swap of its transaction as its witness); a ref
-that moved meanwhile, HEAD between two reads of the computation too, computes the rewrite once more under the lock,
-where another HEAD than `expect_head` is `HeadMoved`. All through their options (`RewriteOptions` or `RegroupOptions`: `held_lock`, `lock_wait`, `expect_head`
+that moved meanwhile releases the lock and computes the rewrite once more without it (`CHECKS_WITHOUT_THE_LOCK`, then
+under it), HEAD between two reads of the computation computes it once more under the lock, and another HEAD than
+`expect_head` is `HeadMoved`. All through their options (`RewriteOptions` or `RegroupOptions`: `held_lock`, `lock_wait`, `expect_head`
 checked by `ensure_expected_head`, `repository_lock.rs`; a move, the conflict fix and an undo take a `LockWait`
 beside the check their request carries); then `bd push`, `bd safe-push`, `bd land` and `bd request-review` (only the
 witness of their refs and the freeze of their push in the engine, `operations::land_execute`; their sync, as

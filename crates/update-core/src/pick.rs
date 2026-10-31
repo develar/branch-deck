@@ -18,7 +18,7 @@ use git_ops::revs::{git_common_dir, is_object_id, short_id, with_dirs_of};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked};
 use git_ops::update_branch::{UndoCheck, apply_update_undo, finish_pending_update, pending_mark, pending_update};
 use history_rewrite::commit_grouper::{GroupingInputs, issue_group_of};
-use history_rewrite::repository_lock::{LockWait, Prepared, RewriteOptions, Witness, lock_prepared_move};
+use history_rewrite::repository_lock::{CHECKS_WITHOUT_THE_LOCK, LockWait, Prepared, RewriteOptions, Witness, lock_prepared_move};
 use history_rewrite::snapshot::{Grouped, group_commits, read_grouping_inputs};
 use history_rewrite::stack::{StackForest, stack_top};
 use object_cache::cache::ObjectCache;
@@ -160,10 +160,6 @@ impl PickResult {
 
 /// The remote the virtual branches are pushed to and fetched from
 const REMOTE: &str = "origin";
-
-/// How many times a pick checks without the repository lock: a writer that moves the target or the source between the
-/// check and the lock sends it back to check again, and after these the check runs under the lock, where neither moves
-const CHECKS_WITHOUT_THE_LOCK: usize = 2;
 
 /// Pick the commits of `params.from` onto the branch checked out at `params.repository_path`. The check (the range, the
 /// replay, the dry runs of both worktrees on copies of their index) runs before the repository lock, which every

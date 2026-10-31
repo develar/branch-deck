@@ -638,7 +638,7 @@ writes anything:
    `git_ops::reword_commits`, on the baseline of the snapshot): the history must still start at the HEAD of step 1.
 6. Take the repository lock, read the witness (HEAD, its branch and the three store commits of step 1, one
    `for-each-ref`) and move the branch and the changed stores in one ref transaction with CAS on each (below); a
-   witness that missed runs steps 1 to 5 once more, under the lock.
+   witness that missed runs steps 1 to 5 once more without the lock, the second time under it (`lock_prepared`).
 
 A move of the app (the rewrite `Move`, `move_commits_to_branch_core`) computes its plan from the snapshot of step 1,
 again from the one read under the lock when the witness missed (`regroup_planned` and `plan_move` in `move_plan.rs`): a whole issue (every commit of its key without a prefix) goes into
@@ -723,8 +723,9 @@ messages back.
   children whose newest archived branch is integrated (`drop_integrated_stack_parents`), with CAS on the commit it
   read and only when a line goes, with a message of its own. It takes the repository lock only while it is free, never
   waiting (`drop_store_lines`): a regroup reads the stores before the lock, and a drop between that read and its lock
-  moves its witness, so it reads the snapshot once more under the lock and writes on the drop
-  (`a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more_under_the_lock`); park, unpark and the
+  moves its witness, so it reads the snapshot once more (without the lock, the second time under it) and writes on
+  the drop
+  (`a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more`); park, unpark and the
   undo of the stores alone find it by their failed compare-and-swap and do the same; a held lock, also one of the same
   process (the sync of `bd push` under its lock), leaves the drop to the next sync
   (`a_sync_leaves_the_stack_parents_to_a_regroup_that_holds_the_lock`). A write that loses the race to another writer
@@ -797,9 +798,13 @@ transaction that moves the branch and the stores and deletes the temporary refs,
 (`RewriteOptions::lock_prepared`). A write of the stores alone (park, unpark, the undo of a regroup that moved only
 stores) reads no witness: the compare-and-swap of its transaction on the one store it read is its witness. When a ref
 moved between the read and the lock (another process rewrote HEAD, a sync dropped the lines of integrated branches
-from a store, `drop_store_lines`), the core discards its temporary refs and computes once more, under the lock now, so
-nothing it reads moves again: the HEAD it expects is checked there, another one is `HeadMoved`, and a store that a
-sync dropped lines of is read as the sync left it. HEAD that another process moved between two reads of the
+from a store, `drop_store_lines`), the core discards its temporary refs, releases the lock and computes once more
+without it, so no other writer waits for the computation, then takes the lock and reads the witness again; after
+`CHECKS_WITHOUT_THE_LOCK` (2) computations it computes under the lock, so nothing it reads moves again
+(`a_witness_that_missed_computes_once_more_without_the_lock`). The HEAD it expects is checked in each computation,
+another one is `HeadMoved`, and a store that a sync dropped lines of is read as the sync left it. A move that the
+files follow whose witness finds the mark of an interrupted move lets those files follow under the lock and computes
+under it at once (`lock_prepared_move`). HEAD that another process moved between two reads of the
 computation itself (after the history, before the guard reads HEAD again, `History::check_rewrite`; after the snapshot
 or the listing, before the history of a reword or of the move of a hunk) is the computation's `HeadMoved`, which
 `RewriteOptions::lock_prepared` and `lock_prepared_move` compute once more under the lock too, for a request that named
@@ -1161,7 +1166,7 @@ final steps, runs inside every sync, so the header can say whether the update wo
 | 2. Fetch | `fetch --porcelain --no-tags --no-write-fetch-head --no-recurse-submodules --no-auto-maintenance <remote> +<remoteref>:<tracking>`; none for `bd update --no-fetch` and for the app (`UpdateProjectParams.fetch: false`: its operation fetched first as the `FetchBaseline` of its session, the same fetch); under the fetch lock, none when another fetch of the tracking ref ran meanwhile ("Fetch lock" below) | error (`FetchFailed`), nothing changed |
 | 2b. Lock | after step 6: `$GIT_COMMON_DIR/branch-deck.lock`, held to the end of step 10; the wait is the step `WaitingForLock` of the app's operation (`bd`: the phase `waiting`) | `locked` after 10 s (the app: only a holder no record names), nothing changed |
 | 2c. Pending files | under the lock: `rev-parse --verify refs/branch-deck/update-pending/<worktree id>`; with one, the files of the interrupted move follow first (below), and steps 3 to 8 run again | `finish_pending`: the branch moved since, nothing changed |
-| 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more, under the lock | as steps 0 and 3 |
+| 2d. Witness | under the lock (`recheck_update`): step 0 and `rev-parse HEAD^{commit} U^{commit}` again; another branch, H or U: steps 3 to 8 once more without the lock, the second time (`CHECKS_WITHOUT_THE_LOCK`) and after pending files under it | as steps 0 and 3 |
 | 3. Classify | `rev-parse HEAD U`, `merge-base HEAD U` | `B == U`: up to date; `B == H`: fast-forward, `N = U`; exit 1: no common history, any other exit (a history git can't read) an error with git's message |
 | 4. Previous tips | the `+ <old> <new> <tracking>` line of the forced fetch, `merge-base --fork-point <tracking> HEAD` | none (exit 1): the merge base suffices; any other exit (the ref is gone) an error |
 | 5. Linear | `rev-list --min-parents=2 -n1 HEAD ^U ^<previous tips>` | error: merges are not replayed |
@@ -1184,8 +1189,10 @@ Details:
   operation ends once it asked the sync after its fetch and its move; an applied update answers once that sync ended.
   Under the lock run only the witness (2d), the local changes on the paths the update writes (7, 8) and the
   move (9, 10), so the app's Update Project, `bd update` and every rewrite of the app or of bd never interleave with
-  the move. A writer that moved the branch or the upstream during the check makes the update check once more, under
-  the lock, so an update never applies a check made before another writer moved the branch; the progress says the
+  the move. A writer that moved the branch or the upstream during the check makes the update release the lock and
+  check once more without it, so no other writer waits for its replay, the second time under it, so an update never
+  applies a check made before another writer moved the branch
+  (`a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock`); the progress says the
   check again (`Checking`), no longer the wait (`the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move`
   of `update_project_test.rs` pins what runs under the lock: `rev-parse`, `symbolic-ref`, `update-index`, `read-tree`,
   `update-ref`). A check that moves

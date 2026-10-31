@@ -196,9 +196,9 @@ fn assert_no_temporary_refs(repo: &TestRepo) {
 
 /// A sync drops the line of an integrated branch from the stack parents after the restack read its snapshot (here
 /// before the restack writes its store commit): the witness under the lock misses, and the restack is computed once
-/// more under the lock on the store the sync left, so it passes and keeps the drop
+/// more, without the lock, on the store the sync left, so it passes and keeps the drop
 #[test]
-fn a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more_under_the_lock() {
+fn a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more() {
   let (repo, _) = alpha_and_beta_on_origin();
   repo.git(&["config", "branchdeck.stacks", "true"]);
   let stores = store_with_a_drop(&repo, &STACK_PARENTS, "gone\talpha\n", STACK_PARENTS_DROP_MESSAGE);
@@ -254,9 +254,9 @@ fn an_undo_over_a_drop_after_its_checks_is_checked_once_more_under_the_lock() {
 }
 
 /// Another process rewrote HEAD after the regroup read its snapshot: the witness misses, and the regroup read once more
-/// under the lock refuses the HEAD the app did not ask for; `bd` without `--expect-head` regroups the HEAD it finds
+/// refuses the HEAD the app did not ask for; `bd` without `--expect-head` regroups the HEAD it finds
 #[test]
-fn a_head_moved_before_the_lock_is_read_once_more_under_it() {
+fn a_head_moved_before_the_lock_is_read_once_more() {
   let (repo, commits) = alpha_and_beta_on_origin();
   let path = repo.path_str();
   let wrapped = WrappedGit::new("*\" fast-import \"*) [ -f '{dir}/committed' ] || { git commit -q --allow-empty -m '(beta) Beta 4' && touch '{dir}/committed'; };;");
