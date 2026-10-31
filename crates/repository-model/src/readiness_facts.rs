@@ -14,7 +14,9 @@
 //!   `set_requests`) is its head as its review fetch brought it, its head branch, the pull request and its reviews and
 //!   author; none before that fetch. Only one into the default branch has a record, while a window shows it, asked as a
 //!   surface needs it now; its record goes with the last window, and its approvals are no news (the user's own
-//!   approvals are news of the user's branches only).
+//!   approvals are news of the user's branches only). Its record holds only the answer of its ask now: it is reset as
+//!   the listing names a head not fetched yet, and an answer of another ask (an earlier head or reviews, come late) is
+//!   dropped, so its groups are never those of another head, nor kept after a failure.
 //! - Asked (`domain_policy::refresh::readiness_priority`): what a surface needs now and what a recheck asks, at once;
 //!   what a window shows with a step that waits for it (`domain_policy::readiness::wanted` over the next steps of the
 //!   session, `derive::wanted_readiness`); then the hidden subjects whose last answer waits for approvals
@@ -282,6 +284,13 @@ impl ReadinessFact {
   /// Applies `answer` of the read of `observation`; whether it changed the readiness, and the news it is
   pub fn answer(&mut self, observation: Observation, answer: ReadinessAnswer) -> (bool, Option<NewsEvent>) {
     let ReadinessAnswer { subject, result } = answer;
+    // a pull request's answer is of its ask now or of none: one of an earlier head (or reviews) that comes late, after
+    // the record was reset for a new head, would show that head's groups as the new one's, and keep them if its ask fails
+    if let Some(number) = request_of_readiness_key(&subject.key)
+      && self.requests.get(&number).and_then(Option::as_ref) != Some(&subject.ask)
+    {
+      return (false, None);
+    }
     let Some(record) = self.subjects.get_mut(&subject.key) else {
       return (false, None);
     };

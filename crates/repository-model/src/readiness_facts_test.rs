@@ -440,3 +440,72 @@ fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_go
   update(&mut fact, &mut requests, &windows_8);
   assert_eq!(fact.digest().subjects, [], "a window into another branch asks nothing");
 }
+
+/// The answer of an earlier head of a pull request, come after the new head was fetched, is dropped: before or after
+/// the ask of the new head fails, the record holds no value until the answer of its ask now. So does one of earlier
+/// reviews of the same head
+#[test]
+fn a_late_answer_of_an_earlier_head_of_a_pull_request_never_becomes_its_readiness() {
+  let state = table();
+  let request = |head: &str, reviewers: Vec<Reviewer>| ReviewRequest {
+    head_ref_oid: head.to_owned(),
+    base_is_default: true,
+    reviewers,
+    ..review_request(7, 1)
+  };
+  let mut requests = ReviewRequestsFact::default();
+  requests.answer(review_at(1), review_available(vec![request("head-1", Vec::new())]));
+  let windows = Demand {
+    review_windows: vec![7],
+    ..Demand::default()
+  };
+  let update = |fact: &mut ReadinessFact, requests: &mut ReviewRequestsFact| {
+    fact.set_requests(requests.readiness_asks(&windows.review_windows));
+    fact.update(&state, &pull_requests(vec![]), Some(&available()), &windows, "user", &HashSet::new());
+    requests.demand(&windows);
+  };
+  let value_tip = |fact: &ReadinessFact| fact.fact("request:7").unwrap().value.as_ref().map(|value| value.ask.tip.clone());
+
+  let mut fact = ReadinessFact::default();
+  requests.fetched(7, "head-1".to_owned());
+  update(&mut fact, &mut requests);
+  // the read of head-1 is in flight as the listing names head-2, whose fetch ends before that read
+  let earlier = subject(&fact, "request:7").clone();
+  requests.answer(review_at(2), review_available(vec![request("head-2", Vec::new())]));
+  update(&mut fact, &mut requests);
+  requests.fetched(7, "head-2".to_owned());
+  update(&mut fact, &mut requests);
+  let now = subject(&fact, "request:7").clone();
+  assert_eq!(now.ask.tip, "head-2");
+
+  assert_eq!(fact.answer(at(3), answer(&earlier, missing())), (false, None), "the answer of head-1 comes late");
+  assert_eq!(value_tip(&fact), None);
+  let failed = ReadinessAnswer {
+    subject: now.clone(),
+    result: Err(ApiError::new(ErrorCode::NetworkError, "Patronus is unreachable")),
+  };
+  assert_eq!(fact.answer(at(4), failed).0, true);
+  assert_eq!(value_tip(&fact), None, "the failure of head-2 keeps no answer of head-1");
+  assert_eq!(fact.answer(at(5), answer(&earlier, missing())), (false, None), "nor does one come after it");
+  assert_eq!(value_tip(&fact), None);
+
+  // the ask of head-2 again: its answer is the readiness
+  update(&mut fact, &mut requests);
+  let retried = subject(&fact, "request:7").clone();
+  assert_eq!(retried.ask, now.ask);
+  fact.answer(at(6), answer(&retried, missing()));
+  assert_eq!((state_of(&fact, "request:7"), value_tip(&fact)), (FactState::Fresh, Some("head-2".to_owned())));
+
+  // a new review of the same head: the late answer of the earlier reviews is dropped, the kept one is stale
+  let carol = vec![Reviewer {
+    login: "carol".to_owned(),
+    state: ReviewerState::Approved,
+    requested: false,
+  }];
+  requests.answer(review_at(7), review_available(vec![request("head-2", carol.clone())]));
+  update(&mut fact, &mut requests);
+  assert_eq!(subject(&fact, "request:7").ask.reviewers, carol);
+  assert_eq!(fact.answer(at(8), answer(&retried, missing())), (false, None));
+  assert!(matches!(state_of(&fact, "request:7"), FactState::Stale { .. }));
+  assert_eq!(value_tip(&fact), Some("head-2".to_owned()));
+}

@@ -1352,8 +1352,10 @@ the session asks Patronus about the pull request a review window shows, as the r
   the session never seeds it. The answer of an earlier head is never kept for a new one: from the moment the listing
   names a head the review fetch has not brought, the readiness of the request has no answer (so no groups in the view),
   until the fetch brought it and Patronus answered; when that fetch fails, it stays without one and the chips come
-  from the `OWNERSHIP` files alone.
+  from the `OWNERSHIP` files alone. Only the answer of the request's ask now applies: one of an earlier head, or of
+  earlier reviews of the same head, that comes late is dropped, before or after the ask of the new head fails.
   [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_goes_with_the_window`)
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_late_answer_of_an_earlier_head_of_a_pull_request_never_becomes_its_readiness`)
   [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_pull_request_of_someone_else_is_asked_about_as_its_head_branch`)
 - The view gives the row `pull:<n>` its reviewer groups (`reviewGroups`, `domain_policy::reviewer_groups`): every
   group the changes need, in the order of Patronus, with its paths, `branchWide`, `approved` (Patronus's evaluation,
