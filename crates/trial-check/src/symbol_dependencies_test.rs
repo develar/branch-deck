@@ -423,6 +423,23 @@ fn a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges() {
   assert!(found[1].2.contains(&link("ControlOwner", Evidence::Qualified)), "{found:?}");
 }
 
+/// `use stored_settings::stored_settings;` names the function of the module of the same name: its path ends (it looped,
+/// and the stack overflowed). The `mod stored_settings;` of the file binds the name too, and a summary knows no namespace
+/// of Rust, so the call names the module of the file itself: no edge, as for a name the file declares
+#[test]
+fn a_rust_use_of_a_function_of_a_module_of_the_same_name_ends() {
+  let mut range = Range::default();
+  range
+    .baseline(&[("app/src/lib.rs", "pub fn run() {}\n")])
+    .commit(&[("app/src/stored_settings.rs", Some("pub fn stored_settings() -> String {\n  String::new()\n}\n"))])
+    .commit(&[(
+      "app/src/lib.rs",
+      Some("pub mod stored_settings;\n\nuse stored_settings::stored_settings;\n\npub fn run() {\n  let _ = stored_settings();\n}\n"),
+    )]);
+  let cargo = [file("Cargo.toml")];
+  assert_eq!(edges(&range.graph(&[("app", &cargo)], &[("app", "app")], &[])), []);
+}
+
 const EXECUTE_BEFORE: &str = "use std::path::PathBuf;\n\npub fn run(_: PathBuf) {}\n\n#[cfg(test)]\nmod tests;\n";
 const EXECUTE_WITH_PATH: &str = "use std::path::{Path, PathBuf};\n\npub fn run(_: PathBuf) {}\n\nfn plan(_: &Path) {}\n\n#[cfg(test)]\nmod tests;\n";
 

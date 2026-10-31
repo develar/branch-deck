@@ -194,6 +194,11 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   used in `execute/tests.rs`, also in `Path::new`). The import must be needed beside the declaration it names, never
   instead of it: a use of an item one commit adds, through an import another commit adds, needs both commits.
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_use_of_a_name_another_commit_imports_is_an_edge`, `a_rust_use_needs_the_import_beside_the_item`, `a_use_of_a_name_another_commit_imports_in_the_same_file_is_an_edge`)
+- A Rust path through the imports of its file must end: the path of a `use` never starts with the name that `use`
+  brings in, nor with a name of a `use` the path came from, so `use stored_settings::stored_settings;` names the
+  module `stored_settings` and two imports of each other stop. The `mod` of the same name binds the name in the file
+  too, and a summary knows no namespace of Rust: such a call is no edge.
+  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_rust_use_of_a_function_of_a_module_of_the_same_name_ends`)
 - A use that needs no import of another commit must be no edge: in Rust a name the module of the use binds itself (an
   item or an import of its file), which wins over a glob import; an import of the parent reached through a glob
   import beside a second glob import, which may bring the same item; a qualified path (`std::path::Path`), which names

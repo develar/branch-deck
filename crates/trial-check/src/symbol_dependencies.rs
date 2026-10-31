@@ -2449,6 +2449,13 @@ fn reference_head<'a>(summary: &'a FileSummary, reference: &Reference, qualifier
 /// The module a Rust path names from the file of `use_site`, `crate`, `self`, `super` and crate names resolved: (crate
 /// root, module path)
 fn rust_path<'a>(input: &'a SymbolInput, use_site: &UseSite<'a>, segments: &[String]) -> Option<(Option<&'a str>, Vec<String>)> {
+  rust_path_through(input, use_site, segments, &mut Vec::new())
+}
+
+/// `rust_path`, the imports of the file it went through so far in `through`: the path of a `use` never starts with the
+/// name that `use` brings in (`use settings::settings;` names the module `settings`), nor with a name of a `use` it came
+/// from, so a module and its item of the same name, or two imports of each other, end
+fn rust_path_through<'a>(input: &'a SymbolInput, use_site: &UseSite<'a>, segments: &[String], through: &mut Vec<usize>) -> Option<(Option<&'a str>, Vec<String>)> {
   let (first, rest) = segments.split_first()?;
   match first.as_str() {
     "crate" => Some((use_site.crate_root, rest.to_vec())),
@@ -2471,18 +2478,20 @@ fn rust_path<'a>(input: &'a SymbolInput, use_site: &UseSite<'a>, segments: &[Str
       // a name a `use` of the file brings in: `use a::b; b::C`
       let summary = use_site.summary;
       let id = summary.name_id(name);
-      if let Some((import, import_path)) = summary
+      if let Some((index, (import, import_path))) = summary
         .imports
         .iter()
         .zip(&use_site.import_paths)
-        .find(|(import, _)| matches!(import.target, ImportTarget::Name(imported) if Some(import.alias.unwrap_or(imported)) == id))
+        .enumerate()
+        .find(|(index, (import, _))| !through.contains(index) && matches!(import.target, ImportTarget::Name(imported) if Some(import.alias.unwrap_or(imported)) == id))
       {
         let mut path = import_path.clone();
         if let ImportTarget::Name(imported) = import.target {
           path.push(summary.name(imported).to_string());
         }
         path.extend(rest.iter().cloned());
-        return rust_path(input, use_site, &path);
+        through.push(index);
+        return rust_path_through(input, use_site, &path, through);
       }
       // a module of this one (`mod a;` and `a::b`)
       Some((use_site.crate_root, [use_site.namespace.clone(), segments.to_vec()].concat()))
