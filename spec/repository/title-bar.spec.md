@@ -8,6 +8,8 @@ targets:
   - ../../crates/app-api/src/app/windows.rs
   - ../../src-tauri/src/desktop.rs
   - ../../src-tauri/src/menu.rs
+  - ../../src/hooks/useAutoUpdate.ts
+  - ../../src-tauri/src/auto_update.rs
   - ../../src-tauri/src/zoom.rs
   - ../../src-tauri/capabilities/title-bar.json
   - ../../src-tauri/capabilities/default.json
@@ -183,8 +185,11 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   ([Settings](settings.spec.md)), as it has the current settings to start it from.
 - Check for Updates… says that the app is up to date, with its version, or offers the update the check downloaded
   (Install and Restart, a toast that stays until the user acts); a failed check or install says why ("Cannot check for
-  updates", "Cannot install the update"). The main window also checks silently a few seconds after its start.
+  updates", "Cannot install the update"). The main window also checks silently a few seconds after its start; Check for
+  Updates… during a download of that check joins it, its progress toast saying "Downloading version 1.3.0…" at once.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should say the app is up to date, offer the downloaded update, and say why its install failed`)
+  [@test] ../../src/hooks/useAutoUpdate.test.ts (`says at once that the silent check running meanwhile downloads its version, then offers it`)
+  [@test] ../../src-tauri/src/auto_update.rs (`a_download_names_its_version_in_the_status_meanwhile`)
 - Alt+\ and F10 open File, Alt+F, Alt+V and Alt+H their menu (the physical keys), the mnemonics underlined; on Windows a
   lone Alt tap highlights File, unless a key, a click or leaving the window came between Alt down and up (IntelliJ's
   `WinAltKeyProcessor`); a held Alt that repeats is still a tap on its release.
@@ -318,8 +323,11 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   ([Settings](settings.spec.md)), as it has the current settings to start it from.
 - Check for Updates… says that the app is up to date, with its version, or offers the update the check downloaded
   (Install and Restart, a toast that stays until the user acts); a failed check or install says why ("Cannot check for
-  updates", "Cannot install the update"). The main window also checks silently a few seconds after its start.
+  updates", "Cannot install the update"). The main window also checks silently a few seconds after its start; Check for
+  Updates… during a download of that check joins it, its progress toast saying "Downloading version 1.3.0…" at once.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should say the app is up to date, offer the downloaded update, and say why its install failed`)
+  [@test] ../../src/hooks/useAutoUpdate.test.ts (`says at once that the silent check running meanwhile downloads its version, then offers it`)
+  [@test] ../../src-tauri/src/auto_update.rs (`a_download_names_its_version_in_the_status_meanwhile`)
 - Alt+\ and F10 open File, Alt+F, Alt+V and Alt+H their menu (the physical keys), the mnemonics underlined; on Windows a
   lone Alt tap highlights File, unless a key, a click or leaving the window came between Alt down and up (IntelliJ's
   `WinAltKeyProcessor`); a held Alt that repeats is still a tap on its release.

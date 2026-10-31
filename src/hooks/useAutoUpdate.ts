@@ -107,20 +107,31 @@ function checkForUpdatesOnStartup(): (() => void) | undefined {
   }
 }
 
+/**
+ * Check for Updates… of the menu: a progress toast until the check answers, which says at once that the silent check
+ * running meanwhile downloads its version (the check joins it), then what the check found
+ */
+export function checkForUpdatesFromMenu(): void {
+  const progressToastId = toast.add({
+    type: "loading",
+    title: "Checking for updates…",
+    timeout: 0,
+  })
+  void commands.getUpdateStatus().then(result => {
+    if (result.status === "ok" && result.data.status === "Downloading" && result.data.available_version !== "") {
+      toast.update(progressToastId, { title: `Downloading version ${result.data.available_version}…` })
+    }
+  })
+  void checkForUpdates(true).finally(() => {
+    toast.close(progressToastId)
+  })
+}
+
 /** Main window: silent update check on startup and the "Check for Updates…" menu item. */
 export function useAutoUpdate(): void {
   useEffect(() => {
     return checkForUpdatesOnStartup()
   }, [])
 
-  useAppCommand("check_for_updates", () => {
-    const progressToastId = toast.add({
-      type: "loading",
-      title: "Checking for updates…",
-      timeout: 0,
-    })
-    void checkForUpdates(true).finally(() => {
-      toast.close(progressToastId)
-    })
-  })
+  useAppCommand("check_for_updates", checkForUpdatesFromMenu)
 }

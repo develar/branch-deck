@@ -54,7 +54,7 @@ fn has_downloaded_version(pending_version: Option<&str>, available_version: &str
 
 #[cfg(feature = "auto-update")]
 mod auto_update_impl {
-  use super::{SharedUpdateState, has_downloaded_version};
+  use super::{SharedUpdateState, has_downloaded_version, record_download_start};
   use anyhow::anyhow;
   use domain_types::update::{UpdateInfo, UpdateStatus};
   use tauri::AppHandle;
@@ -90,7 +90,7 @@ mod auto_update_impl {
         // Start downloading automatically
         {
           let mut state = update_state.lock().map_err(|e| anyhow!("Failed to lock state: {e}"))?;
-          state.info.status = UpdateStatus::Downloading;
+          record_download_start(&mut state, &available_version);
         }
 
         debug!("Starting update download");
@@ -138,6 +138,15 @@ mod auto_update_impl {
       Err(e) => Err(anyhow!(e)),
     }
   }
+}
+
+/// A check found `version` and downloads it: the status a window reads meanwhile (Check for Updates… of the menu while
+/// the silent check downloads) names it
+#[cfg(feature = "auto-update")]
+fn record_download_start(state: &mut UpdateState, version: &str) {
+  version.clone_into(&mut state.info.available_version);
+  state.info.is_update_available = true;
+  state.info.status = UpdateStatus::Downloading;
 }
 
 #[cfg(feature = "auto-update")]
@@ -284,7 +293,7 @@ impl Updater for AppUpdater {
 
 #[cfg(all(test, feature = "auto-update"))]
 mod tests {
-  use super::{UpdateState, has_downloaded_version, record_check_error, record_check_success};
+  use super::{UpdateState, has_downloaded_version, record_check_error, record_check_success, record_download_start};
   use domain_types::error::ApiError;
   use domain_types::update::{UpdateInfo, UpdateStatus};
   use std::sync::Mutex;
@@ -294,6 +303,16 @@ mod tests {
     assert!(has_downloaded_version(Some("1.2.0"), "1.2.0"));
     assert!(!has_downloaded_version(Some("1.2.0"), "1.2.1"));
     assert!(!has_downloaded_version(None, "1.2.0"));
+  }
+
+  #[test]
+  fn a_download_names_its_version_in_the_status_meanwhile() {
+    let mut state = UpdateState::new("1.2.0".to_string());
+    record_download_start(&mut state, "1.3.0");
+    assert_eq!(
+      (state.info.status, state.info.available_version.as_str(), state.info.is_update_available),
+      (UpdateStatus::Downloading, "1.3.0", true)
+    );
   }
 
   #[test]
