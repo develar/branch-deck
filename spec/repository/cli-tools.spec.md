@@ -62,10 +62,9 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 - A read runs `--version`, `auth status --json` and `skill list`, each in its own thread, both tools
   at once, 20 s each, while GitHub is asked for the newest releases; the CLIs run without colours, prompts or an update
   check, and without the `TEAMCITY_*` and `YOUTRACK_*` credential variables of the app's environment, so the status is
-  what an agent's shell gets. A window that asks while a read runs (the Setup dot of each window, Settings → Tools) gets
-  its answer; one that asks after an action of a row ended starts a new read.
+  what an agent's shell gets. The windows that ask while a read runs (the Setup dot of each window, Settings → Tools)
+  share the read after it ([below](#sign-in)).
   [@test] ../../crates/cli-tools/src/status_test.rs (`reads_every_tool`)
-  [@test] ../../crates/app-api/src/app/cli_tools_test.rs (`the_tools_are_found_while_the_releases_are_asked_and_a_read_meanwhile_joins`)
 - The version is the first word with a digit and a dot (`teamcity version 1.6.0`, `v0.7.0`); versions order by their
   numbers.
   [@test] ../../crates/cli-tools/src/parse_test.rs (`reads_the_version_of_each_cli`, `orders_versions_by_their_numbers`)
@@ -175,7 +174,10 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should sign youtrack in with a permanent token of the app's YouTrack sign-in, through one browser sign-in`)
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
 - A read of the status asked while one runs runs once more after it: the one running may have started before the
-  change.
+  change. Rust decides it for every window (`sync_utils::single_flight::NextFlight`): the windows that ask while a read
+  runs share one read that starts once it ended.
+  [@test] ../../crates/app-api/src/app/cli_tools_test.rs (`the_tools_are_found_while_the_releases_are_asked_and_windows_that_ask_meanwhile_share_the_read_after_it`)
+  [@test] ../../crates/sync-utils/src/single_flight_test.rs (`callers_that_ask_while_a_read_runs_share_the_read_after_it`, `a_follow_up_whose_leader_went_away_is_read_by_a_caller_that_waited`)
 
 ### Where it is
 

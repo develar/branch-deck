@@ -9,6 +9,9 @@
 //!   the first of them leads.
 //! - The answer leaves the map once every joiner can see it: a caller that comes later starts a new flight, so what
 //!   should outlive the flight (a kept token, a list in the object cache) is kept by the read before it answers.
+//! - A read whose callers each want an answer read after they asked (the statuses of the CLIs, after an action or an
+//!   install in a terminal) is a `NextFlight`: a caller while none runs leads one at once, the callers that come while
+//!   one runs share one follow-up that starts once it ended.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -158,5 +161,92 @@ impl<V: Clone> Future for Join<V> {
         Poll::Pending
       }
     }
+  }
+}
+
+/// The reads of one value whose every caller gets an answer of a read that started after it asked: the reads, numbered
+/// as they start, are flights of a `SingleFlight` by their number
+pub struct NextFlight<V> {
+  flights: SingleFlight<u64, V>,
+  reads: Mutex<NextReads>,
+}
+
+#[derive(Default)]
+struct NextReads {
+  /// The number of the last read that started
+  started: u64,
+  /// The number of the read that runs
+  running: Option<u64>,
+}
+
+/// The read of `number` running: its end, or its leader gone, leaves the place of the running read
+struct Running<'a, V> {
+  flight: &'a NextFlight<V>,
+  number: u64,
+}
+
+impl<V> Default for NextFlight<V> {
+  fn default() -> Self {
+    Self {
+      flights: SingleFlight::default(),
+      reads: Mutex::new(NextReads::default()),
+    }
+  }
+}
+
+impl<V> NextFlight<V> {
+  fn reads(&self) -> MutexGuard<'_, NextReads> {
+    self.reads.lock().unwrap_or_else(PoisonError::into_inner)
+  }
+}
+
+impl<V> Drop for Running<'_, V> {
+  fn drop(&mut self) {
+    let mut reads = self.flight.reads();
+    if reads.running == Some(self.number) {
+      reads.running = None;
+    }
+  }
+}
+
+impl<V: Clone + Send + Sync> NextFlight<V> {
+  /// The answer of a read of `read` that started after this call: one started now while none runs, else the one that
+  /// follows the read running, which every caller that comes meanwhile shares
+  pub async fn run<F: Future<Output = V> + Send>(&self, read: impl FnOnce() -> F + Send) -> V {
+    let (number, running) = {
+      let reads = self.reads();
+      (reads.running.unwrap_or(reads.started) + 1, reads.running)
+    };
+    if let Some(running) = running {
+      // the read running started before this call: its end is all this one waits for
+      match self.flights.begin(running) {
+        Begin::Join(join) => drop(join.await),
+        Begin::Lead(ended) => drop(ended),
+      }
+    }
+    // a caller whose leader went away leads in its place
+    let lead = loop {
+      match self.flights.begin(number) {
+        Begin::Lead(lead) => break lead,
+        Begin::Join(join) => {
+          if let Some(answer) = join.await {
+            return answer;
+          }
+        }
+      }
+    };
+    let _running = {
+      let mut reads = self.reads();
+      reads.started = reads.started.max(number);
+      // a caller late to its number leads a read that still started after it asked, yet a newer one stays the one the
+      // next callers follow
+      if reads.running.is_none_or(|running| running < number) {
+        reads.running = Some(number);
+      }
+      Running { flight: self, number }
+    };
+    let answer = read().await;
+    lead.finish(answer.clone());
+    answer
   }
 }

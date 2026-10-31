@@ -52,32 +52,14 @@ export function useRunningCliToolAction(tool: CliTool): RunningCliToolAction | u
   return useStore(cliToolsStore, state => state.running[tool])
 }
 
-let reading: Promise<void> | null = null
-let readAgain = false
-
 /**
- * Reads the status of every tool again. A read asked while one runs is run once more after it: the one running may
- * have started before what changed (an action just ended, the user installed a tool in a terminal). A failure keeps the
- * last status and says why (`readError`)
+ * Reads the status of every tool again. Rust answers a read asked while one runs with the read after it, which starts
+ * after what changed (an action just ended, the user installed a tool in a terminal). A failure keeps the last status
+ * and says why (`readError`)
  */
-export function refreshCliTools(): Promise<void> {
-  if (reading !== null) {
-    readAgain = true
-    return reading
-  }
-  reading = commands
-    .cliToolsStatus()
-    .then(result => {
-      cliToolsStore.setState(result.status === "ok" ? { statuses: result.data, readError: null } : { readError: result.error.message })
-    })
-    .finally(() => {
-      reading = null
-      if (readAgain) {
-        readAgain = false
-        void refreshCliTools()
-      }
-    })
-  return reading
+export async function refreshCliTools(): Promise<void> {
+  const result = await commands.cliToolsStatus()
+  cliToolsStore.setState(result.status === "ok" ? { statuses: result.data, readError: null } : { readError: result.error.message })
 }
 
 /** Retry of a failed read: the page says it reads again until the answer */

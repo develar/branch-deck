@@ -19,7 +19,7 @@ use domain_types::youtrack::YouTrackAuthStatus;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use sync_utils::single_flight::SingleFlight;
+use sync_utils::single_flight::NextFlight;
 use tracing::{instrument, warn};
 
 /// The tools of the app: the actions that run and the statuses of the read that started last
@@ -29,14 +29,14 @@ pub struct CliToolsState {
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
   /// The statuses of the read that started last, which the Setup dot takes without running the CLIs again
   statuses: KeptStatuses,
-  /// The read running: the windows that ask meanwhile (the Setup dot of each, Settings → Tools) get its answer
-  reads: SingleFlight<(), Result<Vec<CliToolStatus>, ApiError>>,
+  /// The reads of the statuses: the windows that ask while one runs (the Setup dot of each, Settings → Tools) share the
+  /// one after it, which starts after what changed meanwhile (an action ended, an install in a terminal)
+  reads: NextFlight<Result<Vec<CliToolStatus>, ApiError>>,
 }
 
 impl CliToolsState {
   /// The statuses kept are forgotten: the tools changed outside the app (a fixture of the e2e server)
   pub fn forget_statuses(&self) {
-    self.reads.forget();
     self.statuses.forget();
   }
 
@@ -59,16 +59,17 @@ async fn read(ctx: &AppContext) -> Result<Vec<CliToolStatus>, ApiError> {
 }
 
 /// `read` of the parts of the host: the tools are found (`find`, off the async workers) while the newest releases are
-/// asked (`releases`), and a caller that comes meanwhile gets the answer of the read running
+/// asked (`releases`); a caller that comes while a read runs gets the answer of the read after it, which every caller
+/// that came meanwhile shares, as the read running may have started before what it asks about
 async fn read_once(
   state: &CliToolsState,
-  releases: impl Future<Output = HashMap<CliTool, String>>,
+  releases: impl Future<Output = HashMap<CliTool, String>> + Send,
   find: impl FnOnce() -> Vec<FoundTool> + Send + 'static,
-  signed_in_youtrack: impl FnOnce() -> Option<String>,
+  signed_in_youtrack: impl FnOnce() -> Option<String> + Send,
 ) -> Result<Vec<CliToolStatus>, ApiError> {
   state
     .reads
-    .run((), || async {
+    .run(|| async {
       let ticket = state.statuses.start_read();
       let (releases, found) = tokio::join!(releases, run_blocking(move || Ok::<_, ApiError>(find())));
       let signed_in_youtrack = signed_in_youtrack();
@@ -209,8 +210,6 @@ pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParam
     })
     .await;
     ctx.cli_tools.running().remove(&tool);
-    // a read that started before the action ended answers no window that asks from now on
-    ctx.cli_tools.reads.forget();
     ctx.host.tool_changed(tool).await;
     result.map(|done| CliToolActionDone {
       title: done.title,
