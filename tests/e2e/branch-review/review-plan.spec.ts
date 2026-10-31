@@ -12,6 +12,7 @@ import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpe
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
+import { windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
 
 // the `symbol_navigation` template (src/Store.kt with the top-level `helper`, the commit of `nav`), then the branch
@@ -301,6 +302,47 @@ test.describe("The review plan in the branch review", () => {
       await window.keyboard.press("Escape")
       await expect(card).toHaveCount(0)
       await expect(store).toBeFocused()
+      expect(await windowCalls(window)).not.toContain("close")
+    },
+  )
+
+  test(
+    "should give the focus back to the row when a card opened by I goes by the hover of another mark or the pointer leaving, and close only the card on Escape",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
+      const window = await openPlanWindow(page, syncAndWaitForBranches)
+      const { reader, store } = planRows(window)
+      const card = window.getByTestId("file-facts-card")
+      const link = card.getByTestId("file-link")
+      const breaks = card.getByTestId("file-facts-breaks")
+
+      // I on Store, the last row: its card lists no file and takes the focus
+      await window.mouse.move(0, 0)
+      await store.getByText("Store.kt", { exact: true }).click()
+      await window.keyboard.press("i")
+      await expect(breaks).toHaveText("breaks 3 · 3 uses left outside the change")
+      await expect(card).toBeFocused()
+
+      // the hover of Reader's mark, above the card, replaces it: the focus does not fall to the page, it is back on Store
+      await reader.getByTestId("file-row-mark").hover()
+      await expect(link).toHaveAttribute("data-path", "src/b/Cache.kt")
+      await expect(store).toBeFocused()
+      // Escape closes the hovered card alone, the window stays
+      await window.keyboard.press("Escape")
+      await expect(card).toHaveCount(0)
+      await expect(store).toBeFocused()
+      expect(await windowCalls(window)).not.toContain("close")
+
+      // the pointer passes over the mark of the card I opened and leaves it: the card closes, the focus back on Store
+      await window.mouse.move(0, 0)
+      await window.keyboard.press("i")
+      await expect(card).toBeFocused()
+      await store.getByTestId("file-row-mark").hover()
+      await window.mouse.move(0, 0)
+      await expect(card).toHaveCount(0)
+      await expect(store).toBeFocused()
+      expect(await windowCalls(window)).not.toContain("close")
     },
   )
 

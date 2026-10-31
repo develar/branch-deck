@@ -120,9 +120,9 @@ export function FileTree(props: FileTreeProps) {
   // the one open card of a row's mark, by the key of its row: by the hover of the mark or by `I` on the row
   const [card, setCard] = useState<OpenCard | null>(null)
 
-  // memoized by the compiler: the rows are memoized
+  // memoized by the compiler: the rows are memoized; the hover of the mark of the card `I` opened keeps it the key's
   const changeCard = (key: string, open: boolean) => {
-    setCard(current => (open ? { key, byKey: false } : current?.key === key ? null : current))
+    setCard(current => (open ? (current?.key === key ? current : { key, byKey: false }) : current?.key === key ? null : current))
   }
 
   // a file selected elsewhere (the diffs scrolled, J and K) scrolls into view

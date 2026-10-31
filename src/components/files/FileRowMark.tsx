@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useEffectEvent, useRef } from "react"
 import type { KeyboardEvent, MouseEvent } from "react"
 import { cn } from "cn"
 import { InfoIcon, TriangleAlertIcon } from "lucide-react"
@@ -13,7 +14,8 @@ import type { LinkEntry, RowFacts, RowFactsSection } from "@/presenters/review-p
  * the change; its hover opens the card of the facts: what it breaks, its links among the changed files, the same edit
  * as other files, and the dependency changes the row carries. The presenter words them (`presentRowFacts`); a click on
  * a file in the card selects it and closes the card. `I` on the focused row opens the card from the keyboard, the
- * focus on its first file; Escape closes it and gives the focus back to the row. The tests that name its code are those
+ * focus on its first file; Escape closes it and gives the focus back to the row, and so does any other close that would
+ * drop the focus to the page (the hover of another mark, the pointer leaving). The tests that name its code are those
  * of its step (spec/branch/review-tour.spec.md).
  */
 
@@ -50,6 +52,37 @@ export interface FileRowMarkProps {
  */
 export function FileRowMark({ facts, onSelectPlace, open, openedByKey, onOpenChange, focusRow }: FileRowMarkProps) {
   const Icon = facts.tone === "warning" ? TriangleAlertIcon : InfoIcon
+  // the popup of the card opened by the key, kept as the ref lets it go (before the effect below asks where the focus
+  // is); stable, so a render does not focus its first file again
+  const keyPopup = useRef<HTMLElement | null>(null)
+  const mountKeyPopup = useCallback((popup: HTMLElement | null) => {
+    if (popup !== null) {
+      keyPopup.current = popup
+      focusFirstFile(popup)
+    }
+  }, [])
+  const focusBackIfLost = useEffectEvent(() => {
+    const focused = document.activeElement
+    // still in the card that goes, or fallen to the page as it went: a focus that went elsewhere on purpose stays
+    if (focused === null || focused === document.body || keyPopup.current?.contains(focused) === true) {
+      focusRow()
+    }
+  })
+  // a card opened by the key that closes otherwise than by Escape or a file (the hover of another row's mark replaces
+  // it, the pointer leaves its mark): the focus goes back to the row, else the next Escape would close the window
+  useEffect(() => {
+    if (!openedByKey) {
+      return
+    }
+    return () => focusBackIfLost()
+  }, [openedByKey])
+  // the row goes (a search, a new view) or loses its mark: its card goes too, and does not open again as it comes back
+  const closeAsMarkGoes = useEffectEvent(() => {
+    if (open) {
+      onOpenChange(false)
+    }
+  })
+  useEffect(() => () => closeAsMarkGoes(), [])
   const close = (giveFocusBack: boolean) => {
     onOpenChange(false)
     if (giveFocusBack && openedByKey) {
@@ -100,7 +133,7 @@ export function FileRowMark({ facts, onSelectPlace, open, openedByKey, onOpenCha
         // the card moves the focus itself: by the key into it and back to the row, by the hover never
         initialFocus={false}
         finalFocus={false}
-        ref={openedByKey ? focusFirstFile : undefined}
+        ref={openedByKey ? mountKeyPopup : undefined}
         // the popup is in a portal, but React bubbles its events through the row: a click here must not toggle it
         onClick={keepFromRow}
         onContextMenu={keepFromRow}

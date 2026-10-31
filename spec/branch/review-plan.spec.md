@@ -602,12 +602,14 @@ the repeated edits and the new API. The vision of the review, its progress and t
   Dependencies. The mark is no tab stop: the description of the row must say every fact in words (`uses 1, +1 new,
   breaks 3, new module`).
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`)
+  [@test] ../../src/presenters/review-plan.test.ts (`merges the facts of a row into one mark, in the warning tone only when it breaks uses outside, and its card sections what can break first`, `puts the dependency changes a row carries into the same mark, after the facts of its file`)
 - The keyboard must reach the card: `I` on a focused row with a mark must open its card with the focus on its first
   file, on the card when it lists none; Enter on a file selects it as a click does. Escape must close the card alone,
   not the window or the review, and give the focus back to the row, as a file chosen from a card opened by `I` does.
-  The key hints must list `I` while a row of the tree has the focus.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the card of a row's mark by I on the focused row, the focus on its first file, Enter selecting it and Escape giving the focus back to the row`)
-  [@test] ../../src/presenters/review-plan.test.ts (`merges the facts of a row into one mark, in the warning tone only when it breaks uses outside, and its card sections what can break first`, `puts the dependency changes a row carries into the same mark, after the facts of its file`)
+  A card opened by `I` that goes otherwise, the hover of another mark replacing it or the pointer leaving its mark,
+  must give the focus back to the row too, unless the focus went elsewhere (a click, Tab out); a card goes with its
+  row. The key hints must list `I` while a row of the tree has the focus.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the card of a row's mark by I on the focused row, the focus on its first file, Enter selecting it and Escape giving the focus back to the row`, `should give the focus back to the row when a card opened by I goes by the hover of another mark or the pointer leaving, and close only the card on Escape`)
 - The card of a file must say `Uses N · +K new` and `Used by M`, the links among the changed files after the commits,
   `+K new` for the links it uses that the commits added. It must list each link it uses, then each link that uses it,
   a removed one too: the other file, the names and the line of the first use (`Cache, get · Reader.kt:3`), and the
