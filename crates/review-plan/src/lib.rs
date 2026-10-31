@@ -308,7 +308,8 @@ pub fn review_plan_of(
   let generated = generated_of(&changed, &known, &texts);
   let kinds = file_kinds(&changed, &texts, &states, &generated);
   let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
-  let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, params.concern_edges);
+  let declared = input.as_ref().map_or_else(HashSet::new, |input| declared_names(input, &changed));
+  let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, &declared, params.concern_edges);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -341,6 +342,17 @@ pub fn review_plan_of(
   Ok(plan)
 }
 
+/// The names the changed files declare on either side, lowercase: what a rare token of code may be (`concerns`)
+fn declared_names(input: &trial_check::symbol_scan::SymbolInput, changed: &[files::ChangedFile<'_>]) -> HashSet<String> {
+  changed
+    .iter()
+    .flat_map(|file| [file.before, file.after])
+    .flatten()
+    .filter_map(|blob| input.summaries.get(blob))
+    .flat_map(|summary| summary.declarations.iter().map(|declaration| summary.name(declaration.name).to_lowercase()))
+    .collect()
+}
+
 /// The commits the API, the order and the files are read from, oldest first: of `base..head`, or with `since_reviewed`
 /// (and no carried scope, whose one diff the plan reads instead) only those added or rewritten since the review,
 /// adjacent or not, each read against its own parent. A branch never
@@ -363,6 +375,8 @@ fn reviewed_commits(git: &GitCommandExecutor, repository_path: &str, base: &str,
 #[cfg(test)]
 mod api_test;
 #[cfg(test)]
+mod concerns_test;
+#[cfg(test)]
 mod dependencies_test;
 #[cfg(test)]
 mod fan_in_test;
@@ -380,5 +394,3 @@ mod order_test;
 mod test_support;
 #[cfg(test)]
 mod units_test;
-#[cfg(test)]
-mod concerns_test;

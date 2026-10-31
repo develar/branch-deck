@@ -93,7 +93,8 @@ HyperAST (subtrees hash-consed over a whole history: a move is the same id under
 only. RefactoringMiner 3.1 (Java, Kotlin) is the oracle for moves and renames.
 
 **Datasets.** tangled-ccs-commits (1750 tangled commits, docs, build and ci concerns among them), UTango's Java set,
-AtomicCommitBench (Python, which our summaries do not parse). And our own: the branches of idea-1, where a commit is a
+AtomicCommitBench (Python, which our summaries do not parse). UTango's set holds tensors only, no source, so the lab tangles
+jsoup, gson and commons-lang the same way. And our own: the branches of idea-1, where a commit is a
 weak label only (an agent round mixes concerns, a follow-up splits one), and the history of this repository, whose
 atomic conventional commits tangle into labelled cases.
 
@@ -116,7 +117,7 @@ the review.
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
-| Concerns (untangling) | Partial: in the plan and `bd`, not in the window | this change | a server dropped from six configs, one deleted, is one concern by its rare identifiers; weak precision 0.997 by tokens, 0.986 by uses, 0.955 with the rest; 12.7 ms for 168 units | the first token joins of singletons chained 16 files of one branch into one; a big block of prose shares words by chance (fixed: no unchanged words, cosine); a guide every commit edits stays in `rest`; the window still lists folders |
+| Concerns (untangling) | Partial: in the plan and `bd`, the window in work | 97e92369, v4 of 2026-10-31 | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 86.2 vs 84.7, Java 95.4 vs 89.9); a server dropped from six configs is one concern | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them |
 | LLM tour with a hard coverage gate | Not started | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -144,6 +145,7 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 | 2026-10-31 | idea-1 `accio-search-policy`, 5 commits | `dotnet/.codex/config.toml` under Mechanical → Deleted, though it is the change of five other configs | a deletion folded as noise | c60b21a1b |
 | 2026-10-31 | the same | the tree lists folders while the diffs tell the story; one task is scattered over five folders | the two sides of the window disagree | concerns ([Next](#next)) |
 | 2026-10-31 | idea-1 virtual branches | the first concerns joined a branch into one: single tokens chained singletons, prose blocks shared words | soft evidence chains (single linkage) | cosine of rare tokens without the unchanged words, a token bridges no two concerns ([Review Concerns](../../spec/branch/review-concerns.spec.md#measurements)) |
+| 2026-10-31 | the lab: 739 tangled ranges of four corpora | purity below a group per file: `uses` from a body change, words of prose and comments, names of libraries joined tasks; 28 ranges crashed | evidence that is no evidence; a loop in the Rust path resolver | `uses` from a changed form only, tokens from code the change declares, the rest off; 5c20eed6 |
 
 ## Measurements
 
@@ -158,6 +160,10 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
 - Every fold needs a stated reason and a budget of false folds near zero; a count of uses is a lower bound and must
   never read as safe.
 - A switch between views pushes the product's decision onto the reviewer.
+- Merge precision alone flatters a grouper: one group over a whole range scores 91–98%. Measure the purity of the
+  groups next to the recall, against a group per file.
+- A change of a body forces no caller to change; only a changed form is evidence that its uses belong to it.
+- A word of prose, a comment or a name of a library is no evidence of a task; a name the change itself declares is.
 
 ## Next
 

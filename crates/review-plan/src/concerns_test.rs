@@ -113,8 +113,8 @@ fn a_declaration_named_by_many_changes_joins_none() {
   assert!(plan.concerns.iter().all(|concern| concern.name == ConcernName::Rest), "{:#?}", plan.concerns);
 }
 
-/// A test with no evidence of its own goes to the concern of its subject, and a change alone in a file to the concern of
-/// that file
+/// With the rest on (`--concern-edges rest`, off by default), a test with no evidence of its own goes to the concern of
+/// its subject, and a change alone in a file to the concern of that file
 #[test]
 fn a_test_follows_its_subject_and_a_change_alone_the_concern_of_its_file() {
   let repo = TestRepo::new();
@@ -134,7 +134,9 @@ fn a_test_follows_its_subject_and_a_change_alone_the_concern_of_its_file() {
       ("src/test/a/ApiTest.kt", "package a\n\nfun testClose() = check(2)\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let mut params = range(&repo, &base, &head);
+  params.concern_edges.rest = true;
+  let plan = plan_of(&repo, None, &params).unwrap();
   assert_eq!(concerns(&plan), [(declaration("open"), vec!["src/a/Api.kt", "src/test/a/ApiTest.kt", "src/b/Use.kt"])]);
   let evidence: Vec<EvidenceKind> = plan.concerns[0].evidence.iter().map(|evidence| evidence.kind).collect();
   assert!(evidence.contains(&EvidenceKind::Rest), "{evidence:?}");
@@ -148,16 +150,16 @@ fn a_generated_file_follows_the_concern_of_the_source_its_header_names() {
   let base = repo.create_commit_with_files(
     "Add",
     &[
-      ("docs/guide.md", "# Guide\n\nSearch the source with grep.\n"),
-      ("docs/tools.md", "# Tools\n\n- grep\n"),
+      ("docs/guide.md", "# Guide\n\nSearch the source with `grep`.\n"),
+      ("docs/tools.md", "# Tools\n\n- `grep`\n"),
       ("AGENTS.md", &agents("grep")),
     ],
   );
   let head = repo.create_commit_with_files(
     "Search with accio",
     &[
-      ("docs/guide.md", "# Guide\n\nSearch the source with accioquery.\n"),
-      ("docs/tools.md", "# Tools\n\n- accioquery\n"),
+      ("docs/guide.md", "# Guide\n\nSearch the source with `accioquery`.\n"),
+      ("docs/tools.md", "# Tools\n\n- `accioquery`\n"),
       ("AGENTS.md", &agents("accioquery")),
     ],
   );
@@ -173,7 +175,7 @@ fn a_generated_file_follows_the_concern_of_the_source_its_header_names() {
 /// more than one change each
 #[test]
 fn one_shared_identifier_bridges_no_two_concerns() {
-  let lines = |words: &[&str]| words.iter().map(|word| ["- ", word, "\n"].concat()).collect::<String>();
+  let lines = |words: &[&str]| words.iter().map(|word| ["- `", word, "`\n"].concat()).collect::<String>();
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files(
     "Add",
@@ -200,9 +202,76 @@ fn one_shared_identifier_bridges_no_two_concerns() {
 fn a_concern_keeps_its_id_as_it_grows() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files("Add", &[("a/one.md", "# One\n"), ("b/two.md", "# Two\n"), ("c/three.md", "# Three\n")]);
-  let two = repo.create_commit_with_files("Change", &[("a/one.md", "# One\n- zebrafish\n"), ("b/two.md", "# Two\n- zebrafish\n")]);
-  let three = repo.create_commit_with_files("Change more", &[("c/three.md", "# Three\n- zebrafish\n")]);
+  let two = repo.create_commit_with_files("Change", &[("a/one.md", "# One\n- `zebrafish`\n"), ("b/two.md", "# Two\n- `zebrafish`\n")]);
+  let three = repo.create_commit_with_files("Change more", &[("c/three.md", "# Three\n- `zebrafish`\n")]);
   let (first, second) = (plan(&repo, &base, &two), plan(&repo, &base, &three));
   assert_eq!(first.concerns[0].id, second.concerns[0].id);
   assert_ne!(first.concerns[0].fingerprint, second.concerns[0].fingerprint);
+}
+
+/// A word of prose, outside the code a Markdown file quotes, and a word of a comment of a source file join nothing; the
+/// same word quoted as code does
+#[test]
+fn a_word_of_prose_or_of_a_comment_joins_nothing() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("a/one.md", "# One\n"),
+      ("b/two.md", "# Two\n"),
+      ("c/One.kt", "package c\n\nfun one() = 1\n"),
+      ("d/Two.kt", "package d\n\nfun two() = 2\n"),
+      ("e/three.md", "# Three\n"),
+      ("f/four.md", "# Four\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change",
+    &[
+      ("a/one.md", "# One\n\nThe kestrel flies.\n"),
+      ("b/two.md", "# Two\n\nA kestrel sits.\n"),
+      ("c/One.kt", "package c\n\n// the zebrafish swims\nfun one() = 1\n"),
+      ("d/Two.kt", "package d\n\n// a zebrafish sleeps\nfun two() = 2\n"),
+      ("e/three.md", "# Three\n\nRun `quokkactl`.\n"),
+      ("f/four.md", "# Four\n\nInstall `quokkactl` first.\n"),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    concerns(&plan),
+    [
+      (token("quokkactl"), vec!["e/three.md", "f/four.md"]),
+      (ConcernName::Rest, vec!["a/one.md", "b/two.md", "c/One.kt", "d/Two.kt"])
+    ]
+  );
+}
+
+/// Of code, a name of a library joins nothing, a word of a string literal does: two files that both start calling
+/// `asReversed` are two tasks, two that both log the same mode one
+#[test]
+fn a_name_of_a_library_joins_nothing_a_word_of_a_string_does() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("a/One.kt", "package a\n\nfun one(items: List<Int>) = items\n"),
+      ("b/Two.kt", "package b\n\nfun two(items: List<Int>) = items\n"),
+      ("c/Three.kt", "package c\n\nfun three() = 3\n"),
+      ("d/Four.kt", "package d\n\nfun four() = 4\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change",
+    &[
+      ("a/One.kt", "package a\n\nfun one(items: List<Int>) = items.asReversed()\n"),
+      ("b/Two.kt", "package b\n\nfun two(items: List<Int>) = items.asReversed()\n"),
+      ("c/Three.kt", "package c\n\nfun three() = log(\"zebrafish-mode\")\n"),
+      ("d/Four.kt", "package d\n\nfun four() = log(\"zebrafish-mode\")\n"),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    concerns(&plan),
+    [(token("zebrafish"), vec!["c/Three.kt", "d/Four.kt"]), (ConcernName::Rest, vec!["a/One.kt", "b/Two.kt"])]
+  );
 }

@@ -6,16 +6,19 @@
 //!   unit `other` as a whole); one per file for a repeated edit and for the deleted files of a directory, joined by the
 //!   group. A mechanical file is no node: it stays in the Mechanical group, except a generated file whose header names a
 //!   changed file, which follows the concern of that file.
-//! - **Hard edges** (as ClusterChanges): a node that changes a declaration and a node whose changed lines name it, in
-//!   the same file or in a file that links to it (`links`); a declaration that more than `MAX_USES` nodes name joins
-//!   none of them, a hub is no evidence. The files of a group.
-//! - **Soft edges**: a rare identifier that the changed lines of two or more files all remove, or all add
-//!   (`node_tokens`): in at most `MAX_TOKEN_NODES` nodes, no keyword, common word or common key of a config
-//!   (`STOP_WORDS`), no part of a changed path. A soft edge joins two concerns only when one is a single node or two
-//!   identifiers join them, so one shared word bridges nothing.
-//! - **The rest**: a node joined to nothing goes to the largest concern of its file, a test to the largest of its
-//!   subject, a generated file to the largest of the files its header names by their path (a glob names none); what is
-//!   left is the last concern, `Rest`.
+//! - **Hard edges** (as ClusterChanges): a node that changes the form of a declaration, adds or removes one, and a node
+//!   whose changed lines name it, in the same file or in a file that links to it (`links`); a change of a body alone
+//!   forces no use to change, so it joins none; a declaration that more than `MAX_USES` nodes name joins none of them,
+//!   a hub is no evidence. The files of a group.
+//! - **Soft edges**: a rare token that the changed lines of two or more files all remove, or all add (`node_tokens`):
+//!   a name of code, never a word of prose or a comment, of a source file only a name the change declares or a word of
+//!   a string; in at most `MAX_TOKEN_NODES` nodes and a quarter of a larger range, no keyword, common word or common
+//!   key of a config (`STOP_WORDS`), no part of a changed path. Two nodes join by the cosine of their rare tokens; a
+//!   soft edge joins two concerns only when one is a single node or two tokens join them, so one shared word bridges
+//!   nothing.
+//! - **The rest**, off by default (it costs more purity than it adds recall): a node joined to nothing goes to the
+//!   largest concern of its file, a test to the largest of its subject. A generated file goes to the largest concern of
+//!   the files its header names by their path (a glob names none); what is left is the last concern, `Rest`.
 //! - **The order** is that of the units, the story: each concern at its first part. **The identity**: `id` the
 //!   fingerprint of its first part, `fingerprint` the set of the fingerprints of its parts.
 //! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else the
@@ -24,6 +27,7 @@
 use crate::files::{ChangedFile, MechanicalKind, subject_stem, test_subject};
 use crate::links::FileLink;
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice, digest};
+use code_symbols::language::language_of;
 use generated_files::generated_by::GeneratedBy;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -31,8 +35,11 @@ use std::ops::Range;
 
 /// A declaration named by more nodes than this joins none of them
 const MAX_USES: usize = 6;
-/// An identifier in more nodes than this is not rare
+/// An identifier in more nodes than this, or, in a range of `MIN_SHARE_NODES` nodes or more, in more than one of
+/// `MAX_TOKEN_SHARE` of them, is not rare
 const MAX_TOKEN_NODES: usize = 10;
+const MAX_TOKEN_SHARE: usize = 4;
+const MIN_SHARE_NODES: usize = 16;
 /// The least cosine of the rare tokens of two nodes that joins them: a pair of large blocks of prose shares many words
 /// by chance, a server dropped from two configs nearly all of its words
 const MIN_ALIKE: f64 = 0.35;
@@ -172,7 +179,7 @@ impl Default for ConcernEdges {
     Self {
       uses: true,
       tokens: true,
-      rest: true,
+      rest: false,
     }
   }
 }
@@ -322,6 +329,7 @@ pub(crate) fn review_concerns(
   generated: &[Option<GeneratedBy>],
   texts: &HashMap<String, String>,
   links: &[FileLink],
+  declared: &HashSet<String>,
   edges: ConcernEdges,
 ) -> Vec<Concern> {
   let file_of: HashMap<&str, usize> = files.iter().enumerate().map(|(index, file)| (file.path, index)).collect();
@@ -343,7 +351,7 @@ pub(crate) fn review_concerns(
     join_uses(units, &nodes, links, &mut components, &mut joins);
   }
   let rare = if edges.tokens {
-    join_tokens(&nodes, files, &mut components, &mut joins)
+    join_tokens(&nodes, files, declared, &mut components, &mut joins)
   } else {
     Vec::new()
   };
@@ -481,7 +489,7 @@ fn join_uses(units: &[ReviewUnit], nodes: &[Node<'_>], links: &[FileLink], compo
     .collect();
   for (declaration, node) in nodes.iter().enumerate() {
     let unit = &units[node.unit];
-    if !matches!(unit.kind, UnitKind::Shape { .. } | UnitKind::Behaviour | UnitKind::Added | UnitKind::Removed) {
+    if !matches!(unit.kind, UnitKind::Shape { .. } | UnitKind::Added | UnitKind::Removed) {
       continue;
     }
     let Some(name) = unit.name.as_deref().filter(|name| name.len() >= MIN_NAME) else {
@@ -512,24 +520,31 @@ fn join_uses(units: &[ReviewUnit], nodes: &[Node<'_>], links: &[FileLink], compo
 /// Joins the nodes of two or more files whose changed lines all remove, or all add, a rare identifier
 /// (`node_tokens`), the rarest first; a token joins two concerns of more than one node only when another token joins
 /// them too. The rare tokens with their nodes, the rarest first
-fn join_tokens(nodes: &[Node<'_>], files: &[ChangedFile<'_>], components: &mut Components, joins: &mut Vec<(usize, EvidenceKind, Option<String>)>) -> Vec<RareToken> {
+fn join_tokens(
+  nodes: &[Node<'_>],
+  files: &[ChangedFile<'_>],
+  declared: &HashSet<String>,
+  components: &mut Components,
+  joins: &mut Vec<(usize, EvidenceKind, Option<String>)>,
+) -> Vec<RareToken> {
   let path_parts: HashSet<String> = files
     .iter()
-    .flat_map(|file| file.path.split(['/', '.', '-', '_']))
+    .flat_map(|file| file.path.split(['/', '.']))
+    .flat_map(|part| std::iter::once(part).chain(part.split(['-', '_'])))
     .filter(|part| !part.is_empty())
-    .map(str::to_lowercase)
+    .map(|part| part.to_lowercase().replace('-', "_"))
     .collect();
   // (removed?, token) -> its nodes
   let mut found: BTreeMap<(bool, String), BTreeSet<usize>> = BTreeMap::new();
   // a token a node both removes and adds is no change of it: the words a rewritten paragraph keeps
   let mut weights: Vec<BTreeSet<(bool, String)>> = Vec::with_capacity(nodes.len());
   for (index, node) in nodes.iter().enumerate() {
-    let (removed, added) = (node_tokens(&node.removed), node_tokens(&node.added));
+    let (removed, added) = (node_tokens(node.path, &node.removed, declared), node_tokens(node.path, &node.added, declared));
     let changed: BTreeSet<(bool, String)> = removed
       .difference(&added)
       .map(|token| (true, token.clone()))
       .chain(added.difference(&removed).map(|token| (false, token.clone())))
-      .filter(|(_, token)| !path_parts.contains(token))
+      .filter(|(_, token)| !path_parts.contains(&token.replace('-', "_")))
       .collect();
     for key in &changed {
       found.entry(key.clone()).or_default().insert(index);
@@ -538,7 +553,7 @@ fn join_tokens(nodes: &[Node<'_>], files: &[ChangedFile<'_>], components: &mut C
   }
   let mut rare: Vec<RareToken> = found
     .iter()
-    .filter(|(_, with)| (2..=MAX_TOKEN_NODES).contains(&with.len()))
+    .filter(|(_, with)| (2..=MAX_TOKEN_NODES).contains(&with.len()) && (nodes.len() < MIN_SHARE_NODES || with.len() * MAX_TOKEN_SHARE <= nodes.len()))
     .filter(|(_, with)| with.iter().map(|&node| nodes[node].path).collect::<HashSet<_>>().len() >= 2)
     .map(|((removed, token), with)| RareToken {
       token: token.clone(),
@@ -610,21 +625,53 @@ fn join_tokens(nodes: &[Node<'_>], files: &[ChangedFile<'_>], components: &mut C
   rare
 }
 
-/// The identifiers of `lines`, lowercase, each once: a run of letters, digits, `_` and `-` that starts with a letter,
-/// and its parts between `_` and `-`, each of `MIN_TOKEN` characters or more and no word of `STOP_WORDS`
-fn node_tokens(lines: &[&str]) -> BTreeSet<String> {
+/// The identifiers of the changed `lines` of `path`, lowercase, each once: a run of letters, digits, `_` and `-` that
+/// starts with a letter, and its parts between `_` and `-`, each of `MIN_TOKEN` characters or more and no word of
+/// `STOP_WORDS`. Of prose (Markdown, text) only the code it quotes (`` `a` ``, a fence, an indented line); of a source
+/// file no comment line, and only a name a changed file declares (`declared`, lowercase) or a word of a string literal:
+/// a word of prose and a name of a library (`list`, `as_bytes`) are no evidence of a task, a name of the change or a
+/// config is
+fn node_tokens(path: &str, lines: &[&str], declared: &HashSet<String>) -> BTreeSet<String> {
+  let extension = path.rsplit_once('.').map_or_else(String::new, |(_, extension)| extension.to_ascii_lowercase());
+  let prose = matches!(extension.as_str(), "md" | "markdown" | "txt" | "rst" | "adoc");
+  let source = language_of(path).is_some();
   let mut tokens = BTreeSet::new();
   for line in lines {
-    for run in line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
-      let run = run.trim_matches(['_', '-']);
-      if !run.starts_with(|c: char| c.is_ascii_alphabetic()) {
-        continue;
-      }
-      let whole = run.to_lowercase();
-      let parts: Vec<String> = whole.split(['_', '-']).filter(|part| !part.is_empty()).map(str::to_string).collect();
-      for token in std::iter::once(whole).chain(if parts.len() > 1 { parts } else { Vec::new() }) {
-        if token.len() >= MIN_TOKEN && token.starts_with(|c: char| c.is_ascii_alphabetic()) && !STOP_WORDS.contains(&token.as_str()) {
-          tokens.insert(token);
+    let trimmed = line.trim_start();
+    if source && ["//", "/*", "*", "#", "--"].iter().any(|comment| trimmed.starts_with(comment)) {
+      continue;
+    }
+    let code: Vec<&str> = if prose && !(line.starts_with("    ") || trimmed.starts_with("```")) {
+      line.split('`').skip(1).step_by(2).collect()
+    } else {
+      vec![line]
+    };
+    // the words of the string literals of a source line, which name no library
+    let quoted: HashSet<&str> = if source {
+      line
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .flat_map(|text| text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')))
+        .collect()
+    } else {
+      HashSet::new()
+    };
+    for text in code {
+      for run in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+        if source && !quoted.contains(run) && !declared.contains(&run.to_lowercase()) {
+          continue;
+        }
+        let run = run.trim_matches(['_', '-']);
+        if !run.starts_with(|c: char| c.is_ascii_alphabetic()) {
+          continue;
+        }
+        let whole = run.to_lowercase();
+        let parts: Vec<String> = whole.split(['_', '-']).filter(|part| !part.is_empty()).map(str::to_string).collect();
+        for token in std::iter::once(whole).chain(if parts.len() > 1 { parts } else { Vec::new() }) {
+          if token.len() >= MIN_TOKEN && token.starts_with(|c: char| c.is_ascii_alphabetic()) && !STOP_WORDS.contains(&token.as_str()) {
+            tokens.insert(token);
+          }
         }
       }
     }
@@ -646,7 +693,7 @@ struct RareToken {
 }
 
 /// The name of a concern a token joined (its nodes `inside`): of the tokens with most of their nodes inside, those of
-/// the most nodes inside, a simple word first, the one their changed lines name first (the heading of a block); a removed one and
+/// the most nodes inside, a simple word first, the one their changed lines name first (the heading of a block), the longer; a removed one and
 /// an added one of the same nodes are a replacement
 fn token_name(nodes: &[Node<'_>], rare: &[RareToken], inside: &HashSet<usize>) -> Option<ConcernName> {
   let best = |removed: bool| {
@@ -668,6 +715,7 @@ fn token_name(nodes: &[Node<'_>], rare: &[RareToken], inside: &HashSet<usize>) -
           .cmp(&within(b))
           .then(simple(&a.token).cmp(&simple(&b.token)))
           .then(first(b).cmp(&first(a)))
+          .then(a.token.len().cmp(&b.token.len()))
           .then(b.token.cmp(&a.token))
       })
   };

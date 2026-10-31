@@ -46,29 +46,39 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
 
 ### Edges
-- A node that changes a declaration (`shape`, `behaviour`, `added`, `removed`) and a node of another unit whose changed
-  lines name it as a whole word must join, when the second is in the same file or in a file that links to the first
+- A node that changes the form of a declaration, adds or removes one (`shape`, `added`, `removed`; a change of a body
+  alone forces no use to change) and a node of another unit whose changed lines name it as a whole word must join, when the second is in the same file or in a file that links to the first
   by that name (`links`). A name of fewer than 3 characters joins nothing, and a declaration that more than 6 nodes
   name joins none of them: a hub is no evidence.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_changed_declaration_and_the_changes_of_its_uses_are_one_concern`, `a_declaration_named_by_many_changes_joins_none`)
 - The nodes of a group must join.
 - A rare identifier must join nodes of two files: a run of letters, digits, `_` and `-` that starts with a letter, and
   its parts between `_` and `-`, lowercase, of 4 or more characters, no keyword, common word or common key of a config,
-  no part of a changed path; a token a node both removes and adds is no change of it; all removed, or all added, in 2
-  to 10 nodes of two or more files. Two nodes join when their rare tokens are alike: the cosine of their weights
-  (`ln((n + 1) / df)` over the nodes) at 0.35 or more, or, with 4 or more shared tokens, 80% of the weight of the smaller
-  in the larger. The pairs most alike join first.
+  no part of a changed path (`-` and `_` alike); a token a node both removes and adds is no change of it; all removed,
+  or all added, in 2 to 10 nodes of two or more files, and in a range of 16 nodes or more in a quarter of them at most.
+  Two nodes join when their rare tokens are alike: the cosine of their weights (`ln((n + 1) / df)` over the nodes) at
+  0.35 or more, or, with 4 or more shared tokens, 80% of the weight of the smaller in the larger. The pairs most alike
+  join first.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
+- A token must be a name of code, never a word of prose: of a Markdown or text file only the code it quotes (a
+  backtick span, a fence, an indented line); of a source file no comment line, and only a name a changed file declares
+  on either side or a word of a string literal, never a name of a library (`list`, `as_bytes`); of a config every
+  line.
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_word_of_prose_or_of_a_comment_joins_nothing`, `a_name_of_a_library_joins_nothing_a_word_of_a_string_does`)
 - A pair of tokens must join two concerns of more than one node each only when two rare tokens have nodes in both: one
   shared word bridges no two concerns.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`one_shared_identifier_bridges_no_two_concerns`)
 
 ### The Rest
-- A node joined to nothing must join the concern of its file with the most changed lines, else a test the concern of
+- The rest is off unless `--concern-edges` names it: measured, it adds recall and costs more purity than it is worth
+  ([Measurements](#measurements)). With it on, a node joined to nothing must join the concern of its file with the most changed lines, else a test the concern of
   its subject (a file of the stem it names); a generated file must follow the concern of the changed file its header
   names by its whole path, of the most changed lines, at the end of its parts; a glob (`edit docs/*`) names none, and
   such a file stays in the Mechanical group.
-  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_test_follows_its_subject_and_a_change_alone_the_concern_of_its_file`, `a_generated_file_follows_the_concern_of_the_source_its_header_names`)
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_test_follows_its_subject_and_a_change_alone_the_concern_of_its_file`)
+- A generated file must follow the concern of the changed file its header names by its whole path, also with the rest
+  off.
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`)
 - The nodes no edge joined must be the last concern, `rest`.
 
 ### Order, Identity, Name
@@ -88,7 +98,7 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `directory` with `directory`, `rest`),
   its `parts` (`unit`, `path`, `blocks`), its `paths`, its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
   `detail` and `joins`, the most joins first) and its `fingerprint`. The hidden `--concern-edges uses,tokens,rest`
-  (or `none`) picks the edges for a measurement of each.
+  (or `none`) picks the edges for a measurement of each; without it `uses,tokens`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 - The concerns must run no git process.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
@@ -119,19 +129,34 @@ The window does not show the concerns yet ([Change Review → Next](../../docs/d
 
 ## Measurements
 
-`bd review-plan` (release build) on the local virtual branches of `~/projects/idea-1` of 2 to 15 commits,
-2026-10-31. A weak label: the issue key of the subjects of the commits that change a file, a file of one key only; a
-pair of labelled files in one concern is right when their keys are equal. Pairs of files, not of parts, so a file of
-both tasks counts for neither.
+The lab of 2026-10-31 (`~/projects/review-concerns-lab`, its `results/scores.md`): four corpora of tangled ranges
+with a label per hunk, `bd review-plan` per range, each hunk mapped to the concern part whose blocks hold it; a part
+of `rest` and a mechanical slice count as a group of its own. Purity is the share of groups of more than one hunk that
+hold one task (Wilson 95% lower bound in parentheses); recall the share of the pairs of a task that share a group.
+Merge precision alone says little: one group over a whole range scores 91–98% on it.
 
-| Edges | Pairs right | Pairs wrong | Weak precision |
-|---|---|---|---|
-| `uses` | 426 | 6 | 0.986 |
-| `tokens` | 357 | 1 | 0.997 |
-| `uses,tokens,rest` | 966 | 45 | 0.955 |
+| Corpus | Cases, hunks | One group per file: recall / purity | `uses,tokens` (default): recall / purity | With `rest`: recall / purity |
+|---|---|---|---|---|
+| this repository, 2–3 atomic commits tangled | 200, 6047 | 72.9 / 91.4 (89.6) | 67.8 / 93.9 (92.2) | 74.7 / 90.8 (88.7) |
+| tangled-ccs-commits (HF), 2–5 concerns | 245, 7750 | 80.8 / 100 (99.7) | 75.0 / 98.8 (98.0) | 78.3 / 98.7 (97.8) |
+| jsoup, gson, commons-lang tangled | 200, 3511 | 81.4 / 89.9 (87.1) | 46.4 / 95.4 (93.3) | 57.0 / 88.4 (85.2) |
+| idea-1 branches, a label per line by the commit | 94, 9451 | 77.8 / 84.7 (82.6) | 67.0 / 86.2 (84.2) | 79.3 / 81.0 (78.4) |
 
-The one wrong pair of `tokens` is two commits of one task under one prefix (`setup build:`), right in fact; the wrong
-pairs of the full set are two files of `IJAI-4197` that join the 30 files of `IJAI-3261` through declarations both
-tasks change. The concerns of a range of 168 units took 12.7 ms (59 files, 203 nodes, 353 rare tokens).
-`accio-search-policy` (16 files): six MCP configs one concern (`proxy`), the deleted one among them; three concerns of
-the permissions of grep and find with their settings and the generated `default.rules`; the guide in `rest`.
+The default is purer than a group per file on three corpora and joins changes across files and formats a group per
+file never does; its recall is lower, the rest buys it back at the cost of purity, so it stays off. The rounds that
+led here, each measured on the same corpora:
+
+- The first token edge joined singletons by one shared word and chained a branch into one concern; a big block of
+  prose shared words by chance. Fixed by the cosine of the rare tokens, the unchanged words of a block left out, and
+  no token bridging two concerns.
+- The `uses` edge from a change of a body alone joined callers that had nothing to do with it: purity of `uses` alone
+  on idea-1 87.2 → 88.1, on Java 94.4 → 96.1 once only a changed form, a new or a removed declaration joins its uses.
+- Words of prose and comments (`suite`, `same`, `compiles`) and names of libraries (`list`, `as_bytes`,
+  `IllegalStateException`) joined tasks: tokens come from code only, of a source file only the names the change
+  declares. Wrong token joins on idea-1 64 → 61, on the synthetic corpus 10 → 5; what remains are names the project
+  declares that two tasks share (`turnEnded`).
+- A crash of the symbol dependencies on `use m::m;` (5c20eed6) had scored 28 cases as singletons.
+
+A range takes 0.13–0.19 s median for the whole plan (concerns 12.7 ms for 168 units). The false merges left are of
+three kinds: a concern (146 on idea-1), a mechanical slice that holds lines of two tasks (27), and a unit, one
+declaration, that two tasks changed (43).
