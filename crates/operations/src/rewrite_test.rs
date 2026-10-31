@@ -1,7 +1,7 @@
 use crate::engine::execute;
 use crate::events::NoEvents;
 use crate::land_execute::Accepted;
-use crate::push::push_test::{Fixture, OFFLINE, alone, assert_done, fixture, registry_on, test_host, waits_for_the_agent};
+use crate::push::push_test::{Fixture, OFFLINE, alone, assert_done, fixture, on_space, registry_on, test_host, waits_for_the_agent};
 use crate::rewrite::execute_rewrite;
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
@@ -1014,6 +1014,29 @@ async fn a_push_that_waited_for_a_first_sync_that_failed_is_refused_and_sends_no
   assert!(!fixture.cached().await);
   assert_done(&fixture.execute(&push, Vec::new()).await);
   assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/beta");
+}
+
+/// Push Branch on Space pressed on a seeded table asks Patronus for the user's robots while it waits for the first sync
+/// of the session, as no wait changes what Patronus has; once that sync committed, it sends the branch
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_asks_the_robots_while_it_waits_for_the_first_sync() {
+  let (fixture, syncs, ()) = seeded(|_| ()).await;
+  let (fake, on_space) = on_space().await;
+  let robots = fake.hold("GET", "/app/rest/v1/robots");
+  let push = alone("beta", None);
+  let asked_while_waiting = async {
+    fixture.until_waiting_for_sync().await;
+    robots.arrived().await;
+    robots.open();
+    syncs.release();
+  };
+  let (pushed, ()) = within_a_minute(Box::pin(async {
+    tokio::join!(fixture.execute_on(&push, Vec::new(), &on_space, Arc::new(NoEvents)), asked_while_waiting)
+  }))
+  .await;
+  assert_done(&pushed);
+  assert_eq!(fixture.remote_branches(), "refs/heads/test/virtual/beta");
+  assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1, "one full list");
 }
 
 /// A move pressed on a seeded table whose HEAD another process moved after the frame was saved (`bd reword` of the

@@ -1585,8 +1585,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
 - The app's push itself (`execute` of the intent `Push`, of a branch alone and of a stack, the E2E server's route of
   it) checks the same in Rust before it pushes, by the rules of `bd push` (the plan of the push, `derive::alone_push_of`
   and `domain_policy::push::push_plan` over the holds of `push_guard::guard_facts`, one sequence of both hosts,
-  `operations::push::execute_push`): it reads the user's robots first (one full list asked now, never one
-  kept for the page, a background request: none off Space, without a token, while Patronus fails or its requests back
+  `operations::push::execute_push`): it reads the user's robots first (one full list asked as it starts, while it waits
+  for the rewrites before it and the running sync, never one kept for the page, a background request: none off Space, without a token, while Patronus fails or its requests back
   off, as `bd push` reads its holds; none for unapplied branches alone, on which no Safe Push runs; no network request
   runs under the repository lock), then under the lock refuses a branch the last sync has no row of ("… is no branch of the last
   sync"), a branch a merged Safe Push landed whole ("… merged into master with its Safe Push (…): nothing of it is left
@@ -1601,6 +1601,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/operations/src/push_test.rs (`the_push_of_an_unapplied_branch_reads_no_robots`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
   [@test] ../../crates/operations/src/push_test.rs (`the_push_of_an_unapplied_branch_reads_no_robots`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`a_push_asks_the_robots_while_it_waits_for_the_first_sync`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should push nothing into a branch whose Safe Push started after the page's list: Rust refuses it, and the toast says why`)
 - The app's push must hold the repository lock only while it decides: the checks above and the commits that go,
   fixed under it; the network push after it sends those commits (`<commit>:refs/heads/<name>`), each leased on the

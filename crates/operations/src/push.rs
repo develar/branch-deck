@@ -858,7 +858,7 @@ fn no_push_plan(push: &Push) -> ApiError {
 /// Runs the push `push` in the session of `key` on the plan its caller accepted: admitted over the operations of the
 /// session per ref (the same push joins it, another push of the ref waits for it), after the rewrites of this process
 /// admitted before it (`RunningGuard::wait_behind`, which hold HEAD: a rewrite after it runs beside it) and the sync of
-/// the session that runs, if one does; then planned again and run as a start runs (`land_execute::run_planned`: the witness, the lock only
+/// the session that runs, if one does, while the user's robots are asked; then planned again and run as a start runs (`land_execute::run_planned`: the witness, the lock only
 /// for the full witness and the freeze, the retarget, the cancel, the push of the frozen commit with its lease, once more
 /// over a remote that moved without commits the branch lacks, then the restart) over the services of `services`
 /// (`push_start`: neither Patronus nor GitHub needed), its steps in the view and its progress and outcome to `events`.
@@ -874,9 +874,13 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
   let planned = prepare_push(sessions, key, &push).await;
   let request = push_request(&key.prefix, &push, planned.as_ref());
   run(registry, key, request, events, async |guard| {
-    // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask
-    let behind = guard.wait_behind(vec![Resource::Head], OperationStep::Checking).await;
-    let synced = wait_for_running_sync(sessions, key, &guard.stepper()).await;
+    // the rewrites admitted before it (a move out of the branch): it sends what they leave, after the sync they ask; the
+    // robots are asked meanwhile, as no wait changes what Patronus has
+    let waits = async {
+      let behind = guard.wait_behind(vec![Resource::Head], OperationStep::Checking).await;
+      (behind, wait_for_running_sync(sessions, key, &guard.stepper()).await)
+    };
+    let (robots, (behind, synced)) = tokio::join!(robots_to_check(services, key, &push), waits);
     // the rows are still the frame of an earlier run: no tip of this process to push. Its first sync failed (the one it
     // waited for, or one before it) or git deferred it, and that error says why: nothing waits for a sync any more
     let frame = sessions.read(key, |state, _| state.cached().then(|| frame_refusal(state))).await.flatten();
@@ -884,7 +888,10 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
       return Err(synced.failed.unwrap_or(refusal));
     }
     let waited = behind || synced.waited || guard.queued();
-    let checked = checked_holds(services, sessions, key, &push).await.map(Arc::new);
+    let checked = match robots {
+      Some(robots) => checked_holds(services, sessions, key, robots).await.map(Arc::new),
+      None => None,
+    };
     let (prefix, intent, holds) = (key.prefix.clone(), push.clone(), checked.clone());
     let expect = if waited { ExpectRemote::OfSession } else { ExpectRemote::OfIntent };
     let planned = sessions
@@ -901,17 +908,21 @@ pub async fn execute_push(registry: &Registry, key: &SessionKey, push: Push, acc
   .await
 }
 
-/// The holds the run of `push` checks: the user's robots asked now, one full list (`PatronusService::robots_for_checks`,
-/// which a robot started meanwhile in the IDE or by `bd` is in), and the Patronus view of the table of the last sync of
-/// the session derived of them (`push_guard::guard_facts`); none for an unapplied branch, which nothing holds (C3), and
-/// off Space or without a token, where no robot runs, nor before the first sync
-async fn checked_holds(services: &dyn ServiceHost, sessions: &Sessions, key: &SessionKey, push: &Push) -> Option<CheckedHolds> {
+/// The user's robots the run of `push` checks, asked as it starts, one full list (`PatronusService::robots_for_checks`,
+/// which a robot started meanwhile in the IDE or by `bd` is in); none for an unapplied branch, which nothing holds (C3),
+/// and off Space or without a token, where no robot runs
+async fn robots_to_check(services: &dyn ServiceHost, key: &SessionKey, push: &Push) -> Option<Vec<PatronusRobot>> {
   if push.scope == PushScope::Unapplied {
     return None;
   }
   let space = services.space_repository(key).await.ok().flatten()?;
   let patronus = services.patronus(key).ok()?;
-  let robots = patronus.robots_for_checks(&space.name, &key.prefix).await;
+  Some(patronus.robots_for_checks(&space.name, &key.prefix).await)
+}
+
+/// The holds the run of a push checks: `robots` (`robots_to_check`) and the Patronus view of the table of the last sync
+/// of the session derived of them (`push_guard::guard_facts`); none before the first sync
+async fn checked_holds(services: &dyn ServiceHost, sessions: &Sessions, key: &SessionKey, robots: Vec<PatronusRobot>) -> Option<CheckedHolds> {
   let table = sessions.table(key).await?;
   let (git, path) = (services.git(), key.worktree.clone());
   let facts = tokio::task::spawn_blocking(in_current_span(move || guard_facts(&git, &path, &table, robots))).await.ok()?;

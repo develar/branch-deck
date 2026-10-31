@@ -256,7 +256,7 @@ impl Fixture {
   }
 
   /// `push` run on its plan now over `services`, its events to `events`
-  async fn execute_on(&self, push: &Push, accepted: Vec<Confirmation>, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Result<Outcome, ApiError> {
+  pub(crate) async fn execute_on(&self, push: &Push, accepted: Vec<Confirmation>, services: &dyn ServiceHost, events: Arc<dyn EventSink>) -> Result<Outcome, ApiError> {
     let fingerprint = self.plan(push).await.fingerprint;
     let accepted = Accepted {
       fingerprint,
@@ -1049,11 +1049,8 @@ async fn a_push_locks_only_the_witness_and_the_freeze() {
   span.assert_span(&["for-each-ref"], &["push"]);
 }
 
-/// The push of an unapplied branch reads no robots (C3): no Safe Push runs on one. The push of a virtual branch reads
-/// one full list, before the lock
-#[tokio::test(flavor = "multi_thread")]
-async fn the_push_of_an_unapplied_branch_reads_no_robots() {
-  let fixture = with_unapplied_old().await;
+/// A host on Space with a fake Patronus, signed in
+pub(crate) async fn on_space() -> (Arc<patronus::fake_patronus::FakePatronus>, Services) {
   let (fake, client) = start_fake().await;
   let service = PatronusService::new(client, |_| {
     TokenLookup::Found(Token {
@@ -1061,10 +1058,19 @@ async fn the_push_of_an_unapplied_branch_reads_no_robots() {
       stamp: TokenStamp::Env,
     })
   });
-  let on_space = Services {
+  let services = Services {
     patronus: Some(Arc::new(service)),
     github: None,
   };
+  (fake, services)
+}
+
+/// The push of an unapplied branch reads no robots (C3): no Safe Push runs on one. The push of a virtual branch reads
+/// one full list, before the lock
+#[tokio::test(flavor = "multi_thread")]
+async fn the_push_of_an_unapplied_branch_reads_no_robots() {
+  let fixture = with_unapplied_old().await;
+  let (fake, on_space) = on_space().await;
   let unapplied = Push {
     scope: PushScope::Unapplied,
     ..alone("old", None)
