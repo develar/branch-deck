@@ -67,10 +67,14 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   join first.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
 - A token must be a name of code, never a word of prose: of a Markdown or text file only the code it quotes (a
-  backtick span, a fence, an indented line); of a source file no comment line, and only a name a changed file declares
-  on either side or a word of a string literal, never a name of a library (`list`, `as_bytes`); of a config every
-  line.
-  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_word_of_prose_or_of_a_comment_joins_nothing`, `a_name_of_a_library_joins_nothing_a_word_of_a_string_does`)
+  backtick span, and of Markdown a fence and an indented line); of a source file no comment line, and only a name a
+  changed file declares on either side or a word of a string literal (quoted by `"`, in TypeScript and JavaScript also
+  by `'` and `` ` ``), never a name of a library (`list`, `as_bytes`); of a config every line but the key of a field,
+  a key whose own value follows on the line and is no object (`"side": "ide"`, `"answers": []`, `timeout = 30`), which
+  every entry of a schema repeats; the key of an object names an entry (`"ijproxy": {`, `[mcp_servers.ijproxy]`). Of
+  a sentence a config or a literal quotes (a string with a space) only its compound names count, with `_`, `-`, a
+  digit or a capital past the first letter (`sessions-window-show`, `toolWindowId`).
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_word_of_prose_or_of_a_comment_joins_nothing`, `a_name_of_a_library_joins_nothing_a_word_of_a_string_does`, `a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
 - A pair of tokens must join two concerns of more than one node each only when two rare tokens have nodes in both: one
   shared word bridges no two concerns.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`one_shared_identifier_bridges_no_two_concerns`)
@@ -104,10 +108,13 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   grows keeps it; `fingerprint` the digest of the set of the fingerprints of its parts.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_concern_keeps_its_id_as_it_grows`)
 - The name must be the evidence of the concern: of a concern a token joined, the rare token with the most of its nodes
-  in it (more than half), a simple word before a compound one, the one its changed lines name first; a removed and an
+  in it (more than half), a whole identifier before a part of one (`zebrafish-mode`, not its `zebrafish`), a simple
+  word before a compound one, the one its changed lines name first; a removed and an
   added token of the same nodes `replacement`; else its first changed declaration; else its one file (`file`: a source
-  with the generated copies that follow it); else the directory its files share.
-  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
+  with the generated copies that follow it); else the directory its files share. A token is matched in lowercase and
+  named, in the name and in its evidence, as the changed lines of the concern write it most often
+  (`activatesProjectViewOnStartup`).
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`, `a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
 
 ### In `bd`
 - `bd review-plan` must print `concerns` (`"schema": 9`): per concern its `id`, `name` (`source` `token` with
@@ -233,6 +240,16 @@ led here, each measured on the same corpora:
   follow its concern now, as a generated file its source. Of the mechanical slices that joined a concern, 230 of 232
   are right on this repository and 170 of 174 judged on idea-1; the false merges of mechanical slices fell from 27 to
   12 on idea-1, the recall rose (this repository 67.8 → 71.2), the purity of idea-1 eased 86.2 → 85.4.
+- A branch of idea-1 that adds a step to a restart story showed the concerns "again" (joined by `does`), "side" and
+  "params": the words of the sentences a JSON profile and a TypeScript string quote, the keys of the fields every entry
+  of a schema repeats (`"side": "ide"`, `"params": {}`), and an indented line of a text file read as code. Of a
+  sentence only its compound names count now, a key of a field none, and a token is named as it is written, a whole
+  identifier before a part of one (v6, `results/bd-v6`). Recall / purity, v5 → v6: this repository 71.2 / 93.5 →
+  70.6 / 93.1, tangled-ccs 75.0 / 98.8 → 74.6 / 99.2, Java 46.7 / 95.3 → 46.6 / 95.3, idea-1 by the commit of a line
+  67.4 / 85.4 → 67.6 / 85.3. The purity of the groups eases where an impure group is cut in two (a concern of 135
+  hunks of four tasks became two of three); the pairs of hunks it joins are truer: pair precision on idea-1 76.6 →
+  77.8, by the label of the case 90.4 → 91.0. The joins it lost were right by chance: the words of the test titles of
+  one commit.
 
 A range takes 0.13–0.19 s median for the whole plan (concerns 12.7 ms for 168 units). The false merges left are of
 three kinds: a concern (146 on idea-1), a mechanical slice that holds lines of two tasks (27), and a unit, one

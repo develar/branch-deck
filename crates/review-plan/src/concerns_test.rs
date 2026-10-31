@@ -246,8 +246,63 @@ fn a_word_of_prose_or_of_a_comment_joins_nothing() {
   );
 }
 
+/// A sentence a config or a string literal quotes is prose: its words join nothing, its compound names do, and the
+/// concern is named as they are written; an indented line of a text file is prose too, not code as in Markdown; the key
+/// of a field (`"answers": []`), which every entry of a schema repeats, joins nothing
+#[test]
+fn a_sentence_a_config_quotes_joins_by_its_compound_names_alone() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add",
+    &[
+      ("a/one.json", "{\n}\n"),
+      ("b/two.json", "{\n}\n"),
+      ("c/three.json", "{\n}\n"),
+      ("d/four.json", "{\n}\n"),
+      ("e/five.txt", "story\n"),
+      ("f/six.txt", "story\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change",
+    &[
+      ("a/one.json", "{\n  \"k1\": \"The kestrel window keeps its layout again\"\n}\n"),
+      ("b/two.json", "{\n  \"k2\": \"A kestrel layout shows again on the side\"\n}\n"),
+      ("c/three.json", "{\n  \"k3\": \"Show showAgentSessions on the left\"\n}\n"),
+      ("d/four.json", "{\n  \"k4\": \"Then showAgentSessions answers\"\n}\n"),
+      ("e/five.txt", "story\n    - The kestrel window keeps its layout again\n"),
+      ("f/six.txt", "story\n    - A kestrel layout shows again\n"),
+      ("g/seven.json", "{\n  \"k5\": {\"placement\": \"left\", \"answers\": [], \"parameters\": {}}\n}\n"),
+      ("h/eight.json", "{\n  \"k6\": {\"placement\": \"right\", \"answers\": [], \"parameters\": {}}\n}\n"),
+      ("i/nine.ts", "export const nine = step('Show the kestrel layout on the left side')\n"),
+      ("j/ten.ts", "export const ten = step('A kestrel layout shows on the side')\n"),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  assert_eq!(
+    concerns(&plan),
+    [
+      (token("showAgentSessions"), vec!["c/three.json", "d/four.json"]),
+      (
+        ConcernName::Rest,
+        vec![
+          "a/one.json",
+          "b/two.json",
+          "e/five.txt",
+          "f/six.txt",
+          "g/seven.json",
+          "h/eight.json",
+          "i/nine.ts",
+          "j/ten.ts"
+        ]
+      )
+    ]
+  );
+  assert_eq!(plan.concerns[0].evidence[0].detail.as_deref(), Some("showAgentSessions"));
+}
+
 /// Of code, a name of a library joins nothing, a word of a string literal does: two files that both start calling
-/// `asReversed` are two tasks, two that both log the same mode one
+/// `asReversed` are two tasks, two that both log the same mode one, in TypeScript also by `'` and `` ` ``
 #[test]
 fn a_name_of_a_library_joins_nothing_a_word_of_a_string_does() {
   let repo = TestRepo::new();
@@ -258,6 +313,8 @@ fn a_name_of_a_library_joins_nothing_a_word_of_a_string_does() {
       ("b/Two.kt", "package b\n\nfun two(items: List<Int>) = items\n"),
       ("c/Three.kt", "package c\n\nfun three() = 3\n"),
       ("d/Four.kt", "package d\n\nfun four() = 4\n"),
+      ("e/five.ts", "export const five = () => 5\n"),
+      ("f/six.ts", "export const six = () => 6\n"),
     ],
   );
   let head = repo.create_commit_with_files(
@@ -267,12 +324,18 @@ fn a_name_of_a_library_joins_nothing_a_word_of_a_string_does() {
       ("b/Two.kt", "package b\n\nfun two(items: List<Int>) = items.asReversed()\n"),
       ("c/Three.kt", "package c\n\nfun three() = log(\"zebrafish-mode\")\n"),
       ("d/Four.kt", "package d\n\nfun four() = log(\"zebrafish-mode\")\n"),
+      ("e/five.ts", "export const five = () => log('otter-mode')\n"),
+      ("f/six.ts", "export const six = () => log(`otter-mode`)\n"),
     ],
   );
   let plan = plan(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
-    [(token("zebrafish"), vec!["c/Three.kt", "d/Four.kt"]), (ConcernName::Rest, vec!["a/One.kt", "b/Two.kt"])]
+    [
+      (token("zebrafish-mode"), vec!["c/Three.kt", "d/Four.kt"]),
+      (token("otter-mode"), vec!["e/five.ts", "f/six.ts"]),
+      (ConcernName::Rest, vec!["a/One.kt", "b/Two.kt"])
+    ]
   );
 }
 

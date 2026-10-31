@@ -32,7 +32,7 @@
 use crate::files::{ChangedFile, MechanicalKind, subject_stem, test_subject};
 use crate::links::{FileLink, LinkState};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice, digest};
-use code_symbols::language::language_of;
+use code_symbols::language::{Language, language_of};
 use generated_files::generated_by::GeneratedBy;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -696,38 +696,41 @@ fn join_tokens(
 
 /// The identifiers of the changed `lines` of `path`, lowercase, each once: a run of letters, digits, `_` and `-` that
 /// starts with a letter, and its parts between `_` and `-`, each of `MIN_TOKEN` characters or more and no word of
-/// `STOP_WORDS`. Of prose (Markdown, text) only the code it quotes (`` `a` ``, a fence, an indented line); of a source
-/// file no comment line, and only a name a changed file declares (`declared`, lowercase) or a word of a string literal:
-/// a word of prose and a name of a library (`list`, `as_bytes`) are no evidence of a task, a name of the change or a
-/// config is
+/// `STOP_WORDS`. Of prose only the code it quotes (`` `a` ``, and of Markdown a fence and an indented line); of a
+/// source file no comment line, and only a name a changed file declares (`declared`, lowercase) or a word of a string
+/// literal; of a config every line but the keys of its fields (`config_code`). Of a sentence a config or a literal
+/// quotes (a string with a space) only the compound names (`compound`): a word of prose, also inside a config or a
+/// string, a field of a schema and a name of a library (`list`, `as_bytes`) are no evidence of a task, a name of the
+/// change, of an entry of a config or of a literal is
 fn node_tokens(path: &str, lines: &[&str], declared: &HashSet<String>) -> BTreeSet<String> {
   let extension = path.rsplit_once('.').map_or_else(String::new, |(_, extension)| extension.to_ascii_lowercase());
-  let prose = matches!(extension.as_str(), "md" | "markdown" | "txt" | "rst" | "adoc");
-  let source = language_of(path).is_some();
+  let markdown = matches!(extension.as_str(), "md" | "markdown");
+  let prose = markdown || matches!(extension.as_str(), "txt" | "rst" | "adoc");
+  let language = language_of(path);
+  let source = language.is_some();
+  // TypeScript and JavaScript quote a string with `'` and `` ` `` too; the other languages quote a character with `'`
+  let quotes: &[char] = if language == Some(Language::TypeScript) { &['"', '\'', '`'] } else { &['"'] };
   let mut tokens = BTreeSet::new();
   for line in lines {
     let trimmed = line.trim_start();
     if source && ["//", "/*", "*", "#", "--"].iter().any(|comment| trimmed.starts_with(comment)) {
       continue;
     }
-    let code: Vec<&str> = if prose && !(line.starts_with("    ") || trimmed.starts_with("```")) {
+    let code: Vec<&str> = if prose && !(markdown && (line.starts_with("    ") || trimmed.starts_with("```"))) {
       line.split('`').skip(1).step_by(2).collect()
+    } else if !prose && !source {
+      config_code(line)
     } else {
       vec![line]
     };
-    // the words of the string literals of a source line, which name no library
+    // the names of the string literals of a source line, which name no library
     let quoted: HashSet<&str> = if source {
-      line
-        .split('"')
-        .skip(1)
-        .step_by(2)
-        .flat_map(|text| text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')))
-        .collect()
+      line.split(quotes).skip(1).step_by(2).flat_map(literal_runs).collect()
     } else {
       HashSet::new()
     };
     for text in code {
-      for run in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+      for run in text.split(|c: char| !is_run(c)) {
         if source && !quoted.contains(run) && !declared.contains(&run.to_lowercase()) {
           continue;
         }
@@ -748,6 +751,96 @@ fn node_tokens(path: &str, lines: &[&str], declared: &HashSet<String>) -> BTreeS
   tokens
 }
 
+/// A character of an identifier
+const fn is_run(c: char) -> bool {
+  c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// The runs of the text of a string literal: all of a name or a key (`zebrafish-mode`), the compound ones of a
+/// sentence (`"Show showAgentSessions on the left"`)
+fn literal_runs(text: &str) -> Vec<&str> {
+  let runs = text.split(|c: char| !is_run(c));
+  if text.contains(' ') {
+    runs.filter(|run| compound(run)).collect()
+  } else {
+    runs.collect()
+  }
+}
+
+/// The code of a line of a config: the line without the keys of its fields, a sentence it quotes as its compound
+/// names (`literal_runs`). A key names a field of a schema when a value of its own follows on the line and is no
+/// object, or an empty one (`"side": "ide"`, `"answers": []`, `"params": {}`, `timeout = 30`, `- side: ide`): every
+/// entry repeats it; a key of an object names an entry (`"ijproxy": {`, `[mcp_servers.ijproxy]`, `ijproxy:`), the
+/// evidence of a task
+fn config_code(line: &str) -> Vec<&str> {
+  // whether `rest`, the text after a key, starts a value of its own (`more`: a quoted value follows) that is no object
+  let field = |rest: &str, more: bool| {
+    rest.trim_start().strip_prefix([':', '=']).is_some_and(|value| {
+      let value = value.trim();
+      if value.is_empty() { more } else { !value.starts_with('{') || value.starts_with("{}") }
+    })
+  };
+  let parts: Vec<&str> = line.split('"').collect();
+  let mut code = Vec::new();
+  for (place, &part) in parts.iter().enumerate() {
+    let more = place + 2 < parts.len();
+    if place % 2 == 1 {
+      if !field(parts.get(place + 1).copied().unwrap_or_default(), more) {
+        code.extend(literal_runs(part));
+      }
+    } else if place == 0 {
+      // an unquoted key at the start of the line, of TOML or YAML
+      let body = part.trim_start().trim_start_matches("- ");
+      let end = body.find(|c: char| !(is_run(c) || c == '.')).unwrap_or(body.len());
+      if end > 0 && field(&body[end..], parts.len() > 1) {
+        let rest = body[end..].trim_start();
+        code.push(&rest[1..]);
+      } else {
+        code.push(part);
+      }
+    } else {
+      code.push(part);
+    }
+  }
+  code
+}
+
+/// Whether a run of a sentence is a name rather than a word: it holds `_`, `-` or a digit, or a capital past its first
+/// letter (`sessions-window-show`, `toolWindowId`, `v2`)
+fn compound(run: &str) -> bool {
+  let run = run.trim_matches(['_', '-']);
+  run.contains(['_', '-']) || run.contains(|c: char| c.is_ascii_digit()) || run.chars().skip(1).any(|c| c.is_ascii_uppercase())
+}
+
+/// The spelling of `token` (lowercase) that the changed lines of the nodes `of` write most often as a word, the first
+/// of equal ones: a concern is named `activatesProjectViewOnStartup`, as its code writes it, though tokens match in
+/// lowercase
+fn spelling_of<'a>(nodes: &[Node<'a>], of: impl Iterator<Item = usize>, token: &str) -> String {
+  let mut written: Vec<(&'a str, usize)> = Vec::new();
+  for node in of {
+    for &line in nodes[node].removed.iter().chain(&nodes[node].added) {
+      // ASCII lowercase keeps the byte offsets of `line`
+      let lower = line.to_ascii_lowercase();
+      for (start, _) in lower.match_indices(token) {
+        let end = start + token.len();
+        if lower[..start].chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric()) || lower[end..].chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) {
+          continue;
+        }
+        let spelling = &line[start..end];
+        match written.iter_mut().find(|(other, _)| *other == spelling) {
+          Some((_, count)) => *count += 1,
+          None => written.push((spelling, 1)),
+        }
+      }
+    }
+  }
+  let most = written.iter().map(|(_, count)| *count).max().unwrap_or(0);
+  written
+    .iter()
+    .find(|(_, count)| *count == most)
+    .map_or_else(|| token.to_string(), |(spelling, _)| (*spelling).to_string())
+}
+
 /// The place of the first changed line of `node` that holds `token`, removed lines first; past them when none does
 fn first_line_of(node: &Node<'_>, token: &str) -> usize {
   let lines: Vec<&str> = node.removed.iter().chain(&node.added).copied().collect();
@@ -762,8 +855,8 @@ struct RareToken {
 }
 
 /// The name of a concern a token joined (its nodes `inside`): of the tokens with most of their nodes inside, those of
-/// the most nodes inside, a simple word first, the one their changed lines name first (the heading of a block), the longer; a removed one and
-/// an added one of the same nodes are a replacement
+/// the most nodes inside, a whole identifier before a part of one, a simple word first, the one their changed lines
+/// name first (the heading of a block), the longer; a removed one and an added one of the same nodes are a replacement
 fn token_name(nodes: &[Node<'_>], rare: &[RareToken], inside: &HashSet<usize>) -> Option<ConcernName> {
   let best = |removed: bool| {
     let within = |rare: &RareToken| rare.nodes.iter().filter(|node| inside.contains(node)).count();
@@ -780,14 +873,23 @@ fn token_name(nodes: &[Node<'_>], rare: &[RareToken], inside: &HashSet<usize>) -
             .map(|&node| first_line_of(&nodes[node], &rare.token))
             .sum()
         };
+        // a whole identifier before a part of one (`kept` of `sessions-window-agent-sessions-kept`): a token that a rare
+        // token of as many nodes inside holds between `_` and `-` is a part
+        let whole = |part: &RareToken| {
+          !rare
+            .iter()
+            .any(|other| other.token != part.token && within(other) >= within(part) && other.token.split(['-', '_']).any(|segment| segment == part.token))
+        };
         within(a)
           .cmp(&within(b))
+          .then(whole(a).cmp(&whole(b)))
           .then(simple(&a.token).cmp(&simple(&b.token)))
           .then(first(b).cmp(&first(a)))
           .then(a.token.len().cmp(&b.token.len()))
           .then(b.token.cmp(&a.token))
       })
   };
+  let spelling = |rare: &RareToken| spelling_of(nodes, rare.nodes.iter().copied().filter(|node| inside.contains(node)), &rare.token);
   match (best(true), best(false)) {
     (Some(removed), Some(added))
       if removed
@@ -797,14 +899,14 @@ fn token_name(nodes: &[Node<'_>], rare: &[RareToken], inside: &HashSet<usize>) -
         .eq(added.nodes.iter().filter(|node| inside.contains(node))) =>
     {
       Some(ConcernName::Replacement {
-        removed: removed.token.clone(),
-        added: added.token.clone(),
+        removed: spelling(removed),
+        added: spelling(added),
       })
     }
     (Some(one), Some(other)) => Some(ConcernName::Token {
-      token: if one.nodes.len() >= other.nodes.len() { one } else { other }.token.clone(),
+      token: spelling(if one.nodes.len() >= other.nodes.len() { one } else { other }),
     }),
-    (Some(one), None) | (None, Some(one)) => Some(ConcernName::Token { token: one.token.clone() }),
+    (Some(one), None) | (None, Some(one)) => Some(ConcernName::Token { token: spelling(one) }),
     (None, None) => None,
   }
 }
@@ -866,7 +968,17 @@ fn assemble(
       .remove(&root)
       .unwrap_or_default()
       .into_iter()
-      .map(|((kind, detail), joins)| ConcernEvidence { kind, detail, joins })
+      .map(|((kind, detail), joins)| ConcernEvidence {
+        kind,
+        detail: detail.map(|detail| {
+          if kind == EvidenceKind::Token {
+            spelling_of(nodes, of.iter().copied(), &detail)
+          } else {
+            detail
+          }
+        }),
+        joins,
+      })
       .collect();
     evidence.sort_by(|a, b| b.joins.cmp(&a.joins).then(a.kind.cmp(&b.kind)).then(a.detail.cmp(&b.detail)));
     let mut parts = parts_of(units, nodes, &of);
