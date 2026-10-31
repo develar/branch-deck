@@ -1072,7 +1072,7 @@ impl Run<'_> {
         // that shows it; the copies are built on the fork point of the checked out branch, so the update onto the moved
         // target builds them anew (`land_direct::update_after`: the app runs it, `bd land` names it)
         let (git, path, upstream) = (self.services.git.clone(), self.services.repository_path.clone(), report.upstream);
-        let fetched = blocking(move || fetch_baseline(&git, &path, &upstream, &mut |_| {}).map_err(git_failure)).await;
+        let fetched = blocking(move || fetch_baseline(&git, &path, &upstream, &mut |_| {}, &|| false).map_err(git_failure)).await;
         let after = match fetched {
           Ok(_) => {
             self.host.baseline_fetched();

@@ -176,10 +176,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`a_failed_fetch_is_not_repeated`)
 - A fetch beside another fetch of the same tracking ref, of any process (`bd update` in a lease while the app updates
-  or fetches: one common dir), must wait for it while its process lives and take its result once the ref moved: one
-  transfer, both succeed, and a forced update gives both the old tip. A fetch whose holder failed or was killed, or
-  fetched another tracking ref, fetches itself once the other one ended; neither fails on the other's ref lock.
+  or fetches: one common dir), must wait for it while its process lives and take its result once it ended well,
+  also when the remote had nothing new, or once the ref moved: one transfer, both succeed, and a forced update gives
+  both the old tip. A fetch whose holder failed or was killed, or fetched another tracking ref, fetches itself once the
+  other one ended; neither fails on the other's ref lock. The user's stop of the app's update must end its wait.
   [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_beside_another_fetch_of_its_tracking_ref_takes_its_result`, `a_fetch_that_joins_a_forced_update_returns_the_old_tip`)
+  [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_beside_another_that_found_nothing_new_takes_its_result`, `a_canceled_wait_for_another_fetch_ends_without_a_transfer`)
   [@test] ../../crates/sync-core/src/fetch_lock_test.rs (`a_fetch_that_waited_for_one_that_failed_fetches_itself`, `a_fetch_of_another_tracking_ref_waits_and_fetches_itself`, `a_fetch_after_a_killed_holder_fetches_at_once`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_fetch_of_the_app_beside_bd_update_takes_its_transfer`)
 - After the fetch, the update must check (the replay, the resolution by words, the landed candidates) without the

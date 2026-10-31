@@ -469,7 +469,7 @@ fn the_fetch_of_the_app_beside_bd_update_takes_its_transfer() {
   };
   let app_git = clone.git_executor();
   let fetched = std::thread::scope(|scope| {
-    let fetch = scope.spawn(move || fetch_baseline_core(app_git, &params, &mut |line| progress.send(line).unwrap()));
+    let fetch = scope.spawn(move || fetch_baseline_core(app_git, &params, &mut |line| progress.send(line).unwrap(), &|| false));
     let waiting = lines.recv().expect("the app's fetch tells whom it waits for").line;
     assert!(
       waiting.starts_with("Fetching origin/master with `") && waiting.contains(&format!("(pid {}, ", agent.pid())),

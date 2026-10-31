@@ -149,18 +149,21 @@ async fn fetch_run(registry: &Registry, key: &SessionKey, hosts: Hosts<'_>, even
 /// # Errors
 /// The failed fetch as the host words it; a local baseline, which has nothing to fetch
 async fn fetch(guard: &RunningGuard, hosts: Hosts<'_>, key: &SessionKey) -> Result<FetchedBaseline, ApiError> {
-  let (git, stepper) = (hosts.services.git(), guard.stepper());
+  let (git, stepper, canceled) = (hosts.services.git(), guard.stepper(), guard.canceled());
   let params = FetchBaselineParams {
     repository_path: key.worktree.clone(),
   };
   let fetched = blocking(move || {
     let mut transferred = None;
-    let fetched = fetch_baseline_core(&git, &params, &mut |tick| {
+    // a wait for the fetch of another process ends when the user stops the update
+    let canceled = || canceled.load(std::sync::atomic::Ordering::Relaxed);
+    let on_tick = &mut |tick: TransferProgress| {
       if tick.transferred.is_some() {
         transferred.clone_from(&tick.transferred);
       }
       stepper.progress(&tick);
-    });
+    };
+    let fetched = fetch_baseline_core(&git, &params, on_tick, &canceled);
     Ok(fetched.map(|fetched| FetchedBaseline {
       upstream: fetched.upstream,
       fetched_at: fetched.fetched_at,

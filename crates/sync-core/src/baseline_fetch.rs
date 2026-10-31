@@ -28,23 +28,34 @@ pub struct FetchBaselineResult {
   pub fetched_at: u32,
 }
 
-/// Fetch only the baseline's remote branch into its tracking ref; `on_progress` gets how far the fetch is. A local
-/// baseline is an error: there is nothing to fetch.
-#[instrument(skip(git_executor, params, on_progress), fields(repository_path = %params.repository_path))]
-pub fn fetch_baseline_core(git_executor: &GitCommandExecutor, params: &FetchBaselineParams, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<FetchBaselineResult> {
+/// Fetch only the baseline's remote branch into its tracking ref; `on_progress` gets how far the fetch is, `canceled`
+/// stops a wait for another fetch (`baseline::fetch_baseline`). A local baseline is an error: there is nothing to fetch.
+#[instrument(skip(git_executor, params, on_progress, canceled), fields(repository_path = %params.repository_path))]
+pub fn fetch_baseline_core(
+  git_executor: &GitCommandExecutor,
+  params: &FetchBaselineParams,
+  on_progress: &mut dyn FnMut(TransferProgress),
+  canceled: &dyn Fn() -> bool,
+) -> Result<FetchBaselineResult> {
   let repo_path = &params.repository_path;
-  fetch_baseline_of(git_executor, repo_path, read_baseline(git_executor, repo_path)?, on_progress)
+  fetch_baseline_of(git_executor, repo_path, read_baseline(git_executor, repo_path)?, on_progress, canceled)
 }
 
 /// `fetch_baseline_core` of the baseline the caller read (`bd`, `RepoContext::baseline`): the fetch only
 ///
 /// # Errors
 /// A local baseline, the fetch failing
-pub fn fetch_baseline_of(git_executor: &GitCommandExecutor, repo_path: &str, baseline: Baseline, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<FetchBaselineResult> {
+pub fn fetch_baseline_of(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  baseline: Baseline,
+  on_progress: &mut dyn FnMut(TransferProgress),
+  canceled: &dyn Fn() -> bool,
+) -> Result<FetchBaselineResult> {
   let Baseline { name, upstream, .. } = baseline;
   let upstream = upstream.ok_or_else(|| anyhow!("The baseline {name} is a local branch: there is nothing to fetch"))?;
   // a forced update needs no note: the next update check excludes the old tip by the fork point of the reflog
-  fetch_baseline(git_executor, repo_path, &upstream, on_progress).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
+  fetch_baseline(git_executor, repo_path, &upstream, on_progress, canceled).map_err(|e| anyhow!("Failed to fetch {}: {e:#}", upstream.name))?;
   Ok(FetchBaselineResult {
     upstream: upstream.name,
     fetched_at: unix_now(),

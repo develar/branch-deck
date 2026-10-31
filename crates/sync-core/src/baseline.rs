@@ -116,12 +116,19 @@ fn remote_of<'a>(baseline_branch: &'a str, remote: &str) -> Option<&'a str> {
 /// The fetch holds the fetch lock of the repository (`fetch_lock`): beside another fetch of the same tracking ref, of
 /// any process (`bd update` in a lease beside the app's Update Project or Fetch: one common dir, one
 /// `refs/remotes/origin/master`), it waits while that one's holder lives, `on_progress` naming the holder, and takes its
-/// result when the ref moved meanwhile: one transfer for both
-#[instrument(skip(git_executor, on_progress))]
-pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstream: &BaselineUpstream, on_progress: &mut dyn FnMut(TransferProgress)) -> Result<Option<String>> {
-  let _lock = match take_fetch_turn(git_executor, repo_path, upstream, on_progress)? {
+/// result when that one ended well or the ref moved meanwhile: one transfer for both. `canceled` stops the wait
+/// (`LockWaitCanceled`): the app's operation that the user stopped
+#[instrument(skip(git_executor, on_progress, canceled))]
+pub fn fetch_baseline(
+  git_executor: &GitCommandExecutor,
+  repo_path: &str,
+  upstream: &BaselineUpstream,
+  on_progress: &mut dyn FnMut(TransferProgress),
+  canceled: &dyn Fn() -> bool,
+) -> Result<Option<String>> {
+  let own = match take_fetch_turn(git_executor, repo_path, upstream, on_progress, canceled)? {
     FetchTurn::Joined { previous } => return Ok(previous),
-    FetchTurn::Own(lock) => lock,
+    FetchTurn::Own(own) => own,
   };
   let refspec = format!("+{}:{}", upstream.remote_ref, upstream.tracking_ref);
   let args = [
@@ -135,6 +142,7 @@ pub fn fetch_baseline(git_executor: &GitCommandExecutor, repo_path: &str, upstre
     &refspec,
   ];
   let output = execute_remote_command_with_progress(git_executor, &args, repo_path, &[], on_progress)?.into_text();
+  own.fetched();
   Ok(previous_tip_of_forced_update(&output, &upstream.tracking_ref))
 }
 

@@ -128,12 +128,12 @@ impl TargetFetch {
 /// caller read (`known`, `bd`), else read now. Never under the repository lock
 pub fn fetch_target(git_executor: &GitCommandExecutor, repository_path: &str, known: Option<Baseline>) -> TargetFetch {
   let fetched = if let Some(baseline) = known {
-    fetch_baseline_of(git_executor, repository_path, baseline, &mut |_| {})
+    fetch_baseline_of(git_executor, repository_path, baseline, &mut |_| {}, &|| false)
   } else {
     let params = FetchBaselineParams {
       repository_path: repository_path.to_string(),
     };
-    fetch_baseline_core(git_executor, &params, &mut |_| {})
+    fetch_baseline_core(git_executor, &params, &mut |_| {}, &|| false)
   };
   match fetched {
     Ok(fetched) => TargetFetch::Fetched { upstream: fetched.upstream },

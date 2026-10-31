@@ -1227,11 +1227,15 @@ Details:
   second fetch, of any process, waits in the line of its process, then for the file lock, as long as the holder's
   record names a live process (`lock_file_while_held_for`; only a lock no record names for 10 s refuses), its progress
   naming the holder about once a second: "Fetching origin/master with `bd update` (pid 4242, for 3 s)…" (percent 0;
-  `bd` shows none). Waiting for a holder of the same tracking ref, it reads the ref when it first sees that holder
-  (`rev-parse --verify`) and once the lock is its own: a ref that moved is the other fetch's result, taken without a
-  transfer (`FetchTurn::Joined`), the old tip returned when it was a forced update (`merge-base --is-ancestor`, one
-  process), as its own fetch would have. A ref that did not move (the remote had nothing new, the holder failed or was
-  killed, which frees the lock with its process; its stale record names nobody) and a holder of another tracking ref
+  `bd` shows none); the app's operation stops the wait when the user stops it (`canceled`, `LockWaitCanceled`; the
+  Update Project of the engine, `operations::update::fetch`, and the fetch of the app's update). Waiting for a holder of
+  the same tracking ref, it reads the ref when it first sees that holder (`rev-parse --verify`) and once the lock is its
+  own: a ref that moved is the other fetch's result, taken without a transfer (`FetchTurn::Joined`), the old tip
+  returned when it was a forced update (`merge-base --is-ancestor`, one process), as its own fetch would have. A holder
+  that ended well writes when, per tracking ref, into `fetch-outcomes.json` beside the lock before it releases it
+  (`OwnFetch::fetched`, an atomic write, no process): an outcome after the waiter first saw it is its result too,
+  also when the remote had nothing new and the ref did not move. A holder that failed or was killed (which frees the
+  lock with its process; its stale record names nobody, and it wrote no outcome) and a holder of another tracking ref
   (the baseline of another worktree: one lock for all) leave the fetch to it, under the lock. The lock is held across
   the network, unlike every other lock of Branch Deck, because it serializes nothing but the fetches it joins; it is
   never the repository lock, so a fetch never blocks a writer. Before it, two fetches of one ref (the app beside the

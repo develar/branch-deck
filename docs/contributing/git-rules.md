@@ -265,7 +265,8 @@ part ([Push into the baseline](../design/git-operations.md#push-into-the-baselin
 The baseline is fetched only by `sync_core::baseline::fetch_baseline` (the app's Update Project and
 Fetch, `bd update`), which holds `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its fetch (`fetch_lock.rs`, its one
 taker: `registry_scan_test.rs`), its record naming the tracking ref: a second fetch of any process waits while the
-holder lives and takes its result when the ref moved, one transfer; no retry on `cannot lock ref`, no clean rule
+holder lives and takes its result when that one ended well (`fetch-outcomes.json` beside the lock) or the ref moved,
+one transfer; no retry on `cannot lock ref`, no clean rule
 ([Update project](../design/git-operations.md#update-project), Fetch lock).
 
 ## Git config writes

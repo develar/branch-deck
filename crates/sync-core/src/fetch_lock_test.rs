@@ -62,7 +62,7 @@ fn upstream_of(branch: &str) -> BaselineUpstream {
 
 /// A fetch of `upstream` in `remote` through `git`, its progress sent to `progress`
 fn fetch(remote: &Remote, git: &GitCommandExecutor, upstream: &BaselineUpstream, progress: &mpsc::Sender<TransferProgress>) -> anyhow::Result<Option<String>> {
-  fetch_baseline(git, remote.path(), upstream, &mut |line| progress.send(line).unwrap())
+  fetch_baseline(git, remote.path(), upstream, &mut |line| progress.send(line).unwrap(), &|| false)
 }
 
 /// The fetch of `remote` that holds the lock, in `scope`, and one through `waiter` that starts once the first one
@@ -137,6 +137,32 @@ fn a_fetch_that_joins_a_forced_update_returns_the_old_tip() {
   assert_eq!((fetched.held.unwrap(), fetched.waited.unwrap()), (Some(old_tip.clone()), Some(old_tip)));
   assert_eq!(remote.upload_pack.runs(), 1);
   assert_eq!(remote.tracking_tip("master"), remote.upstream.head());
+}
+
+/// The fetch waited for ended well, but the remote had nothing new, so the ref did not move: the waiter joins it all the
+/// same, by the outcome the holder wrote under the lock, instead of a transfer of its own
+#[test]
+fn a_fetch_beside_another_that_found_nothing_new_takes_its_result() {
+  let remote = Remote::new(SERVE);
+  let tip = remote.tracking_tip("master");
+  remote.upstream.git(&["reset", "--hard", "HEAD~1"]);
+  let git = GitCommandExecutor::new();
+  let fetched = beside_a_held_fetch(&remote, &git, &git, &master());
+  assert_eq!((fetched.held.unwrap(), fetched.waited.unwrap()), (None, None));
+  assert_eq!(remote.upload_pack.runs(), 1, "one transfer");
+  assert_eq!(remote.tracking_tip("master"), tip);
+}
+
+/// The user stops the app's wait for the fetch of another process: the wait ends with `LockWaitCanceled`, no transfer
+#[test]
+fn a_canceled_wait_for_another_fetch_ends_without_a_transfer() {
+  let remote = Remote::new(SERVE);
+  remote.upload_pack.release();
+  let common_dir = PathBuf::from(remote.clone.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]));
+  let _other = crate::fetch_lock::hold_fetch_as_another_process(&common_dir, "refs/remotes/origin/master", "bd update").unwrap();
+  let error = fetch_baseline(&GitCommandExecutor::new(), remote.path(), &master(), &mut |_| {}, &|| true).unwrap_err();
+  assert!(error.downcast_ref::<history_rewrite::repository_lock::LockWaitCanceled>().is_some(), "{error:#}");
+  assert_eq!(remote.upload_pack.runs(), 0);
 }
 
 /// The fetch waited for failed (the network, the remote) and left the ref where it was: the waiter fetches itself, once

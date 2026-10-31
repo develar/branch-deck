@@ -11,7 +11,7 @@ fn fetch(repo_path: &str, repo: &TestRepo) -> anyhow::Result<FetchBaselineResult
   let params = FetchBaselineParams {
     repository_path: repo_path.to_string(),
   };
-  fetch_baseline_core(repo.git_executor(), &params, &mut |_| {})
+  fetch_baseline_core(repo.git_executor(), &params, &mut |_| {}, &|| false)
 }
 
 #[test]

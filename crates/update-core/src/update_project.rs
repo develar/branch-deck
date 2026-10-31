@@ -181,7 +181,9 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
         fetch: Some(fetch),
       });
     };
-    let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress).map_err(|e| {
+    // the app's update stops a wait for the fetch of another process as it stops its wait for the repository lock
+    let canceled = || matches!(options.lock_wait, LockWait::WhileHeld(waiter) if waiter.canceled());
+    let previous = fetch_baseline(git_executor, repo_path, &upstream, &mut on_fetch_progress, &canceled).map_err(|e| {
       anyhow::Error::new(FetchFailed {
         upstream: upstream.name.clone(),
         message: format!("{e:#}"),
