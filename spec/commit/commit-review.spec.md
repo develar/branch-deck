@@ -268,7 +268,8 @@ where a dialog would cover it.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits, and on the
-  right the hints `J K Files`, `N P Changes`, `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
+  right the hints `J K Files`, `N P Changes`, `F Sidebar`, `I Details` while a row of the tree has the focus
+  ([Review Plan](../branch/review-plan.spec.md)), `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
   `Esc Close`.
 - The preview's footer keeps `D Review Changes` (the window opens), `F Files`, `E Edit` and `Space Close`.
 

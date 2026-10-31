@@ -255,6 +255,55 @@ test.describe("The review plan in the branch review", () => {
     },
   )
 
+  test(
+    "should open the card of a row's mark by I on the focused row, the focus on its first file, Enter selecting it and Escape giving the focus back to the row",
+    { tag: "@webkit" },
+    async ({ page, setupRepo, syncAndWaitForBranches }) => {
+      await setupPlan(await setupRepo("symbol_navigation"), { experimental: true })
+      const window = await openPlanWindow(page, syncAndWaitForBranches)
+      const { reader, cache, store } = planRows(window)
+      const card = window.getByTestId("file-facts-card")
+      const footer = window.getByTestId("branch-review-footer")
+      const link = card.getByTestId("file-link")
+
+      // the focused row: the hints name I
+      await reader.getByText("Reader.kt", { exact: true }).click()
+      await expect(reader).toBeFocused()
+      await expect(footer).toContainText("Details")
+
+      // I opens the card of Reader, the focus on its link; Escape closes it alone, the focus back on the row
+      await window.keyboard.press("i")
+      await expect(card).toBeVisible()
+      await expect(link).toHaveAttribute("data-path", "src/b/Cache.kt")
+      await expect(link).toBeFocused()
+      await expect(footer).not.toContainText("Details")
+      await window.keyboard.press("Escape")
+      await expect(card).toHaveCount(0)
+      await expect(reader).toBeFocused()
+      await expect(footer).toContainText("Details")
+
+      // Enter on the link selects Cache and closes the card, the focus back on the row it was opened from
+      await window.keyboard.press("i")
+      await expect(link).toBeFocused()
+      await expect(cache).toHaveAttribute("aria-selected", "false")
+      await window.keyboard.press("Enter")
+      await expect(cache).toHaveAttribute("aria-selected", "true")
+      await expect(card).toHaveCount(0)
+      await expect(reader).toBeFocused()
+      await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+
+      // the card of Store lists no file: the card takes the focus, and its Escape is the card's, not the window's
+      await store.getByText("Store.kt", { exact: true }).click()
+      await expect(store).toBeFocused()
+      await window.keyboard.press("i")
+      await expect(card.getByTestId("file-facts-breaks")).toHaveText("breaks 3 · 3 uses left outside the change")
+      await expect(card).toBeFocused()
+      await window.keyboard.press("Escape")
+      await expect(card).toHaveCount(0)
+      await expect(store).toBeFocused()
+    },
+  )
+
   test("should select a linked file under an owner chip, which hides none, and clear only a search that hides it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)

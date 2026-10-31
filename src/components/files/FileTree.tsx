@@ -101,7 +101,8 @@ const CHEVRON_MIDDLE = "7px"
  * or selects the file. One row is in the tab order (roving focus): ↑/↓, Home and End move between the rows, → opens
  * and ← closes or goes to the parent, Space and Enter toggle. The keys the tree handles are `preventDefault`ed, so the
  * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it. A row's name comes first: the
- * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C.
+ * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C. `I` opens the card of
+ * the row's mark (`FileRowMark`).
  */
 export function FileTree(props: FileTreeProps) {
   const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, commitRows = null } = props
@@ -116,6 +117,13 @@ export function FileTree(props: FileTreeProps) {
   // the row in the tab order: the focused one while it shows, then the selected one, otherwise the first
   const tabKey = [focusedKey, selectedKey].find(key => key !== null && rows.some(row => row.key === key)) ?? rows[0]?.key ?? null
   const rowElements = useRef(new Map<string, HTMLElement>())
+  // the one open card of a row's mark, by the key of its row: by the hover of the mark or by `I` on the row
+  const [card, setCard] = useState<OpenCard | null>(null)
+
+  // memoized by the compiler: the rows are memoized
+  const changeCard = (key: string, open: boolean) => {
+    setCard(current => (open ? { key, byKey: false } : current?.key === key ? null : current))
+  }
 
   // a file selected elsewhere (the diffs scrolled, J and K) scrolls into view
   useEffect(() => {
@@ -168,6 +176,14 @@ export function FileTree(props: FileTreeProps) {
     const index = rows.findIndex(row => row.key === key)
     const node = rows[index]
     if (node === undefined) {
+      return
+    }
+    // the physical key, in any keyboard layout: the card of the row's mark, a row without a mark leaves it alone
+    if (event.code === "KeyI") {
+      if (markFacts(node, badges) !== null) {
+        event.preventDefault()
+        setCard({ key: node.key, byKey: true })
+      }
       return
     }
     const isOpen = isRowOpen(node, collapsed, expandedFiles)
@@ -240,6 +256,8 @@ export function FileTree(props: FileTreeProps) {
           fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
           dependencyBadge={badges?.dependencies.get(node.key)}
           onSelectPlace={badges?.onSelectPlace}
+          card={card?.key === node.key ? (card.byKey ? "key" : "hover") : null}
+          onCardChange={changeCard}
           muted={marks !== null && isMuted(node, marks)}
           ownerMark={marks === null ? null : ownerMarkOf(node, marks)}
           commitMenu={node.kind === "commit" ? commitRows?.menu : undefined}
@@ -248,6 +266,17 @@ export function FileTree(props: FileTreeProps) {
       ))}
     </div>
   )
+}
+
+/** The open card of a row's mark: its row, and whether `I` opened it (the focus is in it) */
+interface OpenCard {
+  key: string
+  byKey: boolean
+}
+
+/** The facts of a row's one mark, null for a row without a mark: the same the row shows (`FileTreeRow`) */
+function markFacts(node: FileTreeNode, badges: FileTreeBadges | null) {
+  return badges === null ? null : presentRowFacts(node.kind === "file" ? badges.files.get(node.key) : undefined, badges.dependencies.get(node.key))
 }
 
 /**
@@ -309,6 +338,10 @@ interface FileTreeRowProps {
   fileBadges: FileBadges | undefined
   dependencyBadge: DependencyBadge | undefined
   onSelectPlace: ((place: ReviewPlace) => void) | undefined
+  /** The card of the mark when it is open, and by what: the hover of the mark or `I` on the row */
+  card: "hover" | "key" | null
+  /** Opens or closes the card of a row's mark; must keep its identity */
+  onCardChange: (key: string, open: boolean) => void
   /** Holds no file of the chosen owner chip: played down, it stays in the story */
   muted: boolean
   /** The files of the chosen owner a step row shows: "Design 2" */
@@ -331,6 +364,8 @@ const FileTreeRow = memo(function FileTreeRow({
   fileBadges,
   dependencyBadge,
   onSelectPlace,
+  card,
+  onCardChange,
   muted,
   ownerMark,
   commitMenu,
@@ -415,7 +450,16 @@ const FileTreeRow = memo(function FileTreeRow({
         ) : (
           <FileRowContent node={node} owner={owner} />
         )}
-        {facts !== null && onSelectPlace !== undefined && <FileRowMark facts={facts} onSelectPlace={onSelectPlace} />}
+        {facts !== null && onSelectPlace !== undefined && (
+          <FileRowMark
+            facts={facts}
+            onSelectPlace={onSelectPlace}
+            open={card !== null}
+            openedByKey={card === "key"}
+            onOpenChange={open => onCardChange(node.key, open)}
+            focusRow={() => rowElements.current.get(node.key)?.focus()}
+          />
+        )}
         {node.kind === "directory" ? node.group !== "commits" && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </RowMenu>
       {content !== null && (

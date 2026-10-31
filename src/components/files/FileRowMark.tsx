@@ -1,5 +1,4 @@
-import { useState } from "react"
-import type { MouseEvent } from "react"
+import type { KeyboardEvent, MouseEvent } from "react"
 import { cn } from "cn"
 import { InfoIcon, TriangleAlertIcon } from "lucide-react"
 import { PopoverContent, PopoverSectionTitle, PopoverTrigger } from "@/components/ui/popover"
@@ -13,8 +12,9 @@ import type { LinkEntry, RowFacts, RowFactsSection } from "@/presenters/review-p
  * details on demand. The row shows at most one small mark, in the warning tone when its file breaks uses left outside
  * the change; its hover opens the card of the facts: what it breaks, its links among the changed files, the same edit
  * as other files, and the dependency changes the row carries. The presenter words them (`presentRowFacts`); a click on
- * a file in the card selects it and closes the card. The tests that name its code are those of its step
- * (spec/branch/review-tour.spec.md).
+ * a file in the card selects it and closes the card. `I` on the focused row opens the card from the keyboard, the
+ * focus on its first file; Escape closes it and gives the focus back to the row. The tests that name its code are those
+ * of its step (spec/branch/review-tour.spec.md).
  */
 
 /** A click on the mark or in its card acts there only: the row under it does not select or toggle */
@@ -23,14 +23,59 @@ function keepFromRow(event: MouseEvent) {
 }
 
 /**
- * The mark of a row; its hover opens the card of its facts (`HoverDescription`, after a move of the pointer). Not a tab
- * stop: the description of the row says every fact, and the links are in the diffs and the Review Summary too
+ * The first file of a card opened by the key takes the focus as it mounts, the card itself when it lists none (Breaks
+ * alone), so its Escape is the card's; no scroll while the card is not placed yet
  */
-export function FileRowMark({ facts, onSelectPlace }: { facts: RowFacts; onSelectPlace: (place: ReviewPlace) => void }) {
-  const [open, setOpen] = useState(false)
+function focusFirstFile(popup: HTMLElement | null) {
+  const target = popup?.querySelector<HTMLElement>("button") ?? popup
+  target?.focus({ preventScroll: true })
+}
+
+export interface FileRowMarkProps {
+  facts: RowFacts
+  onSelectPlace: (place: ReviewPlace) => void
+  /** The tree keeps one card open: by the hover of the mark, or by `I` on the row */
+  open: boolean
+  /** Opened by `I` on the row: the focus moves into the card, and goes back to the row as the card closes by Escape or a file */
+  openedByKey: boolean
+  onOpenChange: (open: boolean) => void
+  /** Gives the focus back to the row of the mark */
+  focusRow: () => void
+}
+
+/**
+ * The mark of a row; its hover opens the card of its facts (`HoverDescription`, after a move of the pointer), and so does
+ * `I` on its row. Not a tab stop: the description of the row says every fact, and the links are in the diffs and the
+ * Review Summary too
+ */
+export function FileRowMark({ facts, onSelectPlace, open, openedByKey, onOpenChange, focusRow }: FileRowMarkProps) {
   const Icon = facts.tone === "warning" ? TriangleAlertIcon : InfoIcon
+  const close = (giveFocusBack: boolean) => {
+    onOpenChange(false)
+    if (giveFocusBack && openedByKey) {
+      focusRow()
+    }
+  }
+  // the Escape of the card is not the window's (Overview, Close)
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault()
+      close(true)
+    }
+  }
   return (
-    <HoverDescription lazy open={open} onOpenChange={setOpen}>
+    <HoverDescription
+      lazy
+      open={open}
+      onOpenChange={(next, eventDetails) => {
+        if (next) {
+          onOpenChange(true)
+        } else {
+          // a click or the focus elsewhere keeps it where it went
+          close(eventDetails.reason === "escape-key")
+        }
+      }}
+    >
       <PopoverTrigger
         openOnHover
         delay={300}
@@ -52,14 +97,19 @@ export function FileRowMark({ facts, onSelectPlace }: { facts: RowFacts; onSelec
         align="end"
         className="w-80 gap-3 p-3"
         data-testid="file-facts-card"
+        // the card moves the focus itself: by the key into it and back to the row, by the hover never
+        initialFocus={false}
+        finalFocus={false}
+        ref={openedByKey ? focusFirstFile : undefined}
         // the popup is in a portal, but React bubbles its events through the row: a click here must not toggle it
         onClick={keepFromRow}
         onContextMenu={keepFromRow}
+        onKeyDown={handleKeyDown}
       >
         <FileFactsCard
           facts={facts}
           onSelectPlace={place => {
-            setOpen(false)
+            close(true)
             onSelectPlace(place)
           }}
         />

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { Kbd } from "@/components/ui/kbd"
 import { KeyHint } from "@/components/shared/PreviewDialogFrame"
 import { isMac } from "@/lib/platform"
@@ -9,9 +10,35 @@ export interface ReviewKeyHintsProps {
   escape: string
 }
 
-/** The keys of a review, the same on every surface: the files, the changes, the commits and Escape */
+/** A row of a tree (`FileTree`): its keys are its own */
+function isTreeRow(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.dataset.treeKey !== undefined
+}
+
+/** Whether a row of the tree of the files has the focus */
+function useTreeRowFocused(): boolean {
+  const [focused, setFocused] = useState(() => isTreeRow(document.activeElement))
+  useEffect(() => {
+    const focusIn = (event: FocusEvent) => setFocused(isTreeRow(event.target))
+    // the focus goes nowhere (a click on no control): no row has it
+    const focusOut = (event: FocusEvent) => setFocused(isTreeRow(event.relatedTarget))
+    document.addEventListener("focusin", focusIn)
+    document.addEventListener("focusout", focusOut)
+    return () => {
+      document.removeEventListener("focusin", focusIn)
+      document.removeEventListener("focusout", focusOut)
+    }
+  }, [])
+  return focused
+}
+
+/**
+ * The keys of a review, the same on every surface: the files, the changes, the commits and Escape; while a row of the
+ * tree has the focus, `I` for the card of its mark
+ */
 export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
   const option = isMac ? "⌥" : "Alt+"
+  const treeRowFocused = useTreeRowFocused()
   return (
     <>
       <KeyHint
@@ -35,6 +62,7 @@ export function ReviewKeyHints({ commits, escape }: ReviewKeyHintsProps) {
         Changes
       </KeyHint>
       <KeyHint keys={<Kbd>F</Kbd>}>Sidebar</KeyHint>
+      {treeRowFocused && <KeyHint keys={<Kbd>I</Kbd>}>Details</KeyHint>}
       {commits && (
         <KeyHint
           keys={

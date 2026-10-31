@@ -602,6 +602,11 @@ the repeated edits and the new API. The vision of the review, its progress and t
   Dependencies. The mark is no tab stop: the description of the row must say every fact in words (`uses 1, +1 new,
   breaks 3, new module`).
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`)
+- The keyboard must reach the card: `I` on a focused row with a mark must open its card with the focus on its first
+  file, on the card when it lists none; Enter on a file selects it as a click does. Escape must close the card alone,
+  not the window or the review, and give the focus back to the row, as a file chosen from a card opened by `I` does.
+  The key hints must list `I` while a row of the tree has the focus.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the card of a row's mark by I on the focused row, the focus on its first file, Enter selecting it and Escape giving the focus back to the row`)
   [@test] ../../src/presenters/review-plan.test.ts (`merges the facts of a row into one mark, in the warning tone only when it breaks uses outside, and its card sections what can break first`, `puts the dependency changes a row carries into the same mark, after the facts of its file`)
 - The card of a file must say `Uses N · +K new` and `Used by M`, the links among the changed files after the commits,
   `+K new` for the links it uses that the commits added. It must list each link it uses, then each link that uses it,
@@ -702,7 +707,8 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·
   Reader.kt:3" and "Same edit ×3"; `Store.kt` with a warning mark, its card "Breaks: breaks 2 · 2 uses left outside
   the change", or `breaks 2+` and a muted `breaks ?` for a lower bound; the directory `b` with a muted mark, its card
-  "Dependencies · new module: New module b"; last, the collapsed `Mechanical (2)` with `Build files (1)`
+  "Dependencies · new module: New module b"; `I` on the focused row of `Reader.kt` opens the same card, the focus on
+  `Cache.kt`, and the footer says `I Details` while a row has the focus; last, the collapsed `Mechanical (2)` with `Build files (1)`
   and `Whitespace only (1)`; a branch with rendered files ends with `Generated (5)`, the header of a rendering "Generated
   by tools/render.mjs; edit src/guide.md", of a lock file "Lock file".
 
