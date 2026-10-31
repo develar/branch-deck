@@ -334,7 +334,7 @@ Design (`docs/design/`): [Landing](docs/design/landing.md) (the product model),
 [UI Theme](docs/design/ui-theme.md), [Diff View](docs/design/diff-view.md), [Text Diff](docs/design/text-diff.md),
 [Symbol Dependencies](docs/design/symbol-dependencies.md), [Integration Detection](docs/design/integration-detection.md),
 [Remote Status](docs/design/remote-status.md), [E2E Testing](docs/design/e2e-testing.md),
-[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md); [Specs](spec/) (start with `spec/commit/commit-row.spec.md`).
+[Host Runs](docs/design/host-runs.md), [Stacks of GitHub](docs/design/github-stacks.md), [Change Review](docs/design/change-review.md); [Specs](spec/) (start with `spec/commit/commit-row.spec.md`).
 
 Contributing (`docs/contributing/`): [Code Map](docs/contributing/code-map.md), [Checks](docs/contributing/checks.md),
 [Working in a Lease](docs/contributing/leases.md),

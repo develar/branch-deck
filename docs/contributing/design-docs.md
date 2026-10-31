@@ -148,7 +148,9 @@ A good design doc:
 
 - ❌ Code dumps - if you need code details, write code comments
 - ❌ Tutorial style - this isn't a how-to guide
-- ❌ Implementation logs - git history tracks what changed
+- ❌ Implementation logs - git history tracks what changed. An experiment's ledger is no log: it records results,
+  reversals and their reasons, which git does not ([Change Review](../design/change-review.md#progress-ledger)); the
+  change that alters the review updates its ledger and review rounds in the same commit
 - ❌ Missing "why" - always explain rationale
 - ❌ No diagrams - visual representation is crucial
 - ❌ Outdated details - reference code that can evolve

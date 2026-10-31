@@ -79,7 +79,8 @@ commits add to, remove from or change in the build files, and the build files th
 the files for `bd`: a file that declares what another uses before it, a test right after its subject. The review
 window keeps the tree of the files: each row shows its links and its risk, and the mechanical files fold into one
 group at the end. Above the diffs, the Review Summary card leads with what can break, then the dependency changes,
-the repeated edits and the new API.
+the repeated edits and the new API. The vision of the review, its progress and the rounds of polish:
+[Change Review](../../docs/design/change-review.md).
 
 ## Goals
 

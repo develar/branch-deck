@@ -36,7 +36,8 @@ edit over its files, and a change that no declaration holds. The plan cuts the d
 (`ReviewPlan::units`), every block in one, and puts them in the order of the story: a declaration before its uses, a
 test right after its subject, the mechanical changes last. Each unit has a fingerprint of its change that stays the
 same when a rebase or an amend keeps the change: what a later review knows it has read, and what a note to the agent
-is anchored to.
+is anchored to. The vision of the review, its progress and the rounds of polish:
+[Change Review](../../docs/design/change-review.md).
 
 ## Goals
 
