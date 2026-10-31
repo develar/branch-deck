@@ -560,15 +560,20 @@ fn trailing_lambda<'t>(w: &Walk<'t>, call: Node<'t>) -> Option<Node<'t>> {
 }
 
 fn modifier_texts<'t>(w: &Walk<'t>, node: Node<'t>) -> Vec<&'t str> {
+  modifiers_of(w, node)
+    .into_iter()
+    .filter(|it| !w.is(*it, "annotation"))
+    .filter_map(|it| w.text(it))
+    .collect()
+}
+
+/// The modifiers of `node`, its annotations among them
+fn modifiers_of<'t>(w: &Walk<'t>, node: Node<'t>) -> Vec<Node<'t>> {
   let Some(modifiers) = w.child(node, Child::Kind(&["modifiers"])) else {
     return Vec::new();
   };
   let mut cursor = modifiers.walk();
-  modifiers
-    .named_children(&mut cursor)
-    .filter(|it| !w.is(*it, "annotation"))
-    .filter_map(|it| w.text(it))
-    .collect()
+  modifiers.named_children(&mut cursor).collect()
 }
 
 fn reach(modifiers: &[&str], member: bool) -> Reach {
@@ -676,41 +681,30 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
   }
 }
 
-/// Whether an annotation among the modifiers of `node` names `path` (by its last name, or with `kotlin.jvm`), with
-/// arguments or without (`@JvmStatic()`)
 /// Whether `node` has an annotation whose last name is one of `names`, whatever its qualifier (`@Test`,
 /// `@org.junit.jupiter.api.Test`)
 fn annotated_by_last(w: &Walk<'_>, node: Node<'_>, names: &[&str]) -> bool {
-  let Some(modifiers) = w.child(node, Child::Kind(&["modifiers"])) else {
-    return false;
-  };
-  let mut cursor = modifiers.walk();
-  modifiers
-    .named_children(&mut cursor)
-    .filter(|it| w.is(*it, "annotation"))
-    .filter_map(|it| {
-      let invocation = w.child(it, Child::Kind(&["constructor_invocation"])).unwrap_or(it);
-      w.child(invocation, Child::Kind(&["user_type"]))
-    })
-    .any(|it| segments(w, it).last().is_some_and(|last| names.contains(last)))
+  annotation_names(w, node).iter().any(|path| path.last().is_some_and(|last| names.contains(last)))
 }
 
+/// Whether an annotation among the modifiers of `node` names `path` (by its last name, or with `kotlin.jvm`), with
+/// arguments or without (`@JvmStatic()`)
 fn annotated(w: &Walk<'_>, node: Node<'_>, path: &[&str]) -> bool {
-  let Some(modifiers) = w.child(node, Child::Kind(&["modifiers"])) else {
-    return false;
-  };
-  let mut cursor = modifiers.walk();
-  modifiers
-    .named_children(&mut cursor)
+  annotation_names(w, node)
+    .iter()
+    .any(|names| names == path || names.strip_prefix(["kotlin", "jvm"].as_slice()) == Some(path))
+}
+
+/// The names of the annotations among the modifiers of `node`, each as its segments, with arguments or without
+fn annotation_names<'t>(w: &Walk<'t>, node: Node<'t>) -> Vec<Vec<&'t str>> {
+  modifiers_of(w, node)
+    .into_iter()
     .filter(|it| w.is(*it, "annotation"))
     .filter_map(|it| {
       let invocation = w.child(it, Child::Kind(&["constructor_invocation"])).unwrap_or(it);
-      w.child(invocation, Child::Kind(&["user_type"]))
+      w.child(invocation, Child::Kind(&["user_type"])).map(|user_type| segments(w, user_type))
     })
-    .any(|it| {
-      let names = segments(w, it);
-      names == path || names.strip_prefix(["kotlin", "jvm"].as_slice()) == Some(path)
-    })
+    .collect()
 }
 
 /// The parameters of `function_value_parameters`: a `parameter_modifiers` (`vararg`) before its parameter, `= value`
