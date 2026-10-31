@@ -259,16 +259,16 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
 - A get must print each step on stderr as it starts (`bd lease get: <step>`): the reserve of a free slot, under the
   clones lock the reserve of a slot freed meanwhile or a new one, the wait for the clones lock, the stop of the Bazel
-  servers, the `status` of a slot, the clone of a template, the refresh of its index, the checkout and the seed; the
-  JSON goes to stdout at the end. The core tells the same steps to its caller (`LeaseGetParams::progress`).
+  servers, the `status` of a slot, the wait for a slot whose return or clean runs, the delete of the trash, the clone
+  of a template, the refresh of its index, the checkout and the seed; the JSON goes to stdout at the end. The core
+  tells the same steps to its caller (`LeaseGetParams::progress`).
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`the_steps_of_a_get_arrive_in_order`)
 - The `worktree` commands of the pool (the registration of a new slot, its unlock, the move of an adopt) must run one
-  at a time, under `worktrees.lock` beside the state; a registration and an unlock without the pool lock, which no
-  git holds for a get: git writes the admin directory of a new worktree in several files, and a `worktree` command
-  beside it reads them half written (an empty `commondir`) and fails. A new slot is registered with
-  `worktree add --no-checkout` and gets its files after the lock, by a checkout or a clone; the move of an adopt that
-  can't wait for the lock is refused, naming it. Two gets never register beside each other: the clones lock comes
-  first.
+  at a time, under `worktrees.lock` beside the state, and without the pool lock, which no git holds for a get: git
+  writes the admin directory of a new worktree in several files, and a `worktree` command beside it reads them half
+  written (an empty `commondir`) and fails. A new slot is registered with `worktree add --no-checkout` and gets its
+  files after the lock, by a checkout or a clone; the move of an adopt that can't wait for the lock is refused, naming
+  it. Two gets never register beside each other: the clones lock comes first.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`, `no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`)
 - A get must run no `worktree prune`: run beside the `worktree add` of another get, it deletes the admin directory that
   add has just made, before git locks it, and that get fails. A new slot is registered with `worktree add --force`,
@@ -615,7 +615,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   directory (`st_dev`) must be refused as `other_volume` (exit 4): a move there copies every file. The state file of
   Treehouse is not touched; Treehouse sees the old path as missing. Bazel derives the output base from the workspace
   path, so a moved slot starts with a new, cold output base, and the old one stays on disk until the user deletes it.
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`adopt_with_move_moves_the_worktree_into_the_pool`)
+  The move must hold no pool lock: the target path is reserved first by a `preparing` entry of the adopt, so no get
+  takes it, and the free slot replaces the entry once the move is done (the entry goes when it failed).
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`adopt_with_move_moves_the_worktree_into_the_pool`, `adopt_with_move_holds_no_pool_lock_across_the_move`)
 
 ### Host slots
 

@@ -1870,7 +1870,7 @@ to it, not the repository lock: a get never waits for an update, and the lock is
 and written, never across a git that writes a slot.
 
 The `worktree` commands of the pool (the registration of a new slot, its unlock, the move of an adopt) run one at a
-time, under `worktrees.lock` beside it (`Pool::worktree_command`; the move takes it inside the pool lock, and nothing
+time, under `worktrees.lock` beside it (`Pool::worktree_command`; no pool lock is held across any of them, and nothing
 takes the pool lock inside it). git writes the admin directory of a new worktree in several files (`locked`, `gitdir`,
 `commondir`, `HEAD`), and every `worktree` command starts by reading the admin directories of all worktrees, so the
 `worktree add` of one get beside another read a `commondir` that had been created and not yet written, and failed
@@ -1911,10 +1911,10 @@ wait its turn may come minutes later, so it reads `branchdeck.leaseMinFree` agai
 processes again; every get that adds a slot measures the free space again under the lock, so a queue never adds
 slots past the minimum. Under the lock it only measures (one `statfs`, below the minimum the names in the trash): the
 delete of a trash of tens of GB took minutes with every get behind it waiting, so a get that finds a trash of a gone
-run there releases the lock, deletes it, and takes its turn again, once per wait. The locks of the pool are taken in one order, `clones.lock`, `leases.lock`, `worktrees.lock`:
-a get takes the other two under the clones lock, the move of an adopt the lock of the `worktree` commands under the
-pool lock, and nothing takes the clones lock under another; a return and a clean take only the pool lock, so neither
-waits for a clone.
+run there releases the lock, deletes it, and takes its turn again, once per wait. The locks of the pool are taken in
+one order, `clones.lock`, `leases.lock`, `worktrees.lock`: a get takes the other two under the clones lock, one at a
+time, and nothing is taken under the pool lock or under `worktrees.lock` (the move of an adopt holds only the
+latter); a return and a clean take only the pool lock, so neither waits for a clone.
 
 0. Free space: with `branchdeck.leaseMinFree` (or `--min-free`), a get whose pool volume has less free space
    (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything, and a get that adds a
@@ -2233,9 +2233,12 @@ parameters of every cargo rule for one call.
 
 Status reads the state file only: one `rev-parse` and one `config` (`branchdeck.leasePool`), no git in any slot.
 Adopt registers existing linked worktrees (old Treehouse slots) where they are, after one `status` of each. With
-`--move` each goes to the next slot path by `git worktree move`, which fixes both links of the worktree, under the
-pool lock (a rename on one volume, so the lock is held for a moment; another volume, by `st_dev`, refuses, since git
-would copy every file). The empty parent of the old directory goes; the Treehouse state is not touched. Bazel derives
+`--move` each goes to the next slot path by `git worktree move`, which fixes both links of the worktree (a rename on
+one volume; another volume, by `st_dev`, refuses, since git would copy every file). The path is reserved under the
+pool lock by a `preparing` entry of the adopt, so no get or other adopt takes it; the move runs without the pool
+lock, under `worktrees.lock` only (a git under load held the pool lock for seconds against every get and return);
+the free slot then replaces the entry under the pool lock, or the entry goes when the move failed
+(`adopt_with_move_holds_no_pool_lock_across_the_move`). The empty parent of the old directory goes; the Treehouse state is not touched. Bazel derives
 the output base from the workspace path, so a moved slot starts with a cold output base.
 
 The process scan (`crates/sync-utils/src/process_scan.rs`) reads the working directory and the argv of every process of

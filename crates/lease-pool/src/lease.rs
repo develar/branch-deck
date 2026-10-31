@@ -4,10 +4,11 @@
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
 //! writes a slot: a get that reuses a slot never waits for another's checkout, and no get waits for an update. A get
 //! that adds a slot holds the clones lock of the pool (`clones.lock`, `Pool::lock_clones`) for the whole clone and its
-//! checkout, so the pool adds one slot at a time. The `worktree` commands of the pool, which git can't run two at once, take a lock of
-//! their own (`worktrees.lock`, `Pool::worktree_command`). The order is `clones.lock`, `leases.lock`, `worktrees.lock`:
-//! a get takes the other two under the clones lock, the move of an adopt the lock of the `worktree` commands under the
-//! pool lock; nothing takes the clones lock under another lock of the pool, and a return or a clean never takes it. The
+//! checkout, so the pool adds one slot at a time. The `worktree` commands of the pool, which git can't run two at once,
+//! take a lock of their own (`worktrees.lock`, `Pool::worktree_command`). The order is `clones.lock`, `leases.lock`,
+//! `worktrees.lock`: a get takes the other two under the clones lock, one at a time; nothing is taken under the pool
+//! lock or the lock of the `worktree` commands (the move of an adopt holds only the latter), and a return or a clean
+//! never takes the clones lock. The
 //! lock of the lend table of the host slots (`host-slots.lock`, `host_slots`) comes before all three and is a leaf: it is
 //! never held while another is taken.
 
@@ -264,6 +265,30 @@ pub enum LeaseState {
 }
 
 impl Lease {
+  /// A lease of this process that only keeps the gets off a slot while a command acts on it (`<kind>-<uuid>`): the
+  /// `cleaning` marker of a clean, the `preparing` entry of the path an adopt moves a worktree to
+  fn marker(kind: &str, holder: &str, state: LeaseState) -> Self {
+    let pid = std::process::id();
+    Self {
+      id: format!("{kind}-{}", uuid::Uuid::new_v4()),
+      holder: holder.to_string(),
+      leased_at: now(),
+      state,
+      pid,
+      process_started: process_started(pid),
+      source_head: String::new(),
+      source: String::new(),
+      source_branch: None,
+      branch: None,
+      seeded: Vec::new(),
+      reused: false,
+      holder_pid: None,
+      holder_started: None,
+      taking_over: None,
+      idle_check: None,
+    }
+  }
+
   /// Whether the lease is not `ready` (`preparing`, `templating`, `returning`, `cleaning`) and its process is gone: the
   /// next get takes the slot as free
   pub fn is_abandoned(&self) -> bool {
@@ -559,7 +584,7 @@ impl Pool {
   /// directories of all worktrees, so one beside a registration read a file the registration had created and not yet
   /// written (an empty `commondir`) and failed. The registration of a new slot, its unlock and the move of an adopt are
   /// a moment each, none a checkout. Not the pool lock, which a git process under load would hold for seconds against
-  /// every get and return; the move of an adopt takes this lock inside the pool lock, and nothing takes the pool lock
+  /// every get and return; the move of an adopt holds no pool lock across it either, and nothing takes the pool lock
   /// inside this one
   pub fn worktree_command<T>(&self, timeout: Duration, command: impl FnOnce() -> Result<T>) -> Result<T> {
     let _lock = self.state.lock_at(WORKTREES_LOCK_FILE, timeout, "waiting for the lock of the pool's worktree commands")?;
@@ -2777,24 +2802,7 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
   let mut seen = HashSet::new();
   paths.retain(|path| seen.insert(path.clone()));
   let scan = ProcessScan::scan();
-  let marker = Lease {
-    id: format!("clean-{}", uuid::Uuid::new_v4()),
-    holder: "bd lease clean".to_string(),
-    leased_at: SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs()),
-    state: LeaseState::Cleaning,
-    pid: std::process::id(),
-    process_started: process_started(std::process::id()),
-    source_head: String::new(),
-    source: String::new(),
-    source_branch: None,
-    branch: None,
-    seeded: Vec::new(),
-    reused: false,
-    holder_pid: None,
-    holder_started: None,
-    taking_over: None,
-    idle_check: None,
-  };
+  let marker = Lease::marker("clean", "bd lease clean", LeaseState::Cleaning);
   let trash = Trash::new(&pool.trash_dir());
   let mode = if params.apply { CleanMode::Trash(&trash) } else { CleanMode::Measure };
   let mut targets: Vec<CleanTarget> = paths
@@ -3148,6 +3156,18 @@ pub fn lease_adopt_core(git_executor: &GitCommandExecutor, params: &LeaseAdoptPa
 
 type AdoptResult = Result<Result<(Slot, Option<String>), LeaseRefusal>>;
 
+/// The free slot of the worktree `name` at `path`, as an adopt records it
+const fn free_slot(name: String, path: String) -> Slot {
+  Slot {
+    name,
+    path,
+    dirty: false,
+    returned: None,
+    lease: None,
+    reclaimed: None,
+  }
+}
+
 /// Record the worktree at `path` (moved from `moved_from`) as a free slot, under the pool lock
 fn add_slot_entry(pool: &Pool, lock_timeout: Duration, path: &str, moved_from: Option<String>) -> AdoptResult {
   let name = linked_worktree(Path::new(path)).map_or_default(|worktree| worktree.id);
@@ -3155,23 +3175,19 @@ fn add_slot_entry(pool: &Pool, lock_timeout: Duration, path: &str, moved_from: O
     if store.slots.iter().any(|slot| slot.path == path) {
       return Ok(Err(LeaseRefusal::InPool(path.to_string())));
     }
-    let slot = Slot {
-      name,
-      path: path.to_string(),
-      dirty: false,
-      returned: None,
-      lease: None,
-      reclaimed: None,
-    };
+    let slot = free_slot(name, path.to_string());
     store.slots.push(slot.clone());
     Ok(Ok((slot, moved_from)))
   })
 }
 
-/// `--move`: under the pool lock, the next slot path, then `git worktree move` there (a rename on one volume, so the
-/// lock is held for a moment; under the lock of the pool's `worktree` commands too) and the free slot recorded. The
-/// parent of the old directory goes when it is left empty (`<treehouse pool>/<n>/`); the state file of Treehouse is not
-/// touched, and Treehouse sees the old path as missing
+/// `--move`: under the pool lock, the next slot path, held by a `preparing` entry of this process (`Lease::marker`) so
+/// no get or other adopt takes it; then without that lock `git worktree move` there (under the lock of the pool's
+/// `worktree` commands only: a git under load holds it for seconds, against every get and return of the pool lock);
+/// then under the pool lock the free slot in place of the entry, or the entry dropped when the move failed. An adopt
+/// that dies meanwhile leaves an abandoned entry, which the next reserve frees. The parent of the old directory goes
+/// when it is left empty (`<treehouse pool>/<n>/`); the state file of Treehouse is not touched, and Treehouse sees the
+/// old path as missing
 fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptParams<'_>, git_common_dir: &Path, pool_dir: &Path, path: &str) -> AdoptResult {
   if !same_volume(Path::new(path), pool_dir) {
     return Ok(Err(LeaseRefusal::OtherVolume {
@@ -3179,38 +3195,48 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
       pool: display_path(pool_dir),
     }));
   }
-  let moved = pool.update(params.lock_timeout, |store| {
+  let entry = Lease::marker("adopt", "bd lease adopt", LeaseState::Preparing);
+  let reserved = pool.update(params.lock_timeout, |store| {
     if store.slots.iter().any(|slot| slot.path == path) {
       return Ok(Err(LeaseRefusal::InPool(path.to_string())));
     }
     let target = next_slot_path(store, pool_dir, git_common_dir);
-    let cannot_move = |reason: String| LeaseRefusal::CannotMove { path: path.to_string(), reason };
-    if let Some(parent) = target.parent()
-      && let Err(error) = std::fs::create_dir_all(parent)
-    {
-      return Ok(Err(cannot_move(error.to_string())));
-    }
-    if let Err(error) = pool.worktree_command(params.lock_timeout, || move_slot(git_executor, params.repository, path, &target)) {
-      if let Some(parent) = target.parent() {
-        let _ = fs_retry::remove_dir(parent);
-      }
-      return Ok(Err(cannot_move(format!("{error:#}"))));
-    }
-    let target = display_path(&target);
-    let slot = Slot {
-      name: linked_worktree(Path::new(&target)).map_or_default(|worktree| worktree.id),
-      path: target,
-      dirty: false,
-      returned: None,
-      lease: None,
-      reclaimed: None,
-    };
-    store.slots.push(slot.clone());
-    Ok(Ok(slot))
+    store.slots.push(Slot {
+      lease: Some(entry.clone()),
+      ..free_slot(String::new(), display_path(&target))
+    });
+    Ok(Ok(target))
   })?;
-  let slot = match moved {
-    Ok(slot) => slot,
+  let target = match reserved {
+    Ok(target) => target,
     Err(refusal) => return Ok(Err(refusal)),
+  };
+  let moved = target.parent().map_or(Ok(()), std::fs::create_dir_all).map_err(|error| error.to_string()).and_then(|()| {
+    pool
+      .worktree_command(params.lock_timeout, || move_slot(git_executor, params.repository, path, &target))
+      .map_err(|error| format!("{error:#}"))
+  });
+  let text = display_path(&target);
+  let name = linked_worktree(&target).map_or_default(|worktree| worktree.id);
+  let recorded = pool.update(params.lock_timeout, |store| {
+    store
+      .slots
+      .retain(|slot| !(slot.path == text && slot.lease.as_ref().is_some_and(|lease| lease.id == entry.id)));
+    if moved.is_err() {
+      return Ok(None);
+    }
+    let slot = free_slot(name, text.clone());
+    store.slots.push(slot.clone());
+    Ok(Some(slot))
+  })?;
+  let Some(slot) = recorded else {
+    if let Some(parent) = target.parent() {
+      let _ = fs_retry::remove_dir(parent);
+    }
+    return Ok(Err(LeaseRefusal::CannotMove {
+      path: path.to_string(),
+      reason: moved.err().unwrap_or_default(),
+    }));
   };
   if let Some(parent) = Path::new(path).parent() {
     // only an empty one goes

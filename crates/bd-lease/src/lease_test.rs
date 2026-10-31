@@ -1219,10 +1219,8 @@ fn a_get_held_at_its_registration_in_a_child() {
 #[test_log::test]
 fn no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot() {
   let fixture = Fixture::new();
-  let lane = TestWorktree::detached(&fixture.repo);
-  let old = slot_path(&lane.path);
   let dir = tempfile::tempdir().unwrap();
-  let held = held_environment(&fixture, fixture.repo.path(), dir.path(), "*\" worktree add \"*");
+  let (lane, old, held) = lane_beside_a_held(&fixture, dir.path(), "*\" worktree add \"*");
   let spec = [
     fixture.repo.path(),
     fixture.home.path(),
@@ -1453,6 +1451,36 @@ fn adopt_with_move_moves_the_worktree_into_the_pool() {
   assert_eq!((path_of(&got), &got["reused"]), (path, &json!(true)));
 }
 
+/// `bd lease adopt --move` holds no pool lock across `git worktree move`, only the lock of the pool's `worktree`
+/// commands: while the move is held, the state can be written at once, and the target path is `preparing` under an
+/// entry of the adopt, so no get takes it; once the move is done the entry is the free slot
+#[cfg(unix)]
+#[test_log::test]
+fn adopt_with_move_holds_no_pool_lock_across_the_move() {
+  let fixture = Fixture::new();
+  let dir = tempfile::tempdir().unwrap();
+  let (lane, old, held) = lane_beside_a_held(&fixture, dir.path(), "*\" worktree move \"*");
+  let pool = lease_pool::lease::Pool::new(Path::new(&slot_path(&fixture.repo.path().join(".git").to_string_lossy())));
+  let ((exit_code, output), written, states_during) = std::thread::scope(|scope| {
+    let adopt = scope.spawn(|| run_json(&held, &["lease", "adopt", "--move", &lane.path]));
+    wait_until_held(dir.path(), &adopt);
+    let written = pool.update(Duration::from_millis(500), |_| Ok(()));
+    let states_during = pool
+      .read()
+      .map(|store| store.slots.into_iter().map(|slot| (slot.path, slot.lease.map(|lease| lease.state))).collect::<Vec<_>>());
+    // released before any assertion, so a failure never leaves the held adopt waiting
+    std::fs::write(dir.path().join("go"), "").unwrap();
+    (adopt.join().unwrap(), written, states_during)
+  });
+  assert!(written.is_ok(), "the pool lock is free during the move: {written:?}");
+  assert_eq!(exit_code, 0, "{output}");
+  let adopted = &output["adopted"][0];
+  let path = adopted["path"].as_str().unwrap().to_string();
+  assert_eq!(adopted["moved_from"], json!(old));
+  assert_eq!(states_during.unwrap(), [(path.clone(), Some(lease_pool::lease::LeaseState::Preparing))]);
+  assert_eq!(states(&fixture.status()), [(slot_path(&path), "free".to_string())]);
+}
+
 /// `path` as `git worktree list` names it: `/`-separated on Windows too
 fn git_path(path: &str) -> String {
   path.replace('\\', "/")
@@ -1611,6 +1639,15 @@ pub(crate) fn wait_until_held<T>(dir: &Path, run: &std::thread::ScopedJoinHandle
     std::thread::yield_now();
   }
   assert!(dir.join("held").exists(), "the return reached the held command");
+}
+
+/// A detached linked worktree of the repository to adopt, its canonical path, and an environment whose git holds at
+/// the first command `pattern` matches (`held_environment` in `dir`)
+#[cfg(unix)]
+fn lane_beside_a_held(fixture: &Fixture, dir: &Path, pattern: &str) -> (TestWorktree, String, Environment) {
+  let lane = TestWorktree::detached(&fixture.repo);
+  let old = slot_path(&lane.path);
+  (lane, old, held_environment(fixture, fixture.repo.path(), dir, pattern))
 }
 
 /// A directory of 1 MiB in the trash of the pool, as a run leaves it: of a process that is gone (`gone`), else of
