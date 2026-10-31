@@ -6536,6 +6536,13 @@ export type ReviewStep = {
 	concern: string | null,
 	/**  What the step shows, in its order */
 	stops: StepStop[],
+	/**  The files of its stops, each once, in the order of its stops */
+	paths: string[],
+	/**
+	 *  Its files whose main row, in the tree of the review, is another step's: of the steps of a file, the one whose
+	 *  stops change the most lines of it holds its row, the first of equal ones
+	 */
+	elsewhere: string[],
 	tests: StepTests,
 };
 
@@ -7583,6 +7590,7 @@ export type StepBlocker =
 /**  A commit of a step */
 export type StepCommit = {
 	id: string,
+	/**  Its subject without the `(prefix)` that groups it */
 	subject: string,
 	/**  The message after its subject, trimmed; empty for a commit of no story */
 	body: string,

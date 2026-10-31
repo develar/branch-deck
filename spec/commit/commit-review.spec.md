@@ -171,8 +171,9 @@ where a dialog would cover it.
   [@test] ../../src/lib/diff/layout.test.ts (`sticks a header below the space above the first card, so a file at the top keeps that space over its card`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - J and K must select the next and the previous file; with the review plan of a branch, whose diffs are the story of
-  its units, the next and the previous section of the story, the tree following
-  ([Review Units](../branch/review-units.spec.md#in-the-review-window)). N and P must show the next and the previous
+  its units, the next and the previous section of the story, the tree and the bar of the step above the diffs following
+  ([Review Units](../branch/review-units.spec.md#in-the-review-window),
+  [Review Tour](../branch/review-tour.spec.md#in-the-review-window)). N and P must show the next and the previous
   block of changed lines, into the next or the previous file at the end of one; collapsed files are skipped.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
   [@test] ../../src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)

@@ -7,6 +7,8 @@ export interface ReviewNavigator {
   readonly show: (place: ReviewPlace) => void
   /** A place outside the change at the head of the review: its file opens over the review, at the line */
   readonly showOutside: (place: ReviewPlace) => void
+  /** A step of the story (`ReviewStep::id`): its first section at the top of the diffs, its row selected */
+  readonly showStep: (step: string) => void
 }
 
 /** The places of the review around the component, as a link of a badge shows them; null outside a review */

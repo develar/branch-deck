@@ -213,6 +213,14 @@ describe("buildFileRows", () => {
     ])
   })
 
+  it("makes a section of no change of its own the rows of the blocks other sections show, alone", () => {
+    const diff = textDiff(40, 40, [block(5, 7, 5, 9)])
+    const units = { marks: new Map<number, string>(), elsewhere: new Map([[0, "hooks — removed · shown in step 2"]]) }
+    const rows = buildFileRows(diff, "unified", [], false, units)
+    expect(outline(rows)).toEqual(["elsewhere hooks — removed · shown in step 2"])
+    expect(rows.changeStarts).toEqual([])
+  })
+
   it("finds each row from its segment, and keeps the fold levels of a diff object", () => {
     const rows = buildFileRows(ONE_CHANGE, "unified")
     expect(rows.segmentStarts.at(-1)).toBe(rows.rowCount)

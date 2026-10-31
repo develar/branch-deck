@@ -10,8 +10,8 @@ describe("the words of the concerns", () => {
     expect(formatConcernName({ source: "directory", directory: "docs/guide" })).toBe("docs/guide")
     expect(formatConcernName({ source: "directory", directory: "" })).toBe("Root")
     expect(formatConcernName({ source: "rest" })).toBe("Other changes")
-    expect(formatAlsoIn({ source: "token", token: "proxy" })).toBe("also in proxy")
-    expect(formatHome({ source: "declaration", name: "open" })).toBe("Its own row is under open")
+    expect(formatAlsoIn(formatConcernName({ source: "token", token: "proxy" }))).toBe("also in proxy")
+    expect(formatHome(formatConcernName({ source: "declaration", name: "open" }))).toBe("Its own row is under open")
     expect(
       formatConcernEvidence([
         { kind: "token", detail: "ij-mcp-proxy", joins: 3 },

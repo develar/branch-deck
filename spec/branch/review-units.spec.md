@@ -131,8 +131,9 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 
 ### In the Review Window
 - With the plan, the diffs of All Changes and of Since Your Review must be the story of the units, in their order
-  (`presentNarrative`), by the concerns when the plan has more than the rest, each concern's parts together
-  ([Review Concerns](review-concerns.spec.md#in-the-review-window)): a run of units of one file is one section, each change under its heading ("open — form
+  (`presentNarrative`), by the steps of its story, each step's parts together
+  ([Review Tour](review-tour.spec.md#in-the-review-window), a step of the concerns as
+  [Review Concerns](review-concerns.spec.md#in-the-review-window) lays it out): a run of units of one file is one section, each change under its heading ("open — form
   changed: parameters", "close — body changed", "fresh — new", "Changes outside a declaration"; none over a block of a file of no language the review parses, whose header names
   it), a unit with no block
   of its own beside the heading before it; a group is a section per file of it.

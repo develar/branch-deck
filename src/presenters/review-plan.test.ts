@@ -286,8 +286,8 @@ describe("the badges of the files in the tree", () => {
       repeatedEdits: [],
     })
     const reader = badges.get("src/a/Reader.kt")!
-    expect([reader.uses, reader.usedBy, reader.newLinks, reader.untested, reader.breaks]).toEqual(["uses 1", null, "+1 new", "no test", null])
-    expect(reader.description).toBe("uses 1, +1 new, no test")
+    expect([reader.uses, reader.usedBy, reader.newLinks, reader.breaks]).toEqual(["uses 1", null, "+1 new", null])
+    expect(reader.description).toBe("uses 1, +1 new")
     expect(reader.usesLinks.map(({ key: _key, ...entry }) => entry)).toEqual([
       // a file it uses at its header: the link names no line of it
       {

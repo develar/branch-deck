@@ -43,6 +43,8 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
+import { formatStepPosition, presentBrief, presentChapters } from "@/presenters/review-steps"
+import type { BriefStep, Chapter } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
@@ -538,15 +540,16 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const reviewFacts = loaded?.reviewFacts ?? null
-  // the concerns of the plan, what no evidence joined as the tree, the mechanical ones in one group at the end, as Rust
-  // joined, classed and ordered them
+  // the steps of the story of the plan as the tree, each with its files (spec/branch/review-tour.spec.md), what no evidence
+  // joined under Other changes, the mechanical ones in one group at the end, as Rust told, classed and ordered them
   const mechanical = useMemo(() => (reviewFacts === null ? NO_MECHANICAL : mechanicalKindsOf(reviewFacts)), [reviewFacts])
+  const chapters = useMemo(() => (reviewFacts === null ? [] : presentChapters(reviewFacts)), [reviewFacts])
   const nodes = useMemo(() => {
     if (loadedFiles === undefined) {
       return []
     }
-    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, reviewFacts.concerns)
-  }, [loadedFiles, reviewFacts, mechanical])
+    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, chapters)
+  }, [loadedFiles, reviewFacts, mechanical, chapters])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
   const filterText = search?.text ?? ""
   const [selection, setSelection] = useState<TreeSelection>(() => initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
@@ -587,7 +590,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   // window shows once the rows of the first screen are painted (`onFirstScreen`)
   const diffs = loaded?.diffs ?? null
   const diffsComplete = loaded?.diffsComplete ?? false
-  // with the plan, the story of its units (spec/branch/review-units.spec.md) in the order of its concerns: each run of
+  // with the plan, the story of its units (spec/branch/review-units.spec.md) in the order of its steps: each run of
   // changes of a file one section, each group a section per file, the mechanical ones collapsed, the uses a change left
   // outside after it
   const narrative = useMemo(() => {
@@ -599,8 +602,8 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       const diff = byPath.get(file.path)
       return { path: file.path, blocks: diff?.content.kind === "text" ? diff.content.blocks : null }
     })
-    return presentNarrative(reviewFacts.units, shown, reviewFacts.api, reviewFacts.files, reviewFacts.concerns)
-  }, [diffs, files, reviewFacts])
+    return presentNarrative(reviewFacts.units, shown, reviewFacts.api, reviewFacts.files, chapters)
+  }, [diffs, files, reviewFacts, chapters])
   // the row of the tree each section selects, and the section each row shows: a file "also in" a concern its part there
   const rows = useMemo(() => (narrative === null ? NO_ROWS : sectionRows(narrative, nodes)), [narrative, nodes])
   // the file at the head of each use left outside, read once per review
@@ -679,6 +682,17 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     [files, rows, select],
   )
 
+  // the section at the top of the diffs, for the bar of its step above them: as they scroll, and as a key, a row or a step
+  // of the brief scrolls them, which the diffs do not report
+  const [topSection, setTopSection] = useState<string | null>(null)
+  const showVisibleSection = useCallback(
+    (key: string, path: string) => {
+      selectShown(key, path)
+      setTopSection(key)
+    },
+    [selectShown],
+  )
+
   // a row shows its first open section: of a file its own concern, of a file "also in" a concern its part there
   const selectInTree = useCallback(
     (file: CommitFile, key: string) => {
@@ -687,6 +701,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       if (section === undefined) {
         code.current?.scrollToFile(file.path)
       } else {
+        setTopSection(section)
         code.current?.scrollToSection(section)
       }
     },
@@ -723,7 +738,24 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     },
     [revision],
   )
-  const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside }), [selectChangedFile, showOutside])
+  // a step of the brief: its first section at the top of the diffs, its row selected
+  const showStep = useCallback(
+    (step: string) => {
+      const section = narrative?.find(it => it.concern === step && it.ghost === null)
+      if (section !== undefined) {
+        showVisibleSection(section.key, section.path)
+        code.current?.scrollToSection(section.key)
+      }
+    },
+    [narrative, showVisibleSection],
+  )
+  const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep }), [selectChangedFile, showOutside, showStep])
+  const brief = useMemo(() => (reviewFacts === null ? null : presentBrief(reviewFacts)), [reviewFacts])
+  const topStep = useMemo(() => {
+    const chapter = narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
+    const index = chapters.findIndex(it => it.id === chapter)
+    return index < 0 || brief === null ? null : { chapter: chapters[index]!, step: brief.steps[index] ?? null, count: chapters.length }
+  }, [narrative, topSection, chapters, brief])
 
   // the badges of the review plan
   const badges = useMemo<FileTreeBadges | null>(() => {
@@ -759,7 +791,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         if (reviewFacts !== null) {
           const next = code.current?.moveSection(event.code === "KeyJ" ? 1 : -1)
           if (next !== undefined) {
-            selectShown(next.key, next.path)
+            showVisibleSection(next.key, next.path)
           }
           break
         }
@@ -847,6 +879,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
           <div className="flex h-full flex-col">
             {/* a filter that hides every file keeps the card: a click reveals the file */}
             <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>{codeTop}</SelectReviewFileContext>
+            {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} step={topStep.step} count={topStep.count} onShow={showStep} />}
             {loaded === null ? (
               <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
             ) : viewFiles === null ? (
@@ -865,7 +898,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                   files={viewFiles}
                   diffViewMode={diffViewMode}
                   initialPath={selection.initialPath}
-                  onVisibleSectionChange={selectShown}
+                  onVisibleSectionChange={showVisibleSection}
                   onFirstScreen={showWindow}
                   fileOwners={fileOwners}
                 />
@@ -875,5 +908,32 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
+  )
+}
+
+/**
+ * The bar above the diffs of a review with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): the step of
+ * the section at the top, its place in the story, its title and the first paragraph of its body, which a click opens at
+ * its first section; it follows the diffs as they scroll
+ */
+function StepBar({ chapter, step, count, onShow }: { chapter: Chapter; step: BriefStep | null; count: number; onShow: (step: string) => void }) {
+  return (
+    <button
+      type="button"
+      data-testid="review-step-bar"
+      data-step={chapter.id}
+      title={step?.why ?? chapter.label}
+      className="flex min-w-0 shrink-0 items-baseline gap-2 border-b border-border px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+      onClick={() => onShow(chapter.id)}
+    >
+      <span className="shrink-0 text-muted-foreground tabular-nums" data-testid="review-step-position">
+        {formatStepPosition(chapter.number, count)}
+      </span>
+      <span className="shrink-0 truncate font-medium" data-testid="review-step-title">
+        {chapter.label}
+      </span>
+      {step?.why != null && <span className="min-w-0 truncate text-muted-foreground">{step.why}</span>}
+      {step?.unproven != null && <span className="ml-auto shrink-0 text-warning">{step.unproven}</span>}
+    </button>
   )
 }

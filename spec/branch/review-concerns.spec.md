@@ -127,7 +127,9 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
 
 ### In the Review Window
-- With a concern beside the rest, the tree of a review with its plan must list the concerns at its top, in their
+- The window lists the steps of the story ([Review Tour](review-tour.spec.md#in-the-review-window)); where the steps
+  are the concerns (a range of one commit, or of commits without a body), each step is its concern, as below. With a
+  concern beside the rest, the tree of a review with its plan must list the concerns at its top, in their
   order: a row per concern, named by its evidence ("proxy", "grep → accio", the name of a declaration, the directory
   or "Root"), with its files and lines, why its parts are together in its hover ("Joined by the identifiers
   ij-mcp-proxy, ij-proxy"); under it the files whose main row it holds, each named by its path, in the order of its

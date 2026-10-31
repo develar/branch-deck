@@ -213,7 +213,8 @@ fn the_tests_that_name_the_code_of_a_step_and_the_code_none_names() {
   assert_eq!(unnamed, ["isEmpty"], "the isEmpty of a list in another test is no use of the manager's");
 }
 
-/// A file of no language is cut by its blocks: each block in the step of the commit that wrote it
+/// A file of no language is cut by its blocks: each block in the step of the commit that wrote it; the file has its main
+/// row in one step, the step of its most lines
 #[test]
 fn a_file_of_no_language_is_cut_into_the_steps_of_its_blocks() {
   let repo = TestRepo::new();
@@ -232,6 +233,10 @@ fn a_file_of_no_language_is_cut_into_the_steps_of_its_blocks() {
     steps(&plan).into_iter().map(|(_, stops)| stops).collect::<Vec<_>>(),
     [names(&["guide.md [0]"]), names(&["guide.md [1]"])]
   );
+  // the file has its main row in the first of two equal steps, the second shows it "also"
+  let rows: Vec<(&[String], &[String])> = plan.steps.steps.iter().map(|step| (step.paths.as_slice(), step.elsewhere.as_slice())).collect();
+  let guide = ["docs/guide.md".to_string()];
+  assert_eq!(rows, [(guide.as_slice(), [].as_slice()), (guide.as_slice(), guide.as_slice())]);
 }
 
 /// The brief names the one issue the commits name, and the rules a spec adds, without their `[@test]` lines, which
@@ -359,4 +364,28 @@ fn a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place() {
   assert_eq!(contract_kind("plugins/air/docs/flows/flow-restart.txt"), Some(ContractKind::Doc));
   assert_eq!(contract_kind("spec/a.spec.ts"), None);
   assert_eq!(contract_kind("src/notes.md"), None);
+}
+
+/// A declaration a step removes, whose block a declaration a later step adds holds, is in the step that removed it
+#[test]
+fn a_removed_declaration_is_in_the_step_that_removed_it() {
+  let repo = TestRepo::new();
+  let manager = |body: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = 1\n{body}}}\n");
+  let base = repo.create_commit_with_files("Add", &[("src/a/Manager.kt", &manager("\n  fun hooks(): Int = 0\n"))]);
+  repo.create_commit_with_files(
+    "The manager drops its hooks\n\nNo caller asks the hooks of the manager, so they go.",
+    &[("src/a/Manager.kt", &manager(""))],
+  );
+  let head = repo.create_commit_with_files(
+    "The manager allows a layout\n\nOne rule decides whether the open may show a tool window.",
+    &[("src/a/Manager.kt", &manager("\n  fun allowed(id: String): Boolean = id.isNotEmpty()\n"))],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(
+    steps(&plan),
+    [
+      (commits(&[("The manager drops its hooks", CommitRole::Starts)]), names(&["hooks"])),
+      (commits(&[("The manager allows a layout", CommitRole::Starts)]), names(&["allowed"])),
+    ]
+  );
 }

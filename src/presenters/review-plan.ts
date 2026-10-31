@@ -312,8 +312,8 @@ export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" 
 /** What the tree reads of the plan: the facts of the files, their links, the dependency changes, the repeated edits */
 export type FileFactsOfPlan = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
 
-/** What the review window reads of the plan: the facts of the files, the units of the story and its concerns */
-export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api" | "concerns">
+/** What the review window reads of the plan: the facts of the files, the units of the story, its concerns, its steps and its brief */
+export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api" | "concerns" | "steps" | "brief">
 
 export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build files",
@@ -391,11 +391,9 @@ export interface FileBadges {
    * says the count is a lower bound, so a 0 never reads as safe
    */
   readonly breaks: { readonly label: string; readonly title: string; readonly tone: "warning" | "muted" } | null
-  /** "no test": a source file changed while none of its tests did */
-  readonly untested: string | null
   /** "same edit ×4", the edit, and the other files that get it */
   readonly sameEdit: { readonly label: string; readonly edit: string; readonly files: readonly string[] } | null
-  /** "uses 1, +1 new, breaks 3, no test": the badges in words, for the description of the row */
+  /** "uses 1, +1 new, breaks 3": the badges in words, for the description of the row */
   readonly description: string
 }
 
@@ -460,11 +458,10 @@ export function presentFileBadges(facts: FileFactsOfPlan): ReadonlyMap<string, F
       usesLinks,
       usedByLinks,
       breaks: breaksBadge(file),
-      untested: file.untested ? "no test" : null,
       sameEdit: group === undefined ? null : { label: `same edit ×${group.files.length}`, edit: formatRepeatedEdit(group), files: group.files.filter(path => path !== file.path) },
     }
-    if (usesLinks.length > 0 || usedByLinks.length > 0 || entry.breaks !== null || entry.untested !== null || entry.sameEdit !== null) {
-      const words = [entry.uses, entry.newLinks, entry.usedBy, entry.breaks?.label, entry.sameEdit?.label, entry.untested]
+    if (usesLinks.length > 0 || usedByLinks.length > 0 || entry.breaks !== null || entry.sameEdit !== null) {
+      const words = [entry.uses, entry.newLinks, entry.usedBy, entry.breaks?.label, entry.sameEdit?.label]
       badges.set(file.path, { ...entry, description: words.filter(word => word != null).join(", ") })
     }
   }

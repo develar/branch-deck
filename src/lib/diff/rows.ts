@@ -418,6 +418,12 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
         push({ kind: "lines", item: change, from: 0, count: itemRowCount(change, mode) }, itemRowCount(change, mode))
       }
     })
+  } else {
+    // a section of no change of its own (a declaration whose block another section holds): its rows for the blocks
+    // other sections show, alone
+    for (const item of items.filter(it => it.kind === "elsewhere")) {
+      push({ kind: "lines", item, from: 0, count: 1 }, 1)
+    }
   }
   starts.push(rowCount)
   const foldGaps = gaps.map(({ rows, changeBefore, changeAfter }) => ({ rows, changeBefore, changeAfter }))

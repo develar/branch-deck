@@ -1,7 +1,7 @@
-import type { ApiChange, Concern, FileFacts, GeneratedBy, ReviewUnit, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, ReviewUnit, UnitBlock } from "@/lib/bindings"
 import type { SectionUnits } from "@/lib/diff/rows"
-import { formatConcernName } from "@/presenters/review-concerns"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
+import type { Chapter } from "@/presenters/review-steps"
 
 /*
  * The story of a review (spec/branch/review-units.spec.md, "In the Review Window"): the sections of the diffs in the
@@ -119,6 +119,8 @@ function sameBlocks(blocks: readonly UnitBlock[], file: NarrativeFile): boolean 
 interface Draft {
   key: string
   path: string
+  /** The headings of its declarations whose block another section holds, by that block */
+  notes?: Map<number, string>
   /** The blocks it shows, null for the whole file */
   blocks: Set<number> | null
   marks: Map<number, string>
@@ -132,10 +134,10 @@ interface Draft {
   concernHeading: string | null
 }
 
-/** A unit of the story with the slices, and of a slice the blocks, that one concern holds of it */
+/** A unit of the story with the slices, and of a slice the blocks, that one chapter holds of it */
 interface Step {
   readonly unit: ReviewUnit
-  readonly concern: Concern | null
+  readonly concern: Chapter | null
 }
 
 /**
@@ -143,8 +145,8 @@ interface Step {
  * of several concerns in each, with the slices and the blocks it holds there), then what no concern holds (the
  * mechanical groups) in the order of the units; else the units as Rust ordered them
  */
-function storySteps(units: readonly ReviewUnit[], concerns: readonly Concern[]): Step[] {
-  if (!concerns.some(concern => concern.name.source !== "rest")) {
+function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]): Step[] {
+  if (!concerns.some(concern => !concern.rest)) {
     return units.map(unit => ({ unit, concern: null }))
   }
   const byId = new Map(units.map(unit => [unit.id, unit]))
@@ -196,7 +198,7 @@ export function presentNarrative(
   files: readonly NarrativeFile[],
   api: readonly ApiChange[],
   facts: readonly FileFacts[],
-  concerns: readonly Concern[],
+  concerns: readonly Chapter[],
 ): NarrativeSection[] {
   const byPath = new Map(files.map(file => [file.path, file]))
   const generatedOf = new Map(facts.flatMap(file => (file.generated === null ? [] : [[file.path, file.generated] as const])))
@@ -219,10 +221,10 @@ export function presentNarrative(
     return count === 0 ? base : `${base}#${count}`
   }
   // the concern of the step laid out, and its name until its first section takes it
-  let concern: Concern | null = null
+  let concern: Chapter | null = null
   let concernHeading: string | null = null
   const push = (draft: Omit<Draft, "concern" | "concernName" | "concernHeading">) => {
-    const full = { ...draft, concern: concern?.id ?? null, concernName: concern === null ? null : formatConcernName(concern.name), concernHeading }
+    const full = { ...draft, concern: concern?.id ?? null, concernName: concern?.reference ?? null, concernHeading }
     concernHeading = null
     drafts.push(full)
     return full
@@ -240,7 +242,7 @@ export function presentNarrative(
       // a concern starts its own sections, under its name
       last = null
       concern = step.concern
-      concernHeading = concern === null ? null : formatConcernName(concern.name)
+      concernHeading = concern?.heading ?? null
     }
     if (isGroup(unit)) {
       last = null
@@ -284,10 +286,19 @@ export function presentNarrative(
     }
     const first = slice.blocks[0]
     if (first === undefined) {
-      // a declaration whose block another unit holds: its words join the heading before it
+      // a declaration whose block another unit holds: its words join the heading before it, else the block of its line,
+      // which another section may show
       const before = [...draft.marks.keys()].at(-1)
       if (before !== undefined && heading !== null) {
         draft.marks.set(before, `${draft.marks.get(before)} · ${heading}`)
+      } else if (heading !== null && unit.line !== null) {
+        const line = unit.line - 1
+        const removed = unit.kind.kind === "removed"
+        const index = byPath.get(slice.path)?.blocks?.findIndex(block => (removed ? block.oldStart <= line && line < block.oldEnd : block.newStart <= line && line < block.newEnd))
+        if (index !== undefined && index >= 0) {
+          draft.notes ??= new Map()
+          draft.notes.set(index, heading)
+        }
       }
     } else {
       if (heading !== null) {
@@ -316,6 +327,16 @@ export function presentNarrative(
         owners.set(draft.path, ofPath)
       }
       ofPath.set(block, draft)
+    }
+  }
+  // the block of a declaration another section shows names it there too
+  for (const draft of drafts) {
+    for (const [block, note] of draft.notes ?? []) {
+      const owner = owners.get(draft.path)?.get(block)
+      if (owner !== undefined && owner !== draft) {
+        const mark = owner.marks.get(block)
+        owner.marks.set(block, mark === undefined ? note : `${mark} · ${note}`)
+      }
     }
   }
   return drafts.flatMap(draft => [sectionOf(draft, owners), ...draft.ghosts])
@@ -357,7 +378,8 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
           owner.concern !== draft.concern && owner.concernName !== null
             ? owner.concernName
             : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : (owner.marks.values().next().value ?? fileName(owner.path))))
-        elsewhere.set(block, `Shown in ${where}`)
+        const note = draft.notes?.get(block)
+        elsewhere.set(block, note === undefined ? `Shown in ${where}` : `${note} · shown in ${where}`)
         targets.set(block, owner.key)
       }
     }

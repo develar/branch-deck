@@ -20,6 +20,7 @@ import {
   sectionRows,
 } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
+import { concernChapters } from "@/presenters/review-steps"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
@@ -239,7 +240,7 @@ describe("the tree of a review with its plan", () => {
       evidence: [],
       fingerprint: "s",
     }
-    const withConcern = buildReviewTree([file("app/User.kt"), file("app/app.iml")], new Map([["app/app.iml", "buildModel"]]), [holding])
+    const withConcern = buildReviewTree([file("app/User.kt"), file("app/app.iml")], new Map([["app/app.iml", "buildModel"]]), concernChapters([holding]))
     expect([...dependencyRows(withConcern, [change("app/app.iml", "store")]).keys()]).toEqual(["//concern/s/"])
     // the directory a merged row holds: `plugins/air/` is in the row `plugins/air/backend/`
     const merged = buildFileTree([file("plugins/air/backend/A.kt"), file("README.md")])
@@ -280,7 +281,7 @@ describe("the concerns in the tree of a review", () => {
   ]
 
   it("lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical", () => {
-    const tree = buildReviewTree(files, mechanical, concerns)
+    const tree = buildReviewTree(files, mechanical, concernChapters(concerns))
     expect(outline(tree)).toEqual([
       "ijproxy/",
       "  .codex/config.toml",
@@ -331,18 +332,18 @@ describe("the concerns in the tree of a review", () => {
 
   it("shows a file of what no evidence joined that is also in a concern in its place under Other changes", () => {
     const rest = concern("r", { source: "rest" }, ["src/App.kt", "docs/tools.md"], ["docs/tools.md"])
-    const tree = buildReviewTree(files, mechanical, [concerns[0]!, concerns[1]!, rest])
+    const tree = buildReviewTree(files, mechanical, concernChapters([concerns[0]!, concerns[1]!, rest]))
     expect(outline(tree).slice(10, 15)).toEqual(["Other changes/", "  docs/", "    tools.md, also in Other changes", "  src/", "    App.kt"])
   })
 
   it("is the tree without concerns while the plan has none but the rest, and leaves out a concern the filter empties", () => {
-    expect(outline(buildReviewTree(files, mechanical, [concerns[2]!]))).toEqual(outline(buildReviewTree(files, mechanical, [])))
+    expect(outline(buildReviewTree(files, mechanical, concernChapters([concerns[2]!])))).toEqual(outline(buildReviewTree(files, mechanical, [])))
     const filtered = files.filter(it => it.path.includes("tools"))
-    expect(outline(buildReviewTree(filtered, mechanical, concerns))).toEqual(["ijproxy/", "  tools/codex/config.toml", "grep → accio/", "  docs/tools.md"])
+    expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns)))).toEqual(["ijproxy/", "  tools/codex/config.toml", "grep → accio/", "  docs/tools.md"])
   })
 
   it("selects the row of a section in its concern, and shows the first open section of a row", () => {
-    const tree = buildReviewTree(files, mechanical, concerns)
+    const tree = buildReviewTree(files, mechanical, concernChapters(concerns))
     const section = (key: string, path: string, concern: string | null, folded: string | null = null) => ({ key, path, concern, folded, ghost: null })
     const { rowOf, sectionOf } = sectionRows(
       [

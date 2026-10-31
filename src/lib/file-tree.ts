@@ -1,7 +1,8 @@
-import type { CommitFile, Concern, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
+import type { CommitFile, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
 import type { FileActionTarget } from "@/lib/file-actions"
-import { formatAlsoIn, formatConcernEvidence, formatConcernName, formatHome, OTHER_CHANGES } from "@/presenters/review-concerns"
+import { formatAlsoIn, formatHome, OTHER_CHANGES } from "@/presenters/review-concerns"
 import { formatMechanicalGroup } from "@/presenters/review-plan"
+import type { Chapter } from "@/presenters/review-steps"
 
 /** A changed file of the tree, by its name in its directory */
 export interface FileTreeFile {
@@ -167,43 +168,44 @@ export function alsoRowKey(concern: string, path: string): string {
 }
 
 /**
- * The tree of a review with its plan (spec/branch/review-concerns.spec.md, "In the Review Window"): the concerns Rust
- * found (`concerns`), each a group of the files whose main row it holds, named by their path, a row "also in" for each
- * file of it whose main row is another concern's (`Concern.elsewhere`), then the mechanical ones of it (the generated
- * files that follow their source) in a group per kind; then what no evidence joined and the files of no concern as
+ * The tree of a review with its plan (spec/branch/review-tour.spec.md, spec/branch/review-concerns.spec.md, "In the Review
+ * Window"): the chapters of its story (`chapters`: the steps Rust told, each a commit or a concern), each a group of the
+ * files whose main row it holds, named by their path, a row "also in" for each file of it whose main row is another
+ * chapter's (`Chapter.elsewhere`), then the mechanical ones of it (the generated files that follow their source, the
+ * imports a step needs) in a group per kind; then the concern no evidence joined and the files of no chapter as
  * `buildFileTree` groups them, under Other changes; then the Mechanical group with a group per kind (`mechanical`, the
- * kind Rust gave each path, the kinds in its order: `mechanicalKindsOf`), each file named by its path. Without a concern
+ * kind Rust gave each path, the kinds in its order: `mechanicalKindsOf`), each file named by its path. Without a chapter
  * but the rest, the files of real work as `buildFileTree` groups them, then the Mechanical group. The diffs and J and K
  * follow this order, so the mechanical files come last
  */
-export function buildReviewTree(files: readonly CommitFile[], mechanical: ReadonlyMap<string, MechanicalKind>, concerns: readonly Concern[]): FileTreeNode[] {
-  const tasks = concerns.filter(concern => concern.name.source !== "rest")
+export function buildReviewTree(files: readonly CommitFile[], mechanical: ReadonlyMap<string, MechanicalKind>, chapters: readonly Chapter[]): FileTreeNode[] {
+  const tasks = chapters.filter(chapter => !chapter.rest)
   if (tasks.length === 0) {
     return withMechanicalGroup(buildFileTree(files.filter(file => !mechanical.has(file.path))), files, mechanical)
   }
   const byPath = new Map(files.map(file => [file.path, file]))
-  // the concern of the main row of each path of a concern
-  const homes = new Map<string, Concern>()
-  for (const concern of concerns) {
-    const elsewhere = new Set(concern.elsewhere)
-    for (const path of concern.paths.filter(it => !elsewhere.has(it))) {
-      homes.set(path, concern)
+  // the chapter of the main row of each path of a chapter
+  const homes = new Map<string, Chapter>()
+  for (const chapter of chapters) {
+    const elsewhere = new Set(chapter.elsewhere)
+    for (const path of chapter.paths.filter(it => !elsewhere.has(it))) {
+      homes.set(path, chapter)
     }
   }
-  const alsoNode = (concern: Concern, file: CommitFile, row: Pick<FileTreeAlso, "name" | "depth" | "parentKey" | "inGroup">): FileTreeAlso => {
+  const alsoNode = (chapter: Chapter, file: CommitFile, row: Pick<FileTreeAlso, "name" | "depth" | "parentKey" | "inGroup">): FileTreeAlso => {
     const home = homes.get(file.path)
     return {
       kind: "also",
-      key: alsoRowKey(concern.id, file.path),
+      key: alsoRowKey(chapter.id, file.path),
       ...row,
       file,
-      concern: concern.id,
-      also: formatAlsoIn(concern.name),
-      home: home === undefined ? "" : formatHome(home.name),
+      concern: chapter.id,
+      also: formatAlsoIn(chapter.heading),
+      home: home === undefined ? "" : formatHome(home.heading),
     }
   }
-  /** `node` with the files of `elsewhere` in it as rows "also in" the concern `rest` */
-  const asAlso = (node: FileTreeNode, rest: Concern, elsewhere: ReadonlySet<string>): FileTreeNode => {
+  /** `node` with the files of `elsewhere` in it as rows "also in" the chapter `rest` */
+  const asAlso = (node: FileTreeNode, rest: Chapter, elsewhere: ReadonlySet<string>): FileTreeNode => {
     if (node.kind === "directory") {
       return { ...node, children: node.children.map(child => asAlso(child, rest, elsewhere)) }
     }
@@ -211,21 +213,21 @@ export function buildReviewTree(files: readonly CommitFile[], mechanical: Readon
       ? alsoNode(rest, node.file, { name: node.name, depth: node.depth, parentKey: node.parentKey, inGroup: false })
       : node
   }
-  // the paths whose main row a concern holds
+  // the paths whose main row a chapter holds
   const held = new Set<string>()
   const nodes: FileTreeNode[] = []
-  for (const concern of tasks) {
-    const key = concernRowKey(concern.id)
-    const elsewhere = new Set(concern.elsewhere)
+  for (const chapter of tasks) {
+    const key = concernRowKey(chapter.id)
+    const elsewhere = new Set(chapter.elsewhere)
     const children: FileTreeNode[] = []
     const folded: CommitFile[] = []
-    for (const path of concern.paths) {
+    for (const path of chapter.paths) {
       const file = byPath.get(path)
       if (file === undefined) {
         continue
       }
       if (elsewhere.has(path)) {
-        children.push(alsoNode(concern, file, { name: path, depth: 1, parentKey: key, inGroup: true }))
+        children.push(alsoNode(chapter, file, { name: path, depth: 1, parentKey: key, inGroup: true }))
       } else if (mechanical.has(path)) {
         held.add(path)
         folded.push(file)
@@ -236,10 +238,10 @@ export function buildReviewTree(files: readonly CommitFile[], mechanical: Readon
     }
     children.push(...kindGroups(folded, mechanical, key, 1))
     if (children.length > 0) {
-      nodes.push(groupNode(key, formatConcernName(concern.name), 0, undefined, children, "concern", formatConcernEvidence(concern.evidence) ?? undefined))
+      nodes.push(groupNode(key, chapter.heading, 0, undefined, children, "concern", chapter.hover ?? undefined))
     }
   }
-  const rest = concerns.find(concern => concern.name.source === "rest")
+  const rest = chapters.find(chapter => chapter.rest)
   const restElsewhere = new Set(rest?.elsewhere ?? [])
   const other = files.filter(file => restElsewhere.has(file.path) || (!held.has(file.path) && !mechanical.has(file.path)))
   if (other.length > 0) {

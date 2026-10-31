@@ -460,6 +460,77 @@ pub mod templates {
       .commit_with_timestamp("(search) drop ijproxy, search with accio", &refs(&after), Some(1704119400))
   }
 
+  /// A branch `layout` of five commits with bodies, the story of a review (spec/branch/review-tour.spec.md): a refactor
+  /// of the manager; a rule (`allowed`) the frame and the welcome use, with a test that names it; a change of the paint
+  /// no test names; the restart story, a rule of the spec with its test link; and a round that renames the flags of the
+  /// rule, which follows its step up
+  pub fn review_tour() -> RepoTemplate {
+    let manager = |hooks: &str, rule: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = 1\n{hooks}{rule}}}\n");
+    let hooks = "\n  fun hooks(): List<String> = emptyList()\n";
+    let rule = |flag: &str| format!("\n  fun allowed(id: String): Boolean {{\n    val {flag} = id.isNotEmpty()\n    return {flag}\n  }}\n");
+    let frame = |paint: &str, body: &str| format!("package a\n\nclass Frame(val manager: Manager) {{\n  fun show(): Int = {body}\n\n  fun paint(): Int = {paint}\n}}\n");
+    let welcome = |body: &str| format!("package b\n\nimport a.Manager\n\nclass Welcome(val manager: Manager) {{\n  fun focus(): Int = {body}\n}}\n");
+    let test = |more: &str| format!("package a\n\nimport org.junit.Test\n\nclass ManagerTest {{\n  @Test fun `the open returns one`() = check(Manager().open() == 1)\n{more}}}\n");
+    let spec = |rule: &str| format!("---\nname: Window\n---\n\n# Window\n\n## Requirements\n\n- The window opens on its last project.\n{rule}");
+    RepoTemplate::new("review_tour")
+      .branch_prefix("user-name")
+      .commit_with_timestamp(
+        "Initial project setup",
+        &[
+          // one module: the files link by the names they use
+          ("BUILD.bazel", "kt_jvm_library(name = \"app\")\n"),
+          ("src/a/Manager.kt", &manager(hooks, "")),
+          ("src/a/Frame.kt", &frame("1", "manager.open()")),
+          ("src/b/Welcome.kt", &welcome("manager.open()")),
+          ("test/a/ManagerTest.kt", &test("")),
+          ("spec/window.spec.md", &spec("")),
+        ],
+        Some(1704117600),
+      )
+      .commit_with_timestamp(
+        "(layout) the manager drops the hooks nothing sets\n\nNo caller asks the hooks of the manager, so they go. The behaviour does not change.",
+        &[("src/a/Manager.kt", &manager("", ""))],
+        Some(1704118200),
+      )
+      .commit_with_timestamp(
+        "(layout) the open keeps a stored layout\n\nTwo startup steps showed the project view at each open, and none read the stored layout. One rule decides now: \
+         `allowed` answers whether the open may show a tool window.\n\nThe product decision is to keep the layout of the user.",
+        &[
+          ("src/a/Manager.kt", &manager("", &rule("present"))),
+          ("src/a/Frame.kt", &frame("1", "if (manager.allowed(\"Project\")) manager.open() else 0")),
+          ("src/b/Welcome.kt", &welcome("if (manager.allowed(\"Welcome\")) manager.open() else 0")),
+          (
+            "test/a/ManagerTest.kt",
+            &test("\n  @Test fun `the open may show only the stored layout`() = check(Manager().allowed(\"Project\"))\n"),
+          ),
+        ],
+        Some(1704118800),
+      )
+      .commit_with_timestamp(
+        "(layout) the view paints with the first frame\n\nThe project view paints as soon as its tool windows are registered, in every frame.",
+        &[("src/a/Frame.kt", &frame("2", "if (manager.allowed(\"Project\")) manager.open() else 0"))],
+        Some(1704119400),
+      )
+      .commit_with_timestamp(
+        "(layout) the restart story checks the layout\n\nThe story restarts the window and checks that the stored layout is kept.",
+        &[
+          (
+            "spec/window.spec.md",
+            &spec(
+              "- The window keeps its stored layout across a restart, and the project view does not take the place of\n  another tool window.\n  [@test] ../tests/restart.json\n",
+            ),
+          ),
+          ("tests/restart.json", "{\n  \"story\": \"restart-keeps-layout\"\n}\n"),
+        ],
+        Some(1704120000),
+      )
+      .commit_with_timestamp(
+        "(layout) the rule names its flag again\n\nThe review asked for the name of the flag to say what it holds.",
+        &[("src/a/Manager.kt", &manager("", &rule("named")))],
+        Some(1704120600),
+      )
+  }
+
   /// A branch `rename` whose one commit makes the same edit in three files of the baseline, each of them that edit alone,
   /// and the same edit with a change of its function in a fourth: the files the review plan folds as the same edit
   pub fn repeated_edit() -> RepoTemplate {

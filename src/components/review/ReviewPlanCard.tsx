@@ -3,6 +3,7 @@ import { ChevronRightIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
+import { ReviewBrief } from "@/components/review/ReviewBrief"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { ReviewPlanState } from "@/hooks/useReviewPlan"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
@@ -22,7 +23,8 @@ import {
 
 /**
  * "Review Summary" above the diffs of a scope of the branch review, with the review plan on (spec/branch/review-plan.spec.md,
- * Status: Experimental). What can break leads: what changed since the user's review, the removed or changed API with
+ * Status: Experimental). The brief leads (spec/branch/review-tour.spec.md): the issue, what changes, the steps of the
+ * story; then what changed since the user's review, the removed or changed API with
  * uses left outside the change or with uses unknown, then the dependency changes and the new links between modules,
  * the repeated edits and the new API, collapsed, and why the usages are missing. Each entry shows its place in the
  * review: the line of the declaration or of the use, else the file. Rust decides and ranks; the card words what it sent, in its order.
@@ -36,7 +38,11 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
   const repeated = plan === null ? [] : presentRepeatedEdits(plan.repeatedEdits)
   const newApi = plan === null ? [] : presentNewApi(plan.api)
   return (
-    <section aria-label="Review Summary" data-testid="review-plan-card" className="flex max-h-72 shrink-0 flex-col gap-2 overflow-y-auto border-b border-border px-4 py-3 text-sm">
+    <section
+      aria-label="Review Summary"
+      data-testid="review-plan-card"
+      className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-y-auto border-b border-border px-4 py-3 text-sm"
+    >
       <SectionLabel title="Review Summary">
         <span className="flex items-center gap-1.5" data-testid="review-plan-summary">
           {(loading || pending) && <Spinner className="size-3" />}
@@ -48,6 +54,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
           {`Cannot read the review plan: ${error}`}
         </p>
       )}
+      {plan !== null && <ReviewBrief plan={plan} />}
       {since !== null && (
         <div className="flex flex-col gap-0.5" data-testid="review-plan-since">
           <span>{`Since your review: ${since}`}</span>

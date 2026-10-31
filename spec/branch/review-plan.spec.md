@@ -597,7 +597,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
   a removed one too: the other file, the names and the line of the first use (`Cache, get · Reader.kt:3`), and the
   state Added, Removed or Kept. A click on a link must select that file, close the popover and show the file: a file
   that uses this one at its first use, the name selected, a file it uses at its header.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and show a linked file from its popover, a file that uses at its first use`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links and the uses it breaks, and show a linked file from its popover, a file that uses at its first use`)
 - A click on a file in a popover must select it also when a filter hides it. The owner filter then goes back to All
   when it hides the file, and the search is cleared when it hides the file. A filter that shows the file stays.
   The click selects the file once: a later change of the owner filter or the search must not select it again.
@@ -605,8 +605,9 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
 - A file row must show `breaks N` in the warning tone for the uses left outside the change of the API it removes or
   changes. When `breaks_complete` is false it must show `breaks N+`, or a quiet `breaks ?` at 0: a lower bound never
-  reads as safe. `no test` must be a quiet text of an `untested` file.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links, the uses it breaks and no test, and show a linked file from its popover, a file that uses at its first use`)
+  reads as safe. A row has no `no test`: the tests that name the code of a change are those of its step
+  ([Review Tour](review-tour.spec.md#tests-that-name-it)); `untested` stays in `bd review-plan`.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should badge each file with its links and the uses it breaks, and show a linked file from its popover, a file that uses at its first use`)
   [@test] ../../src/presenters/review-plan.test.ts (`says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0`, `lists no file without a badge`)
 - A file of a repeated edit must show `same edit ×N`. Its popover must name the edit (the first line removed and the
   first added, `a → b`) and list the other files of the group; a click selects one.

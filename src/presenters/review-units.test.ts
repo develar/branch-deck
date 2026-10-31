@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, Concern, ConcernName, ConcernPart, FileFacts, GeneratedBy, ReviewUnit, UnitBlock, UnitKind } from "@/lib/bindings"
+import { concernChapters } from "@/presenters/review-steps"
 import { formatUnitHeading, presentNarrative } from "@/presenters/review-units"
 import type { NarrativeFile } from "@/presenters/review-units"
 
@@ -185,7 +186,7 @@ describe("the concerns in the story", () => {
           slice.blocks.map(block => block.oldStart),
         ),
       )
-    const sections = presentNarrative(units, files, [], facts, concerns)
+    const sections = presentNarrative(units, files, [], facts, concernChapters(concerns))
     expect(sections.map(section => [section.key, section.concern, section.concernHeading, section.heading, section.folded])).toEqual([
       ["file:.codex/config.toml", "p", "ijproxy", null, null],
       ["file:docs/guide.md", "p", null, null, null],
@@ -209,7 +210,7 @@ describe("the concerns in the story", () => {
       unit({ kind: "behaviour" }, "use", [{ path: "src/Use.kt", blocks: [block(0, 3)] }]),
     ]
     const rest = concern("r", { source: "rest" }, [part("behaviour:use", "src/Use.kt"), part("behaviour:open", "src/Api.kt")])
-    const sections = presentNarrative(units, [file("src/Api.kt", [10]), file("src/Use.kt", [3])], [], [], [rest])
+    const sections = presentNarrative(units, [file("src/Api.kt", [10]), file("src/Use.kt", [3])], [], [], concernChapters([rest]))
     expect(sections.map(section => [section.key, section.concern, section.concernHeading])).toEqual([
       ["file:src/Api.kt", null, null],
       ["file:src/Use.kt", null, null],

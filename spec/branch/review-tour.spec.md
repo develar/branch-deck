@@ -8,6 +8,14 @@ targets:
   - ../../crates/review-plan/src/interdiff.rs
   - ../../crates/review-plan/src/lib.rs
   - ../../crates/bd-rewrite/src/review_plan_command.rs
+  - ../../src/presenters/review-steps.ts
+  - ../../src/components/review/ReviewBrief.tsx
+  - ../../src/components/review/ReviewPlanCard.tsx
+  - ../../src/components/commit/CommitReview.tsx
+  - ../../src/lib/file-tree.ts
+  - ../../src/presenters/review-units.ts
+  - ../../src/lib/diff/rows.ts
+  - ../../src/hooks/useSelectReviewFile.ts
 ---
 
 # Review Tour
@@ -123,6 +131,34 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   the others, and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
+
+### In the Review Window
+- With the review plan, the Review Summary must open on the brief (`ReviewBrief`): the issue key, a link with the
+  popover of its issue; What Changes, each entry its kind ("Spec rule", "Decision", "Agent guide", "Doc"), its file and
+  the heading of its section, which open the file, its paragraphs and "Proven by restart.json"; then the Steps, each its
+  number and its title (the subject of the commit that starts it, without the issue key and the `(prefix)`), the first
+  paragraph of its body, the rest under More, its rounds ("Follows up: …", "Without a story: …"), "Tests that name it:
+  …", "Proven by …", and "Not named by a test: …" muted; a step no test of the range names any code of, and that no
+  scenario proves, says so in the warning tone ("No test in this change names paint"). A click of the title of a
+  step must show its first section at the top of the diffs, its row selected. Steps of the concerns say why ("One
+  commit: the steps are its tasks"); a range whose only step is what no evidence joined lists no step.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
+  [@test] ../../src/presenters/review-steps.test.ts (`words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that name its code, a step no test proves`, `names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`)
+- The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
+  of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
+  named by its concern and keeps its main rows ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The
+  story of the diffs must follow the steps: the first section of each under its heading (`review-concern-heading`).
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
+  [@test] ../../src/presenters/review-steps.test.ts (`names a step of a concern by its concern and keeps its main rows`)
+- A declaration of a step whose block another step shows must be one row in the section of its step, "hooks —
+  removed · shown in step 2", which opens that section, and its heading must join the heading of that block there
+  ("allowed — new · hooks — removed"); a section of no change of its own shows only such rows.
+  [@test] ../../src/presenters/review-steps.test.ts (`lays a declaration without a block of its own out in its step as the row of the block another step shows`)
+  [@test] ../../src/lib/diff/rows.test.ts (`makes a section of no change of its own the rows of the blocks other sections show, alone`)
+- Above the diffs the bar of the step of the section at the top (`review-step-bar`) must show "Step 3 / 4", its title,
+  the first paragraph of its body and the warning of a step no test names; it follows the diffs as they scroll and as
+  J, K, a row of the tree and a step of the brief move them, and a click shows the first section of the step.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
 
 ## User Experience
 

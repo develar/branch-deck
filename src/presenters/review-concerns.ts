@@ -27,14 +27,14 @@ export function formatConcernName(name: ConcernName): string {
   }
 }
 
-/** "also in proxy": a row of a file in a concern that is not the one of its main row */
-export function formatAlsoIn(name: ConcernName): string {
-  return `also in ${formatConcernName(name)}`
+/** "also in proxy": a row of a file in a chapter of the story (a concern, a step) that is not the one of its main row */
+export function formatAlsoIn(chapter: string): string {
+  return `also in ${chapter}`
 }
 
-/** "Its own row is under grep → accio": where the main row of a file of several concerns is */
-export function formatHome(name: ConcernName): string {
-  return `Its own row is under ${formatConcernName(name)}`
+/** "Its own row is under grep → accio": where the main row of a file of several chapters is */
+export function formatHome(chapter: string): string {
+  return `Its own row is under ${chapter}`
 }
 
 const EVIDENCE_WORDS: Readonly<Record<EvidenceKind, string>> = {

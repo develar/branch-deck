@@ -1,12 +1,12 @@
 // @spec spec/branch/review-plan.spec.md
-import { appendFileSync, writeFileSync } from "node:fs"
+import { writeFileSync } from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
+import { openPlanWindow, openReviewWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -28,12 +28,6 @@ function storeText(helper: string): string {
 
 const READER = (body: string) => `package a\n\nimport b.Cache\n\nclass Reader {\n  fun read(cache: Cache) = ${body}\n}\n`
 
-/** The review plan on for the repository: the flag is off when unset, and the global config of the test machine says so too (`TEST_IDENTITY` of the server) */
-function turnOnReviewPlan(repo: TestRepositoryBuilder): void {
-  // `git config branchdeck.reviewExperimental true` in a terminal: the next sync reads it, and it wins over the global
-  appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
-}
-
 /** The branch `plan` of two commits on top of the template, the index of accio with three usages of `helper` */
 async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experimental: boolean }): Promise<void> {
   if (experimental) {
@@ -53,13 +47,6 @@ async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experi
   )
 }
 
-/** The paths of the diffs the review shows of its files, in their order: no use left outside */
-async function reviewedPaths(page: Page): Promise<string[]> {
-  return page
-    .locator('[data-testid="diff-view-file"]:not([data-section^="ghost:"]) [data-testid="review-file-header"]')
-    .evaluateAll(headers => headers.map(header => header.getAttribute("data-path")!))
-}
-
 /** The rows of the commit column: a scope by its label, a commit by its subject with what it is since the review */
 async function commitColumn(page: Page): Promise<string[]> {
   return page.getByTestId("range-review-commit").evaluateAll(rows =>
@@ -70,22 +57,6 @@ async function commitColumn(page: Page): Promise<string[]> {
         .join(""),
     ),
   )
-}
-
-/** "Review Changes" of the row of `branch`: the review window it opens */
-async function openReviewWindow(page: Page, branch: string) {
-  await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  return (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
-}
-
-/** The review window of `branch` (`plan`) after a sync, as a page of its own beside the main window, its diffs shown */
-async function openPlanWindow(page: Page, syncAndWaitForBranches: () => Promise<unknown>, branch = "plan"): Promise<Page> {
-  await syncAndWaitForBranches()
-  const window = await openLinkedSubWindow(page, await openReviewWindow(page, branch))
-  await expect(window.getByTestId("review-file-header").first()).toBeVisible()
-  return window
 }
 
 /**
@@ -196,7 +167,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(planRows(window).store.getByTestId("file-breaks-badge")).toHaveText("breaks ?")
   })
 
-  test("should badge each file with its links, the uses it breaks and no test, and show a linked file from its popover, a file that uses at its first use", async ({
+  test("should badge each file with its links and the uses it breaks, and show a linked file from its popover, a file that uses at its first use", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -210,9 +181,6 @@ test.describe("The review plan in the branch review", () => {
     await expect(cache.getByTestId("file-links-badge")).toHaveText("used by 1")
     await expect(store.getByTestId("file-breaks-badge")).toHaveText("breaks 3")
     await expect(store.getByTestId("file-links-badge")).toHaveCount(0)
-    for (const row of [reader, cache, store]) {
-      await expect(row.getByTestId("file-untested-badge")).toHaveText("no test")
-    }
     await captureHtmlSnapshot(tree, "review-plan-tree-badges")
 
     // the popover of Reader lists the link to Cache with its name and state; a click selects Cache
@@ -508,6 +476,8 @@ test.describe("The review plan in the branch review", () => {
     // replaced by accio in the guide, its list of tools and AGENTS.md, rendered from the guide; App.kt joins neither
     turnOnReviewPlan(await setupRepo("review_concerns"))
     const window = await openPlanWindow(page, syncAndWaitForBranches, "search")
+    // the brief above the diffs and every card of the story on screen: the view renders the cards it shows
+    await window.setViewportSize({ width: 1280, height: 1200 })
     const tree = window.getByRole("tree", { name: "Changed files" })
     const row = (name: string) => tree.getByRole("treeitem", { name, exact: true })
     const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))

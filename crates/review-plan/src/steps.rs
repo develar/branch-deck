@@ -31,6 +31,7 @@ use object_cache::commit_diff::FileChange;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
+use sync_utils::commit_subject::stripped_subject;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::symbol_scan::SymbolInput;
 
@@ -94,6 +95,11 @@ pub struct ReviewStep {
   pub concern: Option<String>,
   /// What the step shows, in its order
   pub stops: Vec<StepStop>,
+  /// The files of its stops, each once, in the order of its stops
+  pub paths: Vec<String>,
+  /// Its files whose main row, in the tree of the review, is another step's: of the steps of a file, the one whose
+  /// stops change the most lines of it holds its row, the first of equal ones
+  pub elsewhere: Vec<String>,
   pub tests: StepTests,
 }
 
@@ -104,6 +110,7 @@ pub struct ReviewStep {
 #[serde(rename_all = "camelCase")]
 pub struct StepCommit {
   pub id: String,
+  /// Its subject without the `(prefix)` that groups it
   pub subject: String,
   /// The message after its subject, trimmed; empty for a commit of no story
   pub body: String,
@@ -263,11 +270,15 @@ impl Carried {
       }
     }
     for line in old.clone().filter(|&line| !blank(old_text, line)) {
-      let line = u64::from(line);
-      if let Some(&(_, _, commit)) = self.removed.iter().find(|(from, to, _)| (*from..*to).contains(&line)) {
+      if let Some(commit) = self.remover_of(u64::from(line)) {
         *into.entry(commit).or_default() += 1;
       }
     }
+  }
+
+  /// The commit that removed line `line` (from 0) of the base, `None` for a line that stays
+  fn remover_of(&self, line: u64) -> Option<usize> {
+    self.removed.iter().find(|(from, to, _)| (*from..*to).contains(&line)).map(|(_, _, commit)| *commit)
   }
 
   /// The commit that wrote line `line` (from 0) at the head, `None` for a line of the base
@@ -405,6 +416,7 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
     step.tests = tests_of(input, &file_of, step);
   }
   mark_concerns(input, &mut steps);
+  mark_paths(input, &mut steps);
   let coverage = coverage(input, &steps);
   ReviewSteps {
     source: source.map_or(StepSource::Commits, |reason| StepSource::Concerns { reason }),
@@ -466,7 +478,8 @@ fn parts_with_lines(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, carr
 }
 
 /// The commit of a slice without changed lines of its own: a file added, deleted or without text, by the commit that
-/// added, deleted or last changed it; a declaration whose block another unit holds, by the commit that wrote its name
+/// added, deleted or last changed it; a declaration whose block another unit holds, by the commit that wrote its name,
+/// a removed one by the commit that removed it
 fn file_lines(input: &StepsInput<'_>, carried: &Carried, file: usize, unit: &ReviewUnit, slice: &UnitSlice) -> BTreeMap<usize, u64> {
   let changed = &input.changed[file];
   let place = |change: &FileChange| {
@@ -478,6 +491,7 @@ fn file_lines(input: &StepsInput<'_>, carried: &Carried, file: usize, unit: &Rev
   };
   let writer = match unit.kind {
     UnitKind::Added | UnitKind::Behaviour | UnitKind::Shape { .. } if !slice.whole => unit.line.and_then(|line| carried.writer_of(u64::from(line.saturating_sub(1)))),
+    UnitKind::Removed if !slice.whole => unit.line.and_then(|line| carried.remover_of(u64::from(line.saturating_sub(1)))),
     UnitKind::NewFile => changed.changes.iter().find(|change| change.status == 'A').copied().and_then(place),
     UnitKind::DeletedFile | UnitKind::DeletedFiles { .. } => changed.changes.iter().rev().find(|change| change.status == 'D').copied().and_then(place),
     _ => None,
@@ -578,21 +592,18 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
     .collect();
   let mut steps: Vec<ReviewStep> = heads
     .iter()
-    .map(|&head| ReviewStep {
-      id: input.commits[head].0.clone(),
+    .map(|&head| input.commits[head].0.clone())
+    .chain(std::iter::once("no-story".to_string()))
+    .map(|id| ReviewStep {
+      id,
       commits: Vec::new(),
       concern: None,
       stops: Vec::new(),
+      paths: Vec::new(),
+      elsewhere: Vec::new(),
       tests: StepTests::default(),
     })
     .collect();
-  steps.push(ReviewStep {
-    id: "no-story".to_string(),
-    commits: Vec::new(),
-    concern: None,
-    stops: Vec::new(),
-    tests: StepTests::default(),
-  });
   for (commit, &step) in step_of_commit.iter().enumerate() {
     let role = match head_of[commit] {
       Some(head) if head == commit => CommitRole::Starts,
@@ -630,7 +641,7 @@ fn step_commit(input: &StepsInput<'_>, commit: usize, role: CommitRole) -> StepC
   let (subject, body) = split_message(message);
   StepCommit {
     id: id.clone(),
-    subject: subject.to_string(),
+    subject: stripped_subject(subject).trim().to_string(),
     body: if role == CommitRole::NoStory { String::new() } else { body.to_string() },
     role,
   }
@@ -697,6 +708,8 @@ fn concern_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)])
             concern: None,
           })
           .collect(),
+        paths: Vec::new(),
+        elsewhere: Vec::new(),
         tests: StepTests::default(),
       }
     })
@@ -967,6 +980,49 @@ fn mark_concerns(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
     for stop in &mut step.stops {
       stop.concern = concern_of.get(&(stop.unit.as_str(), stop.path.as_str())).map(|concern| (*concern).to_string());
     }
+  }
+}
+
+/// The files of each step and the main row of each file (`ReviewStep::paths`, `elsewhere`): the step whose stops change
+/// the most lines of it, by the lines of the blocks they show, a file without blocks one
+fn mark_paths(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
+  let unit_of: HashMap<&str, &ReviewUnit> = input.units.iter().map(|unit| (unit.id.as_str(), unit)).collect();
+  // the path -> (the step of its main row, its changed lines there)
+  let mut main: HashMap<String, (usize, u32)> = HashMap::new();
+  for (place, step) in steps.iter_mut().enumerate() {
+    let mut weights: Vec<(String, u32)> = Vec::new();
+    for stop in &step.stops {
+      let lines: u32 = unit_of.get(stop.unit.as_str()).map_or(1, |unit| {
+        unit
+          .slices
+          .iter()
+          .filter(|slice| slice.path == stop.path)
+          .flat_map(|slice| &slice.blocks)
+          .filter(|block| stop.blocks.as_ref().is_none_or(|blocks| blocks.contains(&block.index)))
+          .map(|block| (block.old_end - block.old_start) + (block.new_end - block.new_start))
+          .sum::<u32>()
+          .max(1)
+      });
+      match weights.iter_mut().find(|(path, _)| *path == stop.path) {
+        Some((_, weight)) => *weight += lines,
+        None => weights.push((stop.path.clone(), lines)),
+      }
+    }
+    for (path, weight) in &weights {
+      let entry = main.entry(path.clone()).or_insert((place, *weight));
+      if *weight > entry.1 {
+        *entry = (place, *weight);
+      }
+    }
+    step.paths = weights.into_iter().map(|(path, _)| path).collect();
+  }
+  for (place, step) in steps.iter_mut().enumerate() {
+    step.elsewhere = step
+      .paths
+      .iter()
+      .filter(|path| main.get(path.as_str()).is_some_and(|(home, _)| *home != place))
+      .cloned()
+      .collect();
   }
 }
 

@@ -10,8 +10,9 @@ import type { DependencyBadge, FileBadges, LinkEntry } from "@/presenters/review
 
 /*
  * The badges of a row of the tree of a review with its plan (spec/branch/review-plan.spec.md, In the Review Window):
- * the links of a file among the changed files and their popover, the uses its API leaves outside the change, no test,
- * the same edit as other files, and the dependency changes of a module. The presenter words them; a click on a file in
+ * the links of a file among the changed files and their popover, the uses its API leaves outside the change, the same
+ * edit as other files, and the dependency changes of a module; the tests that name its code are those of its step
+ * (spec/branch/review-tour.spec.md). The presenter words them; a click on a file in
  * a popover selects it.
  */
 
@@ -39,11 +40,6 @@ export function FileRowBadges({ badges, onSelectPlace }: { badges: FileBadges; o
         </Badge>
       )}
       {badges.sameEdit !== null && <SameEditPopover sameEdit={badges.sameEdit} onSelectPlace={onSelectPlace} />}
-      {badges.untested !== null && (
-        <span className="text-xs text-muted-foreground" title="No test of this file changed" data-testid="file-untested-badge">
-          {badges.untested}
-        </span>
-      )}
     </span>
   )
 }
