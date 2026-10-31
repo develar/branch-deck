@@ -627,12 +627,7 @@ impl Trash {
   pub(crate) fn sweep(&self) {
     let Ok(entries) = std::fs::read_dir(&self.root) else { return };
     for entry in entries.flatten() {
-      let name = entry.file_name().to_string_lossy().into_owned();
-      let mut parts = name.splitn(3, '-');
-      let (Some(pid), Some(started)) = (parts.next().and_then(|pid| pid.parse().ok()), parts.next().and_then(|started| started.parse().ok())) else {
-        continue;
-      };
-      if entry.path() == self.dir || is_running(pid, Some(started).filter(|started| *started != 0)) {
+      if entry.path() == self.dir || !of_gone_run(&entry.file_name().to_string_lossy()) {
         continue;
       }
       match remove_measured(&entry.path()) {
@@ -641,6 +636,21 @@ impl Trash {
       }
     }
   }
+}
+
+/// Whether the trash under `root` holds a directory of a run whose process is gone, which `Trash::sweep` deletes: a
+/// look at the names, no walk
+pub(crate) fn holds_gone_runs(root: &Path) -> bool {
+  std::fs::read_dir(root).is_ok_and(|entries| entries.flatten().any(|entry| of_gone_run(&entry.file_name().to_string_lossy())))
+}
+
+/// Whether the trash directory `name` (`<pid>-<start>-<uuid>`) is of a run whose process is gone
+fn of_gone_run(name: &str) -> bool {
+  let mut parts = name.splitn(3, '-');
+  let (Some(pid), Some(started)) = (parts.next().and_then(|pid| pid.parse().ok()), parts.next().and_then(|started| started.parse().ok())) else {
+    return false;
+  };
+  !is_running(pid, Some(started).filter(|started| *started != 0))
 }
 
 /// The `delete` rules as a get leaves them out of a clone (`clone_dir`): each path with the entries it keeps

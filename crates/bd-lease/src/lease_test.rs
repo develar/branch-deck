@@ -1613,6 +1613,23 @@ pub(crate) fn wait_until_held<T>(dir: &Path, run: &std::thread::ScopedJoinHandle
   assert!(dir.join("held").exists(), "the return reached the held command");
 }
 
+/// A directory of 1 MiB in the trash of the pool, as a run leaves it: of a process that is gone (`gone`), else of
+/// this one, which still runs
+pub(crate) fn trash_of_a_run(fixture: &Fixture, gone: bool) -> PathBuf {
+  let (pid, name) = if gone {
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    child.wait().unwrap();
+    (child.id(), "gone")
+  } else {
+    (std::process::id(), "running")
+  };
+  let started = sync_utils::process_scan::process_started(pid).unwrap_or(1);
+  let dir = fixture.repo.path().join(".git/branch-deck/trash").join(format!("{pid}-{started}-{name}"));
+  std::fs::create_dir_all(dir.join("0")).unwrap();
+  std::fs::write(dir.join("0").join("out.bin"), vec![1; 1 << 20]).unwrap();
+  dir
+}
+
 /// `bd lease return` in `path`, held as `held_environment` holds it, while `during` runs; its exit code and output
 #[cfg(unix)]
 fn return_held_while(fixture: &Fixture, path: &str, pattern: &str, during: impl FnOnce()) -> (i32, Value) {

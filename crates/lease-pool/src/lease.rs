@@ -16,7 +16,7 @@ use crate::clone_dir::{CloneSkips, clone_directory};
 use crate::free_space::available_bytes;
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
-use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, read_clean_rules, remove_together};
+use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
 use crate::state_file::StateFile;
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -666,6 +666,8 @@ pub enum GetStep {
   /// Under the clones lock, no free slot, and the return or the clean of the slot `slot` by the process `pid` runs: the
   /// get waits for it to end rather than add a slot (`clean`: a clean, else a return)
   WaitForSlot { slot: String, pid: u32, clean: bool },
+  /// Below the minimum free space: the trash of the runs that are gone is deleted, without the clones lock
+  DeleteTrash,
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -699,6 +701,7 @@ impl fmt::Display for GetStep {
         "no free slot; waiting for the {} of {slot} (pid {pid}): the slot it frees is leased rather than a new one",
         if *clean { "clean" } else { "return" }
       ),
+      Self::DeleteTrash => f.write_str("deleting the trash of runs that are gone: the free space is below the minimum"),
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
       Self::Clone { template, slot } => write!(f, "cloning {template} into {slot}"),
@@ -812,11 +815,10 @@ enum Reserved {
 /// slot is marked, skipped, and the next one tried), `checkout --force` to the source HEAD (only the diff is written),
 /// the seed. No free slot: the clones lock (`Pool::lock_clones`), waited for while another get adds a slot; a slot freed
 /// during the wait ends it, and the get reserves that one without the lock. After a wait the minimum and the processes
-/// as they are now; the free space again, and the reserve again, where a slot freed meanwhile wins, and a slot whose
-/// return or clean runs is waited for. Else, under the lock until the slot is ready, a clone of a template without
-/// what the `delete` rules
-/// delete (`add_cloned_slot`), else a registration and the only full checkout. A failure after the lease was recorded
-/// gives the slot back
+/// as they are now; the free space again (a trash to delete releases the lock for the delete), and the reserve again,
+/// where a slot freed meanwhile wins, and a slot whose return or clean runs is waited for. Else, under the lock until
+/// the slot is ready, a clone of a template without what the `delete` rules delete (`add_cloned_slot`), else a
+/// registration and the only full checkout. A failure after the lease was recorded gives the slot back
 ///
 /// The holders `bd-host/<n>` are the host slots' (`host_slots`), which only `host_slots::fill` gets: another get with
 /// such a holder is refused (`ReservedHolder`)
@@ -871,7 +873,17 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
   let pool_dir = PathBuf::from(canonical_path(&pool_dir));
   let pool = Pool::new(&git_common_dir);
   let mut min_free = required_free(params, &config)?;
-  let mut free_bytes = free_space(&pool, &pool_dir, min_free)?;
+  // whether the get deleted the trash since its last wait for the clones lock
+  let mut swept = false;
+  let mut free_bytes = loop {
+    match free_space(&pool, &pool_dir, min_free, swept)? {
+      FreeSpace::Enough(available) => break available,
+      FreeSpace::Trash => {
+        delete_trash(&pool, &report);
+        swept = true;
+      }
+    }
+  };
   let seeds = seed_paths(git_executor, source)?;
   // the rules of the source leave out of a cloned slot what a return would delete; a file that can't be read clones all
   let skips = CloneSkips::new(&clone_skips(&read_clean_rules(Path::new(source)).unwrap_or_else(|error| {
@@ -941,10 +953,23 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             // now; a get that took the lock at once read them a moment ago
             min_free = required_free(params, &lease_config(git_executor, source)?)?;
             scan = ProcessScan::scan();
+            // and the trash, which the gets before it may have filled
+            swept = false;
           }
           // a queue of gets never adds slots past the minimum: each measures what the ones before it left
-          free_bytes = free_space(&pool, &pool_dir, min_free)?;
-          clones_lock = Some(lock);
+          match free_space(&pool, &pool_dir, min_free, swept)? {
+            FreeSpace::Enough(available) => {
+              free_bytes = available;
+              clones_lock = Some(lock);
+            }
+            FreeSpace::Trash => {
+              // the delete of a trash takes minutes for a Bazel output base of tens of GB: the gets behind this one go on
+              // meanwhile, and it takes its turn again
+              drop(lock);
+              delete_trash(&pool, &report);
+              swept = true;
+            }
+          }
           continue;
         }
       },
@@ -1177,30 +1202,42 @@ fn required_free(params: &LeaseGetParams<'_>, config: &LeaseConfig) -> Result<u6
   }
 }
 
-/// The free space of the volume of the pool (`None` where the system does not tell it), at least `min_free`: else
-/// `LowDiskSpace`. Below the minimum, the trash of runs that are gone is deleted first (what the clean rules of a
-/// takeover moved there, which only a later return or clean deletes), and the space measured again
-fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64) -> Result<Option<u64>> {
-  let below = |available: Option<u64>| available.is_some_and(|available| available < min_free);
-  let mut available = available_bytes(pool_dir);
-  let mut trash = if below(available) { pool.trash_bytes() } else { 0 };
-  if trash > 0 {
-    Trash::new(&pool.trash_dir()).sweep();
-    available = available_bytes(pool_dir);
-    trash = pool.trash_bytes();
+/// What the free space of the volume of the pool lets a get do (`free_space`)
+enum FreeSpace {
+  /// At least the minimum: the free bytes, `None` where the system does not tell them
+  Enough(Option<u64>),
+  /// Below the minimum, and the trash holds what runs that are gone left (what the clean rules of a takeover moved
+  /// there, which only a later return or clean deletes): the get deletes it (`delete_trash`), never under the clones
+  /// lock, and measures again
+  Trash,
+}
+
+/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs`, and below the minimum
+/// the names in the trash. Below it with no trash of a gone run, or one the get deleted since its last wait (`swept`):
+/// `LowDiskSpace`, naming what the trash keeps
+fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool) -> Result<FreeSpace> {
+  let available = available_bytes(pool_dir);
+  let Some(available) = available.filter(|&available| available < min_free) else {
+    return Ok(FreeSpace::Enough(available));
+  };
+  if !swept && holds_gone_runs(&pool.trash_dir()) {
+    return Ok(FreeSpace::Trash);
   }
-  if let Some(available) = available.filter(|&available| available < min_free) {
-    let store = pool.read()?;
-    bail!(LeaseRefusal::LowDiskSpace {
-      pool: display_path(pool_dir),
-      available,
-      required: min_free,
-      free_slots: store.slots.iter().filter(|slot| slot.lease.is_none()).count(),
-      idle: idle_leases(&store),
-      trash,
-    });
-  }
-  Ok(available)
+  let store = pool.read()?;
+  bail!(LeaseRefusal::LowDiskSpace {
+    pool: display_path(pool_dir),
+    available,
+    required: min_free,
+    free_slots: store.slots.iter().filter(|slot| slot.lease.is_none()).count(),
+    idle: idle_leases(&store),
+    trash: pool.trash_bytes(),
+  });
+}
+
+/// Delete the trash of the runs that are gone (`Trash::sweep`), told as a step
+fn delete_trash(pool: &Pool, report: &dyn Fn(GetStep)) {
+  report(GetStep::DeleteTrash);
+  Trash::new(&pool.trash_dir()).sweep();
 }
 
 /// The turn of a get at the clones lock (`lock_clones`); `waited` is how long the get waited for it, when the wait was

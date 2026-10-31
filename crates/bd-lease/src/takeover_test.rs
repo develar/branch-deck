@@ -1,7 +1,7 @@
 //! The takeover of an idle lease by a get, `bd lease reclaim` and the refusal of a resumed session
 //! (spec/cli/lease.spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
 //! older than the quiet time
-use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states};
+use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states, trash_of_a_run};
 #[cfg(unix)]
 use bd_cli::fixture_test::PREFIX;
 use bd_cli::fixture_test::{assert_covered, assert_error, make_lease_idle, run_in};
@@ -347,17 +347,8 @@ fn reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free() {
 #[test_log::test]
 fn a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first() {
   let fixture = Fixture::new();
-  let trash = fixture.repo.path().join(".git/branch-deck/trash");
-  let mut child = std::process::Command::new("true").spawn().unwrap();
-  let (pid, started) = (child.id(), sync_utils::process_scan::process_started(child.id()).unwrap_or(1));
-  child.wait().unwrap();
-  let gone = trash.join(format!("{pid}-{started}-gone"));
-  let me = std::process::id();
-  let running = trash.join(format!("{me}-{}-running", sync_utils::process_scan::process_started(me).unwrap_or(1)));
-  for dir in [&gone, &running] {
-    std::fs::create_dir_all(dir.join("0")).unwrap();
-    std::fs::write(dir.join("0").join("out.bin"), vec![1; 1 << 20]).unwrap();
-  }
+  let gone = trash_of_a_run(&fixture, true);
+  let running = trash_of_a_run(&fixture, false);
 
   let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1P"]);
   assert_error(&output, exit_code, (4, "low_disk_space"));

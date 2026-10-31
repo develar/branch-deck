@@ -5,7 +5,7 @@
 use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get_reporting};
 use crate::lease_test::{Fixture, Killed, path_of};
 #[cfg(unix)]
-use crate::lease_test::{held_environment, states, wait_until_held};
+use crate::lease_test::{held_environment, states, trash_of_a_run, wait_until_held};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::{git, run_json};
@@ -52,6 +52,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::Reserve { adding: true } => "reserve adding",
       GetStep::WaitForClone(_) => "wait",
       GetStep::WaitForSlot { .. } => "wait for slot",
+      GetStep::DeleteTrash => "delete trash",
       GetStep::StopServers { .. } => "stop servers",
       GetStep::Status { .. } => "status",
       GetStep::Clone { .. } => "clone",
@@ -328,6 +329,31 @@ fn a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it(
   assert!(error.message.contains("1048576.0 GiB"), "{}", error.message);
   assert_eq!(kinds(&steps), ["reserve", "wait"], "refused before its reserve under the lock");
   assert_eq!(states(&fixture.status()), [(path_of(&beside.first.1), "ready".to_string())]);
+}
+
+/// A get whose turn at the clones lock finds the volume below the minimum and a trash of a gone run deletes that trash
+/// without the lock, which the gets behind it take meanwhile: it releases the lock (its next reserve is one of a free
+/// slot), deletes the trash, takes its turn again, and refuses once the space is still too low, the trash deleted
+#[cfg(unix)]
+#[test_log::test]
+fn a_get_deletes_the_trash_without_the_clones_lock() {
+  let fixture = Fixture::new();
+  let steps = Mutex::new(Vec::new());
+  let beside = beside_a_held_clone(&fixture, &steps, |_, _| {
+    // what a takeover left while the get waited, and a minimum no volume has
+    let gone = trash_of_a_run(&fixture, true);
+    git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
+    gone
+  });
+  let gone = beside.seen;
+  let error = beside.second.unwrap_err();
+  assert_eq!(error.code, ErrorCode::LowDiskSpace, "{}", error.message);
+  assert!(!gone.exists(), "the trash of the gone run is deleted");
+  assert_eq!(kinds(&steps), ["reserve", "wait", "delete trash", "reserve"]);
+  assert_eq!(
+    GetStep::DeleteTrash.to_string(),
+    "deleting the trash of runs that are gone: the free space is below the minimum"
+  );
 }
 
 /// A get tells each step as it starts, in order: the reserve of a free slot, then under the clones lock of a new one,

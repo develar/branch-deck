@@ -163,8 +163,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_test.rs (`a_commit_during_the_check_stops_the_takeover`)
 - A get whose volume is below the minimum free space with trash in the pool must delete the trash of runs that are
   gone first (what a takeover left there) and measure again; `low_disk_space` names what the trash of a running
-  process keeps.
+  process keeps. The delete must never run under the clones lock: a get whose turn at the lock finds the volume
+  below the minimum and such a trash releases the lock, deletes the trash (`deleting the trash of runs that are
+  gone`) and takes its turn again; it deletes the trash once per wait for the lock.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty;
   later gets must try a dirty slot after the clean ones. With no free slot left, the get must add a new slot
