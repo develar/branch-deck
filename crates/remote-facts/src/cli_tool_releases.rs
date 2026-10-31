@@ -51,17 +51,15 @@ pub fn read_releases(file: &Path) -> KnownReleases {
   std::fs::read(file).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
 }
 
-/// The releases, asked again when the last check is older than a day: every tool's answer, or what the file keeps for a
-/// tool GitHub didn't answer
+/// The releases, asked again when the last check is older than a day, every tool at once: every tool's answer, or what
+/// the file keeps for a tool GitHub didn't answer
 #[instrument(skip(service, file))]
 pub async fn refresh_releases(service: &GitHubService, file: Option<&Path>, now: u32) -> KnownReleases {
   let known = file.map_or_else(KnownReleases::default, read_releases);
   if now.saturating_sub(known.checked_at) < CHECK_INTERVAL {
     return known;
   }
-  let mut latest = known.latest.clone();
-  let mut answered = false;
-  for tool in CliTool::ALL {
+  let release_of = |tool: CliTool| async move {
     let (owner, name) = release_repository(tool);
     let repository = format!("{owner}/{name}");
     let release = service
@@ -69,6 +67,14 @@ pub async fn refresh_releases(service: &GitHubService, file: Option<&Path>, now:
         client.get::<ReleaseDto>(&token, &["repos", owner, name, "releases", "latest"], &[]).await
       })
       .await;
+    (tool, release)
+  };
+  // every tool at once
+  let [teamcity, youtrack] = CliTool::ALL.map(release_of);
+  let answers: [_; 2] = tokio::join!(teamcity, youtrack).into();
+  let mut latest = known.latest.clone();
+  let mut answered = false;
+  for (tool, release) in answers {
     match release {
       Ok(release) => {
         let version = release.tag_name.trim_start_matches('v').to_string();

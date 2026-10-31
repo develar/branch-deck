@@ -48,39 +48,67 @@ pub struct KnownFacts {
   pub signed_in_youtrack: Option<String>,
 }
 
-/// The status of every tool, each read in its own threads: a CLI asking its server must not hold up the other
+/// What a read of a tool found on this machine, before the facts that are not the tool's to tell (`KnownFacts`): the
+/// app reads the tools while it asks GitHub for their newest releases
+pub struct FoundTool {
+  tool: CliTool,
+  found: Found,
+}
+
+enum Found {
+  Missing {
+    manager: Option<PackageManager>,
+    skill: CliToolSkill,
+  },
+  Installed {
+    binary: String,
+    version: Result<Option<String>, String>,
+    servers: Result<Vec<CliToolServer>, String>,
+    skill: Option<CliToolSkill>,
+    manager: Option<PackageManager>,
+  },
+}
+
+/// What a read of every tool found, each read in its own threads: a CLI asking its server must not hold up the other
 #[instrument(skip_all)]
-pub fn read_statuses(environment: &ToolEnvironment, facts: &dyn Fn(CliTool) -> KnownFacts) -> Vec<CliToolStatus> {
+pub fn find_statuses(environment: &ToolEnvironment) -> Vec<FoundTool> {
   std::thread::scope(|scope| {
+    #[expect(clippy::needless_collect, reason = "every read starts before the first is joined")]
     let reads: Vec<_> = CliTool::ALL
       .iter()
-      .map(|&tool| {
-        let known = facts(tool);
-        scope.spawn(in_current_span(move || read_status(environment, tool, &known)))
-      })
+      .map(|&tool| scope.spawn(in_current_span(move || find_status(environment, tool))))
       .collect();
     reads.into_iter().filter_map(|read| read.join().ok()).collect()
   })
 }
 
+/// The status of every tool (`find_statuses`) with the facts of each
+pub fn read_statuses(environment: &ToolEnvironment, facts: &dyn Fn(CliTool) -> KnownFacts) -> Vec<CliToolStatus> {
+  find_statuses(environment)
+    .into_iter()
+    .map(|found| {
+      let known = facts(found.tool);
+      found.status(&known)
+    })
+    .collect()
+}
+
 /// The status of `tool`: its version, sign-ins and skill, read at once
 #[instrument(skip(environment, facts))]
 pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFacts) -> CliToolStatus {
+  find_status(environment, tool).status(facts)
+}
+
+/// What a read of `tool` finds: its binary, version, sign-ins and skill, read at once
+#[instrument(skip(environment))]
+pub fn find_status(environment: &ToolEnvironment, tool: CliTool) -> FoundTool {
   let Some(binary) = environment.find_tool(tool) else {
     let manager = install_manager(environment, tool).map(|found| found.manager);
-    return CliToolStatus {
+    // the skill the agents may have from an earlier install of the CLI
+    let skill = read_skill(environment, tool, None);
+    return FoundTool {
       tool,
-      binary: None,
-      version: None,
-      servers: Vec::new(),
-      // the skill the agents may have from an earlier install of the CLI
-      skill: Some(read_skill(environment, tool, None)),
-      latest: facts.latest.clone(),
-      manager,
-      action: Some(CliToolAction::Install),
-      command: manager.is_none().then(|| manual_install_command(tool).to_string()),
-      problem: None,
-      sign_in_with: None,
+      found: Found::Missing { manager, skill },
     };
   };
   let (version, servers, skill) = std::thread::scope(|scope| {
@@ -97,30 +125,76 @@ pub fn read_status(environment: &ToolEnvironment, tool: CliTool, facts: &KnownFa
       skill.join().ok(),
     )
   });
-  let problem = [version.as_ref().err(), servers.as_ref().err()].into_iter().flatten().next().cloned();
-  let version = version.ok().flatten();
-  let servers = servers.unwrap_or_default();
   // a tool installed by a manager updates through it; another one through its own `update` (`teamcity`) or a terminal
   let manager = installed_by(environment, &binary).map(|found| found.manager);
-  let action = decide_action(version.as_deref(), &servers, facts.latest.as_deref());
-  // the app's own YouTrack sign-in signs youtrack in: no command then
-  let sign_in_with = facts
-    .signed_in_youtrack
-    .clone()
-    .filter(|_| tool == CliTool::Youtrack && action == Some(CliToolAction::SignIn));
-  let command = action.and_then(|action| terminal_command(tool, action, manager)).filter(|_| sign_in_with.is_none());
-  CliToolStatus {
+  FoundTool {
     tool,
-    binary: Some(binary.to_string_lossy().into_owned()),
-    version,
-    servers,
-    skill,
-    latest: facts.latest.clone(),
-    manager,
-    action,
-    command,
-    problem,
-    sign_in_with,
+    found: Found::Installed {
+      binary: binary.to_string_lossy().into_owned(),
+      version,
+      servers,
+      skill,
+      manager,
+    },
+  }
+}
+
+impl FoundTool {
+  #[must_use]
+  pub const fn tool(&self) -> CliTool {
+    self.tool
+  }
+
+  /// The status of the tool found with `facts`: its action and the command for a terminal
+  #[must_use]
+  pub fn status(self, facts: &KnownFacts) -> CliToolStatus {
+    let tool = self.tool;
+    match self.found {
+      Found::Missing { manager, skill } => CliToolStatus {
+        tool,
+        binary: None,
+        version: None,
+        servers: Vec::new(),
+        skill: Some(skill),
+        latest: facts.latest.clone(),
+        manager,
+        action: Some(CliToolAction::Install),
+        command: manager.is_none().then(|| manual_install_command(tool).to_string()),
+        problem: None,
+        sign_in_with: None,
+      },
+      Found::Installed {
+        binary,
+        version,
+        servers,
+        skill,
+        manager,
+      } => {
+        let problem = [version.as_ref().err(), servers.as_ref().err()].into_iter().flatten().next().cloned();
+        let version = version.ok().flatten();
+        let servers = servers.unwrap_or_default();
+        let action = decide_action(version.as_deref(), &servers, facts.latest.as_deref());
+        // the app's own YouTrack sign-in signs youtrack in: no command then
+        let sign_in_with = facts
+          .signed_in_youtrack
+          .clone()
+          .filter(|_| tool == CliTool::Youtrack && action == Some(CliToolAction::SignIn));
+        let command = action.and_then(|action| terminal_command(tool, action, manager)).filter(|_| sign_in_with.is_none());
+        CliToolStatus {
+          tool,
+          binary: Some(binary),
+          version,
+          servers,
+          skill,
+          latest: facts.latest.clone(),
+          manager,
+          action,
+          command,
+          problem,
+          sign_in_with,
+        }
+      }
+    }
   }
 }
 

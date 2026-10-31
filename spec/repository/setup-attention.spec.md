@@ -66,9 +66,9 @@ click lists each item with its action and its skip, then Settings.
   within 7 days or expired. A CLI that is not installed is none.
   [@test] ../../crates/cli-tools/src/setup_test.rs (`a_tool_not_installed_and_a_skill_never_installed_are_no_items`)
 - The newest release is GitHub's (`releases/latest` of JetBrains/teamcity-cli and JetBrains/youtrack-cli), asked with
-  the user's token, conditional on the last answer, at most once a day and kept in `cli-tool-releases.json` of the app
-  data; a failed answer keeps the last release and asks again next time.
-  [@test] ../../crates/remote-facts/src/cli_tool_releases_test.rs (`asks_github_once_a_day_and_keeps_the_answer_in_its_file`, `a_failed_answer_keeps_the_last_release_and_asks_again_next_time`)
+  the user's token, conditional on the last answer, at most once a day, both tools at once, and kept in
+  `cli-tool-releases.json` of the app data; a failed answer keeps the last release and asks again next time.
+  [@test] ../../crates/remote-facts/src/cli_tool_releases_test.rs (`asks_github_once_a_day_and_keeps_the_answer_in_its_file`, `a_failed_answer_keeps_the_last_release_and_asks_again_next_time`, `asks_for_every_tool_at_once`)
 - The first read of the app runs the CLIs; later reads take their last statuses, those of the read that started last:
   reads run at once and end in any order, and one that started before an update and ends after the read that followed
   it brings back nothing the update changed. The main window reads the CLIs again every 6 hours, Settings → Tools on

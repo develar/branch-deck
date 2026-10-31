@@ -60,9 +60,12 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   an app started from the Finder has none of them; looked up on every read, so a CLI installed meanwhile is found.
   [@test] ../../crates/sync-utils/src/child_process_test.rs (`finds_a_tool_before_path_then_on_path_then_after_it`)
 - A read runs `--version`, `auth status --json` and `skill list`, each in its own thread, both tools
-  at once, 20 s each; the CLIs run without colours, prompts or an update check, and without the `TEAMCITY_*` and
-  `YOUTRACK_*` credential variables of the app's environment, so the status is what an agent's shell gets.
+  at once, 20 s each, while GitHub is asked for the newest releases; the CLIs run without colours, prompts or an update
+  check, and without the `TEAMCITY_*` and `YOUTRACK_*` credential variables of the app's environment, so the status is
+  what an agent's shell gets. A window that asks while a read runs (the Setup dot of each window, Settings → Tools) gets
+  its answer; one that asks after an action of a row ended starts a new read.
   [@test] ../../crates/cli-tools/src/status_test.rs (`reads_every_tool`)
+  [@test] ../../crates/app-api/src/app/cli_tools_test.rs (`the_tools_are_found_while_the_releases_are_asked_and_a_read_meanwhile_joins`)
 - The version is the first word with a digit and a dot (`teamcity version 1.6.0`, `v0.7.0`); versions order by their
   numbers.
   [@test] ../../crates/cli-tools/src/parse_test.rs (`reads_the_version_of_each_cli`, `orders_versions_by_their_numbers`)

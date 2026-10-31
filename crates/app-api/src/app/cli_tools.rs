@@ -11,7 +11,7 @@ use crate::transport::{Call, Sink};
 use cli_tools::install::{ActionInput, ActionOutput, run_action};
 use cli_tools::kept_statuses::KeptStatuses;
 use cli_tools::setup::{SetupFacts, setup_entries};
-use cli_tools::status::{KnownFacts, read_statuses};
+use cli_tools::status::{FoundTool, KnownFacts, find_statuses};
 use domain_types::cli_tools::{CliTool, CliToolAction, CliToolStatus};
 use domain_types::error::ApiError;
 use domain_types::setup::{SetupEntry, SetupSkip};
@@ -19,6 +19,7 @@ use domain_types::youtrack::YouTrackAuthStatus;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use sync_utils::single_flight::SingleFlight;
 use tracing::{instrument, warn};
 
 /// The tools of the app: the actions that run and the statuses of the read that started last
@@ -28,11 +29,14 @@ pub struct CliToolsState {
   running: Mutex<HashMap<CliTool, Arc<AtomicBool>>>,
   /// The statuses of the read that started last, which the Setup dot takes without running the CLIs again
   statuses: KeptStatuses,
+  /// The read running: the windows that ask meanwhile (the Setup dot of each, Settings → Tools) get its answer
+  reads: SingleFlight<(), Result<Vec<CliToolStatus>, ApiError>>,
 }
 
 impl CliToolsState {
   /// The statuses kept are forgotten: the tools changed outside the app (a fixture of the e2e server)
   pub fn forget_statuses(&self) {
+    self.reads.forget();
     self.statuses.forget();
   }
 
@@ -49,19 +53,39 @@ fn signed_in_youtrack(status: Option<YouTrackAuthStatus>) -> Option<String> {
 
 /// The statuses of every tool with the newest releases and the YouTrack the app is signed in to, kept for the Setup dot
 async fn read(ctx: &AppContext) -> Result<Vec<CliToolStatus>, ApiError> {
-  let ticket = ctx.cli_tools.statuses.start_read();
-  let releases = ctx.host.tool_releases().await;
-  let signed_in_youtrack = signed_in_youtrack(ctx.host.youtrack_status());
   let environment = ctx.host.tool_environment();
-  let statuses = run_blocking(move || {
-    Ok::<_, ApiError>(read_statuses(&environment, &|tool| KnownFacts {
-      latest: releases.get(&tool).cloned(),
-      signed_in_youtrack: signed_in_youtrack.clone(),
-    }))
-  })
-  .await?;
-  ctx.cli_tools.statuses.keep(ticket, &statuses);
-  Ok(statuses)
+  let signed_in = || signed_in_youtrack(ctx.host.youtrack_status());
+  read_once(&ctx.cli_tools, ctx.host.tool_releases(), move || find_statuses(&environment), signed_in).await
+}
+
+/// `read` of the parts of the host: the tools are found (`find`, off the async workers) while the newest releases are
+/// asked (`releases`), and a caller that comes meanwhile gets the answer of the read running
+async fn read_once(
+  state: &CliToolsState,
+  releases: impl Future<Output = HashMap<CliTool, String>>,
+  find: impl FnOnce() -> Vec<FoundTool> + Send + 'static,
+  signed_in_youtrack: impl FnOnce() -> Option<String>,
+) -> Result<Vec<CliToolStatus>, ApiError> {
+  state
+    .reads
+    .run((), || async {
+      let ticket = state.statuses.start_read();
+      let (releases, found) = tokio::join!(releases, run_blocking(move || Ok::<_, ApiError>(find())));
+      let signed_in_youtrack = signed_in_youtrack();
+      let statuses: Vec<CliToolStatus> = found?
+        .into_iter()
+        .map(|found| {
+          let facts = KnownFacts {
+            latest: releases.get(&found.tool()).cloned(),
+            signed_in_youtrack: signed_in_youtrack.clone(),
+          };
+          found.status(&facts)
+        })
+        .collect();
+      state.statuses.keep(ticket, &statuses);
+      Ok(statuses)
+    })
+    .await
 }
 
 /// The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
@@ -185,6 +209,8 @@ pub async fn run_cli_tool_action(ctx: &AppContext, params: RunCliToolActionParam
     })
     .await;
     ctx.cli_tools.running().remove(&tool);
+    // a read that started before the action ended answers no window that asks from now on
+    ctx.cli_tools.reads.forget();
     ctx.host.tool_changed(tool).await;
     result.map(|done| CliToolActionDone {
       title: done.title,
@@ -201,3 +227,7 @@ pub fn cancel_cli_tool_action(ctx: &AppContext, _call: &Call, tool: CliTool) {
     canceled.store(true, Ordering::SeqCst);
   }
 }
+
+#[cfg(test)]
+#[path = "cli_tools_test.rs"]
+mod cli_tools_test;

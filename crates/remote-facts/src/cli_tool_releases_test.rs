@@ -45,3 +45,21 @@ async fn a_failed_answer_keeps_the_last_release_and_asks_again_next_time() {
   // nothing answered: the time of the check stays, so the next read asks again
   assert_eq!(read_releases(&file).checked_at, NOW - CHECK_INTERVAL);
 }
+
+#[test(tokio::test)]
+async fn asks_for_every_tool_at_once() {
+  let (fake, github) = start_fake_service("t").await;
+  fake.answer("GET", TEAMCITY, FakeAnswer::ok(json!({"tag_name": "v1.7.0"})));
+  fake.answer("GET", YOUTRACK, FakeAnswer::ok(json!({"tag_name": "v0.7.0"})));
+  let (teamcity, youtrack) = (fake.hold("GET", TEAMCITY), fake.hold("GET", YOUTRACK));
+  let refresh = refresh_releases(&github, None, NOW);
+  // both requests reach GitHub before either is answered
+  let both_asked = async {
+    teamcity.arrived().await;
+    youtrack.arrived().await;
+    teamcity.open();
+    youtrack.open();
+  };
+  let (releases, ()) = tokio::join!(refresh, both_asked);
+  assert_eq!((releases.latest(CliTool::Teamcity), releases.latest(CliTool::Youtrack)), (Some("1.7.0"), Some("0.7.0")));
+}
