@@ -553,10 +553,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - `descriptions` of the plan (`{branch: {title, body}}`, the leaf for a stacked branch) must be validated with it,
   before anything is written: a title of one line that is not empty, and a branch that has commits after the plan,
-  else `invalid_plan`. bd must write the ones that differ after the ref transaction, under the same lock, as
-  `bd describe` does, list the written ones in `described` and the texts they replaced in `replaced_descriptions`;
-  a plan of descriptions only rewrites no commit. `bd check` must validate them as well.
-  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`)
+  else `invalid_plan`. bd must write the ones that differ after the ref transaction and the release of the repository
+  lock, as `bd describe` does, so the regroup holds the lock only for its witness and its write; list the written ones
+  in `described` and the texts they replaced in `replaced_descriptions`; a plan of descriptions only rewrites no
+  commit. `bd check` must validate them as well.
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`, `a_group_with_descriptions_locks_only_the_witness_and_the_write`)
 - `--sync` must run the sync of `bd sync` after the writes and the release of the repository lock, so its merges never
   make the app or another `bd` wait, and add its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
   sync; it and a failed sync must keep the rewrite output, with the error as `after_error` and its exit code. `--sync` must not

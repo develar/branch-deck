@@ -679,8 +679,8 @@ pub struct RewriteOptions<'a> {
   /// How the rewrite waits for another holder of the lock: `bd` at most its timeout, then `RepositoryLocked`; the app
   /// as long as the holder lives
   pub lock_wait: LockWait<'a>,
-  /// The repository lock the caller holds, so that it can write more under it (`bd group` with descriptions); the core
-  /// then reads and computes under it too, without a witness. `None`: the core takes the lock after it computed
+  /// The repository lock the caller holds, so that it can write more under it; the core then reads and computes under
+  /// it too, without a witness. `None`: the core takes the lock after it computed
   pub held_lock: Option<&'a RepositoryLock>,
 }
 

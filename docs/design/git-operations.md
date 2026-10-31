@@ -286,7 +286,7 @@ taken and deletes it before the release), then runs the real git.
 | --- | --- | --- |
 | Move (`move_commits_to_branch_core`: `regroup_planned`) | `for-each-ref` (HEAD, its branch, the stores), `update-ref` | `a_move_locks_only_the_witness_and_the_write` (`crates/history-rewrite/src/regroup_test.rs`) |
 | Conflict fix (`apply_conflict_fix_core`: `regroup_planned`, the fingerprint before the lock) | `for-each-ref`, `update-ref` | `a_conflict_fix_locks_only_the_witness_and_the_write` (`crates/trial-check/src/conflict_fix_test.rs`) |
-| `bd group` (`regroup_commits_core`) | `for-each-ref`, `update-ref` | `a_group_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| `bd group` (`regroup_commits_core`; its descriptions, one `git config` each, after the lock) | `for-each-ref`, `update-ref` | `a_group_locks_only_the_witness_and_the_write` (`regroup_test.rs`), `a_group_with_descriptions_locks_only_the_witness_and_the_write` (`crates/bd-rewrite/src/rewrite_test.rs`) |
 | Rename (`rename_branch_core`) | `for-each-ref`, `update-ref` | `a_rename_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
 | Reword of the app and `bd reword` (`reword_request_core`) | `for-each-ref`, `update-ref` | `a_reword_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
 | Restack, unstack (`restack_branch_core`) | `for-each-ref`, `update-ref` | `a_restack_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
@@ -877,18 +877,20 @@ the inputs (the fingerprint is taken when the sync starts), so the next focus sy
 wrote from the HEAD it read. A fetch never runs under the lock: on a monorepo it can take minutes, and every other writer would fail with
 `locked`.
 
-**One call: rewrite, descriptions, sync.** `bd group` with descriptions that change takes the lock itself and passes
-it to the regroup (`RegroupOptions.held_lock`), so the regroup computes under it and takes no lock of its own, and the
-lock has no gap between the rewrite and its descriptions; without them (and `rename`, `restack`, `unstack`) the
-regroup's core takes the lock after it computed, for its witness and its write:
+**One call: rewrite, descriptions, sync.** The regroup of `bd group` (and `rename`, `restack`, `unstack`) computes
+before the repository lock and its core takes it for the witness and the write; the descriptions that change are
+written after the release (`regroup_and_describe`), so no other writer waits for the computation or for one
+`git config` per branch (`a_group_with_descriptions_locks_only_the_witness_and_the_write`). A description is config of
+its branch name, which git writes under its own lock of the config file; a rename by another process between the
+transaction and the write leaves it on the old name, which the next `bd group` with that description writes again:
 
 1. The current descriptions, when the plan has `descriptions`: those of the command's config (`RepoContext::config`,
    one `git config --get-regexp` read once per command and again after a wait for the lock).
 2. The regroup above. Before it writes, `regroup_commits_accepted` lets bd refuse the result: a description without a
    title of one line, or of a branch that has no commits after the plan, is `invalid_plan`.
-3. After the ref transaction: one `git config` per changed description (the exception of the batch rule).
-4. With `--sync`, after the release of the lock: the sync of `bd sync`, which takes none, so its merges never make the
-   app or another `bd` wait.
+3. After the ref transaction and the release of the lock: one `git config` per changed description (the exception of
+   the batch rule).
+4. With `--sync`: the sync of `bd sync`, which takes no lock, so its merges never make the app or another `bd` wait.
 
 A failure in step 3 or 4 leaves the rewrite in place: the output keeps the undo token and has the error as `error`.
 A failed description write stops the later ones and skips step 4. The undo moves HEAD and the issue groups back, not

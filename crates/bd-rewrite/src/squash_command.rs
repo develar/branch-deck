@@ -136,7 +136,7 @@ pub fn squash(context: &RepoContext, args: &SquashArgs) -> Result<SquashOutput, 
     Ok(squash_output(context, &selection, (&result.previous_head, &result.new_head), Some(&result.new_commit_id)))
   })?;
   if args.sync {
-    (output.sync, output.after_error) = sync_after_rewrite(context, None);
+    (output.sync, output.after_error) = sync_after_rewrite(context);
   }
   Ok(output)
 }

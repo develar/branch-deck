@@ -11,13 +11,13 @@ use bd_core::error::regroup_error;
 use bd_core::error::{CONFLICT_EXIT, CliError, ErrorBody};
 use bd_core::operation_record::{asked_on, recorded_unless};
 use bd_core::output::SchemaVersion;
-use bd_core::sync_command::{SyncOutput, lock, sync};
+use bd_core::sync_command::{SyncOutput, sync};
 use bd_core::text_input::read_text;
 use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
 use git_ops::branch_description::Description;
 use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core};
-use history_rewrite::repository_lock::{LockWait, RepositoryLock};
+use history_rewrite::repository_lock::LockWait;
 use history_rewrite::stack::{StackForest, describe_problem, problem_view};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -160,10 +160,9 @@ pub fn after_rewrite_exit_code(error: Option<&ErrorBody>, sync: Option<&SyncOutp
   }
 }
 
-/// `--sync` after a rewrite, which released its lock (`held_lock`, moved in): the sync output, or its error, which the
-/// rewrite output carries so that its undo token stays. The sync takes no lock, so it never makes another writer wait
-pub fn sync_after_rewrite(context: &RepoContext, held_lock: Option<RepositoryLock>) -> (Option<SyncOutput>, Option<ErrorBody>) {
-  drop(held_lock);
+/// `--sync` after a rewrite, which released its lock: the sync output, or its error, which the rewrite output carries
+/// so that its undo token stays. The sync takes no lock, so it never makes another writer wait
+pub fn sync_after_rewrite(context: &RepoContext) -> (Option<SyncOutput>, Option<ErrorBody>) {
   match sync(context) {
     Ok(sync) => (Some(sync), None),
     Err(error) => (None, Some(error.to_output().error)),
@@ -277,9 +276,9 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
 
 /// Run `regroup`, the rewrite `operation` (its name in the output, the intent of its record), recorded in the operations
 /// registry of the repository (none for a dry run); its core takes the repository lock after it computed, for the
-/// witness and the write. Changed `descriptions` are written under the lock of the rewrite: then bd takes it before the
-/// regroup and writes them after it; with --sync, end the record, release the lock and sync. A failure after the
-/// rewrite is the `error` of the rewrite output, so the output keeps the undo token
+/// witness and the write. Changed `descriptions` are written after its ref transaction, without the lock (one
+/// `git config` each, which git writes under its own lock of the config); with --sync, end the record and sync. A
+/// failure after the rewrite is the `error` of the rewrite output, so the output keeps the undo token
 pub(crate) fn rewrite(
   context: &RepoContext,
   operation: (&str, RewriteIntent),
@@ -288,44 +287,43 @@ pub(crate) fn rewrite(
   regroup: impl FnOnce(&RegroupOptions) -> Result<RegroupOutcome, RegroupError>,
 ) -> Result<RewriteOutput, CliError> {
   let (name, intent) = operation;
-  let locked = || rewrite_locked(context, name, args, descriptions, regroup);
-  let (mut output, held_lock) = recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), locked)?;
+  let regrouped = || regroup_and_describe(context, name, args, descriptions, regroup);
+  let mut output = recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), regrouped)?;
   if args.sync && output.after_error.is_none() {
-    (output.sync, output.after_error) = sync_after_rewrite(context, held_lock);
+    (output.sync, output.after_error) = sync_after_rewrite(context);
   }
   Ok(output)
 }
 
-/// `rewrite` up to its sync: its output, and the lock it holds (only to write descriptions)
-fn rewrite_locked(
+/// `rewrite` up to its sync: the regroup, whose core computes before the lock and holds it for the witness and the
+/// write, then the changed descriptions after its release
+fn regroup_and_describe(
   context: &RepoContext,
   operation: &str,
   args: &RewriteArgs,
   descriptions: &BTreeMap<String, Description>,
   regroup: impl FnOnce(&RegroupOptions) -> Result<RegroupOutcome, RegroupError>,
-) -> Result<(RewriteOutput, Option<RepositoryLock>), CliError> {
+) -> Result<RewriteOutput, CliError> {
   // read before the rewrite: only the writes can fail after it
   let changed = changed_descriptions(context, descriptions)?;
-  // the descriptions go under the lock of the rewrite; else its core takes the lock after it computed
-  let held_lock = if args.dry_run || changed.is_empty() { None } else { Some(lock(context)?) };
   let options = RegroupOptions {
     expect_head: args.expect_head.clone(),
     allow_append: args.allow_append,
     dry_run: args.dry_run,
     lock_wait: LockWait::Bounded(context.lock_timeout),
-    held_lock: held_lock.as_ref(),
+    held_lock: None,
   };
   let outcome = regroup(&options).map_err(regroup_error)?;
   let mut output = rewrite_output(context, operation, args, &outcome);
   if args.dry_run {
     set_described(&mut output, &changed);
-    return Ok((output, held_lock));
+    return Ok(output);
   }
   let (written, error) = write_descriptions(context, &changed);
   set_described(&mut output, &changed[..written]);
   // the sync is skipped after a failed write of a description
   output.after_error = error.map(|error| error.to_output().error);
-  Ok((output, held_lock))
+  Ok(output)
 }
 
 fn set_described(output: &mut RewriteOutput, changes: &[DescriptionChange]) {

@@ -296,6 +296,33 @@ fn issue_groups_plan_and_undo() {
   assert_error(&refused, exit_code, 2, "invalid_arguments");
 }
 
+/// `bd group` with descriptions holds the repository lock only for the witness and the write of its regroup: its
+/// computation before it, the one `git config` per changed description after it (docs/design/git-operations.md, "Lock
+/// spans")
+#[cfg(unix)]
+#[test_log::test]
+fn a_group_with_descriptions_locks_only_the_witness_and_the_write() {
+  let (repo, ids) = repo_with(&["Add login", "ABC-1 Fix crash"]);
+  let file = tempfile::NamedTempFile::new().unwrap();
+  let plan = json!({
+    "branches": { "auth": [short_id(&ids[0])] },
+    "descriptions": { "auth": { "title": "Add login" } },
+  });
+  std::fs::write(file.path(), plan.to_string()).unwrap();
+  let wrapped = LockSpanGit::new(&repo, "");
+  let (exit_code, output) = wrapped.run(&["group", "--plan", file.path().to_str().unwrap()]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["rewritten"], &output["described"]), (&json!(1), &json!(["auth"])));
+  assert_eq!(wrapped.locked_subcommands(), ["for-each-ref", "update-ref"], "{:#?}", wrapped.commands());
+  wrapped.assert_before_the_lock("fast-import");
+  let commands = wrapped.commands();
+  let described = commands
+    .iter()
+    .rposition(|(_, args)| args.contains("config") && args.contains(".description"))
+    .expect("a description written");
+  assert!(!commands[described].0, "the description after the lock: {commands:#?}");
+}
+
 /// The sync of `--sync` runs after the rewrite released the repository lock: its merges and its writes never make the
 /// app or another `bd` wait
 #[cfg(unix)]

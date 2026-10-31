@@ -100,7 +100,7 @@ pub fn move_hunk(context: &RepoContext, args: &MoveHunkArgs) -> Result<MoveHunkO
   };
   let mut output = recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || moved(context, args))?;
   if args.sync {
-    (output.sync, output.after_error) = sync_after_rewrite(context, None);
+    (output.sync, output.after_error) = sync_after_rewrite(context);
   }
   Ok(output)
 }
