@@ -5,7 +5,7 @@
 //! (`domain_policy::review::candidates`, over the review readiness the session reads: the pre-check with the pull
 //! request, asked again). Users only: a team is not asked.
 //!
-//! The sync runs under the repository lock, so the command knows whether the branch has work its remote lacks: such work
+//! The sync runs first, without the repository lock, so the command knows whether the branch has work its remote lacks: such work
 //! refuses the request (`needs_push`), and `--push` pushes it first, the push of the app's request (the ancestors with
 //! work first, the pull requests of what it pushes into a virtual branch retargeted before), so the reviewers see the
 //! commits (D5). The writes run after the lock (the engine takes it again only to witness and freeze the push): the push,
@@ -22,7 +22,7 @@ use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::SchemaVersion;
 use bd_core::review_summary::PersonSummary;
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
-use bd_core::sync_command::{lock, sync_locked};
+use bd_core::sync_command::sync;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{PlannedEffect, Subject};
@@ -129,11 +129,8 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
   };
   let github = Arc::new(github_service(context, environment));
 
-  // the sync, under the lock, says whether the branch has work its remote lacks; nothing else runs under it
-  let synced = {
-    let _lock = lock(context)?;
-    sync_locked(context)?
-  };
+  // the sync, without the lock (its refs move by CAS), says whether the branch has work its remote lacks
+  let synced = sync(context)?;
   if !synced.branches.iter().any(|branch| branch.name == name) {
     return Err(unknown_or_unapplied(context, name, UNAPPLIED_REVIEW));
   }

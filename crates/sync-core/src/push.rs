@@ -37,7 +37,7 @@ pub fn not_synced_refusal(name: &str, reason: BlockReason) -> String {
 }
 
 /// A push whose commits and leases are fixed under the repository lock (`PreparedPush::leased`, by the engine on the
-/// frozen tips, by `bd push` on the tips a sync under the same lock left): each ref goes as the commit it was at then
+/// frozen tips, which `bd push` runs too): each ref goes as the commit it was at then
 /// (`<commit>:refs/heads/<name>`), leased on the remote head the user saw, so a branch that moves before the push changes
 /// nothing of what goes. Its network part is `push`, its push again over a moved remote `over_moved`
 /// (`operations::push::send` runs both)

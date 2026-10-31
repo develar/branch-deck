@@ -2,7 +2,7 @@
 //! `domain_policy::landing_route::route`; spec/cli/agent-cli.spec.md, "bd land"; spec/branch/landing-routes.spec.md).
 //!
 //! - Patronus: the Safe Push `bd safe-push` starts, its plan and its output (`safe_push`).
-//! - A push into the target: the sync under the repository lock, then the plan of the app's start over the one-shot
+//! - A push into the target: the sync without the repository lock, then the plan of the app's start over the one-shot
 //!   session of the command (`operations::land::prepare_one_shot`: the pull requests with the permission of the token,
 //!   the rules of the target, the landing gate of the subject), then its run through the engine
 //!   (`operations::land_execute::execute`: the witness and the freeze under the lock, the push of the copy into the
@@ -34,7 +34,7 @@ use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::SchemaVersion;
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack_summary};
-use bd_core::sync_command::{SyncOutput, lock, sync_locked};
+use bd_core::sync_command::{SyncOutput, sync};
 use domain_policy::land::{table_blocker, unaccepted};
 use domain_policy::land_direct::update_after;
 use domain_policy::landed::{Landing, Of, pull_requests_to_close};
@@ -274,12 +274,9 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
 /// The route of a push into the target, or of a merge of the pull request on GitHub (the module's header)
 fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environment, direct: Direct) -> Result<LandOutput, CliError> {
   let github_service = Arc::new(github_service(context, environment));
-  // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of GitHub and the trial
-  // after it keep no other bd writer waiting, and the run takes the lock again only to witness the refs
-  let synced = {
-    let _lock = lock(context)?;
-    sync_locked(context)?
-  };
+  // the sync takes no lock (its refs move by CAS), nor do the reads of GitHub and the trial; the run takes it only to
+  // witness the refs
+  let synced = sync(context)?;
   let whole = whole_stack_of_branch(context, args.whole_stack.then_some(args.branch.as_str()), &synced)?;
   let start = start_of(args, &synced, whole.as_ref());
   let subject = start.subject();

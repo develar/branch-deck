@@ -380,6 +380,22 @@ impl LockSpanGit {
     self.commands().into_iter().filter(|(locked, _)| *locked).map(|(_, args)| args).collect()
   }
 
+  /// The subcommands of the last run that started under the repository lock, sorted, each once: the lock span
+  pub fn locked_subcommands(&self) -> Vec<String> {
+    let mut under: Vec<String> = self.under_lock().iter().map(|args| subcommand(args).to_string()).collect();
+    under.sort_unstable();
+    under.dedup();
+    under
+  }
+
+  /// The lock span of a push in the last run: one `for-each-ref` under the lock (the witness and the freeze), `synced_by`
+  /// (a write of the sync before it) before the lock, the network push after it
+  pub fn assert_a_push_locks_only_its_witness(&self, synced_by: &str) {
+    assert_eq!(self.locked_subcommands(), ["for-each-ref"], "{:#?}", self.commands());
+    self.assert_before_the_lock(synced_by);
+    assert_eq!(self.locked_runs("push"), [false], "{:#?}", self.commands());
+  }
+
   /// Per run of `subcommand` in the last run, in order: whether it started under the repository lock
   pub fn locked_runs(&self, subcommand_name: &str) -> Vec<bool> {
     self

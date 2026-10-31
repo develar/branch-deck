@@ -1543,9 +1543,9 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
 
 ### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`, `bd push --unapplied <name>`
 
-Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first: the sync and
-the plan of the push (its refs, their commits and leases) under the repository lock, the retargets, the cancel and the
-restart of `--restart-running` and the network push after it (see "Push and land" and "Agent push" in
+Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first: the sync
+without the repository lock, as `bd sync`, the witness of the plan of the push (its refs, their commits and leases)
+under it, the retargets, the cancel and the restart of `--restart-running` and the network push after it (see "Push and land" and "Agent push" in
 [Git Operations](../design/git-operations.md)). Every pull request of a virtual
 branch goes into the baseline, a stacked branch's with the commits of the branches it is built on
 ([Landing](../design/landing.md)). A stacked branch takes those branches along when they have commits for the remote,
@@ -1797,8 +1797,9 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   `--without-approvals` starts anyway, only when the user says so (`review.skipped_by`: `without_approvals`). A branch
   of more than 500 commits is not checked (`review.skipped`).
 - The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
-  commits for the remote go along, parents first, with the lease and the refusals of `bd push`), under the repository
-  lock with the sync and the checks; the start runs after the lock. A start is never repeated.
+  commits for the remote go along, parents first, with the lease and the refusals of `bd push`): only its witness and
+  freeze run under the repository lock, the sync and the checks before it, the start after it. A start is never
+  repeated.
 - bd closes no pull request after the merge. The app closes the open pull requests of the ancestors a merged robot
   landed, with a comment, when it sees the robot merge ([Patronus](../../spec/branch/patronus.spec.md#merged)); a
   robot bd started is seen too while the app runs. Otherwise they stay open: the agent tells the user.
@@ -1866,7 +1867,7 @@ Lands the branch into master by the route of the repository (`branchdeck.landing
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), `route` in the output:
 
 - `patronus`: the Safe Push of `bd safe-push`, its whole output in `safe_push`.
-- `push`: the sync under the repository lock, then the plan of the app's start over the one-shot session of the
+- `push`: the sync without the repository lock, then the plan of the app's start over the one-shot session of the
   command (the pull requests with `viewerPermission`, the rules of the target, the landing gate of the subject), then
   its run through the engine: the witness under the lock, the push of the copy (`commit`: the virtual branch of the
   piece, the stack branch of a whole stack) into `target` by the push URL after it, a fast-forward
@@ -1914,12 +1915,13 @@ approvals of the code owners in that pull request, so one that asks no member of
   to the user and asks only after the user approves. `requested` is whom GitHub asked, `refused` whom it refused with
   its reason (the author, a user without access; a refused list is asked one by one to tell), `waiting_for` the
   reviewers the pull request asks after the request.
-- It syncs first under the repository lock (`unknown_branch` for a branch the sync has not), so it knows whether the
+- It syncs first, without the repository lock (`unknown_branch` for a branch the sync has not), so it knows whether the
   branch has work its remote lacks: then the reviewers would not see the commits, and it is `needs_push` (exit 4)
   with the next step `bd request-review <branch> --push`, the user's to approve. `--push` pushes them first as the app's
   request does (the ancestors with work first; an open pull request of what it pushes into a virtual branch is
   retargeted into the target before the push), `pushed` naming the branches, then asks; `--check` names what it would
-  push. The writes run after the lock: the push, then `POST pulls/<n>/requested_reviewers`, users only (no team).
+  push. The writes take the lock only for the witness and the freeze of the push: the push, then
+  `POST pulls/<n>/requested_reviewers`, users only (no team).
 - `no_pull_request` (exit 4): no open pull request, or a draft; `bd safe-push <branch> --create-pull-request` opens
   one with `--reviewer`. `no_reviewer` (exit 4): a missing group nobody is asked for has no code owner with a GitHub
   login Patronus names, and nobody else is to ask: ask the user whom, then `--reviewer`. `review_refused` (exit 4):

@@ -157,10 +157,10 @@ follow reads the mark of an interrupted move with them and lets those files foll
 that moved meanwhile, HEAD between two reads of the computation too, computes the rewrite once more under the lock,
 where another HEAD than `expect_head` is `HeadMoved`. All through their options (`RewriteOptions` or `RegroupOptions`: `held_lock`, `lock_wait`, `expect_head`
 checked by `ensure_expected_head`, `repository_lock.rs`; a move, the conflict fix and an undo take a `LockWait`
-beside the check their request carries); then `bd push` and
-`bd safe-push` (only their sync, then again the witness of their refs and the freeze of their push in the engine,
-`operations::land_execute`; the reads of the remote, the trial, the retargets, the cancel, the network push and the
-robot start without it; a ref that moved meanwhile is `plan_changed`), the app's pushes (`execute` of the intent
+beside the check their request carries); then `bd push`, `bd safe-push`, `bd land` and `bd request-review` (only the
+witness of their refs and the freeze of their push in the engine, `operations::land_execute`; their sync, as
+`bd sync`, the reads of the remote, the trial, the retargets, the cancel, the network push and the robot start without
+it; a ref that moved meanwhile is `plan_changed`), the app's pushes (`execute` of the intent
 `Push`, `operations::push::execute_push`: of a branch alone, of a stack by `domain_policy::push::push_plan`, up to a
 commit, of an unapplied branch, of the stack branch of a whole stack; admitted per ref in the registry of the
 session, the user's robots before the lock, the refusals of parked, landed, held and not built branches in its plan,
@@ -179,10 +179,11 @@ Update Project of `operations::update` and a push, says whom for in its step `Wa
 the app and `bd` processes rewrite the same branch. Before the file lock, the operations of one process wait for
 each other in its line (a fair queue per lock file, `repository_lock.rs`, without a bound), so `locked` names only
 another process; `try_lock_repository` waits for nobody, `lock_as_another_process` is for tests and the E2E server. A sync never waits for it:
-neither the app's, nor `bd sync`, nor the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
+neither the app's, nor `bd sync`, nor the sync of `bd push`, `bd safe-push`, `bd land` and `bd request-review`, nor
+the `--sync` of a `bd` rewrite, which syncs after the release; only its drop of
 store lines takes it, while it is free (`drop_store_lines`), and skips the drop when it is held. A fetch never runs under it ([Regroup](../design/git-operations.md#regroup-rename-restack);
 what each core runs under it and the test that pins it: [Lock spans](../design/git-operations.md#lock-spans), the
-two exceptions left: the sync of `bd push` and `bd safe-push` and the round of `bd update --continue` under it).
+one exception left: the round of `bd update --continue` under it).
 
 ## Operations registry
 

@@ -460,37 +460,18 @@ fn the_network_push_holds_no_repository_lock() {
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
-/// What `bd push` runs under the repository lock, as it is: its sync (the grouping, the merges and the copies of the
-/// branches; the remaining exception of the short critical section), then the witness and the freeze of what it pushes;
-/// the network push after it (docs/design/git-operations.md, "Lock spans")
+/// What `bd push` runs under the repository lock: the witness and the freeze of what it pushes, one `for-each-ref`; its
+/// sync (the grouping, the merges and the copies of the branches) before the lock, as `bd sync`, and the network push
+/// after it (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]
-fn a_push_of_bd_locks_its_sync_and_the_freeze_and_pushes_after_it() {
+fn a_push_of_bd_locks_only_the_witness_and_the_freeze() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
   let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, "");
   let (exit_code, output) = wrapped.run(&["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
-  let mut under: Vec<String> = wrapped.under_lock().iter().map(|args| bd_cli::fixture_test::subcommand(args).to_string()).collect();
-  under.sort_unstable();
-  under.dedup();
-  let sync_witness_and_freeze = [
-    "cat-file",
-    "config",
-    "fast-import",
-    "for-each-ref",
-    "log",
-    "merge-base",
-    "notes",
-    "remote",
-    "rev-list",
-    "show-ref",
-    "symbolic-ref",
-    "update-ref",
-    "var",
-  ];
-  assert_eq!(under, sync_witness_and_freeze, "{:#?}", wrapped.commands());
-  assert_eq!(wrapped.locked_runs("push"), [false], "{:#?}", wrapped.commands());
+  wrapped.assert_a_push_locks_only_its_witness("fast-import");
 }
 
 /// `bd push` asks Patronus for the robots that hold its branches with the repository lock released, after its sync: while

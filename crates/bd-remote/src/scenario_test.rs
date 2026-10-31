@@ -20,7 +20,7 @@ use bd_core::error::CliError;
 use bd_core::next_step_summary::NextStepSummary;
 use bd_core::services::{github_service, patronus_service};
 use bd_core::stack_summary::whole_stack;
-use bd_core::sync_command::{lock, sync_locked};
+use bd_core::sync_command::sync;
 use domain_policy::land::unaccepted;
 use domain_policy::landing_route::rules_target;
 use domain_policy::stack::{WholeStack, whole_stack_of};
@@ -1094,10 +1094,7 @@ struct AppSession<'c> {
 impl<'c> AppSession<'c> {
   /// The session after the app's sync of the repository of `context`
   fn synced(context: &'c RepoContext, environment: &'c Environment) -> Self {
-    let mut synced = {
-      let _lock = lock(context).unwrap();
-      sync_locked(context).unwrap()
-    };
+    let mut synced = sync(context).unwrap();
     let table = synced.branch_table(&context.prefix);
     let baseline = table.baseline.clone();
     let mut session = Self {
@@ -1978,10 +1975,7 @@ fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() 
     },
   )
   .unwrap();
-  let synced = {
-    let _lock = lock(&context).unwrap();
-    sync_locked(&context).unwrap()
-  };
+  let synced = sync(&context).unwrap();
   let branches = &synced.report.branches;
   assert_eq!(branches.iter().map(|branch| branch.name.as_str()).collect::<Vec<_>>(), ["C", "A"]);
   assert_d8_placement(branches.iter().find(|branch| branch.name == "C").and_then(|branch| branch.stack.as_ref()));

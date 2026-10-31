@@ -431,27 +431,10 @@ impl ProgressReporter for TableReporter {
   }
 }
 
-/// `bd sync`, without the repository lock: the app's sync takes none either, and both move each ref only from the tip
-/// they listed
+/// `bd sync`, and the sync `bd push`, `bd safe-push`, `bd land` and `bd request-review` run first: without the
+/// repository lock, as the app's sync, since each ref moves only from the tip it listed; a push takes the lock after it
+/// only for the witness of the tips it pushes, which a writer that moved them since fails as `plan_changed`
 pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
-  sync_locked(context)
-}
-
-/// The repository lock, `locked` after the timeout
-pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
-  // another process holds it: it may change the config and the facts the command read before
-  let on_wait = || {
-    context.forget_config();
-    context.forget_facts();
-  };
-  lock_repository_in(&context.git_common_dir, context.lock_timeout, &on_wait).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
-    Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
-    None => CliError::from(e),
-  })
-}
-
-/// The sync of `bd sync`; `bd push` and `bd safe-push` run it under the lock they hold to the end of their push
-pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
   let reporter = TableReporter::new();
   let runtime = context.runtime()?;
   // `--no-cache` trusts no mapping note either: each is checked against the tree of its virtual commit; its cache is
@@ -465,6 +448,19 @@ pub fn sync_locked(context: &RepoContext) -> Result<SyncOutput, CliError> {
   };
   let report = runtime.block_on(sync_branches(&context.git, &context.repository, &context.prefix, reporter.clone(), options))?;
   Ok(summarize(context, report, reporter.finish()?))
+}
+
+/// The repository lock, `locked` after the timeout
+pub fn lock(context: &RepoContext) -> Result<RepositoryLock, CliError> {
+  // another process holds it: it may change the config and the facts the command read before
+  let on_wait = || {
+    context.forget_config();
+    context.forget_facts();
+  };
+  lock_repository_in(&context.git_common_dir, context.lock_timeout, &on_wait).map_err(|e| match e.downcast_ref::<RepositoryLocked>() {
+    Some(locked) => CliError::new(ErrorCode::Locked, locked.to_string()),
+    None => CliError::from(e),
+  })
 }
 
 /// One summary of the report and of the table the sync left: the rows in the order of the table, each with its state,

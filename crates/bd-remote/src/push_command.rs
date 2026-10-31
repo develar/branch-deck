@@ -9,10 +9,10 @@
 //! commits a branch lacks (D4), the restart. It prints a ready `gh pr create` per branch, into the baseline: every pull
 //! request of a virtual branch goes there, a stacked branch's with the commits of the branches it is built on.
 //!
-//! The repository lock is held for the sync only; the facts the plans read (the user's robots, the pull requests of the
-//! branches: `operations::needs`, one request each, side by side) and the texts of the pull requests are asked after
-//! it, so no other writer waits for Patronus, GitHub or the network. A rewrite of another session between the sync and
-//! the witness changes the plan: `plan_changed` (exit 3), nothing done.
+//! The sync takes no repository lock, as `bd sync`; the facts the plans read (the user's robots, the pull requests of
+//! the branches: `operations::needs`, one request each, side by side) and the texts of the pull requests are asked
+//! after it, so no other writer waits for the sync, Patronus, GitHub or the network. A rewrite or a sync of another
+//! session between the sync and the witness changes the plan: `plan_changed` (exit 3), nothing done.
 //!
 //! The lease is the remote head the sync compared with (`remote.head`, the session's), or the one `--expect-remote`
 //! names. Where the app's push leaves a branch its scope covers out to its row, `bd push` refuses the push (`push_plan`
@@ -34,7 +34,7 @@ use bd_core::error::{CliError, ErrorBranch, NextStep};
 use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
-use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, lock, sync_locked};
+use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, sync};
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
@@ -289,12 +289,9 @@ pub(crate) fn refusal_warning(retarget: &RetargetedPullRequest, repository: &Git
 
 pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -> Result<PushOutput, CliError> {
   check_arguments(args)?;
-  // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of the remote and the
-  // plans keep no other writer waiting, and the run takes the lock again only to witness the refs and freeze the push
-  let synced = {
-    let _lock = lock(context)?;
-    sync_locked(context)?
-  };
+  // the sync takes no lock (its refs move by CAS), nor do the reads of the remote and the plans; the run takes it only
+  // to witness the refs and freeze the push
+  let synced = sync(context)?;
   let remote = push_remote(args, &synced)?;
   let expect_remote = args.expect_remote.as_deref().map(|rev| resolve_expected(context, rev)).transpose()?;
   if !args.unapplied {

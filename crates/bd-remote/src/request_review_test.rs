@@ -156,3 +156,27 @@ fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() 
   assert_ne!(space.remote_tip(&remote), "", "the push went first");
   assert_eq!(bodies(&github), [json!({"reviewers": ["ikorennoy"]})]);
 }
+
+/// A request holds the repository lock only for the witness and the freeze of the push of `--push`, one `for-each-ref`:
+/// its sync runs before it, as `bd sync`, and the network push and the request after it; without a push it takes none
+/// (docs/design/git-operations.md, "Lock spans")
+#[cfg(unix)]
+#[test_log::test]
+fn a_request_locks_only_the_witness_and_the_freeze_of_its_push() {
+  let (space, github, environment) = needs_code_owner("NOT_ADDED");
+  github.answer("POST", REVIEWERS, requested_answer(&["ikorennoy"]));
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&space.repo, "");
+  let environment = Environment {
+    git: wrapped.environment.git.clone(),
+    ..environment
+  };
+  let (exit_code, output) = request_review(&environment, &["auth", "--push"]);
+  assert_eq!((exit_code, &output["pushed"]), (0, &json!(["auth"])), "{output}");
+  assert_eq!(wrapped.locked_subcommands(), ["for-each-ref"], "{:#?}", wrapped.commands());
+  assert_eq!(wrapped.locked_runs("push"), [false], "{:#?}", wrapped.commands());
+
+  let _ = std::fs::remove_file(wrapped.dir().join("log"));
+  let (exit_code, output) = request_review(&environment, &["auth"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(wrapped.under_lock(), Vec::<String>::new(), "{:#?}", wrapped.commands());
+}

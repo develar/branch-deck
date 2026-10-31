@@ -87,6 +87,19 @@ fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
   assert_eq!(remote_tip(&remote, "master"), theirs, "nothing was pushed");
 }
 
+/// A push into the target holds the repository lock only for the witness of its refs, one `for-each-ref`: its sync runs
+/// before it, as `bd sync`, and the push of the copy after it (docs/design/git-operations.md, "Lock spans")
+#[cfg(unix)]
+#[test_log::test]
+fn a_land_by_a_push_locks_only_the_witness() {
+  let (repo, remote) = landing_by_push();
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, "");
+  let (exit_code, landed) = wrapped.run(&["land", "auth", "--without-checks"]);
+  assert_eq!(exit_code, 0, "{landed}");
+  assert_eq!(remote_tip(&remote, "master"), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
+  wrapped.assert_a_push_locks_only_its_witness("fast-import");
+}
+
 /// A repository that lands through its pull request whose `origin` is not on GitHub has no pull request a merge lands
 /// into its target: `bd land` merges nothing; Patronus off Space starts nothing
 #[test_log::test]

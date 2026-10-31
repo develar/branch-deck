@@ -1044,18 +1044,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [Outgoing Commits](../repository/outgoing.spec.md#push)), and its help and the skill must say so and point to
   `bd land`, which lands a branch into master by the route of the repository.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_help_of_bd_push_says_it_pushes_the_virtual_branches_never_into_master`)
-- `bd push <branch>…` must sync first under the repository lock, then push the branches in one atomic
+- `bd push <branch>…` must sync first, without the repository lock as `bd sync`, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
   must need `--yes`. It is an adapter of the engine the app's push runs (`operations::push`): an intent `Push` per
   named branch, planned over the one-shot session of its sync (`push_planned`), the plans of all of them one push
-  (`push_together`), run as the app's run (`land_execute::run_planned`). The lock covers only the sync, then again
-  the witness of the plan (the tips it pushes, read before the lock and under it) and the freeze of its commits and
-  leases: a branch another writer moved since the sync is `plan_changed` (exit 3), nothing pushed. The retargets, the
-  cancel and the restart of `--restart-running` and the network push run after it, and the network push sends
-  exactly the frozen commits (`<commit>:refs/heads/<name>`); the user's robots of the holds and the pull requests of
-  the branches are asked after the sync, side by side: no other writer waits for GitHub, Patronus or the network.
+  (`push_together`), run as the app's run (`land_execute::run_planned`). The lock covers only the witness of the plan
+  (the tips it pushes, read before the lock and under it) and the freeze of its commits and leases: a branch another
+  writer or sync moved since the sync is `plan_changed` (exit 3), nothing pushed. The retargets, the cancel and the
+  restart of `--restart-running` and the network push run after it, and the network push sends exactly the frozen
+  commits (`<commit>:refs/heads/<name>`); the user's robots of the holds and the pull requests of the branches are
+  asked after the sync, side by side: no other writer waits for the sync, GitHub, Patronus or the network.
   [@test] ../../crates/bd-remote/src/push_test.rs (`pushes_with_a_lease_and_prints_the_pull_request`, `all_needs_yes_and_unsynced_branches_are_refused`)
-  [@test] ../../crates/bd-remote/src/push_test.rs (`the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`a_push_of_bd_locks_only_the_witness_and_the_freeze`, `the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock`)
   [@test] ../../crates/sync-core/src/push_lease_test.rs (`parses_porcelain_lines`)
 - It must not read again what its sync read: the stack, the tips, the remote tips, the remotes, the descriptions and
   the push size limit come from the sync of the same run; besides the push only the push URL of `origin`, once, the
@@ -1200,11 +1200,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   land](../../docs/design/git-operations.md#push-and-land)): the retargets, the cancel of the Safe Push it replaces, the
   push of the branches it pushes with their commits frozen under the repository lock and the network push after it,
   then the robot started on `refs/heads/<prefix>/virtual/<branch>`, never repeated. It must hold the repository lock
-  for its sync, then again only for the witness of its refs and the freeze of its push: the reads of the remote, the
+  only for the witness of its refs and the freeze of its push: the sync (as `bd sync`), the reads of the remote, the
   trial, the check against the target, the retargets, the cancel, the network push and the start run without it, so
-  they keep no other `bd` writer waiting. `--check` must print the same object and push or start nothing, with the
+  they keep no other `bd` writer waiting; `--check` takes no lock. `--check` must print the same object and push or start nothing, with the
   `refusals` a start would fail with.
-  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_safe_push_frees_the_repository_lock_after_its_sync`)
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_safe_push_locks_only_the_witness_and_the_freeze`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_start`)
 - A rewrite of another session between the sync and the witness (a ref the plan moves or leases moved) must fail the
@@ -1362,7 +1362,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`, `a_safe_push_check_of_the_whole_stack`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
-  So before the lock, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
+  So before its sync, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
   replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution
   by words (`sync_core::target_conflict`, the check of the app's start too). A conflict must refuse the start with
   `target_conflict` (exit 4), nothing pushed or started. The error names the commit by the id of the checked out branch
@@ -1372,8 +1372,8 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `target_tip`. A failed fetch must not stop the check: it replays onto the last fetched tip, `fetched` is false, and
   `message` says why. A check that can't run holds nothing back. `--create-pull-request` starts no robot and checks
   nothing. HEAD's branch read for the fetch must not outlive it: a HEAD the user detached while the fetch ran defers
-  the sync under the lock (`detached_head`, exit 4), nothing pushed or started. A HEAD switched while it ran to a
-  branch of another baseline is synced as it is under the lock, and the fetch, of the old baseline, counts as failed for
+  the sync after it (`detached_head`, exit 4), nothing pushed or started. A HEAD switched while it ran to a
+  branch of another baseline is synced as it is, and the fetch, of the old baseline, counts as failed for
   the new one: the check replays onto its last fetched tip, `fetched` is false, and `message` names the baseline fetched.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start`, `a_target_that_moved_without_a_conflict_starts`, `a_head_detached_during_the_fetch_of_the_target_defers_the_sync`, `a_branch_switched_during_the_fetch_of_the_target_is_checked_as_not_fetched`)
   [@test] ../../crates/bd-cli/src/context_test.rs (`the_head_is_read_again_after_a_call_over_the_network`)
@@ -1469,13 +1469,14 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - A push must run the plan of the app's start (`operations::land::prepare_one_shot` over the one-shot session of the
   command: the pull requests with the permission of the token, the rules of the target, the landing gate of the
   subject) through the engine (`operations::land_execute::execute`): no check against the newest target, the witness
-  and the freeze under the lock, the push by the push URL after it. What CI did not check and the changes requested
-  refuse it (`checks_not_passed`) unless `--without-checks`; what the gate of the route asks refuses it with the code of
-  its reason (`baseline_requires_pull_request`, `baseline_refused`, `push_refused`) unless `--bypass-rules`; both only
-  once the user agreed. A target that moved is `baseline_moved` (exit 3, master fetched, next step `bd update`), and so
-  is a fetched master with commits the branch is not built on, refused before anything is sent (`--check` names the
-  step `update_project`); a refusal of the server `baseline_refused` in its words; below write access `no_write_access`.
-  [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`)
+  and the freeze under the lock (its sync before it, as `bd sync`), the push by the push URL after it. What CI did not
+  check and the changes requested refuse it (`checks_not_passed`) unless `--without-checks`; what the gate of the route
+  asks refuses it with the code of its reason (`baseline_requires_pull_request`, `baseline_refused`, `push_refused`)
+  unless `--bypass-rules`; both only once the user agreed. A target that moved is `baseline_moved` (exit 3, master
+  fetched, next step `bd update`), and so is a fetched master with commits the branch is not built on, refused before
+  anything is sent (`--check` names the step `update_project`); a refusal of the server `baseline_refused` in its
+  words; below write access `no_write_access`.
+  [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`, `a_land_by_a_push_locks_only_the_witness`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`, `a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - A merge must run the plan of the app's start the same way: the pull requests with the merge state, the auto-merge
@@ -1509,9 +1510,9 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   same engine. It must print `reviewers` (whom it asks), `requested`, `refused` with GitHub's reason, `waiting_for` (the
   reviewers the pull request asks after the request), the `readiness` before it, each person with the full name
   Patronus knows, and `pushed`, the branches it pushed first. `--check` must print the same object and push and ask
-  nothing. It must hold the repository lock only for its sync and for the freeze of its push, and write nothing but
-  the push of `--push` and the request on GitHub.
-  [@test] ../../crates/bd-remote/src/request_review_test.rs (`asks_the_suggested_code_owner_of_the_missing_group_once`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`)
+  nothing. It must hold the repository lock only for the witness and the freeze of the push of `--push` (its sync as
+  `bd sync`, without it), and write nothing but the push of `--push` and the request on GitHub.
+  [@test] ../../crates/bd-remote/src/request_review_test.rs (`asks_the_suggested_code_owner_of_the_missing_group_once`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`, `a_request_locks_only_the_witness_and_the_freeze_of_its_push`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_request_review_check`)
 - A branch with work its remote branch lacks must be `needs_push` (exit 4, D5) with the next step `bd request-review
   <branch> --push` (`needs_approval: true`): the reviewers would not see the commits. `--push` must push them first as

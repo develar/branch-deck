@@ -13,14 +13,14 @@
 //! then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push takes
 //! along, whose base is a virtual branch is retargeted to the target first (D3a, as `bd push` does).
 //!
-//! Before the lock, the target's remote branch is fetched, and the check before the push replays what the robot lands
+//! Before the sync, the target's remote branch is fetched, and the check before the push replays what the robot lands
 //! onto its tip, as Patronus rebases it (`sync_core::target_conflict`): a conflict refuses the start
 //! (`target_conflict`), and `bd update` resolves it locally. A failed fetch doesn't stop the check: it replays onto the
 //! last fetched tip and says so (`target_check`).
 //!
-//! The sync, the checks before the push and the commits and leases of the push run under the repository lock; the
-//! network push of those commits (`<commit>:refs/heads/<name>`, leased) and the start, which can wait up to a minute for
-//! the answer to a pull request comment, after it.
+//! The sync and the checks before the push take no repository lock; only the witness of the refs and the freeze of the
+//! commits and leases of the push run under it, the network push of those commits (`<commit>:refs/heads/<name>`, leased)
+//! and the start, which can wait up to a minute for the answer to a pull request comment, after it.
 
 use crate::landed::{LandedBranch, every_branch_landed, landed_branches};
 use crate::push_command::{
@@ -41,7 +41,7 @@ use bd_core::output::SchemaVersion;
 use bd_core::review_summary::{MergeRequestSummary, PersonSummary, ReviewGroupSummary, ReviewSummary, ReviewerSummary};
 use bd_core::services::{BdServices, cli_user_agent, github_service, patronus_service, session_key};
 use bd_core::stack_summary::{WholeStackSummary, stack_branch_of, whole_stack, whole_stack_summary};
-use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, landed_commits, lock, sync_locked};
+use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, landed_commits, sync};
 use domain_policy::facts::{Repository, Robots};
 use domain_policy::land::{SubjectFacts, TargetConflictFact, allows_mode, table_blocker, unaccepted};
 use domain_policy::landed::LandedFacts;
@@ -579,17 +579,13 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
   let github = Arc::new(github_service(context, environment));
   let youtrack = youtrack_service(environment);
 
-  // the target moves every minute: its remote branch is fetched for the target conflict check, before the lock, which
-  // no fetch runs under; a pull request starts no robot and needs no check. HEAD's branch read for it does not outlive
-  // the fetch: the guards of the sync read it again under the lock
+  // the target moves every minute: its remote branch is fetched for the target conflict check, before the sync; a pull
+  // request starts no robot and needs no check. HEAD's branch read for it does not outlive the fetch: the guards of the
+  // sync read it again
   let target_fetch = (!args.create_pull_request).then(|| context.over_network(|| fetch_target(&context.git, &context.repository, context.baseline().ok())));
-  // the sync is the part under the lock (its merge-tree writes the virtual branches); the reads of the remote, the trial
-  // and the check against the target after it keep no other bd writer waiting, and the run takes the lock again only to
-  // witness the refs and freeze its push
-  let synced = {
-    let _lock = lock(context)?;
-    sync_locked(context)?
-  };
+  // the sync takes no lock (its refs move by CAS), nor do the reads of the remote, the trial and the check against the
+  // target; the run takes it only to witness the refs and freeze its push
+  let synced = sync(context)?;
   let whole_stack = whole_stack_arg(context, args, &synced)?;
   let start = start_of(args, &synced, whole_stack.as_ref());
   let plan = plan(context, args, &service, &github, &synced, mode, &start, target_fetch)?;

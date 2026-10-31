@@ -310,15 +310,17 @@ taken and deletes it before the release), then runs the real git.
 | `bd pick --remote` and the app's Pick Remote Commits (`pick_remote_commits_core`), the undo of a pick (`undo_pick_core`, the app's through `undo_pick_remote_commits_core`) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref`; the undo `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` | `a_remote_pick_and_its_undo_lock_only_the_witness_and_the_move` (`pick_test.rs`) |
 | The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
 | A start of the app and of `bd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
-| `bd push` (its sync, `bd-core` `sync_command`, then the witness and the freeze) | `cat-file`, `config`, `fast-import`, `for-each-ref`, `log`, `merge-base`, `notes`, `remote`, `rev-list`, `show-ref`, `symbolic-ref`, `update-ref`, `var`: the sync, an exception (below) | `a_push_of_bd_locks_its_sync_and_the_freeze_and_pushes_after_it`, `the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock` (`crates/bd-remote/src/push_test.rs`) |
-| `bd safe-push` (its sync, then the start above) | the sync of `bd push`; the reads of Patronus and GitHub, the trial and the start after it | `a_safe_push_frees_the_repository_lock_after_its_sync` (`crates/bd-remote/src/safe_push_test.rs`) |
+| `bd push` (its sync before the lock, `bd-core` `sync_command::sync`, then the run of the app's push) | `for-each-ref` (the full witness and the freeze) | `a_push_of_bd_locks_only_the_witness_and_the_freeze`, `the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock` (`crates/bd-remote/src/push_test.rs`) |
+| `bd safe-push` (its sync before the lock, then the start above; `--check` takes no lock) | `for-each-ref` (the full witness and the freeze) | `a_safe_push_locks_only_the_witness_and_the_freeze` (`crates/bd-remote/src/safe_push_test.rs`) |
+| `bd land` by a push into the target (its sync before the lock, then the start above) | `for-each-ref` (the witness of the copy, the remote-tracking ref of the baseline and the checked out branch) | `a_land_by_a_push_locks_only_the_witness` (`crates/bd-remote/src/land_test.rs`) |
+| `bd request-review` (its sync before the lock, then the request; the lock only for the push of `--push`) | `for-each-ref` (the full witness and the freeze of the push) | `a_request_locks_only_the_witness_and_the_freeze_of_its_push` (`crates/bd-remote/src/request_review_test.rs`) |
 
-**Two exceptions remain**, each pinned as it is, and no change adds a computation under them: the sync inside
-`bd push` and `bd safe-push`, with its merges and copies, before the witness and the freeze of their push; and
-`bd update --continue`, which holds the lock from its read of the session to the end of its finish (the commit of the
-round, the replay of the rest, the exact check of the finish and the move). Both are in "Follow-ups".
+**One exception remains**, pinned as it is, and no change adds a computation under it: `bd update --continue`, which
+holds the lock from its read of the session to the end of its finish (the commit of the round, the replay of the rest,
+the exact check of the finish and the move); it is in "Follow-ups".
 
-**Without the lock:** every sync (the app's, `bd sync`, the `--sync` of a `bd` rewrite after its release:
+**Without the lock:** every sync (the app's, `bd sync`, the sync `bd push`, `bd safe-push`, `bd land` and
+`bd request-review` run first, whose refs the witness of their push holds, the `--sync` of a `bd` rewrite after its release:
 `a_rewrite_beside_a_running_sync_does_not_wait_for_it` in `crates/bd-cli/src/sync_test.rs`,
 `the_sync_of_a_rewrite_runs_after_the_lock` in `crates/bd-rewrite/src/rewrite_test.rs`) but its drop of store lines
 (above), a fetch (`fetch.lock`), every
@@ -847,9 +849,10 @@ whom for nowhere, and refuse after 10 s. A core finds the file with one
 directory its context resolved, and a wait for it makes `bd` read the config and the facts of the command again
 (`RepoContext::forget_config`, `RepoContext::forget_facts`: HEAD's branch, the remotes, the baseline). HEAD's branch
 and the baseline of it never outlive a network call before the lock either (`RepoContext::over_network`, the fetch of
-the target of `bd safe-push`): the user may switch or detach HEAD while it runs, so the guards of the sync under the
-lock read HEAD again (`a_head_detached_during_the_fetch_of_the_target_defers_the_sync`). A sync
-never waits for it, the app's, `bd sync` and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
+the target of `bd safe-push`): the user may switch or detach HEAD while it runs, so the guards of the sync after it
+read HEAD again (`a_head_detached_during_the_fetch_of_the_target_defers_the_sync`). A sync
+never waits for it, the app's, `bd sync`, the sync of `bd push`, `bd safe-push`, `bd land` and `bd request-review`
+and the `--sync` of a `bd` rewrite (after the release) alike: a sync of a large
 repository would make every writer fail with `locked`; only its drop of store lines takes it, while it is free (see
 "Regroup"). Within a session one sync
 runs at a time (`SyncScheduler`, [Session facts](#session-facts)): a request while one runs asks for one follow-up
@@ -3753,7 +3756,7 @@ Code: `crates/operations/src/push.rs`, `crates/operations/src/pull_request.rs`, 
 #### Agent push (`bd push`)
 
 `bd push` is an adapter of the engine the app's push runs ("Push and land"), as `bd safe-push` is of the start
-(`push_command.rs`): it holds the repository lock for its sync only, then reads what its plans need into a one-shot
+(`push_command.rs`): it syncs without the repository lock, as `bd sync`, then reads what its plans need into a one-shot
 session of that sync (`operations::needs` of the intent `Push`: the user's robots, one list, and the pull requests of
 the branches, one search whenever they have a GitHub repository; side by side, no lock: `push_test.rs`,
 `the_robot_list_of_a_push_is_read_outside_the_repository_lock`), plans an intent `Push` per branch it names over that
@@ -3826,10 +3829,10 @@ Code: `crates/bd-remote/src/push_command.rs`, `crates/bd-remote/src/push_refusal
 
 #### Agent Safe Push (`bd safe-push`)
 
-`bd safe-push` holds the repository lock for its sync only (the named exception of the lock span until s11): the
-reads of the remote, the trial and the check against the target run after it, keeping no other `bd` writer waiting,
-and a start runs through the engine as the app's does ("Push and land": the witness, the lock again only for the full
-witness and the freeze, then the effects, `safe_push_run.rs`), recorded first in the operations registry of the
+`bd safe-push` syncs without the repository lock, as `bd sync`; the reads of the remote, the trial and the check
+against the target take none either, keeping no other `bd` writer waiting, and a start runs through the engine as the
+app's does ("Push and land": the witness, the lock only for the full witness and the freeze, then the effects,
+`safe_push_run.rs`), recorded first in the operations registry of the
 repository: while the app or another `bd` runs a start or a push of what it lands, it is `busy` (exit 3) with that
 operation's id, and the other way round ("Operations registry"). A rewrite of another session between the sync and the
 witness changes the plan: `plan_changed` (exit 3), nothing done; `--check` stops after the plan. A stacked
@@ -3838,11 +3841,11 @@ remote along, and the robot starts on the branch's virtual branch, which carries
 branch, one built on a parked branch and a whole stack with a parked member are refused as `parked` right after the
 sync, before anything is asked of Patronus.
 
-0. Before the lock, the fetch of the target for the target conflict check (below, "Target conflict check"): a fetch
+0. Before the sync, the fetch of the target for the target conflict check (below, "Target conflict check"): a fetch
    never runs under the lock. It fetches the upstream of the baseline of the command (`RepoContext::baseline`: one
    `for-each-ref` with HEAD's branch and the remotes, `fetch_target` of a known `Baseline`). The sync after it takes
    the remotes; HEAD's branch does not outlive the fetch (`RepoContext::over_network`), and its guards read it again
-   under the lock (one `symbolic-ref`). A HEAD switched during the fetch to a branch of another baseline leaves that
+   (one `symbolic-ref`). A HEAD switched during the fetch to a branch of another baseline leaves that
    baseline unfetched: the check counts the fetch only for the upstream the sync read (`TargetFetch::error_for`); for
    another it is a failed fetch (`fetched: false`, the message names the upstream fetched).
    `--create-pull-request` starts no robot and fetches nothing.
@@ -5198,9 +5201,9 @@ pnpm perf:monorepo compare <work>/before <work>/after
 - **Mapping notes** live on the default notes ref (`refs/notes/commits`), so they show up in the user's `git log`.
   Moving them to a private ref needs a migration that reads both refs.
 - **Resolve notes across rewrites**: a store keyed by the landed key, if the app shows "resolved by an agent".
-- **The two lock spans left** ("Lock spans"): the sync of `bd push` and `bd safe-push` under the lock, and
-  `bd update --continue`, whose round and finish run under it. Each would compute on the oids it read and hold the lock
-  only for the witness and the write, as the start of a resolve session does (`prepare_session_start`).
+- **The lock span left** ("Lock spans"): `bd update --continue`, whose round and finish run under the lock. It would
+  compute on the oids it read and hold the lock only for the witness and the write, as the start of a resolve session
+  does (`prepare_session_start`).
 - **SSH stalls**: the low-speed limits apply to HTTP only. A dead SSH connection is bounded only by the user's
   `ServerAliveInterval`.
 

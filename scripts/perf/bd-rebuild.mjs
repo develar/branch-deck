@@ -50,7 +50,7 @@ const EDITS = {
   safe_push: ["safe_push_command.rs", "pub fn safe_push("],
   clustering: ["clustering.rs", "pub fn name_clusters("],
   lease: ["lease_command.rs", "pub fn lease_status("],
-  sync: ["sync_command.rs", "pub fn sync_locked("],
+  sync: ["sync_command.rs", "pub fn sync("],
   check_command: ["check_command.rs", "pub fn check("],
   update_command: ["update_command.rs", "pub fn update("],
   remote: ["pull_requests.rs", "pub async fn list_pull_requests("],

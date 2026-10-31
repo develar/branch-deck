@@ -1636,11 +1636,12 @@ fn the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_commen
   assert_eq!((exit_code, output.get("pull_request")), (0, None), "{output}");
 }
 
-/// The sync is the part of a Safe Push under the repository lock: while bd asks Patronus for the start options, another
-/// bd writer takes the lock, in a check and in a start alike; the start takes it again only to witness its refs and freeze
-/// its push, and starts after it
+/// A Safe Push holds the repository lock only for the witness of its refs and the freeze of its push, one
+/// `for-each-ref`: its sync runs before it, as `bd sync`, and a check takes none; while bd asks Patronus for the start
+/// options, another bd writer takes the lock, in a check and in a start alike
+#[cfg(unix)]
 #[test_log::test]
-fn a_safe_push_frees_the_repository_lock_after_its_sync() {
+fn a_safe_push_locks_only_the_witness_and_the_freeze() {
   let space = Space::new(&["(auth) Add auth"]);
   // while bd asks Patronus for the start options, another bd writer tries the lock
   let taken = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1652,13 +1653,20 @@ fn a_safe_push_frees_the_repository_lock_after_its_sync() {
       taken.lock().unwrap().push(lock.is_ok());
     }
   }));
+  let wrapped = bd_cli::fixture_test::LockSpanGit::new(&space.repo, "");
+  let environment = Environment {
+    git: wrapped.environment.git.clone(),
+    ..space.environment()
+  };
 
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (exit_code, output) = space.run(&["auth"]);
+  assert_eq!(wrapped.under_lock(), Vec::<String>::new(), "a check takes no lock: {:#?}", wrapped.commands());
+  let _ = std::fs::remove_file(wrapped.dir().join("log"));
+  let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_eq!(exit_code, 0, "{output}");
+  wrapped.assert_a_push_locks_only_its_witness("replay");
 
-  // neither holds the lock past its sync: the reads of the remote run after it
   assert_eq!(*taken.lock().unwrap(), [true, true]);
 }
 
@@ -1724,7 +1732,7 @@ fn a_target_that_moved_without_a_conflict_starts() {
 }
 
 /// HEAD's branch read for the fetch of the target does not outlive the fetch: the user detaches HEAD while it runs, and
-/// the guards of the sync under the lock read HEAD again, so the sync is deferred (`detached_head`), nothing pushed or
+/// the guards of the sync after it read HEAD again, so the sync is deferred (`detached_head`), nothing pushed or
 /// started (docs/design/git-operations.md, "What a sync reads once")
 #[cfg(unix)]
 #[test_log::test]
@@ -1733,13 +1741,18 @@ fn a_head_detached_during_the_fetch_of_the_target_defers_the_sync() {
   space.publish_target();
   let (wrapped, exit_code, output) = safe_push_with_head_moved_before_the_fetch(&space, "git switch -q --detach", &["auth"]);
   assert_error(&output, exit_code, (4, "detached_head"));
-  assert_eq!(wrapped.locked_runs("symbolic-ref").last(), Some(&true), "{:#?}", wrapped.commands());
+  let subcommands: Vec<String> = wrapped.commands().iter().map(|(_, args)| bd_cli::fixture_test::subcommand(args).to_string()).collect();
+  let fetch = subcommands.iter().position(|name| name == "fetch").expect("the target is fetched");
+  assert!(
+    subcommands.iter().rposition(|name| name == "symbolic-ref") > Some(fetch),
+    "HEAD read again after the fetch: {subcommands:#?}"
+  );
   assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
   assert_eq!(space.remote_tip(AUTH), "");
 }
 
 /// The fetch of the target is of the baseline HEAD's branch had before the lock: the user switches to `release`, which
-/// tracks `origin/253`, while it runs, and the sync under the lock is of `release`. The check replays onto the last
+/// tracks `origin/253`, while it runs, and the sync after it is of `release`. The check replays onto the last
 /// fetched `origin/253`, so `fetched` is false and the message says which baseline was fetched instead; the next check,
 /// which fetches `origin/253`, finds the conflict the stale tip hid
 #[cfg(unix)]
