@@ -10,7 +10,7 @@ use crate::baseline::NoBaseline;
 use crate::move_commits::validate_branch_name;
 use crate::repository_lock::{MovedHead, Prepared, RepositoryLocked, RewriteOptions, Witness};
 use crate::snapshot::{CommitsAhead, group_commits, read_grouping_inputs};
-use crate::store_lines::{LineStore, StoreMoved, drop_store_lines, format_store_lines};
+use crate::store_lines::{LineStore, StoreDrop, StoreMoved, drop_store_lines, format_store_lines};
 use anyhow::Result;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -304,9 +304,18 @@ fn prepare_lines(
   Ok(prepared)
 }
 
+/// The drop of the lines of `integrated` branches from the parked store (`drop_integrated_parked`)
+pub const fn parked_drop<'a>(integrated: &'a [&'a str]) -> StoreDrop<'a> {
+  StoreDrop {
+    store: &PARKED,
+    message: PARKED_DROP_MESSAGE,
+    keys: integrated,
+  }
+}
+
 /// Drop the lines of `integrated` branches, whose archived branch is integrated into the baseline
 /// (`stack_parents::integrated_children` finds them among the idle lines): their commits are on the baseline, so no
 /// worktree parks them again. Best effort, as `drop_store_lines`
 pub fn drop_integrated_parked(git_executor: &GitCommandExecutor, repository_path: &str, integrated: &[&str]) {
-  drop_store_lines(git_executor, repository_path, &PARKED, PARKED_DROP_MESSAGE, integrated);
+  drop_store_lines(git_executor, repository_path, &[parked_drop(integrated)]);
 }

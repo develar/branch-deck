@@ -381,8 +381,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### `--abort` and `--status`
 
-- `bd update --abort` must delete the session ref with compare-and-swap and the copies bd wrote, under the lock, and
-  print the `worktree`, the `branch` and the `round`; it writes no note. Without a session it is `no_session` (exit 2).
+- `bd update --abort` must delete the session ref with compare-and-swap under the lock, then the copies bd wrote
+  after its release, and print the `worktree`, the `branch` and the `round`; it writes no note. Without a session it is `no_session` (exit 2).
   `--worktree <id>` must abort the session of another worktree, e.g. an orphaned one. While that worktree exists, only
   `--force` aborts it. An id must be letters, digits, `.`, `_` and `-`, else `invalid_arguments`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_rewritten_head_makes_the_session_stale_and_abort_removes_it`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`, `aborting_the_live_session_of_another_worktree_needs_force`)

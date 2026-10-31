@@ -698,8 +698,8 @@ pub struct AbortedSession {
   pub state: SessionState,
 }
 
-/// `bd update --abort [--worktree <id>] [--force]`, under the repository lock: delete the session ref (compare-and-swap)
-/// and the copies bd wrote. Another worktree's session is named by its id; while that worktree exists (the session is
+/// `bd update --abort [--worktree <id>] [--force]`: under the repository lock, delete the session ref (compare-and-swap);
+/// after its release, the copies bd wrote, which are nobody's then. Another worktree's session is named by its id; while that worktree exists (the session is
 /// not orphaned), only `force` removes it
 #[instrument(skip(git_executor))]
 pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktree: Option<&str>, force: bool, lock_timeout: Duration) -> Result<AbortedSession> {
@@ -710,7 +710,7 @@ pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktre
   {
     return Err(invalid(format!("--worktree {id:?} is no worktree id: `bd update --status` lists them")));
   }
-  let _lock = lock_repository(git_executor, repo_path, lock_timeout)?;
+  let lock = lock_repository(git_executor, repo_path, lock_timeout)?;
   let own = current_worktree(git_executor, repo_path)?;
   let id = worktree.map_or_else(|| own.id.clone(), str::to_string);
   let session = read_session(git_executor, repo_path, &id)?.ok_or_else(|| anyhow::Error::new(NoSession { worktree: id.clone() }))?;
@@ -723,6 +723,8 @@ pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktre
   }
   abort_session(git_executor, repo_path, &session)?;
   sweep_stale_temp_refs(git_executor, repo_path, STALE_TEMP_REF_AGE);
+  // the session is gone: its copies on disk are nobody's, so their removal keeps no other writer waiting
+  drop(lock);
   if let Some(conflict) = &state.conflict {
     remove_round(&state, state.round, conflict);
   }

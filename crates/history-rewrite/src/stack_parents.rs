@@ -8,7 +8,7 @@
 
 use crate::issue_groups::validate_leaf_name;
 use crate::stack::name_suffix;
-use crate::store_lines::{LineStore, drop_store_lines};
+use crate::store_lines::{LineStore, StoreDrop, drop_store_lines};
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use git_executor::git_command_executor::GitCommandExecutor;
 
@@ -70,9 +70,18 @@ pub fn integrated_children<'a>(children: &'a [String], archived: &[(String, bool
     .collect()
 }
 
+/// The drop of the lines of `integrated` children from the stack parents (`drop_integrated_stack_parents`)
+pub const fn stack_parents_drop<'a>(integrated: &'a [&'a str]) -> StoreDrop<'a> {
+  StoreDrop {
+    store: &STACK_PARENTS,
+    message: STACK_PARENTS_DROP_MESSAGE,
+    keys: integrated,
+  }
+}
+
 /// Drop the lines of `integrated` children, the branches whose archived branch is integrated into the baseline: their
 /// commits are on the baseline, whatever worktree grouped them, so no worktree stacks them again. The lines where such a
 /// branch is only the parent stay. Best effort, as `drop_store_lines`
 pub fn drop_integrated_stack_parents(git_executor: &GitCommandExecutor, repository_path: &str, integrated: &[&str]) {
-  drop_store_lines(git_executor, repository_path, &STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, integrated);
+  drop_store_lines(git_executor, repository_path, &[stack_parents_drop(integrated)]);
 }

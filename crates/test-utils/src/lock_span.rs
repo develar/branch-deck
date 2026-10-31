@@ -77,6 +77,15 @@ impl LockSpan {
     under
   }
 
+  /// The subcommand of every command that started under the lock, sorted, once per run: how many processes of each the
+  /// span holds
+  #[must_use]
+  pub fn runs_under_the_lock(&self) -> Vec<String> {
+    let mut runs: Vec<String> = self.commands().into_iter().filter(|(locked, _)| *locked).map(|(_, args)| subcommand(&args)).collect();
+    runs.sort_unstable();
+    runs
+  }
+
   /// The subcommands that started before the first command under the lock, in order
   #[must_use]
   pub fn commands_before_the_lock(&self) -> Vec<String> {

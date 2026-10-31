@@ -265,51 +265,70 @@ pub(crate) fn undo_over_drops(
   Ok(Some(format_store_lines(&entries, &kept)))
 }
 
-/// Drop the lines of `keys` from `store` in a commit with `drop_message`, which an undo of a regroup passes over
-/// (`undo_over_drops`). Reads the store again (one `cat-file --batch`) and writes only when a line goes, with
+/// The lines of `keys` to drop from `store`, in a commit with `message`, which an undo of a regroup passes over
+/// (`undo_over_drops`)
+#[derive(Debug, Clone, Copy)]
+pub struct StoreDrop<'a> {
+  pub store: &'a LineStore,
+  pub message: &'a str,
+  pub keys: &'a [&'a str],
+}
+
+/// Drop the lines of every one of `drops` at once: one try of the lock, one `cat-file --batch` that reads the stores
+/// again, and only when a line goes one `fast-import` of their commits and one transaction that moves them, with
 /// compare-and-swap; best effort, because the next sync tries again: a failure is only logged. Only while the
-/// repository lock is free, which it takes without waiting: a regroup holds it from its read of the stores to its
-/// transaction, and a drop between them would fail the regroup (`StacksMoved`, `ParkedMoved`); a held lock, or one an
-/// operation of this process waits for in its line (`try_lock_repository`), leaves the drop to the next sync
-#[instrument(skip(git_executor, store, keys), fields(store = store.name, count = keys.len()))]
-pub fn drop_store_lines(git_executor: &GitCommandExecutor, repository_path: &str, store: &LineStore, drop_message: &str, keys: &[&str]) {
-  if keys.is_empty() {
+/// repository lock is free, which it takes without waiting: a regroup reads the stores before the lock and witnesses
+/// them under it, and a drop between them sends it to compute once more (`StacksMoved`, `ParkedMoved` once it moved
+/// twice); a held lock, or one an operation of this process waits for in its line (`try_lock_repository`), leaves the
+/// drop to the next sync
+#[instrument(skip(git_executor, drops), fields(stores = drops.len()))]
+pub fn drop_store_lines(git_executor: &GitCommandExecutor, repository_path: &str, drops: &[StoreDrop<'_>]) {
+  let drops: Vec<&StoreDrop<'_>> = drops.iter().filter(|drop| !drop.keys.is_empty()).collect();
+  if drops.is_empty() {
     return;
   }
   let _lock = match try_lock_repository(git_executor, repository_path) {
     Ok(Some(lock)) => lock,
     Ok(None) => {
-      debug!(store = store.name, "the repository lock is held: the next sync drops the lines");
+      debug!("the repository lock is held: the next sync drops the lines");
       return;
     }
     Err(e) => {
-      warn!(store = store.name, error = %format!("{e:#}"), "Failed to drop the lines of integrated branches");
+      warn!(error = %format!("{e:#}"), "Failed to drop the lines of integrated branches");
       return;
     }
   };
-  let result = (|| -> Result<Vec<String>> {
-    let read = store.read(git_executor, repository_path)?;
-    let (Some(commit), mut entries) = (read.commit, read.entries) else {
-      return Ok(Vec::new());
-    };
-    let dropped: Vec<String> = keys.iter().filter(|key| entries.remove(**key).is_some()).map(|key| (*key).to_string()).collect();
-    if dropped.is_empty() {
+  let result = (|| -> Result<Vec<(&str, Vec<String>)>> {
+    let stores: Vec<&LineStore> = drops.iter().map(|drop| drop.store).collect();
+    let read = read_line_stores(git_executor, repository_path, &stores)?;
+    let mut contents = Vec::new();
+    let mut dropped = Vec::new();
+    for (drop, read) in drops.iter().zip(read) {
+      let (Some(commit), mut entries) = (read.commit, read.entries) else { continue };
+      let keys: Vec<String> = drop.keys.iter().filter(|key| entries.remove(**key).is_some()).map(|key| (*key).to_string()).collect();
+      if keys.is_empty() {
+        continue;
+      }
+      let kept: Vec<String> = read.problems.into_iter().map(|problem| problem.line).collect();
+      contents.push((drop, commit, format_store_lines(&entries, &kept)));
+      dropped.push((drop.store.name, keys));
+    }
+    if contents.is_empty() {
       return Ok(dropped);
     }
-    let kept: Vec<String> = read.problems.into_iter().map(|problem| problem.line).collect();
-    let content = format_store_lines(&entries, &kept);
-    write_store_updates(
-      git_executor,
-      repository_path,
-      &[store.update_with(Some(&commit), &content, drop_message)],
-      None,
-      &format!("{} of integrated branches", store.name),
-    )?;
+    let updates: Vec<StoreUpdate<'_>> = contents
+      .iter()
+      .map(|(drop, commit, content)| drop.store.update_with(Some(commit), content, drop.message))
+      .collect();
+    write_store_updates(git_executor, repository_path, &updates, None, "the lines of integrated branches")?;
     Ok(dropped)
   })();
   match result {
-    Ok(dropped) if !dropped.is_empty() => info!(store = store.name, ?dropped, "Dropped the lines of integrated branches"),
-    Ok(_) => {}
-    Err(e) => warn!(store = store.name, error = %format!("{e:#}"), "Failed to drop the lines of integrated branches"),
+    Ok(dropped) => {
+      for (store, dropped) in dropped {
+        info!(store, ?dropped, "Dropped the lines of integrated branches");
+      }
+    }
+    Err(e) => warn!(error = %format!("{e:#}"), "Failed to drop the lines of integrated branches"),
   }
 }

@@ -39,10 +39,11 @@ use git_ops::rewrite_guard::find_operation_in_progress;
 use git_ops::tree_id_cache::TreeIdCache;
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupedCommits, GroupingInputs};
-use history_rewrite::parked::drop_integrated_parked;
+use history_rewrite::parked::parked_drop;
 use history_rewrite::snapshot::read_grouping_inputs_with;
 use history_rewrite::stack::{PendingDetection, StackForest, describe_block, describe_problem, empty_parent_states_listed, place_branches};
-use history_rewrite::stack_parents::{drop_integrated_stack_parents, integrated_children};
+use history_rewrite::stack_parents::{integrated_children, stack_parents_drop};
+use history_rewrite::store_lines::drop_store_lines;
 use indexmap::IndexMap;
 use object_cache::cache::ObjectCache;
 use std::cmp::Reverse;
@@ -1089,11 +1090,10 @@ pub async fn sync_branches<P: ProgressReporter + Clone + 'static>(
       progress,
       &detection_permits,
     )?;
-    // an integrated branch stacks nothing anywhere any more, and is parked nowhere
-    let integrated = integrated_children(&idle_stack_parents, &reported, branch_prefix);
-    drop_integrated_stack_parents(git_executor, repository_path, &integrated);
-    let integrated = integrated_children(&idle_parked, &reported, branch_prefix);
-    drop_integrated_parked(git_executor, repository_path, &integrated);
+    // an integrated branch stacks nothing anywhere any more, and is parked nowhere: both stores in one drop
+    let stacked = integrated_children(&idle_stack_parents, &reported, branch_prefix);
+    let parked = integrated_children(&idle_parked, &reported, branch_prefix);
+    drop_store_lines(git_executor, repository_path, &[stack_parents_drop(&stacked), parked_drop(&parked)]);
     anyhow::Ok(())
   });
 

@@ -22,8 +22,9 @@
 //!   range would outdate it). `stack_branch` is keyed by a hash of the base and the original commits of a stack
 //!   branch: its value is what their build gave (the tip, or the conflict), a function of those commits.
 //! - **Several processes** (the app and parallel `bd` calls) share the environment: LMDB serializes writers through its
-//!   lock file and readers never block. Within a process there is one `Env` per directory (`ENVS`), because LMDB must
-//!   not open the same environment twice in one process. Across processes the opens and closes of a directory run one
+//!   lock file and readers never block. Within a process there is one `Env` per directory (its slot in `ENVS`, whose
+//!   guard alone is held across the open and the close), because LMDB must not open the same environment twice in one
+//!   process. Across processes the opens and closes of a directory run one
 //!   at a time under its `open.lock`, and on macOS each lock file gets a semaphore set of its own (`semaphore_key`).
 //! - **Each environment opens on its own**: one that cannot (a file in the way, a corrupt map, a semaphore set another
 //!   process removed) misses its stores, logged as a warning, and the others work.
@@ -284,34 +285,51 @@ pub fn cache_dir(git_common_dir: &Path) -> PathBuf {
   git_common_dir.join("branch-deck").join("cache")
 }
 
-/// The environments open in this process, by canonical directory; an entry lives while a handle of it does
-static ENVS: OnceLock<Mutex<HashMap<PathBuf, Weak<Env>>>> = OnceLock::new();
+/// The slot of the environment of one directory: its `Env` while a handle of it lives. Its guard is held across the open
+/// and the close of that environment, so an open of the same directory waits until it is closed
+type EnvSlot = Arc<Mutex<Weak<Env>>>;
 
-fn open_envs() -> MutexGuard<'static, HashMap<PathBuf, Weak<Env>>> {
-  ENVS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner)
+/// The slots of the environments of this process, by canonical directory. Locked only to find or add a slot, never
+/// across an open, a close or the wait for `open.lock` of another process: the four environments of a cache open side by
+/// side, and an open of another repository's cache never waits for this one
+static ENVS: OnceLock<Mutex<HashMap<PathBuf, EnvSlot>>> = OnceLock::new();
+
+/// The slot of `dir`; the slots that no handle holds and no open fills go
+fn env_slot(dir: &Path) -> EnvSlot {
+  let mut envs = ENVS.get_or_init(Mutex::default).lock().unwrap_or_else(PoisonError::into_inner);
+  // a slot another thread holds (`try_lock` fails) may be opening: it stays
+  envs.retain(|_, slot| Arc::strong_count(slot) > 1 || slot.try_lock().map_or(true, |env| env.strong_count() > 0));
+  Arc::clone(envs.entry(dir.to_path_buf()).or_default())
 }
 
-/// An open environment of `ENVS`. The last handle closes it (`mdb_env_close`, which removes its semaphores when no other
-/// process has it open) while `ENVS` is locked, so an open of the same directory waits until it is closed, and under
-/// `open.lock`, so the open of another process does not read the semaphores the close removes
-pub(crate) struct EnvHandle(Option<Arc<Env>>);
+fn lock_slot(slot: &EnvSlot) -> MutexGuard<'_, Weak<Env>> {
+  slot.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An open environment of its slot (`ENVS`). The last handle closes it (`mdb_env_close`, which removes its semaphores
+/// when no other process has it open) while its slot is locked, so an open of the same directory waits until it is
+/// closed, and under `open.lock`, so the open of another process does not read the semaphores the close removes
+pub(crate) struct EnvHandle {
+  env: Option<Arc<Env>>,
+  slot: EnvSlot,
+}
 
 impl Deref for EnvHandle {
   type Target = Env;
 
   fn deref(&self) -> &Env {
-    self.0.as_deref().expect("taken only by drop")
+    self.env.as_deref().expect("taken only by drop")
   }
 }
 
 impl Drop for EnvHandle {
   fn drop(&mut self) {
-    let envs = open_envs();
-    let env = self.0.take();
+    let slot = lock_slot(&self.slot);
+    let env = self.env.take();
     let closing = env.as_ref().filter(|env| Arc::strong_count(env) == 1).and_then(|env| lock_opens(env.path()).ok());
     drop(env);
     drop(closing);
-    drop(envs);
+    drop(slot);
   }
 }
 
@@ -567,7 +585,14 @@ impl ObjectCache {
 #[cfg(test)]
 pub(crate) fn is_env_open(dir: &Path) -> bool {
   let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-  open_envs().get(&dir).is_some_and(|env| env.strong_count() > 0)
+  lock_slot(&env_slot(&dir)).strong_count() > 0
+}
+
+/// Whether a thread of this process opens or closes the environment of `dir` now: it holds its slot
+#[cfg(test)]
+pub(crate) fn is_env_opening(dir: &Path) -> bool {
+  let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+  env_slot(&dir).try_lock().is_err()
 }
 
 /// The environment of `dir`, the one of this process if it is open (`ENVS`); a new one syncs each commit unless
@@ -575,9 +600,11 @@ pub(crate) fn is_env_open(dir: &Path) -> bool {
 pub(crate) fn open_env(dir: &Path, map_size: usize, sync_commits: bool) -> Result<EnvHandle, Box<dyn std::error::Error>> {
   std::fs::create_dir_all(dir)?;
   let dir = dir.canonicalize()?;
-  let mut envs = open_envs();
-  if let Some(env) = envs.get(&dir).and_then(Weak::upgrade) {
-    return Ok(EnvHandle(Some(env)));
+  let slot = env_slot(&dir);
+  let mut opened = lock_slot(&slot);
+  if let Some(env) = opened.upgrade() {
+    drop(opened);
+    return Ok(EnvHandle { env: Some(env), slot });
   }
   // a multiple of the 4 KiB and 16 KiB pages of the supported platforms
   let page_size = 16 * 1024;
@@ -598,7 +625,8 @@ pub(crate) fn open_env(dir: &Path, map_size: usize, sync_commits: bool) -> Resul
         options.flags(EnvFlags::NO_SYNC | EnvFlags::NO_META_SYNC);
       }
     }
-    // SAFETY: `ENVS` holds the only `Env` of this directory in the process, and the files are only written by LMDB
+    // SAFETY: the slot of this directory in `ENVS` holds its only `Env` in the process, and the files are only written by
+    // LMDB
     #[expect(unsafe_code, reason = "heed opens an LMDB environment through an unsafe call")]
     unsafe {
       options.open(&dir)
@@ -610,10 +638,9 @@ pub(crate) fn open_env(dir: &Path, map_size: usize, sync_commits: bool) -> Resul
     Err(heed::Error::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput => open()?,
     result => result?,
   });
-  // the entries of the environments closed meanwhile go
-  envs.retain(|_, env| env.strong_count() > 0);
-  envs.insert(dir, Arc::downgrade(&env));
-  Ok(EnvHandle(Some(env)))
+  *opened = Arc::downgrade(&env);
+  drop(opened);
+  Ok(EnvHandle { env: Some(env), slot })
 }
 
 /// The databases of `stores` in `env`, the environment `environment`, in their order, created if missing; the databases

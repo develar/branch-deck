@@ -4,12 +4,12 @@
 //! logs the state of the lock (`test_utils::lock_span`) tells which commands ran under it.
 
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
-use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF, ParkLine, park_core, unpark_core};
+use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF, ParkLine, park_core, parked_drop, unpark_core};
 use crate::regroup::{RegroupError, RegroupOptions, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::reword::{RewordRequest, reword_request_core};
-use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF, drop_integrated_stack_parents};
-use crate::store_lines::LineStore;
+use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF, drop_integrated_stack_parents, stack_parents_drop};
+use crate::store_lines::{LineStore, drop_store_lines};
 use domain_types::rewrite::{CommitReword, RegroupPlan, RewordText};
 use git_ops::commit_writer::write_store_updates;
 use pretty_assertions::assert_eq;
@@ -136,8 +136,9 @@ fn an_undo_locks_only_the_witness_and_the_write() {
 }
 
 /// The drop of the lines of integrated branches, which a sync runs only while the lock is free (`drop_store_lines`):
-/// under it only the read of the store (`cat-file`) and its write, the store commit (`var`, `fast-import`) and its
-/// compare-and-swap move
+/// under it only the read of the stores (`cat-file`) and their write, the store commits (`var`, `fast-import`) and
+/// their compare-and-swap move. The stack parents and the parked branches of one sync go in one drop: one lock, one
+/// process of each
 #[test]
 fn a_drop_of_store_lines_locks_only_its_read_and_its_write() {
   let (repo, _, _) = stacked();
@@ -146,6 +147,19 @@ fn a_drop_of_store_lines_locks_only_its_read_and_its_write() {
   drop_integrated_stack_parents(span.executor(), repo.path_str(), &["beta"]);
   assert_eq!(STACK_PARENTS.read(repo.git_executor(), repo.path_str()).unwrap().entries, BTreeMap::new());
   assert_eq!(span.commands_under_the_lock(), ["cat-file", "fast-import", "update-ref", "var"], "{:#?}", span.commands());
+
+  restack_branch_core(repo.git_executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  park_core(repo.git_executor(), repo.path_str(), &[ParkLine { branch: "alpha", note: "" }], &RewriteOptions::default()).unwrap();
+  let span = LockSpan::new(&repo.path().join(".git"));
+  drop_store_lines(span.executor(), repo.path_str(), &[stack_parents_drop(&["beta"]), parked_drop(&["alpha"])]);
+  assert_eq!(STACK_PARENTS.read(repo.git_executor(), repo.path_str()).unwrap().entries, BTreeMap::new());
+  assert_eq!(PARKED.read(repo.git_executor(), repo.path_str()).unwrap().entries, BTreeMap::new());
+  assert_eq!(
+    span.runs_under_the_lock(),
+    ["cat-file", "fast-import", "update-ref", "var"],
+    "one of each for both stores: {:#?}",
+    span.commands()
+  );
 }
 
 /// A park and an unpark write the one store they read: the store commit before the lock, under it only its move, whose

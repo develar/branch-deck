@@ -1,4 +1,6 @@
-use crate::cache::{CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, DEFAULT_PATCH_MAP_SIZE, ObjectCache, STORES, Store, is_env_open, open_env};
+use crate::cache::{
+  CacheConfig, DEFAULT_CONFLICT_MAP_SIZE, DEFAULT_MAP_SIZE, DEFAULT_MERGE_MAP_SIZE, DEFAULT_PATCH_MAP_SIZE, ObjectCache, STORES, Store, is_env_open, is_env_opening, open_env,
+};
 use crate::commit_diff::{FileChange, Hunk};
 use crate::commit_files::{CommitFile, FileStatus};
 use crate::conflict_info::{ConflictKey, MAX_CONFLICT_INFO_BYTES};
@@ -853,4 +855,31 @@ fn the_environments_of_a_test_commit_without_a_flush() {
   for flags in flags {
     assert_eq!(flags & unsynced, unsynced, "{flags:#x}");
   }
+}
+
+/// An open of one environment that waits for `open.lock` (another process opens or closes it) holds only the slot of
+/// its directory: the environment of another directory opens meanwhile, and the waiting one opens once the lock is free
+#[test_log::test]
+fn an_environment_opens_while_the_open_of_another_waits_for_its_open_lock() {
+  let (waiting, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+  // another process opens the first one: it holds its `open.lock`
+  let held = std::fs::OpenOptions::new()
+    .write(true)
+    .create(true)
+    .truncate(false)
+    .open(waiting.path().join("open.lock"))
+    .unwrap();
+  held.lock().unwrap();
+  std::thread::scope(|scope| {
+    let opening = scope.spawn(|| open_env(waiting.path(), DEFAULT_MAP_SIZE, false).map(drop).map_err(|e| e.to_string()));
+    while !is_env_opening(waiting.path()) {
+      assert!(!opening.is_finished(), "the open waits for the lock of the other process");
+      std::thread::yield_now();
+    }
+    let opened = open_env(other.path(), DEFAULT_MAP_SIZE, false).unwrap();
+    assert!(is_env_open(other.path()));
+    drop(opened);
+    held.unlock().unwrap();
+    opening.join().unwrap().unwrap();
+  });
 }
