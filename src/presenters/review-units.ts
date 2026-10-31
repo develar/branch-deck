@@ -1,6 +1,6 @@
-import type { ApiChange, ReviewUnit, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, ReviewUnit, UnitBlock } from "@/lib/bindings"
 import type { SectionUnits } from "@/lib/diff/rows"
-import { FOLDED_WORDS, FORM_WORDS, MECHANICAL_WORDS } from "@/presenters/review-plan"
+import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
 
 /*
  * The story of a review (spec/branch/review-units.spec.md, "In the Review Window"): the sections of the diffs in the
@@ -109,8 +109,9 @@ interface Draft {
  * file: in the place of its first unit, else after the story. After the section of a change of a form or a removal, its
  * uses the change left outside (`api`, by the key and the file of the unit), each its file around the use.
  */
-export function presentNarrative(units: readonly ReviewUnit[], files: readonly NarrativeFile[], api: readonly ApiChange[]): NarrativeSection[] {
+export function presentNarrative(units: readonly ReviewUnit[], files: readonly NarrativeFile[], api: readonly ApiChange[], facts: readonly FileFacts[]): NarrativeSection[] {
   const byPath = new Map(files.map(file => [file.path, file]))
+  const generatedOf = new Map(facts.flatMap(file => (file.generated === null ? [] : [[file.path, file.generated] as const])))
   // a file whose blocks the units cannot cut shows whole
   const whole = new Set<string>()
   for (const slice of units.flatMap(unit => unit.slices)) {
@@ -146,7 +147,15 @@ export function presentNarrative(units: readonly ReviewUnit[], files: readonly N
         }
         placed.add(slice.path)
         const first = index === 0
-        const folded = unit.kind.kind === "mechanical" ? FOLDED_WORDS[unit.kind.mechanical] : first ? null : `Same edit as ${fileName(shown[0]!.path)}`
+        const generated = generatedOf.get(slice.path)
+        const folded =
+          unit.kind.kind === "mechanical"
+            ? generated === undefined
+              ? FOLDED_WORDS[unit.kind.mechanical]
+              : formatGenerated(generated)
+            : first
+              ? null
+              : `Same edit as ${fileName(shown[0]!.path)}`
         drafts.push({
           key: nextKey(`group:${unit.id}`, slice.path),
           path: slice.path,

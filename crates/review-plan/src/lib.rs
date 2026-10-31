@@ -34,7 +34,7 @@ pub mod units;
 use crate::api::{ApiChange, ApiChangeKind, api_changes};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_usages;
-use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, hunk_blobs};
+use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
 use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
@@ -44,6 +44,8 @@ use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
+use generated_files::attributes::attribute_generated_paths;
+use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::reviewed_refs::read_reviewed_refs;
 use git_ops::revs::resolve_commit;
@@ -234,7 +236,13 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
 
 /// The plan of `subject` (`resolve_subject` of `params`): `pending` gets it once without the usages of the API, before
 /// the index is asked, when there is a query to ask; the answer is the plan with them
-pub fn review_plan_of(git: &GitCommandExecutor, sources: PlanSources<'_>, params: &ReviewPlanParams, subject: ResolvedSubject, pending: impl FnOnce(&ReviewPlan)) -> Result<ReviewPlan> {
+pub fn review_plan_of(
+  git: &GitCommandExecutor,
+  sources: PlanSources<'_>,
+  params: &ReviewPlanParams,
+  subject: ResolvedSubject,
+  pending: impl FnOnce(&ReviewPlan),
+) -> Result<ReviewPlan> {
   let repository_path = params.repository_path.as_str();
   let ResolvedSubject { branch, base, head, interdiff } = subject;
   let carried = interdiff
@@ -252,10 +260,22 @@ pub fn review_plan_of(git: &GitCommandExecutor, sources: PlanSources<'_>, params
     }
   };
   let changed = changed_files(&diffs);
+  // the generated files by their name, else by the attributes of the head: one `check-attr` for the others
+  let by_attributes = attribute_generated_paths(
+    git,
+    repository_path,
+    &head,
+    changed.iter().filter(|file| generated_by_name(file.path).is_none()).map(|file| file.path),
+  )?;
+  let known: Vec<_> = changed
+    .iter()
+    .map(|file| generated_by_name(file.path).or_else(|| by_attributes.contains(file.path).then_some(GeneratedBy::Attribute)))
+    .collect();
   let mut seen: HashSet<String> = HashSet::new();
-  let wanted: Vec<String> = hunk_blobs(&changed)
+  let wanted: Vec<String> = hunk_blobs(&changed, &known)
     .into_iter()
     .chain(manifest_blobs(&changed))
+    .chain(header_blobs(&changed, &known))
     .filter(|id| seen.insert(id.clone()))
     .collect();
   let (mut texts, unread) = sources.file_diffs.texts_in_memory(&wanted);
@@ -275,7 +295,8 @@ pub fn review_plan_of(git: &GitCommandExecutor, sources: PlanSources<'_>, params
   );
   let pairs = pair_blocks(git, repository_path, sources.cache, sources.file_diffs, &changed, &texts)?;
   let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
-  let kinds = file_kinds(&changed, &texts, &states);
+  let generated = generated_of(&changed, &known, &texts);
+  let kinds = file_kinds(&changed, &texts, &states, &generated);
   let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {

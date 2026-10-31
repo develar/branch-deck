@@ -6,9 +6,10 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 4` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 5` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
-//! with `usages`, and version 4 added the `units`, the changes a reviewer reads once in the order of the story
+//! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story, and
+//! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -16,6 +17,7 @@ use bd_core::error::CliError;
 use bd_core::output::ShortIds;
 use domain_types::error::ErrorCode;
 use file_diffs::accio::{AccioCli, SymbolIndex};
+use generated_files::generated_by::GeneratedBy;
 use git_ops::landed_pairing::PathLines;
 use review_plan::api::{ApiChange, ApiChangeKind, FormChange, UsageSite};
 use review_plan::dependencies::DependencyChange;
@@ -29,7 +31,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 4;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 5;
 
 /// The `"schema": 4` field the output of `bd review-plan` starts with
 #[derive(Debug, Clone, Copy, Default)]
@@ -154,9 +156,12 @@ pub struct FileFactsOutput {
   pub path: String,
   /// The path before the first commit that changes it, when the commits rename it
   pub old_path: Option<String>,
-  /// Why its change is mechanical (a build file, only imports, only whitespace, a pure rename, a deletion); `null`
-  /// for real work
+  /// Why its change is mechanical (a build file, only imports, only whitespace, a pure rename, a deletion, a generated
+  /// file); `null` for real work
   pub mechanical: Option<MechanicalKind>,
+  /// Why it is generated, when `mechanical` is `generated`: its name (a lock file, a minified file, a source map), the
+  /// attributes of the head (`linguist-generated`, `-diff`), or the header a tool wrote into it, with its line
+  pub generated: Option<GeneratedBy>,
   /// The changed files it uses and those that use it after the commits
   pub uses: u32,
   pub used_by: u32,
@@ -398,6 +403,7 @@ fn file_output(facts: FileFacts) -> FileFactsOutput {
     path: facts.path,
     old_path: facts.old_path,
     mechanical: facts.mechanical,
+    generated: facts.generated,
     uses: facts.uses,
     used_by: facts.used_by,
     new_links: facts.new_links,

@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 commit-clustering = { path = "../commit-clustering" }
-generated-files = { path = "../generated-files" }
+generated-files = { path = "../generated-files", features = ["schemars"] }
 bd-core = { path = "../bd-core" }
 code-symbols = { path = "../code-symbols" }
 file-diffs = { path = "../file-diffs" }

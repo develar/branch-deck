@@ -89,8 +89,8 @@ is anchored to.
   are its blocks.
   [@test] ../../crates/review-plan/src/units_test.rs (`each_change_of_a_file_is_one_unit_and_every_block_is_in_one`, `an_overload_is_a_unit_of_its_own`)
   [@test] ../../crates/review-plan/src/units_test.rs (`a_member_of_a_new_type_is_part_of_the_type`)
-- A file whose change is mechanical (`files`: a build file, imports only, whitespace only, a pure rename, a deletion)
-  must be one slice of the unit of its kind, the file whole. A file the commits add is one unit `newFile`. A binary
+- A file whose change is mechanical (`files`: a build file, imports only, whitespace only, a pure rename, a deletion, a
+  generated file) must be one slice of the unit of its kind, the file whole; a generated file the commits add too. A file the commits add is one unit `newFile`. A binary
   file, a file over 8 MiB, a change of its type, a change of the line ends alone where the indentation has a meaning,
   and a file of no language the review parses are each one unit `other` with the reason.
 - One kind of mechanical change must be one unit over every file that has it, and one repeated edit one unit over its
@@ -101,8 +101,10 @@ is anchored to.
 - The units must come in the order of the files of the plan (`order`: a declaration before its uses, a test right
   after its subject), each unit at the first block it holds, a unit without a block right after the unit of the block
   that changed its lines; a repeated edit at the place of its first file; the mechanical units last, by kind: build
-  files, imports, whitespace, renames, deletions.
+  files, imports, whitespace, renames, deletions, the generated files last of all (`mechanical:generated`), which a
+  reviewer skips whole.
   [@test] ../../crates/review-plan/src/units_test.rs (`the_units_follow_the_order_of_the_files_and_the_pair_of_a_file_changed_twice`)
+  [@test] ../../crates/review-plan/src/units_test.rs (`the_generated_files_are_one_unit_after_the_other_mechanical_ones`)
 
 ### Identity
 - `id` must name a unit within a plan: of a declaration its file, key and signature.
@@ -114,7 +116,7 @@ is anchored to.
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
 ### In `bd`
-- `bd review-plan` must print `units` (`"schema": 4`): per unit its `id`, `kind` (`shape` with `changes`,
+- `bd review-plan` must print `units` (`"schema": 5`): per unit its `id`, `kind` (`shape` with `changes`,
   `behaviour`, `added`, `removed`, `newFile`, `mechanical` with `mechanical`, `repeatedEdit` with `group`, `other` with
   `reason`), `name`, `key`, `signature`, `public`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)
@@ -128,7 +130,8 @@ is anchored to.
   of its own beside the heading before it; a group is a section per file of it.
   [@test] ../../src/presenters/review-units.test.ts (`makes a run of changes of one file one section with a heading per change, and a group a section per file`, `words a change by its kind`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`)
-- A mechanical group must start collapsed on every file, its header saying the kind; a repeated edit must show on its
+- A mechanical group must start collapsed on every file, its header saying the kind (of a generated file why it is
+  generated, [Review Plan](review-plan.spec.md#in-the-review-window)); a repeated edit must show on its
   first file under "Same edit in N files", the other files collapsed, "Same edit as Alpha.kt".
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
 - A block that another section shows must be one row in the section of its file, "Shown in Imports only (1)", no

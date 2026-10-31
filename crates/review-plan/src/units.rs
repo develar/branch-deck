@@ -132,13 +132,15 @@ pub struct ReviewUnit {
   pub fingerprint: String,
 }
 
-/// The order of the mechanical units, as the tree of the review lists the kinds
-const MECHANICAL_ORDER: [MechanicalKind; 5] = [
+/// The order of the mechanical units, as the tree of the review lists the kinds: the generated files last, which a
+/// reviewer skips whole
+const MECHANICAL_ORDER: [MechanicalKind; 6] = [
   MechanicalKind::BuildModel,
   MechanicalKind::ImportsOnly,
   MechanicalKind::Whitespace,
   MechanicalKind::Renamed,
   MechanicalKind::Deleted,
+  MechanicalKind::Generated,
 ];
 
 /// A stable digest of `parts`: the first 16 bytes of their SHA-256, in hex, each part ended by a NUL
@@ -221,7 +223,10 @@ fn pair_declarations(before: &[SpannedDeclaration], after: &[SpannedDeclaration]
     let mut news = new_keys.remove(key).unwrap_or_default();
     let mut left: Vec<usize> = Vec::new();
     for old in olds {
-      match news.iter().position(|&new| after[new].form.form == before[old].form.form && after[new].signature == before[old].signature) {
+      match news
+        .iter()
+        .position(|&new| after[new].form.form == before[old].form.form && after[new].signature == before[old].signature)
+      {
         Some(position) => pairs.push(Paired {
           before: Some(old),
           after: Some(news.remove(position)),
@@ -231,7 +236,10 @@ fn pair_declarations(before: &[SpannedDeclaration], after: &[SpannedDeclaration]
     }
     let mut news = news.into_iter();
     for old in left {
-      pairs.push(Paired { before: Some(old), after: news.next() });
+      pairs.push(Paired {
+        before: Some(old),
+        after: news.next(),
+      });
     }
     pairs.extend(news.map(|new| Paired { before: None, after: Some(new) }));
   }
@@ -321,7 +329,14 @@ fn file_name(path: &str) -> &str {
 
 /// The units of the pair of `files` (`pair::pair_blocks`, by place), in the order of the story: their kinds (`kinds`),
 /// the summaries of `input`, the hunk text `texts` (by blob) and the order of the plan's files `order`
-pub(crate) fn review_units(input: &SymbolInput, files: &[ChangedFile<'_>], pairs: &[PairBlocks], texts: &HashMap<String, String>, kinds: &FileKinds, order: &[String]) -> Vec<ReviewUnit> {
+pub(crate) fn review_units(
+  input: &SymbolInput,
+  files: &[ChangedFile<'_>],
+  pairs: &[PairBlocks],
+  texts: &HashMap<String, String>,
+  kinds: &FileKinds,
+  order: &[String],
+) -> Vec<ReviewUnit> {
   let place: HashMap<&str, usize> = order.iter().enumerate().map(|(index, path)| (path.as_str(), index)).collect();
   // file -> its group of repeated edits and the edit
   let mut group_of: HashMap<usize, (u32, &(String, String))> = HashMap::new();
@@ -454,6 +469,7 @@ const fn mechanical_tag(kind: MechanicalKind) -> &'static str {
     MechanicalKind::Whitespace => "whitespace",
     MechanicalKind::Renamed => "renamed",
     MechanicalKind::Deleted => "deleted",
+    MechanicalKind::Generated => "generated",
   }
 }
 
@@ -521,7 +537,10 @@ impl SourceFile<'_> {
       }
       keys
     };
-    let (old_keys, new_keys) = (keys(&self.before.declarations, |paired| paired.before), keys(&self.after.declarations, |paired| paired.after));
+    let (old_keys, new_keys) = (
+      keys(&self.before.declarations, |paired| paired.before),
+      keys(&self.after.declarations, |paired| paired.after),
+    );
     let one_side = |pair: usize| pairs[pair].before.is_none() != pairs[pair].after.is_none();
     (0..pairs.len())
       .map(|pair| {

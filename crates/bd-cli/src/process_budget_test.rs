@@ -575,6 +575,7 @@ fn a_review_plan_since_the_review() {
 /// reviewed change carried onto it, and the diff from it to the tip one `diff-tree`
 const SINCE_THE_REVIEW: &[(&str, u32)] = &[
   ("cat-file", 1),
+  ("check-attr", 1),
   ("diff-tree", 3),
   ("for-each-ref", 2),
   ("merge-base", 1),
@@ -648,7 +649,8 @@ fn commit_each<'a>(repo: &TestRepo, files: impl IntoIterator<Item = (&'a str, St
 }
 
 /// `bd review-plan` of a range of seven Kotlin commits, the same for four: one `rev-parse --verify` per rev, one
-/// `rev-list` of the commits, one `log` of their changes, one `cat-file` of their blobs, and the reads of the syntax
+/// `rev-list` of the commits, one `log` of their changes, one `cat-file` of their blobs, one `check-attr` of the files
+/// the attributes may mark generated (every plan has it, whatever the number of files), and the reads of the syntax
 /// summaries (`read_symbol_input`: the trees above the files and the blobs no cache has, one `rev-parse`); accio asks no
 /// git, and the dependency order of the files, each using the type of the next, comes from those summaries
 #[test]
@@ -669,7 +671,7 @@ fn a_review_plan_of_a_range() {
   let output = review_plan(&context, &args).unwrap();
   assert_eq!(output.api.len(), 7);
   assert_eq!(output.order.first().map(String::as_str), Some("src/a/role.kt"));
-  assert_processes(&context, &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&context, &[("cat-file", 3), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// A repository whose baseline has `manifest` (when any) and four source files of `extension` from `source` (by the
@@ -721,8 +723,8 @@ fn a_review_plan_of_modified_files() {
     |name| format!("package a\n\nimport b.Old\n\nclass {name} {{\n  fun run(): Int {{\n    return 1\n  }}\n}}\n"),
     [("import b.Old", "import b.New"), ("    return 1", "      return 1")],
   );
-  assert_processes(&kotlin[0], &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&kotlin[1], &[("cat-file", 2), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&kotlin[0], &[("cat-file", 3), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&kotlin[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
 
   let rust = modified_files_plans(
     "rs",
@@ -730,8 +732,8 @@ fn a_review_plan_of_modified_files() {
     |name| format!("use b::Old;\n\npub fn run_{name}() -> i32 {{\n    1\n}}\n"),
     [("use b::Old;", "use b::New;"), ("    1\n", "      1\n")],
   );
-  assert_processes(&rust[0], &[("cat-file", 3), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&rust[1], &[("cat-file", 2), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&rust[0], &[("cat-file", 3), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&rust[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `bd review-plan` of a range of three commits that change the dependencies of an `*.iml`, a plugin descriptor and a
@@ -774,8 +776,8 @@ fn a_review_plan_of_build_files() {
     );
     context
   });
-  assert_processes(&plans[0], &[("cat-file", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
-  assert_processes(&plans[1], &[("cat-file", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&plans[0], &[("cat-file", 1), ("check-attr", 1), ("log", 1), ("rev-list", 1), ("rev-parse", 3)]);
+  assert_processes(&plans[1], &[("cat-file", 1), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
 /// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the

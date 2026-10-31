@@ -6,7 +6,7 @@ import type { Collapse, GeneratedName } from "@/lib/bindings"
  * shows its counts: their headers need no word.
  */
 
-const GENERATED_NAME_WORDS: Record<GeneratedName, string> = {
+export const GENERATED_NAME_WORDS: Readonly<Record<GeneratedName, string>> = {
   lockFile: "Lock file",
   minified: "Minified",
   sourceMap: "Source map",

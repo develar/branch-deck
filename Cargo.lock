@@ -5382,6 +5382,7 @@ dependencies = [
  "code-symbols",
  "domain-types",
  "file-diffs",
+ "generated-files",
  "git-executor",
  "git-ops",
  "history-rewrite",

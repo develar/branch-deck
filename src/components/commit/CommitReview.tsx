@@ -396,6 +396,8 @@ interface TreeSelection {
   grouped: boolean
   /** The file the diffs of this key open at (`LoadedReview.initialPath` at the start of the key) */
   initialPath: string | null
+  /** The first file of the tree, selected because nothing else was: a plan that comes after the files moves it */
+  defaultPath: string | null
   /** The file of a link this selection selected (`LoadedReview.revealPath`) */
   revealed: string | null
 }
@@ -406,7 +408,7 @@ function hasMechanicalGroup(nodes: readonly FileTreeNode[]): boolean {
 
 function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: readonly FileTreeNode[], fileCount: number, firstPath: string | null): TreeSelection {
   if (loaded === null) {
-    return { key: null, filterText, collapsed: new Set(), selectedPath: null, grouped: false, initialPath: null, revealed: null }
+    return { key: null, filterText, collapsed: new Set(), selectedPath: null, grouped: false, initialPath: null, defaultPath: null, revealed: null }
   }
   // what a search found shows whole: its directories open
   const initial = filterText.trim() === "" ? getInitiallyCollapsed(nodes, fileCount) : new Set<string>()
@@ -417,6 +419,7 @@ function initialSelection(loaded: LoadedReview | null, filterText: string, nodes
     selectedPath: loaded.initialPath ?? firstPath,
     grouped: hasMechanicalGroup(nodes),
     initialPath: loaded.initialPath,
+    defaultPath: loaded.initialPath === null ? firstPath : null,
     revealed: loaded.revealPath,
   }
 }
@@ -439,14 +442,25 @@ function searchedSelection(previous: TreeSelection, filterText: string, nodes: r
   }
 }
 
-/** The plan came, or went: the Mechanical group starts collapsed unless it holds the selected file */
-function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[]): TreeSelection {
+/**
+ * The plan came, or went: the Mechanical group starts collapsed unless it holds the selected file. A file selected
+ * only as the first of the tree without the plan, which may be a generated one, gives way to the first of the new tree
+ */
+function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[], firstPath: string | null): TreeSelection {
   const grouped = hasMechanicalGroup(nodes)
   if (!grouped) {
     return { ...previous, grouped }
   }
+  const moved = previous.selectedPath !== null && previous.selectedPath === previous.defaultPath
+  const selectedPath = moved ? firstPath : previous.selectedPath
   const collapsed = new Set(previous.collapsed).add(MECHANICAL_GROUP_KEY)
-  return { ...previous, grouped, collapsed: previous.selectedPath === null ? collapsed : revealInTree(collapsed, previous.selectedPath, nodes) }
+  return {
+    ...previous,
+    grouped,
+    selectedPath,
+    defaultPath: moved ? firstPath : previous.defaultPath,
+    collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
+  }
 }
 
 const NO_MECHANICAL: ReadonlyMap<string, MechanicalKind> = new Map()
@@ -536,7 +550,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   } else if (selection.filterText !== filterText) {
     setSelection(searchedSelection(selection, filterText, nodes, files, loaded?.revealPath ?? null))
   } else if (selection.grouped !== hasMechanicalGroup(nodes)) {
-    setSelection(groupedSelection(selection, nodes))
+    setSelection(groupedSelection(selection, nodes, files[0]?.path ?? null))
   }
   const { collapsed, selectedPath } = selection
   // the file of a link is selected once: a later key or search does not select it again
@@ -578,7 +592,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       const diff = byPath.get(file.path)
       return { path: file.path, blocks: diff?.content.kind === "text" ? diff.content.blocks : null }
     })
-    return presentNarrative(reviewFacts.units, shown, reviewFacts.api)
+    return presentNarrative(reviewFacts.units, shown, reviewFacts.api, reviewFacts.files)
   }, [diffs, files, reviewFacts])
   // the file at the head of each use left outside, read once per review
   const revision = loaded?.revisions.new ?? null

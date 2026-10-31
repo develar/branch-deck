@@ -19,6 +19,8 @@ code-symbols = { path = "../code-symbols" }
 object-cache = { path = "../object-cache" }
 # the blocks of the diffs, and accio for the fan-in (`SymbolIndex`, `Lenient`)
 file-diffs = { path = "../file-diffs" }
+# the generated files: by their name, the attributes of the head, the header a tool wrote (`files::generated_of`)
+generated-files = { path = "../generated-files" }
 # the span of the fan-in's threads (`in_current_span`)
 sync-utils = { path = "../sync-utils" }
 # the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
@@ -37,8 +39,8 @@ schemars = { workspace = true, optional = true }
 specta = { workspace = true, optional = true }
 
 [features]
-schemars = ["dep:schemars", "git-ops/schemars"]
-specta = ["dep:specta", "git-ops/specta"]
+schemars = ["dep:schemars", "git-ops/schemars", "generated-files/schemars"]
+specta = ["dep:specta", "git-ops/specta", "generated-files/specta"]
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }
