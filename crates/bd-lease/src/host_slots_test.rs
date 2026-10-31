@@ -399,14 +399,66 @@ impl Drop for FsmonitorDaemon {
   }
 }
 
+/// The traces of every git of this process from `start` on, for the message of an assertion that fails only now and then:
+/// `GIT_TRACE_FSMONITOR` (the queries of the clients, the cookies, batches and answers of the daemon) into one file,
+/// `GIT_TRACE2_PERF` into a file per git process. Read only when the assertion fails
+#[cfg(target_os = "macos")]
+struct GitTraces {
+  dir: tempfile::TempDir,
+  _env: test_utils::env_vars::EnvVars,
+}
+
+#[cfg(target_os = "macos")]
+impl GitTraces {
+  fn start() -> Self {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("perf")).unwrap();
+    let env = test_utils::env_vars::EnvVars::set(&[
+      ("GIT_TRACE_FSMONITOR", dir.path().join("fsmonitor.txt").into_os_string()),
+      ("GIT_TRACE2_PERF", dir.path().join("perf").into_os_string()),
+    ]);
+    Self { dir, _env: env }
+  }
+
+  /// The files of the slot at `path` before a step, and every trace so far
+  fn evidence(&self, files: &[String]) -> String {
+    let mut perf: Vec<PathBuf> = std::fs::read_dir(self.dir.path().join("perf")).unwrap().map(|entry| entry.unwrap().path()).collect();
+    perf.sort();
+    let mut text = format!("the files of the slot before the give-back: {files:?}\n--- GIT_TRACE_FSMONITOR\n");
+    text.push_str(&std::fs::read_to_string(self.dir.path().join("fsmonitor.txt")).unwrap_or_default());
+    for file in perf {
+      text.push_str("--- GIT_TRACE2_PERF ");
+      text.push_str(&file.display().to_string());
+      text.push('\n');
+      text.push_str(&std::fs::read_to_string(&file).unwrap_or_default());
+    }
+    text
+  }
+}
+
+/// The names of the files at the top of the slot at `path`, sorted
+#[cfg(target_os = "macos")]
+fn top_files(path: &Path) -> Vec<String> {
+  let mut files: Vec<String> = std::fs::read_dir(path)
+    .unwrap()
+    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+    .collect();
+  files.sort();
+  files
+}
+
 /// With the repository's `core.fsmonitor`, git's fsmonitor daemon of a host slot outlives the give-back, also when it
 /// started after the lend with its working directory in the slot: it is no process of the run, so the slot is idle
-/// again, not in quarantine. The `status` of the next give-back asks the daemon and still finds the changes of its run
+/// again, not in quarantine. The `status` of the next give-back asks the daemon and still finds the changes of its run.
+/// Under load it failed twice (2026-10-31): the second give-back named again the `untracked.txt` the first one deleted,
+/// in about 1,100 runs since never. Its assertions carry the traces of git (`GitTraces`), so the next failure tells
+/// whether the file was still there or the untracked cache named a deleted one
 #[cfg(target_os = "macos")]
 #[test_log::test]
 fn the_fsmonitor_daemon_of_a_host_slot_outlives_the_give_back_and_the_changes_of_a_run_are_still_found() {
   let host = Host::filled(1);
   let (fixture, context, params) = host.parts();
+  let traces = GitTraces::start();
   git(&fixture.repo, &["config", "core.fsmonitor", "true"]);
   git(&fixture.repo, &["config", "core.untrackedCache", "true"]);
 
@@ -425,20 +477,24 @@ fn the_fsmonitor_daemon_of_a_host_slot_outlives_the_give_back_and_the_changes_of
   let path = Path::new(&slot.path);
   std::fs::write(path.join("a.txt"), "changed\n").unwrap();
   std::fs::write(path.join("untracked.txt"), "x\n").unwrap();
+  let files = top_files(path);
   let gave_back = give_back(&context.git, &params, 1, "run-1").unwrap();
   let mut discarded = gave_back.discarded.clone();
   discarded.sort();
   assert_eq!(
     (gave_back.stopped.len(), gave_back.quarantined.len(), discarded),
-    (0, 0, vec!["a.txt".to_string(), "untracked.txt".to_string()])
+    (0, 0, vec!["a.txt".to_string(), "untracked.txt".to_string()]),
+    "{}",
+    traces.evidence(&files)
   );
   assert_eq!(state_of(fixture, 1), HostState::Idle);
   assert!(daemon.git("status"), "the give-back leaves the daemon");
 
   lent(lend_to(&params, "run-2", None));
   std::fs::write(path.join("a.txt"), "changed again\n").unwrap();
+  let files = top_files(path);
   let gave_back = give_back(&context.git, &params, 1, "run-2").unwrap();
-  assert_eq!(gave_back.discarded, ["a.txt"]);
+  assert_eq!(gave_back.discarded, ["a.txt"], "{}", traces.evidence(&files));
   assert_eq!(slot_git(&slot.path, &["-c", "core.fsmonitor=false", "status", "--porcelain"]), "");
   assert!(daemon.git("status"));
 }
