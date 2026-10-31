@@ -21,7 +21,10 @@
 //!
 //! The forms a commit's change of a file gives the declarations on its changed lines (`changed_declarations`), by the
 //! same keys and the same comparison as `Changed` (`changed_form`, `constructor_forms`), are what the API surface of a
-//! review is computed from (spec/branch/review-plan.spec.md, crate `review-plan`).
+//! review is computed from (spec/branch/review-plan.spec.md, crate `review-plan`). Each form says once what a review
+//! calls its declaration (`surface_of`, `Surface`): test code, an entry point, an override and what another module
+//! can't name are no API; a public declaration marked `unstable`, itself or by a declaration around it, is unstable
+//! API, whose change can break and whose addition is no new API; any other public one is API.
 
 use crate::dangling_references::DanglingKind;
 use crate::diff_scan::CommitDiff;
@@ -297,7 +300,23 @@ pub struct DeclarationForm {
   /// Its reach and that of every declaration around it are `Public` (Java's `protected` too), and none around it is a
   /// function or a value: another module may name it
   pub public: bool,
+  /// Test code: a test function, a declaration a test function is declared in, or one inside such (`surface_of`)
+  pub test: bool,
+  /// What a review calls it (`surface_of`)
+  pub surface: Surface,
   pub form: Form,
+}
+
+/// What a review calls a declaration (`surface_of`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+  /// Public, and none of the below
+  Api,
+  /// Public, marked `unstable` itself or by a type around it: its change can break, its addition is no new API
+  Unstable,
+  /// Not public, an override, test code (a test function, a type that declares one, a member of such a type) or an
+  /// entry point
+  None,
 }
 
 /// What a use may see of a declaration: two forms of one key differ exactly where `changed_form` tells them apart, and
@@ -336,6 +355,43 @@ pub struct ChangedDeclarations {
 fn reaches_out(summary: &FileSummary, declaration: &Declaration) -> bool {
   declaration.reach == Reach::Public
     && outward(summary, declaration.container).all(|(_, container)| container.reach == Reach::Public && !matches!(container.kind, DeclKind::Function | DeclKind::Value))
+}
+
+/// Whether `declaration` of `summary` is test code, and what a review calls it, given whether another module may name
+/// it (`public`, `reaches_out`). Test code is a test function (`Declaration::test`), a declaration that a test function
+/// is declared in at any depth (a test class, the outer class of a nested test class, a Rust `mod tests`) and every
+/// declaration inside one: a fixture, a `setUp`, a nested class. Climbing stops at a `Module` boundary. Test code,
+/// an entry point and an override are `None` whatever their marks; a public declaration `unstable` itself or by a
+/// declaration around it is `Unstable`. The outward climb includes a Rust `Module` but does not pass through it, so a
+/// nested `#[cfg(test)]` module does not mark its parent module or sibling declarations
+pub fn surface_of(summary: &FileSummary, declaration: &Declaration, public: bool) -> (bool, Surface) {
+  let outward_test_climb = |start: Option<u32>| {
+    let at = |index: u32| summary.declarations.get(index as usize).map(|declaration| (index, declaration));
+    std::iter::successors(start.and_then(at), move |(_, declaration)| {
+      if declaration.kind == DeclKind::Module {
+        None
+      } else {
+        declaration.container.and_then(at)
+      }
+    })
+  };
+  let around: Vec<&Declaration> = std::iter::once(declaration)
+    .chain(outward_test_climb(declaration.container).map(|(_, container)| container))
+    .collect();
+  let test = around.iter().any(|it| it.test)
+    || summary
+      .declarations
+      .iter()
+      .filter(|it| it.test)
+      .any(|test| outward_test_climb(test.container).any(|(_, holder)| around.iter().any(|it| std::ptr::eq(*it, holder))));
+  let surface = if test || declaration.entry_point || declaration.overrides || !public {
+    Surface::None
+  } else if around.iter().any(|it| it.unstable) {
+    Surface::Unstable
+  } else {
+    Surface::Api
+  };
+  (test, surface)
 }
 
 /// The form of `site`: what `changed_form` compares, and the constructors of a type
@@ -390,6 +446,8 @@ fn forms_of(ctx: &FileCtx<'_>, keys: &BTreeMap<String, Vec<usize>>) -> Vec<Decla
 fn declaration_form(ctx: &FileCtx<'_>, declaration: &Declaration) -> DeclarationForm {
   let summary = ctx.summary;
   let site = site_of(ctx, declaration);
+  let public = reaches_out(summary, declaration);
+  let (test, surface) = surface_of(summary, declaration, public);
   DeclarationForm {
     key: site.key.clone(),
     name: summary.name(declaration.name).to_string(),
@@ -397,7 +455,9 @@ fn declaration_form(ctx: &FileCtx<'_>, declaration: &Declaration) -> Declaration
     kind: declaration.kind,
     overrides: declaration.overrides,
     line: declaration.name_line,
-    public: reaches_out(summary, declaration),
+    public,
+    test,
+    surface,
     form: form_of(&site),
     containers: site.containers,
   }

@@ -1,5 +1,9 @@
+use super::{Surface, reaches_out, surface_of};
 use crate::check::{CheckOutcome, CheckReport, CheckSession};
 use crate::dangling_references::{DanglingKind, DanglingReference, DeclaredIn};
+use code_symbols::extract::summarize;
+use code_symbols::language::Language;
+use code_symbols::summary::DeclKind;
 use object_cache::cache::ObjectCache;
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -434,4 +438,240 @@ fn a_removed_member_whose_name_the_file_imports_is_no_use() {
   };
   assert_eq!(kinds(&moved("")).into_iter().map(|(kind, ..)| kind).collect::<Vec<_>>(), [DanglingKind::Removed]);
   assert_eq!(kinds(&moved("import bridge.cleanup\n")), []);
+}
+
+/// `(name, test, surface)` of every declaration of `source` but its bindings, in the order of the summary
+fn surfaces(language: Language, source: &str) -> Vec<(String, bool, Surface)> {
+  let summary = summarize(language, source.as_bytes());
+  summary
+    .declarations
+    .iter()
+    .filter(|declaration| declaration.kind != DeclKind::Binding)
+    .map(|declaration| {
+      let (test, surface) = surface_of(&summary, declaration, reaches_out(&summary, declaration));
+      (summary.name(declaration.name).to_string(), test, surface)
+    })
+    .collect()
+}
+
+/// `(name, test, surface)` of `expected`, owned
+fn expected(rows: &[(&str, bool, Surface)]) -> Vec<(String, bool, Surface)> {
+  rows.iter().map(|(name, test, surface)| ((*name).to_string(), *test, *surface)).collect()
+}
+
+/// Test code is a test function, a type a test function is declared in at any depth and everything inside one: no
+/// surface. A top-level helper beside a test class, an entry point, an override and an unstable mark are judged apart;
+/// a member of an `@ApiStatus.Internal` type is unstable, an override inside it none
+#[test]
+fn the_surface_of_a_kotlin_declaration() {
+  let source = "package p
+
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
+import org.jetbrains.annotations.VisibleForTesting
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+
+class FooTest {
+  val fixture = projectFixture()
+
+  @BeforeEach
+  fun setUp() {}
+
+  @Test
+  fun `a workspace path decodes`() {}
+
+  class Nested {
+    fun nestedHelper() {}
+  }
+
+  override fun toString(): String = \"\"
+}
+
+class Outer {
+  class InnerTest {
+    @Test
+    fun innerCase() {}
+  }
+
+  fun outerHelper() {}
+}
+
+class HelperTest {
+  fun helps() {}
+}
+
+fun registered(): Int = 1
+
+fun main() {}
+
+@ApiStatus.Internal
+class Hidden {
+  fun hiddenMember() {}
+
+  override fun hashCode(): Int = 0
+
+  class HiddenNested {
+    fun deep() {}
+  }
+}
+
+@ApiStatus.Experimental
+fun experimental() {}
+
+@VisibleForTesting
+fun visible() {}
+
+@TestOnly
+fun testOnly() {}
+
+private fun privateHelper() {}
+
+internal fun internalHelper() {}
+";
+  use Surface::{Api, None, Unstable};
+  assert_eq!(
+    surfaces(Language::Kotlin, source),
+    expected(&[
+      ("FooTest", true, None),
+      ("fixture", true, None),
+      ("setUp", true, None),
+      ("`a workspace path decodes`", true, None),
+      ("Nested", true, None),
+      ("nestedHelper", true, None),
+      ("toString", true, None),
+      ("Outer", true, None),
+      ("InnerTest", true, None),
+      ("innerCase", true, None),
+      ("outerHelper", true, None),
+      ("HelperTest", false, Api),
+      ("helps", false, Api),
+      ("registered", false, Api),
+      ("main", false, None),
+      ("Hidden", false, Unstable),
+      ("hiddenMember", false, Unstable),
+      ("hashCode", false, None),
+      ("HiddenNested", false, Unstable),
+      ("deep", false, Unstable),
+      ("experimental", false, Unstable),
+      ("visible", false, Unstable),
+      ("testOnly", false, Unstable),
+      ("privateHelper", false, None),
+      ("internalHelper", false, None),
+    ])
+  );
+}
+
+/// A `@file:ApiStatus.Internal` marks the top-level declarations and, through them, their members
+#[test]
+fn the_surface_of_a_kotlin_file_marked_internal() {
+  let source = "@file:ApiStatus.Internal
+
+package p
+
+import org.jetbrains.annotations.ApiStatus
+
+class Service {
+  fun serve() {}
+}
+
+fun helper() {}
+";
+  assert_eq!(
+    surfaces(Language::Kotlin, source),
+    expected(&[
+      ("Service", false, Surface::Unstable),
+      ("serve", false, Surface::Unstable),
+      ("helper", false, Surface::Unstable)
+    ])
+  );
+}
+
+/// A `JUnit` 3 test class and its `setUp` are test code, `main` is an entry point, a member of an
+/// `@ApiStatus.Internal` type unstable but its `@Override` none, and a member another module can't name none
+#[test]
+fn the_surface_of_a_java_declaration() {
+  let source = "package p;
+
+import junit.framework.TestCase;
+import org.jetbrains.annotations.ApiStatus;
+
+public class LegacyTest extends TestCase {
+  public void setUp() {}
+
+  public void testDecode() {}
+}
+
+public class Launcher {
+  public static void main(String[] args) {}
+
+  public static void run() {}
+
+  void packagePrivate() {}
+}
+
+@ApiStatus.Internal
+public class Internals {
+  public void member() {}
+
+  @Override
+  public String toString() { return \"\"; }
+}
+";
+  use Surface::{Api, None, Unstable};
+  assert_eq!(
+    surfaces(Language::Java, source),
+    expected(&[
+      ("LegacyTest", true, None),
+      ("setUp", true, None),
+      ("testDecode", true, None),
+      ("Launcher", false, Api),
+      ("main", false, None),
+      ("run", false, Api),
+      ("packagePrivate", false, None),
+      ("Internals", false, Unstable),
+      ("member", false, Unstable),
+      ("toString", false, None),
+    ])
+  );
+}
+
+/// A Rust `mod tests` and its contents are test code, but its sibling declarations are not
+#[test]
+fn the_surface_of_a_rust_declaration() {
+  let source = "pub fn decode() {}
+
+#[cfg(test)]
+mod tests {
+  pub fn helper() {}
+
+  #[test]
+  fn decodes() {}
+}
+";
+  use Surface::{Api, None};
+  assert_eq!(
+    surfaces(Language::Rust, source),
+    expected(&[("decode", false, Api), ("tests", true, None), ("helper", true, None), ("decodes", true, None)])
+  );
+}
+
+/// A nested `#[cfg(test)]` module does not make its public parent or sibling function test code
+#[test]
+fn a_rust_public_inline_module_is_not_test_code() {
+  let source = "pub mod codec {
+  pub fn decode() {}
+
+  #[cfg(test)]
+  mod tests {
+    #[test]
+    fn t() {}
+  }
+}
+";
+  use Surface::{Api, None};
+  assert_eq!(
+    surfaces(Language::Rust, source),
+    expected(&[("codec", false, Api), ("decode", false, Api), ("tests", true, None), ("t", true, None)])
+  );
 }

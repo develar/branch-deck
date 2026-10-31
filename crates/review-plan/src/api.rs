@@ -3,7 +3,8 @@
 //! `trial_check::symbol_dependencies::declaration_checks::changed_declarations`).
 //!
 //! - **Public**: the declaration and every one around it public (Java's `protected` too), none of them a function or a
-//!   value; a change counts when the declaration is public before or after it, so a narrowed reach is listed.
+//!   value; a change counts when the declaration is API or unstable API before or after it, so a narrowed reach is
+//!   listed.
 //! - **Per key over the commits**, oldest first: the forms of a key in each file before the first commit that touches it
 //!   there, against those after the last one; every rename carries the file's forms along (`ApiChange::file`, the path
 //!   the facts of the files join on), and those before keep the path they were read at, so a removal names the file and the line
@@ -14,8 +15,12 @@
 //!   forms differ (`Form`: the header, the parameters, the reach, `open`, the constructors, what Java sees); one more
 //!   overload is an addition. A change of the body alone, a move between files of one namespace, keep the forms. A
 //!   member of a type added or removed with it is the type's entry.
-//! - **No override**: a member that the summary marks as an override (Kotlin `override`, Java `@Override`) is no entry:
-//!   its supertype declares the API. A change counts as one when it overrides before and after it.
+//! - **Surface** (`DeclarationForm::surface`, `surface_of`): an override (its supertype declares the API), test code (a
+//!   test function, a type that declares one and every member of such a type) and an entry point (`main`) are no API,
+//!   no entry of any kind; unstable API (`@ApiStatus.Internal`, `@ApiStatus.Experimental`, `@VisibleForTesting`,
+//!   `@TestOnly`, on it or a type around it) is no new API: its addition is no entry, its removal and its change are,
+//!   with their usages, as callers in other modules can break. A form both sides have that becomes API from unstable
+//!   API or from no API (`@ApiStatus.Internal` removed) is an addition.
 //! - **The query of its usages** (`ApiChange::query`, `fan_in`): `Owner.name` for a member, by the type around it that
 //!   is not a Kotlin `Companion` (`ProjectManager.getInstance`, not `Companion.getInstance`); `package.name` for a
 //!   top-level declaration of a Kotlin or Java file in a package; else the bare name.
@@ -26,7 +31,7 @@ use code_symbols::language::{Family, language_of};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use trial_check::diff_scan::CommitDiff;
-use trial_check::symbol_dependencies::declaration_checks::{DeclarationForm, Form, changed_declarations};
+use trial_check::symbol_dependencies::declaration_checks::{DeclarationForm, Form, Surface, changed_declarations};
 use trial_check::symbol_scan::SymbolInput;
 
 /// What the reviewed commits do to a public declaration
@@ -230,7 +235,8 @@ struct Site<'a> {
   form: &'a DeclarationForm,
 }
 
-/// What the commits did to `key`, by its forms in every file they touch it in; `None` when nothing public changed
+/// What the commits did to `key`, by its forms in every file they touch it in and their `Surface`; `None` when nothing
+/// of the API changed
 fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange> {
   let before: Vec<Site> = files
     .iter()
@@ -246,13 +252,17 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     .iter()
     .flat_map(|(file, state)| state.after.iter().map(move |form| Site { path: file, file, form }))
     .collect();
-  // the forms of each side the other side lacks, one for one
+  // the forms of each side the other side lacks, one for one; of a form both sides have, the first one that becomes API
   let mut unmatched_after: Vec<Site> = after.clone();
   let mut unmatched_before: Vec<Site> = Vec::new();
+  let mut promoted: Option<Site> = None;
   for site in &before {
     match unmatched_after.iter().position(|other| other.form.form == site.form.form) {
       Some(found) => {
-        unmatched_after.remove(found);
+        let new = unmatched_after.remove(found);
+        if promoted.is_none() && site.form.surface != Surface::Api && new.form.surface == Surface::Api {
+          promoted = Some(new);
+        }
       }
       None => unmatched_before.push(*site),
     }
@@ -274,25 +284,30 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       file: site.file.to_string(),
     }
   };
-  match (first_public(&unmatched_before), first_public(&unmatched_after)) {
-    (None, None) => None,
-    (Some(old), None) if unmatched_after.is_empty() && old.form.overrides => None,
-    (None, Some(new)) if unmatched_before.is_empty() && new.form.overrides => None,
-    (Some(old), None) if unmatched_after.is_empty() => Some(ApiChange {
-      before: shown(old.form),
-      ..entry(ApiChangeKind::Removed, old)
-    }),
-    (None, Some(new)) if unmatched_before.is_empty() => Some(ApiChange {
-      after: shown(new.form),
-      ..entry(ApiChangeKind::Added, new)
-    }),
-    (old, new) => {
-      // a public form changed, or a form changed its reach to or from public
-      let old = old.or_else(|| unmatched_before.first().copied())?;
-      let new = new.or_else(|| unmatched_after.first().copied())?;
-      if old.form.overrides && new.form.overrides {
-        return None;
+  let added = |new: Site| ApiChange {
+    after: shown(new.form),
+    ..entry(ApiChangeKind::Added, new)
+  };
+  let listed = [Surface::Api, Surface::Unstable];
+  match (unmatched_before.is_empty(), unmatched_after.is_empty()) {
+    (true, true) => promoted.map(added),
+    // a form gone: unstable API too, its callers can break
+    (false, true) => first_of(&unmatched_before, &listed)
+      .map(|old| ApiChange {
+        before: shown(old.form),
+        ..entry(ApiChangeKind::Removed, old)
+      })
+      .or_else(|| promoted.map(added)),
+    // a new form: API only, unstable API and test code are no new API
+    (true, false) => first_of(&unmatched_after, &[Surface::Api]).or(promoted).map(added),
+    (false, false) => {
+      // a form changed on a side that is API or unstable API, or a reach to or from it
+      let (old, new) = (first_of(&unmatched_before, &listed), first_of(&unmatched_after, &listed));
+      if old.is_none() && new.is_none() {
+        return promoted.map(added);
       }
+      let old = old.unwrap_or(unmatched_before[0]);
+      let new = new.unwrap_or(unmatched_after[0]);
       Some(ApiChange {
         changes: form_changes(&old.form.form, &new.form.form),
         before: shown(old.form),
@@ -322,9 +337,9 @@ fn query_of(site: Site) -> (String, Option<String>) {
   (name.to_string(), None)
 }
 
-/// The first public one of `sites`
-fn first_public<'a>(sites: &[Site<'a>]) -> Option<Site<'a>> {
-  sites.iter().find(|site| site.form.public).copied()
+/// The first one of `sites` of one of `surfaces`
+fn first_of<'a>(sites: &[Site<'a>], surfaces: &[Surface]) -> Option<Site<'a>> {
+  sites.iter().find(|site| surfaces.contains(&site.form.surface)).copied()
 }
 
 /// The parts in which two forms of one declaration differ

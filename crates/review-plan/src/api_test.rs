@@ -475,3 +475,223 @@ fn the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path() {
   // the usages of the removal and of the change
   assert_eq!(facts_of(&plan, "src/a/New.kt"), Some((13, false)));
 }
+
+/// The entries of `plan`: name, kind and the usages inside and outside the change
+fn counted(plan: &ReviewPlan) -> Vec<Counted<'_>> {
+  plan
+    .api
+    .iter()
+    .map(|change| (change.name.as_str(), change.kind, change.usages.as_ref().map(|usages| (usages.inside, usages.outside))))
+    .collect()
+}
+
+const STORE_TEST_BEFORE: &str = "package a
+
+import org.junit.jupiter.api.Test
+
+class StoreTest {
+  @Test
+  fun opens() {}
+}
+
+fun registered(x: Int): Int = x
+";
+
+const STORE_TEST_AFTER: &str = "package a
+
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+
+class StoreTest {
+  val fixture = projectFixture()
+
+  @BeforeEach
+  fun setUp() {}
+
+  @Test
+  fun opens(x: Int) {}
+
+  @Test
+  fun `a workspace path decodes`() {}
+
+  class Nested {
+    fun nestedHelper(): Int = 1
+  }
+}
+
+fun registered(x: Int, y: Int): Int = x
+
+fun helper(): Int = 1
+";
+
+/// Test code is no API: a backtick `@Test`, a changed `@Test`, a `@BeforeEach`, a fixture field and a nested class of a
+/// test class, a new test class, Java `@Test` and `JUnit` 3 `testX`, and a Rust `#[test]` in its inline `mod tests` give
+/// no entry; the public helpers beside them in the same files are listed
+#[test]
+fn a_test_function_and_its_class_are_no_entry() {
+  let repo = TestRepo::new();
+  let lib_before = "pub fn open() -> u8 {\n  1\n}\n";
+  let base = repo.create_commit_with_files("Add tests", &[("src/a/StoreTest.kt", STORE_TEST_BEFORE), ("src/lib.rs", lib_before)]);
+  let head = repo.create_commit_with_files(
+    "Change tests",
+    &[
+      ("src/a/StoreTest.kt", STORE_TEST_AFTER),
+      (
+        "src/a/FooTest.kt",
+        "package a\n\nimport org.junit.jupiter.api.Test\n\nclass FooTest {\n  @Test\n  fun works() {}\n\n  fun inClass(): Int = 1\n}\n",
+      ),
+      (
+        "src/a/ShapeTest.java",
+        "package a;\n\nimport org.junit.jupiter.api.Test;\n\npublic class ShapeTest {\n  @Test\n  public void draws() {}\n\n  public int shapeHelper() { return 1; }\n}\n",
+      ),
+      (
+        "src/a/LegacyTest.java",
+        "package a;\n\nimport junit.framework.TestCase;\n\npublic class LegacyTest extends TestCase {\n  public void setUp() {}\n\n  public void testOpens() {}\n}\n",
+      ),
+      (
+        "src/lib.rs",
+        "pub fn open() -> u8 {\n  1\n}\n\n#[cfg(test)]\npub mod tests {\n  #[test]\n  pub fn opens() {}\n\n  pub fn fixture() -> u8 {\n    1\n  }\n}\n",
+      ),
+    ],
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(names(&plan), [("registered", ApiChangeKind::Changed), ("helper", ApiChangeKind::Added)]);
+}
+
+/// An entry point is no API: a Kotlin top-level `main` added or changed, and a Java `public static void main` added,
+/// give no entry; a public function beside them is listed
+#[test]
+fn a_main_function_is_no_entry() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add app",
+    &[
+      ("src/b/Main.kt", "package b\n\nfun main() {}\n"),
+      ("src/a/App.java", "package a;\n\npublic class App {\n  public void run() {}\n}\n"),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change app",
+    &[
+      ("src/b/Main.kt", "package b\n\nfun main(args: Array<String>) {}\n"),
+      (
+        "src/a/App.java",
+        "package a;\n\npublic class App {\n  public void run() {}\n\n  public static void main(String[] args) {}\n}\n",
+      ),
+      ("src/c/Tool.kt", "package c\n\nfun main() {}\n\nfun usage(): Int = 1\n"),
+    ],
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(names(&plan), [("usage", ApiChangeKind::Added)]);
+}
+
+const UNSTABLE_BEFORE: &str = "package a
+
+import org.jetbrains.annotations.ApiStatus
+
+@ApiStatus.Internal
+fun removedInternal(x: Int): Int = x
+
+@ApiStatus.Internal
+fun changedInternal(x: Int): Int = x
+
+@ApiStatus.Internal
+class InternalStore {
+  fun existing(): Int = 1
+}
+";
+
+const UNSTABLE_AFTER: &str = "package a
+
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
+import org.jetbrains.annotations.VisibleForTesting
+
+@ApiStatus.Internal
+fun changedInternal(x: Int, y: Int): Int = x
+
+@ApiStatus.Internal
+fun addedInternal(): Int = 1
+
+@ApiStatus.Experimental
+fun addedExperimental(): Int = 1
+
+@VisibleForTesting
+fun addedVisible(): Int = 1
+
+@TestOnly
+fun addedTestOnly(): Int = 1
+
+@ApiStatus.Internal
+class InternalStore {
+  fun existing(): Int = 1
+
+  fun added(): Int = 1
+}
+";
+
+/// Unstable API is no new API: an added `@ApiStatus.Internal`, `@ApiStatus.Experimental`, `@VisibleForTesting` or
+/// `@TestOnly` function and a member added to an `@ApiStatus.Internal` class give no entry; a removed and a changed
+/// internal function are listed with their usages, callers in other modules can break
+#[test]
+fn unstable_api_is_no_new_api_but_its_change_is_listed() {
+  let repo = TestRepo::new();
+  let path = "src/a/Internal.kt";
+  let base = repo.create_commit("Add internal api", path, UNSTABLE_BEFORE);
+  let head = repo.create_commit("Change internal api", path, UNSTABLE_AFTER);
+  let index = Counts::of(&[("a.removedInternal", Ok(3)), ("a.changedInternal", Ok(5))]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!(
+    counted(&plan),
+    [
+      ("changedInternal", ApiChangeKind::Changed, Some((0, 5))),
+      ("removedInternal", ApiChangeKind::Removed, Some((0, 3))),
+    ]
+  );
+  assert_eq!(index.queries(), ["a.changedInternal", "a.removedInternal"]);
+  assert_eq!(facts_of(&plan, path).map(|(breaks, _)| breaks), Some(8));
+}
+
+/// A declaration that becomes API in the same form, its `@ApiStatus.Internal` removed, is new API, a type with its
+/// members as its one entry; one that becomes unstable in the same form is no entry, and one that becomes unstable with
+/// a new parameter is changed
+#[test]
+fn a_promoted_declaration_is_new_api() {
+  let repo = TestRepo::new();
+  let path = "src/a/Promoted.kt";
+  let registry = "src/a/Registry.kt";
+  repo.create_commit(
+    "Add registry",
+    registry,
+    "package a\n\nimport org.jetbrains.annotations.ApiStatus\n\n@ApiStatus.Internal\nclass Registry {\n  fun add(): Int = 1\n}\n",
+  );
+  repo.create_commit(
+    "Add api",
+    path,
+    "package a\n\nimport org.jetbrains.annotations.ApiStatus\n\n@ApiStatus.Internal\nfun promoted(x: Int): Int = x\n\nfun demoted(): Int = 1\n\nfun narrowed(x: Int): Int = x\n",
+  );
+  let base = repo.head();
+  repo.create_commit("Promote registry", registry, "package a\n\nclass Registry {\n  fun add(): Int = 1\n}\n");
+  let head = repo.create_commit(
+    "Change api",
+    path,
+    "package a\n\nimport org.jetbrains.annotations.ApiStatus\n\nfun promoted(x: Int): Int = x\n\n@ApiStatus.Internal\nfun demoted(): Int = 1\n\n@ApiStatus.Internal\nfun narrowed(x: Int, y: Int): Int = x\n",
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(
+    rows(&plan.api),
+    [
+      (
+        ApiChangeKind::Changed,
+        "narrowed",
+        path,
+        11,
+        vec![FormChange::Parameters],
+        Some("fun narrowed(x:Int) : Int"),
+        Some("fun narrowed(x:Int, y:Int) : Int")
+      ),
+      (ApiChangeKind::Added, "promoted", path, 5, vec![], None, Some("fun promoted(x:Int) : Int")),
+      (ApiChangeKind::Added, "Registry", registry, 3, vec![], None, Some("Public()")),
+    ]
+  );
+}

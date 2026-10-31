@@ -16,6 +16,9 @@ targets:
   - ../../crates/review-plan/src/dependencies.rs
   - ../../crates/review-plan/src/order.rs
   - ../../crates/trial-check/src/declaration_checks.rs
+  - ../../crates/code-symbols/src/kotlin.rs
+  - ../../crates/code-symbols/src/java.rs
+  - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/file-diffs/src/accio.rs
@@ -201,13 +204,43 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `api` must list the public declarations (it and every declaration around it public, Java's `protected` too, none
   around it a function) that the commits add, remove or change in form, as the syntax summaries read them: the
   header, the parameters of a JVM function, the reach, `open`, the constructors of a type, what Java sees; a change
-  counts when the declaration is public before or after it, so a narrowed reach is listed. A change of a private
+  counts when the declaration is API or unstable API before or after it (below), so a narrowed reach is listed. A
+  change of a private
   declaration or of a body alone must not be listed, nor a member of a type added or removed with it. A name of one
   or two characters must be listed too (the checks of a sync search only longer ones).
   [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_rust_function_changes_by_its_header`, `a_public_declaration_of_a_short_name_is_listed`)
+- Each public declaration must be, on each side of the commits, API, unstable API or no API, decided once
+  (`declaration_checks::surface_of`) from the marks of the syntax summaries
+  ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)); a declaration that is not public is no API. Test
+  code, an entry point and an override are no API whatever their other marks; else a declaration marked `unstable`, or
+  inside a type marked so, is unstable API; else it is API.
+  [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`the_surface_of_a_kotlin_declaration`, `the_surface_of_a_kotlin_file_marked_internal`, `the_surface_of_a_java_declaration`, `the_surface_of_a_rust_declaration`)
 - A member that the summary marks as an override (Kotlin `override`, Java `@Override`) must not be listed: its
   supertype declares the API. A change is of an override when the member overrides before and after it.
   [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`, `a_changed_override_in_kotlin_or_java_is_no_entry`)
+- Test code must not be listed, added, removed or changed: a test function (`test`: `@Test` and the other annotations
+  of a test framework, a JUnit 3 `testX()`, a Rust `#[test]`), a declaration a test function is declared in (a test
+  class, a type around a nested test class, a Rust module that holds a test), and every declaration inside one (a
+  `@BeforeEach` or `setUp`, a fixture field, a nested class); the climb from a test stops at a Rust module, so the
+  module around a `mod tests` and its other items stay API. A public helper beside a test in the same file, outside
+  the test class, is listed.
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_test_function_and_its_class_are_no_entry`)
+  [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`the_surface_of_a_kotlin_declaration`, `the_surface_of_a_rust_declaration`, `a_rust_public_inline_module_is_not_test_code`)
+- An entry point must not be listed, added or changed: a Kotlin top-level `fun main` and a Java `public static void
+  main(String[])` (`entry_point`).
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_main_function_is_no_entry`)
+- Unstable API, marked `@ApiStatus.Internal`, `@ApiStatus.Experimental`, `@VisibleForTesting` or `@TestOnly` on the
+  declaration, on a type around it or, in Kotlin, on its file (`@file:ApiStatus.Internal`), must not be listed as
+  added: no other module is meant to start to depend on it. Its removal and its change must be listed, with their
+  `usages`, because callers in other modules of the repository can break.
+  [@test] ../../crates/review-plan/src/api_test.rs (`unstable_api_is_no_new_api_but_its_change_is_listed`)
+  [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`the_surface_of_a_kotlin_declaration`, `the_surface_of_a_kotlin_file_marked_internal`, `the_surface_of_a_java_declaration`)
+- Per key, the entry must follow the surfaces before and after the commits: a new form that is API is `added`, one
+  that is unstable or no API is no entry; a form gone that was API or unstable API is `removed`, one that was no API
+  is no entry; a form that changed is `changed` when either side is API or unstable API, and no entry when both are no
+  API. A form both sides have that becomes API from unstable API or no API (its `@ApiStatus.Internal` removed) is
+  `added`, a promotion; one that stops being API in the same form is no entry.
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_promoted_declaration_is_new_api`, `unstable_api_is_no_new_api_but_its_change_is_listed`, `the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`)
 - Each entry must give its file and line, its name, its kind (`removed`, `changed`, `added`), the parts that
   changed, and its form before and after: the header with the parameters after the name, a type by its constructors.
   The file and line are those after the commits, through every rename, also one that changes no declaration; of a
@@ -758,6 +791,18 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - A key gets one entry: when an overload changed and another was added in the same commits, only the change is
   listed.
 - `untested` sees only test files the commits change; a Rust test module inside its file does not count.
+- An abstract test base class whose `@Test` methods its subclasses run is test code, and so are its helpers: its
+  contract is for the test subclasses. A class named `…Test` without a test function stays API, as a public helper
+  of a test source set (`testFramework`, `testSrc`) does: only a test function marks a class.
+- A JVM class that holds a nested test class is test code with all its members, a production helper among them.
+  A Rust module that holds a `#[test]` directly is test code with all its items, `pub` or not and without
+  `#[cfg(test)]` too; the module around it and its siblings stay API.
+- `@ApiStatus.Internal` on a package (`package-info.java`) and an annotation meta-annotated as such are not seen:
+  their declarations stay API.
+- A promotion is seen only on the lines the commits change: a type whose `@ApiStatus.Internal` is removed is `added`,
+  its members are the type's entry; the top-level declarations of a Kotlin file whose `@file:ApiStatus.Internal` is
+  removed are not listed, nor a declaration whose removed annotation line git's diff pairs with a like line added
+  elsewhere in the file. A declaration that becomes unstable or test code in the same form is no entry.
 - `breaks` counts the usages left outside of the first 20 queries only; a name of `STOP_NAMES` without an owner
   breaks nothing known.
 - An import statement ends where its brackets close. A Kotlin or Java import has no brackets, so a statement over
