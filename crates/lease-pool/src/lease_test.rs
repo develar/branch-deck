@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use crate::lease::stop_servers;
-use crate::lease::{DIRTY_RECHECK, DirtyCheck, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
+use crate::lease::{DirtyCheck, Lease, LeaseState, LeaseStore, Pool, Slot, SlotMark, commit_takeover, glob_matches, repository_name, seed_candidates};
 use std::path::Path;
 use std::time::Duration;
 #[cfg(unix)]
@@ -51,31 +51,27 @@ fn the_seed_candidates_are_literal_paths_and_globs_of_one_directory() {
   );
 }
 
-/// The verdict of a `status` that found a free slot dirty holds while the slot did not move and for `DIRTY_RECHECK`
-/// only: a stray file deleted by hand moves no mark, so a slot cleaned so is checked again after the bound
+/// A dirty verdict holds while one dirty path has its stat of then: the other paths may change, a path deleted or
+/// rewritten counts as changed, and once every path changed the verdict is gone. A path gone then and gone still is
+/// unchanged (a deleted tracked file); `.gitignore` written anew ends it
 #[test]
-fn a_dirty_verdict_holds_while_the_slot_did_not_move_and_for_an_hour() {
-  let mark = SlotMark {
-    head: "ref: refs/heads/master".to_string(),
-    log_len: 120,
-    log_modified: 1_000,
-  };
-  let check = DirtyCheck {
-    at: 10_000,
-    mark: mark.clone(),
-    paths: vec!["left.txt".to_string()],
-  };
-  let recheck = DIRTY_RECHECK.as_secs();
-  let moved = SlotMark { log_len: 180, ..mark.clone() };
-  assert_eq!(
-    [
-      check.holds(&mark, 10_000),
-      check.holds(&mark, 10_000 + recheck - 1),
-      check.holds(&mark, 10_000 + recheck),
-      check.holds(&moved, 10_001),
-    ],
-    [true, true, false, false]
-  );
+fn a_dirty_verdict_holds_while_one_dirty_path_has_its_stat() {
+  let dir = tempfile::tempdir().unwrap();
+  let slot = dir.path();
+  std::fs::write(slot.join("a.txt"), "a\n").unwrap();
+  std::fs::write(slot.join("b.txt"), "b\n").unwrap();
+  let check = DirtyCheck::of(slot, vec!["a.txt".to_string(), "b.txt".to_string()]);
+  assert!(check.holds(slot));
+  std::fs::remove_file(slot.join("a.txt")).unwrap();
+  assert!(check.holds(slot), "b.txt proves it");
+  std::fs::remove_file(slot.join("b.txt")).unwrap();
+  std::fs::write(slot.join("b.txt"), "other\n").unwrap();
+  assert!(!check.holds(slot), "every path changed");
+
+  let gone = DirtyCheck::of(slot, vec!["deleted.txt".to_string()]);
+  assert!(gone.holds(slot));
+  std::fs::write(slot.join(".gitignore"), "/deleted.txt\n").unwrap();
+  assert!(!gone.holds(slot), "a new .gitignore");
 }
 
 #[test]

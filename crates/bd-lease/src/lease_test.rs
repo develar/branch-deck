@@ -176,15 +176,19 @@ fn a_free_slot_is_reused_after_master_was_rewritten_past_its_commit() {
   fixture.give_back(&path);
 }
 
-/// A free slot with local changes is skipped, marked dirty and tried last; with no other free slot the pool grows. The
-/// next get skips it without a `status` while it did not move, for an hour (`DIRTY_RECHECK`); then one `status` again
-/// finds it clean, and the slot is reused
+/// A free slot of the pool with the untracked `left.txt` in it
+fn free_slot_with_a_stray_file(fixture: &Fixture) -> String {
+  let slot = path_of(&fixture.get(&[]));
+  fixture.give_back(&slot);
+  std::fs::write(Path::new(&slot).join("left.txt"), "left behind\n").unwrap();
+  slot
+}
+
+/// A free slot with local changes is skipped, marked dirty and tried last; with no other free slot the pool grows
 #[test_log::test]
 fn a_dirty_free_slot_is_skipped_and_a_new_slot_is_added() {
   let fixture = Fixture::new();
-  let first = path_of(&fixture.get(&[]));
-  fixture.give_back(&first);
-  std::fs::write(Path::new(&first).join("left.txt"), "left behind\n").unwrap();
+  let first = free_slot_with_a_stray_file(&fixture);
 
   let second = fixture.get(&[]);
   assert_eq!(second["reused"], json!(false));
@@ -195,24 +199,39 @@ fn a_dirty_free_slot_is_skipped_and_a_new_slot_is_added() {
   );
   assert_eq!(fixture.status()["slots"][0]["dirty"], json!(true));
 
-  // the next get skips it as dirty without a `status`, and a deleted stray file moves no mark
+  // once clean, the dirty slot is reused, the mark cleared
   std::fs::remove_file(Path::new(&first).join("left.txt")).unwrap();
-  let steps = std::sync::Mutex::new(Vec::new());
-  let third = serde_json::to_value(get_with_steps(&fixture, "third", &steps).unwrap()).unwrap();
-  assert_eq!((&third["reused"], &third["skipped"]), (&json!(false), &second["skipped"]), "{third}");
-  assert_eq!(kinds(&steps), [&["reserve", "reserve adding"][..], new_slot_steps()].concat());
-
-  // an hour later the verdict is checked again: one `status` finds the slot clean, and it is reused, the mark cleared
-  lease_pool::lease::Pool::new(Path::new(&slot_path(&fixture.repo.path().join(".git").to_string_lossy())))
-    .update(Duration::from_secs(10), |store| {
-      let check = store.slots.iter_mut().find(|slot| slot.path == first).and_then(|slot| slot.dirty_check.as_mut()).unwrap();
-      check.at -= lease_pool::lease::DIRTY_RECHECK.as_secs();
-      Ok(())
-    })
-    .unwrap();
-  let fourth = fixture.get(&[]);
-  assert_eq!((path_of(&fourth), &fourth["reused"]), (first, &json!(true)));
+  let third = fixture.get(&[]);
+  assert_eq!((path_of(&third), &third["reused"]), (first, &json!(true)));
   assert_eq!(fixture.status()["slots"][0].get("dirty"), None);
+}
+
+/// A get skips a dirty slot without a `status` while one of its dirty paths has its stat of the `status` that found it
+/// and the slot did not move: an edit elsewhere in the tree keeps it skipped; a change of `info/exclude`, which may hide
+/// the stray file, brings the `status` back (`.gitignore`: `a_dirty_verdict_holds_while_one_dirty_path_has_its_stat`)
+#[test_log::test]
+fn a_dirty_slot_that_its_files_prove_dirty_is_skipped_without_a_status() {
+  let fixture = Fixture::new();
+  let first = free_slot_with_a_stray_file(&fixture);
+  let marked = fixture.get(&[]);
+  let steps = std::sync::Mutex::new(Vec::new());
+  let get = |holder: &str| {
+    steps.lock().unwrap().clear();
+    let got = serde_json::to_value(get_with_steps(&fixture, holder, &steps).unwrap()).unwrap();
+    assert_eq!(got["reused"], json!(false), "{got}");
+    (got["skipped"][0]["paths"].clone(), kinds(&steps))
+  };
+  let without_status = [&["reserve", "reserve adding"][..], new_slot_steps()].concat();
+  assert_eq!(get("unchanged"), (marked["skipped"][0]["paths"].clone(), without_status.clone()));
+  std::fs::write(Path::new(&first).join("another.txt"), "elsewhere\n").unwrap();
+  assert_eq!(get("an edit elsewhere"), (json!(["left.txt"]), without_status));
+  let exclude = fixture.repo.path().join(".git/info/exclude");
+  std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+  std::fs::write(&exclude, "/left.txt\n").unwrap();
+  assert_eq!(
+    get("a change of info/exclude"),
+    (json!(["another.txt"]), [&["reserve", "status", "reserve", "reserve adding"][..], new_slot_steps()].concat())
+  );
 }
 
 /// A free slot with a process in it is skipped as busy, and the get adds a new slot

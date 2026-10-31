@@ -1943,11 +1943,14 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    slot (`idle_leases`), and `bd lease status` says `holder_alive` and `idle`.
 2. Without the lock: one `status --porcelain=v1 -z` of that slot, in the untracked mode below, which may write the
    slot's index (below). A dirty slot is freed again,
-   marked dirty and skipped, and the next one is reserved. The verdict is kept with the slot's mark (`DirtyCheck`:
-   `SlotMark`, its `HEAD` and reflog, no git): a later get skips the slot under the pool lock without a `status` while
-   the mark holds and the verdict is younger than `DIRTY_RECHECK` (an hour), so a get that finds no clean free slot
-   no longer pays 2 to 40 s for each dirty one in idea-1 before it adds a slot; a deleted stray file moves no mark,
-   so the bound lets a slot cleaned by hand come back. A clean one moves by the diff (`move_clean_slot`): a HEAD on
+   marked dirty and skipped, and the next one is reserved. The verdict is kept with its proof (`DirtyCheck`, no git:
+   the `SlotMark`, the stat of up to 8 dirty paths, of the top-level `.gitignore` and of `info/exclude`): a later get
+   skips the slot under the pool lock without a `status` while the mark and the ignore files hold and one dirty path
+   has its stat of then, a file that kept its content, so a get that finds no clean free slot no longer pays 2 to
+   40 s for each dirty one in idea-1 before it adds a slot. A clean by hand touches the dirty paths (a stray file
+   deleted, an edit checked out), and the slot gets its `status` again. Not the mark alone: a deleted stray file
+   moves no mark, and a slot cleaned so would never come back; not a time bound, which would `status` a dirty slot
+   for nothing once it passed. A clean one moves by the diff (`move_clean_slot`): a HEAD on
    a branch is detached first (the branch stays), a slot at the source HEAD writes nothing, else `reset --quiet --merge
    <source HEAD>`, a two-way merge from the index that reads and writes only the paths of the diff and stats no other
    file. `-b <branch>` then creates the branch and attaches HEAD in one ref transaction (`create`, `symref-update HEAD

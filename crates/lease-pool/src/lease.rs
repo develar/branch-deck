@@ -165,29 +165,113 @@ impl IdleCheck {
   }
 }
 
-/// How long the verdict of a `status` that found a free slot dirty holds while the slot does not move (`DirtyCheck`): a
-/// stray file deleted by hand moves no mark, so a slot cleaned so comes back after it. A `status` of a slot of idea-1
-/// takes 2 to 40 s, and every get that finds no clean free slot paid it before it added a slot
-pub const DIRTY_RECHECK: Duration = Duration::from_hours(1);
+/// How many of the dirty paths a `DirtyCheck` keeps with their stat: one of them unchanged proves the slot dirty still
+const DIRTY_PROOF_PATHS: usize = 8;
 
-/// The `status` that found a free slot dirty (`Slot::dirty_check`)
+/// The `status` that found a free slot dirty (`Slot::dirty_check`), and what proves the slot dirty still without
+/// another: a `status` of a slot of idea-1 takes 2 to 40 s, and every get that found no clean free slot paid it for
+/// each dirty one before it added a slot
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirtyCheck {
-  /// Unix seconds
-  pub at: u64,
   /// The slot as its files told it then, no git: a commit, a reset or a checkout changes it
   pub mark: SlotMark,
-  /// The local changes it found
+  /// The local changes it found, which a get that skips the slot names
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
+  /// The first `DIRTY_PROOF_PATHS` of them with their stat then
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub proof: Vec<ProofPath>,
+  /// The top-level `.gitignore` of the slot and `info/exclude` of its repository: an untracked file they come to
+  /// ignore is no change
+  #[serde(default)]
+  pub ignores: Vec<FileStat>,
+}
+
+/// A dirty path of a `DirtyCheck`, relative to the slot, with its stat
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProofPath {
+  pub path: String,
+  pub stat: FileStat,
+}
+
+/// A file as its metadata tells it, no read: gone, or its length, its modification time and its inode (Unix). A file
+/// whose stat did not move kept its content
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileStat {
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub exists: bool,
+  #[serde(default)]
+  pub len: u64,
+  /// Nanoseconds since the epoch
+  #[serde(default)]
+  pub modified: u64,
+  /// 0 where the system has none
+  #[serde(default)]
+  pub inode: u64,
+}
+
+impl FileStat {
+  /// The stat of `path` itself, a link not followed
+  pub fn of(path: &Path) -> Self {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+      return Self::default();
+    };
+    Self {
+      exists: true,
+      len: metadata.len(),
+      modified: metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)),
+      inode: inode(&metadata),
+    }
+  }
+}
+
+#[cfg(unix)]
+fn inode(metadata: &std::fs::Metadata) -> u64 {
+  use std::os::unix::fs::MetadataExt;
+  metadata.ino()
+}
+
+#[cfg(not(unix))]
+const fn inode(_metadata: &std::fs::Metadata) -> u64 {
+  0
 }
 
 impl DirtyCheck {
-  /// Whether the verdict holds for the slot as `mark` tells it at `now`: the slot did not move, and the `status` is
-  /// younger than `DIRTY_RECHECK`
-  fn holds(&self, mark: &SlotMark, now: u64) -> bool {
-    self.mark == *mark && now.saturating_sub(self.at) < DIRTY_RECHECK.as_secs()
+  /// The verdict of a `status` that found `paths` changed in the slot at `slot`, read right after it: a free slot has no
+  /// process in it (a busy one is skipped), so nothing writes the paths meanwhile
+  fn of(slot: &Path, paths: Vec<String>) -> Self {
+    Self {
+      mark: SlotMark::of(slot),
+      proof: paths
+        .iter()
+        .take(DIRTY_PROOF_PATHS)
+        .map(|path| ProofPath {
+          path: path.clone(),
+          stat: FileStat::of(&slot.join(path)),
+        })
+        .collect(),
+      ignores: ignore_stats(slot),
+      paths,
+    }
   }
+
+  /// Whether the slot at `slot` is dirty still, no git: it did not move, its ignore files did not change, and one dirty
+  /// path has its stat of then. A path cleaned by hand is touched (a stray file deleted, an edit checked out), so a
+  /// slot cleaned so gets its `status` again
+  fn holds(&self, slot: &Path) -> bool {
+    self.mark == SlotMark::of(slot) && self.ignores == ignore_stats(slot) && self.proof.iter().any(|proof| FileStat::of(&slot.join(&proof.path)) == proof.stat)
+  }
+}
+
+/// The stat of the top-level `.gitignore` of the slot at `slot` and of `info/exclude` of its repository (in the common
+/// dir, which the worktrees share)
+fn ignore_stats(slot: &Path) -> Vec<FileStat> {
+  let exclude = linked_worktree(slot).map_or_else(FileStat::default, |worktree| FileStat::of(&worktree.git_common_dir.join("info").join("exclude")));
+  vec![FileStat::of(&slot.join(".gitignore")), exclude]
 }
 
 /// A commit of a lease that its home branch lacks
@@ -1047,11 +1131,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             if let Some(slot) = leased_slot(store, &path, &lease.id) {
               slot.lease = None;
               slot.dirty = true;
-              slot.dirty_check = Some(DirtyCheck {
-                at: now(),
-                mark: SlotMark::of(Path::new(&path)),
-                paths: changes.clone(),
-              });
+              slot.dirty_check = Some(DirtyCheck::of(Path::new(&path), changes.clone()));
             }
             Ok(())
           })?;
@@ -1412,12 +1492,8 @@ fn reserve(
       if !is_worktree_of(Path::new(&slot.path), git_common_dir) {
         continue;
       }
-      // a dirty slot that did not move since a recent `status` is skipped without another
-      if let Some(check) = slot
-        .dirty_check
-        .as_ref()
-        .filter(|check| slot.dirty && check.holds(&SlotMark::of(Path::new(&slot.path)), now()))
-      {
+      // a dirty slot that its files still prove dirty is skipped without another `status`
+      if let Some(check) = slot.dirty_check.as_ref().filter(|check| slot.dirty && check.holds(Path::new(&slot.path))) {
         skipped.push(SkippedSlot {
           name: slot.name.clone(),
           path: slot.path.clone(),

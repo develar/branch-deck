@@ -171,11 +171,14 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty; later gets must try a dirty slot
   after the clean ones. With no free slot left, the get must add a new slot (`reused: false`). The verdict is
-  recorded with the slot's mark (its HEAD and reflog, no git): a later get must skip the slot as dirty without a
-  `status`, naming the paths found then, while the mark is unchanged and the verdict younger than an hour; a moved
-  slot, or an older verdict, gets one `status` again (a stray file deleted by hand moves no mark).
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`)
-  [@test] ../../crates/lease-pool/src/lease_test.rs (`a_dirty_verdict_holds_while_the_slot_did_not_move_and_for_an_hour`)
+  recorded with the proof of it, no git: the slot's mark (its HEAD and reflog), the stat (exists, length,
+  modification time, inode) of up to 8 of the dirty paths, and the stat of the slot's top-level `.gitignore` and of
+  `info/exclude`. A later get must skip the slot as dirty without a `status`, naming the paths found then, only while
+  the mark and the two ignore files are unchanged and at least one recorded path has exactly its stat of then: a file
+  whose stat did not move kept its content, so the slot is dirty still. Otherwise (a path deleted, reverted or
+  edited, as a clean by hand does, or the slot moved) it gets one `status` again.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_dirty_free_slot_is_skipped_and_a_new_slot_is_added`, `a_dirty_slot_that_its_files_prove_dirty_is_skipped_without_a_status`)
+  [@test] ../../crates/lease-pool/src/lease_test.rs (`a_dirty_verdict_holds_while_one_dirty_path_has_its_stat`)
 - Every `status` of the pool (a get, the check of a clone, a return, an adopt) must list untracked files with
   `--untracked-files=all` when the repository's `status.showUntrackedFiles` is `all`, else with `normal`, also for
   `no`: git's untracked cache answers only in the mode it was built for, and git builds it only in the configured mode.
@@ -922,8 +925,10 @@ and one `write-tree`. Both give the same commit for the same tree.
   finish one after the other instead of all failing together, and a freed slot ends the wait of the next get.
 - A seeded path that a later commit tracks is removed by the return, and the slot shows a deletion; the next get skips
   it as dirty.
-- A free slot left dirty stays in the pool, and a get that needs it pays one `status` of it an hour, or once it
-  moved; a slot cleaned by hand waits up to that hour before a get takes it.
+- A free slot left dirty stays in the pool; a get that needs it pays one `status` of it once something touched it.
+- The proof of a dirty slot reads only the top-level `.gitignore` and `info/exclude`: a nested `.gitignore` or a
+  global `core.excludesFile` that comes to ignore the stray file, the file itself untouched, keeps the slot skipped
+  until something touches a recorded path or the slot moves.
 - A takeover can't tell a resumed session of the old holder from one of the new holder once the new holder is gone
   too, nor any session where no process scan runs (Windows): there `lease_reclaimed` refuses nothing.
 - A bd older than `taking_over`, `idle_check` and `reclaimed` drops them when it writes the state: the get gives the
