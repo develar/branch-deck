@@ -1,5 +1,38 @@
+use crate::extract::summarize;
+use crate::language::Language;
 use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach, Role};
 use crate::test_support::{NONE, bare_refs, declaration, declarations_of, refs, summary_of};
+
+#[test]
+fn a_function_under_a_test_attribute_is_a_test() {
+  let source = b"#[test]
+fn plain_test() {}
+
+/// The doc
+#[tokio::test]
+async fn async_test() {}
+
+#[test_log::test]
+#[ignore]
+fn logged_test() {}
+
+#[rstest]
+fn cases() {}
+
+#[cfg(test)]
+fn helper() {}
+
+fn production() {}
+";
+  let summary = summarize(Language::Rust, source);
+  let test = |name: &str| declaration(&summary, name).test;
+  assert!(test("plain_test"));
+  assert!(test("async_test"), "under a doc comment");
+  assert!(test("logged_test"), "above another attribute");
+  assert!(test("cases"));
+  assert!(!test("helper"), "#[cfg(test)] is no test");
+  assert!(!test("production"));
+}
 
 #[test]
 fn a_rust_use_binds_the_name() {

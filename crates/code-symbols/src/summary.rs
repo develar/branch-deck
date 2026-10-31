@@ -108,6 +108,11 @@ pub struct Declaration {
   pub jvm_name: bool,
   /// A Kotlin `lateinit var`: Java sees a field of its name too
   pub lateinit: bool,
+  /// A function a test framework runs: Kotlin and Java annotated `@Test`, `@ParameterizedTest`, `@RepeatedTest`,
+  /// `@TestFactory` or `@TestTemplate` (by the last name of the annotation), a `JUnit` 3 `testName()` without parameters
+  /// in a class named `…Test`, `…Tests` or `…TestCase` or that extends a `…TestCase`; Rust under `#[test]`,
+  /// `#[tokio::test]`, `#[test_log::test]` or `#[rstest]`. Never in TypeScript, whose `test("…")` is a call
+  pub test: bool,
   /// The reach of the setter of a Kotlin `var` (`private set` makes it `Container`); `None` for a `val` and other
   /// declarations
   pub setter: Option<Reach>,

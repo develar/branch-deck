@@ -40,7 +40,7 @@ use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 18;
+pub const RULES_VERSION: u32 = 19;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
@@ -273,6 +273,9 @@ pub(crate) struct JvmHooks {
   pub(crate) receiver_node: for<'t> fn(&Walk<'t>, Node<'t>) -> Node<'t>,
 }
 
+/// The last names of the annotations of a JVM function a test framework runs (`Declaration::test`)
+pub(crate) const TEST_ANNOTATIONS: &[&str] = &["Test", "ParameterizedTest", "RepeatedTest", "TestFactory", "TestTemplate"];
+
 /// What the modifiers of a member say about overriding
 #[derive(Debug, Clone, Copy, Default)]
 #[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
@@ -287,6 +290,8 @@ pub(crate) struct Modality {
   pub(crate) jvm_name: bool,
   /// A Kotlin `lateinit` property
   pub(crate) lateinit: bool,
+  /// A Kotlin or Java function annotated as a test (`Declaration::test`)
+  pub(crate) test: bool,
   /// The reach of the setter of a Kotlin `var`
   pub(crate) setter: Option<Reach>,
   /// The extension receiver of a Kotlin member, for the shape of its override
@@ -304,6 +309,7 @@ pub(crate) struct JvmFields {
   jvm_field: bool,
   jvm_name: bool,
   lateinit: bool,
+  test: bool,
   setter: Option<Reach>,
   supertypes: Vec<Vec<u32>>,
   value_type: Option<Typed>,
@@ -595,6 +601,7 @@ enum Mark {
   ClassBody,
 }
 
+#[expect(clippy::struct_excessive_bools, reason = "independent facts of the node of a frame")]
 struct Frame<'t> {
   node: Node<'t>,
   /// Names below bind, and become visible when the frame at this index is left
@@ -608,6 +615,8 @@ struct Frame<'t> {
   error: bool,
   /// The first line of the doc comments and attributes above the next child
   leading: Option<u32>,
+  /// A test attribute above the next child (Rust `#[test]`)
+  test_mark: bool,
   /// The last declaration among the children, for a Kotlin accessor that the grammar puts beside its property
   last_decl: Option<u32>,
   /// Inside a Rust token tree: the path of the `a::b::` (or `a.b.`) tokens before the next one
@@ -707,6 +716,8 @@ pub(crate) struct Walk<'t> {
   error_depth: u32,
   /// The leading line taken from the parent for the node being entered
   leading_now: Option<u32>,
+  /// The test attribute taken from the parent for the node being entered
+  test_now: bool,
   /// TypeScript `export { x }`: top-level names whose declarations become public
   exported: Vec<u32>,
 }
@@ -746,6 +757,7 @@ impl<'t> Walk<'t> {
       error_bytes: 0,
       error_depth: 0,
       leading_now: None,
+      test_now: false,
       exported: Vec::new(),
     }
   }
@@ -813,6 +825,7 @@ impl<'t> Walk<'t> {
       coroutine: false,
       error: false,
       leading: None,
+      test_mark: false,
       last_decl: None,
       tokens: None,
     };
@@ -832,6 +845,10 @@ impl<'t> Walk<'t> {
     self.leading_now = match rule {
       Some(Rule::Comment) => None,
       _ => self.frames.last_mut().and_then(|it| it.leading.take()),
+    };
+    self.test_now = match rule {
+      Some(Rule::Comment) => false,
+      _ => self.frames.last_mut().is_some_and(|it| std::mem::take(&mut it.test_mark)),
     };
     self.frames.push(frame);
     if matches!(mark, Some(Mark::Scope)) {
@@ -1248,6 +1265,7 @@ impl<'t> Walk<'t> {
     if let (true, Some(name)) = (modality.overrides, name) {
       self.override_references(name, kind == DeclKind::Function, modality.receiver, signature.as_ref());
     }
+    let test = kind == DeclKind::Function && (modality.test || self.junit3_test(name, signature.as_ref()));
     JvmFields {
       signature,
       overrides: modality.overrides,
@@ -1256,6 +1274,7 @@ impl<'t> Walk<'t> {
       jvm_field: modality.jvm_field,
       jvm_name: modality.jvm_name,
       lateinit: modality.lateinit,
+      test,
       setter: modality.setter,
       value_type: if kind == DeclKind::Value { self.value_type(hooks, node) } else { None },
       ..JvmFields::default()
@@ -1304,6 +1323,7 @@ impl<'t> Walk<'t> {
       jvm_field: fields.jvm_field,
       jvm_name: fields.jvm_name,
       lateinit: fields.lateinit,
+      test: fields.test || (traits.kind == DeclKind::Function && self.test_now),
       setter: fields.setter,
       supertypes: fields.supertypes,
       value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
@@ -2263,6 +2283,41 @@ impl<'t> Walk<'t> {
     if let Some(parent) = self.frames.len().checked_sub(2) {
       self.frames[parent].leading = Some(self.frames[parent].leading.map_or(start, |it| it.min(start)));
     }
+  }
+
+  /// Makes the current node mark the declaration below it as a test when `test` (a Rust `#[test]`), keeping a mark of
+  /// an attribute above it
+  pub(crate) fn mark_test_below(&mut self, test: bool) {
+    let test = test || self.test_now;
+    if let Some(parent) = self.frames.len().checked_sub(2) {
+      self.frames[parent].test_mark = test;
+    }
+  }
+
+  /// Whether a JVM function of `name` and `signature` is a `JUnit` 3 test: `test` and a capital or `_` after it, no
+  /// parameters, in a class named `…Test`, `…Tests` or `…TestCase` or that extends a `…TestCase`
+  fn junit3_test(&self, name: Option<Node<'t>>, signature: Option<&Signature>) -> bool {
+    let Some(text) = name.and_then(|it| self.text(it)) else { return false };
+    let named = text
+      .strip_prefix("test")
+      .and_then(|rest| rest.chars().next())
+      .is_some_and(|c| c.is_ascii_uppercase() || c == '_');
+    if !named || !signature.is_some_and(|it| it.parameters.is_empty()) || self.is_local() {
+      return false;
+    }
+    let class = self
+      .container()
+      .and_then(|id| self.declarations.get(id as usize))
+      .and_then(|it| self.names.get(it.name as usize))
+      .is_some_and(|it| it.ends_with("Test") || it.ends_with("Tests") || it.ends_with("TestCase"));
+    let extends = self.supertypes.last().is_some_and(|supertypes| {
+      supertypes
+        .iter()
+        .filter_map(|path| path.last())
+        .filter_map(|&name| self.names.get(name as usize))
+        .any(|it| it.ends_with("TestCase"))
+    });
+    class || extends
   }
 
   /// Gives the leading line of the current node to its first child declaration

@@ -4,6 +4,25 @@ use crate::summary::{DeclKind, ImportTarget, MemberKind, Reach};
 use crate::test_support::{NONE, bare_refs, constructors_of, declaration, declarations_of, modalities, refs, signatures, summary_of, supertypes_of};
 
 #[test]
+fn a_method_a_test_framework_runs_is_a_test() {
+  let source = b"class OpenTest extends TestCase {
+  @Test public void opens() {}
+  @org.junit.jupiter.api.RepeatedTest(3) void repeats() {}
+  public void testOld() {}
+  @Override public void setUp() {}
+  void helper() {}
+}
+";
+  let summary = summarize(Language::Java, source);
+  let test = |name: &str| declaration(&summary, name).test;
+  assert!(test("opens"));
+  assert!(test("repeats"), "by the last name of its annotation, with arguments");
+  assert!(test("testOld"), "JUnit 3");
+  assert!(!test("setUp"));
+  assert!(!test("helper"));
+}
+
+#[test]
 fn declarations() {
   let summary = summary_of("java/Declarations.java");
   assert_eq!(summary.package.as_deref(), Some("com.example.shapes"));

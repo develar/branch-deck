@@ -5,8 +5,8 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Header, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits,
-  ValueType, Walk, binder, decl, function_decl, line_of, type_decl,
+  BLOCK_COMMENT, Binder, CallArguments, Child, DeclRule, Header, Holder, IDENTIFIER, JvmFields, JvmHooks, LINE_COMMENT, Modality, Rule, SCOPE, Spec, TEST_ANNOTATIONS,
+  TYPE_IDENTIFIER, Traits, ValueType, Walk, binder, decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
@@ -424,13 +424,15 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
   }
   let modifiers = w.child(node, Child::Kind(&["modifiers"]));
   let has = |token: &str| modifiers.is_some_and(|it| w.has_token(it, token));
-  let overrides = modifiers.is_some_and(|it| {
+  let annotations: Vec<Vec<&str>> = modifiers.map_or_else(Vec::new, |it| {
     let mut cursor = it.walk();
     it.named_children(&mut cursor)
       .filter(|it| w.is(*it, "marker_annotation") || w.is(*it, "annotation"))
       .filter_map(|it| w.field(it, "name").and_then(|name| w.path_of(name)))
-      .any(|path| matches!(path.as_slice(), ["Override"] | ["java", "lang", "Override"]))
+      .collect()
   });
+  let overrides = annotations.iter().any(|path| matches!(path.as_slice(), ["Override"] | ["java", "lang", "Override"]));
+  let test = annotations.iter().any(|path| path.last().is_some_and(|last| TEST_ANNOTATIONS.contains(last)));
   let open = match w.holder() {
     Some(Holder::Interface) => true,
     Some(Holder::Class | Holder::Enum) => !in_final_class(w),
@@ -443,6 +445,7 @@ fn overrides<'t>(w: &mut Walk<'t>, node: Node<'t>) -> Modality {
     jvm_field: false,
     jvm_name: false,
     lateinit: false,
+    test,
     setter: None,
     receiver: None,
   }

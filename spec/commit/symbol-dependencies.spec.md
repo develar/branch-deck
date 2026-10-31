@@ -70,6 +70,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`, `a_member_knows_whether_it_is_jvm_static`, `an_override_in_a_lambda_gets_no_supertype`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_override_is_a_reference_per_supertype`, `a_signature_has_the_parameter_types`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
+- A function a test framework runs must be a test (`test`), for the tests a review names: of Kotlin and Java one annotated `@Test`, `@ParameterizedTest`,
+  `@RepeatedTest`, `@TestFactory` or `@TestTemplate` by the last name of the annotation, whatever its qualifier, or a
+  JUnit 3 `testName()` (`test` and a capital or `_`) without parameters in a class named `…Test`, `…Tests` or
+  `…TestCase` or that extends a `…TestCase`; of Rust one under `#[test]`, `#[tokio::test]`, `#[test_log::test]` or
+  `#[rstest]`, also below a doc comment or another attribute, never under `#[cfg(test)]` alone. A TypeScript
+  `test("…")` is a call, no declaration, and so no test.
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_function_a_test_framework_runs_is_a_test`)
+  [@test] ../../crates/code-symbols/src/java_test.rs (`a_method_a_test_framework_runs_is_a_test`)
+  [@test] ../../crates/code-symbols/src/rust_test.rs (`a_function_under_a_test_attribute_is_a_test`)
 - The summary of a Kotlin or Java file must hold the type of each property and field (`value_type`), as written without
   type arguments or the type its initializer constructs (a capitalized Kotlin call, a Java `new` without a body), and on
   a member reference the type of its receiver (`receiver_type`): of a parameter, a local or a typed lambda parameter

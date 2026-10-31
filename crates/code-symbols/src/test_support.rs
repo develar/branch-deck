@@ -210,7 +210,7 @@ fn constructor_text(summary: &FileSummary, constructor: &Constructor) -> String 
   format!("{reach}new{}", signature_text(summary, &constructor.signature))
 }
 
-/// ` overrides overridable jvm_static`, without the words that don't hold
+/// ` overrides overridable jvm_static test`, without the words that don't hold
 fn modality_text(declaration: &Declaration) -> String {
   let overrides = if declaration.overrides { " overrides" } else { "" };
   let overridable = if declaration.overridable { " overridable" } else { "" };
@@ -218,12 +218,13 @@ fn modality_text(declaration: &Declaration) -> String {
   let jvm_field = if declaration.jvm_field { " jvm_field" } else { "" };
   let jvm_name = if declaration.jvm_name { " jvm_name" } else { "" };
   let lateinit = if declaration.lateinit { " lateinit" } else { "" };
+  let test = if declaration.test { " test" } else { "" };
   let setter = match declaration.setter {
     None => String::new(),
     Some(reach) if reach == declaration.reach => " var".to_string(),
     Some(reach) => format!(" var({reach:?} set)"),
   };
-  format!("{overrides}{overridable}{jvm_static}{jvm_field}{jvm_name}{lateinit}{setter}")
+  format!("{overrides}{overridable}{jvm_static}{jvm_field}{jvm_name}{lateinit}{test}{setter}")
 }
 
 /// `List/Window?` of `[List, Window]` nullable, `int[]` of an array, `_` for any type

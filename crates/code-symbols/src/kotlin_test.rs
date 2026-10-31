@@ -231,6 +231,38 @@ fn a_member_knows_whether_it_is_jvm_static() {
 }
 
 #[test]
+fn a_function_a_test_framework_runs_is_a_test() {
+  let source = b"class OpenTest {
+  @Test fun `the project open keeps the layout`() {}
+  @org.junit.jupiter.api.ParameterizedTest
+  fun byValue(value: Int) {}
+  fun testOldStyle() {}
+  fun testWith(value: Int) {}
+  fun helper() {}
+}
+
+class Restore : BasePlatformTestCase() {
+  fun testRestore() {}
+}
+
+class Service {
+  fun testConnection() = true
+  @Suppress(\"x\") fun plain() = 1
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  let test = |name: &str| declaration(&summary, name).test;
+  assert!(test("`the project open keeps the layout`"), "{:?}", summary.names);
+  assert!(test("byValue"), "by the last name of its annotation");
+  assert!(test("testOldStyle"), "JUnit 3, in a class named by Test");
+  assert!(test("testRestore"), "JUnit 3, in a class that extends a TestCase");
+  assert!(!test("testWith"), "a JUnit 3 test takes no parameters");
+  assert!(!test("helper"));
+  assert!(!test("testConnection"), "no test class around it");
+  assert!(!test("plain"), "another annotation");
+}
+
+#[test]
 fn an_override_in_a_lambda_gets_no_supertype() {
   // the grammar reads a one-line object expression as a call of the literal with a trailing lambda: its override is
   // no member of the class around it

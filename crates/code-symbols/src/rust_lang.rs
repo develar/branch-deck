@@ -559,12 +559,17 @@ fn use_name<'t>(w: &mut Walk<'t>, node: Node<'t>, prefix: &[&'t str], path: Node
   }
 }
 
-/// `#[…]` extends the item below it; its path is a macro unless built in, `derive(…)` names traits
+/// `#[…]` extends the item below it; its path is a macro unless built in, `derive(…)` names traits; `#[test]`,
+/// `#[tokio::test]`, `#[test_log::test]` and `#[rstest]` make the function below a test
 fn attribute_item<'t>(w: &mut Walk<'t>, node: Node<'t>) -> bool {
   w.extend_leading(node);
-  let Some(attribute) = w.child(node, Child::Kind(&["attribute"])) else { return false };
-  let Some(path_node) = attribute.named_child(0) else { return false };
-  let Some(path) = w.path_of(path_node) else { return false };
+  let attribute = w.child(node, Child::Kind(&["attribute"]));
+  let path_node = attribute.and_then(|it| it.named_child(0));
+  let path = path_node.and_then(|it| w.path_of(it));
+  w.mark_test_below(path.as_ref().is_some_and(|path| matches!(path.last(), Some(&("test" | "rstest")))));
+  let (Some(attribute), Some(path_node), Some(path)) = (attribute, path_node, path) else {
+    return false;
+  };
   let Some((name, before)) = path.split_last() else { return false };
   if *name == "derive" && before.is_empty() {
     if let Some(arguments) = w.field(attribute, "arguments") {
