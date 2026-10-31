@@ -231,21 +231,22 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
 - A pool must add one slot at a time: a get that finds no free slot takes the clones lock (`clones.lock` beside the
   state, an exclusive file lock), reserves again under it, so that a slot a return freed meanwhile wins over a new one
-  (`reused: true`), and holds it until its new slot is ready or given back: the clone of a template or of the source,
-  or the registration and the full checkout, and the seed. On 2026-10-24 fourteen gets cloned the idea-1 checkout at
-  once, several ran past the deadline of their caller, and the disk stalled for 1.5 h. A get that reuses a slot never
-  takes the lock. A slot freed while a get waits for the lock (by a return, or a get or a clean whose process is
-  gone) must end the wait within about a second, while the holder still clones: the get reserves that slot without
-  the lock. A slot the get already tried (dirty, busy) ends no wait again: a dirty one freed meanwhile ends it once,
-  and the get marks it dirty and waits again. Under the lock, with no free slot, a slot whose return or clean runs (a
-  live process, `returning` or `cleaning`) must not make the get add a slot: the get says so (`waiting for the return
-  of <slot> (pid <pid>)`) and waits until that return or clean ends, then reserves again: the slot it freed, else
-  (the return failed, its process died) a new one. It waits for each return or clean once. A get that waits must say so on stderr when the wait starts, when the holder or the slot it adds
-  changes and once a minute, naming the holder's command, pid and how long it holds the lock, and the new slot and
-  the holder of its lease once it reserved one, and must print how long it waited (`waited_for_clone_ms`, omitted when
-  it waited for none). The wait lasts while the record of the holder (`clones.lock.holder`, as the repository lock
-  writes it) names a live process: a holder that is killed frees the lock with its process, on every platform; a lock
-  no record names a live holder of is `locked` after the lock timeout. The order of the locks is `clones.lock`,
+  (`reused: true`), and holds it until its new slot is checked out or given back: the clone of a template or of the
+  source, or the registration and the full checkout; never across the seed, a copy that the lock does not guard. On
+  2026-10-24 fourteen gets cloned the idea-1 checkout at once, several ran past the deadline of their caller, and the
+  disk stalled for 1.5 h. A get that reuses a slot never takes the lock. A slot freed while a get waits for the lock
+  (by a return, or a get or a clean whose process is gone) must end the wait within about a second, while the holder
+  still clones: the get reserves that slot without the lock. A slot the get already tried (dirty, busy) ends no wait
+  again: a dirty one freed meanwhile ends it once, and the get marks it dirty and waits again. Under the lock, with no
+  free slot, a slot whose return or clean runs (a live process, `returning` or `cleaning`) must not make the get add a
+  slot: the get says so (`waiting for the return of <slot> (pid <pid>)`) and waits until that return or clean ends,
+  then reserves again: the slot it freed, else (the return failed, its process died) a new one. It waits for each
+  return or clean once. A get that waits must say so on stderr when the wait starts, when the holder or the slot it
+  adds changes and once a minute, naming the holder's command, pid and how long it holds the lock, and the new slot
+  and the holder of its lease once it reserved one, and must print how long it waited (`waited_for_clone_ms`, omitted
+  when it waited for none). The wait lasts while the record of the holder (`clones.lock.holder`, as the repository
+  lock writes it) names a live process: a holder that is killed frees the lock with its process, on every platform; a
+  lock no record names a live holder of is `locked` after the lock timeout. The order of the locks is `clones.lock`,
   `leases.lock`, `worktrees.lock`; a return and a clean never take the clones lock.
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_slot_freed_while_a_get_waits_for_the_clones_lock_ends_the_wait`)
@@ -253,6 +254,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_running_return_reserves_the_slot_against_a_get`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_slot_that_clean_cleans_is_reserved_against_a_get`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_a_failed_return_adds_a_slot`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_seeds_its_new_slot_without_the_clones_lock`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_killed_holder_frees_the_clones_lock_with_its_process`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
 - A get must print each step on stderr as it starts (`bd lease get: <step>`): the reserve of a free slot, under the

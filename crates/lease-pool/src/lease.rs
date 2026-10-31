@@ -3,8 +3,8 @@
 //! the authority: a free slot is pool property, and a get replaces its content, so no ancestry proves anything. The
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
 //! writes a slot: a get that reuses a slot never waits for another's checkout, and no get waits for an update. A get
-//! that adds a slot holds the clones lock of the pool (`clones.lock`, `Pool::lock_clones`) for the whole clone, so the
-//! pool adds one slot at a time. The `worktree` commands of the pool, which git can't run two at once, take a lock of
+//! that adds a slot holds the clones lock of the pool (`clones.lock`, `Pool::lock_clones`) for the whole clone and its
+//! checkout, so the pool adds one slot at a time. The `worktree` commands of the pool, which git can't run two at once, take a lock of
 //! their own (`worktrees.lock`, `Pool::worktree_command`). The order is `clones.lock`, `leases.lock`, `worktrees.lock`:
 //! a get takes the other two under the clones lock, the move of an adopt the lock of the `worktree` commands under the
 //! pool lock; nothing takes the clones lock under another lock of the pool, and a return or a clean never takes it. The
@@ -567,7 +567,7 @@ impl Pool {
   }
 
   /// The lock of the gets that add a slot (`clones.lock`), which a get holds from the reserve of its new slot until the
-  /// slot is ready or given back: on 2026-10-24 fourteen gets cloned the idea-1 checkout at once, several ran past the
+  /// slot is checked out and clean, or given back, not across the seed: on 2026-10-24 fourteen gets cloned the idea-1 checkout at once, several ran past the
   /// deadline of their caller, and the disk stalled for 1.5 h; one after the other, at 40 s each, they would have
   /// finished. Beside the state, as the pool lock: the reserve under it reads that state, and the pool directory is
   /// only config. The wait lasts while the record of the holder names a live process (`lock_file_while_held`): a holder
@@ -1106,6 +1106,9 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
         (text, false)
       }
     };
+    // a new slot is registered, checked out and clean: the seed, a copy of ignored files that can take minutes, holds
+    // no get that adds a slot (`clones.lock`)
+    drop(clones_lock.take());
     if !seeds.is_empty() {
       report(GetStep::Seed {
         slot: path.clone(),

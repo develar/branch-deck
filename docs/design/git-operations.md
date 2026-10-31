@@ -1881,8 +1881,9 @@ pool of the Mac Studio got 14 new slots in 45 minutes, 14 cold clones of the 1.4
 the gets of a remote runner: several ran past the 1800 s deadline of their caller, and the disk stalled for 1.5 hours.
 One after the other, at 40 s each, they would have finished. Nothing limited the gets that clone, since the pool lock
 is never held across a git. A get that finds no free slot takes the clones lock and reserves again under it, so a slot
-that a return freed meanwhile wins over a new one; it holds the lock until its new slot is ready or given back (the
-clone or the registration, the checkout, the seed). A get that reuses a slot never takes it. A slot freed during the
+that a return freed meanwhile wins over a new one; it holds the lock until its new slot is checked out or given back
+(the clone or the registration, the checkout, the `status` of a clone), never across the seed: a copy of ignored files
+(gigabytes in idea-1) that two gets may run at once. A get that reuses a slot never takes it. A slot freed during the
 wait ends it: the waiting get reads the state about once a second anyway (for the holder's new slot, below), and a
 slot there that its reserve may take and has not tried (`reservable`: free, or a lease whose process is gone) cancels
 the wait (`LockWaitCanceled`); the get reserves that slot without the lock. Before, it noticed the slot only once the

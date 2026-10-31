@@ -21,6 +21,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::thread::ScopedJoinHandle;
 use std::time::{Duration, Instant};
+use test_utils::git_test_utils::TestRepo;
 
 /// `bd lease get --holder <holder>` in the repository of the fixture, each step recorded in `steps`
 pub(crate) fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) -> Result<LeaseGetOutput, CliError> {
@@ -356,6 +357,12 @@ fn a_get_deletes_the_trash_without_the_clones_lock() {
   );
 }
 
+/// An ignored `local.txt` in the source that `.worktreeinclude` names: a get seeds it
+fn add_a_seed(repo: &TestRepo) {
+  repo.create_commit_with_files("Add the seed lists", &[(".gitignore", "/local.txt\n"), (".worktreeinclude", "/local.txt\n")]);
+  std::fs::write(repo.path().join("local.txt"), "local\n").unwrap();
+}
+
 /// A get tells each step as it starts, in order: the reserve of a free slot, then under the clones lock of a new one,
 /// the steps of the new slot and the seed; the reuse of that slot: its status, the checkout of the diff and the seed.
 /// A get that took the clones lock at once waited for nothing (`waited_for_clone_ms` omitted)
@@ -363,8 +370,7 @@ fn a_get_deletes_the_trash_without_the_clones_lock() {
 fn the_steps_of_a_get_arrive_in_order() {
   let fixture = Fixture::new();
   let repo = &fixture.repo;
-  repo.create_commit_with_files("Add the seed lists", &[(".gitignore", "/local.txt\n"), (".worktreeinclude", "/local.txt\n")]);
-  std::fs::write(repo.path().join("local.txt"), "local\n").unwrap();
+  add_a_seed(repo);
   let steps = Mutex::new(Vec::new());
   let added = printed(&fixture, &get_with_steps(&fixture, "first", &steps).unwrap());
   assert_eq!((&added["reused"], &added.get("waited_for_clone_ms")), (&json!(false), &None), "{added}");
@@ -383,6 +389,29 @@ fn the_steps_of_a_get_arrive_in_order() {
   let reused = printed(&fixture, &get_with_steps(&fixture, "second", &steps).unwrap());
   assert_eq!((path_of(&reused), &reused["reused"]), (path, &json!(true)), "{reused}");
   assert_eq!(kinds(&steps), ["reserve", "status", "checkout", "seed"]);
+}
+
+/// A get that adds a slot releases the clones lock once the slot is checked out: the seed, a copy of the ignored files
+/// that `.worktreeinclude` names (gigabytes in idea-1), runs without it, so the next get that adds a slot goes on
+#[test_log::test]
+fn a_get_seeds_its_new_slot_without_the_clones_lock() {
+  let fixture = Fixture::new();
+  let repo = &fixture.repo;
+  add_a_seed(repo);
+  let pool = Pool::new(Path::new(&canonical_path(&repo.path().join(".git"))));
+  let environment = fixture.environment(repo.path());
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  // at the seed: whether the clones lock could be taken at once (in this process a turn the get still held cancels)
+  let free_at_seed = Mutex::new(None);
+  let got = lease_get_reporting(&context, &environment, &LeaseGetArgs::default(), &|step| {
+    if matches!(step, GetStep::Seed { .. }) {
+      *free_at_seed.lock().unwrap() = Some(pool.lock_clones(Duration::from_secs(10), &mut |_| {}, &|| true).is_ok());
+    }
+  })
+  .unwrap();
+  assert!(!got.reused, "{got:?}");
+  assert_eq!(got.seeded, ["local.txt"]);
+  assert_eq!(*free_at_seed.lock().unwrap(), Some(true), "the clones lock was free at the seed");
 }
 
 /// The environment variable that makes `hold_the_clones_lock_in_a_child` run: `<git common dir>|<file it writes once
