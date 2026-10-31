@@ -381,8 +381,7 @@ pub(crate) struct Binder {
   pub(crate) implicit: &'static [&'static str],
   /// Children that are no references (the name of a Java constructor)
   pub(crate) labels: &'static [Child],
-  /// A lambda: the declarations in it override nothing of the class around it, also where the grammar misreads the
-  /// body of a one-line object expression as a lambda, unless the class marked it as its body (`Walk::mark_class_body`)
+  /// A lambda: the declarations in it override nothing of the class around it
   pub(crate) lambda: bool,
 }
 
@@ -595,10 +594,6 @@ enum Mark {
   Expr,
   /// A body whose declarations are locals
   Scope,
-  /// Walked without its rule: a Kotlin lambda that is the misread body of an object
-  Plain,
-  /// A lambda that is the misread body of the class around it: its declarations override the supertypes of that class
-  ClassBody,
 }
 
 #[expect(clippy::struct_excessive_bools, reason = "independent facts of the node of a frame")]
@@ -841,7 +836,7 @@ impl<'t> Walk<'t> {
       self.error_depth += 1;
       frame.error = true;
     }
-    let rule = if matches!(mark, Some(Mark::Plain)) { None } else { self.table.rule(node.kind_id()) };
+    let rule = self.table.rule(node.kind_id());
     self.leading_now = match rule {
       Some(Rule::Comment) => None,
       _ => self.frames.last_mut().and_then(|it| it.leading.take()),
@@ -906,7 +901,7 @@ impl<'t> Walk<'t> {
       }
       Some(Rule::Bind(binder)) => {
         self.bind(node, &binder);
-        if binder.lambda && !matches!(mark, Some(Mark::ClassBody)) {
+        if binder.lambda {
           self.push_supertypes(Vec::new());
         }
         true
@@ -1889,10 +1884,6 @@ impl<'t> Walk<'t> {
     self.mark(node, Mark::Scope);
   }
 
-  pub(crate) fn mark_plain(&mut self, node: Node<'t>) {
-    self.mark(node, Mark::Plain);
-  }
-
   /// Marks a pattern whose names become visible when it is left
   pub(crate) fn mark_pattern(&mut self, node: Node<'t>) {
     self.mark(node, Mark::Pattern(None));
@@ -2148,16 +2139,6 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// Declares a type the grammar misread as an expression, with the doc comments and annotations above it. Its
-  /// supertypes are unknown, so its members override nothing
-  pub(crate) fn declare_misread(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits) -> u32 {
-    let leading = self.leading_now;
-    if self.spec.jvm.is_some() {
-      self.push_supertypes(Vec::new());
-    }
-    self.declare(node, name_node, name, traits, leading, JvmFields::default())
-  }
-
   /// Makes `supertypes` those whose members the declarations directly below the current node override, until the walk
   /// leaves it
   pub(crate) fn push_supertypes(&mut self, supertypes: Vec<Vec<u32>>) {
@@ -2165,11 +2146,6 @@ impl<'t> Walk<'t> {
     if let Some(frame) = self.frames.last_mut() {
       frame.supertypes += 1;
     }
-  }
-
-  /// Marks a lambda as the misread body of the class of the current node: it keeps the supertypes of that class
-  pub(crate) fn mark_class_body(&mut self, lambda: Node<'t>) {
-    self.mark(lambda, Mark::ClassBody);
   }
 
   /// The paths of the supertypes that `types` name, without type arguments: `[a, Base]` of Kotlin `a.Base<T>` and of

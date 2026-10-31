@@ -1,6 +1,6 @@
-package com.example.misread
+package com.example.modifiers
 
-/** Two modifiers before `class` or `interface`, and any declaration after it, make the grammar read infix calls. */
+/** Two modifiers before `class` or `interface`, and any declaration after it, made an older grammar read infix calls. */
 internal sealed interface Registrar {
   val state: Int
   fun register(id: String)

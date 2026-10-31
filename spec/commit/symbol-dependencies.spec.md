@@ -108,15 +108,14 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_call_has_its_argument_shape`, `a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java class (not an interface, an object, a companion, an enum, an annotation, a type alias,
-  a Kotlin type the grammar misread, nor a class with a parse error in it, which may have swallowed one) must hold its
-  constructors, each with its parameters (as a function's) and the reach of its modifiers: a Kotlin primary constructor
-  (its class parameters, a default value, `vararg`) and the secondary ones, the constructors a Java class declares, and
-  the canonical constructor of a record (declared, compact or of its components, with the record's reach) with its
-  others; without any, the implicit `()`, public in Kotlin and of the reach of its class in Java. Only the canonical
-  constructor of a record, compact or declared again with the names and types of its components (every type known), may
-  replace another, the one of its header: two that the summary can't tell apart (`Stamp(java.util.Date)` beside
-  `Stamp(java.sql.Date)`, `Box(value: T)` beside `Box(list: List<T>)`) must both be there. A local class must add none
-  to the class around it.
+  nor a class with a parse error in it, which may have swallowed one) must hold its constructors, each with its
+  parameters (as a function's) and the reach of its modifiers: a Kotlin primary constructor (its class parameters, a
+  default value, `vararg`) and the secondary ones, the constructors a Java class declares, and the canonical constructor
+  of a record (declared, compact or of its components, with the record's reach) with its others; without any, the
+  implicit `()`, public in Kotlin and of the reach of its class in Java. Only the canonical constructor of a record,
+  compact or declared again with the names and types of its components (every type known), may replace another, the one
+  of its header: two that the summary can't tell apart (`Stamp(java.util.Date)` beside `Stamp(java.sql.Date)`,
+  `Box(value: T)` beside `Box(list: List<T>)`) must both be there. A local class must add none to the class around it.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_class_knows_its_constructors`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)

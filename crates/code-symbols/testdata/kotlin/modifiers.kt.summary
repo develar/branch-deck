@@ -1,4 +1,4 @@
-package com.example.misread
+package com.example.modifiers
 Type Registrar in - Module TopLevel 3-7 @4
 Value state in Registrar Public Instance 5-5 @5 <Int> `val state : Int` overridable
 Function register in Registrar Public Instance 6-6 @6 (id: String) `fun register` overridable

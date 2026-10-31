@@ -102,8 +102,8 @@ fn a_local_val_shadows_and_is_no_reference() {
 }
 
 #[test]
-fn a_misread_declaration_is_recovered() {
-  let summary = summary_of("kotlin/misread.kt");
+fn a_declaration_after_its_modifiers_is_no_call() {
+  let summary = summary_of("kotlin/modifiers.kt");
   assert_eq!(declarations_of(&summary, "Registrar"), ["Type Registrar in -"]);
   assert_eq!(declaration(&summary, "Registrar").reach, Reach::Module);
   assert_eq!(declarations_of(&summary, "register"), ["Function register in Registrar"]);
@@ -193,6 +193,18 @@ fn a_signature_has_the_parameter_types() {
   let names = ["List", "Window"].map(|it| summary.name_id(it).unwrap()).to_vec();
   assert_eq!(parameter.type_ref, Some(TypeRef { names, nullable: true, arrays: 0 }));
   assert_eq!(summary.name(parameter.name), "windows");
+  // an annotation in a type argument is no part of the type
+  let summary = summarize(Language::Kotlin, b"fun put(names: Ref<@Nls.Message String>) {}");
+  let parameter = &declaration(&summary, "put").signature.as_ref().unwrap().parameters[0];
+  let names = ["Ref", "String"].map(|it| summary.name_id(it).unwrap()).to_vec();
+  assert_eq!(
+    parameter.type_ref,
+    Some(TypeRef {
+      names,
+      nullable: false,
+      arrays: 0
+    })
+  );
 }
 
 #[test]

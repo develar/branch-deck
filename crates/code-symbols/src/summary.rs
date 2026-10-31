@@ -131,8 +131,8 @@ pub struct Declaration {
   /// secondary ones, the canonical constructor of a Java record, declared, compact or not at all, and its others), else
   /// the implicit `()`, public in Kotlin and of the reach of its class in Java, as javac makes it; two of the same
   /// parameter types as their `TypeRef`s have them may both be there. `None` for other declarations and languages, and
-  /// for an interface, an object, a companion, an enum, an annotation, a type alias, a Kotlin type the grammar misread
-  /// and a class with a parse error in it: a call of one chooses no constructor, or the summary doesn't know them
+  /// for an interface, an object, a companion, an enum, an annotation, a type alias and a class with a parse error in
+  /// it: a call of one chooses no constructor, or the summary doesn't know them
   pub constructors: Option<Vec<Constructor>>,
   /// The header of a function, a property, a field or a constant: its tokens before the body or the initializer, one
   /// space apart, without comments, annotations, the modifiers that `reach`, `overridable` and `overrides` say or that
