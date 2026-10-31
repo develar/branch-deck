@@ -1,5 +1,5 @@
 use crate::ReviewPlan;
-use crate::api::FormChange;
+use crate::api::{ApiChangeKind, FormChange};
 use crate::files::MechanicalKind;
 use crate::test_support::{plan_of, range};
 use crate::units::{OtherReason, ReviewUnit, UnitKind};
@@ -351,4 +351,125 @@ fn a_commit_is_read_against_its_first_parent() {
   assert_eq!(of_commit, plan(&repo, &root, &head));
   let error = plan_of(&repo, None, &commit(&root)).unwrap_err();
   assert!(error.downcast_ref::<crate::UnknownRevision>().is_some(), "{error:#}");
+}
+
+const SURFACE_BEFORE: &str = "package a
+
+fun open(x: Int): Int {
+  return x
+}
+
+private fun hidden(x: Int): Int {
+  return x
+}
+
+@ApiStatus.Internal
+fun promoted(x: Int): Int {
+  return x
+}
+
+@ApiStatus.Internal
+fun inner(x: Int): Int {
+  return x
+}
+";
+
+const SURFACE_AFTER: &str = "package a
+
+fun open(x: Int): Int {
+  return x + 1
+}
+
+private fun hidden(x: Int): Int {
+  return x + 1
+}
+
+fun promoted(x: Int): Int {
+  return x
+}
+
+@ApiStatus.Internal
+fun inner(x: Int, y: Int): Int {
+  return x
+}
+
+fun added(x: Int): Int {
+  return x
+}
+";
+
+const SURFACE_TEST: &str = "package a
+
+class StoreTest {
+  @BeforeEach
+  fun setUp() {
+    println(1)
+  }
+
+  @Test
+  fun `opens a store`() {
+    println(1)
+  }
+}
+";
+
+/// A unit of a declaration is `api` by the rule of the API of the plan: an addition when it is API after the commits,
+/// any other change when it is API or unstable API on a side, so a change of a body of API and a promotion are too;
+/// a test, a fixture of its class, an addition of unstable API and a private function are not, and a test and its
+/// fixture are `test`. Every unit of an addition, a removal or a change of a form is `api` exactly when the plan lists
+/// its key
+#[test]
+fn a_unit_is_api_by_the_rule_of_the_api_of_the_plan() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add store",
+    &[
+      ("src/a/Store.kt", SURFACE_BEFORE),
+      ("src/a/Extra.kt", "package a\n\nfun extra(): Int = 1\n"),
+      ("src/test/a/StoreTest.kt", SURFACE_TEST),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change store",
+    &[
+      ("src/a/Store.kt", SURFACE_AFTER),
+      (
+        "src/a/Extra.kt",
+        "package a\n\nfun extra(): Int = 1\n\n@ApiStatus.Internal\nfun addedInternal(x: Int): Int = x\n",
+      ),
+      ("src/test/a/StoreTest.kt", &SURFACE_TEST.replace("println(1)", "println(2)")),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  let flags: BTreeMap<&str, (bool, bool)> = plan
+    .units
+    .iter()
+    .filter_map(|unit| Some((unit.name.as_deref()?, (unit.api, unit.test))))
+    .filter(|(name, _)| !name.contains('.'))
+    .collect();
+  assert_eq!(
+    flags,
+    BTreeMap::from([
+      ("`opens a store`", (false, true)),
+      ("added", (true, false)),
+      ("addedInternal", (false, false)),
+      ("hidden", (false, false)),
+      ("inner", (true, false)),
+      ("open", (true, false)),
+      ("promoted", (true, false)),
+      ("setUp", (false, true)),
+    ])
+  );
+  let listed: BTreeMap<&str, ApiChangeKind> = plan.api.iter().map(|change| (change.name.as_str(), change.kind)).collect();
+  assert_eq!(
+    listed,
+    BTreeMap::from([("added", ApiChangeKind::Added), ("inner", ApiChangeKind::Changed), ("promoted", ApiChangeKind::Added)])
+  );
+  for unit in plan
+    .units
+    .iter()
+    .filter(|unit| matches!(unit.kind, UnitKind::Added | UnitKind::Removed | UnitKind::Shape { .. }))
+  {
+    assert_eq!(unit.api, plan.api.iter().any(|change| Some(&change.key) == unit.key.as_ref()), "{unit:#?}");
+  }
 }

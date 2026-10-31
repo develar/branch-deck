@@ -702,8 +702,8 @@ of 3 or more files that get the same edit. The reviewed commits are those of `ba
 `--since-reviewed` only the added and rewritten ones. Without accio or its index, `usages` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
-tree order inside a cycle and between files with no edge (`"schema": 10` since the `steps` of the story and the `brief`
-([Review Tour](../../spec/branch/review-tour.spec.md)), 9 the name `file` of a concern, 8 the
+tree order inside a cycle and between files with no edge (`"schema": 11` since the `api` and `test` of a unit in place of its `public`, 10 the `steps` of the story and
+the `brief` ([Review Tour](../../spec/branch/review-tour.spec.md)), 9 the name `file` of a concern, 8 the
 main row of a file of several concerns, 7 the concerns, 6 a deletion as real
 work, 5 the generated files). `units` (since `"schema": 4`) cuts the diff of the review
 into the changes a reviewer reads once, in that order ([Review Units](../../spec/branch/review-units.spec.md)): a
@@ -737,10 +737,10 @@ change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `r
     "change":"added","version_before":null,"version_after":null,"scope":"main","scope_before":null}],
   "repeated_edits":[],
   "units":[{"id":"declaration:src/a/Session.kt:a.logout:all:Boolean","kind":"shape","changes":["parameters"],
-    "name":"logout","key":"a.logout","signature":"all:Boolean","public":true,"line":3,"slices":[{"path":"src/a/Session.kt",
+    "name":"logout","key":"a.logout","signature":"all:Boolean","api":true,"test":false,"line":3,"slices":[{"path":"src/a/Session.kt",
     "old_path":null,"whole":false,"blocks":[{"index":0,"old":[3,3],"new":[3,3]}],"fingerprint":"5f0c…"}],
     "fingerprint":"5f0c…"},
-    {"id":"new:src/b/Logout.kt","kind":"newFile","name":"Logout.kt","key":null,"signature":null,"public":false,
+    {"id":"new:src/b/Logout.kt","kind":"newFile","name":"Logout.kt","key":null,"signature":null,"api":false,"test":false,
     "line":null,"slices":[{"path":"src/b/Logout.kt","old_path":null,"whole":true,"blocks":[],"fingerprint":"a1d9…"}],
     "fingerprint":"a1d9…"}],
   "order":["src/a/Session.kt","src/b/Logout.kt"],"index_note":null}

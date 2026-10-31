@@ -558,8 +558,8 @@ fn a_test_function_and_its_class_are_no_entry() {
   assert_eq!(names(&plan), [("registered", ApiChangeKind::Changed), ("helper", ApiChangeKind::Added)]);
 }
 
-/// An entry point is no API: a Kotlin top-level `main` added or changed, and a Java `public static void main` added,
-/// give no entry; a public function beside them is listed
+/// An entry point is no API: a Kotlin top-level `main` added or changed, and a Java `public static void main` added or
+/// changed, give no entry; a public function beside them is listed
 #[test]
 fn a_main_function_is_no_entry() {
   let repo = TestRepo::new();
@@ -568,6 +568,7 @@ fn a_main_function_is_no_entry() {
     &[
       ("src/b/Main.kt", "package b\n\nfun main() {}\n"),
       ("src/a/App.java", "package a;\n\npublic class App {\n  public void run() {}\n}\n"),
+      ("src/a/Cli.java", "package a;\n\npublic class Cli {\n  public static void main(String[] args) {}\n}\n"),
     ],
   );
   let head = repo.create_commit_with_files(
@@ -579,10 +580,47 @@ fn a_main_function_is_no_entry() {
         "package a;\n\npublic class App {\n  public void run() {}\n\n  public static void main(String[] args) {}\n}\n",
       ),
       ("src/c/Tool.kt", "package c\n\nfun main() {}\n\nfun usage(): Int = 1\n"),
+      (
+        "src/a/Cli.java",
+        "package a;\n\npublic class Cli {\n  public static void main(String[] args) throws Exception {\n    run();\n  }\n}\n",
+      ),
     ],
   );
   let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
   assert_eq!(names(&plan), [("usage", ApiChangeKind::Added)]);
+  let main_units: Vec<(&str, bool)> = plan
+    .units
+    .iter()
+    .filter(|unit| unit.name.as_deref() == Some("main"))
+    .map(|unit| (unit.slices[0].path.as_str(), unit.api))
+    .collect();
+  assert_eq!(main_units, [("src/a/App.java", false), ("src/a/Cli.java", false), ("src/b/Main.kt", false)]);
+}
+
+/// A change of a form to or from API is listed: a private function made public with a parameter more (no API before,
+/// API after), an internal one made private with a parameter more (unstable API before, no API after); a private one
+/// that gets a parameter more is not. The unit of each is `api` by the same rule
+#[test]
+fn a_change_of_form_to_or_from_api_is_listed() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add calls",
+    &[(
+      "src/a/Calls.kt",
+      "package a\n\nprivate fun widened(x: Int): Int = x\n\n@ApiStatus.Internal\nfun hidden(x: Int): Int = x\n\nprivate fun local(x: Int): Int = x\n",
+    )],
+  );
+  let head = repo.create_commit_with_files(
+    "Change calls",
+    &[(
+      "src/a/Calls.kt",
+      "package a\n\nfun widened(x: Int, y: Int): Int = x\n\nprivate fun hidden(x: Int, y: Int): Int = x\n\nprivate fun local(x: Int, y: Int): Int = x\n",
+    )],
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  assert_eq!(names(&plan), [("widened", ApiChangeKind::Changed), ("hidden", ApiChangeKind::Changed)]);
+  let units: Vec<(&str, bool)> = plan.units.iter().filter_map(|unit| Some((unit.name.as_deref()?, unit.api))).collect();
+  assert_eq!(units, [("widened", true), ("hidden", true), ("local", false)]);
 }
 
 const UNSTABLE_BEFORE: &str = "package a

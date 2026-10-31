@@ -179,10 +179,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
   and `carried`), with
-  `"schema": 10`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 11`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)); the other outputs of `bd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -241,6 +241,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
   API. A form both sides have that becomes API from unstable API or no API (its `@ApiStatus.Internal` removed) is
   `added`, a promotion; one that stops being API in the same form is no entry.
   [@test] ../../crates/review-plan/src/api_test.rs (`a_promoted_declaration_is_new_api`, `unstable_api_is_no_new_api_but_its_change_is_listed`, `the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_change_of_form_to_or_from_api_is_listed`)
 - Each entry must give its file and line, its name, its kind (`removed`, `changed`, `added`), the parts that
   changed, and its form before and after: the header with the parameters after the name, a type by its constructors.
   The file and line are those after the commits, through every rename, also one that changes no declaration; of a
@@ -311,9 +312,11 @@ the repeated edits and the new API. The vision of the review, its progress and t
   path with the path before the first commit (`old_path`), a deleted one at its path, none that the commits add and
   delete again.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
-- A file must be `untested` when it is a source file of a known language, no test itself, not mechanical, and no
-  changed test names its stem.
+- A file must be `untested` when it is a source file of a known language, no test itself, not mechanical, no
+  changed test names its stem, and the commits change no test code inside it (a unit that is `test`: a test of its
+  Rust `#[cfg(test)] mod tests`, a fixture of it); a test it keeps while its code changes does not count.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_rust_file_whose_inline_test_changed_is_tested`)
 - `breaks` must sum the usages left outside the change of the API a file removes or changes, at its last path, also
   of a removal whose entry names the old path. A usage inside the change and an addition break nothing.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
@@ -790,7 +793,8 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The module roots of the summaries are read at the checked out HEAD, not at the head of the range.
 - A key gets one entry: when an overload changed and another was added in the same commits, only the change is
   listed.
-- `untested` sees only test files the commits change; a Rust test module inside its file does not count.
+- `untested` sees a test inside a file only by its changed lines: a commit that changes the code of a Rust file and
+  only a fixture of its `mod tests` that no test runs directly still counts as tested.
 - An abstract test base class whose `@Test` methods its subclasses run is test code, and so are its helpers: its
   contract is for the test subclasses. A class named `…Test` without a test function stays API, as a public helper
   of a test source set (`testFramework`, `testSrc`) does: only a test function marks a class.

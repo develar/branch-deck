@@ -112,6 +112,17 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
   [@test] ../../crates/review-plan/src/units_test.rs (`the_units_follow_the_order_of_the_files_and_the_pair_of_a_file_changed_twice`)
   [@test] ../../crates/review-plan/src/units_test.rs (`the_generated_files_are_one_unit_after_the_other_mechanical_ones`)
 
+### API and Tests
+- A unit of a declaration must be `api` exactly when it has its entry in the API of the plan, or would have it by a
+  change of its form, by the surface of its declaration on each side ([Review Plan](review-plan.spec.md#api-surface)):
+  an addition when it is API after the commits; a removal, a change of its form or of its body when it is API or
+  unstable API on a side. A promotion is `api`; a test, a fixture of its class or module, an entry point, an override,
+  an addition of unstable API and a private declaration are not. A unit of no declaration is neither `api` nor `test`.
+- A unit of a declaration must be `test` when it is test code (a test, a type that declares one, a member of such a
+  type or module), after the commits, before them for a removal.
+  [@test] ../../crates/review-plan/src/units_test.rs (`a_unit_is_api_by_the_rule_of_the_api_of_the_plan`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_change_of_form_to_or_from_api_is_listed`)
+
 ### Identity
 - `id` must name a unit within a plan: of a declaration its file, key and signature.
 - `fingerprint` must name the change across plans: of a declaration a digest of its key, its signature and its text
@@ -122,9 +133,9 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
 ### In `bd`
-- `bd review-plan` must print `units` (`"schema": 10`): per unit its `id`, `kind` (`shape` with `changes`,
+- `bd review-plan` must print `units` (`"schema": 11`): per unit its `id`, `kind` (`shape` with `changes`,
   `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles` with `directory`, `mechanical` with
-  `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `public`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
+  `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `api`, `test`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)
   and its `fingerprint`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -176,12 +187,14 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 ```json
 "units": [
   {"id": "declaration:src/a/Api.kt:a.open:path:String,mode:Int", "kind": "shape", "changes": ["parameters"],
-   "name": "open", "key": "a.open", "signature": "path:String,mode:Int", "public": true, "line": 3,
+   "name": "open", "key": "a.open", "signature": "path:String,mode:Int", "api": true, "test": false, "line": 3,
    "slices": [{"path": "src/a/Api.kt", "old_path": null, "whole": false,
      "blocks": [{"index": 0, "old": [3, 3], "new": [3, 3]}], "fingerprint": "5f0c…"}], "fingerprint": "5f0c…"},
-  {"id": "new:src/a/Session.kt", "kind": "newFile", "name": "Session.kt", "public": false, "slices": [{"path":
+  {"id": "new:src/a/Session.kt", "kind": "newFile", "name": "Session.kt", "api": false, "test": false,
+   "slices": [{"path":
    "src/a/Session.kt", "old_path": null, "whole": true, "blocks": [], "fingerprint": "a1d9…"}], "fingerprint": "a1d9…"},
-  {"id": "mechanical:importsOnly", "kind": "mechanical", "mechanical": "importsOnly", "public": false, "slices": […]}
+  {"id": "mechanical:importsOnly", "kind": "mechanical", "mechanical": "importsOnly", "api": false, "test": false,
+   "slices": […]}
 ]
 ```
 

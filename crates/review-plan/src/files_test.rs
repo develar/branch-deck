@@ -7,7 +7,7 @@ use generated_files::names::GeneratedName;
 use object_cache::commit_diff::FileChange;
 use object_cache::commit_diff::Hunk;
 use pretty_assertions::assert_eq;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 use trial_check::diff_scan::CommitDiff;
@@ -34,7 +34,7 @@ fn commit(files: Vec<FileChange>) -> CommitDiff {
 /// The facts of `diffs` with no text, no link, and `api`
 fn facts_of(diffs: &[CommitDiff], api: &[ApiChange]) -> Vec<FileFacts> {
   let files = changed_files(diffs);
-  file_facts(&files, &file_kinds(&files, &HashMap::new(), &[], &[]), &[], api).0
+  file_facts(&files, &file_kinds(&files, &HashMap::new(), &[], &[]), &[], api, &HashSet::new()).0
 }
 
 /// The paths of the facts that are untested
@@ -109,6 +109,51 @@ fn a_source_file_changed_without_its_test_is_untested() {
       ("src/a/Login.kt", None),
       ("src/test/kotlin/a/LoginTest.kt", None),
       ("README.md", None)
+    ]
+  );
+}
+
+/// A Rust source of `size` whose code returns `value` and whose inline test, when `tested`, asserts `asserted`
+fn rust_source(value: u8, asserted: Option<u8>) -> String {
+  let code = format!("pub fn size() -> u8 {{\n  {value}\n}}\n");
+  let Some(asserted) = asserted else { return code };
+  format!("{code}\n#[cfg(test)]\nmod tests {{\n  use super::*;\n\n  #[test]\n  fn size_is_right() {{\n    assert_eq!(size(), {asserted});\n  }}\n}}\n")
+}
+
+/// A Rust file whose commits change a test inside it is tested by it: a changed test of its `mod tests`, a `mod tests`
+/// added to it, a new file with one; a file whose commits change its code beside a test they keep, and a new file
+/// without one, are untested
+#[test]
+fn a_rust_file_whose_inline_test_changed_is_tested() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files(
+    "Add sources",
+    &[
+      ("src/store.rs", &rust_source(1, Some(1))),
+      ("src/cache.rs", &rust_source(1, Some(1))),
+      ("src/grown.rs", &rust_source(1, None)),
+    ],
+  );
+  let head = repo.create_commit_with_files(
+    "Change sources",
+    &[
+      ("src/store.rs", &rust_source(2, Some(2))),
+      ("src/cache.rs", &rust_source(2, Some(1))),
+      ("src/grown.rs", &rust_source(1, Some(1))),
+      ("src/fresh.rs", &rust_source(1, Some(1))),
+      ("src/plain.rs", &rust_source(1, None)),
+    ],
+  );
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  let facts: Vec<(&str, bool)> = plan.files.iter().map(|facts| (facts.path.as_str(), facts.untested)).collect();
+  assert_eq!(
+    facts,
+    [
+      ("src/cache.rs", true),
+      ("src/plain.rs", true),
+      ("src/fresh.rs", false),
+      ("src/grown.rs", false),
+      ("src/store.rs", false)
     ]
   );
 }

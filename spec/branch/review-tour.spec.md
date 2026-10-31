@@ -101,11 +101,12 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 
 ### Tests That Name It
 - A declaration a test framework runs is a test ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)). A
-  declaration of the code of a step, of a parsed language, whose body or form changed or that it adds, and in no test
-  file, must be `named` by the tests of the range whose changed lines within their declaration name it as a whole word
+  declaration of the code of a step, of a parsed language, whose body or form changed or that it adds, in no test
+  file and no test code (a test, a fixture of its class or of its Rust `mod tests`: the unit is `test`), must be `named` by the tests of the range whose changed lines within their declaration name it as a whole word
   (a member with its owner, a type, named in the file of the test too), else `unnamed`; the words of a Kotlin test name
   in backticks name nothing. A name two such declarations share is led by its owner (`Owner.run`).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_tests_that_name_the_code_of_a_step_and_the_code_none_names`, `a_test_reads_as_its_words`)
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_fixture_of_a_test_is_no_code_a_test_names`)
 - A step that adds or changes a rule of a spec must list the tests its test links name (`scenarios`): a scenario
   that names no declaration proves it.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`)
@@ -130,7 +131,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`)
 
 ### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 10`), the ids of the commits of the steps as short as
+- `bd review-plan` must print `steps` and `brief` (`"schema": 11`), the ids of the commits of the steps as short as
   the others, and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)

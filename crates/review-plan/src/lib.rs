@@ -49,7 +49,7 @@ use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::steps::{ReviewSteps, StepsInput, review_steps};
-use crate::units::{ReviewUnit, review_units};
+use crate::units::{ReviewUnit, changed_test_paths, review_units};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
@@ -341,6 +341,7 @@ pub fn review_plan_of(
     links: &links,
     contract: &brief.contract,
   });
+  let inline_tests = changed_test_paths(input.as_ref(), &changed, &units);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -365,12 +366,12 @@ pub fn review_plan_of(
     index_note: None,
   };
   if sources.index.is_some() && api.iter().any(|change| change.kind != ApiChangeKind::Added) {
-    (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api);
+    (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
     plan.api.clone_from(&api);
     pending(&plan);
   }
   plan.index_note = add_usages(sources.index, repository_path, &plan.head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api)?;
-  (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api);
+  (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
   plan.api = api;
   Ok(plan)
 }

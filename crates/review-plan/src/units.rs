@@ -12,6 +12,9 @@
 //!   whitespace) `Behaviour`, one whose text is the same too whitespace; a declaration of one side alone, its lines
 //!   changed, is `Added` or `Removed`, also when another unit holds its block.
 //!   A declaration of one side alone inside another of that side alone is part of the unit of the outermost one.
+//! - **API and tests**: a unit of a declaration is `api` when the API of the plan lists it, or would by a change of its
+//!   form (`api::listed`, by the `Surface` of each side), and `test` when it is test code (`DeclarationForm::test`);
+//!   `changed_test_paths` names the files whose commits change a test inside them, for `untested`.
 //! - **A group** is one unit over its files: a kind of mechanical change, a repeated edit.
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block; a repeated edit at the
 //!   place of its first file; the mechanical units last.
@@ -19,14 +22,14 @@
 //!   signature and the text of a declaration without whitespace on both sides, or the text of the blocks of a slice,
 //!   or the blobs of a file taken whole. Neither depends on the whitespace policy of the window.
 
-use crate::api::{FormChange, form_changes};
+use crate::api::{FormChange, form_changes, listed};
 use crate::files::{ChangedFile, FileKinds, MechanicalKind, indentation_matters, lines_edit_key, without_whitespace};
 use crate::pair::{LineBlock, PairBlocks};
 use code_symbols::language::language_of;
 use file_diffs::service::imports_only;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::ops::Range;
 use trial_check::symbol_dependencies::declaration_checks::{FileDeclarations, SpannedDeclaration, spanned_declarations};
@@ -123,12 +126,16 @@ pub struct ReviewUnit {
   pub kind: UnitKind,
   /// Of a declaration: its name; of a new file or a change of no declaration: the name of its file
   pub name: Option<String>,
-  /// Of a declaration: namespace, containers and name, as `ApiChange::key` (a public one has its entry by key and path)
+  /// Of a declaration: namespace, containers and name, as `ApiChange::key` (one that is `api` has its entry by key and path)
   pub key: Option<String>,
   /// Of a declaration: what tells it from an overload of its key
   pub signature: Option<String>,
-  /// Of a declaration: another module may name it
-  pub public: bool,
+  /// Of a declaration: it has its entry in `ReviewPlan::api`, or would have it by a change of its form, by its surface
+  /// on each side (`api::listed`): an addition when it is API after the commits, any other change when it is API or
+  /// unstable API on a side
+  pub api: bool,
+  /// Of a declaration: test code (`DeclarationForm::test`), after the commits, before them for a removal
+  pub test: bool,
   /// Of a declaration: the line of its name after the commits, before them for a removal, from 1
   pub line: Option<u32>,
   /// One per file, in the order of the files; of a group, every file of it
@@ -323,7 +330,8 @@ impl PairFile<'_> {
         name: Some(file_name(self.file.path).to_string()),
         key: None,
         signature: None,
-        public: false,
+        api: false,
+        test: false,
         line: None,
         fingerprint: slice.fingerprint.clone(),
         slices: vec![slice],
@@ -430,7 +438,8 @@ pub(crate) fn review_units(
         name: None,
         key: None,
         signature: None,
-        public: false,
+        api: false,
+        test: false,
         line: None,
         slices,
         fingerprint,
@@ -447,7 +456,8 @@ pub(crate) fn review_units(
         name: None,
         key: None,
         signature: None,
-        public: false,
+        api: false,
+        test: false,
         line: None,
         slices,
         fingerprint,
@@ -466,7 +476,8 @@ pub(crate) fn review_units(
       name: None,
       key: None,
       signature: None,
-      public: false,
+      api: false,
+      test: false,
       line: None,
       slices,
       fingerprint,
@@ -474,6 +485,25 @@ pub(crate) fn review_units(
   }
   debug_assert!(every_block_once(files, pairs, &units), "a block in no unit or in two: {units:#?}");
   units
+}
+
+/// The paths of `files` whose commits change a test inside them: those of a unit of test code (`ReviewUnit::test`), and
+/// a new file whose summary in `input` declares a test (`files`, "Tests": an inline test, a Rust `#[cfg(test)] mod
+/// tests`, tests the file it is in)
+pub(crate) fn changed_test_paths(input: Option<&SymbolInput>, files: &[ChangedFile<'_>], units: &[ReviewUnit]) -> HashSet<String> {
+  let declares_test = |file: &ChangedFile<'_>| {
+    file
+      .after
+      .and_then(|blob| input?.summaries.get(blob))
+      .is_some_and(|summary| summary.declarations.iter().any(|declaration| declaration.test))
+  };
+  let new_files = files.iter().filter(|file| file.before.is_none() && declares_test(file)).map(|file| file.path.to_string());
+  units
+    .iter()
+    .filter(|unit| unit.test)
+    .flat_map(|unit| unit.slices.iter().map(|slice| slice.path.clone()))
+    .chain(new_files)
+    .collect()
 }
 
 /// Every block of every file of `pairs` is in exactly one of `units`, and every file of the pair in one at least
@@ -700,7 +730,8 @@ impl SourceFile<'_> {
           name: Some(form.name.clone()),
           key: Some(form.key.clone()),
           signature: Some(declaration.signature.clone()),
-          public: form.public,
+          api: listed(before.map(|old| old.form.surface), after.map(|new| new.form.surface)),
+          test: form.test,
           line: Some(form.line),
           slices: vec![pair_file.slice(false, unit_blocks, fingerprint.clone())],
           fingerprint,
@@ -719,7 +750,8 @@ impl SourceFile<'_> {
           name: Some(file_name(pair_file.file.path).to_string()),
           key: None,
           signature: None,
-          public: false,
+          api: false,
+          test: false,
           line: None,
           slices: vec![pair_file.slice(false, run, fingerprint.clone())],
           fingerprint,

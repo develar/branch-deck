@@ -6,14 +6,15 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 9` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 11` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
 //! made a deletion real work: no `mechanical: "deleted"`, a unit `deletedFile` per deleted file and `deletedFiles`
 //! with its `directory` for 3 or more deleted from one directory, version 7 the `concerns`, version 8 the `elsewhere`
 //! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern, version 10
-//! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`
+//! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`, version 11 the `api`
+//! and `test` of a unit in place of its `public`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -38,7 +39,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 10;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 11;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -269,7 +270,11 @@ pub struct UnitOutput {
   pub key: Option<String>,
   /// Of a declaration: what tells it from an overload of the same key
   pub signature: Option<String>,
-  pub public: bool,
+  /// Of a declaration: it has its entry in `api`, or would have it by a change of its form: an addition of API, any
+  /// other change of API or unstable API on a side
+  pub api: bool,
+  /// Of a declaration: test code, a test, a fixture of its class or module
+  pub test: bool,
   /// Of a declaration: the line of its name, after the commits (before them for a removal)
   pub line: Option<u32>,
   /// What it changes in each file
@@ -521,7 +526,8 @@ fn unit_output(unit: ReviewUnit) -> UnitOutput {
     name: unit.name,
     key: unit.key,
     signature: unit.signature,
-    public: unit.public,
+    api: unit.api,
+    test: unit.test,
     line: unit.line,
     slices: unit.slices.into_iter().map(slice).collect(),
     fingerprint: unit.fingerprint,

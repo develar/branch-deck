@@ -3263,7 +3263,7 @@ and the `rewritten` ones, each against its own parent:
 | 16. Concerns | none | the units of step 15 joined into the tasks of the range (`concerns.rs`, [Review Concerns](../../spec/branch/review-concerns.spec.md)) by the links of step 11, the hunk text of step 12 and the generated files of step 14: a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share, the rest to the concern of its file or subject |
 | 17. Steps and brief | none | the lines of each changed file carried through the hunks of every commit of step 1 (`steps.rs`, [Review Tour](../../spec/branch/review-tour.spec.md)): each unit of step 15 in the step of the commit of most of its lines, the rounds glued, the tests of step 7 that name its code; the brief from the messages of step 1 and the hunk text of step 12 |
 
-`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 10` (`REVIEW_PLAN_SCHEMA_VERSION`),
+`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 11` (`REVIEW_PLAN_SCHEMA_VERSION`),
 the other outputs of `bd` with 2. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes

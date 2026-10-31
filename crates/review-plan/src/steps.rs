@@ -16,8 +16,9 @@
 //! - **A step whose lines a later commit rewrote whole** shows nothing of its own: it follows the step of that commit.
 //! - **The order** of a step is that of the story, but a declaration the step adds or changes the form of comes first
 //!   and the uses of it in the step right after it (`uses`); a mechanical part follows the step its concern is in.
-//! - **The tests that name it**: per declaration of the code of a step, the tests of the range whose changed lines name
-//!   it (a member with its owner named in the test's file), and those none names.
+//! - **The tests that name it**: per declaration of the code of a step (no test code: a test, a fixture of its class or
+//!   module, `ReviewUnit::test`), the tests of the range whose changed lines name it (a member with its owner named in
+//!   the test's file), and those none names.
 //! - **Coverage**: every block of the range in one stop, else in a mechanical unit (`StepCoverage`).
 
 use crate::brief::ContractEntry;
@@ -883,10 +884,8 @@ fn tests_of(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, step: &Revie
   let mut unnamed = Vec::new();
   for stop in &step.stops {
     let Some(unit) = place_of.get(stop.unit.as_str()) else { continue };
-    let code = matches!(unit.kind, UnitKind::Added | UnitKind::Behaviour | UnitKind::Shape { .. })
-      && language_of(&stop.path).is_some()
-      && test_subject(&stop.path).is_none()
-      && test_span(input, file_of, unit).is_none();
+    let code =
+      matches!(unit.kind, UnitKind::Added | UnitKind::Behaviour | UnitKind::Shape { .. }) && language_of(&stop.path).is_some() && test_subject(&stop.path).is_none() && !unit.test;
     let Some(name) = unit.name.as_deref().filter(|name| code && name.len() >= MIN_NAME) else {
       continue;
     };

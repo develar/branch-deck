@@ -237,6 +237,18 @@ struct Site<'a> {
 
 /// What the commits did to `key`, by its forms in every file they touch it in and their `Surface`; `None` when nothing
 /// of the API changed
+/// Whether a declaration of the surface `before` the commits and `after` them has its entry in the API of a review, or
+/// would have it by a change of its form (`change_of`): an addition when it is API after them, any other change when
+/// it is API or unstable API on a side; a form both sides have that becomes API (a promotion) is API on its new side
+pub(crate) fn listed(before: Option<Surface>, after: Option<Surface>) -> bool {
+  match (before, after) {
+    (None, after) => after == Some(Surface::Api),
+    (Some(before), after) => before != Surface::None || after.is_some_and(|after| after != Surface::None),
+  }
+}
+
+/// What the commits did to `key`, by its forms in every file they touch it in and their `Surface`; `None` when nothing
+/// of the API changed
 fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange> {
   let before: Vec<Site> = files
     .iter()

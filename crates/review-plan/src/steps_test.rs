@@ -163,6 +163,21 @@ fn a_declaration_a_step_adds_comes_first_and_its_uses_right_after_it() {
   );
 }
 
+/// The declarations the tests of the steps of `plan` name, by name with the names of their tests, sorted, and those none
+/// names
+fn named_and_unnamed(plan: &ReviewPlan) -> (Vec<(&str, Vec<&str>)>, Vec<&str>) {
+  let mut named: Vec<(&str, Vec<&str>)> = plan
+    .steps
+    .steps
+    .iter()
+    .flat_map(|step| &step.tests.named)
+    .map(|named| (named.name.as_str(), named.tests.iter().map(|test| test.name.as_str()).collect()))
+    .collect();
+  named.sort();
+  let unnamed = plan.steps.steps.iter().flat_map(|step| &step.tests.unnamed).map(String::as_str).collect();
+  (named, unnamed)
+}
+
 /// The tests of the range that name a declaration of a step are its tests, a member by its owner named in the test's
 /// file too; a declaration no test names is unnamed
 #[test]
@@ -195,22 +210,33 @@ fn the_tests_that_name_the_code_of_a_step_and_the_code_none_names() {
     ],
   );
   let plan = plan_of_range(&repo, &base, &head);
-  let mut named: Vec<(&str, Vec<&str>)> = plan
-    .steps
-    .steps
-    .iter()
-    .flat_map(|step| &step.tests.named)
-    .map(|named| (named.name.as_str(), named.tests.iter().map(|test| test.name.as_str()).collect()))
-    .collect();
-  named.sort();
+  let (named, unnamed) = named_and_unnamed(&plan);
   assert_eq!(
     named,
     [("allowed", vec!["the project open may show only the stored layout"]), ("open", vec!["opens"])],
     "{:?}",
     plan.steps
   );
-  let unnamed: Vec<&str> = plan.steps.steps.iter().flat_map(|step| &step.tests.unnamed).map(String::as_str).collect();
   assert_eq!(unnamed, ["isEmpty"], "the isEmpty of a list in another test is no use of the manager's");
+}
+
+/// A Rust source of `size` returning `value`, with a fixture of its inline tests returning `prepared` and a test that
+/// asserts `asserted`
+fn store_source(value: u8, prepared: &str, asserted: u8) -> String {
+  format!(
+    "pub fn size() -> u8 {{\n  {value}\n}}\n\n#[cfg(test)]\nmod tests {{\n  use super::*;\n\n  fn prepared_store() -> u8 {{\n    {prepared}\n  }}\n\n  #[test]\n  fn size_is_right() {{\n    let _ = prepared_store();\n    assert_eq!(size(), {asserted});\n  }}\n}}\n"
+  )
+}
+
+/// A fixture of a test (a helper of an inline `mod tests`, a member of a test class) is test code, no code a test
+/// names: the change of its body is neither named nor unnamed
+#[test]
+fn a_fixture_of_a_test_is_no_code_a_test_names() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("src/store.rs", &store_source(1, "1", 1))]);
+  let head = repo.create_commit_with_files("Change the size", &[("src/store.rs", &store_source(2, "2", 2))]);
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(named_and_unnamed(&plan), (vec![("size", vec!["size is right"])], vec![]), "{:?}", plan.steps);
 }
 
 /// A file of no language is cut by its blocks: each block in the step of the commit that wrote it; the file has its main

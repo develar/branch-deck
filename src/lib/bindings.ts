@@ -6595,12 +6595,18 @@ export type ReviewUnit = {
 	kind: UnitKind,
 	/**  Of a declaration: its name; of a new file or a change of no declaration: the name of its file */
 	name: string | null,
-	/**  Of a declaration: namespace, containers and name, as `ApiChange::key` (a public one has its entry by key and path) */
+	/**  Of a declaration: namespace, containers and name, as `ApiChange::key` (one that is `api` has its entry by key and path) */
 	key: string | null,
 	/**  Of a declaration: what tells it from an overload of its key */
 	signature: string | null,
-	/**  Of a declaration: another module may name it */
-	public: boolean,
+	/**
+	 *  Of a declaration: it has its entry in `ReviewPlan::api`, or would have it by a change of its form, by its surface
+	 *  on each side (`api::listed`): an addition when it is API after the commits, any other change when it is API or
+	 *  unstable API on a side
+	 */
+	api: boolean,
+	/**  Of a declaration: test code (`DeclarationForm::test`), after the commits, before them for a removal */
+	test: boolean,
 	/**  Of a declaration: the line of its name after the commits, before them for a removal, from 1 */
 	line: number | null,
 	/**  One per file, in the order of the files; of a group, every file of it */

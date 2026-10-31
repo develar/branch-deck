@@ -23,7 +23,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(10), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&json!(11), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -141,6 +141,9 @@ fn prints_the_api_and_the_files_of_a_range() {
     ],
     "{output}"
   );
+  // `open` is API, the new file no declaration; neither is a test
+  let flags: Vec<(&Value, &Value)> = output["units"].as_array().unwrap().iter().map(|unit| (&unit["api"], &unit["test"])).collect();
+  assert_eq!(flags, [(&json!(true), &json!(false)), (&json!(false), &json!(false))], "{output}");
   // the story of one commit is its concerns, every block in one stop; no issue, no prose of a spec or a doc
   assert_eq!(
     (&output["steps"]["source"], &output["steps"]["coverage"], &output["brief"]),
