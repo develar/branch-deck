@@ -17,7 +17,7 @@ use git_ops::update_branch::{
 use git_ops::update_resolve::{PreparedStart, prepare_session_start};
 use git_ops::word_resolve::ResolveMode;
 use history_rewrite::commit_grouper::GroupingInputs;
-use history_rewrite::repository_lock::{LockWait, lock_checked_undo};
+use history_rewrite::repository_lock::{LockWait, lock_checked_undo, lock_for_files};
 use std::path::Path;
 use std::time::Duration;
 use sync_core::baseline::{BaselineUpstream, fetch_baseline, last_fetch_time, read_check_inputs};
@@ -221,7 +221,10 @@ fn update_project_impl(git_executor: &GitCommandExecutor, repo_path: &str, optio
   // words) is computed before the lock too
   let mut start = session_start(git_executor, repo_path, &prepared, resolve)?;
   let locked = (|| -> Result<_> {
-    let lock = options.lock_wait.lock_with(git_executor, repo_path, &|| on_progress(UpdatePhase::Waiting.into()))?;
+    // the index lock of another process is waited for before the repository lock, not under it
+    let lock = lock_for_files(options.lock_wait, git_executor, repo_path, prepared.plan.moves_files(), &|| {
+      on_progress(UpdatePhase::Waiting.into());
+    })?;
     // an update or undo that a crash stopped before its files followed: they follow first
     let recovered = finish_pending_update(git_executor, repo_path)?.is_some();
     let holds = !recovered && recheck_update(git_executor, repo_path, &mut prepared.plan, upstream_ref)?;

@@ -140,6 +140,10 @@ impl Prepared for PreparedReapply {
   fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
     self.chain.discard(git_executor, repository_path);
   }
+
+  fn moves_files(&self) -> bool {
+    self.plan.files_change()
+  }
 }
 
 /// Everything a reapply reads and computes: the unapplied branch with its worktree, the start of its own commits, the

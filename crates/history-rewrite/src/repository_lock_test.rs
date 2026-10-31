@@ -3,7 +3,7 @@
 //! bound of a holder no record names are for another process); a stopped wait leaves its place, a try waits for nobody
 
 use crate::repository_lock::{
-  DEFAULT_LOCK_TIMEOUT, LockWait, LockWaitCanceled, RepositoryLocked, RewriteOptions, line_key, lines, lock_repository_as_another_process, lock_repository_in,
+  DEFAULT_LOCK_TIMEOUT, LockWait, LockWaitCanceled, RepositoryLocked, RewriteOptions, line_key, lines, lock_for_files, lock_repository_as_another_process, lock_repository_in,
   lock_repository_while_held, try_lock_repository_in,
 };
 use crate::squash::{SquashCommitsParams, squash_commits_core};
@@ -300,4 +300,35 @@ fn a_head_moved_between_two_reads_before_the_lock_is_computed_once_more_under_it
   let error = RewriteOptions::default().lock_prepared(git, path, Err(anyhow::anyhow!("failed")), never).err().unwrap();
   assert_eq!(error.to_string(), "failed");
   assert_eq!(fixture.discarded.get(), 0, "nothing was computed before the lock");
+}
+
+/// A move whose files follow waits for the index lock of another process (an IDE's `git status`) before it takes the
+/// repository lock: while it waits, another writer takes the repository lock at once, and once the index lock is gone
+/// the move gets the repository lock. The plain test attribute: the subscriber of `CapturedLog` is the one of the process
+#[::core::prelude::v1::test]
+fn a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock() {
+  let log = test_utils::captured_log::CapturedLog::install(false);
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial", "README.md", "readme");
+  let git_dir = test_repo.path().join(".git");
+  let index_lock = git_dir.join("index.lock");
+  // open, so the wait never takes it for a lock that no process owns, however late its holder lets go
+  let held = std::fs::File::create(&index_lock).unwrap();
+  let git_executor = git_ops::revs::with_dirs_of(test_repo.git_executor(), test_repo.path_str()).unwrap();
+  let taken_meanwhile = std::thread::scope(|scope| {
+    let holder = scope.spawn(|| {
+      while !log.text().contains("the index lock of another process is there: the move waits for it") {
+        std::thread::sleep(Duration::from_millis(10));
+      }
+      let taken = lock_repository_as_another_process(&git_dir, "bd group").is_ok();
+      // closed first: Windows keeps the name of a removed file while it is open
+      drop(held);
+      std::fs::remove_file(&index_lock).unwrap();
+      taken
+    });
+    let lock = lock_for_files(LockWait::default(), &git_executor, test_repo.path_str(), true, &|| {});
+    assert!(lock.is_ok(), "{:#}", lock.err().unwrap());
+    holder.join().unwrap()
+  });
+  assert!(taken_meanwhile, "the repository lock was free while the move waited for the index");
 }

@@ -73,6 +73,11 @@ impl UnapplyPlan {
     self.prepared.new_head()
   }
 
+  /// Whether the files follow the unapply: the index and the working tree change
+  pub const fn files_change(&self) -> bool {
+    self.files_change
+  }
+
   /// Delete the temporary refs of the drop, leaving its objects to `git gc`
   pub fn discard(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
     self.prepared.discard(git_executor, repo_path);

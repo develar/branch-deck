@@ -246,8 +246,11 @@ The header shows whether an update would apply cleanly, from a check that every 
   after a check that HEAD is still on the checked branch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
 - The index lock of another process must make the move wait (at most 30 s per write) and an ownerless one be removed,
-  as for `bd pick`; one that stays must move the branch back and answer `locked`, nothing changed.
+  as for `bd pick`; one that stays must move the branch back and answer `locked`, nothing changed. The wait must come
+  before the repository lock, so no other writer waits for it; a lock that appears while the update takes the
+  repository lock must release it and wait outside it.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
+  [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock`)
 - HEAD switched to another branch since the check, even one at the same commit, and also right before the move, must
   refuse the move (and its undo) with nothing changed.
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_switch_to_another_branch_at_the_same_commit_since_the_check_is_refused`, `a_switch_to_a_branch_at_another_commit_since_the_check_is_refused`, `a_detached_head_switched_to_a_branch_at_another_commit_since_the_check_is_refused`)

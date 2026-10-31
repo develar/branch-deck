@@ -177,6 +177,11 @@ pub(crate) struct CheckedState {
 }
 
 impl UpdatePlan {
+  /// Whether the files follow the update it applies: a clean update that changes them
+  pub const fn moves_files(&self) -> bool {
+    matches!(self.check.state, UpdateState::Clean { .. }) && self.files_change
+  }
+
   /// Whether this is the check before an apply that found a conflict: the start of a resolve session
   pub(crate) fn is_applicable_conflict(&self) -> bool {
     self.purpose == CheckPurpose::Apply && matches!(self.check.state, UpdateState::Conflict { .. })
@@ -1144,6 +1149,11 @@ impl UpdateUndo {
     &self.head
   }
 
+  /// Whether the files follow the undo: the index and the working tree change
+  pub const fn files_change(&self) -> bool {
+    self.files_change
+  }
+
   /// The local paths that stop the files from following, as `UpdateState::Blocked` lists them; empty if they can
   pub fn blocked(&self) -> &[String] {
     &self.blocked
@@ -1672,6 +1682,25 @@ fn move_with_index_lock(git_executor: &GitCommandExecutor, repo_path: &str, lock
     return Err(undo.after(git_executor, repo_path, e, "nothing was changed"));
   }
   Ok(())
+}
+
+/// Before the repository lock, for a move whose files change: wait while another process holds the index lock of the
+/// worktree (`IndexLock::wait_while_locked`, at most `INDEX_LOCK_WAIT`; a lock no process owns is removed), so that the
+/// wait keeps no other writer waiting for the repository lock; `IndexLocked` (the code `locked`) when the lock stays,
+/// nothing changed. The path of the lock comes from the directories of the executor (`with_dirs_of`): without them
+/// nothing is waited for, and the move waits under the lock as before
+///
+/// # Errors
+/// `IndexLocked`
+pub fn wait_for_index(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<()> {
+  IndexLock::known(git_executor, repo_path).wait_while_locked(INDEX_LOCK_WAIT)
+}
+
+/// Whether another process holds the index lock of the worktree now: the one look under the repository lock of a move
+/// that `wait_for_index` waited for before it. A lock that appeared meanwhile sends the core out of the lock to wait
+/// (`history_rewrite::repository_lock::lock_prepared`), so it does not wait for git's lock under its own
+pub fn index_held(git_executor: &GitCommandExecutor, repo_path: &str) -> bool {
+  IndexLock::known(git_executor, repo_path).is_held()
 }
 
 /// The move back of a branch whose files could not follow

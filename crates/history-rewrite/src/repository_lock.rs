@@ -19,7 +19,7 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::PreparedRewrite;
 use git_ops::squash_commits::CheckedRestore;
 use git_ops::unapply::MoveBlocked;
-use git_ops::update_branch::{FilesBlocked, UndoBlocked, UndoCheck, finish_pending_update, pending_mark, pending_update};
+use git_ops::update_branch::{FilesBlocked, UndoBlocked, UndoCheck, finish_pending_update, index_held, pending_mark, pending_update, wait_for_index};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
@@ -836,6 +836,12 @@ pub trait Prepared {
 
   /// Delete the temporary refs of the objects it wrote: it is abandoned, or computed once more
   fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str);
+
+  /// Whether its move writes the index and the working tree: then the index lock of another process is waited for
+  /// before the repository lock and only looked at under it (`lock_prepared`)
+  fn moves_files(&self) -> bool {
+    false
+  }
 }
 
 /// The error of a rewrite core: whether it is `HeadMoved`, which a computation before the repository lock meets when
@@ -874,6 +880,11 @@ macro_rules! prepared_on_head {
   )+};
 }
 
+/// How often a move whose files follow goes out of the repository lock to wait for the index lock of another process
+/// that appeared after its wait before the lock (`lock_prepared`); past that it moves under the lock, whose move waits
+/// for git's lock itself (`INDEX_LOCK_WAIT`)
+const INDEX_TURNS: usize = 3;
+
 prepared_on_head!(PreparedRewrite, PreparedReword);
 
 impl Prepared for CheckedRestore {
@@ -906,7 +917,7 @@ pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
   if held_lock.is_some() {
     return Ok((prepared, None));
   }
-  let lock = match lock_wait.lock(git_executor, repository_path) {
+  let lock = match lock_for_files(lock_wait, git_executor, repository_path, prepared.moves_files(), &|| {}) {
     Ok(lock) => lock,
     Err(error) => {
       prepared.discard(git_executor, repository_path);
@@ -925,6 +936,31 @@ pub fn lock_prepared<P: Prepared, E: From<anyhow::Error>>(
       Err(error.into())
     }
   }
+}
+
+/// The repository lock of a core whose move writes the index when `moves_files`: the index lock of another process
+/// waited for before it (`update_branch::wait_for_index`), and under it looked at once (`index_held`); one that appeared
+/// meanwhile releases the repository lock, so no writer waits for it while this one waits for git's, and the wait and
+/// the lock run once more, `INDEX_TURNS` times at most. `on_wait` as `LockWait::lock_with`. The caller reads its witness
+/// under the lock it gets
+///
+/// # Errors
+/// The lock not taken (`RepositoryLocked`, `LockWaitCanceled`), the index lock still there after the wait
+/// (`IndexLocked`, nothing changed)
+pub fn lock_for_files(lock_wait: LockWait<'_>, git_executor: &GitCommandExecutor, repository_path: &str, moves_files: bool, on_wait: &dyn Fn()) -> Result<RepositoryLock> {
+  if !moves_files {
+    return lock_wait.lock_with(git_executor, repository_path, on_wait);
+  }
+  for _ in 1..INDEX_TURNS {
+    wait_for_index(git_executor, repository_path)?;
+    let lock = lock_wait.lock_with(git_executor, repository_path, on_wait)?;
+    if !index_held(git_executor, repository_path) {
+      return Ok(lock);
+    }
+    debug!("the index lock of another process appeared while the move took the repository lock: it waits outside it");
+  }
+  wait_for_index(git_executor, repository_path)?;
+  lock_wait.lock_with(git_executor, repository_path, on_wait)
 }
 
 /// `lock_prepared` of a move that the files follow (an unapply, a reapply, the undo of a move; docs/contributing/git-rules.md, "Repository
@@ -1034,6 +1070,10 @@ impl Prepared for UndoCheck {
 
   /// A checked undo writes no object
   fn discard(&self, _git_executor: &GitCommandExecutor, _repository_path: &str) {}
+
+  fn moves_files(&self) -> bool {
+    matches!(self, Self::Ready(undo) if undo.files_change())
+  }
 }
 
 /// A prepared move and the mark of pending files its witness reads absent
@@ -1049,6 +1089,10 @@ impl<P: Prepared> Prepared for Marked<'_, P> {
 
   fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
     self.prepared.discard(git_executor, repository_path);
+  }
+
+  fn moves_files(&self) -> bool {
+    self.prepared.moves_files()
   }
 }
 

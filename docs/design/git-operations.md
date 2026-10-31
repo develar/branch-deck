@@ -447,10 +447,20 @@ one `master`), and each rollback made the agent loop again:
 `git_ops::index_lock` handles both, for the moves the files follow (the pick and its follow, Update Project, the
 unapply, the reapply, their undo, the finish of a resolve session) and for `IndexUpdate::apply` of the rewrites:
 
-1. **Before the CAS move**, a move whose git dir is known (`move_branch_and_files_carrying`: `current_worktree` reads
-   it anyway; a pick's check reads both worktrees' dirs) waits while a lock is there, and the refresh of the stat data
-   runs (`prepare_worktree_update`). A pick does this before the repository lock too (`PickPlan::wait_for_index_locks`),
-   so no other writer waits for the repository lock while this one waits for git's.
+1. **Before the repository lock**, a core whose move changes files waits while a lock is there, so no other writer
+   waits for the repository lock while this one waits for git's: the unapply, the reapply and the undo of a move
+   (`Prepared::moves_files` in `lock_prepared`), Update Project of the app and `bd update` (`UpdatePlan::moves_files`),
+   all through `history_rewrite::repository_lock::lock_for_files` (`update_branch::wait_for_index`, the path of the lock
+   from the directories of the executor, no process), and a pick (`PickPlan::wait_for_index_locks`, both worktrees).
+   Under the repository lock it looks once (`update_branch::index_held`, `PickPlan::index_held`, a stat of the file):
+   a lock that appeared meanwhile releases the repository lock, waits outside it, and the lock and the witness run
+   once more (`INDEX_TURNS`, 3, for the cores; a pick checks again in its loop). Then, before the CAS move, a move whose
+   git dir is known (`move_branch_and_files_carrying`: `current_worktree` reads it anyway; a pick's check reads both
+   worktrees' dirs) waits while a lock is there, which after the look is a fallback for a lock that came in the
+   microseconds since, and the refresh of the stat data runs (`prepare_worktree_update`). `bd update --continue`, which
+   holds the lock for its whole round, waits under it (its exception in "Lock spans").
+   `a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock`
+   (`crates/history-rewrite/src/repository_lock_test.rs`).
 2. **A step that a lock blocked runs again** once the lock is gone (`IndexLock::retry`): the step failed, and the lock
    exists now and appeared before the step started (100 ms of slack: Linux stamps a file with a coarse clock). A step
    that refused for its own reasons held the lock itself and released it, so a lock that exists now is younger and the

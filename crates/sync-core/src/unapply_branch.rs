@@ -162,6 +162,10 @@ impl Prepared for PreparedUnapply {
   fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
     self.plan.discard(git_executor, repository_path);
   }
+
+  fn moves_files(&self) -> bool {
+    self.plan.files_change()
+  }
 }
 
 /// Everything an unapply reads and computes: the commits of the branch as they group now, the check that the virtual

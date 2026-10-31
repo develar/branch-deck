@@ -203,7 +203,8 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
   moved.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_file_edited_during_the_replay_of_a_pick_blocks_it`)
 - The index lock of another process in the target or the source (an IDE's `git status`) must make the pick wait,
-  before the repository lock and in the move, at most 30 s per write, never roll it back; a lock that no process owns
+  before the repository lock and in the move, at most 30 s per write, never roll it back; one that appears while the
+  pick takes the repository lock must release it and send the pick back to check and wait outside it; a lock that no process owns
   (left by a killed git) must be removed after two checks 2 s apart. A lock that stays must answer `locked`
   (retryable, exit 3) with the lock file, its age and the processes that may own it (`processes`), nothing changed;
   in the source it must make `followed.state` `blocked`, the target picked.

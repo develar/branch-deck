@@ -198,6 +198,11 @@ impl PickPlan {
     self.upstream.as_deref().map(|upstream| (upstream, self.upstream_head.as_deref()))
   }
 
+  /// Whether the files of the target follow its move: its index and working tree change
+  pub const fn files_change(&self) -> bool {
+    !self.changed.is_empty()
+  }
+
   /// Whether applying the plan moves a HEAD: the target's, or the source's that follows onto another commit. One that
   /// moves nothing applies without git, so it needs no lock
   pub fn moves_anything(&self) -> bool {
@@ -219,6 +224,19 @@ impl PickPlan {
       IndexLock::at(git_executor, &follow_check.worktree, source_git_dir).wait_while_locked(INDEX_LOCK_WAIT)?;
     }
     Ok(())
+  }
+
+  /// Whether another process holds the index lock of the target or of the source that follows now, of a move whose
+  /// files change: the one look under the repository lock after `wait_for_index_locks` waited before it. One that
+  /// appeared meanwhile sends the pick out of the lock to check and wait again, so it does not wait for git's lock under
+  /// the repository lock
+  pub fn index_held(&self, git_executor: &GitCommandExecutor, target: &str) -> bool {
+    let Some((target_git_dir, source_git_dir)) = &self.git_dirs else { return false };
+    if !self.changed.is_empty() && IndexLock::at(git_executor, target, target_git_dir).is_held() {
+      return true;
+    }
+    matches!((&self.follow, &self.check.follow), (Some(follow), Some(follow_check))
+      if !follow.changed.is_empty() && IndexLock::at(git_executor, &follow_check.worktree, source_git_dir).is_held())
   }
 }
 

@@ -380,8 +380,9 @@ fn remote_commits(git_executor: &GitCommandExecutor, target: &str, baseline: Opt
 
 /// The check and the moves of a pick into `worktrees[0]`, the source following when it is `worktrees[1]`. The check runs
 /// without the lock, then the wait for the index locks of other processes (`PickPlan::wait_for_index_locks`, so nobody
-/// waits for the repository lock while this pick waits for git's), and under it the witness: a target or a source that moved in between (another session's pick, a
-/// regroup, a fetch) sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
+/// waits for the repository lock while this pick waits for git's), and under it the witness: a target or a source that
+/// moved in between (another session's pick, a regroup, a fetch), or an index lock that appeared since the wait
+/// (`PickPlan::index_held`), sends the pick back to check again, `CHECKS_WITHOUT_THE_LOCK` times, then once under the lock. An
 /// interrupted move of either worktree (its mark, `pending_update`) has its files follow under the lock before a check
 /// reads them. `apply_pick` of a check that moves nothing runs no git, so it needs no lock
 fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickRequest<'_>, options: &RewriteOptions<'_>) -> Result<(PickPlan, Option<AppliedPick>)> {
@@ -401,6 +402,11 @@ fn land(git_executor: &GitCommandExecutor, worktrees: &[&str], request: &PickReq
     let lock = options.lock(git_executor, target)?;
     if finish_pending(git_executor, worktrees)? || !recheck_pick(git_executor, target, &mut plan)? {
       info!("the target or the source moved during the check of the pick: it checks again");
+      drop(lock);
+      continue;
+    }
+    if plan.index_held(git_executor, target) {
+      info!("the index lock of another process appeared while the pick took the repository lock: it waits outside it");
       drop(lock);
       continue;
     }

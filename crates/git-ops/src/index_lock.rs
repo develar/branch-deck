@@ -124,6 +124,16 @@ impl<'a> IndexLock<'a> {
     }
   }
 
+  /// The lock of the worktree of `worktree` at the path of the directories its executor knows (`with_dirs_of`), without
+  /// a process; a lock of unknown path, as `of`, when it knows none
+  pub fn known(git_executor: &'a GitCommandExecutor, worktree: &'a str) -> Self {
+    let lock = Self::of(git_executor, worktree);
+    if let Some(dirs) = known_dirs(git_executor, worktree) {
+      let _ = lock.path.set(dirs.git_path("index.lock"));
+    }
+    lock
+  }
+
   /// The lock of the worktree whose git dir is `git_dir`
   pub fn at(git_executor: &'a GitCommandExecutor, worktree: &'a str, git_dir: &str) -> Self {
     let lock = Self::of(git_executor, worktree);
@@ -185,10 +195,17 @@ impl<'a> IndexLock<'a> {
   /// Wait until no lock of another process is there, at most `wait`: before a move whose files follow, so that a
   /// collision waits while nothing has moved. Needs the path (`at`): a lock of unknown path is not looked for
   pub fn wait_while_locked(&self, wait: Duration) -> Result<()> {
-    if self.path.get().is_none() {
-      return Ok(());
+    let Some(path) = self.path.get() else { return Ok(()) };
+    if Identity::of(path).is_some() {
+      debug!(path = %path.display(), "the index lock of another process is there: the move waits for it");
     }
     self.wait_until(Instant::now() + wait)
+  }
+
+  /// Whether a lock is there now: one look at the file, none at a lock of unknown path. Under the repository lock, a
+  /// move whose wait for the index came before it looks once more before it moves (`update_branch::index_held`)
+  pub fn is_held(&self) -> bool {
+    self.path.get().is_some_and(|path| Identity::of(path).is_some())
   }
 
   /// Poll the lock until it is gone, asking every `owner_check` who owns it: a lock that no process owns at two answers
