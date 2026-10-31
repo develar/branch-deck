@@ -3557,7 +3557,11 @@ names of its files anywhere else):
   ("bd: Safe Push of auth…", the pid on hover), and a start of their row says why it can't start before any IPC; any
   other operation that needs what they hold is `busy` from the file, as above. They decide no
   admission in the session (`domain_policy::admission::admit` skips them): the file decided across processes, and a
-  record the session shows may have left it since. Without a watch (the system refused one) the file is read again
+  record the session shows may have left it since. A watcher that lost events (the queue of FSEvents or inotify
+  overflowed under load, which it tells as one event that names no file, `need_rescan`) or failed wakes the read of
+  the file, the syncs of a stamp and the journal at once: any of them may have been among the lost events, and a stamp
+  that woke nothing left the session unsynced until a focus (`lost_events_wake_the_registry_the_stamp_and_the_journal`).
+  Without a watch (the system refused one) the file is read again
   when a window of the session gains the focus (`set_window_focus`) and after each admission of the app, which read it.
 - **The stamp**: `bd` touches `$GIT_COMMON_DIR/branch-deck/stamp` (its Unix time and pid, written by a rename) after
   every command that succeeded and is no read (`bd-cli::execute`, the commands `READ_ONLY` of `bd --help` leaves out:

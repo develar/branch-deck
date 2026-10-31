@@ -12,7 +12,9 @@
 //!   (`RegistryFiles::on_journal`): the windows read Activity again.
 //!
 //! One task per repository reads the file and applies what it read, one read at a time, so a session never shows an older
-//! read after a newer one; the events that come while it reads are one read after it. Without a watch (the system
+//! read after a newer one; the events that come while it reads are one read after it. A watcher that lost events (the
+//! queue of `FSEvents` or inotify overflowed under load: one event that names no file, `need_rescan`) or failed wakes all
+//! three: any of them may have been among the lost ones. Without a watch (the system
 //! refused one) the session reads the file again when a window of it gains the focus (`Registry::reread`) and after each
 //! admission of an operation into the file, which writes it; the stamp then waits for the focus sync. The watch runs no
 //! git process, and a read is one read of a file.
@@ -60,6 +62,13 @@ struct Wake {
 }
 
 impl Wake {
+  /// Anything may have changed unseen: the registry is read, the syncs of a stamp asked and the journal told
+  fn everything(&self) {
+    self.registry();
+    self.stamp();
+    self.journal();
+  }
+
   fn registry(&self) {
     self.registry.store(true, Ordering::SeqCst);
     self.notify.notify_one();
@@ -229,12 +238,13 @@ fn watcher(registry: &ProcessRegistry, wake: &Arc<Wake>) -> Option<RecommendedWa
     .ok()
 }
 
-/// Wakes `wake` for what `event` changed: the registry (also when the watcher lost events), the stamp
+/// Wakes `wake` for what `event` changed: the registry, the stamp, the journal, and all three when the watcher lost
+/// events (its event of them names no file) or failed
 fn woken(wake: &Wake, event: notify::Result<Event>) {
   match event {
     Ok(event) => {
       if event.need_rescan() {
-        wake.registry();
+        wake.everything();
       }
       for name in event.paths.iter().filter_map(|path| path.file_name()) {
         if ProcessRegistry::is_file_name(name) {
@@ -248,7 +258,7 @@ fn woken(wake: &Wake, event: notify::Result<Event>) {
     }
     Err(error) => {
       debug!("the watch of the operations registry failed: {error}");
-      wake.registry();
+      wake.everything();
     }
   }
 }

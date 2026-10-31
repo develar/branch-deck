@@ -2,7 +2,7 @@ use crate::registry::registry_test::{IdleHost, view_operations};
 use crate::registry::{Registry, RegistryFiles};
 use crate::registry_file::registry_file_test::{id, record, safe_push, session, sleeping_child};
 use crate::registry_file::{ProcessIdentity, ProcessRegistry};
-use crate::registry_watch::touch_stamp;
+use crate::registry_watch::{Wake, touch_stamp, woken};
 use domain_types::error::HolderTool;
 use domain_types::fixtures::land_intent;
 use domain_types::operation::{Origin, RunningOperation};
@@ -122,4 +122,22 @@ async fn a_stamp_of_bd_syncs_the_session_a_window_shows() {
   syncs.recv().await.unwrap();
   child.kill().unwrap();
   child.wait().unwrap();
+}
+
+/// A watcher that lost events under load (`FSEvents` and inotify tell an overflow of their queue as one event that names
+/// no file) or failed wakes the read of the registry, the syncs of a stamp and the journal: the stamp of `bd` may have
+/// been among the lost events, and a session would never sync for it
+#[test]
+fn lost_events_wake_the_registry_the_stamp_and_the_journal() {
+  use notify::event::{EventKind, Flag};
+  use std::sync::atomic::Ordering;
+  let woke = |event: notify::Result<notify::Event>| {
+    let wake = Wake::default();
+    woken(&wake, event);
+    [&wake.registry, &wake.stamp, &wake.journal].map(|flag| flag.load(Ordering::SeqCst))
+  };
+  assert_eq!(woke(Ok(notify::Event::new(EventKind::Other).set_flag(Flag::Rescan))), [true; 3]);
+  assert_eq!(woke(Err(notify::Error::generic("the stream failed"))), [true; 3]);
+  let stamp = notify::Event::new(EventKind::Any).add_path(std::path::PathBuf::from("/repo/.git/branch-deck/stamp"));
+  assert_eq!(woke(Ok(stamp)), [false, true, false], "an event of a file wakes what it names");
 }
