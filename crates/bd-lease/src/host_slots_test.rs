@@ -159,8 +159,8 @@ fn state_of(fixture: &Fixture, n: u32) -> HostState {
     .state
 }
 
-/// A fill leases `bd-host/1` and `bd-host/2` as `ready` leases, the first in the free slot of the pool. A plain get adds
-/// a slot of its own, `clean --free` skips them, and a get with a holder `bd-host/…` is refused
+/// A fill leases `bd-host/1` and `bd-host/2` as `ready` leases, one of them in the free slot of the pool. A plain get
+/// adds a slot of its own, `clean --free` skips them, and a get with a holder `bd-host/…` is refused
 #[test_log::test]
 fn a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_alone() {
   let fixture = host_fixture(2);
@@ -170,15 +170,18 @@ fn a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_al
   let params = params(&fixture, &context);
 
   let filled = fill(&context.git, &params, None).unwrap();
-  assert_eq!(filled.iter().map(|slot| (slot.n, slot.reused)).collect::<Vec<_>>(), [(1, true), (2, false)]);
-  assert_eq!(filled[0].path, free);
+  assert_eq!(filled.iter().map(|slot| slot.n).collect::<Vec<_>>(), [1, 2]);
+  // the gets run side by side: either one reuses the free slot, the other adds one
+  let reused: Vec<&str> = filled.iter().filter(|slot| slot.reused).map(|slot| slot.path.as_str()).collect();
+  assert_eq!(reused, [free.as_str()]);
   assert!(fill(&context.git, &params, None).unwrap().is_empty(), "a full table adds nothing");
   let store = Pool::new(Path::new(&canonical_path(&fixture.repo.path().join(".git")))).read().unwrap();
-  let leases: Vec<(String, String, LeaseState)> = store
+  let mut leases: Vec<(String, String, LeaseState)> = store
     .slots
     .iter()
     .filter_map(|slot| slot.lease.as_ref().map(|lease| (slot.path.clone(), lease.holder.clone(), lease.state)))
     .collect();
+  leases.sort_by(|a, b| a.1.cmp(&b.1));
   assert_eq!(
     leases,
     [
