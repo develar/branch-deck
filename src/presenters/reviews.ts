@@ -295,8 +295,8 @@ export function formatAskedBy(request: ReviewRequest, involvement: ReviewInvolve
 /** A reviewer group of the pull request as Approve words it, with its files among the changes of the shown head */
 export interface ApprovalScopeGroup {
   readonly name: string
-  /** The user can approve for the group (`ReviewerGroupView.yours`) */
-  readonly yours: boolean
+  /** The user can approve for the group (`ReviewerGroupView.yours`); null while the sign-in names no login */
+  readonly yours: boolean | null
   /** The group has its approvals (`ReviewerGroupView.approved`) */
   readonly approved: boolean
   /** Its files among the changes of the pull request; null when Patronus doesn't tell them */
@@ -307,21 +307,23 @@ export interface ApprovalScopeGroup {
  * What an approval counts for, in the description of Approve and in the confirmation of Approve and Safe Push
  * (spec/repository/review-requests.spec.md, "Approve"): "Counts for Design · You opened 3 of its 5 files", the user's
  * groups that still need an approval and how many of their files the window showed for this head; "Counts for no group
- * that still needs an approval" when the user is in none; null without groups. Information only: it never blocks
+ * that still needs an approval" when the user is in none; null without groups, and while the sign-in names no login
+ (nobody knows whose they are). Information only: it never blocks
  */
 export function presentApprovalScope(groups: readonly ApprovalScopeGroup[], opened: ReadonlySet<string>): string | null {
-  if (groups.length === 0) {
+  if (groups.length === 0 || groups.some(group => group.yours === null)) {
     return null
   }
-  const yours = groups.filter(group => group.yours && !group.approved)
+  const yours = groups.filter(group => group.yours === true && !group.approved)
   if (yours.length === 0) {
     return "Counts for no group that still needs an approval"
   }
   const counts = `Counts for ${joinNames(yours.map(group => group.name))}`
-  if (yours.some(group => group.files === null)) {
+  const known = yours.flatMap(group => (group.files === null ? [] : [group.files]))
+  if (known.length < yours.length) {
     return counts
   }
-  const files = new Set(yours.flatMap(group => [...group.files!]))
+  const files = new Set(known.flatMap(paths => [...paths]))
   if (files.size === 0) {
     return counts
   }

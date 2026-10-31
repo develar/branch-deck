@@ -1368,7 +1368,9 @@ the session asks Patronus about the pull request a review window shows, as the r
   group the changes need, in the order of Patronus, with its paths, `branchWide`, `approved` (Patronus's evaluation,
   else whether the readiness still misses it) and `yours`: the GitHub login of the app's sign-in is the `githubLogin`
   of a member (any case) whose approval can count (its `approvalState` is not `notEligible`). A member without a
-  GitHub login is nobody's; without the app's sign-in no group is the user's. No groups while Patronus doesn't answer
+  GitHub login is nobody's. While the app's sign-in names no login (signed out, or the token of `gh` or the
+  environment) `yours` is null: nobody knows whose a group is, so no group is the user's and Approve says nothing of
+  what it counts for. No groups while Patronus doesn't answer
   (`unavailable`, a repository not on Space), when the changes need no approval, and for a pull request into another
   branch: the owners of the `OWNERSHIP` files stay.
   [@test] ../../crates/domain-policy/src/reviewer_groups_test.rs (`a_group_is_yours_by_the_github_login_of_a_member_whose_approval_can_count`, `a_group_without_the_evaluation_of_the_pull_request_is_approved_as_the_readiness_names_it`, `no_groups_without_an_answer_or_when_no_approval_is_needed`)

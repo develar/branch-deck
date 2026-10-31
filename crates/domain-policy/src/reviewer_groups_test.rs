@@ -57,14 +57,15 @@ fn missing_of(names: &[&str]) -> ReviewReadiness {
 }
 
 /// (name, approved, yours) of a group
-type Summary<'a> = (&'a str, bool, bool);
+type Summary<'a> = (&'a str, bool, Option<bool>);
 
 fn summary(groups: &[ReviewerGroupView]) -> Vec<Summary<'_>> {
   groups.iter().map(|group| (group.name.as_str(), group.approved, group.yours)).collect()
 }
 
 /// A group is the user's when the login of the sign-in is a member's GitHub login (any case) whose approval can count;
-/// a member without a login, one Patronus doesn't count and a missing sign-in make no group the user's
+/// a member without a login and one Patronus doesn't count make no group the user's; without a login of the sign-in
+/// nobody knows
 #[test]
 fn a_group_is_yours_by_the_github_login_of_a_member_whose_approval_can_count() {
   let groups = vec![
@@ -84,15 +85,15 @@ fn a_group_is_yours_by_the_github_login_of_a_member_whose_approval_can_count() {
   let cases: [(Option<&str>, [Summary<'_>; 4]); 3] = [
     (
       Some("user-name"),
-      [("Design", false, true), ("Air Plugin", true, false), ("Bots", false, false), ("Authors", false, false)],
+      [("Design", false, Some(true)), ("Air Plugin", true, Some(false)), ("Bots", false, Some(false)), ("Authors", false, Some(false))],
     ),
     (
       Some("carol"),
-      [("Design", false, false), ("Air Plugin", true, true), ("Bots", false, false), ("Authors", false, false)],
+      [("Design", false, Some(false)), ("Air Plugin", true, Some(true)), ("Bots", false, Some(false)), ("Authors", false, Some(false))],
     ),
     (
       None,
-      [("Design", false, false), ("Air Plugin", true, false), ("Bots", false, false), ("Authors", false, false)],
+      [("Design", false, None), ("Air Plugin", true, None), ("Bots", false, None), ("Authors", false, None)],
     ),
   ];
   for (login, expected) in cases {
@@ -115,11 +116,11 @@ fn a_group_without_the_evaluation_of_the_pull_request_is_approved_as_the_readine
   };
   assert_eq!(
     summary(&reviewer_groups(&readiness(groups(), missing_of(&["Design"])), None)),
-    [("Design", false, false), ("Air Plugin", true, false)]
+    [("Design", false, None), ("Air Plugin", true, None)]
   );
   assert_eq!(
     summary(&reviewer_groups(&readiness(groups(), approved), None)),
-    [("Design", false, false), ("Air Plugin", true, false)]
+    [("Design", false, None), ("Air Plugin", true, None)]
   );
 }
 

@@ -46,7 +46,8 @@ export interface BranchReviewGroup {
   /** Empty when unknown, or for a group that reviews every change */
   paths: string[]
   branchWide: boolean
-  yours?: boolean
+  /** The user can approve for the group (`ReviewerGroupView.yours`); null while the sign-in names no login */
+  yours?: boolean | null
   approved?: boolean
 }
 

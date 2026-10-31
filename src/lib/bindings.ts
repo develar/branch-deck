@@ -6676,8 +6676,11 @@ export type ReviewerGroupView = {
 	branchWide: boolean,
 	/**  The pull request has the approvals of the group */
 	approved: boolean,
-	/**  The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's */
-	yours: boolean,
+	/**
+	 *  The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's; `None` while
+	 *  the sign-in names no login (signed out, or a token of `gh` or the environment), so nobody knows
+	 */
+	yours: boolean | null,
 };
 
 export type ReviewerState = "approved" | "changesRequested" | "commented" | 

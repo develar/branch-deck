@@ -495,8 +495,9 @@ pub struct ReviewerGroupView {
   pub branch_wide: bool,
   /// The pull request has the approvals of the group
   pub approved: bool,
-  /// The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's
-  pub yours: bool,
+  /// The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's; `None` while
+  /// the sign-in names no login (signed out, or a token of `gh` or the environment), so nobody knows
+  pub yours: Option<bool>,
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)

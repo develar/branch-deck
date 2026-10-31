@@ -1091,10 +1091,10 @@ function reviewPosition(window: Page) {
   return window.getByTestId("review-file-position")
 }
 
-/** J from the diffs, which have the focus once the changes show: the footer says where it went */
-async function pressJ(window: Page, position: string): Promise<void> {
+/** J or K from the diffs, which have the focus once the changes show: the footer says where it went */
+async function pressFileKey(window: Page, key: "j" | "k", position: string): Promise<void> {
   await expect(window.locator("[aria-label='Changes of the commit']")).toBeFocused()
-  await window.keyboard.press("j")
+  await window.keyboard.press(key)
   await expect(reviewPosition(window)).toHaveText(position)
 }
 
@@ -1126,8 +1126,8 @@ test.describe("Owner part and Approve", () => {
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 2 files")
 
     // J moves through Design's files: the footer counts the place among them, Approve what the window showed
-    await pressJ(window, "All Changes · File 2 / 4 · Design 1 / 2")
-    await pressJ(window, "All Changes · File 3 / 4 · Design 2 / 2")
+    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 1 / 2")
+    await pressFileKey(window, "j", "All Changes · File 3 / 4 · Design 2 / 2")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
     // All: no owner part
     await ownerChip(window, "All").click()
@@ -1159,8 +1159,8 @@ test.describe("Owner part and Approve", () => {
     const { window, review } = await openOwnedChanges(page)
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
     await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 2")
-    await pressJ(window, "All Changes · File 2 / 4 · Design 1 / 2")
-    await pressJ(window, "All Changes · File 3 / 4 · Design 2 / 2")
+    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 1 / 2")
+    await pressFileKey(window, "j", "All Changes · File 3 / 4 · Design 2 / 2")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 2 files")
 
     // a new head with a third file of Design: of what the window showed, only the file on screen counts for it
@@ -1171,6 +1171,8 @@ test.describe("Owner part and Approve", () => {
     await expect.poll(() => ownerChips(window)).toEqual(["All5", "Design· You3", "Auth Team1", "Monorepo1", "UI Team1"])
     await expect(reviewPosition(window)).toHaveText("All Changes · File 4 / 5 · Design 3 / 3")
     expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 3 files")
+    await pressFileKey(window, "k", "All Changes · File 3 / 5 · Design 2 / 3")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
 
     // #8: the user is in no group that still needs an approval
     await showOtherRequest(window, review, "ArrowDown", "Style the login form")
@@ -1178,6 +1180,42 @@ test.describe("Owner part and Approve", () => {
     await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
     await expect.poll(() => ownerChips(window)).toEqual(["All5", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
     expect(await approveDescription(window, review)).toBe("Counts for no group that still needs an approval")
+
+    // back to #7, whose head did not change: what the window showed of it still counts
+    await showOtherRequest(window, review, "ArrowUp", "Add the login form")
+    await expect(ownerChip(window, "Design")).toHaveAttribute("data-yours", "")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 3 files")
+  })
+
+  test("should count every file as the part of a branch-wide group, in the footer and in Approve", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    const wide = evaluatedGroup("Design", false, [codeOwner("Test User", "user-name", { suggested: true, approvalState: "reviewing" })], { paths: [], branchWide: true })
+    await repo.setReviewAnswers({ answers: { "request:7": { ...LOGIN_GROUPS, groups: [LOGIN_GROUPS.groups[0]!, wide] } } })
+    const { window, review } = await openOwnedChanges(page)
+    // the window opens on the user's branch-wide group: every file is its, none is muted
+    await expect.poll(() => ownerChips(window)).toEqual(["All4", "Design· You4", "Auth Team1", "Monorepo1", "UI Team1"])
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
+    await expect(reviewPosition(window)).toHaveText("All Changes · File 1 / 4 · Design 1 / 4")
+    await pressFileKey(window, "j", "All Changes · File 2 / 4 · Design 2 / 4")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 2 of its 4 files")
+  })
+
+  test("should say nothing of what Approve counts for while the GitHub sign-in names no login", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    // GitHub through the token of gh, which names no login: nobody knows whose the groups are
+    await setupOwnedRequests(setupRepo, syncAndWaitForBranches, { gitHubSignIn: { signedIn: false, ghToken: "gh-token" } })
+    const { window, review } = await openOwnedChanges(page)
+    // the groups came, none the user's: All
+    await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
+    await expect.poll(() => ownerChips(window)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
+    await expect(ownerChip(window, "All")).toHaveAttribute("aria-pressed", "true")
+    // the confirmation of Approve and Safe Push has no line of what it counts for, rather than "no group"
+    await pressDecisionKey(window, review, "m")
+    const form = window.getByTestId("review-safe-push-form")
+    await expect(form).toBeVisible()
+    await expect(form.getByTestId("review-safe-push-scope")).toHaveCount(0)
+    await window.keyboard.press("Escape")
+    await expect(form).toBeHidden()
   })
 })
 

@@ -36,8 +36,9 @@ function sameName(a: string, b: string): boolean {
 }
 
 /**
- * The paths a chip marks among the files, null for all of them (All, a branch-wide group) or a group whose files are
- * unknown; empty when the owner has no files in the part
+ * The paths a chip marks among the files: every file for a branch-wide group (its part is the whole change, nothing is
+ * muted and the footer counts them all); null for All and a group whose files are unknown; empty when the owner has no
+ * files in the part
  */
 export function ownerPaths(
   filter: ReviewFilter,
@@ -50,7 +51,10 @@ export function ownerPaths(
       return null
     case "group": {
       const group = groups.find(it => it.name === filter.name)
-      if (group === undefined || group.branchWide || group.paths.length === 0) {
+      if (group?.branchWide === true) {
+        return new Set(files.map(file => file.path))
+      }
+      if (group === undefined || group.paths.length === 0) {
         return null
       }
       const paths = new Set(group.paths)
@@ -201,8 +205,8 @@ export interface ReviewOwners {
 }
 
 /**
- * The files the chosen owner chip marks in the story (`OwnerMarks` of the review), by the name of the chip; null for
- * All, a branch-wide group, a group whose files are unknown, or before the files are read
+ * The files the chosen owner chip marks in the story (`OwnerMarks` of the review), by the name of the chip, all of them
+ * for a branch-wide group; null for All, a group whose files are unknown, or before the files are read
  */
 export function reviewOwnerMarks(filter: ReviewFilter, { files, groups, owners }: ReviewOwners): { readonly label: string; readonly paths: ReadonlySet<string> } | null {
   const label = ownerLabel(filter)

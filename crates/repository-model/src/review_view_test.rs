@@ -193,18 +193,18 @@ fn the_view_has_the_reviewer_groups_of_a_pull_request_a_review_window_shows() {
     .collect();
   facts.apply(at(3), FactResult::Readiness(answers));
   // (name, approved, yours) of each group, by row
-  type Groups = Vec<(String, bool, bool)>;
+  type Groups = Vec<(String, bool, Option<bool>)>;
   let summary = |facts: &FactStore| -> Vec<(String, Groups)> {
     review_groups_of(facts)
       .into_iter()
       .map(|(key, groups)| (key, groups.into_iter().map(|group| (group.name, group.approved, group.yours)).collect()))
       .collect()
   };
-  let pull_7 = |yours: bool| vec![(pull_key(7), vec![("Design".to_owned(), false, yours), ("Air Plugin".to_owned(), true, false)])];
-  assert_eq!(summary(&facts), pull_7(false), "no group is the user's without a sign-in");
+  let pull_7 = |design: Option<bool>, air: Option<bool>| vec![(pull_key(7), vec![("Design".to_owned(), false, design), ("Air Plugin".to_owned(), true, air)])];
+  assert_eq!(summary(&facts), pull_7(None, None), "nobody knows whose a group is without the login of a sign-in");
 
   facts.apply(at(4), FactResult::Auth(Ok(signed_in("user-name"))));
-  assert_eq!(summary(&facts), pull_7(true));
+  assert_eq!(summary(&facts), pull_7(Some(true), Some(false)));
   assert_eq!(review_groups_of(&facts)[&pull_key(7)][0].paths, ["Design.kt"]);
 
   ask(&mut facts, &Demand::default());

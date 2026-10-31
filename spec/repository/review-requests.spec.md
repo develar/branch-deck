@@ -493,8 +493,9 @@ Safe Push it allows.
   [@test] ../../src/lib/review-owners.test.ts (`makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files`)
 - While a chip that marks files is chosen, the footer adds the part of its owner as in the branch window: "All Changes
   · File 1 / 4 · Design 2" on a file of another owner, "All Changes · File 2 / 4 · Design 1 / 2" on the first of
-  Design's two; J moves through them, "Design 2 / 2". All adds nothing.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`)
+  Design's two; J moves through them, "Design 2 / 2". A branch-wide group's part is every file ("Design 1 / 4"). All
+  adds nothing.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count every file as the part of a branch-wide group, in the footer and in Approve`)
 
 ### Reviews
 
@@ -519,13 +520,16 @@ Safe Push it allows.
   confirmation of Approve and Safe Push…: "Counts for Design · You opened 1 of its 2 files" ("Design and Air Plugin
   · … of their 4 files"), the user's groups that still need an approval (`yours`, not `approved`), whatever chip is
   chosen, and how many of their files among all changes the window showed (the file on screen, as the footer counts
-  it) for the head it shows. "Counts for no group that still needs an approval" when the user is in none of them;
-  just "Counts for Design" when nobody tells their files; nothing without groups (also while a new head is fetched)
-  and once the shown commit is approved. A new head (or another request) counts the opened files from zero. It is
-  information only: Approve is never disabled by it.
+  it) for the head it shows; a branch-wide group's files are all of them. "Counts for no group that still needs an
+  approval" when the user, known by the login of the sign-in, is in none of them; just "Counts for Design" when nobody
+  tells their files; nothing without groups (also while a new head is fetched), while the sign-in names no login
+  (nobody knows whose the groups are: the token of `gh` or the environment), and once the shown commit is approved.
+  The window keeps the opened files of each request it showed for as long as it is open: ↓ to another request and ↑
+  back keeps them, and only a new head of a request counts its opened files from zero. It is information only: Approve
+  is never disabled by it.
   [@test] ../../src/lib/review-request-actions.test.ts (`says in Approve what it counts for after the reason it waits, never disabling it, and nothing once approved or in the row menu`)
-  [@test] ../../src/presenters/reviews.test.ts (`names the user's groups that still need an approval and how many of their files the window showed`, `leaves out the groups of others and the approved ones`, `says when the approval counts for no group that still needs one`, `names the groups alone when their files are unknown or none here, and says nothing without groups`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`)
+  [@test] ../../src/presenters/reviews.test.ts (`names the user's groups that still need an approval and how many of their files the window showed`, `leaves out the groups of others and the approved ones`, `says when the approval counts for no group that still needs one`, `names the groups alone when their files are unknown or none here, and says nothing without groups`, `says nothing while the sign-in names no login, rather than no group`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`, `should count every file as the part of a branch-wide group, in the footer and in Approve`, `should say nothing of what Approve counts for while the GitHub sign-in names no login`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`SubmitReview`, its effect `submitReview`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)),
   in the repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below

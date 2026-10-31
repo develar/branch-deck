@@ -104,8 +104,10 @@ describe("the groups of a pull request", () => {
     const wide: BranchReviewGroup[] = [{ name: "Bazel QA", paths: [], branchWide: true, approved: false, yours: true }]
     const chips = reviewFilterChips(files, wide, owners)
     expect(initialOwnerFilter(chips, undefined, true)).toEqual({ kind: "group", name: "Bazel QA" })
-    // it marks every file: nothing is muted
-    expect(reviewOwnerMarks({ kind: "group", name: "Bazel QA" }, { files, groups: wide, owners })).toBeNull()
+    // it marks every file: nothing is muted, and the footer counts its part as all of them
+    const marks = reviewOwnerMarks({ kind: "group", name: "Bazel QA" }, { files, groups: wide, owners })
+    expect([marks?.label, marks?.paths.size]).toEqual(["Bazel QA", files.length])
+    expect(files.every(file => marks?.paths.has(file.path))).toBe(true)
   })
 
   it("makes an owner chip held before the groups came the group of its name: one chip, pressed, with the group's files", () => {
@@ -163,8 +165,8 @@ describe("ownerPaths", () => {
   it("marks the files of a group (a rename by its old path), of an owner, or without an owner", () => {
     expect(ownerPaths({ kind: "all" }, files, groups, owners)).toBeNull()
     expect([...ownerPaths({ kind: "group", name: "Air Plugin" }, files, groups, owners)!]).toEqual(["plugins/air/A.kt", "plugins/air/B.kt"])
-    // a branch-wide group marks every file, one Patronus doesn't tell none: nothing is muted
-    expect(ownerPaths({ kind: "group", name: "Bazel QA" }, files, groups, owners)).toBeNull()
+    // a branch-wide group marks every file (nothing is muted), one Patronus doesn't tell none
+    expect([...ownerPaths({ kind: "group", name: "Bazel QA" }, files, groups, owners)!]).toEqual(files.map(file => file.path))
     expect(ownerPaths({ kind: "group", name: "Delegated" }, files, groups, owners)).toBeNull()
     expect([...ownerPaths({ kind: "owner", name: "IJ Build Scripts Maintainers" }, files, groups, owners)!]).toEqual(["build/x.kts"])
     expect([...ownerPaths({ kind: "unowned" }, files, groups, owners)!]).toEqual(["README.md"])

@@ -148,7 +148,12 @@ describe("a row of Reviews", () => {
 })
 
 describe("presentApprovalScope", () => {
-  const group = (name: string, files: string[] | null, { yours = true, approved = false } = {}) => ({ name, yours, approved, files: files === null ? null : new Set(files) })
+  const group = (name: string, files: string[] | null, { yours = true as boolean | null, approved = false } = {}) => ({
+    name,
+    yours,
+    approved,
+    files: files === null ? null : new Set(files),
+  })
 
   it("names the user's groups that still need an approval and how many of their files the window showed", () => {
     const design = group("Design", ["a.css", "b.css", "c.css"])
@@ -173,5 +178,10 @@ describe("presentApprovalScope", () => {
     expect(presentApprovalScope([group("Design", null)], new Set(["a.css"]))).toBe("Counts for Design")
     expect(presentApprovalScope([group("Design", [])], new Set())).toBe("Counts for Design")
     expect(presentApprovalScope([], new Set(["a.css"]))).toBeNull()
+  })
+
+  it("says nothing while the sign-in names no login, rather than no group", () => {
+    const unknown = [group("Design", ["a.css"], { yours: null }), group("Air Plugin", ["p.kt"], { yours: null, approved: true })]
+    expect(presentApprovalScope(unknown, new Set(["a.css"]))).toBeNull()
   })
 })

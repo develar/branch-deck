@@ -7,7 +7,7 @@ use domain_types::patronus::{PatronusReviewerGroup, ReviewReadiness, ReviewerApp
 use domain_types::session::{ReviewerGroupView, SubjectReadiness};
 
 /// The groups of `readiness` in the order Patronus gives them, `login` the GitHub login of the user (none without a
-/// sign-in: no group is the user's)
+/// sign-in that names it: whether a group is the user's is unknown, `yours` is `None`)
 #[must_use]
 pub fn reviewer_groups(readiness: &SubjectReadiness, login: Option<&str>) -> Vec<ReviewerGroupView> {
   let Some(requirement) = &readiness.requirement else {
@@ -24,7 +24,7 @@ pub fn reviewer_groups(readiness: &SubjectReadiness, login: Option<&str>) -> Vec
       paths: group.paths.clone(),
       branch_wide: group.branch_wide,
       approved: is_approved(group, &readiness.readiness),
-      yours: login.is_some_and(|login| is_member(group, login)),
+      yours: login.map(|login| is_member(group, login)),
     })
     .collect()
 }

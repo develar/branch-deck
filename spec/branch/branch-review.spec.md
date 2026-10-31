@@ -368,9 +368,12 @@ keys.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all`)
 - While a chip that marks files of the shown changes is chosen, the footer must add the part of its owner after the
   file: "All Changes · File 3 / 12 · Design 2 / 5" when the file shown is the second of Design's five in the order of
-  the tree, "… · Design 5" when it is another owner's. A chip at 0, a branch-wide group and a group whose files nobody
-  tells add nothing, nor does All; the search of the files counts among the files it keeps.
+  the tree, "… · Design 5" when it is another owner's. A branch-wide group's part is every file ("Design 3 / 12"),
+  as its chip counts them, and it mutes nothing. A chip at 0 and a group whose files nobody tells add nothing, nor does
+  All; the search of the files counts among the files it keeps.
   [@test] ../../src/lib/review-position.test.ts (`counts the part of the chosen owner chip after the file: its place on a file of its own, its files on another`)
+  [@test] ../../src/lib/review-owners.test.ts (`never opens on a group whose files Patronus doesn't tell, and opens on a branch-wide one`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count every file as the part of a branch-wide group, in the footer and in Approve`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`, `should review a stacked branch on its parent, then the whole stack, by owner`)
 - The chips, their marks and their keys must be the same in the review window of a pull request
   ([Review Requests](../repository/review-requests.spec.md#owner-chips)): one header of the files and one reading of

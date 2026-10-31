@@ -111,10 +111,12 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
   // a file chosen in the rail: the review starts over at it
   const [jump, setJump] = useState(0)
   const [filePosition, setFilePosition] = useState<ReviewPosition | null>(null)
-  // the files the window showed of the head it shows, for what Approve counts ("You opened 3 of its 5 files"): a report
-  // is of the head of the render that made its callback, another head counts from zero
-  const shownHead = fetch?.status === "fetched" ? `${request.number}@${fetch.range.head}` : null
-  const [opened, setOpened] = useState<{ head: string; paths: ReadonlySet<string> } | null>(null)
+  // the files the window showed, for what Approve counts ("You opened 3 of its 5 files"), by request and head for the
+  // life of the window: ↓ to another request and back keeps them, a new head of a request counts from zero; a report is
+  // of the head of the render that made its callback
+  const shownHead = fetch?.status === "fetched" ? fetch.range.head : null
+  const shownNumber = request.number
+  const [opened, setOpened] = useState<ReadonlyMap<number, OpenedFiles>>(NO_OPENED_FILES)
   const showPosition = useCallback(
     (next: ReviewPosition) => {
       setFilePosition(next)
@@ -122,19 +124,14 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
       if (path !== null) {
         setLastPath(path)
         if (shownHead !== null) {
-          setOpened(previous =>
-            previous?.head !== shownHead
-              ? { head: shownHead, paths: new Set([path]) }
-              : previous.paths.has(path)
-                ? previous
-                : { head: shownHead, paths: new Set([...previous.paths, path]) },
-          )
+          setOpened(previous => withOpenedFile(previous, shownNumber, shownHead, path))
         }
       }
     },
-    [shownHead],
+    [shownNumber, shownHead],
   )
-  const openedPaths = opened !== null && opened.head === shownHead ? opened.paths : NOTHING_OPENED
+  const openedOfRequest = opened.get(shownNumber)
+  const openedPaths = shownHead !== null && openedOfRequest?.head === shownHead ? openedOfRequest.paths : NOTHING_OPENED
   const [isRequestingChanges, setRequestingChanges] = useState(false)
   const [isConfirmingSafePush, setConfirmingSafePush] = useState(false)
   // the head of the first range of this request: a poll that brings new commits fetches them, and the review says so
@@ -236,7 +233,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
             name: group.name,
             yours: group.yours,
             approved: group.approved,
-            files: group.branchWide ? new Set(rangeFiles.map(file => file.path)) : ownerPaths({ kind: "group", name: group.name }, rangeFiles, host.reviewGroups, fileOwners),
+            files: ownerPaths({ kind: "group", name: group.name }, rangeFiles, host.reviewGroups, fileOwners),
           })),
           openedPaths,
         )
@@ -517,6 +514,23 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
 }
 
 const NOTHING_OPENED: ReadonlySet<string> = new Set()
+const NO_OPENED_FILES: ReadonlyMap<number, OpenedFiles> = new Map()
+
+/** The files the window showed of a request, of the head it showed them of */
+interface OpenedFiles {
+  readonly head: string
+  readonly paths: ReadonlySet<string>
+}
+
+/** `opened` with `path` shown of `head` of the request `number`: of another head, the request's files count from zero */
+function withOpenedFile(opened: ReadonlyMap<number, OpenedFiles>, number: number, head: string, path: string): ReadonlyMap<number, OpenedFiles> {
+  const of = opened.get(number)
+  if (of?.head === head && of.paths.has(path)) {
+    return opened
+  }
+  const paths = of?.head === head ? new Set([...of.paths, path]) : new Set([path])
+  return new Map(opened).set(number, { head, paths })
+}
 
 /** The request ↑ shows; null at the top */
 function previousOf(host: PullRequestReviewHost): number | null {
