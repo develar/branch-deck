@@ -44,9 +44,15 @@ struct PullRequestsSchedule {
 struct RulesSchedule {
   read: BTreeMap<String, ReadState>,
   reading: BTreeSet<String>,
-  /// The refreshes that wait for the reads in flight, and the version after the last of them
-  waiters: Vec<Reply>,
+  /// The refreshes that wait for reads in flight: each for the bases it asked, never for another read
+  waiters: Vec<RulesWaiter>,
+}
+
+/// A refresh of the rules: the bases whose reads it waits for, and the version after the last of them
+struct RulesWaiter {
+  bases: BTreeSet<String>,
   version: Option<Version>,
+  reply: Reply,
 }
 
 #[derive(Default)]
@@ -54,8 +60,9 @@ struct ProfilesSchedule {
   last: Option<ProfilesRead>,
   /// The baseline of the last read
   read_for: Option<String>,
-  reading: bool,
-  waiters: Vec<Reply>,
+  /// The reads in flight by baseline, each with the refreshes that wait for it: a refresh of another baseline waits for
+  /// none of them
+  reading: BTreeMap<String, Vec<Reply>>,
 }
 
 /// What a list of the pull requests answered, for its schedule
@@ -252,8 +259,8 @@ impl SessionFacts {
     );
   }
 
-  /// A start or a form asks the rules GitHub didn't give again (`reason`); `reply` hears the version after the last
-  /// read in flight, `None` at once when none is
+  /// A start or a form asks the rules GitHub didn't give again (`reason`); `reply` hears the version after the last of
+  /// those reads, `None` at once when none runs: the read of another base (a listing's) is not waited for
   fn refresh_rules(&mut self, reason: RefreshReason, reply: Reply) {
     let failed: Vec<String> = self
       .github
@@ -264,10 +271,12 @@ impl SessionFacts {
       .map(|(base, _)| base.clone())
       .collect();
     self.read_rules(&failed, reason);
-    if self.github.rules.reading.is_empty() {
+    let rules = &mut self.github.rules;
+    let bases: BTreeSet<String> = failed.into_iter().filter(|base| rules.reading.contains(base)).collect();
+    if bases.is_empty() {
       let _ = reply.send(None);
     } else {
-      self.github.rules.waiters.push(reply);
+      rules.waiters.push(RulesWaiter { bases, version: None, reply });
     }
   }
 
@@ -277,28 +286,32 @@ impl SessionFacts {
     if let Some(known) = known {
       rules.read.insert(branch.to_owned(), if known { ReadState::Known } else { ReadState::Failed });
     }
-    rules.version = version.or(rules.version);
-    if rules.reading.is_empty() {
-      let version = rules.version.take();
-      for waiter in rules.waiters.drain(..) {
-        let _ = waiter.send(version);
+    for waiter in &mut rules.waiters {
+      if waiter.bases.remove(branch) {
+        waiter.version = version.or(waiter.version);
       }
+    }
+    let (answered, waiting): (Vec<RulesWaiter>, Vec<RulesWaiter>) = std::mem::take(&mut rules.waiters).into_iter().partition(|waiter| waiter.bases.is_empty());
+    rules.waiters = waiting;
+    for waiter in answered {
+      let _ = waiter.reply.send(waiter.version);
     }
   }
 
   /// The merge profiles of the target of the baseline, when `profiles_due` says so or the baseline changed since the
-  /// last read; a read in flight answers the refresh too. `None` at once without a committed table or a read
+  /// last read; a read of the same baseline in flight answers the refresh too, one of another baseline does not. `None`
+  /// at once without a committed table or a read
   fn ask_profiles(&mut self, reason: RefreshReason, reply: Reply) {
     let now = self.now();
-    let schedule = &mut self.github.profiles;
-    if schedule.reading {
-      schedule.waiters.push(reply);
-      return;
-    }
     let Some(baseline) = self.github.baseline.clone() else {
       let _ = reply.send(None);
       return;
     };
+    let schedule = &mut self.github.profiles;
+    if let Some(waiters) = schedule.reading.get_mut(&baseline) {
+      waiters.push(reply);
+      return;
+    }
     if !profiles_due(reason, now, schedule.last) && schedule.read_for.as_ref() == Some(&baseline) {
       let _ = reply.send(None);
       return;
@@ -307,10 +320,9 @@ impl SessionFacts {
       let _ = reply.send(None);
       return;
     };
-    schedule.reading = true;
+    schedule.reading.insert(baseline.clone(), vec![reply]);
     schedule.last = Some(ProfilesRead { started_at: now, failed: false });
     schedule.read_for = Some(baseline.clone());
-    schedule.waiters.push(reply);
     let (scheduler, key) = (self.scheduler.clone(), self.key.clone());
     tokio::spawn(
       async move {
@@ -318,24 +330,35 @@ impl SessionFacts {
           Some(ticket) => {
             let result = scheduler.sources.profiles(&key, baseline.clone()).await;
             let failed = result.is_err();
-            let applied = scheduler.port.apply(&key, ticket, FactResult::Profiles { baseline, result }).await;
+            let applied = scheduler
+              .port
+              .apply(
+                &key,
+                ticket,
+                FactResult::Profiles {
+                  baseline: baseline.clone(),
+                  result,
+                },
+              )
+              .await;
             (Some(failed), applied.map(|applied| applied.version))
           }
           None => (None, None),
         };
-        let _ = inbox.send(Input::Profiles { failed, version });
+        let _ = inbox.send(Input::Profiles { baseline, failed, version });
       }
       .in_current_span(),
     );
   }
 
-  pub(super) fn profiles_read(&mut self, failed: Option<bool>, version: Option<Version>) {
+  pub(super) fn profiles_read(&mut self, baseline: &str, failed: Option<bool>, version: Option<Version>) {
     let schedule = &mut self.github.profiles;
-    schedule.reading = false;
-    if let (Some(failed), Some(last)) = (failed, schedule.last.as_mut()) {
+    let waiters = schedule.reading.remove(baseline).unwrap_or_default();
+    // the last read is of the baseline asked last
+    if let (Some(failed), Some(last), true) = (failed, schedule.last.as_mut(), schedule.read_for.as_deref() == Some(baseline)) {
       last.failed = failed;
     }
-    for waiter in schedule.waiters.drain(..) {
+    for waiter in waiters {
       let _ = waiter.send(version);
     }
   }

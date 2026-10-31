@@ -686,7 +686,8 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   Branch Deck: the profile is the branch's by its robots. The profiles are `GET /robot-start-supported`, cached for 10
   minutes (an error for 1), a fact of the session for the target of its baseline (`facts.profiles`), which the popover
   when it opens and a click before it decides ask (`refresh_facts { profiles }`): read when unknown, after a failure, a
-  minute after the last read, or for another baseline. The default of the last robot is Rust's
+  minute after the last read, or for another baseline, at once beside a read of the old one still in flight; a refresh
+  waits only for the read of its baseline. The default of the last robot is Rust's
   (`domain_policy::land::default_profile`, the profiles a start offers `offered_profiles`, which `prepare` answers
   with the plan, its `alternatives`): the profile an answer named on the robot (a poll, a start, the New API's list), else the one its
   details name, read once for it. A target branch Patronus does not protect can't be started. A profile carries `skipsReview`: true for an emergency profile and
@@ -700,7 +701,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   for them (`domain_policy::land::default_profile` takes the profile the list named); a null `mergeProfile` leaves the profile unknown, as a list without it, never "none".
   [@test] ../../crates/patronus/src/service_test.rs (`with_the_new_api_a_list_names_the_merge_profile_patronus_put_on_a_robot`)
   [@test] ../../crates/patronus/src/actions_test.rs (`start_options_take_the_profile_the_list_named_without_reading_the_last_robot`)
-  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later`, `a_refresh_of_the_profiles_waits_only_for_the_read_of_its_baseline`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_default_profile_is_the_last_robots_while_offered_and_a_profile_is_confirmed`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push with the profile chosen in the popover of S and of Safe Push With Profile…`, `should open the popover of a click for the profile of the last Safe Push, and start with the one chosen`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not check the review of a dry run`)
@@ -746,7 +747,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   a warning of the popover ("Cannot check whether the push keeps the approvals of #7: GitHub answered 500. Patronus
   counts them when the robot starts."), which Enter or the start accepts. A failed read is not kept: each start asks
   the session to read again the rules GitHub didn't give (`refresh_facts { branchRules, afterWrite }`), and the click
-  waits for that answer. When the approvals the push dismisses are the ones Patronus counts (the readiness is
+  waits for those reads, never for the read of another base a listing asked. When the approvals the push dismisses are the ones Patronus counts (the readiness is
   `approved`), the robot would start without them: the start is refused with "The push dismisses the approvals of #7: push first, then
   ask for the review again", and "Push Branch" alone is offered (the action of the `info` toast, the button of the popover).
   The toast of a start that can't run is of the robots of its subject: a later start takes its place, and its Push
@@ -762,7 +763,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should refuse the click with the push alone in its toast`, `should say in the popover why it can't start, and push alone from it`)
   [@test] ../../crates/remote-facts/src/branch_rules_test.rs (`a_pull_request_rule_that_dismisses_stale_reviews_on_push_is_found_among_the_rules_of_the_branch`, `a_branch_without_such_a_rule_keeps_the_approvals`, `a_failed_answer_is_an_error_not_a_guess`)
-  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_when_a_start_asks`)
+  [@test] ../../crates/remote-facts/src/scheduler_test.rs (`the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_when_a_start_asks`, `a_refresh_of_the_rules_waits_only_for_the_reads_it_asked`)
   [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`the_rules_are_of_the_bases_of_the_approved_open_pull_requests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of

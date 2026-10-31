@@ -237,8 +237,10 @@ enum Input {
     known: Option<bool>,
     version: Option<Version>,
   },
-  /// A read of the merge profiles ended: whether it failed (`None`: the session was gone), the version after its patch
+  /// A read of the merge profiles of `baseline` ended: whether it failed (`None`: the session was gone), the version
+  /// after its patch
   Profiles {
+    baseline: String,
     failed: Option<bool>,
     version: Option<Version>,
   },
@@ -419,7 +421,7 @@ impl SessionFacts {
       }
       Input::PullRequests(listed) => self.pull_requests_listed(&listed),
       Input::Rules { branch, known, version } => self.rule_read(&branch, known, version),
-      Input::Profiles { failed, version } => self.profiles_read(failed, version),
+      Input::Profiles { baseline, failed, version } => self.profiles_read(&baseline, failed, version),
       Input::Readiness(ended) => self.readiness_ended(ended),
       Input::ReviewRequests { availability, version } => self.review_requests_listed(availability.as_ref(), version),
       Input::Auth { version } => self.auth_read(version),

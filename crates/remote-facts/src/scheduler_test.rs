@@ -85,6 +85,10 @@ struct ScriptedSources {
   review_requests: Mutex<Option<ReviewRequestsResult>>,
   /// The reads of the sign-ins
   auth_calls: AtomicU32,
+  /// The bases whose reads of the rules wait until the test releases them
+  hold_rules: Mutex<BTreeSet<String>>,
+  /// While set, each read of the merge profiles waits until the test releases it
+  hold_profiles: AtomicBool,
 }
 
 impl ScriptedSources {
@@ -161,9 +165,13 @@ impl FactSources for ScriptedSources {
   }
 
   fn branch_rules<'a>(&'a self, _key: &'a SessionKey, branch: String) -> Read<'a, Result<BranchRules, ApiError>> {
+    let held = self.held(&AtomicBool::new(lock(&self.hold_rules).contains(&branch)));
     lock(&self.github_calls).push(GitHubCall::Rules(branch));
     let fails = self.github_fails.load(Ordering::SeqCst);
     Box::pin(async move {
+      if let Some(released) = held {
+        let _ = released.await;
+      }
       if fails {
         Err(ApiError::internal("GitHub answered 500"))
       } else {
@@ -202,7 +210,11 @@ impl FactSources for ScriptedSources {
   fn profiles<'a>(&'a self, _key: &'a SessionKey, baseline: String) -> Read<'a, Result<PatronusStartOptions, ApiError>> {
     lock(&self.github_calls).push(GitHubCall::Profiles(baseline));
     let fails = self.github_fails.load(Ordering::SeqCst);
+    let held = self.held(&self.hold_profiles);
     Box::pin(async move {
+      if let Some(released) = held {
+        let _ = released.await;
+      }
       if fails {
         Err(ApiError::internal("Patronus did not answer"))
       } else {
@@ -987,6 +999,37 @@ async fn the_rules_of_an_approved_base_are_read_once_and_a_failed_read_again_whe
   assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests]);
 }
 
+/// A start that asks the failed rules again waits for those reads only: the read of another base a listing asked, still
+/// in flight, keeps it waiting no longer
+#[tokio::test]
+async fn a_refresh_of_the_rules_waits_only_for_the_reads_it_asked() {
+  let session = Harness::new();
+  *lock(&session.port.rule_bases) = vec!["master".to_owned()];
+  session.sources.github_fails.store(true, Ordering::SeqCst);
+  session.send(SessionEventKind::Watched(true)).await;
+  session.send(committed()).await;
+  session.sources.github_fails.store(false, Ordering::SeqCst);
+  // a listing reads the rules of a new base, held; master failed and waits for a start
+  *lock(&session.port.rule_bases) = vec!["master".to_owned(), "user/virtual/login".to_owned()];
+  lock(&session.sources.hold_rules).insert("user/virtual/login".to_owned());
+  session.github_calls();
+  session.send(pushed("auth", "pushed")).await;
+  let rules = |base: &str| GitHubCall::Rules(base.to_owned());
+  assert_eq!(session.github_calls(), vec![GitHubCall::PullRequests, rules("user/virtual/login")]);
+
+  let (reply, mut answer) = oneshot::channel();
+  let refresh = SessionEventKind::Refresh {
+    family: FactFamily::BranchRules,
+    reason: FactRefreshReason::AfterWrite,
+    subject: None,
+    reply,
+  };
+  session.send(refresh).await;
+  assert_eq!(session.github_calls(), vec![rules("master")]);
+  assert!(answer.try_recv().unwrap().is_some(), "answered once master was read, the read of login still held");
+  session.release().await;
+}
+
 /// A listing of the pull requests that shows a branch at a head its remote-tracking ref lacks asks the host to fetch it,
 /// beside the listing; a listing that shows none fetches nothing
 #[tokio::test]
@@ -1031,6 +1074,40 @@ async fn the_profiles_are_asked_when_a_start_needs_them_and_a_minute_later() {
   session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
   session.refresh_family(FactFamily::Profiles, FactRefreshReason::AfterWrite).await;
   assert_eq!(session.github_calls(), vec![profiles("origin/main"), profiles("origin/main")], "a failure asks again");
+}
+
+/// A start on a new baseline asks its merge profiles at once, beside a read of the old baseline still in flight, and
+/// waits only for its own; a second refresh of it joins that read
+#[tokio::test]
+async fn a_refresh_of_the_profiles_waits_only_for_the_read_of_its_baseline() {
+  let session = Harness::watched().await;
+  session.github_calls();
+  session.sources.hold_profiles.store(true, Ordering::SeqCst);
+  let (reply, mut old) = oneshot::channel();
+  let refresh = |reply| SessionEventKind::Refresh {
+    family: FactFamily::Profiles,
+    reason: FactRefreshReason::AfterWrite,
+    subject: None,
+    reply,
+  };
+  session.send(refresh(reply)).await;
+  session.sources.hold_profiles.store(false, Ordering::SeqCst);
+  session
+    .send(SessionEventKind::TableCommitted {
+      baseline: "origin/main".to_owned(),
+    })
+    .await;
+  let (reply, mut new) = oneshot::channel();
+  session.send(refresh(reply)).await;
+  let profiles = |baseline: &str| GitHubCall::Profiles(baseline.to_owned());
+  assert_eq!(session.github_calls(), vec![profiles("origin/master"), profiles("origin/main")]);
+  assert!(
+    new.try_recv().unwrap().is_some(),
+    "answered by the read of origin/main, the one of origin/master still held"
+  );
+  assert!(old.try_recv().is_err(), "the read of origin/master is still held");
+  session.release().await;
+  assert!(old.try_recv().unwrap().is_some());
 }
 
 /// A subject of the readiness asked for `priority`, of the inputs `inputs`
