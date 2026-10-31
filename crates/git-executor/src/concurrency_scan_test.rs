@@ -14,8 +14,10 @@
 //! tests of the cores (`test_utils::lock_span`) name every git that runs under the lock. A file is exempt only with its
 //! reason and its exact number of hits.
 
-use crate::source_scan_test::{Exemption, Source, check, code_text, line_at};
+use crate::source_scan_test::{Exemption, Source, check, code_text, line_at, production_sources};
+use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::OnceLock;
 
 /// The ends of the initializer of a binding that holds the guard of an async mutex or read-write lock (tokio's)
 const ASYNC_GUARDS: [&str; 6] = [
@@ -498,4 +500,235 @@ fn a_repository_lock_lives_across_no_call_of_the_network() {
     "use bd_core::sync_command::{SyncOutput, lock, sync};",
   ]);
   assert_eq!(locks_across_network(&source), hits);
+}
+
+// A std mutex across git: a check of its own, apart from the async guards and the repository lock above. The guard of
+// a `std` mutex is held only to look up and to keep, never across a git process: whoever takes the mutex meanwhile (a
+// view of the session and the checks of a push share the memo of its content walks) would wait for that git. A guard
+// is a `let` binding whose initializer ends with `lock()` without an argument or with the call of a function of its
+// crate that answers a `MutexGuard` (`lock_state`), as it is or unwrapped (`unwrap()`, `expect(…)`,
+// `unwrap_or_else(…)`, `?`), or one typed `MutexGuard`; a guard lives as the guards above do. Git is a name
+// the file gives a `GitCommandExecutor` (a parameter, a field, a binding typed with it or made by it or by `git()`),
+// used in the life of the guard; a guard handed to a call (`&mut state.lock().unwrap()`) is one when its statement uses
+// such a name too. As above, a call of git inside a function the scope calls is not followed.
+
+/// The std mutexes whose turn is the git itself: an exemption names its file, reason and count as above
+const EXEMPT_STD_GUARDS: [Exemption; 4] = [
+  Exemption {
+    path: "crates/branch-integration/src/archive.rs",
+    hits: 2,
+    reason: "the archive renames and deletes of this process take turns over the git that names and writes the refs of one namespace: the turn is what the mutex is for",
+  },
+  Exemption {
+    path: "crates/sync-core/src/cache_memo.rs",
+    hits: 1,
+    reason: "the mutex owns the one `cat-file --batch-check` process of the memo: its guard is the turn on that pipe",
+  },
+  Exemption {
+    path: "crates/sync-core/src/repository_config.rs",
+    hits: 1,
+    reason: "one write of a config file at a time in this process: its guard is the turn of the write",
+  },
+  Exemption {
+    path: "crates/bd-core/src/context.rs",
+    hits: 3,
+    reason: "one read of the config, the remotes and HEAD for the whole command of `bd`: a caller that comes meanwhile waits for that read instead of running the same git (a single flight of blocking code)",
+  },
+];
+
+/// `value` without the unwrapping of its end: `?`, `unwrap()`, `expect(…)`, `unwrap_or_else(…)`
+fn unwrapped(value: &str) -> &str {
+  let mut value = value.trim_end();
+  loop {
+    let before = value;
+    value = value.trim_end_matches('?').trim_end();
+    if let Some(stripped) = value.strip_suffix(".unwrap()") {
+      value = stripped;
+    } else if value.ends_with(')') {
+      for call in [".expect(", ".unwrap_or_else("] {
+        if let Some(at) = value.rfind(call)
+          && first_at_top(&value[at + call.len()..], |_, _| false).is_some_and(|close| at + call.len() + close + 1 == value.len())
+        {
+          value = &value[..at];
+          break;
+        }
+      }
+    }
+    if value == before {
+      return value;
+    }
+  }
+}
+
+/// The functions of `code` that answer the guard of a std mutex (`-> MutexGuard<…>`), by name
+fn guard_functions_of(code: &str) -> Vec<String> {
+  words(code, "fn")
+    .filter_map(|at| {
+      let after = code[at + 2..].trim_start();
+      let name = &after[..after.bytes().take_while(|&byte| is_word(byte)).count()];
+      let signature = &after[..after.find(['{', ';']).unwrap_or(after.len())];
+      let answer = signature.rsplit_once("->")?.1;
+      (!name.is_empty() && words(answer, "MutexGuard").next().is_some()).then(|| name.to_owned())
+    })
+    .collect()
+}
+
+/// The crate of the source at `path` (`crates/repository-model/src/facts.rs`: `crates/repository-model`)
+fn crate_of(path: &str) -> &str {
+  path.find("/src/").map_or(path, |end| &path[..end])
+}
+
+/// The functions that answer the guard of a std mutex, by crate (`guard_functions_of`)
+fn guard_functions() -> &'static HashMap<String, Vec<String>> {
+  static BY_CRATE: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+  BY_CRATE.get_or_init(|| {
+    let mut by_crate: HashMap<String, Vec<String>> = HashMap::new();
+    for source in production_sources() {
+      by_crate
+        .entry(crate_of(&source.path).to_owned())
+        .or_default()
+        .extend(guard_functions_of(&code_text(&source.text)));
+    }
+    by_crate
+  })
+}
+
+/// The name of the call `value` ends with (`state.lock()`: `lock`, `lock_state(&self.state)`: `lock_state`)
+fn last_call(value: &str) -> Option<&str> {
+  let inner = value.strip_suffix(')')?;
+  let mut depth = 0usize;
+  let open = inner.bytes().enumerate().rev().find_map(|(index, byte)| match byte {
+    b')' | b']' => {
+      depth += 1;
+      None
+    }
+    b'(' | b'[' if depth > 0 => {
+      depth -= 1;
+      None
+    }
+    b'(' => Some(index),
+    _ => None,
+  })?;
+  let before = &inner[..open];
+  let name = &before[before.trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_').len()..];
+  (!name.is_empty()).then_some(name)
+}
+
+/// Whether `value`, the initializer of a binding, holds the guard of a std mutex; `guards`: the functions of its crate
+/// that answer one; a closure that takes one holds none
+fn holds_std_guard(value: &str, guards: &[String]) -> bool {
+  let value: String = value.split_whitespace().collect();
+  if value.starts_with('|') || value.starts_with("move|") {
+    return false;
+  }
+  let value = unwrapped(&value);
+  value.ends_with(".lock()") || last_call(value).is_some_and(|name| name != "lock" && guards.iter().any(|guard| guard == name))
+}
+
+/// The names the file of `code` gives a `GitCommandExecutor`: typed with it, or bound to one it makes or takes
+fn executor_names<'a>(code: &'a str, all: &[Binding<'a>]) -> Vec<&'a str> {
+  let mut names = typed_names(code, "GitCommandExecutor");
+  for binding in all {
+    let value: String = code[binding.value.clone()].split_whitespace().collect();
+    if value.contains("GitCommandExecutor::") || unwrapped(&value).ends_with(".git()") || value.contains("git_of(") {
+      names.extend(&binding.names);
+    }
+  }
+  names
+}
+
+/// Whether `scope` uses one of the executors `executors`
+fn uses_executor(scope: &str, executors: &[&str]) -> bool {
+  executors.iter().any(|name| words(scope, name).next().is_some())
+}
+
+/// The lines of `source` that hold the guard of a std mutex across git: a binding that lives across a use of an executor,
+/// or a guard handed to a call in a statement that uses one
+fn std_guards_across_git(source: &Source) -> Vec<usize> {
+  let code = code_text(&source.text);
+  let all = bindings(&code);
+  let executors = executor_names(&code, &all);
+  if executors.is_empty() {
+    return Vec::new();
+  }
+  let mut guards = guard_functions().get(crate_of(&source.path)).cloned().unwrap_or_default();
+  // the sources of a test of this scan are of no crate
+  guards.extend(guard_functions_of(&code));
+  let mut lines: Vec<usize> = all
+    .iter()
+    .filter(|binding| holds_std_guard(&code[binding.value.clone()], &guards) || binding.ty.as_ref().is_some_and(|ty| words(&code[ty.clone()], "MutexGuard").next().is_some()))
+    .filter(|binding| uses_executor(lifetime(&code, &all, binding), &executors))
+    .map(|binding| line_at(&code, binding.at))
+    .collect();
+  for at in code.match_indices("&mut ").map(|(at, _)| at) {
+    let argument = &code[at + "&mut ".len()..];
+    let end = first_at_top(argument, |text, index| text.as_bytes()[index] == b',').unwrap_or(argument.len());
+    if !holds_std_guard(&argument[..end], &guards) {
+      continue;
+    }
+    let start = code[..at].rfind([';', '{', '}']).map_or(0, |start| start + 1);
+    let statement_end = code[at..].find(';').map_or(code.len(), |end| at + end);
+    if uses_executor(&code[start..statement_end], &executors) {
+      lines.push(line_at(&code, at));
+    }
+  }
+  lines.sort_unstable();
+  lines.dedup();
+  lines
+}
+
+#[test]
+fn no_guard_of_a_std_mutex_lives_across_git() {
+  check(
+    "the guard of a std mutex lives across a git process, so whoever takes the mutex meanwhile waits for that git",
+    "take the mutex to look up what is kept and again to keep the answer, and run git between without it (`repository_model::patronus_view::ContentMemo`)",
+    &EXEMPT_STD_GUARDS,
+    std_guards_across_git,
+  );
+}
+
+#[test]
+fn a_std_guard_lives_across_no_git_and_is_handed_to_no_call_that_runs_it() {
+  let (source, hits) = marked(&[
+    "fn across_git(memo: &Mutex<Memo>, git: &GitCommandExecutor) {",
+    "  let kept = memo.lock().unwrap_or_else(PoisonError::into_inner); // hit",
+    "  walk(git, &kept);",
+    "}",
+    "fn looked_up_then_free(&self, memo: &Mutex<Memo>) {",
+    "  let known = {",
+    "    let kept = self.memo.lock().unwrap();",
+    "    kept.get(key).cloned()",
+    "  };",
+    "  let answer = walk(&self.git, known);",
+    "  let mut kept = self.memo.lock().expect(\"the memo\");",
+    "  kept.insert(answer);",
+    "}",
+    "fn dropped_first(state: &Mutex<State>, services: &Services) {",
+    "  let git = services.git();",
+    "  let state = state.lock()?;",
+    "  let value = state.clone();",
+    "  drop(state);",
+    "  git.execute_command(&[\"status\"]);",
+    "  let held: MutexGuard<'_, State> = lock_state(); // hit",
+    "  git.execute_command(&[\"status\"]);",
+    "}",
+    "fn a_closure_that_locks(&self) {",
+    "  let memo = || self.memo.lock().unwrap();",
+    "  walk(&self.git_executor, memo().get(key));",
+    "}",
+    "fn lock_memo(memo: &Mutex<Memo>) -> MutexGuard<'_, Memo> {",
+    "  memo.lock().unwrap_or_else(PoisonError::into_inner)",
+    "}",
+    "fn derived(git: &GitCommandExecutor, memo: &Mutex<Memo>) {",
+    "  derive_patronus(git, &of, &mut lock_memo(memo)); // hit",
+    "}",
+    "fn handed(git_executor: &GitCommandExecutor, memo: &Mutex<Memo>) {",
+    "  derive(git_executor, &of, &mut memo.lock().unwrap()); // hit",
+    "  derive_cached(&of, &mut memo.lock().unwrap());",
+    "  let lock = options.lock_wait.lock(git_executor, path)?;",
+    "  let value = memo.lock().unwrap().clone();",
+    "  git_executor.execute_command(&[\"status\"]);",
+    "}",
+  ]);
+  assert_eq!(std_guards_across_git(&source), hits);
 }

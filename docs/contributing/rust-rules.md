@@ -33,7 +33,8 @@ per rule and links here.
   A helper or import that only `#[cfg(unix)]` tests use carries `#[cfg(unix)]` too, or Windows clippy fails on it.
 - **Single flights**: a read that other callers wait for (a token source, a renewal, a read of Patronus two windows ask
   at once) is a single flight (`sync_utils::single_flight`), never the guard of an async mutex held across an await;
-  `concurrency_scan_test.rs` of `git-executor` fails on such a guard ([Single flights](../design/async-patterns.md#single-flights-no-async-mutex)).
+  `concurrency_scan_test.rs` of `git-executor` fails on such a guard ([Single flights](../design/async-patterns.md#single-flights-no-async-mutex)),
+  and on the guard of a `std` mutex held across git: a memo is locked to look up and to keep, git runs without it.
 - **Removals and renames** of the file system go through `sync_utils::fs_retry` (`remove_dir_all`, `remove_dir`,
   `remove_file`, `rename`), never `std::fs`: on Windows a git or a shell whose current directory is in the path, or a
   scanner with a file open, fails them at once (`fs_retry_scan_test.rs`). A walk that removes a tree removes each

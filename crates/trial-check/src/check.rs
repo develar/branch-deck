@@ -742,16 +742,17 @@ impl CheckSession {
 
   /// Keep what a check that built on `base` read of it; the cache of that check answers without git
   fn remember_base(&self, tree_id_cache: &TreeIdCache, base: &str) {
-    let mut facts = self.base_facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if facts.as_ref().is_some_and(|facts| facts.commit == base) {
+    let base_facts = || self.base_facts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if base_facts().as_ref().is_some_and(|facts| facts.commit == base) {
       return;
     }
+    // read without the lock: a check that starts meanwhile takes what is kept, not the turn of this read
     let (git, repository) = (&self.git_executor, self.repository_path.as_str());
     if let (Ok(tree), Ok(committer_timestamp)) = (
       tree_id_cache.get_tree_id(git, repository, base),
       tree_id_cache.get_committer_timestamp(git, repository, base),
     ) {
-      *facts = Some(BuildBase {
+      *base_facts() = Some(BuildBase {
         commit: base.to_string(),
         tree,
         committer_timestamp,

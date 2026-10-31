@@ -44,8 +44,11 @@ only with `-z`; paths after `--` only with `--literal-pathspecs`; `push`, `fetch
 async mutex or `RwLock` (`let … = ….lock().await`) lives across another `.await` of its scope (a read others wait for
 is one shared future, not a mutex), no guard of the repository lock across `execute_remote_command*`,
 `fetch_baseline`, `push_baseline`, `push_leased`, HTTP (`reqwest`, a method of a GitHub, Patronus or YouTrack
-service) or `block_on` ([invariant 2](../design/rust-domain-authority.md#инварианты)). An exemption names its file,
-its reason and its exact number of hits.
+service) or `block_on` ([invariant 2](../design/rust-domain-authority.md#инварианты)), and no guard of a `std`
+mutex (`lock()`, or a function of the crate that answers a `MutexGuard`) lives across or is handed to a call of git:
+take it to look up and again to keep, and run git between without it (the memo of the content walks,
+`repository_model::patronus_view::ContentMemo`). An exemption names its file, its reason and its exact number of hits;
+a mutex whose turn is the git itself (the archive renames, one config write, the `cat-file` pipe of a memo) is one.
 
 ## Never write to the working tree
 

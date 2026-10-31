@@ -199,7 +199,9 @@ joins the renewal of its generation under the one lock of the state), the flight
 held across no `.await` at all; one that a blocking write needs is taken on the thread of the write
 (`spawn_blocking`). The concurrency scan (`crates/git-executor/src/concurrency_scan_test.rs`) fails on the guard of an
 async mutex or read-write lock that lives across another `.await` of its scope, with no exemption
-([Rust as the Domain Authority](rust-domain-authority.md), «Инварианты», 2).
+([Rust as the Domain Authority](rust-domain-authority.md), «Инварианты», 2), and on the guard of a `std` mutex held
+across or handed to a call of git: a memo is locked to look up and to keep, never while git answers what it lacks
+(`ContentMemo`), so a caller that wants something kept does not wait for another caller's git.
 
 ## Alternatives Considered
 
