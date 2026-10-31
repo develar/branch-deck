@@ -199,7 +199,9 @@ client takes a pasted token.
 
 - A token goes only to the YouTrack it is for and its Hub: redirects are not followed, every path is built from
   segments, and an issue key is checked first (`^[A-Za-z][A-Za-z0-9_]*-\d+$`), so a key a repository's `vcs.xml` put
-  into a link never names another path. A read is asked again once after a transient failure, a write never.
+  into a link never names another path. A read is asked again once after a failure of the server or the connection,
+  never after a timeout, which already waited its full time; a write never.
+  [@test] ../../crates/youtrack/src/issue_test.rs (`an_issue_read_that_timed_out_is_not_asked_again`)
   [@test] ../../crates/youtrack/src/url_test.rs (`only_an_issue_key_is_a_path_segment_of_a_lookup`, `a_segment_is_escaped_and_never_leaves_the_base`)
   [@test] ../../crates/youtrack/src/issue_test.rs (`a_redirect_is_not_followed`)
   [@test] ../../crates/youtrack/src/service_test.rs (`a_lookup_of_something_else_than_a_key_is_never_sent`)

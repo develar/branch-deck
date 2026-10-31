@@ -39,6 +39,12 @@ impl YouTrackError {
     matches!(self, Self::Timeout | Self::Network(_) | Self::Http { status: 500.., .. })
   }
 
+  /// A read is asked once more after it: the server failed, or the connection did (refused, reset); never after a
+  /// timeout, which already waited all the time a read has
+  pub const fn is_asked_again(&self) -> bool {
+    self.is_transient() && !matches!(self, Self::Timeout)
+  }
+
   /// For the user: YouTrack's message when it gave one, else what failed
   pub fn message(&self) -> String {
     match self {
@@ -79,12 +85,12 @@ impl YouTrackClient {
     &self.http
   }
 
-  /// A GET with the token (None: an endpoint every visitor may ask, `/api/config`), asked again once after a
-  /// transient failure
+  /// A GET with the token (None: an endpoint every visitor may ask, `/api/config`), asked again once after a failure
+  /// of the server or the connection (`is_asked_again`)
   #[instrument(skip(self, token), fields(url = %url.path()))]
   pub async fn get<T: DeserializeOwned>(&self, url: &Url, token: Option<&str>) -> Result<T, YouTrackError> {
     let body = match self.send(Method::GET, url, token, None).await {
-      Err(e) if e.is_transient() => {
+      Err(e) if e.is_asked_again() => {
         debug!(error = ?e, "asking YouTrack again");
         tokio::time::sleep(RETRY_DELAY).await;
         self.send(Method::GET, url, token, None).await?
@@ -151,8 +157,9 @@ pub fn classify_failure(status: StatusCode, body: &[u8]) -> YouTrackError {
   }
 }
 
+/// A failed request classified: a connect that failed or timed out is no connection, a read that timed out a timeout
 pub fn request_error(e: &reqwest::Error) -> YouTrackError {
-  if e.is_timeout() {
+  if e.is_timeout() && !e.is_connect() {
     YouTrackError::Timeout
   } else {
     YouTrackError::Network(e.to_string())

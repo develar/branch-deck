@@ -255,3 +255,15 @@ async fn a_write_by_its_status_keeps_the_body_of_the_statuses_asked_for() {
   assert!(matches!(refused, GitHubError::Http { status: 409, .. }), "{refused:?}");
   assert_eq!(fake.requests_to("PUT", "/repos/o/r/pulls/7/merge-async").len(), 2, "a write is never asked again");
 }
+
+/// A read that timed out is not asked again: it already waited all the time a read has (the clock of the test runs
+/// ahead while the answer is held)
+#[tokio::test(start_paused = true)]
+async fn a_get_that_timed_out_is_not_asked_again() {
+  let (fake, client) = start_fake().await;
+  fake.answer("GET", "/repos/o/r", FakeAnswer::ok(json!({"id": 1})));
+  let held = fake.hold("GET", "/repos/o/r");
+  let error = client.get::<serde_json::Value>("t", &["repos", "o", "r"], &[]).await.unwrap_err();
+  assert!(matches!(error, GitHubError::Timeout), "{error:?}");
+  assert_eq!(held.arrivals(), 1);
+}

@@ -58,6 +58,12 @@ impl PatronusError {
     }
   }
 
+  /// A read is asked once more after it: the server failed, or the connection did (refused, reset); never after a
+  /// timeout, which already waited all the time a read has (a timeout still backs the background requests off)
+  pub const fn is_asked_again(&self) -> bool {
+    self.is_transient() && !matches!(self, Self::Timeout)
+  }
+
   /// Of a request that changes something (a start): it went out and its answer was lost, so whether Patronus did it is
   /// not known. A timeout after the connect, a connection that broke off, a success whose body doesn't read, the 504 of a
   /// gateway that gave up waiting for Patronus; never a refusal of Patronus or a request that never went out
@@ -871,10 +877,10 @@ impl PatronusClient {
     PatronusError::InvalidResponse(format!("{} is not a base URL", self.base_url))
   }
 
-  /// A GET, asked once more after a transient failure
+  /// A GET, asked once more after a failure of the server or the connection (`is_asked_again`)
   async fn get_json<T: DeserializeOwned>(&self, request: impl Fn() -> reqwest::RequestBuilder, timeout: Duration) -> Result<T, PatronusError> {
     match read_json(request().timeout(timeout).send().await).await {
-      Err(e) if e.is_transient() => {
+      Err(e) if e.is_asked_again() => {
         debug!(error = ?e, "asking Patronus again");
         tokio::time::sleep(self.retry_delay).await;
         read_json(request().timeout(timeout).send().await).await

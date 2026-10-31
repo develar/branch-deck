@@ -289,9 +289,10 @@ reports in it and closes it once merged.
   renewed it): Patronus checks every unknown token against Space. The refresh button still asks.
   [@test] ../../crates/patronus/src/service_test.rs (`a_rejected_token_is_not_sent_in_the_background_until_it_changes`)
 - After a server or network failure, background requests back off: 1 s, doubled up to 10 minutes, reset by the next
-  answer. A GET is asked again once after a transient failure; a 4xx is not asked again. A POST or a PUT is never
-  repeated by itself.
-  [@test] ../../crates/patronus/src/service_test.rs (`background_requests_back_off_after_a_server_failure`)
+  answer. A GET is asked again once after a failure of the server or the connection, never after a timeout, which
+  already waited its full time (it still backs off); a 4xx is not asked again. A POST or a PUT is never repeated by
+  itself.
+  [@test] ../../crates/patronus/src/service_test.rs (`background_requests_back_off_after_a_server_failure`, `a_list_that_timed_out_is_not_asked_again_and_backs_off`)
   [@test] ../../crates/patronus/src/service_test.rs (`a_client_error_is_not_asked_again`)
 - The progress of the running checks of a robot (`GET /teamcity-proxy/build-progress/{buildId}`, the estimate of the CI
   for a build, as the robot page of the web UI shows it) is asked only with the details of a running robot, while they

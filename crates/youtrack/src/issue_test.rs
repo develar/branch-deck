@@ -31,6 +31,18 @@ pub(crate) fn state_values() -> serde_json::Value {
   json!({"projectCustomField": {"bundle": {"values": [{"name": "Open"}, {"name": "Fixed"}, {"name": "Won't fix"}]}}})
 }
 
+/// A read that timed out is not asked again: it already waited all the time a read has (the clock of the test runs ahead
+/// while the answer is held)
+#[tokio::test(start_paused = true)]
+async fn an_issue_read_that_timed_out_is_not_asked_again() {
+  let (fake, url) = start_fake_server().await;
+  fake.answer("GET", "/api/issues/ABC-1", FakeAnswer::ok(open_issue()));
+  let held = fake.hold("GET", "/api/issues/ABC-1");
+  let error = fetch_issue(&client(), &url, "perm-secret", "ABC-1").await.unwrap_err();
+  assert!(matches!(error, YouTrackError::Timeout), "{error:?}");
+  assert_eq!(held.arrivals(), 1);
+}
+
 #[tokio::test]
 async fn an_issue_shows_its_state_and_its_single_value_fields_by_type() {
   let (fake, url) = start_fake_server().await;

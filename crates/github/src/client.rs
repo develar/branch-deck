@@ -74,6 +74,12 @@ impl GitHubError {
     }
   }
 
+  /// A read is asked once more after it: the server failed, or the connection did (refused, reset); never after a
+  /// timeout, which already waited all the time a read has
+  pub const fn is_asked_again(&self) -> bool {
+    self.is_transient() && !matches!(self, Self::Timeout)
+  }
+
   /// Of a write (the `/patronus` comment of a start): it went out and its answer was lost, so whether GitHub did it is
   /// not known. A timeout after the connect, a connection that broke off, a success whose body doesn't read, the 504 of a
   /// gateway; never a refusal of GitHub or a request that never went out
@@ -384,10 +390,10 @@ struct ReadResponse {
   body: Vec<u8>,
 }
 
-/// The answer of a read, asked again once after a transient failure
+/// The answer of a read, asked again once after a failure of the server or the connection (`is_asked_again`)
 async fn read_with_retry<R: Future<Output = reqwest::Result<reqwest::Response>>>(retry_delay: Duration, send: impl Fn() -> R) -> Result<ReadResponse, GitHubError> {
   match read_response(send().await).await {
-    Err(e) if e.is_transient() => {
+    Err(e) if e.is_asked_again() => {
       debug!(error = ?e, "asking GitHub again");
       tokio::time::sleep(retry_delay).await;
       read_response(send().await).await

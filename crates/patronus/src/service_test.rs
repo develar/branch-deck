@@ -235,6 +235,20 @@ async fn background_requests_back_off_after_a_server_failure() {
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 4);
 }
 
+/// A list that timed out is not asked again, as it already waited all the time a list has, and still backs the background
+/// requests off (the clock of the test runs ahead while the answer is held)
+#[tokio::test(start_paused = true)]
+async fn a_list_that_timed_out_is_not_asked_again_and_backs_off() {
+  let (fake, client) = start_fake().await;
+  let (service, _) = service(client, token("t"));
+  let held = fake.hold("GET", "/app/rest/v1/robots");
+  let failed = service.robots("ultimate", "me", Some(1), true, false).await;
+  assert!(matches!(failed.availability, PatronusAvailability::Error { .. }), "{failed:?}");
+  assert_eq!(held.arrivals(), 1);
+  service.robots("ultimate", "me", Some(1), true, false).await;
+  assert_eq!(held.arrivals(), 1, "no request while backing off");
+}
+
 #[tokio::test]
 async fn a_client_error_is_not_asked_again() {
   let (fake, client) = start_fake().await;

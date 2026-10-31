@@ -189,8 +189,9 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 ### Requests
 
 - Every request has a 5 s connect and a 30 s total timeout. A read (a GET, a GraphQL query) is asked again once after a
-  transient failure (5xx, timeout, network), a write never.
-  [@test] ../../crates/github/src/client_test.rs (`a_get_is_asked_again_once_after_a_server_error_and_a_post_never`)
+  failure of the server or the connection (5xx, refused, reset), never after a timeout, which already waited its full
+  time; a write never.
+  [@test] ../../crates/github/src/client_test.rs (`a_get_is_asked_again_once_after_a_server_error_and_a_post_never`, `a_get_that_timed_out_is_not_asked_again`)
 - A GET the same token asked before is conditional (`If-None-Match`): a `304 Not Modified` does not count against the
   rate limit.
   [@test] ../../crates/github/src/client_test.rs (`a_get_escapes_its_segments_and_asks_conditionally_the_second_time`)

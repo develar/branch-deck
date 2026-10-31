@@ -88,6 +88,11 @@ impl FakeGate {
     self.arrivals.load(std::sync::atomic::Ordering::SeqCst) > 0
   }
 
+  /// The requests that reached the gate so far
+  pub fn arrivals(&self) -> usize {
+    self.arrivals.load(std::sync::atomic::Ordering::SeqCst)
+  }
+
   /// Resolves once a request reached the gate
   pub async fn arrived(&self) {
     self.arrived_times(1).await;
@@ -97,7 +102,7 @@ impl FakeGate {
   pub async fn arrived_times(&self, count: usize) {
     loop {
       let notified = self.arrived.notified();
-      if self.arrivals.load(std::sync::atomic::Ordering::SeqCst) >= count {
+      if self.arrivals() >= count {
         return;
       }
       notified.await;
