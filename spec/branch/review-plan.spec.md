@@ -314,9 +314,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
 - A file must be `untested` when it is a source file of a known language, no test itself, not mechanical, no
   changed test names its stem, and the commits change no test code inside it (a unit that is `test`: a test of its
-  Rust `#[cfg(test)] mod tests`, a fixture of it); a test it keeps while its code changes does not count.
+  Rust `#[cfg(test)] mod tests`, a fixture of it; or a block of a repeated edit inside such code, whose unit is of no
+  declaration); a test it keeps while its code changes does not count.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_source_file_changed_without_its_test_is_untested`, `a_renamed_file_is_listed_at_its_new_path`)
-  [@test] ../../crates/review-plan/src/files_test.rs (`a_rust_file_whose_inline_test_changed_is_tested`)
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_rust_file_whose_inline_test_changed_is_tested`, `a_rust_file_whose_inline_test_a_repeated_edit_changed_is_tested`)
 - `breaks` must sum the usages left outside the change of the API a file removes or changes, at its last path, also
   of a removal whose entry names the old path. A usage inside the change and an addition break nothing.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)

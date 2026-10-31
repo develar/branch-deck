@@ -235,8 +235,6 @@ struct Site<'a> {
   form: &'a DeclarationForm,
 }
 
-/// What the commits did to `key`, by its forms in every file they touch it in and their `Surface`; `None` when nothing
-/// of the API changed
 /// Whether a declaration of the surface `before` the commits and `after` them has its entry in the API of a review, or
 /// would have it by a change of its form (`change_of`): an addition when it is API after them, any other change when
 /// it is API or unstable API on a side; a form both sides have that becomes API (a promotion) is API on its new side

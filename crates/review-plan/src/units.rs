@@ -14,7 +14,8 @@
 //!   A declaration of one side alone inside another of that side alone is part of the unit of the outermost one.
 //! - **API and tests**: a unit of a declaration is `api` when the API of the plan lists it, or would by a change of its
 //!   form (`api::listed`, by the `Surface` of each side), and `test` when it is test code (`DeclarationForm::test`);
-//!   `changed_test_paths` names the files whose commits change a test inside them, for `untested`.
+//!   `review_units` names the files whose commits change a test inside them too, for `untested`: by a unit that is
+//!   `test`, a block of a repeated edit inside test code, a new file that declares a test.
 //! - **A group** is one unit over its files: a kind of mechanical change, a repeated edit.
 //! - **The order**: the files in the order of the plan (`order`), each unit at its first block; a repeated edit at the
 //!   place of its first file; the mechanical units last.
@@ -285,6 +286,8 @@ struct Cut {
   repeated: BTreeMap<u32, (Place, Vec<UnitSlice>)>,
   /// directory -> the units of the files the commits delete from it, one per file
   deleted: BTreeMap<String, Vec<Placed>>,
+  /// The paths of the files where a block of a repeated edit changes test code (`SourceFile::in_test`)
+  repeated_tests: HashSet<String>,
 }
 
 /// The fewest deleted files of one directory that make one unit `DeletedFiles`
@@ -345,7 +348,8 @@ fn file_name(path: &str) -> &str {
 }
 
 /// The units of the pair of `files` (`pair::pair_blocks`, by place), in the order of the story: their kinds (`kinds`),
-/// the summaries of `input`, the hunk text `texts` (by blob) and the order of the plan's files `order`
+/// the summaries of `input`, the hunk text `texts` (by blob) and the order of the plan's files `order`; with the paths
+/// whose commits change a test inside them (`changed_test_paths`)
 pub(crate) fn review_units(
   input: &SymbolInput,
   files: &[ChangedFile<'_>],
@@ -353,7 +357,7 @@ pub(crate) fn review_units(
   texts: &HashMap<String, String>,
   kinds: &FileKinds,
   order: &[String],
-) -> Vec<ReviewUnit> {
+) -> (Vec<ReviewUnit>, HashSet<String>) {
   let place: HashMap<&str, usize> = order.iter().enumerate().map(|(index, path)| (path.as_str(), index)).collect();
   // file -> its group of repeated edits and the edit
   let mut group_of: HashMap<usize, (u32, &(String, String))> = HashMap::new();
@@ -421,6 +425,7 @@ pub(crate) fn review_units(
     mechanical,
     repeated,
     deleted,
+    repeated_tests,
   } = cut;
   for (directory, files) in deleted {
     if files.len() < MIN_DELETED_GROUP {
@@ -484,26 +489,26 @@ pub(crate) fn review_units(
     });
   }
   debug_assert!(every_block_once(files, pairs, &units), "a block in no unit or in two: {units:#?}");
-  units
+  let tests = changed_test_paths(input, files, &units, repeated_tests);
+  (units, tests)
 }
 
-/// The paths of `files` whose commits change a test inside them: those of a unit of test code (`ReviewUnit::test`), and
-/// a new file whose summary in `input` declares a test (`files`, "Tests": an inline test, a Rust `#[cfg(test)] mod
-/// tests`, tests the file it is in)
-pub(crate) fn changed_test_paths(input: Option<&SymbolInput>, files: &[ChangedFile<'_>], units: &[ReviewUnit]) -> HashSet<String> {
+/// The paths of `files` whose commits change a test inside them: those of a unit of test code (`ReviewUnit::test`),
+/// `repeated_tests` (a block of a repeated edit inside test code, whose unit is no declaration's), and a new file whose
+/// summary in `input` declares a test (`files`, "Tests": an inline test, a Rust `#[cfg(test)] mod tests`, tests the
+/// file it is in)
+fn changed_test_paths(input: &SymbolInput, files: &[ChangedFile<'_>], units: &[ReviewUnit], repeated_tests: HashSet<String>) -> HashSet<String> {
   let declares_test = |file: &ChangedFile<'_>| {
     file
       .after
-      .and_then(|blob| input?.summaries.get(blob))
+      .and_then(|blob| input.summaries.get(blob))
       .is_some_and(|summary| summary.declarations.iter().any(|declaration| declaration.test))
   };
   let new_files = files.iter().filter(|file| file.before.is_none() && declares_test(file)).map(|file| file.path.to_string());
-  units
-    .iter()
-    .filter(|unit| unit.test)
-    .flat_map(|unit| unit.slices.iter().map(|slice| slice.path.clone()))
-    .chain(new_files)
-    .collect()
+  let mut paths = repeated_tests;
+  paths.extend(units.iter().filter(|unit| unit.test).flat_map(|unit| unit.slices.iter().map(|slice| slice.path.clone())));
+  paths.extend(new_files);
+  paths
 }
 
 /// Every block of every file of `pairs` is in exactly one of `units`, and every file of the pair in one at least
@@ -595,6 +600,14 @@ impl SourceFile<'_> {
     owner.map_or(Owner::Outside, |&pair| Owner::Declaration(folded[pair]))
   }
 
+  /// Whether `block` changes test code (`DeclarationForm::test`): the declaration that holds most of its lines on a
+  /// side it changes lines of is test code
+  fn in_test(&self, block: &LineBlock) -> bool {
+    let test =
+      |declarations: &[SpannedDeclaration], lines: &Range<u32>| !lines.is_empty() && owner_of(declarations, lines.clone()).is_some_and(|index| declarations[index].form.test);
+    test(&self.after.declarations, &block.new) || test(&self.before.declarations, &block.old)
+  }
+
   /// Per pair, the pair whose unit it is part of: itself, or for a declaration of one side alone the outermost
   /// declaration around it that is of that side alone too (a member of a new type is part of the new type)
   fn folded(&self, pairs: &[Paired]) -> Vec<usize> {
@@ -663,7 +676,12 @@ impl SourceFile<'_> {
           }
           last_outside = Some(index);
         }
-        Owner::Repeated(group) => repeated.entry(group).or_default().push(unit_block),
+        Owner::Repeated(group) => {
+          if self.in_test(block) {
+            cut.repeated_tests.insert(pair_file.file.path.to_string());
+          }
+          repeated.entry(group).or_default().push(unit_block);
+        }
         Owner::Mechanical(kind) => mechanical.entry(mechanical_place(kind)).or_default().push(unit_block),
       }
     }

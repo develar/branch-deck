@@ -158,6 +158,42 @@ fn a_rust_file_whose_inline_test_changed_is_tested() {
   );
 }
 
+/// A test changed by the same edit in 3 or more files, so in the unit of a repeated edit and of no declaration, still
+/// tests its file; the same edit of the code beside a test the commits keep does not
+#[test]
+fn a_rust_file_whose_inline_test_a_repeated_edit_changed_is_tested() {
+  let source = |code: &str, asserted: &str| {
+    format!("pub fn size() -> u8 {{\n  {code}\n}}\n\n#[cfg(test)]\nmod tests {{\n  use super::*;\n\n  #[test]\n  fn size_is_right() {{\n    {asserted}\n  }}\n}}\n")
+  };
+  let kept = "assert_eq!(size(), 1);";
+  let (tested, code_only) = (["src/a.rs", "src/b.rs", "src/c.rs"], ["src/x.rs", "src/y.rs", "src/z.rs"]);
+  let before: Vec<(&str, String)> = tested.iter().chain(&code_only).map(|path| (*path, source("1", kept))).collect();
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add sources", &before.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
+  let after: Vec<(&str, String)> = tested
+    .iter()
+    .map(|path| (*path, source("2", "assert_eq!(size(), 2, \"the size is right\");")))
+    .chain(code_only.iter().map(|path| (*path, source("configured_size().unwrap_or(1)", kept))))
+    .collect();
+  let head = repo.create_commit_with_files("Change sources", &after.iter().map(|(path, text)| (*path, text.as_str())).collect::<Vec<_>>());
+  let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
+  let groups: Vec<&[String]> = plan.repeated_edits.iter().map(|group| group.files.as_slice()).collect();
+  assert_eq!(groups, [tested.map(str::to_string), code_only.map(str::to_string)], "the premise: two repeated edits");
+  let mut facts: Vec<(&str, bool)> = plan.files.iter().map(|facts| (facts.path.as_str(), facts.untested)).collect();
+  facts.sort_unstable();
+  assert_eq!(
+    facts,
+    [
+      ("src/a.rs", false),
+      ("src/b.rs", false),
+      ("src/c.rs", false),
+      ("src/x.rs", true),
+      ("src/y.rs", true),
+      ("src/z.rs", true)
+    ]
+  );
+}
+
 /// A renamed file is listed at its new path with its first path, also after a second move, and a Rust module file names
 /// the directory its test names
 #[test]

@@ -49,7 +49,7 @@ use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
 use crate::steps::{ReviewSteps, StepsInput, review_steps};
-use crate::units::{ReviewUnit, changed_test_paths, review_units};
+use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
@@ -325,7 +325,10 @@ pub fn review_plan_of(
   let Dependencies { changes: dependencies, states } = dependency_changes(&changed, &texts);
   let generated = generated_of(&changed, &known, &texts);
   let kinds = file_kinds(&changed, &texts, &states, &generated);
-  let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
+  // the paths whose commits change a test inside them, for `untested`
+  let (units, inline_tests) = input
+    .as_ref()
+    .map_or_else(Default::default, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
   let declared = input.as_ref().map_or_else(HashSet::new, |input| declared_names(input, &changed));
   let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, &declared, params.concern_edges);
   let brief = review_brief(reviewed.iter().map(|(_, message)| message.as_str()), &units, &changed, &texts);
@@ -341,7 +344,6 @@ pub fn review_plan_of(
     links: &links,
     contract: &brief.contract,
   });
-  let inline_tests = changed_test_paths(input.as_ref(), &changed, &units);
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
