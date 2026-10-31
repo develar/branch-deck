@@ -135,6 +135,7 @@ test.describe("Landing overview", () => {
       "Restart Safe Push of ABC-123",
       "Copy Prompt for Agent of ABC-123",
       "Copy Prompt with CI Details of ABC-123",
+      "Start in Air… of ABC-123",
       "Open Safe Push of ABC-123 in Patronus",
       "Open Pull Request #7 of ABC-123",
     ])

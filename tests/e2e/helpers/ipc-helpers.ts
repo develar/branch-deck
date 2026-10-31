@@ -13,8 +13,12 @@ export interface IpcStats {
 
 type IpcWindow = { __ipcStats: IpcStats & { reset: () => void } }
 
-/** What the app invokes on its own timers, wherever they fire: the debounced writes of the settings, the check for updates after the start */
-const APP_TIMERS: ReadonlySet<string> = new Set(["set_setting", "check_for_updates"])
+/**
+ * What the app invokes on its own timers, wherever they fire: the debounced writes of the settings, the check for updates
+ * 3 s after the start and the read of the Setup dot its answer starts (`useAutoUpdate`), which a test that measures from
+ * a reset near that moment saw as its own
+ */
+const APP_TIMERS: ReadonlySet<string> = new Set(["set_setting", "check_for_updates", "get_setup_items"])
 
 /** The commands of the page but those of the app's own timers */
 export function withoutAppTimers(invokes: Record<string, number>): Record<string, number> {
