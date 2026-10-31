@@ -117,6 +117,17 @@ pub struct FileFacts {
   pub repeated_edit_only: bool,
 }
 
+/// The lines of `blob` in `texts`, split at `\n`; none without its text
+pub(crate) fn blob_lines<'a>(texts: &'a HashMap<String, String>, blob: Option<&str>) -> Vec<&'a str> {
+  blob.and_then(|blob| texts.get(blob)).map_or_else(Vec::new, |text| text.split('\n').collect())
+}
+
+/// The lines `range` of `side` (from 0, the end excluded), as far as `side` has them
+pub(crate) fn lines_in<'a>(side: &[&'a str], range: Range<u32>) -> Vec<&'a str> {
+  let end = (range.end as usize).min(side.len());
+  side.get((range.start as usize).min(end)..end).unwrap_or_default().to_vec()
+}
+
 /// A file the reviewed commits change, once, at its last path
 pub(crate) struct ChangedFile<'a> {
   /// The path after the commits

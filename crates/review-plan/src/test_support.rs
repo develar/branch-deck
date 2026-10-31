@@ -21,6 +21,11 @@ pub(crate) fn plan_of(repo: &TestRepo, index: Option<&dyn SymbolIndex>, params: 
   review_plan_core(repo.git_executor(), sources, PREFIX, params)
 }
 
+/// The plan of `base..head` of `repo`, without an index
+pub(crate) fn plan_of_range(repo: &TestRepo, base: &str, head: &str) -> ReviewPlan {
+  plan_of(repo, None, &range(repo, base, head)).unwrap()
+}
+
 /// The params of the plan of `base..head`
 pub(crate) fn range(repo: &TestRepo, base: &str, head: &str) -> ReviewPlanParams {
   ReviewPlanParams {

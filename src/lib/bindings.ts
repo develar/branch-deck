@@ -1595,6 +1595,15 @@ export type CommitReword = {
 	text: RewordText,
 };
 
+/**  What a commit is to its step */
+export type CommitRole = 
+/**  Its body tells the step */
+"starts" | 
+/**  A round of the step: it rewrites the code the commit that starts it wrote, or owns no change of its own */
+"followsUp" | 
+/**  It has no body; its lines are in this step */
+"noStory";
+
 /**  What the sync made of a commit: its virtual copy; the fields are absent until the sync reported the commit */
 export type CommitSync = {
 	/**  The virtual copy the sync wrote or kept */
@@ -1659,6 +1668,13 @@ export type ConcernPart = {
 	/**  The blocks of the unit's slice of `path` it holds, by their index; `None` for the whole slice */
 	blocks: number[] | null,
 };
+
+/**  Why the concerns are the steps */
+export type ConcernsReason = 
+/**  No commit of the range has a body */
+"noStory" | 
+/**  The range is one commit: its message is the brief */
+"oneCommit";
 
 /**  The config file an entry comes from, in git's order: a later scope wins over an earlier one */
 export type ConfigScope = "system" | "global" | 
@@ -1794,6 +1810,42 @@ export type ConflictFix = {
 	search: SearchState,
 	trials: number,
 };
+
+/**  A change of a file of prose: one block of it, or the file added or deleted whole */
+export type ContractEntry = {
+	kind: ContractKind,
+	/**  `ReviewUnit::id`, to open it */
+	unit: string,
+	path: string,
+	/**  The block of the unit's slice it is, `None` for a file added or deleted whole */
+	block: number | null,
+	/**  The heading of the section of Markdown above it (`#`), after the commits, before them for a removal alone */
+	heading: string | null,
+	/**  A spec the commits add: its `description:` and its rules */
+	newSpec: NewSpec | null,
+	/**  The commits delete the file */
+	deleted: boolean,
+	/**
+	 *  Its paragraphs after the commits that the block adds or changes, each its lines joined, without the markers of
+	 *  a list and the `[@test]` lines
+	 */
+	added: string[],
+	/**  Its paragraphs before the commits that the block removes or changes */
+	removed: string[],
+	/**  The tests the `[@test]` lines it adds name, by the path they give */
+	provenBy: string[],
+};
+
+/**  What a file of prose is to the change */
+export type ContractKind = 
+/**  A spec: the contract of a feature (`*.spec.md`, a file below `spec/` or `specs/`) */
+"spec" | 
+/**  A record of a decision (below `decisions/` or `adr/`) */
+"decision" | 
+/**  A guide of agents (`AGENTS.md`, `CLAUDE.md`, a file below `.ai/`) */
+"guide" | 
+/**  A doc (below `docs/`, a README) */
+"doc";
 
 /**
  *  A commit copied onto HEAD by a reapply or a pick of remote commits: the commit it was copied from, its copy and the
@@ -4230,6 +4282,12 @@ export type MovedCommit = {
 	change: MoveChange,
 };
 
+/**  A declaration of a step and the tests that name it */
+export type NamedDeclaration = {
+	name: string,
+	tests: TestRef[],
+};
+
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
 export type NewPullRequest = {
 	/**  The `bd describe` title, else the title of the commits the pull request will show (`pull_request_text`) */
@@ -4237,6 +4295,14 @@ export type NewPullRequest = {
 	body: string,
 	/**  The user of the token the pull request is created with; null when GitHub didn't answer */
 	viewerLogin: string | null,
+};
+
+/**  A spec the commits add */
+export type NewSpec = {
+	/**  `description:` of its front matter */
+	description: string | null,
+	/**  The items of its "Requirements" section */
+	rules: number,
 };
 
 /**
@@ -6103,6 +6169,14 @@ export type Retry =
 /**  A request built again from a new read of the state may succeed; the same one fails again */
 "after_reread";
 
+/**  The brief of a review */
+export type ReviewBrief = {
+	/**  The issue key the commits name in their subjects: one key, named by half of them at least and contradicted by none */
+	issue: string | null,
+	/**  The prose the change adds, removes or changes, by the rank of its kind, then in the order of the story */
+	contract: ContractEntry[],
+};
+
 /**
  *  A code owner Request Review… offers (`domain_policy::review::candidates`): suggested by Patronus for a group whose
  *  approval is missing, with a GitHub login
@@ -6233,6 +6307,13 @@ export type ReviewPlan = {
 	 *  its cause: a generated file, a build file, a file of imports alone
 	 */
 	concerns: Concern[],
+	/**
+	 *  The story of the review: the steps its commits tell, else its concerns, each with what it shows of the units in
+	 *  its order and the tests that name its code; every block of the diffs in one stop or in a mechanical unit
+	 */
+	steps: ReviewSteps,
+	/**  The issue the commits name and the prose of the specs and the docs the change adds or changes */
+	brief: ReviewBrief,
 	/**
 	 *  Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
 	 *  again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
@@ -6441,6 +6522,30 @@ export type ReviewStart =
 { kind: "pullRequest"; number: number } | 
 /**  Through the API: no pull request is linked, no approval of one counts */
 { kind: "rest" };
+
+/**  A step of the story */
+export type ReviewStep = {
+	/**  The commit that starts it, the id of its concern, or `"no-story"` */
+	id: string,
+	/**
+	 *  The commits of the step: the one that starts it first, then those that follow it up, then those of no story
+	 *  whose lines are mostly in it; of a step of a concern, the commits of its lines, the most lines first
+	 */
+	commits: StepCommit[],
+	/**  The concern a step of the concerns is */
+	concern: string | null,
+	/**  What the step shows, in its order */
+	stops: StepStop[],
+	tests: StepTests,
+};
+
+/**  The steps of a review */
+export type ReviewSteps = {
+	source: StepSource,
+	/**  In the order of the story: the commits that start them, oldest first; "Changes without a story" last */
+	steps: ReviewStep[],
+	coverage: StepCoverage,
+};
 
 /**  What is reviewed */
 export type ReviewSubject = 
@@ -7475,6 +7580,28 @@ export type StepBlocker =
 /**  The step stands on a stale answer of the readiness: its action waits for the new one */
 { code: "staleReadiness" };
 
+/**  A commit of a step */
+export type StepCommit = {
+	id: string,
+	subject: string,
+	/**  The message after its subject, trimmed; empty for a commit of no story */
+	body: string,
+	role: CommitRole,
+};
+
+/**  Whether the steps show every block of the range once */
+export type StepCoverage = {
+	/**  The blocks of the range, a file without blocks one */
+	blocks: number,
+	inStops: number,
+	/**  In a mechanical unit no stop shows */
+	mechanical: number,
+	/**  In no stop and no mechanical unit */
+	missing: number,
+	/**  In two stops or more */
+	twice: number,
+};
+
 /**  A fact of the remote the next step decides on, in the order the step waits for them */
 export type StepFact = 
 /**  Whether Patronus lands the repository, its robots and the view of what they hold and land */
@@ -7640,6 +7767,44 @@ export type StepRow = "noSlot" | "0" | "1" | "1′" | "1″" | "2" | "3" | "5" |
 "merge′" | 
 /**  Its row of an open pull request whose merge the rules of its base hold back, or that can't merge: the reason */
 "merge″";
+
+/**  Where the steps come from */
+export type StepSource = 
+/**  Each step starts at a commit whose body says what it does and why */
+{ kind: "commits" } | 
+/**  The concerns of the range are the steps: the commits tell no story */
+{ kind: "concerns"; reason: ConcernsReason };
+
+/**  What a step shows of one unit in one file */
+export type StepStop = {
+	/**  `ReviewUnit::id` */
+	unit: string,
+	path: string,
+	/**  The blocks of the unit's slice of `path` it shows, by their index; `None` for the whole slice */
+	blocks: number[] | null,
+	/**  The declaration of this step it uses, shown right after it */
+	uses: string | null,
+	/**  The other steps whose commits changed its lines, by their place in `ReviewSteps::steps` */
+	also: number[],
+	/**  The concern of its unit, when the step holds parts of two concerns or more that evidence joined */
+	concern: string | null,
+};
+
+/**  The tests of the range that name the code of a step */
+export type StepTests = {
+	/**  Its declarations that a test names, each with those tests */
+	named: NamedDeclaration[],
+	/**
+	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test of the range
+	 *  names; none of a test file, whose helpers a test runs. A name two of them share is led by its owner
+	 */
+	unnamed: string[],
+	/**
+	 *  The tests the `[@test]` lines of the rules of a spec it adds or changes name, by the path they give: a scenario
+	 *  that names no declaration
+	 */
+	scenarios: string[],
+};
 
 /**
  *  The commits of the refs of Branch Deck that a grouping reads and the rewrites write
@@ -7927,6 +8092,15 @@ export type TableWitness = {
 	/**  The commit HEAD pointed at */
 	head: string,
 	storeTips: StoreTips,
+};
+
+/**  A test of the range */
+export type TestRef = {
+	/**  `ReviewUnit::id` */
+	unit: string,
+	path: string,
+	/**  The name the test reads as (`test_name`) */
+	name: string,
 };
 
 /**  The diff of two texts */

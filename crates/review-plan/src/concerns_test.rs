@@ -1,13 +1,9 @@
 use crate::ReviewPlan;
 use crate::concerns::{ConcernName, EvidenceKind};
-use crate::test_support::{plan_of, range};
+use crate::test_support::{plan_of, plan_of_range, range};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
-
-fn plan(repo: &TestRepo, base: &str, head: &str) -> ReviewPlan {
-  plan_of(repo, None, &range(repo, base, head)).unwrap()
-}
 
 /// Each concern of `plan`: its name and its files
 fn concerns(plan: &ReviewPlan) -> Vec<(ConcernName, Vec<&str>)> {
@@ -56,7 +52,7 @@ fn the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share
       ("docs/guide.md", &GUIDE.replace("grep", "accio")),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
     [
@@ -88,7 +84,7 @@ fn a_changed_declaration_and_the_changes_of_its_uses_are_one_concern() {
       ("src/c/Other.kt", "package c\n\nfun other() = 2\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
     [(declaration("open"), vec!["src/a/Api.kt", "src/b/Use.kt"]), (ConcernName::Rest, vec!["src/c/Other.kt"])]
@@ -109,7 +105,7 @@ fn a_declaration_named_by_many_changes_joins_none() {
   let mut files: Vec<(&str, &str)> = vec![("src/a/Api.kt", "package a\n\nfun open(path: String, mode: Int): Int = mode\n")];
   files.extend(changed.iter().map(|(path, text)| (path.as_str(), text.as_str())));
   let head = repo.create_commit_with_files("Change", &files);
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert!(plan.concerns.iter().all(|concern| concern.name == ConcernName::Rest), "{:#?}", plan.concerns);
 }
 
@@ -163,7 +159,7 @@ fn a_generated_file_follows_the_concern_of_the_source_its_header_names() {
       ("AGENTS.md", &agents("accioquery")),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   let replacement = ConcernName::Replacement {
     removed: "grep".to_string(),
     added: "accioquery".to_string(),
@@ -190,7 +186,7 @@ fn one_shared_identifier_bridges_no_two_concerns() {
       ("b/four.md", &format!("# Four\n{}", lines(&["quokka", "lemur"]))),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
     [(token("zebrafish"), vec!["a/one.md", "a/two.md"]), (token("quokka"), vec!["b/four.md", "b/three.md"])]
@@ -204,7 +200,7 @@ fn a_concern_keeps_its_id_as_it_grows() {
   let base = repo.create_commit_with_files("Add", &[("a/one.md", "# One\n"), ("b/two.md", "# Two\n"), ("c/three.md", "# Three\n")]);
   let two = repo.create_commit_with_files("Change", &[("a/one.md", "# One\n- `zebrafish`\n"), ("b/two.md", "# Two\n- `zebrafish`\n")]);
   let three = repo.create_commit_with_files("Change more", &[("c/three.md", "# Three\n- `zebrafish`\n")]);
-  let (first, second) = (plan(&repo, &base, &two), plan(&repo, &base, &three));
+  let (first, second) = (plan_of_range(&repo, &base, &two), plan_of_range(&repo, &base, &three));
   assert_eq!(first.concerns[0].id, second.concerns[0].id);
   assert_ne!(first.concerns[0].fingerprint, second.concerns[0].fingerprint);
 }
@@ -236,7 +232,7 @@ fn a_word_of_prose_or_of_a_comment_joins_nothing() {
       ("f/four.md", "# Four\n\nInstall `quokkactl` first.\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
     [
@@ -278,7 +274,7 @@ fn a_sentence_a_config_quotes_joins_by_its_compound_names_alone() {
       ("j/ten.ts", "export const ten = step('A kestrel layout shows on the side')\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
     [
@@ -328,7 +324,7 @@ fn a_name_of_a_library_joins_nothing_a_word_of_a_string_does() {
       ("f/six.ts", "export const six = () => log(`otter-mode`)\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     concerns(&plan),
     [
@@ -355,7 +351,7 @@ fn a_file_of_two_concerns_has_its_main_row_in_the_one_of_its_most_changed_lines(
       ("notes.md", &notes(&lines(&["zebrafish", "otter", "kestrel"]), &lines(&["quokka", "lemur"]))),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   let of = |name: &ConcernName| plan.concerns.iter().find(|concern| concern.name == *name).unwrap();
   let (zebrafish, quokka) = (of(&token("zebrafish")), of(&token("quokka")));
   assert_eq!(
@@ -388,7 +384,7 @@ fn a_source_and_its_generated_copies_are_named_by_the_file() {
     "Search with accio",
     &[("docs/guide.md", "# Guide\n\nSearch with accio.\n"), ("AGENTS.md", &agents("accio"))],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   let file = ConcernName::File {
     path: "docs/guide.md".to_string(),
   };
@@ -416,7 +412,7 @@ fn a_build_file_follows_the_code_of_its_module_that_needs_another_module() {
       ("store/src/b/Store.kt", "package b\n\nclass Store\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(concerns(&plan)[0].1, ["app/src/a/User.kt", "app/BUILD.bazel"], "{:#?}", plan.concerns);
 }
 
@@ -435,6 +431,6 @@ fn a_file_of_imports_alone_follows_the_declaration_it_imports() {
       ("src/c/Other.kt", "package c\n\nimport a.fresh\n\nfun other() = 1\n"),
     ],
   );
-  let plan = plan(&repo, &base, &head);
+  let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(concerns(&plan), [(declaration("fresh"), vec!["src/a/Api.kt", "src/c/Other.kt"])], "{:#?}", plan.files);
 }

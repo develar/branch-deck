@@ -117,7 +117,7 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`, `a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
 
 ### In `bd`
-- `bd review-plan` must print `concerns` (`"schema": 9`): per concern its `id`, `name` (`source` `token` with
+- `bd review-plan` must print `concerns` (`"schema": 10`): per concern its `id`, `name` (`source` `token` with
   `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `file` with `path`, `directory` with `directory`, `rest`),
   its `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
   `detail` and `joins`, the most joins first) and its `fingerprint`. The hidden `--concern-edges uses,tokens,rest`

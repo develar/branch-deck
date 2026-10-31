@@ -56,6 +56,8 @@ describe("the local Since Your Review", () => {
       repeatedEdits: [],
       units: [],
       concerns: [],
+      steps: { source: { kind: "commits" }, steps: [], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 } },
+      brief: { issue: null, contract: [] },
       order: [],
       indexNote: null,
     }

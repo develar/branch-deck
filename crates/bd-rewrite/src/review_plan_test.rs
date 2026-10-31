@@ -23,7 +23,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(9), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&json!(10), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -87,8 +87,8 @@ fn a_branch_never_marked_and_a_range_have_no_interdiff() {
 }
 
 /// A range that changes the parameters of a public Kotlin function and adds an untested file: `api` with the forms
-/// before and after, the facts per file, and why there are no usages (accio missing here, or without an index of the
-/// test repository)
+/// before and after, the facts per file, the steps of its story with their coverage and its brief, and why there are no
+/// usages (accio missing here, or without an index of the test repository)
 #[test_log::test]
 fn prints_the_api_and_the_files_of_a_range() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -139,6 +139,16 @@ fn prints_the_api_and_the_files_of_a_range() {
       ),
       (&json!("newFile"), &json!("Session.kt"), &json!("src/a/Session.kt"), &json!([])),
     ],
+    "{output}"
+  );
+  // the story of one commit is its concerns, every block in one stop; no issue, no prose of a spec or a doc
+  assert_eq!(
+    (&output["steps"]["source"], &output["steps"]["coverage"], &output["brief"]),
+    (
+      &json!({ "kind": "concerns", "reason": "oneCommit" }),
+      &json!({ "blocks": 2, "inStops": 2, "mechanical": 0, "missing": 0, "twice": 0 }),
+      &json!({ "issue": null, "contract": [] })
+    ),
     "{output}"
   );
   // no accio on the machine, or accio's reason under `--no-build`: the repository of the test has no index

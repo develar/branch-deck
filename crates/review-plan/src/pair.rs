@@ -45,7 +45,7 @@ pub enum PairBlocks {
 }
 
 /// The block of a `-U0` hunk: the inverse of `diff_scan::hunk_of`, whose empty side names the line before it
-fn block_of(hunk: &Hunk) -> LineBlock {
+pub(crate) fn block_of(hunk: &Hunk) -> LineBlock {
   let start = |start: u32, lines: u32| if lines == 0 { start } else { start - 1 };
   let (old, new) = (start(hunk.old_start, hunk.old_lines), start(hunk.new_start, hunk.new_lines));
   LineBlock {

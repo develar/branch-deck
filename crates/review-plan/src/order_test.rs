@@ -131,7 +131,7 @@ fn the_order_returns_its_graph_with_the_names_and_lines() {
   );
   let (git, path) = (repo.git_executor(), repo.path_str());
   let (cache, file_diffs) = (ObjectCache::disabled(), FileDiffs::for_scans());
-  let ids: Vec<String> = commits_of(git, path, &base, &head).unwrap().into_iter().map(|commit| commit.id).collect();
+  let ids: Vec<String> = commits_of(git, path, &base, &head).unwrap().into_iter().map(|(commit, _)| commit.id).collect();
   let diffs = read_commit_diffs_cached(git, path, &cache, &file_diffs, &ids).unwrap();
   let input = read_symbol_input(git, path, &cache, &diffs).unwrap();
   let ReviewOrder { order, links } = review_order(&input, &changed_files(&diffs));

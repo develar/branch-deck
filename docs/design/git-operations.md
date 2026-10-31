@@ -3204,7 +3204,7 @@ whose text is translated:
 
 | Step | Command | Note |
 |------|---------|------|
-| 1. Commits | `rev-list --no-commit-header --format=… --reverse --no-merges --end-of-options <tip> ^<base> --`, once for the reviewed pair, once for the branch now | `walk_commits`: each commit with its `CommitKey` (author email, author time, subject without the `(prefix)`) |
+| 1. Commits | `rev-list --no-commit-header --format=… --reverse --no-merges --end-of-options <tip> ^<base> --`, once for the reviewed pair, once for the branch now | `walk_commits_with_messages`: each commit with its `CommitKey` (author email, author time, subject without the `(prefix)`) and its raw message (`%B`), which the steps of the story tell |
 | 2. Pairing | none | one to one, oldest first: the same commit on both sides is `unchanged`; then the same `CommitKey` (a rebase, a sync's copy, an amend keep it) |
 | 3. Changed lines | `diff-tree --stdin -p -U0 --no-renames` piped into `patch-id --verbatim` (`change_ids`) | only for the commits that are not the same on both sides, none without them: a pair by identity is `unchanged` when both change the same lines, else `rewritten`; the commits left pair by the same changed lines (a reword), `unchanged`; the rest are `added` and `dropped` |
 | 4. Interdiff | `diff-tree --stdin -p -U0 --full-index` (`interdiffs`) | only for the `rewritten` pairs, none without them: the lines each version changes and the other does not, per path |
@@ -3243,8 +3243,9 @@ and the `rewritten` ones, each against its own parent:
 | 14. Files | none | per changed file its link counts, its mechanical kind (generated with why, by name, a build file that changed only in its entries, or the text of every hunk), its repeated edit (a hunk key of 3 or more files), the summed `outside` usages of its removed or changed API (`breaks`), and `untested` when a source file changed with no test that names its stem (`files.rs`) |
 | 15. Pair and units | one `cat-file --batch` of the first and last blobs of the files that several commits change, for those the memory of the diffs and the `file_diff` store lack (`FileDiffs::blocks_of`); none when no file is changed twice | the blocks of each changed file from before the commits to after them, under `Default` (`pair.rs`: the hunks of a file one commit changes); cut into the units (`units.rs`, [Review Units](../../spec/branch/review-units.spec.md)) by the summaries of step 7 (`spanned_declarations`), the hunk text of step 12 and the kinds and groups of step 14: every block in one unit, in the order of step 10 |
 | 16. Concerns | none | the units of step 15 joined into the tasks of the range (`concerns.rs`, [Review Concerns](../../spec/branch/review-concerns.spec.md)) by the links of step 11, the hunk text of step 12 and the generated files of step 14: a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share, the rest to the concern of its file or subject |
+| 17. Steps and brief | none | the lines of each changed file carried through the hunks of every commit of step 1 (`steps.rs`, [Review Tour](../../spec/branch/review-tour.spec.md)): each unit of step 15 in the step of the commit of most of its lines, the rounds glued, the tests of step 7 that name its code; the brief from the messages of step 1 and the hunk text of step 12 |
 
-`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 9` (`REVIEW_PLAN_SCHEMA_VERSION`),
+`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 10` (`REVIEW_PLAN_SCHEMA_VERSION`),
 the other outputs of `bd` with 2. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes

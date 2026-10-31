@@ -16,11 +16,15 @@
 //!   add or delete
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
 //!   removes or changes and whether its tests changed with it
+//! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, else the concerns,
+//!   each with the parts of the units it shows and the tests that name its code
+//! - `brief`: the issue the commits name and the prose of the specs and the docs the change adds or changes
 //!
 //! The types of the plan: `ReviewPlanParams` names what is reviewed (`ReviewSubject`), `ReviewPlan` is the answer of
 //! `review_plan_core`, the one entry of `bd review-plan` and the app.
 
 pub mod api;
+pub mod brief;
 pub mod concerns;
 pub mod dependencies;
 pub mod fan_in;
@@ -30,9 +34,11 @@ pub mod links;
 pub mod mark_reviewed;
 pub mod order;
 pub mod pair;
+pub mod steps;
 pub mod units;
 
 use crate::api::{ApiChange, ApiChangeKind, api_changes};
+use crate::brief::{ReviewBrief, review_brief};
 use crate::concerns::{Concern, ConcernEdges, review_concerns};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_usages;
@@ -42,6 +48,7 @@ use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
+use crate::steps::{ReviewSteps, StepsInput, review_steps};
 use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
@@ -133,6 +140,11 @@ pub struct ReviewPlan {
   /// story; the parts no evidence joined last (`ConcernName::Rest`). No mechanical part but a consequence that follows
   /// its cause: a generated file, a build file, a file of imports alone
   pub concerns: Vec<Concern>,
+  /// The story of the review: the steps its commits tell, else its concerns, each with what it shows of the units in
+  /// its order and the tests that name its code; every block of the diffs in one stop or in a mechanical unit
+  pub steps: ReviewSteps,
+  /// The issue the commits name and the prose of the specs and the docs the change adds or changes
+  pub brief: ReviewBrief,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too, none added and deleted
   /// again), in dependency order (`order`): a file that declares what another uses before it, a test right after its
   /// subject, the tree order inside a cycle and between files with no edge
@@ -259,14 +271,20 @@ pub fn review_plan_of(
     .as_ref()
     .and_then(|found| found.scope.as_ref())
     .filter(|scope| params.since_reviewed && scope.carried);
+  // the commits read, each with its message: the carried scope is one diff of no commit, which tells no step
+  let reviewed = if carried.is_some() {
+    Vec::new()
+  } else {
+    reviewed_commits(git, repository_path, &base, &head, interdiff.as_ref(), params.since_reviewed)?
+  };
   let diffs = if let Some(scope) = carried {
     vec![read_pair_diff(git, repository_path, sources.cache, sources.file_diffs, &scope.base, &scope.head)?]
   } else {
-    let reviewed = reviewed_commits(git, repository_path, &base, &head, interdiff.as_ref(), params.since_reviewed)?;
-    if reviewed.is_empty() {
+    let ids: Vec<String> = reviewed.iter().map(|(id, _)| id.clone()).collect();
+    if ids.is_empty() {
       Vec::new()
     } else {
-      read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &reviewed)?
+      read_commit_diffs_cached(git, repository_path, sources.cache, sources.file_diffs, &ids)?
     }
   };
   let changed = changed_files(&diffs);
@@ -310,6 +328,19 @@ pub fn review_plan_of(
   let units = input.as_ref().map_or_else(Vec::new, |input| review_units(input, &changed, &pairs, &texts, &kinds, &order));
   let declared = input.as_ref().map_or_else(HashSet::new, |input| declared_names(input, &changed));
   let concerns = review_concerns(&units, &changed, &kinds.generated, &texts, &links, &declared, params.concern_edges);
+  let brief = review_brief(reviewed.iter().map(|(_, message)| message.as_str()), &units, &changed, &texts);
+  let steps = review_steps(&StepsInput {
+    commits: &reviewed,
+    diffs: &diffs,
+    changed: &changed,
+    pairs: &pairs,
+    units: &units,
+    concerns: &concerns,
+    input: input.as_ref(),
+    texts: &texts,
+    links: &links,
+    contract: &brief.contract,
+  });
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
       found.retain_unreviewed();
@@ -328,6 +359,8 @@ pub fn review_plan_of(
     repeated_edits: Vec::new(),
     units,
     concerns,
+    steps,
+    brief,
     order,
     index_note: None,
   };
@@ -353,22 +386,27 @@ fn declared_names(input: &trial_check::symbol_scan::SymbolInput, changed: &[file
     .collect()
 }
 
-/// The commits the API, the order and the files are read from, oldest first: of `base..head`, or with `since_reviewed`
-/// (and no carried scope, whose one diff the plan reads instead) only those added or rewritten since the review,
-/// adjacent or not, each read against its own parent. A branch never
-/// marked reviewed has no reviewed commit, so all of its commits are new. The commits of the interdiff are those of
-/// `base..head` already; else one `rev-list`
-fn reviewed_commits(git: &GitCommandExecutor, repository_path: &str, base: &str, head: &str, interdiff: Option<&Interdiff>, since_reviewed: bool) -> Result<Vec<String>> {
+/// The commits the API, the order and the files are read from, oldest first, each with its message: of `base..head`,
+/// or with `since_reviewed` (and no carried scope, whose one diff the plan reads instead) only those added or rewritten
+/// since the review, adjacent or not, each read against its own parent. A branch never marked reviewed has no reviewed
+/// commit, so all of its commits are new. The commits of the interdiff are those of `base..head` already; else one
+/// `rev-list`
+fn reviewed_commits(git: &GitCommandExecutor, repository_path: &str, base: &str, head: &str, interdiff: Option<&Interdiff>, since_reviewed: bool) -> Result<Vec<(String, String)>> {
   match interdiff {
     Some(interdiff) => Ok(
       interdiff
         .commits
         .iter()
         .filter(|commit| !since_reviewed || matches!(commit.state, PairState::Added | PairState::Rewritten))
-        .filter_map(|commit| commit.id.clone())
+        .filter_map(|commit| Some((commit.id.clone()?, commit.message.clone())))
         .collect(),
     ),
-    None => Ok(commits_of(git, repository_path, base, head)?.into_iter().map(|commit| commit.id).collect()),
+    None => Ok(
+      commits_of(git, repository_path, base, head)?
+        .into_iter()
+        .map(|(commit, message)| (commit.id, message))
+        .collect(),
+    ),
   }
 }
 
@@ -390,6 +428,8 @@ mod links_test;
 mod mark_reviewed_test;
 #[cfg(test)]
 mod order_test;
+#[cfg(test)]
+mod steps_test;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

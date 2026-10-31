@@ -29,7 +29,7 @@
 //! - **The main row** of a file in several concerns is in the one whose parts of it change the most lines (`elsewhere`
 //!   of the others), so that the tree lists each file once and the others point to it.
 
-use crate::files::{ChangedFile, MechanicalKind, subject_stem, test_subject};
+use crate::files::{ChangedFile, MechanicalKind, blob_lines, lines_in, subject_stem, test_subject};
 use crate::links::{FileLink, LinkState};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice, digest};
 use code_symbols::language::{Language, language_of};
@@ -464,11 +464,8 @@ struct Follower<'a> {
 
 /// The nodes of the graph (`GraphNodes`)
 fn graph_nodes<'a>(units: &'a [ReviewUnit], files: &[ChangedFile<'a>], file_of: &HashMap<&str, usize>, texts: &'a HashMap<String, String>) -> GraphNodes<'a> {
-  let lines = |blob: Option<&str>| -> Vec<&'a str> { blob.and_then(|blob| texts.get(blob)).map_or_else(Vec::new, |text| text.split('\n').collect()) };
-  let take = |side: &[&'a str], range: Range<u32>| -> Vec<&'a str> {
-    let end = (range.end as usize).min(side.len());
-    side.get((range.start as usize).min(end)..end).unwrap_or_default().to_vec()
-  };
+  let lines = |blob: Option<&str>| blob_lines(texts, blob);
+  let take = |side: &[&'a str], range: Range<u32>| lines_in(side, range);
   let mut nodes: Vec<Node<'a>> = Vec::new();
   let mut groups: Vec<Vec<usize>> = Vec::new();
   let mut followers: Vec<Follower<'a>> = Vec::new();
@@ -917,7 +914,7 @@ fn in_directory(path: &str, directory: &str) -> bool {
 }
 
 /// Whether `line` holds `name` as a whole word
-fn names_word(line: &str, name: &str) -> bool {
+pub(crate) fn names_word(line: &str, name: &str) -> bool {
   let is_word = |c: char| c.is_alphanumeric() || c == '_';
   line.match_indices(name).any(|(start, _)| {
     let before = line[..start].chars().next_back();

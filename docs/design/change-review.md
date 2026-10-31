@@ -28,10 +28,17 @@ rounds on a local branch, or folding with a correctness guarantee.
 
 A review is the story of a change, not a list of files:
 
+0. **The story comes first, in the words of its author.** A developer who opens a change asks what changes for its
+   user, why, how, whether it is proven, what can break and what is noise, in this order. The review opens on a brief
+   (the issue, the rules of the specs and the docs the change adds) and then the steps of the change, each with the
+   body of its commit, the units that carry it and the tests that name its code; the files are an index, never the
+   spine ([Review Tour](../../spec/branch/review-tour.spec.md)).
 1. **Each change is read once.** The diff is cut into the changes a reviewer reads (units): a changed form of a
    declaration, a changed body, a new or removed declaration, a new or deleted file, one repeated edit over all of its
    files.
-2. **What can break comes first.** The API whose uses the change left outside leads, with the places that use it.
+2. **What can break is told, and only what can.** The API whose uses the change left outside, with the places that
+   use them; a use a change cannot break (it passes only the arguments the change keeps) is no alarm
+   (JetBrains/accio#106).
 3. **Noise is folded with its reason, and a fold is never wrong.** Imports, whitespace, renames, build entries,
    generated files fold into one group with a stated reason. The budget of false folds is about zero: a fold that hides
    real work is the worst defect of the review.
@@ -118,7 +125,8 @@ the review.
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
 | Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
-| LLM tour with a hard coverage gate | Not started | | | |
+| The story: the brief and the steps | Landed in the plan and `bd` (schema 10); the window next | this change | a step per commit whose body tells it, the units that land by the commit of their lines, rounds and rewritten commits glued, mechanical parts with the commit that wrote them; every block in one stop on 38 real ranges; the brief quotes the rules of the specs with the tests their test links name | a follow-up by its lines joins 2 of 8 tasks of their own to the step that made their file; "unnamed" lists a helper a test reaches through an entry (JetBrains/accio#107) |
+| LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
 ## Decisions and Reversals
@@ -135,6 +143,16 @@ the review.
 5. **No concern by file or by commit** (2026-10-31). In the same branch one guide is changed by all five commits: a
    union over files or commits joins everything into one concern. Concerns join units, and a file of no parsed
    language must be cut into its blocks first.
+6. **The file tree is no longer the spine of the window** (2026-10-31). The units and the concerns changed the order
+   of the file cards and the folders of the tree, and the review still opened on a card of an API and line 485 of a
+   file, the bodies of the commits four truncated subjects in the sidebar. The window opens on the story; the files
+   are an index ([Review Tour](../../spec/branch/review-tour.spec.md)).
+7. **Steps by commit where the commits tell them, the concerns where they do not** (2026-10-31). Reviews differ: in
+   idea-1 every commit of 6 branches has a body that says what and why, and the concerns of `startup-tool-window-place`
+   put the code of three of its commits into one and cut its restart story into three; a branch of one commit, or of
+   commits without a body, has no such story. The plan decides per commit, no switch; a long branch keeps its commits,
+   since its concerns were no shorter a list. This narrows "a commit is a weak unit when agents work": a commit is a
+   weak unit to join a concern by, and the strongest unit of the why.
 
 ## Review Rounds
 
@@ -168,15 +186,22 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
   groups next to the recall, against a group per file.
 - A change of a body forces no caller to change; only a changed form is evidence that its uses belong to it.
 - A word of prose, a comment or a name of a library is no evidence of a task; a name the change itself declares is.
+- The best explanation of a change is often already written: the bodies of its commits, the rule it adds to a spec,
+  the names of its tests. A review that shows files and badges first throws it away.
 - A consequence belongs to its cause, not to the noise at the end: a generated file to its source, a new dependency to
   the code that needs it, an import to the declaration it brings in.
 
 ## Next
 
-1. **Concerns**: units joined by static evidence (names declared in the change and their uses, a test and its subject,
+0. **The window opens on the story** ([Review Tour](../../spec/branch/review-tour.spec.md)): the brief, the steps with
+   their bodies and their stops, then the files as an index; the owner chips mark, never hide.
+1. **The author's tour** (`bd tour write`): the agent that wrote the change writes its decisions to approve and the
+   places to look closely, by the ids of the units, gated by the plan (every unit in one chapter), kept by the
+   fingerprints across a rebase; then "Write Tour" in the window by a model for a range without one.
+2. **Concerns**: units joined by static evidence (names declared in the change and their uses, a test and its subject,
    a generated file and the source its header names, a shared rare identifier, a near-repeated edit), now listed by
    the tree and followed by the story; next measured on four corpora against SmartCommit, inspect and sem.
-2. Moves and renames as one unit ("rename A→B, 37 sites"), with RefactoringMiner as the oracle.
-3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
-4. Names of concerns by a language model, behind the same gate as the tour.
-5. An LLM tour, rejected unless every hunk is covered exactly once.
+3. Moves and renames as one unit ("rename A→B, 37 sites"), with RefactoringMiner as the oracle.
+4. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
+5. Names of concerns by a language model, behind the same gate as the tour.
+6. An LLM tour, rejected unless every hunk is covered exactly once.

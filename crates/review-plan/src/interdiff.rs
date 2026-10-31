@@ -21,7 +21,7 @@
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::carried_review::{CarryIdentity, carry_reviewed};
-use git_ops::landed_pairing::{CommitKey, PathLines, WalkedCommit, change_ids, interdiffs, walk_commits};
+use git_ops::landed_pairing::{CommitKey, PathLines, WalkedCommit, change_ids, interdiffs, walk_commits_with_messages};
 use git_ops::reviewed_refs::ReviewedPair;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -69,6 +69,10 @@ pub struct PairedCommit {
   pub state: PairState,
   /// `Some` only when `rewritten`
   pub changes: Option<CommitChanges>,
+  /// Its raw message, of the reviewed one when `dropped`: what the steps of the review tell (`steps`)
+  #[serde(skip)]
+  #[cfg_attr(feature = "specta", specta(skip))]
+  pub message: String,
 }
 
 /// What changed since the review, as the diff of `base..head`
@@ -118,15 +122,15 @@ enum Match {
   Changes,
 }
 
-/// The commits of `base..tip`, oldest first, without merges: one `rev-list`
-pub(crate) fn commits_of(git: &GitCommandExecutor, repository_path: &str, base: &str, tip: &str) -> Result<Vec<WalkedCommit>> {
-  walk_commits(git, repository_path, &["--reverse", "--no-merges"], &[tip, &format!("^{base}")])
+/// The commits of `base..tip`, oldest first, without merges, each with its raw message: one `rev-list`
+pub(crate) fn commits_of(git: &GitCommandExecutor, repository_path: &str, base: &str, tip: &str) -> Result<Vec<(WalkedCommit, String)>> {
+  walk_commits_with_messages(git, repository_path, &["--reverse", "--no-merges"], &[tip, &format!("^{base}")])
 }
 
 /// The interdiff of the branch at `base..tip` against its `reviewed` pair
 pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &ReviewedPair, base: &str, tip: &str) -> Result<Interdiff> {
-  let old = commits_of(git, repository_path, &reviewed.base, &reviewed.tip)?;
-  let new = commits_of(git, repository_path, base, tip)?;
+  let (old, old_messages): (Vec<WalkedCommit>, Vec<String>) = commits_of(git, repository_path, &reviewed.base, &reviewed.tip)?.into_iter().unzip();
+  let (new, new_messages): (Vec<WalkedCommit>, Vec<String>) = commits_of(git, repository_path, base, tip)?.into_iter().unzip();
   let mut matched: Vec<Option<(usize, Match)>> = vec![None; new.len()];
   let mut taken = vec![false; old.len()];
 
@@ -186,7 +190,8 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
   let mut commits: Vec<PairedCommit> = new
     .iter()
     .zip(&matched)
-    .map(|(commit, matched)| {
+    .zip(new_messages)
+    .map(|((commit, matched), message)| {
       let (reviewed_id, state) = match matched {
         None => (None, PairState::Added),
         Some((reviewed, how)) => {
@@ -201,6 +206,7 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
         subject: commit.subject.clone(),
         state,
         changes: None,
+        message,
       }
     })
     .collect();
@@ -208,13 +214,21 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
     Some(scope) => Some(scope),
     None => carried_scope(git, repository_path, reviewed, old.last(), base, tip)?,
   };
-  commits.extend(old.iter().zip(&taken).filter(|(_, taken)| !**taken).map(|(commit, _)| PairedCommit {
-    id: None,
-    reviewed_id: Some(commit.id.clone()),
-    subject: commit.subject.clone(),
-    state: PairState::Dropped,
-    changes: None,
-  }));
+  commits.extend(
+    old
+      .iter()
+      .zip(&taken)
+      .zip(old_messages)
+      .filter(|((_, taken), _)| !**taken)
+      .map(|((commit, _), message)| PairedCommit {
+        id: None,
+        reviewed_id: Some(commit.id.clone()),
+        subject: commit.subject.clone(),
+        state: PairState::Dropped,
+        changes: None,
+        message,
+      }),
+  );
 
   with_changes(git, repository_path, &mut commits)?;
   debug!(new = new.len(), reviewed = old.len(), scoped = scope.is_some(), "interdiff since the review");

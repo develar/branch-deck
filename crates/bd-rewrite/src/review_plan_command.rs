@@ -12,7 +12,8 @@
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
 //! made a deletion real work: no `mechanical: "deleted"`, a unit `deletedFile` per deleted file and `deletedFiles`
 //! with its `directory` for 3 or more deleted from one directory, version 7 the `concerns`, version 8 the `elsewhere`
-//! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern
+//! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern, version 10
+//! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -23,11 +24,13 @@ use file_diffs::accio::{AccioCli, SymbolIndex};
 use generated_files::generated_by::GeneratedBy;
 use git_ops::landed_pairing::PathLines;
 use review_plan::api::{ApiChange, ApiChangeKind, FormChange, UsageSite};
+use review_plan::brief::ReviewBrief;
 use review_plan::concerns::{Concern, ConcernEdges};
 use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
 use review_plan::interdiff::{Interdiff, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
+use review_plan::steps::ReviewSteps;
 use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use review_plan::{PlanSources, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision, review_plan_core};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -35,7 +38,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 9;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 10;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -137,6 +140,18 @@ pub struct ReviewPlanOutput {
   /// file of the source its header names, a build file of the code that needs its new dependency, a file of imports
   /// alone of the declaration it imports
   pub concerns: Vec<Concern>,
+  /// The story of the review (`source`): a step per commit whose body tells it (`role` `starts`), with the commits
+  /// that follow it up (`followsUp`) and those of no story whose lines are in it (`noStory`), the changes only commits
+  /// without a body wrote last (`id` `no-story`); else, with no body, one commit or more than 12 steps, a step per
+  /// concern. Each step shows parts of the units (`stops`: `unit`, `path`, `blocks`; a declaration it adds or changes
+  /// the form of first, the stops that `uses` it right after; `also` the other steps that changed its lines) and the
+  /// tests of the range that name its code (`tests`: `named`, `unnamed`). `coverage`: every block of the diff in one
+  /// stop, else in a mechanical unit
+  pub steps: ReviewSteps,
+  /// The issue key the commits name (`issue`) and the prose the change adds, removes or changes (`contract`): the rules
+  /// of the specs with the tests their `[@test]` lines name (`provenBy`), the records of decisions, the guides of
+  /// agents, the docs
+  pub brief: ReviewBrief,
   /// Every path the reviewed commits change, once, at its last path (a deleted one too), in dependency order: a file
   /// that declares what another uses before it, a test right after its subject; the tree order inside a cycle and
   /// between files with no edge
@@ -400,7 +415,17 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     let scope = interdiff.scope.iter().flat_map(|scope| [&scope.base, &scope.head]);
     [&interdiff.reviewed_base, &interdiff.reviewed_tip].into_iter().chain(commits).chain(scope)
   });
-  let short = context.short_ids([&plan.base, &plan.head].into_iter().chain(interdiff_ids).map(String::as_str));
+  let step_ids = plan.steps.steps.iter().flat_map(|step| step.commits.iter().map(|commit| &commit.id));
+  let short = context.short_ids([&plan.base, &plan.head].into_iter().chain(interdiff_ids).chain(step_ids).map(String::as_str));
+  let mut steps = plan.steps;
+  for step in &mut steps.steps {
+    for commit in &mut step.commits {
+      commit.id = short.get(&commit.id).to_string();
+    }
+    if step.concern.is_none() && step.id != "no-story" {
+      step.id = short.get(&step.id).to_string();
+    }
+  }
   Ok(ReviewPlanOutput {
     schema: ReviewPlanSchemaVersion,
     repository: context.repository.clone(),
@@ -415,6 +440,8 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     repeated_edits: plan.repeated_edits.into_iter().map(repeated_edit_output).collect(),
     units: plan.units.into_iter().map(unit_output).collect(),
     concerns: plan.concerns,
+    steps,
+    brief: plan.brief,
     order: plan.order,
     index_note: plan.index_note,
   })
