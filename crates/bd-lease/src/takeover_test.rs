@@ -38,10 +38,16 @@ fn slot_status(fixture: &Fixture, path: &str) -> Value {
 /// A lease of `holder` on the branch `lane` whose commit landed on master by a pick without a follow, onto a commit of
 /// a peer: the slot's HEAD is the commit itself, master has its copy. Returns the get and the commit
 fn landed_lease(fixture: &Fixture, holder: &str) -> (Value, String) {
-  let got = fixture.get(&["--holder", holder, "-b", "lane"]);
+  landed_lease_on(fixture, holder, "lane")
+}
+
+/// `landed_lease` on the branch `branch`
+fn landed_lease_on(fixture: &Fixture, holder: &str, branch: &str) -> (Value, String) {
+  let got = fixture.get(&["--holder", holder, "-b", branch]);
   let path = path_of(&got);
-  let commit = commit_in(&path, "(lane) Add c", "lane-c.txt");
-  fixture.repo.create_commit("(peer) Add p", "p.txt", "p\n");
+  let commit = commit_in(&path, &format!("({branch}) Add c"), &format!("{branch}-c.txt"));
+  let peer = if branch == "lane" { "p.txt".to_string() } else { format!("p-{branch}.txt") };
+  fixture.repo.create_commit("(peer) Add p", &peer, "p\n");
   let (exit_code, picked) = run_in(&fixture.repo, &["pick", "--from", &path]);
   assert_eq!(exit_code, 0, "{picked}");
   (got, commit)
@@ -300,6 +306,45 @@ fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
   assert_eq!((&slot["state"], &slot["reclaimed"]["holder"]), (&json!("free"), &json!("landed-agent")), "{slot}");
   assert_eq!(slot_status(&fixture, &kept)["lease"]["idle"]["state"], json!("idle_with_work"));
   assert_eq!(slot_status(&fixture, &young)["state"], json!("ready"));
+}
+
+/// `bd lease reclaim` frees every slot it reclaims before it deletes their trash: what the clean rules of the first slot
+/// moved into the trash is deleted only after the second slot is free, and nothing of it is left
+#[test]
+fn reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free() {
+  let log = test_utils::captured_log::CapturedLog::install(false);
+  let fixture = Fixture::new();
+  fixture.repo.create_commit_with_files(
+    "Add the clean rules",
+    &[(".gitignore", "out/\n"), (".branchdeck.toml", "[lease]\nclean = [\n  { delete = \"out/cache\" },\n]\n")],
+  );
+  let slots: Vec<String> = ["first", "second"]
+    .into_iter()
+    .map(|holder| {
+      let path = path_of(&landed_lease_on(&fixture, holder, holder).0);
+      std::fs::create_dir_all(Path::new(&path).join("out")).unwrap();
+      std::fs::write(Path::new(&path).join("out/cache"), vec![b'x'; 1 << 16]).unwrap();
+      path
+    })
+    .collect();
+  for path in &slots {
+    make_idle(&fixture, path);
+  }
+
+  let (exit_code, reclaimed) = fixture.run(&["lease", "reclaim", "--idle"]);
+  assert_eq!(exit_code, 0, "{reclaimed}");
+  assert_eq!(reclaimed["reclaimed"].as_array().unwrap().len(), 2, "{reclaimed}");
+  for (slot, output) in slots.iter().zip(reclaimed["reclaimed"].as_array().unwrap()) {
+    assert!(!Path::new(slot).join("out/cache").exists(), "{slot}");
+    assert_eq!(output["trash_left"], Value::Null, "nothing is left in the trash: {output}");
+    assert!(output["cleaned"][0]["freed_bytes"].as_u64().unwrap() > 0, "{output}");
+  }
+  let trash = fixture.repo.path().join(".git/branch-deck/trash");
+  assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0, "the trash is empty");
+  let text = log.text();
+  let freed: Vec<usize> = text.match_indices("an idle lease is reclaimed").map(|(at, _)| at).collect();
+  let deleted = text.find("deleting the trash of the reclaimed slots").expect("the trash is deleted");
+  assert!(freed.len() == 2 && freed.iter().all(|&at| at < deleted), "{text}");
 }
 
 /// Below the minimum free space a get deletes the trash of the runs that are gone before it refuses, which a takeover

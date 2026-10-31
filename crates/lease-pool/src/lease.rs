@@ -2770,9 +2770,10 @@ pub enum IdleSkip {
 
 /// Return every idle lease of the pool whose work landed (`check_idle`: the commits in its home branch, a clean tree,
 /// no operation in progress), each under its own CAS on its lease, its holder gone and its slot unchanged, as a return
-/// does: its Bazel servers stopped, its seeded paths removed, its branch detached, the clean rules applied, the slot
-/// free with the record of its lease (`Slot::reclaimed`). One with work is kept, its check recorded for the gets; with
-/// `apply` false nothing is written
+/// does: its Bazel servers stopped, its seeded paths removed, its branch detached, the clean rules applied into the
+/// trash, the slot free with the record of its lease (`Slot::reclaimed`). The trash is deleted once, after the last
+/// slot, so no slot waits for the delete of another's build output. One with work is kept, its check recorded for the
+/// gets; with `apply` false nothing is written
 pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseReclaimParams<'_>) -> Result<LeaseReclaim> {
   let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.repository.git_common_dir)));
   let pool = Pool::new(&git_common_dir);
@@ -2867,8 +2868,13 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
       }
       Ok(())
     })?;
-    reclaimed.trash_left = trash.empty(&mut reclaimed.cleaned);
+    debug!(slot = %path, "an idle lease is reclaimed: its slot is free");
     answer.reclaimed.push(reclaimed);
+  }
+  // every reclaimed slot is free: the delete of what the rules moved into the trash keeps no slot waiting
+  debug!(slots = answer.reclaimed.len(), "deleting the trash of the reclaimed slots");
+  for reclaimed in &mut answer.reclaimed {
+    reclaimed.trash_left = trash.empty(&mut reclaimed.cleaned);
   }
   Ok(answer)
 }

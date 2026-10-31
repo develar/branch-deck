@@ -524,9 +524,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   call with the same "Access is denied", is cleared instead, as git clears it) the files of the unit moved before it go
   back, and the `error` of the rule names the path and says that a process holds it (Windows has no process scan
   to name it): once the process let go, the next `bd lease clean` deletes it. The other paths of the rule go on. Once
-  the slot is free the return, and `bd lease clean` once every slot it marked is free again, delete their trash,
-  counting `freed_bytes` in the same walk, and the trash of a run whose process is gone; a path that can't be deleted
-  stays and is named in `trash_left`. `freed_bytes` counts the blocks an APFS clone shares with another checkout too;
+  the slot is free the return, `bd lease clean` once every slot it marked is free again, and `bd lease reclaim` once
+  every slot it reclaimed is free, delete their trash, counting `freed_bytes` in the same walk, and the trash of a run
+  whose process is gone; a path that can't be deleted stays and is named in `trash_left`. `freed_bytes` counts the blocks an APFS clone shares with another checkout too;
   `bd lease clean` also prints `volume_freed_bytes`, what the volume gained (`statfs` before and after).
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_return_deletes_through_the_trash_and_what_a_gone_run_left_there`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
@@ -563,11 +563,13 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - `bd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` must apply the rule of the takeover to every
   idle lease of the pool, each checked anew: one whose work landed is returned as the takeover returns it, under a CAS
   on its lease, its holder still gone and its slot as the check found it (`reclaimed`, each with `landed`,
-  `stopped_servers`, `cleaned`), its trash emptied, its slot free with its record; one with work is kept and its check
-  recorded (`kept`, as `idle_with_work`); one not quiet for an hour, busy, changed meanwhile or whose check failed is
-  `skipped` with its reason. `--dry-run` checks the same and writes nothing. The output is `lease_reclaim` of
+  `stopped_servers`, `cleaned`), its slot free with its record, and the trash of every reclaimed lease deleted once the
+  last one is free (`trash_left`), so none waits for the delete of another's build output; one with work is kept and
+  its check recorded (`kept`, as `idle_with_work`); one not quiet for an hour, busy, changed meanwhile or whose check
+  failed is `skipped` with its reason. `--dry-run` checks the same and writes nothing. The output is `lease_reclaim` of
   `bd schema`, exit 0.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest`)
+  [@test] ../../crates/bd-lease/src/takeover_test.rs (`reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_reclaim`)
 
 ### Reclaimed

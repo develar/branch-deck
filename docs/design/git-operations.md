@@ -2051,7 +2051,8 @@ clean rules of the source moved into the trash), stops the Bazel servers, and mo
 trash for the next return or clean (the trash of a run that is gone, `Trash::sweep`), so a get stays as quick as a
 reuse; a get below the minimum free space sweeps it first. The fill of the host slots takes over nothing: the trash of
 the agent's process would outlive every return. `bd lease reclaim --idle` applies the same check to every idle lease,
-with a CAS on each, and returns it at once.
+with a CAS on each, and returns it at once; it deletes the trash of all of them once the last one is free, as `bd lease
+clean` does, so no idle lease waits for the delete of the build output of the one before it.
 
 A resumed session of the old holder must not work in the slot its lease lost. Every command of `bd` checks it in the
 resolvers of its context (`refuse_reclaimed`, one read of `leases.json`): in a slot with the record, a write of
