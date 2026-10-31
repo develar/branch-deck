@@ -10,13 +10,19 @@
 //! (spec/repository/reviews.spec.md), which the fact keeps through a listing without it; the requests the user answered
 //! with a comment, the reviews the user submitted from the app (`submitted`, until a listing says GitHub has them) and
 //! the last pull request of every number a listing named, for the review windows that show one no listing has any more.
+//!
+//! The head each review fetch of a window brought (`fetched`, by number, while a window shows it) makes the ask of the
+//! readiness of its pull request (`readiness_asks`, spec/branch/patronus.spec.md, "The readiness of a request"): the
+//! head the listing names once it is fetched, with its head branch, its reviewers and its author; only a pull request
+//! into the default branch is asked.
 
 use crate::facts::{Observation, seed_head};
 use crate::pull_request_facts::availability_error;
 use domain_policy::news::{request_key, review_requested, tells_after};
+use domain_types::patronus::{ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequestAvailability, PullRequestReviewEvent, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewRequestsResult, ReviewsAnswer};
-use domain_types::session::{Demand, Fact, FactState, NewsEvent, ReviewRequestsView};
+use domain_types::session::{Demand, Fact, FactState, NewsEvent, ReviewRequestsView, request_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 use sync_core::github_repository::GitHubRepository;
 
@@ -41,6 +47,8 @@ pub struct ReviewRequestsFact {
   remembered: BTreeMap<u32, (ReviewRequest, Option<ReviewInvolvement>)>,
   /// The pull requests the review windows show (`Demand::review_windows`)
   windows: Vec<u32>,
+  /// The head the last review fetch of each pull request a window shows brought, by number
+  fetched: BTreeMap<u32, String>,
 }
 
 impl ReviewRequestsFact {
@@ -143,7 +151,40 @@ impl ReviewRequestsFact {
   /// The windows of the session now: the Reviews view, and the pull requests their review windows show
   pub fn demand(&mut self, demand: &Demand) {
     self.reviews_shown = demand.reviews;
+    // the head of a window that closed goes; one fetched before the demand of its window came stays
+    let closed: Vec<u32> = self.windows.iter().filter(|number| !demand.review_windows.contains(number)).copied().collect();
+    self.fetched.retain(|number, _| !closed.contains(number));
     self.windows.clone_from(&demand.review_windows);
+  }
+
+  /// The review fetch of the pull request `number` brought `head` (`operations::review_fetch`); whether it changed what
+  /// the session knows. Kept while a window shows the pull request
+  pub fn fetched(&mut self, number: u32, head: String) -> bool {
+    self.fetched.insert(number, head.clone()) != Some(head)
+  }
+
+  /// The pull requests of `windows` (the review windows now) into the default branch, by number, each with the ask of
+  /// its readiness (`request:<number>`) once the head the listing names is the one its review fetch brought: the head
+  /// branch, the pull request with its reviewers and its author. A pull request into another branch is not asked
+  #[must_use]
+  pub fn readiness_asks(&self, windows: &[u32]) -> BTreeMap<u32, Option<ReviewReadinessBranch>> {
+    windows
+      .iter()
+      .filter_map(|number| {
+        let request = self.pull_request(*number).filter(|request| request.base_is_default)?;
+        let fetched = self.fetched.get(number).filter(|head| !head.is_empty() && **head == request.head_ref_oid);
+        let ask = fetched.map(|head| ReviewReadinessBranch {
+          branch_name: request_readiness_key(*number),
+          source: None,
+          pull_request_head: Some(request.head_ref_name.clone()),
+          tip: head.clone(),
+          start: ReviewStart::PullRequest { number: *number },
+          reviewers: request.reviewers.clone(),
+          author: request.author.clone(),
+        });
+        Some((*number, ask))
+      })
+      .collect()
   }
 
   /// The pull request of `entry` the user just linked joins the links of Reviews at once, newest first, before the

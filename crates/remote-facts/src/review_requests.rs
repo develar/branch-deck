@@ -2,9 +2,9 @@
 //! GraphQL search: requested by name only (`user-review-requested:@me`), not through a team. Like `pull_requests.rs`,
 //! every failure is an availability, not an error.
 
-use crate::pull_requests::{GhReview as GhLatestReview, GhReviewRequestNode, Nodes, availability_of, parse_review_decision, visible_data};
+use crate::pull_requests::{GhReview as GhLatestReview, GhReviewRequestNode, Nodes, availability_of, collect_reviewers, parse_review_decision, visible_data};
 use crate::reviews::{reviews_answer, reviews_query, reviews_searches};
-use domain_types::pull_request::{ChecksState, PullRequestAvailability, ReviewerState};
+use domain_types::pull_request::{ChecksState, PullRequestAvailability, Reviewer, ReviewerState};
 use domain_types::review_request::{AnsweredRequest, BackToYou, ReviewRequest, ReviewRequestsResult, ReviewsAsk};
 use github::service::{GitHubService, RequestKind};
 use serde::Deserialize;
@@ -50,6 +50,8 @@ macro_rules! review_requests_body {
             ... on HeadRefForcePushedEvent { createdAt actor { __typename } }
           }
         }
+        latestReviews(first: 100) { nodes { author { login } state } }
+        reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on User { login } } } }
       }
     }
   }
@@ -57,10 +59,11 @@ macro_rules! review_requests_body {
   };
 }
 
-/// The search costs 1 point of the 5000 an hour (1 + 50 + 50 connections, by the hundred). `last: 20` review requests
+/// The search costs 2 points of the 5000 an hour (1 + 4 × 50 connections, by the hundred). `last: 20` review requests
 /// reach the newest one of the user also on a pull request that asked many reviewers one by one; `activity`, a timeline
 /// of its own so that bot comments don't push the requests out, tells whether the user answered with a comment and the
-/// other side moved since. `repository` tells "nothing to review" from "the token can't see the repository".
+/// other side moved since; the latest reviews and the requested users are the reviewers the readiness of a request is
+/// asked with. `repository` tells "nothing to review" from "the token can't see the repository".
 pub const REVIEW_REQUESTS_QUERY: &str = concat!("query($q: String!, $owner: String!, $name: String!) {\n", review_requests_body!(), "}");
 
 /// The body of `REVIEW_REQUESTS_QUERY`, which the query of Reviews extends (`reviews::reviews_query`)
@@ -200,7 +203,9 @@ fn to_review_request(number: u32, mut node: GhPullRequest, viewer: &str) -> Aske
     (None, None)
   };
   let waiting_since = back_to_you.as_ref().map_or(requested_at, |back| back.at);
+  let reviewers = take_reviewers(&mut node);
   let mut request = request_of(number, node);
+  request.reviewers = reviewers;
   request.requested_by = requested_by;
   request.requested_at = requested_at;
   request.waiting_since = waiting_since;
@@ -223,7 +228,18 @@ fn submitted_review(node: &GhPullRequest) -> Option<(u32, Option<String>, Option
   ))
 }
 
-/// What GitHub says of the pull request of `node`, in the fields of a request: asked at its update, by nobody
+/// The reviewers of `node` by their latest review, then the requested ones without one (`collect_reviewers`), taken
+/// out of it
+pub(crate) fn take_reviewers(node: &mut GhPullRequest) -> Vec<Reviewer> {
+  let requests = Nodes::into_nodes(node.review_requests.take())
+    .into_iter()
+    .filter_map(|node| node.requested_reviewer)
+    .collect();
+  collect_reviewers(Nodes::into_nodes(node.latest_reviews.take()), requests)
+}
+
+/// What GitHub says of the pull request of `node`, in the fields of a request: asked at its update, by nobody, without
+/// its reviewers (`take_reviewers`)
 pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
   let created_at = parse_time(node.created_at.as_deref());
   let updated_at = parse_time(node.updated_at.as_deref());
@@ -251,6 +267,7 @@ pub(crate) fn request_of(number: u32, node: GhPullRequest) -> ReviewRequest {
     re_requested: false,
     reviewed_state: review.as_ref().and_then(|(_, _, state)| *state),
     reviewed_commit: review.and_then(|(_, commit, _)| commit),
+    reviewers: Vec::new(),
     base_is_default: default_branch.as_deref().is_some_and(|name| name == node.base_ref_name.as_deref().unwrap_or_default()),
     head_ref_name: node.head_ref_name.unwrap_or_default(),
     head_ref_oid: node.head_ref_oid.unwrap_or_default(),

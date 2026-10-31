@@ -627,6 +627,9 @@ function projectView(
   if (changes === null || Object.keys(changes.githubLayers ?? {}).length > 0 || (changes.removedGithubLayers?.length ?? 0) > 0) {
     update.githubLayers = next.githubLayers ?? {}
   }
+  if (changes === null || Object.keys(changes.reviewGroups ?? {}).length > 0 || (changes.removedReviewGroups?.length ?? 0) > 0) {
+    update.reviewGroups = next.reviewGroups ?? {}
+  }
   if (changes === null || Object.keys(changes.operations ?? {}).length > 0 || (changes.removedOperations?.length ?? 0) > 0) {
     update.operations = next.operations
   }

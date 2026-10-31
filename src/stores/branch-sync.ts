@@ -24,6 +24,7 @@ import type {
   PullRequestView,
   PushAction,
   Reason,
+  ReviewerGroupView,
   RobotAttention,
   RunningOperation,
   StackBranchAlong,
@@ -326,6 +327,12 @@ export interface BranchSyncState {
    */
   githubLayers: Readonly<Record<string, GitHubLayer>>
   /**
+   * The reviewer groups of each pull request a review window shows, by `pull:<number>`, as Rust decides them
+   * (`RepositoryView.reviewGroups`, `domain_policy::reviewer_groups`): the groups that need an approval, which of them
+   * the user can approve for and which have theirs; a pull request without them is not listed
+   */
+  reviewGroups: Readonly<Record<string, readonly ReviewerGroupView[]>>
+  /**
    * The operations of the remote that run or wait in the session, by id (`RepositoryView.operations`, written by
    * `operations::registry`): the moves of rows they make are laid over the nodes (`src/presenters/running-move.ts`)
    */
@@ -342,11 +349,11 @@ export const NO_OPERATIONS: BranchSyncState["operations"] = {}
 
 /**
  * The parts of the view by subject before a view has any (`pushes`, `openPullRequests`, `lands`, `landedStates`,
- * `nextSteps`, `actions`, `attention`, `githubLayers`), its operations and its route
+ * `nextSteps`, `actions`, `attention`, `githubLayers`, `reviewGroups`), its operations and its route
  */
 export const NO_SUBJECT_PARTS: Pick<
   BranchSyncState,
-  "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "githubLayers" | "operations" | "route"
+  "pushes" | "openPullRequests" | "lands" | "landedStates" | "nextSteps" | "actions" | "attention" | "githubLayers" | "reviewGroups" | "operations" | "route"
 > = {
   pushes: {},
   openPullRequests: {},
@@ -356,6 +363,7 @@ export const NO_SUBJECT_PARTS: Pick<
   actions: {},
   attention: {},
   githubLayers: {},
+  reviewGroups: {},
   operations: NO_OPERATIONS,
   route: null,
 }

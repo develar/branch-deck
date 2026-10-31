@@ -83,6 +83,7 @@ pub fn review_request(number: u32, requested_at: u32) -> ReviewRequest {
     re_requested: false,
     reviewed_commit: None,
     reviewed_state: None,
+    reviewers: Vec::new(),
     head_ref_name: format!("alice/change-{number}"),
     head_ref_oid: String::new(),
     base_ref_name: "master".to_string(),
@@ -139,6 +140,34 @@ pub fn missing_approvals(group: &str, needed: Option<u32>) -> crate::patronus::R
     }],
     not_counted: Vec::new(),
     reason: crate::patronus::MissingApprovalsReason::ApprovalsMissing,
+  }
+}
+
+/// An available member of a reviewer group, not suggested, `login` its Space and GitHub login (none: nobody's)
+pub fn patronus_member(full_name: &str, login: Option<&str>, state: Option<crate::patronus::ReviewerApprovalState>) -> crate::patronus::PatronusReviewer {
+  crate::patronus::PatronusReviewer {
+    full_name: full_name.to_string(),
+    username: login.map(str::to_string),
+    github_login: login.map(str::to_string),
+    available: true,
+    suggested: false,
+    approval_state: state,
+  }
+}
+
+/// A reviewer group of one path as Patronus sends it; `approved` its evaluation of the pull request, one approval
+/// required (none: not evaluated)
+pub fn reviewer_group(name: &str, path: &str, approved: Option<bool>, reviewers: Vec<crate::patronus::PatronusReviewer>) -> crate::patronus::PatronusReviewerGroup {
+  crate::patronus::PatronusReviewerGroup {
+    name: name.to_string(),
+    reviewers,
+    paths: vec![path.to_string()],
+    branch_wide: false,
+    paths_source: crate::patronus::ReviewPathsSource::Patronus,
+    required_approvals: approved.map(|_| 1),
+    collected_approvals: approved.map(u32::from),
+    approved,
+    self_approval_allowed: approved.map(|_| false),
   }
 }
 

@@ -6079,6 +6079,13 @@ export type RepositoryView = {
 	 *  of each goes into the branch of the one below it (docs/design/github-stacks.md); none on a route of Patronus
 	 */
 	githubLayers?: { [key in string]: GitHubLayer },
+	/**
+	 *  The reviewer groups of each pull request a review window shows by `pull:<number>`, as
+	 *  `domain_policy::reviewer_groups` reads them of the readiness of the request (`request:<number>`): the groups that
+	 *  need an approval, which of them the user can approve for and which have theirs. A pull request without an answer of
+	 *  Patronus, or whose changes need no approval, is not listed
+	 */
+	reviewGroups?: { [key in string]: ReviewerGroupView[] },
 	/**  The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them */
 	operations: { [key in OperationId]: RunningOperation },
 	/**
@@ -6375,8 +6382,8 @@ notCounted: Person[]; reason: MissingApprovalsReason } |
 /**  A branch whose review readiness the app asks, at the tip it shows */
 export type ReviewReadinessBranch = {
 	/**
-	 *  The virtual branch, without the `{prefix}/virtual/` namespace; with `source`, only the key the answer comes back
-	 *  with (the app's `stack:<root>`)
+	 *  The virtual branch, without the `{prefix}/virtual/` namespace; with `source` or `pull_request_head`, only the key
+	 *  the answer comes back with (the app's `stack:<root>`, `request:<number>`)
 	 */
 	branchName: string,
 	/**
@@ -6385,6 +6392,12 @@ export type ReviewReadinessBranch = {
 	 *  it; null for the virtual branch
 	 */
 	source?: string | null,
+	/**
+	 *  The head branch of a pull request of someone else a review window shows (`ReviewRequest::head_ref_name`), whose
+	 *  commits `tip` names: Patronus is asked about it as the branch of the pull request of `start`; null for a branch of
+	 *  the user
+	 */
+	pullRequestHead?: string | null,
 	/**  The full commit id the answer is about; the commits are those of it the baseline lacks */
 	tip: string,
 	start: ReviewStart,
@@ -6442,6 +6455,11 @@ export type ReviewRequest = {
 	reviewedCommit: string | null,
 	/**  The state of the user's latest submitted review; None if the user has not reviewed */
 	reviewedState: ReviewerState | null,
+	/**
+	 *  Its reviewers by their latest review, then the requested reviewers without one, as GitHub lists them: what the
+	 *  readiness of the request is asked with (a new review asks it again)
+	 */
+	reviewers?: Reviewer[],
 	/**  The branch of the pull request, e.g. `alice/virtual/feature-auth` */
 	headRefName: string,
 	/**  The commit the pull request shows */
@@ -6638,6 +6656,23 @@ export type ReviewerApprovalState =
 "notAdded" | 
 /**  The approval of the member can't count (the author where self-approval isn't allowed, an unavailable member) */
 "notEligible";
+
+/**  A reviewer group a pull request to review needs (`RepositoryView::review_groups`) */
+export type ReviewerGroupView = {
+	/**  e.g. "Air Plugin Release Team" */
+	name: string,
+	/**
+	 *  The changed paths the group owes the review of, sorted; empty when it reviews every change (`branch_wide`) or
+	 *  nobody tells its paths
+	 */
+	paths: string[],
+	/**  Any change of the pull request needs the group */
+	branchWide: boolean,
+	/**  The pull request has the approvals of the group */
+	approved: boolean,
+	/**  The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's */
+	yours: boolean,
+};
 
 export type ReviewerState = "approved" | "changesRequested" | "commented" | 
 /**  Asked to review, no review submitted yet */
@@ -8024,6 +8059,8 @@ export type TableChanges = {
 	removedAttention?: string[],
 	githubLayers?: { [key in string]: GitHubLayer },
 	removedGithubLayers?: string[],
+	reviewGroups?: { [key in string]: ReviewerGroupView[] },
+	removedReviewGroups?: string[],
 	operations?: { [key in OperationId]: RunningOperation },
 	removedOperations?: OperationId[],
 	/**  The rewrite whose Undo the session offers now, `null` for none; absent when it did not change */

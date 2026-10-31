@@ -1,6 +1,7 @@
 //! The fetch of the pull request a review window shows (`Intent::FetchReview`; docs/design/git-operations.md, "Review
 //! fetch"): an operation of the session of its repository, which names the pull request by its number and takes its head
-//! and its base as the review requests of the session have them, the last a listing named. The core
+//! and its base as the review requests of the session have them, the last a listing named; the head it fetched goes to
+//! the session (`Sessions::review_fetched`), which asks the readiness of the pull request from then on. The core
 //! (`sync_core::review_fetch::fetch_review_head`) fetches nothing when both commits are local, else writes only
 //! `refs/branch-deck/review/<n>/{head,base}`, never under the repository lock, and answers the range to review. It holds
 //! the review refs of its number (`Resource::Ref`): a second fetch of the same pull request joins it. Its progress goes
@@ -72,7 +73,11 @@ pub async fn execute_review_fetch(registry: &Registry, key: &SessionKey, number:
     let (git, stepper, canceled) = (hosts.services.git(), guard.stepper(), guard.canceled());
     let fetched = blocking(move || Ok(fetch_review_head(&git, &params, &mut |tick| stepper.progress(&tick), &|| canceled.load(Ordering::Relaxed)))).await?;
     let (status, result) = match fetched {
-      Ok(range) => (EffectStatus::Done, OperationResult::ReviewRange(Box::new(range))),
+      Ok(range) => {
+        // the head the review refs hold now: the session asks the readiness of the pull request at it
+        sessions.review_fetched(key, number, range.head.clone()).await;
+        (EffectStatus::Done, OperationResult::ReviewRange(Box::new(range)))
+      }
       Err(error) => {
         let mut error = hosts.rewrites.rewrite_error(error);
         error.operation_id.get_or_insert_with(|| guard.id().0.clone());

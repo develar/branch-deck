@@ -17,7 +17,7 @@ pub(crate) fn at(seq: u32) -> Observation {
   }
 }
 
-fn available(requests: Vec<ReviewRequest>) -> ReviewRequestsResult {
+pub(crate) fn available(requests: Vec<ReviewRequest>) -> ReviewRequestsResult {
   ReviewRequestsResult {
     availability: PullRequestAvailability::Available {
       owner: "acme".to_string(),

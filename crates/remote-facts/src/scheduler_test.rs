@@ -1117,6 +1117,7 @@ fn readiness_subject(key: &str, priority: ReadinessPriority, inputs: u64) -> Rea
     ask: ReviewReadinessBranch {
       branch_name: key.to_owned(),
       source: None,
+      pull_request_head: None,
       tip: format!("{key}-tip"),
       start: ReviewStart::Rest,
       reviewers: Vec::new(),

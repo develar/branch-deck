@@ -6,6 +6,7 @@ targets:
   - ../../src/lib/os-notification.ts
   - ../../crates/domain-types/src/patronus.rs
   - ../../crates/domain-policy/src/review.rs
+  - ../../crates/domain-policy/src/reviewer_groups.rs
   - ../../crates/domain-policy/src/actions.rs
   - ../../crates/patronus/src/actions.rs
   - ../../crates/patronus/src/client.rs
@@ -1327,6 +1328,39 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/remote-facts/src/scheduler_test.rs (`another_repository_lists_and_asks_its_problems_while_the_list_of_the_first_is_held`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say "Needs review" for a robot that failed for missing approvals, and start a new Safe Push from it`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open the pull request a robot that failed for missing approvals was started from, from its details`)
+
+### The readiness of a request
+
+A code owner approves the pull request of someone else in its review window ([Review
+Requests](../repository/review-requests.spec.md)); the approval of a code owner is what lets a Safe Push through. So
+the session asks Patronus about the pull request a review window shows, as the robot started from it would decide.
+- The readiness of pull request #n is the fact `request:<n>` of the session. It is asked while a review window shows
+  the pull request (`Demand.reviewWindows`), needed now, once both hold: its base is the default branch of the
+  repository, and the head the review requests name (`headRefOid`) is the one the review fetch of the window brought
+  (`refs/branch-deck/review/<n>/head`). Its ask is that head, from its pull request (`ReviewStart::PullRequest`), with
+  its author and its reviewers as the review requests list them (their latest reviews, then the users asked without
+  one); Patronus is asked about its head branch (`pullRequestHead`), a branch of no prefix, and its answer comes back
+  under `request:<n>`.
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_goes_with_the_window`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_pull_request_of_someone_else_is_asked_about_as_its_head_branch`)
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
+  [@test] ../../crates/test-server/src/review_readiness_test.rs (`the_fake_patronus_answers_a_pull_request_of_someone_else_by_its_number`)
+- Its answer is kept as a branch's (above): the key holds the pull request, its author and its reviews, so a new
+  head waits for its fetch and is asked again, and a new review asks again; an approval it tells is no news (the
+  review requests tell their own). Nothing is asked for a pull request into another branch, before its fetch, or once
+  its window closed: its record goes with the window, a fetch that ends after the close asks nothing, and a frame of
+  the session never seeds it.
+  [@test] ../../crates/repository-model/src/readiness_facts_test.rs (`a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_goes_with_the_window`)
+  [@test] ../../crates/remote-facts/src/review_readiness_test.rs (`a_pull_request_of_someone_else_is_asked_about_as_its_head_branch`)
+- The view gives the row `pull:<n>` its reviewer groups (`reviewGroups`, `domain_policy::reviewer_groups`): every
+  group the changes need, in the order of Patronus, with its paths, `branchWide`, `approved` (Patronus's evaluation,
+  else whether the readiness still misses it) and `yours`: the GitHub login of the app's sign-in is the `githubLogin`
+  of a member (any case) whose approval can count (its `approvalState` is not `notEligible`). A member without a
+  GitHub login is nobody's; without the app's sign-in no group is the user's. No groups while Patronus doesn't answer
+  (`unavailable`, a repository not on Space), when the changes need no approval, and for a pull request into another
+  branch: the owners of the `OWNERSHIP` files stay.
+  [@test] ../../crates/domain-policy/src/reviewer_groups_test.rs (`a_group_is_yours_by_the_github_login_of_a_member_whose_approval_can_count`, `a_group_without_the_evaluation_of_the_pull_request_is_approved_as_the_readiness_names_it`, `no_groups_without_an_answer_or_when_no_approval_is_needed`)
+  [@test] ../../crates/repository-model/src/review_view_test.rs (`the_view_has_the_reviewer_groups_of_a_pull_request_a_review_window_shows`)
 
 ### Safe Push without review
 

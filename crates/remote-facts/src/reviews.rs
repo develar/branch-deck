@@ -5,11 +5,11 @@
 //! number in the repository. As the review requests, every failure is an availability, not an error.
 
 use crate::pull_requests::{NOT_ON_GITHUB_MESSAGE, Nodes, collect_reviewers, failure_message, visible_data};
-use crate::review_requests::{GhData, GhPullRequest, GhSearch, request_of};
+use crate::review_requests::{GhData, GhPullRequest, GhSearch, request_of, take_reviewers};
 use crate::service_sources::ServiceHost;
 use domain_policy::reviews::has_new_commits;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewSearch, ReviewsAnswer};
+use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry, ReviewInvolvement, ReviewRequest, ReviewSearch, ReviewsAnswer};
 use domain_types::session::{FactFamily, FactRefreshReason};
 use github::service::{GitHubFailure, GitHubService, RequestKind};
 use repository_model::session::{SessionKey, Sessions};
@@ -135,8 +135,10 @@ fn team_entry(number: u32, mut node: GhPullRequest, viewer: &str) -> Option<Revi
   {
     return None;
   }
-  let teams = requests.into_iter().filter_map(|request| request.slug).collect();
+  let teams = requests.iter().filter_map(|request| request.slug.clone()).collect();
+  let reviewers = collect_reviewers(Nodes::into_nodes(node.latest_reviews.take()), requests);
   let mut request = request_of(number, node);
+  request.reviewers = reviewers;
   // a team waits since the pull request was opened: its request event is not read
   request.requested_at = request.created_at;
   request.waiting_since = request.created_at;
@@ -147,7 +149,7 @@ fn team_entry(number: u32, mut node: GhPullRequest, viewer: &str) -> Option<Revi
 }
 
 fn reviewed_entry(number: u32, node: GhPullRequest) -> ReviewEntry {
-  let request = request_of(number, node);
+  let request = request_with_reviewers(number, node);
   ReviewEntry {
     involvement: ReviewInvolvement::Reviewed {
       state: request.reviewed_state,
@@ -158,21 +160,25 @@ fn reviewed_entry(number: u32, node: GhPullRequest) -> ReviewEntry {
   }
 }
 
-fn authored_entry(number: u32, mut node: GhPullRequest) -> ReviewEntry {
-  let reviews = Nodes::into_nodes(node.latest_reviews.take());
-  let requests = Nodes::into_nodes(node.review_requests.take())
-    .into_iter()
-    .filter_map(|node| node.requested_reviewer)
-    .collect();
+fn authored_entry(number: u32, node: GhPullRequest) -> ReviewEntry {
   let is_draft = node.is_draft.unwrap_or(false);
+  let request = request_with_reviewers(number, node);
   ReviewEntry {
     involvement: ReviewInvolvement::Authored {
-      reviewers: collect_reviewers(reviews, requests),
+      reviewers: request.reviewers.clone(),
       is_draft,
       branch: None,
     },
-    request: request_of(number, node),
+    request,
   }
+}
+
+/// `request_of` with the reviewers of `node` (`take_reviewers`)
+fn request_with_reviewers(number: u32, mut node: GhPullRequest) -> ReviewRequest {
+  let reviewers = take_reviewers(&mut node);
+  let mut request = request_of(number, node);
+  request.reviewers = reviewers;
+  request
 }
 
 /// What GitHub answered of `link`: open, merged or closed, or none of the number
@@ -189,7 +195,7 @@ fn linked_entry(link: LinkedPullRequest, node: Option<GhPullRequest>) -> Option<
   let node = node?;
   let open = node.state.as_deref().is_none_or(|state| state == "OPEN");
   let entry = ReviewEntry {
-    request: request_of(link.number, node),
+    request: request_with_reviewers(link.number, node),
     involvement: ReviewInvolvement::Linked { linked_at: link.linked_at },
   };
   Some((entry, open))

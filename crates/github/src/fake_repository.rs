@@ -998,25 +998,7 @@ fn search_node(owner: &str, pull_request: &PullRequest) -> Value {
     ReviewDecision::ChangesRequested => "CHANGES_REQUESTED",
     ReviewDecision::ReviewRequired => "REVIEW_REQUIRED",
   });
-  let reviews: Vec<Value> = pull_request
-    .reviewers
-    .iter()
-    .filter_map(|reviewer| {
-      let state = match reviewer.state {
-        ReviewerState::Approved => "APPROVED",
-        ReviewerState::ChangesRequested => "CHANGES_REQUESTED",
-        ReviewerState::Commented => "COMMENTED",
-        ReviewerState::Requested => return None,
-      };
-      Some(json!({"author": {"login": reviewer.login}, "state": state}))
-    })
-    .collect();
-  let requests: Vec<Value> = pull_request
-    .reviewers
-    .iter()
-    .filter(|reviewer| reviewer.requested)
-    .map(|reviewer| json!({"requestedReviewer": {"__typename": "User", "login": reviewer.login}}))
-    .collect();
+  let (reviews, requests) = reviewer_nodes(&pull_request.reviewers);
   json!({
     "number": pull_request.number,
     "title": pull_request.title,
@@ -1040,6 +1022,30 @@ fn search_node(owner: &str, pull_request: &PullRequest) -> Value {
     "reviewRequests": {"nodes": requests},
     "labels": {"nodes": []},
   })
+}
+
+/// The nodes of `latestReviews` (the latest review of each reviewer) and of `reviewRequests` (each user asked) of a
+/// pull request whose reviewers are `reviewers`
+#[must_use]
+pub fn reviewer_nodes(reviewers: &[Reviewer]) -> (Vec<Value>, Vec<Value>) {
+  let reviews = reviewers
+    .iter()
+    .filter_map(|reviewer| {
+      let state = match reviewer.state {
+        ReviewerState::Approved => "APPROVED",
+        ReviewerState::ChangesRequested => "CHANGES_REQUESTED",
+        ReviewerState::Commented => "COMMENTED",
+        ReviewerState::Requested => return None,
+      };
+      Some(json!({"author": {"login": reviewer.login}, "state": state}))
+    })
+    .collect();
+  let requests = reviewers
+    .iter()
+    .filter(|reviewer| reviewer.requested)
+    .map(|reviewer| json!({"requestedReviewer": {"__typename": "User", "login": reviewer.login}}))
+    .collect();
+  (reviews, requests)
 }
 
 /// GitHub's name of `state` (`CLEAN`, …)

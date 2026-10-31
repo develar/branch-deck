@@ -1,4 +1,4 @@
-use crate::review_readiness::{ReadinessRepository, branch_review_readiness, is_fresh, kept_review_readiness};
+use crate::review_readiness::{ReadinessRepository, branch_review_readiness, is_fresh, kept_review_readiness, source_branch};
 use domain_types::patronus::{
   BranchReviewReadiness, MissingApprovalsReason, PatronusReviewRequirement, ReviewReadiness, ReviewReadinessBranch, ReviewStart, ReviewerApprovalState,
 };
@@ -79,6 +79,7 @@ fn branch(tip: &str, start: ReviewStart, reviewers: Vec<Reviewer>) -> ReviewRead
   ReviewReadinessBranch {
     branch_name: "IJPL-1".to_string(),
     source: None,
+    pull_request_head: None,
     tip: tip.to_string(),
     start,
     reviewers,
@@ -339,4 +340,49 @@ async fn the_kept_answers_come_from_the_cache_without_asking_patronus() {
   let kept = setup.kept(&[from_pull_request, reviewed]).await;
   assert_eq!(kept, vec![Some(asked[0].clone()), None]);
   assert_eq!(setup.checks(), 1);
+}
+
+/// The pull request of someone else a review window shows is asked about as its head branch, a branch of no prefix,
+/// from the pull request with its reviews; the answer comes back under the key of the request
+#[test(tokio::test(flavor = "multi_thread"))]
+async fn a_pull_request_of_someone_else_is_asked_about_as_its_head_branch() {
+  let setup = setup().await;
+  let request = ReviewReadinessBranch {
+    branch_name: "request:7".to_string(),
+    pull_request_head: Some("alice/feature".to_string()),
+    author: Some("alice".to_string()),
+    ..branch(
+      &setup.tip,
+      ReviewStart::PullRequest { number: 7 },
+      vec![reviewer("ikorennoy", ReviewerState::Requested, true)],
+    )
+  };
+  assert_eq!(source_branch("me", &request), Ok("alice/feature".to_string()));
+  assert!(
+    source_branch(
+      "me",
+      &ReviewReadinessBranch {
+        pull_request_head: None,
+        ..request.clone()
+      }
+    )
+    .is_err(),
+    "no virtual branch of the prefix"
+  );
+
+  let [answer] = <[BranchReviewReadiness; 1]>::try_from(setup.readiness(std::slice::from_ref(&request), false).await).unwrap();
+  assert_eq!((answer.branch_name.as_str(), answer.tip.as_str()), ("request:7", setup.tip.as_str()));
+  assert!(matches!(answer.readiness, ReviewReadiness::Missing { .. }), "{answer:?}");
+  assert_eq!(*setup.fake.checked_pull_requests.lock().unwrap(), [json!({"repository": "acme/monorepo", "number": 7})]);
+  assert_eq!(*setup.fake.checked_tips.lock().unwrap(), std::slice::from_ref(&setup.tip));
+
+  // kept until a review changes: the approval of the code owner asks again
+  setup.readiness(std::slice::from_ref(&request), false).await;
+  assert_eq!(setup.checks(), 1);
+  let approved = ReviewReadinessBranch {
+    reviewers: vec![reviewer("ikorennoy", ReviewerState::Approved, false)],
+    ..request
+  };
+  setup.readiness(std::slice::from_ref(&approved), false).await;
+  assert_eq!(setup.checks(), 2);
 }

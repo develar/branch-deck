@@ -47,6 +47,11 @@ pub struct ReviewRequest {
   pub reviewed_commit: Option<String>,
   /// The state of the user's latest submitted review; None if the user has not reviewed
   pub reviewed_state: Option<ReviewerState>,
+  /// Its reviewers by their latest review, then the requested reviewers without one, as GitHub lists them: what the
+  /// readiness of the request is asked with (a new review asks it again)
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub reviewers: Vec<Reviewer>,
   /// The branch of the pull request, e.g. `alice/virtual/feature-auth`
   pub head_ref_name: String,
   /// The commit the pull request shows

@@ -231,6 +231,22 @@ pub fn stack_root_of_readiness_key(key: &str) -> Option<&str> {
   key.strip_prefix(STACK_READINESS_PREFIX)
 }
 
+/// What the readiness key of a pull request of someone else a review window shows starts with: `request:<number>` (a
+/// ref name has no `:`, so no branch is one)
+pub const REQUEST_READINESS_PREFIX: &str = "request:";
+
+/// The readiness key of the pull request `number` a review window shows
+#[must_use]
+pub fn request_readiness_key(number: u32) -> String {
+  format!("{REQUEST_READINESS_PREFIX}{number}")
+}
+
+/// The number of the readiness key of a pull request a review window shows; `None` for a branch's and a whole stack's
+#[must_use]
+pub fn request_of_readiness_key(key: &str) -> Option<u32> {
+  key.strip_prefix(REQUEST_READINESS_PREFIX)?.parse().ok()
+}
+
 /// Why a session syncs (`repository_model::sync_scheduler` decides what runs)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -420,6 +436,12 @@ pub struct RepositoryView {
   /// of each goes into the branch of the one below it (docs/design/github-stacks.md); none on a route of Patronus
   #[serde(default)]
   pub github_layers: BTreeMap<String, GitHubLayer>,
+  /// The reviewer groups of each pull request a review window shows by `pull:<number>`, as
+  /// `domain_policy::reviewer_groups` reads them of the readiness of the request (`request:<number>`): the groups that
+  /// need an approval, which of them the user can approve for and which have theirs. A pull request without an answer of
+  /// Patronus, or whose changes need no approval, is not listed
+  #[serde(default)]
+  pub review_groups: BTreeMap<String, Vec<ReviewerGroupView>>,
   /// The operations of the remote that run or wait in the session, by id, as `operations::registry` admitted them
   pub operations: BTreeMap<OperationId, RunningOperation>,
   /// The rewrite of this process whose Undo the session offers, by the operation its outcome named (`Outcome::undo`):
@@ -457,6 +479,24 @@ pub struct GitHubLayer {
   /// The branches below it without an open pull request, bottom first: the creation of its pull request creates theirs
   /// too, as a stack of GitHub has a pull request on every layer
   pub creates: Vec<String>,
+}
+
+/// A reviewer group a pull request to review needs (`RepositoryView::review_groups`)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewerGroupView {
+  /// e.g. "Air Plugin Release Team"
+  pub name: String,
+  /// The changed paths the group owes the review of, sorted; empty when it reviews every change (`branch_wide`) or
+  /// nobody tells its paths
+  pub paths: Vec<String>,
+  /// Any change of the pull request needs the group
+  pub branch_wide: bool,
+  /// The pull request has the approvals of the group
+  pub approved: bool,
+  /// The user is a member whose approval can count: the GitHub login of the app's sign-in is the group's
+  pub yours: bool,
 }
 
 /// The robot of a subject that needs the user (`RepositoryView::attention`)
@@ -1265,6 +1305,12 @@ pub struct TableChanges {
   #[serde(skip_serializing_if = "Vec::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub removed_github_layers: Vec<String>,
+  #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub review_groups: BTreeMap<String, Vec<ReviewerGroupView>>,
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub removed_review_groups: Vec<String>,
   #[serde(skip_serializing_if = "BTreeMap::is_empty")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub operations: BTreeMap<OperationId, RunningOperation>,

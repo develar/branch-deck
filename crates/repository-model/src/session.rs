@@ -452,6 +452,14 @@ impl Sessions {
     self.ask(key, |reply| Message::Unlinked { number, reply }).await
   }
 
+  /// The review fetch of the pull request `number` brought `head` into the review refs of the open session of `key`
+  /// (`ReviewRequestsFact::fetched`): once it is the head the listing names, the readiness of the pull request is asked
+  /// while a review window shows it. Answers the version of the view after its patch; `None` for a session that is not
+  /// open
+  pub async fn review_fetched(&self, key: &SessionKey, number: u32, head: String) -> Option<Version> {
+    self.ask(key, |reply| Message::ReviewFetched { number, head, reply }).await
+  }
+
   /// The write of the app to a pull request (`PullRequestWrite`, as its command answered it) goes into the pull
   /// requests of the open session of `key`, newer than every listing that started before; a write that changes what
   /// the next step reads lists them again. Answers the version of the view after its patch; `None` for a session that

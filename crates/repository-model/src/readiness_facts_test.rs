@@ -2,13 +2,16 @@ use crate::derive::wanted_readiness;
 use crate::facts::{FactResult, FactStore, Observation, Seq};
 use crate::pull_request_facts::PullRequestsFact;
 use crate::readiness_facts::{ReadinessAnswer, ReadinessFact, ReadinessSubject};
+use crate::review_request_facts::ReviewRequestsFact;
+use crate::review_request_facts::review_request_facts_test::{at as review_at, available as review_available};
 use crate::table::TableState;
 use crate::table::table_test::{run_sync, sync_events};
 use domain_policy::refresh::ReadinessPriority;
 use domain_types::error::{ApiError, ErrorCode};
-use domain_types::fixtures::{missing_approvals, pull_request};
-use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, PatronusAvailability, Person, ReviewReadiness, ReviewStart};
+use domain_types::fixtures::{missing_approvals, pull_request, review_request};
+use domain_types::patronus::{ApprovedReviewGroup, BranchReviewReadiness, PatronusAvailability, Person, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
 use domain_types::pull_request::{PullRequest, Reviewer, ReviewerState};
+use domain_types::review_request::ReviewRequest;
 use domain_types::session::{Demand, FactState, NewsEvent, PullRequestsView, RobotsHead, stack_readiness_key};
 use domain_types::stack::{StackBranchState, StackBranchUpdate};
 use domain_types::{BranchSyncStatus, CommitSyncStatus, SyncEvent};
@@ -316,4 +319,113 @@ fn a_shown_subject_is_asked_only_while_its_next_step_waits_for_the_readiness() {
   assert!(!wanted.contains(&running), "row 1: its robot runs");
   facts.pull_requests = PullRequestsFact::default();
   assert_eq!(wanted_readiness(&state, &facts, "user", &demand), HashSet::new(), "the steps wait for the listing first");
+}
+
+/// A pull request of someone else a review window shows into the default branch is asked once the head the listing
+/// names is the one its review fetch brought: as its head branch, from the pull request with its reviewers and its
+/// author, needed now; a new head waits for its fetch, a new review asks again, its approvals are no news, and its record
+/// goes with the window. One into another branch has none
+#[test]
+fn a_pull_request_a_review_window_shows_is_asked_once_its_head_is_fetched_and_goes_with_the_window() {
+  let state = table();
+  let carol = |state| {
+    vec![Reviewer {
+      login: "carol".to_owned(),
+      state,
+      requested: false,
+    }]
+  };
+  let request = |number: u32, head: &str, into_default: bool, reviewers: Vec<Reviewer>| ReviewRequest {
+    head_ref_oid: head.to_owned(),
+    base_is_default: into_default,
+    reviewers,
+    ..review_request(number, 1)
+  };
+  let mut requests = ReviewRequestsFact::default();
+  requests.answer(
+    review_at(1),
+    review_available(vec![request(7, "head-1", true, carol(ReviewerState::Commented)), request(8, "head-8", false, Vec::new())]),
+  );
+  let windows = Demand {
+    review_windows: vec![7, 8],
+    ..Demand::default()
+  };
+  let update = |fact: &mut ReadinessFact, requests: &mut ReviewRequestsFact, demand: &Demand| {
+    fact.set_requests(requests.readiness_asks(&demand.review_windows));
+    fact.update(&state, &pull_requests(vec![]), Some(&available()), demand, "user", &HashSet::new());
+    requests.demand(demand);
+  };
+
+  let mut fact = ReadinessFact::default();
+  update(&mut fact, &mut requests, &windows);
+  assert_eq!(fact.digest().subjects, [], "nothing is asked before the fetch");
+  assert_eq!(state_of(&fact, "request:7"), FactState::Loading);
+  assert!(fact.fact("request:8").is_none(), "a pull request into another branch has no record");
+
+  requests.fetched(7, "head-1".to_owned());
+  requests.fetched(8, "head-8".to_owned());
+  update(&mut fact, &mut requests, &windows);
+  let asked = subject(&fact, "request:7").clone();
+  assert_eq!(
+    asked.ask,
+    ReviewReadinessBranch {
+      branch_name: "request:7".to_owned(),
+      source: None,
+      pull_request_head: Some("alice/change-7".to_owned()),
+      tip: "head-1".to_owned(),
+      start: ReviewStart::PullRequest { number: 7 },
+      reviewers: carol(ReviewerState::Commented),
+      author: Some("alice".to_owned()),
+    }
+  );
+  assert_eq!(asked.priority, ReadinessPriority::Demanded);
+  assert_eq!(fact.digest().subjects.len(), 1);
+  assert!(!fact.digest().awaits_approval);
+  fact.answer(at(2), answer(&asked, missing()));
+  assert_eq!(state_of(&fact, "request:7"), FactState::Fresh);
+
+  // the listing names a new head: the readiness waits for the fetch of it
+  requests.answer(review_at(3), review_available(vec![request(7, "head-2", true, carol(ReviewerState::Commented))]));
+  update(&mut fact, &mut requests, &windows);
+  assert_eq!(fact.digest().subjects, [], "the new head is not fetched yet");
+  requests.fetched(7, "head-2".to_owned());
+  update(&mut fact, &mut requests, &windows);
+  let moved = subject(&fact, "request:7").clone();
+  assert_eq!((moved.ask.tip.as_str(), state_of(&fact, "request:7")), ("head-2", FactState::Stale { reason: None }));
+  fact.answer(at(4), answer(&moved, missing()));
+
+  // a new review asks again; its approval is no news
+  requests.answer(review_at(5), review_available(vec![request(7, "head-2", true, carol(ReviewerState::Approved))]));
+  update(&mut fact, &mut requests, &windows);
+  let reviewed = subject(&fact, "request:7").clone();
+  assert_eq!(reviewed.ask.reviewers, carol(ReviewerState::Approved));
+  let approved = ReviewReadiness::Approved {
+    groups: vec![ApprovedReviewGroup {
+      name: "IJPL Code Platform".to_owned(),
+      approved_by: vec![Person {
+        login: Some("carol".to_owned()),
+        full_name: None,
+      }],
+    }],
+  };
+  assert_eq!(fact.answer(at(6), answer(&reviewed, approved)), (true, None));
+
+  // the window closes: nothing is asked, the record goes, and the fetched head with it
+  update(&mut fact, &mut requests, &Demand::default());
+  assert_eq!((fact.digest().subjects.len(), fact.fact("request:7").is_some()), (0, false));
+  // a fetch that ends after its window closed asks nothing
+  requests.fetched(7, "head-2".to_owned());
+  update(&mut fact, &mut requests, &Demand::default());
+  assert_eq!(
+    (fact.digest().subjects.len(), fact.fact("request:7").is_some()),
+    (0, false),
+    "the window of the late fetch is closed"
+  );
+  requests.fetched(8, "head-8".to_owned());
+  let windows_8 = Demand {
+    review_windows: vec![8],
+    ..Demand::default()
+  };
+  update(&mut fact, &mut requests, &windows_8);
+  assert_eq!(fact.digest().subjects, [], "a window into another branch asks nothing");
 }

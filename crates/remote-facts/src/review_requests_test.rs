@@ -1,5 +1,5 @@
 use crate::review_requests::{REVIEW_REQUESTS_QUERY, list_review_requests};
-use domain_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, TokenSource};
+use domain_types::pull_request::{ChecksState, PullRequestAvailability, ReviewDecision, Reviewer, ReviewerState, TokenSource};
 use domain_types::review_request::{BackToYou, ReviewRequest, ReviewRequestsResult};
 use github::fake_github::{FakeAnswer, FakeRequest, start_fake_service};
 use pretty_assertions::assert_eq;
@@ -29,6 +29,8 @@ const FIXTURE: &str = r#"{"data": {
       "baseRepository": {"defaultBranchRef": {"name": "master"}},
       "statusCheckRollup": {"state": "SUCCESS"},
       "viewerLatestReview": null,
+      "latestReviews": {"nodes": [{"author": {"login": "bob"}, "state": "APPROVED"}, {"author": {"login": "dave"}, "state": "PENDING"}]},
+      "reviewRequests": {"nodes": [{"requestedReviewer": {"__typename": "User", "login": "carol"}}, {"requestedReviewer": {"__typename": "Team"}}]},
       "timelineItems": {"nodes": [
         {"createdAt": "2026-10-05T07:34:27Z", "actor": {"login": "alice"}, "requestedReviewer": {"login": "bob"}},
         {"createdAt": "2026-10-06T10:00:00Z", "actor": {"login": "alice"}, "requestedReviewer": {"login": "carol"}},
@@ -141,7 +143,8 @@ async fn maps_the_review_requests_of_the_search() {
   // the lagging #820 is dropped, the issue and the null node are skipped
   assert_eq!(result.requests.iter().map(|request| request.number).collect::<Vec<_>>(), vec![840, 830, 810]);
 
-  // waiting since the newest request of the viewer (the login matches case-insensitively), asked by its actor
+  // waiting since the newest request of the viewer (the login matches case-insensitively), asked by its actor; its
+  // reviewers by their latest review, a pending one none, then the users asked without one
   assert_eq!(
     result.requests[0],
     ReviewRequest {
@@ -165,6 +168,18 @@ async fn maps_the_review_requests_of_the_search() {
       re_requested: false,
       reviewed_commit: None,
       reviewed_state: None,
+      reviewers: vec![
+        Reviewer {
+          login: "bob".to_string(),
+          state: ReviewerState::Approved,
+          requested: false,
+        },
+        Reviewer {
+          login: "carol".to_string(),
+          state: ReviewerState::Requested,
+          requested: true,
+        },
+      ],
       head_ref_name: "alice/registry-race".to_string(),
       head_ref_oid: "1111111111111111111111111111111111111111".to_string(),
       base_ref_name: "master".to_string(),
@@ -184,6 +199,7 @@ async fn maps_the_review_requests_of_the_search() {
   assert_eq!(re_requested.review_decision, None);
   assert!(re_requested.is_cross_repository);
   assert!(!re_requested.base_is_default);
+  assert_eq!(re_requested.reviewers, [], "none listed");
 
   // no request event: waiting since the pull request was opened; a pending review does not count
   let pending = &result.requests[2];

@@ -2,8 +2,10 @@
 //! `FactSources` of each host) and `bd safe-push`: the commits of the branches (`patronus_review`), the pre-check of
 //! Patronus with the pull request each would start from, cached on disk by what Patronus decides on, then
 //! `patronus::review_readiness`. The whole stack is asked as its stack branch (`ReviewReadinessBranch::source`,
-//! `{prefix}/stack/<root>`) with its pull request. `kept_review_readiness` answers from the cache alone, so a session
-//! answers what it keeps before it asks Patronus anything.
+//! `{prefix}/stack/<root>`) with its pull request, a pull request of someone else a review window shows as its head
+//! branch (`ReviewReadinessBranch::pull_request_head`) with that pull request: the commits and the base go explicitly,
+//! so the name is only a label. `kept_review_readiness` answers from the cache alone, so a session answers what it
+//! keeps before it asks Patronus anything.
 //!
 //! The answer of a branch reviewed on GitHub is kept in the `review_answer` store of the object cache, keyed by a hash
 //! of the Patronus server and token, the Space repository, the target, the changed paths, and for a start from a pull
@@ -300,9 +302,12 @@ async fn ask(
   Ok(requirement)
 }
 
-/// The branch Patronus is asked about: the `source` of the branch, a stack branch of the prefix (the whole stack), else
-/// the virtual branch of its name
-fn source_branch(branch_prefix: &str, branch: &ReviewReadinessBranch) -> Result<String, String> {
+/// The branch Patronus is asked about: the head branch of a pull request of someone else, the `source` of the branch, a
+/// stack branch of the prefix (the whole stack), else the virtual branch of its name
+pub(crate) fn source_branch(branch_prefix: &str, branch: &ReviewReadinessBranch) -> Result<String, String> {
+  if let Some(head) = &branch.pull_request_head {
+    return Ok(head.clone());
+  }
   match &branch.source {
     Some(source) if strip_branch_namespace(source, branch_prefix, BranchKind::Stack).is_some() => Ok(source.clone()),
     Some(source) => Err(format!("{source} is not a stack branch of {branch_prefix}")),

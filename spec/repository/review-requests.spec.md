@@ -114,7 +114,7 @@ there, in the preview and in the review alike, on the commit the review shows; t
 
 ### Reading the requests
 
-- One GraphQL request per refresh (1 point of the rate limit), with the token of [Pull
+- One GraphQL request per refresh (2 points of the rate limit), with the token of [Pull
   Requests](../branch/pull-requests.spec.md#the-token): the search `repo:<owner>/<name> is:pr is:open archived:false
   draft:false user-review-requested:@me`, `first: 50` with the `issueCount`, and `repository(owner, name)`, whose null
   is "no access" as for the pull requests; the repository is the one of [Pull
@@ -129,10 +129,15 @@ there, in the preview and in the review alike, on the commit the review shows; t
   is older than that; a pending review is no review. A request whose latest review is newer than the event is dropped
   (the search index lags behind a review).
   [@test] ../../crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
+- A request lists its reviewers (`reviewers`): the latest review of each (`latestReviews`; a pending one is none),
+  then the users asked without one (`reviewRequests`; a team needs `read:org`, and is not read). They are what the
+  readiness of the request is asked with ([Patronus](../branch/patronus.spec.md#the-readiness-of-a-request)): a new
+  review asks it again.
+  [@test] ../../crates/remote-facts/src/review_requests_test.rs (`maps_the_review_requests_of_the_search`)
 - A comment in the conversation is no review, and GitHub keeps the request: a request the user answered with a comment
   after the newest request event of the user is dropped until the other side moves. A second timeline of the same
   query, `activity` (`last: 30` comments, reviews, commits and force pushes; its own connection, so bot comments don't
-  push the request events out; the query still costs 1 point), tells it: the user's newest comment (`viewerDidAuthor`)
+  push the request events out; the query still costs 2 points), tells it: the user's newest comment (`viewerDidAuthor`)
   not older than the event, a command such as `/patronus dry-run` (which the app posts as the user) no answer. A move
   after it gives the turn back: a commit (by its date), a force push, a comment or a submitted review of someone else
   than the user; a bot (`Bot`) never moves. The request waits since the first move then, and says what it was

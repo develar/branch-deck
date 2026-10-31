@@ -122,6 +122,41 @@ async fn the_readiness_comes_from_the_fake_patronus_through_the_real_core() {
   assert_eq!(log["checks"], json!([check, check]));
 }
 
+/// A pull request of someone else a review window shows is asked as its head branch, of no prefix of the user, with the
+/// pull request: the fake answers it by the number of the fixture's `request:<number>` (a group whose member is the
+/// signed-in user, `user-name`, still needs an approval; another has its own), whatever the tip
+#[tokio::test]
+async fn the_fake_patronus_answers_a_pull_request_of_someone_else_by_its_number() {
+  let (addr, state, client, id, repository_path, tip) = setup().await;
+  git(&repository_path, &["update-ref", "refs/remotes/origin/master", "HEAD~1"]);
+  post(
+    &client,
+    addr,
+    &format!("/repositories/{id}/patronus"),
+    json!({"availability": {"status": "available"}, "robots": [], "githubRepository": "acme/monorepo"}),
+  )
+  .await;
+  let member =
+    |name: &str, login: &str, state: &str| json!({"fullName": name, "username": login, "githubLogin": login, "available": true, "suggested": false, "approvalState": state});
+  let group = |name: &str, approved: bool, reviewers: Value| {
+    json!({"name": name, "paths": [], "branchWide": true, "pathsSource": "patronus", "requiredApprovals": 1, "collectedApprovals": u32::from(approved),
+      "approved": approved, "selfApprovalAllowed": false, "reviewers": reviewers})
+  };
+  let groups = json!({"required": true, "mergeRequest": null, "skipped": false, "groups": [
+    group("Design", false, json!([member("User Name", "user-name", "notAdded")])),
+    group("Air Plugin", true, json!([member("Carol", "carol", "approved")])),
+  ]});
+  post(&client, addr, &format!("/repositories/{id}/review-answers"), json!({"answers": {"request:7": groups}})).await;
+  let asks = json!([{"branchName": "request:7", "pullRequestHead": "alice/feature", "tip": tip, "start": {"kind": "pullRequest", "number": 7}, "author": "alice",
+    "reviewers": [{"login": "carol", "state": "approved", "requested": false}]}]);
+  let answer = readiness(&state, &repository_path, asks, false).await;
+  assert_eq!(answer[0]["requirement"], groups, "{answer}");
+  assert_eq!(answer[0]["readiness"]["kind"], json!("missing"));
+  assert_eq!(answer[0]["readiness"]["groups"][0]["name"], json!("Design"));
+  let log = review_log(&client, addr, &id).await;
+  assert_eq!(log["checks"], json!([{"tip": tip, "pullRequest": {"repository": "acme/monorepo", "number": 7}}]));
+}
+
 async fn review_log(client: &reqwest::Client, addr: std::net::SocketAddr, id: &str) -> Value {
   client
     .get(format!("http://{addr}/repositories/{id}/review-answers"))

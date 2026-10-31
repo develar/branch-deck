@@ -66,6 +66,7 @@ pub(crate) fn ask(tip: &str, reviewers: Vec<Reviewer>) -> ReviewReadinessBranch 
   ReviewReadinessBranch {
     branch_name: "wsm-skip-wa-2".to_owned(),
     source: None,
+    pull_request_head: None,
     tip: tip.to_owned(),
     start: ReviewStart::PullRequest { number: 1078 },
     reviewers,

@@ -1,6 +1,7 @@
 //! The review readiness of a session (docs/design/rust-domain-authority.md, "Факты"; spec/branch/patronus.spec.md,
-//! "Code-owner review"): the part `facts.readiness` of the view by subject (a branch by name, the whole stack of a root
-//! as `stack:<root>`), which the scheduler of the facts asks Patronus for (`remote_facts::scheduler`) by what the
+//! "Code-owner review", "The readiness of a request"): the part `facts.readiness` of the view by subject (a branch by
+//! name, the whole stack of a root as `stack:<root>`, a pull request of someone else a review window shows as
+//! `request:<number>`), which the scheduler of the facts asks Patronus for (`remote_facts::scheduler`) by what the
 //! session tells it (`ReadinessDigest`, after each patch).
 //!
 //! - The ask of a subject is what a window shows of it: the tip (the copy of the newest commit, which the row shows
@@ -9,6 +10,11 @@
 //!   into a virtual branch, which its start retargets first, D11) and the reviews of it.
 //!   Its inputs are the hash of the ask and of the rechecks (Check Approvals Again): a new tip, start or review, and a
 //!   recheck, make the readiness `Stale` in the patch that changes them, until the answer of the new inputs.
+//! - The ask of a pull request a review window shows (`ReviewRequestsFact::request_ask`, set before each `update` by
+//!   `set_requests`) is its head as its review fetch brought it, its head branch, the pull request and its reviews and
+//!   author; none before that fetch. Only one into the default branch has a record, while a window shows it, asked as a
+//!   surface needs it now; its record goes with the last window, and its approvals are no news (the user's own
+//!   approvals are news of the user's branches only).
 //! - Asked (`domain_policy::refresh::readiness_priority`): what a surface needs now and what a recheck asks, at once;
 //!   what a window shows with a step that waits for it (`domain_policy::readiness::wanted` over the next steps of the
 //!   session, `derive::wanted_readiness`); then the hidden subjects whose last answer waits for approvals
@@ -29,7 +35,10 @@ use domain_policy::refresh::{ReadinessPriority, readiness_priority};
 use domain_types::branch_names::baseline_on_remote;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::patronus::{BranchReviewReadiness, PatronusAvailability, ReviewReadiness, ReviewReadinessBranch, ReviewStart};
-use domain_types::session::{BranchView, Demand, Fact, FactState, NewsEvent, PullRequestsView, RobotsHead, SubjectReadiness, stack_readiness_key, stack_root_of_readiness_key};
+use domain_types::session::{
+  BranchView, Demand, Fact, FactState, NewsEvent, PullRequestsView, RobotsHead, SubjectReadiness, request_of_readiness_key, request_readiness_key, stack_readiness_key,
+  stack_root_of_readiness_key,
+};
 use domain_types::stack::StackBranchState;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -39,7 +48,7 @@ use std::mem::discriminant;
 /// A subject whose readiness the scheduler asks now
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReadinessSubject {
-  /// The branch, or `stack:<root>`
+  /// The branch, `stack:<root>` or `request:<number>`
   pub key: String,
   pub ask: ReviewReadinessBranch,
   /// The hash of the ask and of the rechecks: an answer of other inputs is `Stale`
@@ -123,14 +132,19 @@ pub struct ReadinessFact {
   digest: ReadinessDigest,
   /// The approvals told: the subject, the pull request and whose approval
   told: BTreeSet<(String, u32, Vec<String>)>,
+  /// The pull requests the review windows show into the default branch, by number, each with its ask once its head is
+  /// fetched (`set_requests`)
+  requests: BTreeMap<u32, Option<ReviewReadinessBranch>>,
 }
 
 impl ReadinessFact {
   /// The readiness of the frame of an earlier run (`crate::warm_start`), by subject: each answer that stood `Cached`, of
-  /// the inputs of its own ask, until an answer of this process; no answer to tell the news of approvals against
+  /// the inputs of its own ask, until an answer of this process; no answer to tell the news of approvals against. A pull
+  /// request of a review window is not seeded: the windows are of the process
   pub(crate) fn cached(facts: BTreeMap<String, Fact<SubjectReadiness>>) -> Self {
     let subjects = facts
       .into_iter()
+      .filter(|(key, _)| request_of_readiness_key(key).is_none())
       .filter_map(|(key, fact)| {
         let inputs = fact.value.as_ref().map(|readiness| inputs_of(&readiness.ask, 0))?;
         let fact = FactRecord::cached(fact, inputs)?;
@@ -173,67 +187,84 @@ impl ReadinessFact {
     record.rechecks = record.rechecks.saturating_add(1);
   }
 
+  /// The pull requests the review windows show into the default branch now, by number, each with its ask once its head
+  /// is fetched (`ReviewRequestsFact::readiness_asks`): the next `update` asks them, and drops the others
+  pub fn set_requests(&mut self, requests: BTreeMap<u32, Option<ReviewReadinessBranch>>) {
+    self.requests = requests;
+  }
+
   /// The asks of the subjects for the table, the pull requests and the robots as the session has them now, with the
   /// demand of its windows: what is gone from the table is dropped, a subject a window asks for has a record, each
   /// record expects the inputs of its ask, and the digest names what the scheduler asks. A subject a window shows counts
   /// as shown only while its next step waits for the readiness (`wanted`, `derive::wanted_readiness`). `prefix`: the
-  /// branch prefix of the session, whose virtual branches a pull request a start retargets may go into
+  /// branch prefix of the session, whose virtual branches a pull request a start retargets may go into. The pull
+  /// requests of the review windows (`set_requests`) come after the table, each needed now
   pub fn update(&mut self, state: &TableState, pull_requests: &PullRequestsView, robots: Option<&RobotsHead>, demand: &Demand, prefix: &str, wanted: &HashSet<String>) {
-    self.subjects.retain(|key, _| exists(state, key));
+    let requests = &self.requests;
+    self.subjects.retain(|key, _| exists(state, requests, key));
     let baseline = state.header().baseline_branch.clone();
     let target = baseline_on_remote(&baseline).to_owned();
     let github = robots.and_then(|head| head.github_repository.as_deref());
     let availability = robots.map(|head| &head.availability);
-    let mut subjects = Vec::new();
-    let mut awaiting = false;
+    let mut asked = Vec::new();
     for name in state.order() {
       let stack = state.stack(name).map(|_| stack_readiness_key(name));
       for key in stack.into_iter().chain(std::iter::once(name.clone())) {
         let record = self.subjects.get(&key);
         let rechecking = record.is_some_and(|record| record.rechecks > record.answered_rechecks);
-        let demanded = rechecking || demand.needed.contains(&key);
         let shown = wanted.contains(&key);
         // a subject nothing asks for and the session has no answer of costs nothing
-        if !demanded && !shown && record.is_none() {
+        if !rechecking && !demand.needed.contains(&key) && !shown && record.is_none() {
           continue;
         }
         let ask = subject_ask(state, pull_requests, github, &target, prefix, &key);
-        let awaits = record
-          .and_then(|record| record.last_answered.as_ref())
-          .zip(ask.as_ref())
-          .is_some_and(|(last, ask)| awaits_approval(answered_of(last), ask));
-        let priority = readiness_priority(demanded, shown, awaits);
-        let record = self.subjects.entry(key.clone()).or_insert_with(SubjectRecord::new);
-        let Some(ask) = ask else {
-          // no tip to ask about: the record waits for the sync
-          continue;
-        };
-        let inputs = inputs_of(&ask, record.rechecks);
-        record.fact.expect(inputs);
-        let Some(priority) = priority else {
-          continue;
-        };
-        match availability {
-          // Patronus has not answered the list of the robots yet
-          None => {}
-          Some(PatronusAvailability::Available) => {
-            if std::mem::take(&mut record.blocked) {
-              record.fact.asked_again();
-            }
-            awaiting |= awaits;
-            subjects.push(ReadinessSubject {
-              key,
-              ask,
-              inputs,
-              priority,
-              rechecks: record.rechecks,
-              recheck: rechecking,
-            });
+        asked.push((key, ask, shown));
+      }
+    }
+    // a review window needs the groups of its pull request now
+    asked.extend(self.requests.iter().map(|(number, ask)| (request_readiness_key(*number), ask.clone(), false)));
+    let mut subjects = Vec::new();
+    let mut awaiting = false;
+    for (key, ask, shown) in asked {
+      let record = self.subjects.get(&key);
+      let rechecking = record.is_some_and(|record| record.rechecks > record.answered_rechecks);
+      let demanded = rechecking || demand.needed.contains(&key) || request_of_readiness_key(&key).is_some();
+      let awaits = record
+        .and_then(|record| record.last_answered.as_ref())
+        .zip(ask.as_ref())
+        .is_some_and(|(last, ask)| awaits_approval(answered_of(last), ask));
+      let priority = readiness_priority(demanded, shown, awaits);
+      let record = self.subjects.entry(key.clone()).or_insert_with(SubjectRecord::new);
+      let Some(ask) = ask else {
+        // no tip to ask about: the record waits for the sync, a pull request for the fetch of its head
+        continue;
+      };
+      let inputs = inputs_of(&ask, record.rechecks);
+      record.fact.expect(inputs);
+      let Some(priority) = priority else {
+        continue;
+      };
+      match availability {
+        // Patronus has not answered the list of the robots yet
+        None => {}
+        Some(PatronusAvailability::Available) => {
+          if std::mem::take(&mut record.blocked) {
+            record.fact.asked_again();
           }
-          Some(availability) => {
-            record.blocked = true;
-            record.fact.fail(not_available(availability));
-          }
+          // a review of the pull request of someone else comes with the listing of the review requests
+          awaiting |= awaits && request_of_readiness_key(&key).is_none();
+          subjects.push(ReadinessSubject {
+            key,
+            ask,
+            inputs,
+            priority,
+            rechecks: record.rechecks,
+            recheck: rechecking,
+          });
+        }
+        Some(availability) => {
+          record.blocked = true;
+          record.fact.fail(not_available(availability));
         }
       }
     }
@@ -260,8 +291,9 @@ impl ReadinessFact {
       readiness: answered.readiness,
     });
     let answered = value.as_ref().ok().cloned();
-    // an answer after the value of the cached frame of an earlier run is no news
-    let tells = tells_after(&record.fact.fact().state);
+    // an answer after the value of the cached frame of an earlier run is no news, nor the approvals of the pull request
+    // of someone else
+    let tells = tells_after(&record.fact.fact().state) && request_of_readiness_key(&subject.key).is_none();
     if record.fact.answer(observation, value) == Applied::Older {
       return (false, None);
     }
@@ -303,8 +335,12 @@ const fn answered_of(readiness: &SubjectReadiness) -> Answered<'_> {
   }
 }
 
-/// Whether the subject of `key` is in the table: a branch, a stack branch of a root
-fn exists(state: &TableState, key: &str) -> bool {
+/// Whether the subject of `key` is there: a branch of the table, a stack branch of a root, a pull request a review
+/// window shows (`requests`)
+fn exists(state: &TableState, requests: &BTreeMap<u32, Option<ReviewReadinessBranch>>, key: &str) -> bool {
+  if let Some(number) = request_of_readiness_key(key) {
+    return requests.contains_key(&number);
+  }
   match stack_root_of_readiness_key(key) {
     Some(root) => state.stack(root).is_some(),
     None => state.branch(key).is_some(),

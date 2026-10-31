@@ -16,7 +16,7 @@ use domain_types::review_request::{LinkedAnswer, LinkedPullRequest, ReviewEntry,
 use git_ops::ownership::read_file_owners;
 use git_ops::revs::resolve_commit;
 use github::fake_github::FakeAnswer;
-use github::fake_repository::FakePull;
+use github::fake_repository::{FakePull, reviewer_nodes};
 use patronus::client::PreMergeCheckResponse;
 use patronus::review::to_requirement;
 use repository_model::session::SessionKey;
@@ -32,7 +32,8 @@ use sync_utils::timestamp::format_utc_timestamp;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReviewAnswersFixture {
   /// By virtual branch name, or `stack:<root>` for the stack branch of the whole stack: the answer for a pre-check
-  /// whose newest commit is the tip of that branch. Any other branch: the owners of the files it changes by the
+  /// whose newest commit is the tip of that branch; `request:<number>`: the answer for a pre-check of that pull request
+  /// of someone else (a review window shows it). Any other branch: the owners of the files it changes by the
   /// `OWNERSHIP` files of the target, one group per owner, none approved, as a Patronus that doesn't evaluate pull
   /// requests answers
   #[serde(default)]
@@ -128,9 +129,14 @@ fn answer_for(git: &git_executor::git_command_executor::GitCommandExecutor, repo
   let commits = body["commits"].as_array().cloned().unwrap_or_default();
   // newest first: the tip of the branch asked about
   let tip = commits.first().and_then(|commit| commit["hash"].as_str()).unwrap_or_default();
+  // a pull request of someone else, by its number: its head is no branch of the prefix
+  let pull_request = body["githubPullRequest"]["number"].as_u64();
+  if let Some(answer) = pull_request.and_then(|number| answers.get(&format!("request:{number}"))) {
+    return Ok(answer.clone());
+  }
   if !answers.is_empty() {
     let prefix = crate::state::read_local_branch_prefix(git, repository_path)?.prefix;
-    for (key, answer) in answers {
+    for (key, answer) in answers.iter().filter(|(key, _)| !key.starts_with("request:")) {
       let branch = key
         .strip_prefix("stack:")
         .map_or_else(|| format!("refs/heads/{prefix}/virtual/{key}"), |root| format!("refs/heads/{prefix}/stack/{root}"));
@@ -305,6 +311,7 @@ fn pull_request_node(request: &ReviewRequest, open: bool) -> Value {
     };
     serde_json::json!({"state": state, "submittedAt": "2026-01-01T00:00:00Z", "commit": {"oid": commit}})
   });
+  let (latest_reviews, review_requests) = reviewer_nodes(&request.reviewers);
   let time = format_utc_timestamp;
   serde_json::json!({
     "number": request.number,
@@ -328,8 +335,8 @@ fn pull_request_node(request: &ReviewRequest, open: bool) -> Value {
     "baseRepository": {"defaultBranchRef": {"name": if request.base_is_default { request.base_ref_name.as_str() } else { "master" }}},
     "statusCheckRollup": null,
     "viewerLatestReview": review,
-    "latestReviews": {"nodes": []},
-    "reviewRequests": {"nodes": []}
+    "latestReviews": {"nodes": latest_reviews},
+    "reviewRequests": {"nodes": review_requests}
   })
 }
 

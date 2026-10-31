@@ -15,8 +15,8 @@ use domain_types::operation::{OperationId, RunningOperation};
 use domain_types::pull_request::PullRequestView;
 use domain_types::session::{
   ArchivedChanges, BranchChange, BranchPush, BranchRemote, BranchStructure, BranchSync, BranchView, CommitSync, Fact, FactsChanges, FactsView, GitHubLayer, NEWS_KEPT, News,
-  PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewsView, RobotAttention, RobotsChange, RobotsView, SyncState, TableChanges, TableHeader,
-  TableSections, Version, ViewPatch,
+  PatronusChange, PatronusPart, PullRequestsChange, PullRequestsView, RepositoryView, ReviewerGroupView, ReviewsView, RobotAttention, RobotsChange, RobotsView, SyncState,
+  TableChanges, TableHeader, TableSections, Version, ViewPatch,
 };
 use domain_types::stack::StackBranchUpdate;
 use std::collections::BTreeMap;
@@ -129,6 +129,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
     archived,
     unapplied,
     landed,
+    review_groups,
+    removed_review_groups,
     reviews,
     patronus,
     route,
@@ -165,6 +167,7 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
   apply_keyed(&mut view.actions, actions, &removed_actions);
   apply_keyed(&mut view.attention, attention, &removed_attention);
   apply_keyed(&mut view.github_layers, github_layers, &removed_github_layers);
+  apply_keyed(&mut view.review_groups, review_groups, &removed_review_groups);
   apply_keyed(&mut view.operations, operations, &removed_operations);
   set_if_some(&mut view.undo, undo);
   set_if_some(&mut view.reviews, reviews);
@@ -227,7 +230,8 @@ pub(crate) fn apply_changes(view: &mut RepositoryView, next: Version, changes: T
 
 /// A copy of the parts of `changes` that the table and the facts hold, without the parts the view derives of them (the
 /// rules' answers: the pushes, the open pull requests, the starts, what landed, the next steps, the actions, the
-/// attention, the reviews and the route), which `state::View` moves into the view it keeps instead of copying them
+/// attention, the layers, the reviewer groups, the reviews and the route), which `state::View` moves into the view it
+/// keeps instead of copying them
 pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
   let TableChanges {
     cached,
@@ -254,6 +258,8 @@ pub(crate) fn kept_parts(changes: &TableChanges) -> TableChanges {
     removed_attention: _,
     github_layers: _,
     removed_github_layers: _,
+    review_groups: _,
+    removed_review_groups: _,
     operations,
     removed_operations,
     undo,
@@ -423,6 +429,7 @@ pub(crate) struct Now<'a> {
   pub(crate) actions: &'a BTreeMap<String, Vec<ActionState>>,
   pub(crate) attention: &'a BTreeMap<String, RobotAttention>,
   pub(crate) github_layers: &'a BTreeMap<String, GitHubLayer>,
+  pub(crate) review_groups: &'a BTreeMap<String, Vec<ReviewerGroupView>>,
   /// In the order they were admitted
   pub(crate) operations: Vec<&'a RunningOperation>,
   pub(crate) undo: Option<&'a OperationId>,
@@ -454,6 +461,7 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
   let (actions, removed_actions) = diff_keyed(&last.actions, now.actions);
   let (attention, removed_attention) = diff_keyed(&last.attention, now.attention);
   let (github_layers, removed_github_layers) = diff_keyed(&last.github_layers, now.github_layers);
+  let (review_groups, removed_review_groups) = diff_keyed(&last.review_groups, now.review_groups);
   let (operations, removed_operations) = operations_change(&last.operations, &now.operations);
   let (last_archived, archived) = (&last.sections.archived, &now.sections.archived);
   let (integration, removed_integration) = diff_keyed(&last_archived.integration, &archived.integration);
@@ -488,6 +496,8 @@ pub(crate) fn changes(last: &RepositoryView, now: Now<'_>) -> TableChanges {
     removed_attention,
     github_layers,
     removed_github_layers,
+    review_groups,
+    removed_review_groups,
     operations,
     removed_operations,
     undo: (last.undo.as_ref() != now.undo).then(|| now.undo.cloned()),
@@ -524,6 +534,7 @@ pub fn diff_views(from: &RepositoryView, to: &RepositoryView) -> ViewPatch {
     actions: &to.actions,
     attention: &to.attention,
     github_layers: &to.github_layers,
+    review_groups: &to.review_groups,
     operations: to.operations.values().collect(),
     undo: to.undo.as_ref(),
     reviews: &to.reviews,

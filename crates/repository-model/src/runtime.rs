@@ -160,6 +160,12 @@ pub(crate) enum Message {
     number: u32,
     reply: oneshot::Sender<Version>,
   },
+  /// The review fetch of the pull request `number` brought `head`; `reply` gets the version of the view after its patch
+  ReviewFetched {
+    number: u32,
+    head: String,
+    reply: oneshot::Sender<Version>,
+  },
   /// Check Approvals Again for `subject`: its readiness is `Stale` at once and asked again; the scheduler answers `reply`
   /// with the version after the answer
   Recheck {
@@ -625,6 +631,11 @@ impl Actor {
         self.flush();
         let _ = reply.send(self.version());
       }
+      Message::ReviewFetched { number, head, reply } => {
+        self.facts.review_requests.fetched(number, head);
+        self.flush();
+        let _ = reply.send(self.version());
+      }
       #[cfg(test)]
       Message::DemandOf(reply) => {
         let _ = reply.send(self.demand());
@@ -1065,6 +1076,9 @@ impl Actor {
     // the readiness is asked once Patronus answered this process: the availability a frame names is no answer
     let head = &self.facts.robots.view().head;
     let robots = head.value.as_ref().filter(|_| head.state != FactState::Cached);
+    // the pull requests the review windows show, each asked once its head is fetched
+    let requests = self.facts.review_requests.readiness_asks(&self.told_demand.review_windows);
+    self.facts.readiness.set_requests(requests);
     self
       .facts
       .readiness

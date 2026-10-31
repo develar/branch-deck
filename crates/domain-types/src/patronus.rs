@@ -515,8 +515,8 @@ pub enum UnavailableReadinessReason {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewReadinessBranch {
-  /// The virtual branch, without the `{prefix}/virtual/` namespace; with `source`, only the key the answer comes back
-  /// with (the app's `stack:<root>`)
+  /// The virtual branch, without the `{prefix}/virtual/` namespace; with `source` or `pull_request_head`, only the key
+  /// the answer comes back with (the app's `stack:<root>`, `request:<number>`)
   pub branch_name: String,
   /// The branch the robot would start from, without `refs/heads/`, when it is not the virtual branch of `branch_name`:
   /// the stack branch `{prefix}/stack/<root>` of the whole stack, whose commits `tip` names. Patronus is asked about
@@ -524,6 +524,12 @@ pub struct ReviewReadinessBranch {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub source: Option<String>,
+  /// The head branch of a pull request of someone else a review window shows (`ReviewRequest::head_ref_name`), whose
+  /// commits `tip` names: Patronus is asked about it as the branch of the pull request of `start`; null for a branch of
+  /// the user
+  #[serde(default)]
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub pull_request_head: Option<String>,
   /// The full commit id the answer is about; the commits are those of it the baseline lacks
   pub tip: String,
   pub start: ReviewStart,
@@ -545,6 +551,7 @@ impl ReviewReadinessBranch {
     Self {
       branch_name,
       source,
+      pull_request_head: None,
       tip,
       start: pull_request.map_or(ReviewStart::Rest, |pull_request| ReviewStart::PullRequest { number: pull_request.number }),
       reviewers: pull_request.map_or_default(|pull_request| pull_request.reviewers.clone()),

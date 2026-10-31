@@ -65,6 +65,7 @@ fn ask(tip: &str) -> ReviewReadinessBranch {
   ReviewReadinessBranch {
     branch_name: "IJPL-1".to_string(),
     source: None,
+    pull_request_head: None,
     tip: tip.to_string(),
     start: ReviewStart::Rest,
     reviewers: Vec::new(),

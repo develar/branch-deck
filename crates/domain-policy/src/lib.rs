@@ -60,6 +60,8 @@
 //! - `review`: whom Request Review… offers and `bd request-review` asks (`candidates`), what an answer of the readiness
 //!   means for a start and where the approvals count, a repository only on Space read once (`review_state`), and when a
 //!   Safe Push starts without them (`skips_approvals`)
+//! - `reviewer_groups`: the reviewer groups of a pull request of someone else a review window shows, each approved or not
+//!   and whether the user can approve for it (`reviewer_groups`)
 //! - `refresh`: when a fact of the remote is asked again: the cadence of the robots of Patronus (the list, the poll, the
 //!   failing robots, the problems, the details), of the merge profiles, of the pull requests and the branch rules of
 //!   GitHub, of the review readiness and of the review requests, by the reason that asks and the clock of the session
@@ -95,6 +97,7 @@ pub mod readiness;
 pub mod reasons;
 pub mod refresh;
 pub mod review;
+pub mod reviewer_groups;
 pub mod reviews;
 pub mod robot_match;
 pub mod row_status;
@@ -142,6 +145,8 @@ mod reason_catalog_test;
 mod refresh_test;
 #[cfg(test)]
 mod review_test;
+#[cfg(test)]
+mod reviewer_groups_test;
 #[cfg(test)]
 mod reviews_test;
 #[cfg(test)]

@@ -2,20 +2,23 @@
 //! spec/repository/review-requests.spec.md): `reviews_view` the sections of Reviews (`domain_policy::reviews::sections`)
 //! over the review requests of the session and its table, `review_actions_of` the actions of each pull request to
 //! review by `pull:<number>` (`domain_policy::actions::review_actions`): every request by name, every pull request of
-//! the sections, and the ones the review windows show that no listing has any more. Both are derived with every patch.
+//! the sections, and the ones the review windows show that no listing has any more; `review_groups_of` the reviewer
+//! groups of each pull request a review window shows by `pull:<number>` (`domain_policy::reviewer_groups`, of the
+//! readiness `request:<number>` and the GitHub login of the app's sign-in). All are derived with every patch.
 
 use crate::action_view::{FrameReads, reads_cached_frame};
 use crate::facts::FactStore;
 use crate::table::TableState;
 use domain_policy::actions::{PullRequestFacts, Target, review_actions};
 use domain_policy::landing_node::is_users_move;
+use domain_policy::reviewer_groups::reviewer_groups;
 use domain_policy::reviews::{ReviewsFacts, is_returned, sections};
 use domain_types::actions::ActionState;
 use domain_types::next_step::NextStepView;
 use domain_types::patronus::PatronusAvailability;
 use domain_types::pull_request::PullRequestState;
 use domain_types::review_request::{ReviewInvolvement, ReviewRequest};
-use domain_types::session::ReviewsView;
+use domain_types::session::{ReviewerGroupView, ReviewsView, request_of_readiness_key};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The key of the actions of the pull request `number` in `RepositoryView::actions`
@@ -91,6 +94,22 @@ pub fn review_actions_of(state: &TableState, facts: &FactStore, reviews: &Review
     add(request, involvement.as_ref());
   }
   actions
+}
+
+/// The reviewer groups of every pull request whose readiness the session has (`request:<number>`, while a review window
+/// shows it) by `pull:<number>`: none without an answer of Patronus, nor when the changes need no approval
+#[must_use]
+pub fn review_groups_of(facts: &FactStore) -> BTreeMap<String, Vec<ReviewerGroupView>> {
+  let login = facts.auth.fact().value.as_ref().and_then(|auth| auth.github.signed_in_as.as_deref());
+  facts
+    .readiness
+    .facts()
+    .filter_map(|(key, fact)| {
+      let number = request_of_readiness_key(key)?;
+      let groups = reviewer_groups(fact.value.as_ref()?, login);
+      (!groups.is_empty()).then(|| (pull_key(number), groups))
+    })
+    .collect()
 }
 
 /// The branch Patronus pushes into for the baseline, which merges a reviewed pull request: no Safe Push until Patronus
