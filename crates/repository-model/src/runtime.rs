@@ -149,6 +149,17 @@ pub(crate) enum Message {
     commit: String,
     reply: oneshot::Sender<Version>,
   },
+  /// The user linked the pull request of `entry` to Reviews; `reply` gets the version of the view after its patch
+  Linked {
+    entry: Box<domain_types::review_request::ReviewEntry>,
+    reply: oneshot::Sender<Version>,
+  },
+  /// The user removed the pull request `number` from the links of Reviews; `reply` gets the version of the view after
+  /// its patch
+  Unlinked {
+    number: u32,
+    reply: oneshot::Sender<Version>,
+  },
   /// Check Approvals Again for `subject`: its readiness is `Stale` at once and asked again; the scheduler answers `reply`
   /// with the version after the answer
   Recheck {
@@ -601,6 +612,16 @@ impl Actor {
       }
       Message::WriteReview { number, verdict, commit, reply } => {
         self.facts.review_requests.submitted(number, verdict, commit);
+        self.flush();
+        let _ = reply.send(self.version());
+      }
+      Message::Linked { entry, reply } => {
+        self.facts.review_requests.linked(*entry);
+        self.flush();
+        let _ = reply.send(self.version());
+      }
+      Message::Unlinked { number, reply } => {
+        self.facts.review_requests.unlinked(number);
         self.flush();
         let _ = reply.send(self.version());
       }

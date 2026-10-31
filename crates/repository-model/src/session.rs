@@ -38,6 +38,7 @@ use domain_types::landing::BaselinePush;
 use domain_types::patronus::PatronusRobot;
 use domain_types::pull_request::PullRequestReviewEvent;
 use domain_types::repository_view::PatronusView;
+use domain_types::review_request::ReviewEntry;
 use domain_types::session::{Demand, FactFamily, FactRefreshReason, RepositoryView, SyncAnswer, SyncReason, Version, ViewPatch};
 use history_rewrite::commit_grouper::{GroupingInputs, group_of};
 use history_rewrite::store_lines::StoreLines;
@@ -437,6 +438,20 @@ impl Sessions {
     self.ask(key, |reply| Message::WriteReview { number, verdict, commit, reply }).await
   }
 
+  /// The pull request of `entry` the user linked joins the links of Reviews of the open session of `key` at once
+  /// (`ReviewRequestsFact::linked`). Answers the version of the view after its patch; `None` for a session that is not
+  /// open
+  pub async fn linked(&self, key: &SessionKey, entry: ReviewEntry) -> Option<Version> {
+    self.ask(key, |reply| Message::Linked { entry: Box::new(entry), reply }).await
+  }
+
+  /// The pull request `number` the user removed leaves the links of Reviews of the open session of `key` at once
+  /// (`ReviewRequestsFact::unlinked`). Answers the version of the view after its patch; `None` for a session that is
+  /// not open
+  pub async fn unlinked(&self, key: &SessionKey, number: u32) -> Option<Version> {
+    self.ask(key, |reply| Message::Unlinked { number, reply }).await
+  }
+
   /// The write of the app to a pull request (`PullRequestWrite`, as its command answered it) goes into the pull
   /// requests of the open session of `key`, newer than every listing that started before; a write that changes what
   /// the next step reads lists them again. Answers the version of the view after its patch; `None` for a session that
@@ -470,6 +485,12 @@ impl Sessions {
   /// for the reads: the host after a change of what all of them read alike (a sign-in or a sign-out of an account)
   pub fn refresh_all(&self, family: FactFamily, reason: FactRefreshReason) {
     self.refresh_where(family, reason, |_| true);
+  }
+
+  /// `refresh` of the open session of `key`, and nothing waits for the read: a write whose answer the caller already
+  /// has (a link of Reviews) asks the listing behind it
+  pub fn refresh_later(&self, key: &SessionKey, family: FactFamily, reason: FactRefreshReason) {
+    self.refresh_where(family, reason, |open| open == key);
   }
 
   /// `refresh_all` of the sessions of `worktree` only: the E2E server, whose accounts are of each test repository

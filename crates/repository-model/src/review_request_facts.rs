@@ -146,6 +146,31 @@ impl ReviewRequestsFact {
     self.windows.clone_from(&demand.review_windows);
   }
 
+  /// The pull request of `entry` the user just linked joins the links of Reviews at once, newest first, before the
+  /// listing the link asks for brings it; remembered, so its review window fetches it. Nothing while Reviews was never
+  /// read. Whether it changed what the session knows
+  pub fn linked(&mut self, entry: ReviewEntry) -> bool {
+    self.remembered.insert(entry.request.number, (entry.request.clone(), Some(entry.involvement.clone())));
+    let Some(reviews) = self.reviews.value.as_mut() else {
+      return false;
+    };
+    let number = entry.request.number;
+    reviews.linked.retain(|linked| linked.number() != number);
+    reviews.linked.insert(0, LinkedAnswer::Open { entry: Box::new(entry) });
+    true
+  }
+
+  /// The pull request `number` the user removed leaves the links of Reviews at once, before the listing the removal
+  /// asks for; whether it changed what the session knows
+  pub fn unlinked(&mut self, number: u32) -> bool {
+    let Some(reviews) = self.reviews.value.as_mut() else {
+      return false;
+    };
+    let before = reviews.linked.len();
+    reviews.linked.retain(|linked| linked.number() != number);
+    reviews.linked.len() != before
+  }
+
   /// The review the user submitted from the app on `commit`; whether it changed what the session knows
   pub fn submitted(&mut self, number: u32, verdict: PullRequestReviewEvent, commit: String) -> bool {
     self.submitted.insert(number, (verdict, commit.clone())) != Some((verdict, commit))

@@ -106,7 +106,8 @@ async fn review_routes_answer_the_fixture_without_a_network() {
 }
 
 /// While the window shows Reviews the session reads its rest from the fixture; a link the user adds is asked of the fake
-/// GitHub, kept, and comes back in the section of the links; a number the fake lacks is refused
+/// GitHub, kept, and shows in the section of the links at once, as a removed one leaves it, while the read of Reviews
+/// they ask for is held; a number the fake lacks is refused
 #[tokio::test]
 async fn a_link_joins_reviews_from_the_fake_github() {
   let addr = start_test_server().await;
@@ -139,6 +140,9 @@ async fn a_link_joins_reviews_from_the_fake_github() {
   post_as(&client, addr, Named::Id(&id), "/invoke/refresh_facts", refresh).await;
   let view = view_when(&client, addr, &repository_path, |view| view["reviews"]["head"]["value"]["status"] == "available").await;
   assert_eq!((&view["reviews"]["head"]["state"], &view["reviews"]["sections"]), (&json!({ "kind": "fresh" }), &json!([])));
+  // the link and the removal wait for no read of Reviews
+  let gates = format!("/repositories/{id}/remote-gates");
+  post(&client, addr, &gates, json!({ "hold": ["reviewRequests"] })).await;
 
   let answer = post(
     &client,
@@ -162,4 +166,5 @@ async fn a_link_joins_reviews_from_the_fake_github() {
 
   post(&client, addr, "/invoke/unlink_pull_request", json!({ "repositoryPath": repository_path, "number": 105 })).await;
   view_when(&client, addr, &repository_path, |view| view["reviews"]["sections"] == json!([])).await;
+  post(&client, addr, &gates, json!({ "release": ["reviewRequests"] })).await;
 }

@@ -197,3 +197,31 @@ fn a_submitted_review_and_a_shown_pull_request_outlive_the_listing() {
   fact.answer(at(3), available(vec![reviewed.clone()]));
   assert_eq!(fact.approved(&reviewed), Some("head"));
 }
+
+/// A link the user adds joins the links of Reviews at once, newest first and remembered for its review window, and one
+/// the user removes leaves them at once, both before the listing they ask for
+#[test]
+fn a_link_joins_and_leaves_the_links_of_reviews_before_the_listing() {
+  use domain_types::review_request::{LinkedAnswer, ReviewEntry, ReviewInvolvement, ReviewsAnswer};
+  let linked = |number: u32| ReviewEntry {
+    request: review_request(number, 100),
+    involvement: ReviewInvolvement::Linked { linked_at: number },
+  };
+  let numbers = |fact: &ReviewRequestsFact| -> Vec<u32> { fact.reviews().1.unwrap().linked.iter().map(LinkedAnswer::number).collect() };
+  let mut fact = ReviewRequestsFact::default();
+  assert!(!fact.linked(linked(4)), "nothing while Reviews was never read");
+  assert_eq!(fact.pull_request(4).map(|request| request.number), Some(4), "remembered for its review window");
+
+  let others = ReviewsAnswer {
+    linked: vec![LinkedAnswer::Open { entry: Box::new(linked(5)) }],
+    ..ReviewsAnswer::default()
+  };
+  fact.answer(at(1), with_reviews(Vec::new(), others));
+  assert!(fact.linked(linked(9)));
+  assert!(fact.linked(linked(5)), "linked again: newest first, once");
+  assert_eq!(numbers(&fact), vec![5, 9]);
+
+  assert!(fact.unlinked(5));
+  assert_eq!(numbers(&fact), vec![9]);
+  assert!(!fact.unlinked(5), "not linked");
+}

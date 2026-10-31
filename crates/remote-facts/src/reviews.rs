@@ -290,8 +290,9 @@ pub async fn read_linked_pull_request(
 
 /// The user adds a pull request to Reviews of the session of `key` by `input` (`parse_pull_request_link`) at `now` (unix
 /// seconds), in the repository the session listed the review requests of, else the one the branches are mirrored to:
-/// GitHub is asked for it, an open one joins the links of the repository the host keeps and the session reads Reviews
-/// again. Answers the entry and whether it was kept: a merged or closed one opens but is not kept
+/// GitHub is asked for it, an open one joins the links of the repository the host keeps and the links of the session at
+/// once, and the session reads Reviews again, which nothing waits for. Answers the entry and whether it was kept: a
+/// merged or closed one opens but is not kept
 ///
 /// # Errors
 /// No GitHub repository, an input that names no pull request of it, a number it lacks (`no_pull_request`), a failure
@@ -306,19 +307,22 @@ pub async fn link_pull_request<H: ServiceHost + ?Sized>(host: &H, sessions: &Ses
     .ok_or_else(|| ApiError::new(ErrorCode::NoPullRequest, format!("{} has no pull request #{number}", repository.full_name())))?;
   if open {
     host.link_pull_request(key, &repository, link)?;
-    sessions.refresh(key, FactFamily::ReviewRequests, FactRefreshReason::Manual, None).await;
+    sessions.linked(key, entry.clone()).await;
+    sessions.refresh_later(key, FactFamily::ReviewRequests, FactRefreshReason::Manual);
   }
   Ok((entry, open))
 }
 
-/// The pull request `number` leaves the links of the repository of the session of `key`, which reads Reviews again
+/// The pull request `number` leaves the links of the repository of the session of `key` and the links of the session
+/// at once; the session reads Reviews again, which nothing waits for
 ///
 /// # Errors
 /// No GitHub repository
 pub async fn unlink_pull_request<H: ServiceHost + ?Sized>(host: &H, sessions: &Sessions, key: &SessionKey, number: u32) -> Result<(), ApiError> {
   let repository = repository_of(host, sessions, key).await?;
   host.forget_linked_pull_requests(key, &repository, &[number]);
-  sessions.refresh(key, FactFamily::ReviewRequests, FactRefreshReason::Manual, None).await;
+  sessions.unlinked(key, number).await;
+  sessions.refresh_later(key, FactFamily::ReviewRequests, FactRefreshReason::Manual);
   Ok(())
 }
 

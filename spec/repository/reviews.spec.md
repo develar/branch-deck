@@ -16,6 +16,7 @@ targets:
   - ../../crates/repository-model/src/review_request_facts.rs
   - ../../crates/repository-model/src/review_view.rs
   - ../../crates/repository-model/src/runtime.rs
+  - ../../crates/repository-model/src/session.rs
   - ../../crates/app-settings/src/linked_pull_requests.rs
   - ../../crates/operations/src/review.rs
   - ../../crates/github/src/fake_repository.rs
@@ -173,8 +174,8 @@ adds any pull request of the repository by its link, opening it in the review wi
 
 - The field of the view ([Search](#search)) takes a link too: a URL of a pull request (`/files` and an anchor after it
   too), `owner/name#123`, `#123` or `123`. Enter on one that no row of the view is asks Rust (`link_pull_request`),
-  which reads it from GitHub, keeps an open one and reads Reviews again; the field empties and the review window opens
-  on it. A link of another repository and a number the repository lacks are refused under the header
+  which reads it from GitHub, keeps an open one, shows it in the section of the links at once and reads Reviews again,
+  which the answer does not wait for; the field empties and the review window opens on it. A link of another repository and a number the repository lacks are refused under the header
   (`invalid_arguments`, `no_pull_request`), no toast, the focus kept in the field, read-only while Rust reads it; a
   merged or closed one opens but is not kept. The palette's "Add Pull Request by Link…" shows the view with the focus in
   the field and its text selected, so a paste replaces a filter.
@@ -183,8 +184,11 @@ adds any pull request of the repository by its link, opening it in the review wi
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
 - The links are Rust's: `linkedPullRequests` of `repository-state.json`, by GitHub repository (`owner/name`, so every
   worktree of it has them), the newest first, at most 50, written only through `SettingsService`, read by no window. A
-  link GitHub answers merged, closed or missing goes; Remove from Reviews (`unlink_pull_request`) removes one; a link
-  another section lists shows there and stays a link.
+  link GitHub answers merged, closed or missing goes; Remove from Reviews (`unlink_pull_request`) removes one, from the
+  section at once, and reads Reviews again, which nothing waits for; a link another section lists shows there and stays
+  a link.
+  [@test] ../../crates/repository-model/src/review_request_facts_test.rs (`a_link_joins_and_leaves_the_links_of_reviews_before_the_listing`)
+  [@test] ../../crates/test-server/src/review_requests_test.rs (`a_link_joins_reviews_from_the_fake_github`)
   [@test] ../../crates/app-settings/src/linked_pull_requests_test.rs (`keeps_the_links_of_each_repository_newest_first_in_the_repository_state`, `a_repository_keeps_the_newest_links`)
   [@test] ../../crates/domain-policy/src/reviews_test.rs (`a_merged_closed_or_missing_link_goes`)
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should add a pull request by its link from the field the palette focuses, keep it, and remove it from its menu`)
