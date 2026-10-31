@@ -1,24 +1,21 @@
 import { useEffect } from "react"
-import { CheckCheckIcon, GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldAlertIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
+import { CheckCheckIcon, GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { FilesCount, OwnerMarks } from "@/components/commit/CommitReview"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
+import { ReviewOwnerChips } from "@/components/review/ReviewOwnerChips"
 import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
-import { FilterChip, FilterChips } from "@/components/shared/FilterChips"
 import { LoadingLine } from "@/components/shared/LoadingLine"
-import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
 import { getReviewCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { branchGoneReason, reviewCommitKey } from "@/lib/branch-review"
 import type { MenuItemGroups } from "@/lib/menu"
-import { ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, sameFilter, soleOwner } from "@/lib/review-owners"
-import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
+import { reviewOwnerMarks } from "@/lib/review-owners"
+import type { ReviewOwners } from "@/lib/review-owners"
 import { markWindowContentReady } from "@/lib/sub-window"
 import type { BranchReviewMenuItem, ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
@@ -82,39 +79,6 @@ export function BranchReviewGone({ model }: { model: BranchReviewModel }) {
   )
 }
 
-/**
- * The header of the files: the owner chips, under a chosen one that has no files here the note that says so; or the owner
- * of them all ("18 files · Air Plugin")
- */
-function BranchReviewFilesHeader({ model, count }: { model: BranchReviewModel; count: FilesCount | null }) {
-  const { loaded } = model
-  if (loaded === null || loaded.files === undefined) {
-    return null
-  }
-  const chips = reviewFilterChips(loaded.files, model.source.groups, loaded.owners, model.filter)
-  if (chips.length > 1) {
-    const empty = ownerPaths(model.filter, loaded.files, model.source.groups, loaded.owners)?.size === 0 ? ownerEmptyText(model.filter) : null
-    return (
-      <>
-        <OwnerFilter chips={chips} filter={model.filter} onFilterChange={model.setFilter} />
-        {empty !== null && (
-          <span data-testid="branch-review-owner-empty" className="w-full">
-            {empty}
-          </span>
-        )}
-      </>
-    )
-  }
-  const owner = soleOwner(loaded.files, loaded.owners)
-  return (
-    <span data-testid="branch-review-files" className="flex min-w-0 flex-1">
-      <SectionLabel title="Files" count={count?.shown ?? loaded.files.length} of={count === null || count.shown === count.total ? undefined : count.total} className="flex-1">
-        {owner ?? undefined}
-      </SectionLabel>
-    </span>
-  )
-}
-
 /** Mark Reviewed of the title bar, with the review plan on: the next review shows what changed since */
 export function BranchReviewMarkReviewed({ model }: { model: BranchReviewModel }) {
   const markReviewed = model.loaded?.markReviewed
@@ -157,6 +121,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
   // the commits of the whole stack come in the order of the history: each says its branch, and opens its review
   const items =
     source.wholeStack === true ? loaded.items.map(item => (item.kind === "commit" ? { ...item, branch: moves.stackCommits[reviewCommitKey(item.commit)] } : item)) : loaded.items
+  const owners: ReviewOwners = { files: loaded.files, groups: source.groups, owners: loaded.owners }
   return (
     <RangeReview
       items={items}
@@ -165,10 +130,10 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       subject={loaded.subject}
       initialPath={model.lastPath}
       onPositionChange={model.showPosition}
-      ownerMarks={ownerMarksOf(model)}
+      ownerMarks={reviewOwnerMarks(model.filter, owners)}
       fileOwners={loaded.owners}
       rangeNoun="branch"
-      filesHeader={count => <BranchReviewFilesHeader model={model} count={count} />}
+      filesHeader={count => <ReviewOwnerChips of={owners} filter={model.filter} onFilterChange={model.setFilter} count={count} />}
       scopeTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       commitTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       reviewFacts={loaded.reviewFacts}
@@ -194,13 +159,6 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       }}
     />
   )
-}
-
-/** The files the chosen owner chip marks in the story; null for All, a branch-wide group, or before the files are read */
-function ownerMarksOf({ loaded, filter, source }: BranchReviewModel): OwnerMarks | null {
-  const label = ownerLabel(filter)
-  const paths = loaded?.files === undefined ? null : ownerPaths(filter, loaded.files, source.groups, loaded.owners)
-  return label === null || paths === null ? null : { label, paths }
 }
 
 /** The icons of the actions on the branch: the items come over the link of the window, without their icons */
@@ -231,45 +189,4 @@ export function BranchReviewActions<T extends BranchReviewAction>({ actions, bra
       onClick={() => onRun(action)}
     />
   ))
-}
-
-function OwnerFilter({ chips, filter, onFilterChange }: { chips: readonly ReviewFilterChip[]; filter: ReviewFilter; onFilterChange: (filter: ReviewFilter) => void }) {
-  // a chip by its label, the one shown by the filter of the review
-  const chosen = chips.find(chip => sameFilter(chip.filter, filter))?.label ?? ""
-  return (
-    <FilterChips
-      label="Files of"
-      value={chosen}
-      onValueChange={label => {
-        const chip = chips.find(it => it.label === label)
-        if (chip !== undefined) {
-          onFilterChange(chip.filter)
-        }
-      }}
-      data-testid="branch-review-owners"
-    >
-      {chips.map(chip => (
-        <OwnerChip key={chip.label} chip={chip} />
-      ))}
-    </FilterChips>
-  )
-}
-
-function OwnerChip({ chip }: { chip: ReviewFilterChip }) {
-  const button = (
-    <FilterChip value={chip.label} count={chip.count} disabled={chip.count === null} data-testid="branch-review-owner" data-owner={chip.label}>
-      {chip.needsApproval && <ShieldAlertIcon data-icon="inline-start" className="text-warning" />}
-      {chip.label}
-    </FilterChip>
-  )
-  if (!chip.needsApproval) {
-    return button
-  }
-  return (
-    <Tooltip>
-      {/* a span: a disabled button gets no pointer events */}
-      <TooltipTrigger render={<span />}>{button}</TooltipTrigger>
-      <TooltipContent>{chip.count === null ? "Needs approval; Patronus doesn't tell which files" : "Needs approval for a Safe Push"}</TooltipContent>
-    </Tooltip>
-  )
 }

@@ -62,6 +62,11 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   if (state.selected && state.actions !== seenActions) {
     setSeenActions(state.actions)
   }
+  // the baseline whose OWNERSHIP files name the owners, as the main window last showed the repository
+  const [baselineBranch, setBaselineBranch] = useState(data.state.baselineBranch)
+  if (state.baselineBranch !== null && state.baselineBranch !== baselineBranch) {
+    setBaselineBranch(state.baselineBranch)
+  }
   const bodyRef = useRef<HTMLDivElement>(null)
 
   const live = state.requests.find(it => it.number === shown.request.number)
@@ -104,9 +109,12 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
     withdrawn: live === undefined && submitted === undefined,
     submitted,
     actions: (state.selected ? state.actions : seenActions)[number],
+    reviewGroups: state.reviewGroups[number] ?? NO_GROUPS,
+    baselineBranch,
     busy,
     intent: shown.intent,
     openToken: shown.token,
+    openedAt,
     showRequest: next => {
       const target = state.requests[next]
       if (target === undefined) {
@@ -130,6 +138,8 @@ function PullRequestReviewWindow({ data }: { data: PullRequestReviewWindowData }
   useWindowTitle(reviewWindowTitle(shown.request))
   return <PullRequestReview host={host} bodyRef={bodyRef} />
 }
+
+const NO_GROUPS: PullRequestReviewHost["reviewGroups"] = []
 
 /** The toast of a write the main window ran for the window, or its error (recorded in Activity by the main window) */
 function showFeedback(feedback: ReviewWindowFeedback, openOnGitHub: () => void): void {

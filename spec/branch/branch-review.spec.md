@@ -18,6 +18,10 @@ targets:
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../crates/app-api/src/remote/branch_review.rs
   - ../../src/lib/review-owners.ts
+  - ../../src/components/review/ReviewOwnerChips.tsx
+  - ../../src/hooks/useFileOwners.ts
+  - ../../src/hooks/useReviewOwnerFilter.ts
+  - ../../src/stores/settings/repositorySettings.ts
   - ../../src/lib/range-review.ts
   - ../../src/components/review/RangeReview.tsx
   - ../../src/hooks/useBranchReviewLink.ts
@@ -362,6 +366,19 @@ keys.
   says "1 file · Auth Team".
   [@test] ../../src/lib/review-owners.test.ts (`is just All when one owner has every file, unless a group asks for an approval`, `keeps the chosen chip when the files have none of its own, so it can be turned off`, `names the chosen owner, and says when it has no files in the part`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all`)
+- The chips, their marks and their keys must be the same in the review window of a pull request
+  ([Review Requests](../repository/review-requests.spec.md#owner-chips)): one header of the files and one reading of
+  the owners for both windows.
+- A chip the user chooses, in this window or in the window of a pull request, must be remembered for the repository
+  (`reviewOwnerChip` of its recent project, through the writer of the settings); All forgets it. A chip is not a state
+  of the review: nothing else is remembered, and the approval of a pull request stays the reviewer's mark.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open on the user's group that needs an approval, then on the chip the user chose, which All forgets`)
+- The window must open on the remembered chip when it marks at least one file of the shown changes, else on All; a
+  chip the open names (Review Changes of a group of the Safe Push popover) wins. A remembered owner matches a group of
+  the same name and the other way round; a group whose files nobody tells marks none. Until the user chooses, the
+  first chip other than All holds: the owners and the groups that come later never move it.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should open on the owner chip last chosen in a review window of the repository where it marks files, else on All`)
+  [@test] ../../src/lib/review-owners.test.ts (`opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All`, `never opens on a group whose files Patronus doesn't tell, and opens on a branch-wide one`)
 
 <a id="the-files-of-each-reviewer-group-safe-push-form"></a>
 

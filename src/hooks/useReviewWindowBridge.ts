@@ -20,7 +20,14 @@ export function useReviewWindowBridge(): void {
     const unsubscribes = [reviewRequestsStore, reviewsStore, repositoryStore, repositorySettingsStore].map(store => store.subscribe(broadcastReviewWindowState))
     // the writes that run are operations of the session: only a change of them, not every patch of the table
     unsubscribes.push(
-      branchSyncStore.subscribe((state, previous) => (state.operations !== previous.operations || state.actions !== previous.actions) && broadcastReviewWindowState()),
+      branchSyncStore.subscribe(
+        (state, previous) =>
+          (state.operations !== previous.operations ||
+            state.actions !== previous.actions ||
+            state.reviewGroups !== previous.reviewGroups ||
+            state.baselineBranch !== previous.baselineBranch) &&
+          broadcastReviewWindowState(),
+      ),
     )
     return () => {
       for (const unsubscribe of unsubscribes) {

@@ -414,7 +414,7 @@ export function useBranchSync<T>(selector: (state: BranchSyncState) => T): T {
 // ---- narrow subscriptions: a change wakes only the hooks of what it changed ----
 
 /** The fields of the state that are records by a key (a branch, a subject), whose entries keep their objects while a patch leaves them */
-type EntryField = "branches" | "nextSteps" | "actions" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
+type EntryField = "branches" | "nextSteps" | "actions" | "reviewGroups" | "openPullRequests" | "stackBranches" | "pushes" | "landedStates"
 type EntryOf<F extends EntryField> = BranchSyncState[F][string]
 type Listener = () => void
 

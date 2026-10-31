@@ -14,7 +14,17 @@ function data(patch: Partial<PullRequestReviewWindowData>): PullRequestReviewWin
     intent: null,
     source: "yourTurn",
     openedAt: 1,
-    state: { repositoryPath: "/repo", selected: true, source: "yourTurn", requests: [request], involvements: {}, actions: {}, busy: {} },
+    state: {
+      repositoryPath: "/repo",
+      selected: true,
+      source: "yourTurn",
+      requests: [request],
+      involvements: {},
+      actions: {},
+      reviewGroups: {},
+      baselineBranch: "origin/master",
+      busy: {},
+    },
     ...patch,
   }
 }

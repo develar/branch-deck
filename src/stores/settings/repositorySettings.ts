@@ -2,6 +2,7 @@ import { z } from "zod"
 import { useStore } from "zustand"
 import type { AirLaunchChoice } from "@/lib/air-launch"
 import type { IssueNavigationConfig } from "@/lib/bindings"
+import type { ReviewFilter } from "@/lib/review-owners"
 import { stableStringify } from "@/lib/stable-stringify"
 import { createPersistentStore } from "./persistent-store"
 import type { ArrayStoreState } from "./persistent-store"
@@ -23,6 +24,13 @@ const AirLaunchChoiceSchema = z.object({
   start: z.enum(["run", "draft"]),
 }) satisfies z.ZodType<AirLaunchChoice>
 
+/** An owner chip of the review windows (`ReviewFilter`) but All, which is no chip to remember */
+const ReviewOwnerChipSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("group"), name: z.string() }),
+  z.object({ kind: z.literal("owner"), name: z.string() }),
+  z.object({ kind: z.literal("unowned") }),
+]) satisfies z.ZodType<ReviewFilter>
+
 export const ProjectMetadataSchema = z.object({
   path: z.string(),
   /** The user collapsed the "Your Turn" card of the repository (open by default) */
@@ -35,6 +43,11 @@ export const ProjectMetadataSchema = z.object({
   issueNavigationConfig: IssueNavigationConfigSchema.optional().catch(undefined),
   /** The last agent, model, effort, mode, Plan, plan effort and start that Start in Air launched in the repository; a malformed value is dropped */
   airLaunch: AirLaunchChoiceSchema.optional().catch(undefined),
+  /**
+   * The owner chip last chosen in a review window of the repository: the next one opens on it where it marks files
+   * (spec/branch/branch-review.spec.md, "Code owners"); a malformed value is dropped
+   */
+  reviewOwnerChip: ReviewOwnerChipSchema.optional().catch(undefined),
 })
 
 const RepositorySettingsSchema = z.array(ProjectMetadataSchema).default([])
@@ -91,6 +104,11 @@ export function setCollapsedStacks(path: string, roots: readonly string[]): void
     const same = current.length === roots.length && current.every((it, index) => it === roots[index])
     return same ? project : { ...project, collapsedStacks: roots.length === 0 ? undefined : [...roots] }
   })
+}
+
+/** Remembers the owner chip chosen in a review window of the repository; All forgets it */
+export function setReviewOwnerChip(path: string, filter: ReviewFilter): void {
+  updateProject(path, { reviewOwnerChip: filter.kind === "all" ? undefined : filter })
 }
 
 /** Collapses or opens the Parked card of the repository; open is the default and is not stored */

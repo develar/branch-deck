@@ -59,6 +59,10 @@ targets:
   - ../../src/components/repository/ReviewRequestRow.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/components/review/PullRequestReview.tsx
+  - ../../src/components/review/ReviewOwnerChips.tsx
+  - ../../src/hooks/useFileOwners.ts
+  - ../../src/hooks/useReviewOwnerFilter.ts
+  - ../../src/lib/review-owners.ts
   - ../../src/components/review/ReviewHeader.tsx
   - ../../src/components/review/ReviewDecisions.tsx
   - ../../src/lib/review-draft.ts
@@ -420,8 +424,9 @@ Safe Push it allows.
 - The main window owns the requests: the window gets them in its data (`PullRequestReviewWindowData`: the request, its
   place, the intent, the list it was opened from, and the state of the requests of its repository: the rows of that
   list, how the user takes part in each pull request of Reviews, the actions Rust decides of each (`pull:<number>`; the
-  window's pull request among them while it shows it, `Demand::review_windows`, also once no listing has it), what
-  runs, whether the main window shows that repository), and `pull-request-review/state` whenever that changed
+  window's pull request among them while it shows it, `Demand::review_windows`, also once no listing has it), the
+  reviewer groups of the pull request it shows ([Owner chips](#owner-chips)), the baseline, what runs, whether the main
+  window shows that repository), and `pull-request-review/state` whenever that changed
   (deduplicated), over the link of the window (`sub-window-link.ts`, the events of a window prefixed with its label).
 - A write of the window (Approve, Request Changes, Approve and Safe Push, Open Pull Request) is a
   `pull-request-review/request` with the whole request; the main window runs it on the window's repository, the toast
@@ -444,6 +449,39 @@ Safe Push it allows.
   longer names it); the stores of the files and the diffs of a range are the window's and go with it.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
   [@test] ../../src/stores/file-diffs.test.ts (`keeps the last subjects only, and forgets the subjects of a closed review under every policy`)
+
+<a id="owner-chips"></a>
+
+### Owner chips
+
+- Changes has the owner chips of the review of a branch ([Branch Review](../branch/branch-review.spec.md#code-owners)),
+  in the header of the files: All; the reviewer groups of the pull request, the user's first, with "· You" (a member
+  whose approval can count) and a `success` check once the group has its approvals ("Approved" on hover; the warning
+  shield and "Needs approval for a Safe Push" before); the owners by the `OWNERSHIP` files of the baseline (of the
+  base of the pull request until the main window names its baseline), most files first; No Owner. A chosen chip marks
+  as there: nothing is hidden, the other owners' rows, diffs and steps are muted, a step says "Design 2", J/K and N/P
+  move through its files, and a chip at 0 says so. All Changes, Since Your Review and a commit keep the chip; its
+  counts are of the files of the shown changes, of a new head of the request too, which keeps the chip.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open on the user's group that needs an approval, then on the chip the user chose, which All forgets`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chips by the files of the scope shown, Since Your Review too, and keep the chip on a new head of the request`)
+  [@test] ../../src/lib/review-owners.test.ts (`lists the user's groups first, each with whether it has its approvals`, `marks the files of the chosen chip by its name`)
+- The groups are the session's (`reviewGroups` of `pull:<number>`, `domain_policy::reviewer_groups`): Patronus's
+  readiness of the head the window fetched ([Patronus](../branch/patronus.spec.md#the-readiness-of-a-request)). None
+  while it is not known (a new head before its fetch), where Patronus doesn't answer or the repository is not on
+  Space, where no approval is needed, and for a pull request into another branch: the chips are the owners by the
+  `OWNERSHIP` files alone. A group that comes later takes its place among the chips.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should mark by the OWNERSHIP files alone where Patronus doesn't answer, opening on All`)
+- The window opens each request (each open from the main window, the same request again too, and each request ↑/↓
+  shows) on the chip the user last chose in a review window of the repository when it marks at least one file of the
+  pull request, else on the user's first group that still needs an approval and has files there, else on All
+  ([Branch Review](../branch/branch-review.spec.md#code-owners): remembered for the repository, All forgets it), as
+  remembered when it opened: a chip chosen in another window meanwhile does not move it. While it opened on All and
+  the user chose nothing, the groups and the owners that come later choose again (the user's group once Patronus
+  answers); then the first chip other than All holds, and a chip the user chose, All too (a press of the chosen All),
+  is never moved.
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open on the user's group that needs an approval, then on the chip the user chose, which All forgets`, `should keep the chip the user chose when the groups of the request come later`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move from All to the user's group when the groups of the request come later, unless the user chose All`, `should open again on the remembered chip when the main window opens the same request again, a chip chosen in another window not moving the one shown`)
+  [@test] ../../src/lib/review-owners.test.ts (`opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All`)
 
 ### Reviews
 

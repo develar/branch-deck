@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
-import { ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, soleOwner } from "@/lib/review-owners"
+import { initialOwnerFilter, ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, reviewOwnerMarks, soleOwner } from "@/lib/review-owners"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
@@ -61,6 +61,59 @@ describe("reviewFilterChips", () => {
       ["All", 0],
       ["No Owner", 0],
     ])
+  })
+})
+
+describe("the groups of a pull request", () => {
+  // Design needs the user's approval, Air Plugin has its approvals, Build is the user's and approved
+  const requestGroups: BranchReviewGroup[] = [
+    { name: "Air Plugin", paths: ["plugins/air/A.kt"], branchWide: false, approved: true, yours: false },
+    { name: "Build", paths: ["build/x.kts"], branchWide: false, approved: true, yours: true },
+    { name: "Design", paths: ["README.md"], branchWide: false, approved: false, yours: true },
+  ]
+
+  it("lists the user's groups first, each with whether it has its approvals", () => {
+    expect(reviewFilterChips(files, requestGroups, owners).map(chip => [chip.label, chip.yours, chip.approved])).toEqual([
+      ["All", false, false],
+      ["Build", true, true],
+      ["Design", true, false],
+      ["Air Plugin", false, true],
+      ["IJ Build Scripts Maintainers", false, false],
+      ["No Owner", false, false],
+    ])
+  })
+
+  it("opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All", () => {
+    const chips = reviewFilterChips(files, requestGroups, owners)
+    expect(initialOwnerFilter(chips, undefined, true)).toEqual({ kind: "group", name: "Design" })
+    // the branch window doesn't prefer the user's group
+    expect(initialOwnerFilter(chips, undefined, false)).toEqual({ kind: "all" })
+    expect(initialOwnerFilter(chips, { kind: "group", name: "Air Plugin" }, true)).toEqual({ kind: "group", name: "Air Plugin" })
+    // remembered as an owner of the OWNERSHIP files, it is the group of the same name here, and the other way round
+    expect(initialOwnerFilter(chips, { kind: "owner", name: "air plugin" }, true)).toEqual({ kind: "group", name: "Air Plugin" })
+    expect(initialOwnerFilter(reviewFilterChips(files, [], owners), { kind: "group", name: "Air Plugin" }, true)).toEqual({ kind: "owner", name: "Air Plugin" })
+    // a remembered chip without files here, or missing, is ignored
+    expect(initialOwnerFilter(chips, { kind: "owner", name: "Kotlin" }, true)).toEqual({ kind: "group", name: "Design" })
+    expect(initialOwnerFilter(reviewFilterChips(files.slice(0, 2), requestGroups, owners), { kind: "owner", name: "Build" }, true)).toEqual({ kind: "all" })
+    expect(initialOwnerFilter(chips, { kind: "unowned" }, true)).toEqual({ kind: "unowned" })
+  })
+
+  it("never opens on a group whose files Patronus doesn't tell, and opens on a branch-wide one", () => {
+    const unknown: BranchReviewGroup[] = [{ name: "Delegated", paths: [], branchWide: false, approved: false, yours: true }]
+    expect(initialOwnerFilter(reviewFilterChips(files, unknown, owners), { kind: "group", name: "Delegated" }, true)).toEqual({ kind: "all" })
+    const wide: BranchReviewGroup[] = [{ name: "Bazel QA", paths: [], branchWide: true, approved: false, yours: true }]
+    const chips = reviewFilterChips(files, wide, owners)
+    expect(initialOwnerFilter(chips, undefined, true)).toEqual({ kind: "group", name: "Bazel QA" })
+    // it marks every file: nothing is muted
+    expect(reviewOwnerMarks({ kind: "group", name: "Bazel QA" }, { files, groups: wide, owners })).toBeNull()
+  })
+
+  it("marks the files of the chosen chip by its name", () => {
+    const marks = reviewOwnerMarks({ kind: "group", name: "Design" }, { files, groups: requestGroups, owners })
+    expect(marks?.label).toBe("Design")
+    expect([...marks!.paths]).toEqual(["README.md"])
+    expect(reviewOwnerMarks({ kind: "all" }, { files, groups: requestGroups, owners })).toBeNull()
+    expect(reviewOwnerMarks({ kind: "group", name: "Design" }, { files: undefined, groups: requestGroups, owners })).toBeNull()
   })
 })
 

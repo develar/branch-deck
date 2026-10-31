@@ -1,4 +1,4 @@
-import type { ActionState, ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
+import type { ActionState, ReviewerGroupView, ReviewInvolvement, ReviewRequest } from "@/lib/bindings"
 import type { ReviewIntent } from "@/lib/review-request-actions"
 import type { ReviewAction } from "@/stores/review-requests"
 
@@ -31,6 +31,13 @@ export interface ReviewWindowState {
   readonly involvements: Readonly<Record<number, ReviewInvolvement>>
   /** The actions of each pull request Rust decides (`pull:<number>` of the view), of the repository the main window shows */
   readonly actions: Readonly<Record<number, readonly ActionState[]>>
+  /**
+   * The reviewer groups of the pull request the window shows (`pull:<number>` of the view): Patronus's readiness of its
+   * fetched head, of the repository the main window shows; none while it is not known (spec/branch/patronus.spec.md)
+   */
+  readonly reviewGroups: Readonly<Record<number, readonly ReviewerGroupView[]>>
+  /** The baseline of the repository the main window shows, whose `OWNERSHIP` files name the owners; null for another one */
+  readonly baselineBranch: string | null
   readonly busy: Readonly<Record<number, ReviewAction>>
 }
 

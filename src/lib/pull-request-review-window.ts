@@ -1,4 +1,4 @@
-import type { ActionState, ReviewRequest } from "@/lib/bindings"
+import type { ActionState, ReviewerGroupView, ReviewRequest } from "@/lib/bindings"
 import { notifyError, recordError } from "@/lib/errors"
 import { closeEventToasts } from "@/lib/event-toast"
 import { PULL_REQUEST_REVIEW_WINDOW, reviewWindowTitle } from "@/lib/pull-request-review"
@@ -107,11 +107,17 @@ function buildState(repositoryPath: string, source: ReviewSource): ReviewWindowS
   const shown = link.shown()
   const numbers = new Set([...requests.map(request => request.number), ...(shown?.repositoryPath === repositoryPath ? [shown.number] : [])])
   const actions: Record<number, readonly ActionState[]> = {}
+  const reviewGroups: Record<number, readonly ReviewerGroupView[]> = {}
   if (inSession) {
     for (const number of numbers) {
       const of = getRowPart(`pull:${number}`, "actions")
       if (of !== undefined) {
         actions[number] = of
+      }
+      // the session asks Patronus only of the request the window shows
+      const groups = getRowPart(`pull:${number}`, "reviewGroups")
+      if (groups !== undefined) {
+        reviewGroups[number] = groups
       }
     }
   }
@@ -122,6 +128,8 @@ function buildState(repositoryPath: string, source: ReviewSource): ReviewWindowS
     requests,
     involvements,
     actions,
+    reviewGroups,
+    baselineBranch: inSession ? branchSyncStore.getState().baselineBranch : null,
     busy: inSession ? getReviewBusy(branchSyncStore.getState().operations) : {},
   }
 }

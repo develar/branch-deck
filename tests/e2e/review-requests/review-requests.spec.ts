@@ -6,7 +6,7 @@ import type { ReviewWindowRequest } from "../../../src/lib/pull-request-review"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
-import { availableRobots, robot } from "../helpers/patronus-helpers"
+import { availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
 import {
   NOW,
@@ -21,7 +21,7 @@ import {
 } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
-import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 
@@ -779,6 +779,253 @@ test.describe("Settings", () => {
     await expect(notifications.getByTestId("setting-reviewBadge")).toHaveCount(0)
     // the window asked the main window, which saved it
     await expect.poll(() => testStore.get("appSettings")).toMatchObject({ notifyReviewRequests: false })
+  })
+})
+
+// the `stacked_ownership` template: `login` changes auth/token.js (Auth Team), ui/login.css (Design), ui/login.js (UI
+// Team) and README.md (Monorepo) by its OWNERSHIP files
+const LOGIN = reviewRequest("login", 7, 5, { title: "Add the login form" })
+const LOGIN_STYLE = reviewRequest("login", 8, 4, { title: "Style the login form" })
+
+/** What Patronus answers of a pull request of `login`: Auth Team approved, Design (whose member is the user) missing */
+const LOGIN_GROUPS = {
+  required: true,
+  mergeRequest: null,
+  skipped: false,
+  groups: [
+    evaluatedGroup("Auth Team", true, [codeOwner("Ann Lee", "ann", { approvalState: "approved" })], { paths: ["auth/token.js"], branchWide: false }),
+    evaluatedGroup("Design", false, [codeOwner("Test User", "user-name", { suggested: true, approvalState: "reviewing" })], { paths: ["ui/login.css"], branchWide: false }),
+  ],
+}
+
+/** The requests of `login` in a repository on Patronus, the user signed in to GitHub as `user-name` */
+async function setupOwnedRequests(setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>, options: SetupRepoOptions = {}): Promise<TestRepositoryBuilder> {
+  const repo = await setupRepo("stacked_ownership", {
+    reviewRequests: availableReviewRequests([LOGIN, LOGIN_STYLE]),
+    patronus: { ...availableRobots(), githubRepository: "acme/monorepo" },
+    pullRequests: availablePullRequests(),
+    gitHubSignIn: { signedIn: true },
+    ...options,
+  })
+  await repo.setReviewAnswers({ answers: { "request:7": LOGIN_GROUPS, "request:8": LOGIN_GROUPS } })
+  await syncAndWaitForBranches()
+  return repo
+}
+
+/** The owner chips by the OWNERSHIP files alone, while Patronus has not answered */
+const OWNERSHIP_CHIPS = ["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"]
+
+/** The owner chips once Patronus answered: the groups, the user's first, then the other owners */
+const GROUP_CHIPS = ["All4", "Design· You1", "Auth Team1", "Monorepo1", "UI Team1"]
+
+/** `name·You count` of the owner chips of the review window */
+function ownerChips(window: Page): Promise<string[]> {
+  return window.getByTestId("branch-review-owner").evaluateAll(chips => chips.map(chip => chip.textContent!))
+}
+
+function ownerChip(window: Page, name: string) {
+  return window.locator(`[data-testid=branch-review-owner][data-owner='${name}']`)
+}
+
+/** The header of the diff of `path` */
+function diffHeader(window: Page, path: string) {
+  return window.locator(`[data-testid=review-file-header][data-path='${path}']`)
+}
+
+/** The changes of the request the window shows (D), at its first diff */
+async function showChanges(window: Page, review: ReturnType<Page["getByTestId"]>): Promise<void> {
+  await expect(review.getByTestId("review-dialog-review")).toBeEnabled()
+  await window.keyboard.press("d")
+  await expect(window.getByTestId("review-file-header").first()).toBeVisible()
+}
+
+/** The review window of #7 from Your Turn, its changes shown */
+async function openOwnedChanges(page: Page): Promise<{ window: Page; review: ReturnType<Page["getByTestId"]> }> {
+  await expect(getYourTurnCard(page)).toBeVisible()
+  const { window, review } = await openReviewWindow(page, 7)
+  await showChanges(window, review)
+  return { window, review }
+}
+
+/** The review window of #7 while Patronus holds its answer: the owners by the OWNERSHIP files, All chosen */
+async function openOwnedChangesBeforeGroups(page: Page, repo: TestRepositoryBuilder): Promise<{ window: Page; review: ReturnType<Page["getByTestId"]> }> {
+  await repo.holdRemoteAnswers({ hold: ["readiness"] })
+  const opened = await openOwnedChanges(page)
+  await expect.poll(() => ownerChips(opened.window)).toEqual(OWNERSHIP_CHIPS)
+  await expect(ownerChip(opened.window, "All")).toHaveAttribute("aria-pressed", "true")
+  return opened
+}
+
+/** The request ↑ or ↓ shows from the overview, its changes shown */
+async function showOtherRequest(window: Page, review: ReturnType<Page["getByTestId"]>, key: "ArrowUp" | "ArrowDown", title: string): Promise<void> {
+  await window.keyboard.press("Escape")
+  await review.getByTestId("review-dialog-body").focus()
+  await window.keyboard.press(key)
+  await expect(review.getByRole("heading", { name: title })).toBeVisible()
+  await showChanges(window, review)
+}
+
+test.describe("Owner chips", () => {
+  test("should open on the user's group that needs an approval, then on the chip the user chose, which All forgets", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+    testStore,
+  }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    const { window, review } = await openOwnedChanges(page)
+
+    // the groups of the request, the user's first, then the other owners by the OWNERSHIP files
+    await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
+    // the session asked Patronus about the head of #7 the window fetched
+    expect((await repo.getReviewChecks()).checks.map(check => check.pullRequest?.number)).toContain(7)
+    await expect(ownerChip(window, "Design")).toHaveAttribute("data-yours", "")
+    await expect(ownerChip(window, "Auth Team")).toHaveAttribute("data-approved", "")
+    await ownerChip(window, "Auth Team").hover()
+    await expect(window.getByRole("tooltip", { name: "Approved" })).toBeVisible()
+    // nothing remembered: the window opens on Design, its file marked, the others muted
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "ui/login.css")).not.toHaveAttribute("data-muted")
+    await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+
+    // a chip the user chooses is remembered for the repository: the next request opens on it
+    await ownerChip(window, "UI Team").click()
+    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "UI Team" } }])
+    await showOtherRequest(window, review, "ArrowDown", "Style the login form")
+    await expect(ownerChip(window, "UI Team")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "ui/login.js")).not.toHaveAttribute("data-muted")
+    await expect(ownerChip(window, "Design")).toHaveAttribute("data-yours", "")
+
+    // All forgets it: the first request opens on the user's group again
+    await ownerChip(window, "All").click()
+    await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
+    await expect.poll(async () => ((await testStore.get("recentProjects")) as { reviewOwnerChip?: unknown }[])[0]?.reviewOwnerChip).toBeUndefined()
+    await showOtherRequest(window, review, "ArrowUp", "Add the login form")
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+  })
+
+  test("should keep the chip the user chose when the groups of the request come later", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    // Patronus hasn't answered: the owners by the OWNERSHIP files, All chosen
+    const { window } = await openOwnedChangesBeforeGroups(page, repo)
+    await ownerChip(window, "Monorepo").click()
+
+    // it answers: the groups show, the chip the user chose stays
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
+    await expect(ownerChip(window, "Monorepo")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+  })
+
+  test("should mark by the OWNERSHIP files alone where Patronus doesn't answer, opening on All", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches, { patronus: undefined })
+    const { window } = await openOwnedChanges(page)
+    await expect.poll(() => ownerChips(window)).toEqual(OWNERSHIP_CHIPS)
+    await expect(ownerChip(window, "All")).toHaveAttribute("aria-pressed", "true")
+    expect((await repo.getReviewChecks()).checks).toEqual([])
+    // an owner chip marks as in the review of a branch
+    await ownerChip(window, "Design").click()
+    await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+    await expect(diffHeader(window, "ui/login.css")).not.toHaveAttribute("data-muted")
+  })
+
+  test("should move from All to the user's group when the groups of the request come later, unless the user chose All", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    const { window, review } = await openOwnedChangesBeforeGroups(page, repo)
+
+    // Patronus answers: nothing chosen yet, the window moves to the user's group
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "README.md")).toHaveAttribute("data-muted", "")
+
+    // the next request, its answer held: All the user chooses stays when the groups come
+    await repo.holdRemoteAnswers({ hold: ["readiness"] })
+    await showOtherRequest(window, review, "ArrowDown", "Style the login form")
+    await expect.poll(() => ownerChips(window)).toEqual(OWNERSHIP_CHIPS)
+    await ownerChip(window, "All").click()
+    await repo.holdRemoteAnswers({ release: ["readiness"] })
+    await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
+    await expect(ownerChip(window, "All")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
+  })
+
+  test("should open again on the remembered chip when the main window opens the same request again, a chip chosen in another window not moving the one shown", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+    testStore,
+  }) => {
+    await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    const { window } = await openOwnedChanges(page)
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+
+    // the review window of the branch login chooses UI Team: remembered, heard by the window of #7, which keeps Design
+    await findBranchRow(page, "login").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
+    const branchWindow = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[1]!)
+    await ownerChip(branchWindow, "UI Team").click()
+    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { name: "UI Team" } }])
+    await expect.poll(async () => JSON.stringify(await getEmittedEvents(window, "settings_changed"))).toContain("UI Team")
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "ui/login.js")).toHaveAttribute("data-muted", "")
+
+    // the main window opens #7 again: the window opens on the remembered chip
+    await getReviewRow(page, 7).getByTestId("review-request-title").click()
+    await reopenLinkedSubWindow(window, await openedReviewWindow(page, 3))
+    await expect(ownerChip(window, "UI Team")).toHaveAttribute("aria-pressed", "true")
+    await expect(diffHeader(window, "ui/login.js")).not.toHaveAttribute("data-muted")
+    await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
+  })
+
+  test("should count the chips by the files of the scope shown, Since Your Review too, and keep the chip on a new head of the request", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    // the user reviewed the first commit of login, and the request came again
+    const reviewed = await repo.revision("user-name/virtual/login~1")
+    await repo.setReviewRequests(availableReviewRequests([{ ...LOGIN, reRequested: true, reviewedCommit: reviewed }]))
+    await repo.advanceBackendClock(121_000)
+    await emitTauriEvent(page, "tauri://focus")
+    await expect(getReviewRow(page, 8)).toHaveCount(0)
+    const { window, review } = await openReviewWindow(page, 7)
+    await showChanges(window, review)
+    const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => ownerChips(window)).toEqual(GROUP_CHIPS)
+
+    // Since Your Review: the chips count its files, the chip stays
+    await column.filter({ hasText: "Since Your Review" }).click()
+    await expect(column.nth(1)).toHaveAttribute("aria-selected", "true")
+    // its one commit has the files of Design and Monorepo; Auth Team still needs nothing of it, UI Team has none
+    await expect.poll(() => ownerChips(window)).toEqual(["All2", "Design· You1", "Auth Team0", "Monorepo1"])
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
+
+    // a new head of the request: its files are counted, the chip stays
+    await repo.setReviewAnswers({
+      answers: {
+        "request:7": {
+          ...LOGIN_GROUPS,
+          groups: [
+            LOGIN_GROUPS.groups[0]!,
+            evaluatedGroup("Design", false, [codeOwner("Test User", "user-name", { suggested: true, approvalState: "reviewing" })], {
+              paths: ["ui/button.css", "ui/login.css"],
+              branchWide: false,
+            }),
+          ],
+        },
+      },
+    })
+    await repo.commit("(login) Style the button", { "ui/button.css": "button {}\n" }, 1704124800)
+    await syncAndWaitForBranches()
+    await repo.advanceBackendClock(121_000)
+    await emitTauriEvent(page, "tauri://focus")
+    await expect.poll(() => ownerChips(window)).toEqual(["All3", "Design· You2", "Auth Team0", "Monorepo1"])
+    await expect(column.nth(1)).toHaveAttribute("aria-selected", "true")
+    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
   })
 })
 

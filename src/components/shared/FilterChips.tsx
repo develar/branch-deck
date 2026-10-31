@@ -12,6 +12,8 @@ export interface FilterChipsProps {
   /** A press of another chip chooses it; a press of the chosen one goes to `fallback` (All), or keeps it without one */
   onValueChange: (value: string) => void
   fallback?: string
+  /** A press of the chosen chip that keeps it: the user chose it on purpose (the owner chips keep All then) */
+  onChosenPress?: () => void
   className?: string
   "data-testid"?: string
   children: ReactNode
@@ -25,7 +27,7 @@ const ChosenChip = createContext<string | null>(null)
  * owners of the files of a review): the stock `ToggleGroup`, outlined, the chosen chip in its pressed state; the chips
  * wrap where the row is narrow
  */
-export function FilterChips({ label, value, onValueChange, fallback, className, "data-testid": testId, children }: FilterChipsProps) {
+export function FilterChips({ label, value, onValueChange, fallback, onChosenPress, className, "data-testid": testId, children }: FilterChipsProps) {
   return (
     <ToggleGroup
       aria-label={label}
@@ -37,6 +39,8 @@ export function FilterChips({ label, value, onValueChange, fallback, className, 
         const chosen = next.find(it => it !== value) ?? fallback
         if (chosen !== undefined && chosen !== value) {
           onValueChange(chosen)
+        } else {
+          onChosenPress?.()
         }
       }}
       className={cn("flex-wrap", className)}

@@ -515,6 +515,38 @@ test.describe("Branch review window", () => {
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
   })
 
+  test("should open on the owner chip last chosen in a review window of the repository where it marks files, else on All", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+    testStore,
+  }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const owner = (window: Page, name: string) => window.locator(`[data-testid=branch-review-owner][data-owner='${name}']`)
+    const first = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    await expect.poll(() => ownerChips(first)).toEqual(["All4", "Auth Team1", "Design1", "Monorepo1", "UI Team1"])
+    await expect(owner(first, "All")).toHaveAttribute("aria-pressed", "true")
+    await owner(first, "Design").click()
+    await expect(fileHeader(first, "README.md")).toHaveAttribute("data-muted", "")
+    // remembered for the repository by the writer of the settings
+    await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { kind: "owner", name: "Design" } }])
+    await first.close()
+
+    // the next review window opens on it, its files marked
+    const second = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    await expect(owner(second, "Design")).toHaveAttribute("aria-pressed", "true")
+    await expect(fileHeader(second, "README.md")).toHaveAttribute("data-muted", "")
+    await expect(fileHeader(second, "ui/login.css")).not.toHaveAttribute("data-muted")
+    await second.close()
+
+    // auth has no file of Design: the window opens on All, which needs no chip here (one owner has every file)
+    const third = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
+    await expect(third.getByTestId("branch-review-files")).toHaveText("Files1Auth Team")
+    await expect(third.getByTestId("branch-review-owners")).toHaveCount(0)
+    await expect(fileHeader(third, "auth/token.js")).not.toHaveAttribute("data-muted")
+  })
+
   test("should save the diff view the window chooses through the writer of the backend", async ({ page, setupRepo, syncAndWaitForBranches, testStore }) => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()

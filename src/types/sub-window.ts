@@ -37,12 +37,17 @@ export interface MissingCommitsWindowData {
   fixSteps?: string[]
 }
 
-/** A reviewer group the code-owner check of Patronus asks for, with the paths it reviews */
+/**
+ * A reviewer group the code-owner check of Patronus asks for, with the paths it reviews; of a pull request to review
+ * also whether the user can approve for it and whether it has its approvals (`ReviewerGroupView`)
+ */
 export interface BranchReviewGroup {
   name: string
   /** Empty when unknown, or for a group that reviews every change */
   paths: string[]
   branchWide: boolean
+  yours?: boolean
+  approved?: boolean
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent, RefObject } from "react"
 import { cn } from "cn"
 import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
@@ -10,6 +10,7 @@ import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
 import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
+import { ReviewOwnerChips } from "@/components/review/ReviewOwnerChips"
 import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
@@ -17,9 +18,11 @@ import { Callout } from "@/components/shared/Callout"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { WindowPage } from "@/components/shared/WindowPage"
+import { useFileOwners } from "@/hooks/useFileOwners"
 import { useOperationWords } from "@/hooks/useOperationWords"
+import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { planFacts, useSubjectPlan } from "@/hooks/useReviewPlan"
-import type { ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
+import type { ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
@@ -27,6 +30,8 @@ import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewSource } from "@/lib/pull-request-review"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
+import { reviewFilterChips, reviewOwnerMarks } from "@/lib/review-owners"
+import type { ReviewOwners } from "@/lib/review-owners"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
@@ -56,10 +61,19 @@ export interface PullRequestReviewHost {
   readonly submitted: SubmittedReview | undefined
   /** The actions Rust decides of the pull request (`pull:<number>`) */
   readonly actions: ReviewRequestActionContext["actions"]
+  /**
+   * The reviewer groups of the pull request Rust derives from Patronus's readiness of its fetched head (`pull:<number>`);
+   * none while it is not known, Patronus doesn't answer, or the pull request goes into another branch
+   */
+  readonly reviewGroups: readonly ReviewerGroupView[]
+  /** The baseline whose `OWNERSHIP` files name the owners of the files; null while the main window has not shown it */
+  readonly baselineBranch: string | null
   readonly busy: ReviewAction | undefined
   /** The write the row's menu asked for, offered once per open (`openToken`); "review" shows the changes */
   readonly intent: ReviewIntent | null
   readonly openToken: unknown
+  /** The last open of the window from the main window: each one opens on the remembered owner chip again */
+  readonly openedAt: number
   readonly showRequest: (index: number) => void
   readonly close: () => void
   readonly openOnGitHub: () => void
@@ -179,6 +193,20 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
   }, [rangeId])
 
   const reviewedCommit = getReviewedCommit(request, fetch)
+
+  // the owner chips (spec/repository/review-requests.spec.md, "Owner chips"): the groups of the request, the owners by
+  // the OWNERSHIP files of the baseline (of the base of the pull request until the main window names it), of the files
+  // of the shown scope; the window opens on the remembered chip, else the user's group that still needs an approval
+  const subjectFiles = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
+  const rangeFiles = files?.files
+  const ownedPaths = useMemo(() => [...new Set([...(rangeFiles ?? []), ...(subjectFiles ?? [])].map(file => file.path))], [rangeFiles, subjectFiles])
+  const fileOwners = useFileOwners(repositoryPath, host.baselineBranch ?? range?.base ?? null, ownedPaths)
+  const [ownerFilter, setOwnerFilter] = useReviewOwnerFilter(repositoryPath, `${request.number}@${host.openedAt}`, {
+    chips: rangeFiles === undefined ? [] : reviewFilterChips(rangeFiles, host.reviewGroups, fileOwners),
+    preferYours: true,
+    named: null,
+  })
+  const owners: ReviewOwners = { files: subjectFiles, groups: host.reviewGroups, owners: fileOwners }
 
   /** Shows the overview or the changes; the changes at a file of the rail (of all changes) or at a commit */
   const showTab = (next: ReviewTab, at: { path?: string; item?: string } = {}) => {
@@ -387,7 +415,10 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
           subject={subject}
           initialPath={lastPath}
           onPositionChange={showPosition}
+          ownerMarks={reviewOwnerMarks(ownerFilter, owners)}
+          fileOwners={fileOwners}
           rangeNoun="pull request"
+          filesHeader={count => <ReviewOwnerChips of={owners} filter={ownerFilter} onFilterChange={setOwnerFilter} count={count} />}
           scopeTop={planCard}
           commitTop={planCard}
           reviewFacts={planFacts(plan)}

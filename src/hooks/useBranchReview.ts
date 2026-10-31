@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
+import { useFileOwners } from "@/hooks/useFileOwners"
+import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { planFacts, useReviewPlan } from "@/hooks/useReviewPlan"
 import type { ReviewPlanState } from "@/hooks/useReviewPlan"
 import type { BranchReviewSegment, CommitFile, ReviewSubject } from "@/lib/bindings"
-import { commands } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
@@ -11,6 +12,7 @@ import { diffSubjectId } from "@/lib/commit-files"
 import { isTypingTarget } from "@/lib/preview-keys"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, rangePosition, segmentItems, shownInterdiff } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
+import { reviewFilterChips } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { markBranchReviewed } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
@@ -145,7 +147,6 @@ export interface BranchReviewMove {
 /** The state of a review of a branch: read, read again when a sync moved a tip of it, its range dropped at the end */
 export function useBranchReview(source: BranchReviewSource, focus: BranchReviewFocus, sync: BranchReviewSync, move?: BranchReviewMove): BranchReviewModel {
   const [state, setState] = useState<ReviewState>({ status: "loading" })
-  const [filter, setFilter] = useState<ReviewFilter>(focus.filter ?? { kind: "all" })
   // the file on screen: a review read again (a sync moved a tip, another commit, another filter) starts at it
   const [position, setPosition] = useState<ReviewPosition | null>(null)
   const [lastPath, setLastPath] = useState(focus.path ?? null)
@@ -234,6 +235,12 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   const files = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
   const paths = useMemo(() => files?.map(file => file.path) ?? [], [files])
   const owners = useFileOwners(repositoryPath, baselineBranch, paths)
+  // the chip the focus names (a group of the Safe Push popover), else the remembered one where it marks files, else All
+  const [filter, setFilter] = useReviewOwnerFilter(repositoryPath, "", {
+    chips: files === undefined ? [] : reviewFilterChips(files, source.groups, owners),
+    preferYours: false,
+    named: focus.filter === undefined || focus.filter.kind === "all" ? null : focus.filter,
+  })
 
   // a range is read for this review only: drop it once another one shows, and at the end of the review
   const rangeId = rangeSubject === null ? null : diffSubjectId(rangeSubject)
@@ -351,25 +358,4 @@ export function keyedAction<T extends BranchReviewAction>(actions: readonly T[],
     return undefined
   }
   return actions.find(it => it.kbds?.length === 1 && event.code === `Key${it.kbds[0]!.toUpperCase()}`)
-}
-
-/** The owners of paths by the `OWNERSHIP` files of the baseline, read once per path for the review */
-function useFileOwners(repositoryPath: string, baselineBranch: string, paths: readonly string[]): ReadonlyMap<string, string> {
-  const [owners, setOwners] = useState<ReadonlyMap<string, string>>(new Map())
-  const asked = useRef(new Set<string>())
-  useEffect(() => {
-    const missing = paths.filter(path => !asked.current.has(path))
-    if (missing.length === 0) {
-      return
-    }
-    for (const path of missing) {
-      asked.current.add(path)
-    }
-    void commands.getFileOwners({ repositoryPath, baselineBranch, paths: missing }).then(result => {
-      if (result.status === "ok" && result.data.length > 0) {
-        setOwners(previous => new Map([...previous, ...result.data.map(owner => [owner.path, owner.owner] as const)]))
-      }
-    })
-  }, [repositoryPath, baselineBranch, paths])
-  return owners
 }
