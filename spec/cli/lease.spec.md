@@ -672,6 +672,11 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   measures) and skips a slot that is not idle or has a process in it, with the reason; it conflicts with `--free` and
   `DIR`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs`)
+- Only the git of that measure (one `ls-files` of the paths of the rules) may run while the slot is `giving_back`, so
+  an upgrade of git waits for it; the walk of the sizes must run once the slot is idle, and the clean then takes the
+  slot only while it is still idle. A clean must leave the slot idle before it deletes its trash, as a return of the
+  pool frees the slot first.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_give_back_walks_the_sizes_and_a_clean_deletes_its_trash_once_the_slot_is_idle`)
 - A shrink to a count must give the host slots past it back to the pool and keep the count as the limit of later
   fills until it is lifted. It takes a slot that is idle, in quarantine or abandoned, also without a running
   agent, and refuses a slot that a live process has. It signals no process (a process in the slot refuses

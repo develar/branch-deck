@@ -480,6 +480,33 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
 
+/// A give-back holds the slot only for the git of its measure: `ls-files` runs while the slot is given back, and the
+/// walk of the sizes once it is idle; the clean that follows deletes its trash once the slot is idle again
+#[test]
+fn a_give_back_walks_the_sizes_and_a_clean_deletes_its_trash_once_the_slot_is_idle() {
+  let log = test_utils::captured_log::CapturedLog::install(true);
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  git(&fixture.repo, &["config", "branchdeck.hostSlotMaxSize", "1M"]);
+  let slot = lent(lend_to(&params, "run-1", None));
+  std::fs::create_dir_all(Path::new(&slot.path).join("out")).unwrap();
+  std::fs::write(Path::new(&slot.path).join("out/cache"), vec![b'x'; 2 << 20]).unwrap();
+  let start = log.text().len();
+
+  let gave_back = give_back(&context.git, &params, 1, "run-1").unwrap();
+  let cleaned = gave_back.cleaned.expect("over the size");
+  assert_eq!((cleaned.cleaned[0].freed_bytes > 0, cleaned.trash_left), (true, Vec::<String>::new()));
+  assert!(!Path::new(&slot.path).join("out/cache").exists());
+  let text = log.text().split_off(start);
+  let at = |line: &str| text.find(line).unwrap_or_else(|| panic!("no {line:?} in {text}"));
+  let measured = at("ls-files");
+  let idle = at("a give-back left the host slot idle");
+  let walked = at("measuring what the clean rules of the idle host slot would free");
+  let deleted = at("a clean left the host slot idle: deleting its trash");
+  assert!(measured < idle && idle < walked && walked < deleted, "{text}");
+  assert_eq!(state_of(fixture, 1), HostState::Idle);
+}
+
 /// A shrink returns the host slots past the count without `--confirm-preserved`: a slot whose run committed a snapshot
 /// and left changes, and whose lend is abandoned (no `bd-host serve`), goes back to the pool; a live lend is refused.
 /// The count stays the limit of the fills until it is lifted

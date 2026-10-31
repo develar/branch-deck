@@ -24,7 +24,7 @@ use crate::lease::{
   BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, move_reused_slot,
   return_host_slot,
 };
-use crate::lease_clean::{CleanMode, CleanOverrides, Trash, apply_clean_rules, read_clean_rules};
+use crate::lease_clean::{CleanMode, CleanOverrides, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, read_clean_rules, tracked_by_rules};
 use crate::state_file::StateFile;
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -1145,7 +1145,7 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
       return Err(error);
     }
   };
-  // told while the slot is still given back, so Homebrew waits for the git of the measure
+  // the git of the measure while the slot is still given back, so Homebrew waits for it; its walk once it is idle
   let due = params.table().read::<HostSlots>().and_then(|table| {
     let mut slot = table.slots.into_iter().find(|slot| slot.n == n).ok_or(HostSlotRefusal::UnknownSlot(n))?;
     slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
@@ -1155,7 +1155,8 @@ fn give_back_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_
     slot.state = HostState::Idle;
     slot.runs_since_clean = slot.runs_since_clean.saturating_add(1);
   })?;
-  let cleaned = match due {
+  debug!(slot = %path, "a give-back left the host slot idle");
+  let cleaned = match due.as_ref().map(CleanDue::is_due) {
     Ok(true) => clean_core(git_executor, params, n, CleanOverrides::default(), Take::Idle)
       .inspect_err(|error| warn!(slot = %path, error = %format!("{error:#}"), "cannot clean the host slot after its run"))
       .ok(),
@@ -1284,35 +1285,66 @@ fn wait_while(timeout: Duration, condition: impl Fn() -> bool) {
 /// Whether the idle `slot` is due a clean. With `branchdeck.hostSlotMaxSize`: when what the clean rules would free
 /// (`CleanMode::Measure`: the stale cargo units and the `delete` paths, not what a clean keeps) passes it, or when the
 /// volume has less free space than `branchdeck.leaseMinFree` plus it. Without it: after 50 runs or 7 days, or when the
-/// volume has less than `branchdeck.leaseMinFree` and the rules would free something
-fn clean_due(git_executor: &GitCommandExecutor, slot: &HostSlot, config: &LeaseConfig) -> Result<bool> {
+/// volume has less than `branchdeck.leaseMinFree` and the rules would free something. Only the git of the measure runs
+/// here (`tracked_by_rules`); the walk of the sizes is `CleanDue::is_due`, which runs no git
+fn clean_due(git_executor: &GitCommandExecutor, slot: &HostSlot, config: &LeaseConfig) -> Result<CleanDue> {
   let max_size = config_size("branchdeck.hostSlotMaxSize", config.host_slot_max_size.as_ref())?;
   let min_free = config_size("branchdeck.leaseMinFree", config.min_free.as_ref())?.unwrap_or(0);
   let available = available_bytes(Path::new(&slot.path));
-  let freeable = || -> Result<u64> {
+  let measure = |more_than: u64| -> Result<CleanDue> {
     let rules = read_clean_rules(Path::new(&slot.path))?;
-    Ok(
-      apply_clean_rules(git_executor, &slot.path, &rules, CleanMode::Measure)
-        .iter()
-        .map(|cleaned| cleaned.freed_bytes)
-        .sum(),
-    )
+    let tracked = tracked_by_rules(git_executor, &slot.path, &rules);
+    Ok(CleanDue::IfFreeing {
+      path: slot.path.clone(),
+      rules,
+      tracked,
+      more_than,
+    })
   };
-  Ok(match max_size {
-    Some(max_size) => {
-      let freeable = freeable()?;
-      freeable > max_size || (freeable > 0 && available.is_some_and(|available| available < min_free.saturating_add(max_size)))
+  match max_size {
+    // with little room, anything the rules free is due: what passes the size frees more than nothing
+    Some(max_size) => measure(if available.is_some_and(|available| available < min_free.saturating_add(max_size)) {
+      0
+    } else {
+      max_size
+    }),
+    None if slot.runs_since_clean >= CLEAN_AFTER_RUNS || now_secs().saturating_sub(slot.cleaned_at) >= CLEAN_AFTER.as_secs() => Ok(CleanDue::Decided(true)),
+    None if available.is_some_and(|available| available < min_free) => measure(0),
+    None => Ok(CleanDue::Decided(false)),
+  }
+}
+
+/// What `clean_due` found: due or not, or due when the rules free more than `more_than`, which only their walk tells
+enum CleanDue {
+  Decided(bool),
+  IfFreeing {
+    path: String,
+    rules: Vec<ParsedRule>,
+    tracked: TrackedPaths,
+    more_than: u64,
+  },
+}
+
+impl CleanDue {
+  /// Whether the clean is due: the walk of what the rules would free, no git
+  fn is_due(&self) -> bool {
+    match self {
+      Self::Decided(due) => *due,
+      Self::IfFreeing { path, rules, tracked, more_than } => {
+        debug!(slot = %path, "measuring what the clean rules of the idle host slot would free");
+        let freeable: u64 = apply_tracked_rules(path, rules, tracked, CleanMode::Measure)
+          .iter()
+          .map(|cleaned| cleaned.freed_bytes)
+          .sum();
+        freeable > *more_than
+      }
     }
-    None => {
-      slot.runs_since_clean >= CLEAN_AFTER_RUNS
-        || now_secs().saturating_sub(slot.cleaned_at) >= CLEAN_AFTER.as_secs()
-        || (available.is_some_and(|available| available < min_free) && freeable()? > 0)
-    }
-  })
+  }
 }
 
 /// Apply the clean rules of the slot's own `.branchdeck.toml`, with `overrides`, to the idle slot `n`: `cleaning`
-/// meanwhile, so no run gets it, then idle with its counts reset. `GitUpgrading` while a live process upgrades git
+/// meanwhile, so no run gets it, then idle with its counts reset, and only then is what the rules moved into the trash
+/// deleted. `GitUpgrading` while a live process upgrades git
 pub fn clean_slot(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n: u32, overrides: CleanOverrides) -> Result<CleanTarget> {
   clean_core(git_executor, params, n, overrides, Take::Idle)
 }
@@ -1335,27 +1367,33 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
     slot.generation = slot.generation.saturating_add(1);
     Ok(slot.clone())
   })?;
-  let cleaned = read_clean_rules(Path::new(&slot.path)).map(|rules| {
-    let trash = Trash::new(&params.pool().trash_dir());
-    let mut cleaned = apply_clean_rules(git_executor, &slot.path, &overrides.apply(rules), CleanMode::Trash(&trash));
-    let trash_left = trash.empty(&mut cleaned);
-    CleanTarget {
-      path: slot.path.clone(),
-      skipped: None,
-      cleaned,
-      trash_left,
-    }
-  });
+  let trash = Trash::new(&params.pool().trash_dir());
+  let cleaned = read_clean_rules(Path::new(&slot.path)).map(|rules| apply_clean_rules(git_executor, &slot.path, &overrides.apply(rules), CleanMode::Trash(&trash)));
   let mine = |state: &HostState| matches!(state, HostState::Cleaning(owner) if *owner == me);
   let succeeded = cleaned.is_ok();
-  set_state(params, n, mine, |slot| {
+  let idle = set_state(params, n, mine, |slot| {
     slot.state = HostState::Idle;
     if succeeded {
       slot.runs_since_clean = 0;
       slot.cleaned_at = now_secs();
     }
-  })?;
-  cleaned
+  });
+  // nothing went into the trash when the rules could not be read
+  let mut cleaned = match cleaned {
+    Ok(cleaned) => cleaned,
+    Err(error) => return idle.and(Err(error)),
+  };
+  // the slot is idle: a run may have it while the trash is deleted, as a return of the pool deletes it once the slot is
+  // free. The trash goes also when the table refused, as the trash of a live agent outlives every sweep
+  debug!(slot = %slot.path, "a clean left the host slot idle: deleting its trash");
+  let trash_left = trash.empty(&mut cleaned);
+  idle?;
+  Ok(CleanTarget {
+    path: slot.path,
+    skipped: None,
+    cleaned,
+    trash_left,
+  })
 }
 
 /// `bd lease clean --host`: the clean rules of each idle host slot's own `.branchdeck.toml` with `overrides`, or with

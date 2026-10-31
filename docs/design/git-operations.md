@@ -2279,7 +2279,10 @@ start. The give-back runs off the client's path:
    give-back. git moves it to `$HOME`, but one started without `HOME` stays in the slot and would else be killed.
 4. Then the clean rules of the slot run when they are due. They are due when what they would free (`Measure`, not the
    size of the directories, whose kept units would stay above any limit) passes `branchdeck.hostSlotMaxSize`, or when
-   the volume runs low. Without that size, they run after 50 runs or 7 days.
+   the volume runs low. Without that size, they run after 50 runs or 7 days. Only the `ls-files` of the measure runs
+   while the slot is `giving_back`, so an upgrade of git waits for it (`tracked_by_rules`); the walk of the sizes, which
+   runs no git, comes once the slot is idle (`apply_tracked_rules`), so the next run does not wait for it. The clean
+   takes the slot only while it is still idle, and it leaves the slot idle before it deletes its trash.
 
 The checkout of a run (`host_slots::checkout`) moves the slot the
 run has to the commit of the run by the diff, as the get of a reused slot does, but without a `status`: the give-back

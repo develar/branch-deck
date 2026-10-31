@@ -341,12 +341,22 @@ impl CleanMode<'_> {
 /// Apply `rules` to `checkout`, or only measure them. One `ls-files` for the paths of all rules; a rule whose path is
 /// unsafe is reported and skipped. A failed rule never stops the others
 pub fn apply_clean_rules(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule], mode: CleanMode<'_>) -> Vec<Cleaned> {
-  let valid: Vec<&CleanRule> = rules.iter().filter_map(|rule| rule.as_ref().ok()).collect();
-  let paths: Vec<&str> = valid.iter().map(|rule| rule.path()).collect();
-  let tracked = match tracked_under(git_executor, checkout, &paths) {
-    Ok(tracked) => Ok(tracked),
-    Err(error) => Err(format!("{error:#}")),
-  };
+  apply_tracked_rules(checkout, rules, &tracked_by_rules(git_executor, checkout, rules), mode)
+}
+
+/// What git tracks under the paths of the rules of a checkout: the git of `apply_clean_rules`, or why it failed
+pub struct TrackedPaths(Result<Vec<String>, String>);
+
+/// The one `ls-files` of `apply_clean_rules`, for the paths of all `rules` in `checkout`: a caller that must run its git
+/// in one step and its walk in another (the give-back of a host slot) calls it, then `apply_tracked_rules`
+pub fn tracked_by_rules(git_executor: &GitCommandExecutor, checkout: &str, rules: &[ParsedRule]) -> TrackedPaths {
+  let paths: Vec<&str> = rules.iter().filter_map(|rule| rule.as_ref().ok()).map(CleanRule::path).collect();
+  TrackedPaths(tracked_under(git_executor, checkout, &paths).map_err(|error| format!("{error:#}")))
+}
+
+/// `apply_clean_rules` with what git tracks (`tracked_by_rules`): no git, only the walk
+pub fn apply_tracked_rules(checkout: &str, rules: &[ParsedRule], tracked: &TrackedPaths, mode: CleanMode<'_>) -> Vec<Cleaned> {
+  let tracked = &tracked.0;
   rules
     .iter()
     .map(|rule| {
