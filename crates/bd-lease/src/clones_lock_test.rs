@@ -1,5 +1,5 @@
 //! The clones lock of the pool (`Pool::lock_clones`): a get that must add a slot waits for the one that adds a slot,
-//! a slot freed meanwhile wins over a new one, the minimum free space is checked under the lock, the steps of a get
+//! a slot freed meanwhile ends the wait, the minimum free space is checked under the lock, the steps of a get
 //! arrive in order, and a killed holder frees the lock with its process
 
 use crate::lease_command::{LeaseContext, LeaseGetArgs, LeaseGetOutput, lease_get_reporting};
@@ -21,6 +21,8 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::thread::ScopedJoinHandle;
 use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 /// `bd lease get --holder <holder>` in the repository of the fixture, each step recorded in `steps`
 fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) -> Result<LeaseGetOutput, CliError> {
@@ -115,10 +117,14 @@ struct Beside<T> {
   seen: T,
 }
 
-/// A get held at the registration of its new slot, under the clones lock, and the get of `steps` beside it: once that
-/// one waits for the clones lock, `meanwhile` runs with whom it waits for, then the held get goes on
+/// The get beside a held clone, as `meanwhile` sees it
 #[cfg(unix)]
-fn beside_a_held_clone<T>(fixture: &Fixture, steps: &Mutex<Vec<GetStep>>, meanwhile: impl FnOnce(CloneHolder) -> T) -> Beside<T> {
+type SecondGet<'scope> = ScopedJoinHandle<'scope, Result<LeaseGetOutput, CliError>>;
+
+/// A get held at the registration of its new slot, under the clones lock, and the get of `steps` beside it: once that
+/// one waits for the clones lock, `meanwhile` runs with whom it waits for and that get, then the held get goes on
+#[cfg(unix)]
+fn beside_a_held_clone<T>(fixture: &Fixture, steps: &Mutex<Vec<GetStep>>, meanwhile: impl FnOnce(CloneHolder, &SecondGet<'_>) -> T) -> Beside<T> {
   let dir = tempfile::tempdir().unwrap();
   let held = held_environment(fixture, fixture.repo.path(), dir.path(), "*\" worktree add \"*");
   std::thread::scope(|scope| {
@@ -126,7 +132,7 @@ fn beside_a_held_clone<T>(fixture: &Fixture, steps: &Mutex<Vec<GetStep>>, meanwh
     let first = scope.spawn(|| run_json(&held, &["lease", "get", "--holder", "first"]));
     wait_until_held(dir.path(), &first);
     let second = scope.spawn(|| get_with_steps(fixture, "second", steps));
-    let seen = meanwhile(wait_for_the_wait(steps, &second));
+    let seen = meanwhile(wait_for_the_wait(steps, &second), &second);
     drop(release);
     let first = first.join().unwrap();
     assert_eq!(first.0, 0, "{}", first.1);
@@ -146,7 +152,7 @@ fn beside_a_held_clone<T>(fixture: &Fixture, steps: &Mutex<Vec<GetStep>>, meanwh
 fn a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot() {
   let fixture = Fixture::new();
   let steps = Mutex::new(Vec::new());
-  let beside = beside_a_held_clone(&fixture, &steps, |holder| {
+  let beside = beside_a_held_clone(&fixture, &steps, |holder, _| {
     // the held get's slot is the only one: the waiting get reserved nothing
     let states = states(&fixture.status());
     (holder, states, kinds(&steps))
@@ -180,24 +186,76 @@ fn a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot() {
   assert_eq!(kinds(&steps), [&["reserve", "wait", "reserve adding"][..], new_slot_steps()].concat());
 }
 
-/// A slot that a return frees while a get waits for the clones lock wins over a new one: the get reserves again under
-/// the lock and moves that slot (`reused: true`), and the pool does not grow
+/// Until `done` holds, polled every 10 ms; past 30 s the test fails with `what`
+#[cfg(unix)]
+fn wait_until(what: &str, done: impl Fn() -> bool) {
+  let deadline = Instant::now() + Duration::from_secs(30);
+  while !done() {
+    assert!(Instant::now() < deadline, "{what} for 30 s");
+    std::thread::sleep(Duration::from_millis(10));
+  }
+}
+
+/// A slot that a return frees while a get waits for the clones lock ends the wait: the get reserves that slot without
+/// the lock and moves it (`reused: true`) while the clone it waited for is still held, and the pool does not grow
 #[cfg(unix)]
 #[test_log::test]
-fn a_slot_freed_while_a_get_waits_for_the_clones_lock_wins_over_a_new_one() {
+fn a_slot_freed_while_a_get_waits_for_the_clones_lock_ends_the_wait() {
   let fixture = Fixture::new();
   let leased = path_of(&fixture.get(&["--holder", "leased"]));
   let steps = Mutex::new(Vec::new());
-  let beside = beside_a_held_clone(&fixture, &steps, |_| fixture.give_back(&leased));
+  let beside = beside_a_held_clone(&fixture, &steps, |_, second| {
+    fixture.give_back(&leased);
+    wait_until("the get waited past the free slot", || second.is_finished());
+  });
   let second = printed(&fixture, &beside.second.unwrap());
   assert_eq!((path_of(&second), &second["reused"]), (leased.clone(), &json!(true)), "{second}");
   assert!(second["waited_for_clone_ms"].is_u64(), "{second}");
-  assert_eq!(kinds(&steps), ["reserve", "wait", "reserve adding", "status", "checkout"]);
+  assert_eq!(kinds(&steps), ["reserve", "wait", "reserve", "status", "checkout"]);
   let mut expected = vec![(leased, "ready".to_string()), (path_of(&beside.first.1), "ready".to_string())];
   let mut actual = states(&fixture.status());
   expected.sort();
   actual.sort();
   assert_eq!(actual, expected);
+}
+
+/// A dirty slot freed while a get waits for the clones lock ends the wait once: the get reserves it, finds the local
+/// change, marks it dirty and waits again, and that slot, tried, never ends the wait again; the get adds a new slot once
+/// the clone it waited for is done
+#[cfg(unix)]
+#[test_log::test]
+fn a_dirty_slot_freed_while_a_get_waits_ends_the_wait_once() {
+  let fixture = Fixture::new();
+  let got = fixture.get(&["--holder", "dirty"]);
+  let dirty = path_of(&got);
+  std::fs::write(Path::new(&dirty).join("left.txt"), "left\n").unwrap();
+  let steps = Mutex::new(Vec::new());
+  let beside = beside_a_held_clone(&fixture, &steps, |_, second| {
+    // freed as the state says it, with its change: a return would refuse it, or discard the change
+    let common_dir = canonical_path(&fixture.repo.path().join(".git"));
+    Pool::new(Path::new(&common_dir))
+      .update(Duration::from_secs(10), |store| {
+        let slot = store.slots.iter_mut().find(|slot| slot.path == dirty).unwrap();
+        slot.lease = None;
+        Ok(())
+      })
+      .unwrap();
+    wait_until("the get waited again after the dirty slot", || {
+      assert!(!second.is_finished(), "the get ended while the clone was held: {:?}", steps.lock().unwrap());
+      kinds(&steps).ends_with(&["status", "reserve", "wait"])
+    });
+  });
+  let second = printed(&fixture, &beside.second.unwrap());
+  assert_eq!(second["reused"], json!(false), "{second}");
+  assert_eq!(
+    second["skipped"],
+    json!([{ "slot": got["slot"], "path": dirty, "reason": "dirty", "paths": ["left.txt"] }]),
+    "{second}"
+  );
+  assert_eq!(
+    kinds(&steps),
+    [&["reserve", "wait", "reserve", "status", "reserve", "wait", "reserve adding"][..], new_slot_steps()].concat()
+  );
 }
 
 /// The minimum free space is checked again under the clones lock, so a queue of gets never adds slots past it: a get
@@ -208,7 +266,7 @@ fn a_slot_freed_while_a_get_waits_for_the_clones_lock_wins_over_a_new_one() {
 fn a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it() {
   let fixture = Fixture::new();
   let steps = Mutex::new(Vec::new());
-  let beside = beside_a_held_clone(&fixture, &steps, |_| git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]));
+  let beside = beside_a_held_clone(&fixture, &steps, |_, _| git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]));
   let error = beside.second.unwrap_err();
   assert_eq!(error.code, ErrorCode::LowDiskSpace, "{}", error.message);
   assert!(error.message.contains("1048576.0 GiB"), "{}", error.message);
@@ -255,7 +313,7 @@ const CHILD_ENV: &str = "BD_CLONES_LOCK_CHILD";
 fn hold_the_clones_lock_in_a_child() {
   let Ok(spec) = std::env::var(CHILD_ENV) else { return };
   let (common_dir, held) = spec.split_once('|').unwrap();
-  let _lock = Pool::new(Path::new(common_dir)).lock_clones(Duration::from_secs(10), &mut |_| {}).unwrap();
+  let _lock = Pool::new(Path::new(common_dir)).lock_clones(Duration::from_secs(10), &mut |_| {}, &|| false).unwrap();
   std::fs::write(held, "").unwrap();
   std::thread::sleep(Duration::from_mins(5));
 }

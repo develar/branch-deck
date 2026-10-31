@@ -231,7 +231,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   (`reused: true`), and holds it until its new slot is ready or given back: the clone of a template or of the source,
   or the registration and the full checkout, and the seed. On 2026-10-24 fourteen gets cloned the idea-1 checkout at
   once, several ran past the deadline of their caller, and the disk stalled for 1.5 h. A get that reuses a slot never
-  takes the lock. A get that waits must say so on stderr when the wait starts, when the holder or the slot it adds
+  takes the lock. A slot freed while a get waits for the lock (by a return, or a get or a clean whose process is
+  gone) must end the wait within about a second, while the holder still clones: the get reserves that slot without
+  the lock. A slot the get already tried (dirty, busy) ends no wait again: a dirty one freed meanwhile ends it once,
+  and the get marks it dirty and waits again. A get that waits must say so on stderr when the wait starts, when the holder or the slot it adds
   changes and once a minute, naming the holder's command, pid and how long it holds the lock, and the new slot and
   the holder of its lease once it reserved one, and must print how long it waited (`waited_for_clone_ms`, omitted when
   it waited for none). The wait lasts while the record of the holder (`clones.lock.holder`, as the repository lock
@@ -239,7 +242,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   no record names a live holder of is `locked` after the lock timeout. The order of the locks is `clones.lock`,
   `leases.lock`, `worktrees.lock`; a return and a clean never take the clones lock.
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
-  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_slot_freed_while_a_get_waits_for_the_clones_lock_wins_over_a_new_one`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_slot_freed_while_a_get_waits_for_the_clones_lock_ends_the_wait`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_dirty_slot_freed_while_a_get_waits_ends_the_wait_once`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_killed_holder_frees_the_clones_lock_with_its_process`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
 - A get must print each step on stderr as it starts (`bd lease get: <step>`): the reserve of a free slot, under the

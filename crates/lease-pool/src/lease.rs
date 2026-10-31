@@ -27,9 +27,10 @@ use git_ops::lease_slot::{
 };
 use git_ops::revs::{RepositoryDirs, read_head, ref_exists, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
-use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_while_held};
+use history_rewrite::repository_lock::{LockHolder, LockWaitCanceled, RepositoryLock, lock_file_while_held};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
@@ -570,11 +571,13 @@ impl Pool {
   /// finished. Beside the state, as the pool lock: the reserve under it reads that state, and the pool directory is
   /// only config. The wait lasts while the record of the holder names a live process (`lock_file_while_held`): a holder
   /// killed meanwhile frees the lock with its process, and a lock no record names a live holder of refuses after
-  /// `unknown_timeout` (`RepositoryLocked`). `on_holder` hears the holder when it changes and about once a second
-  pub fn lock_clones(&self, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder)) -> Result<RepositoryLock> {
+  /// `unknown_timeout` (`RepositoryLocked`). `on_holder` hears the holder when it changes and about once a second, and
+  /// `canceled`, asked every 50 ms, ends the wait without the lock (`LockWaitCanceled`): a get whose wait found a slot
+  /// freed meanwhile reserves that one
+  pub fn lock_clones(&self, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder), canceled: &dyn Fn() -> bool) -> Result<RepositoryLock> {
     let dir = self.state.dir();
     std::fs::create_dir_all(dir).with_context(|| format!("Cannot create {}", dir.display()))?;
-    lock_file_while_held(dir.join(CLONES_LOCK_FILE), unknown_timeout, on_holder, &|| false)
+    lock_file_while_held(dir.join(CLONES_LOCK_FILE), unknown_timeout, on_holder, canceled)
   }
 }
 
@@ -796,9 +799,10 @@ enum Reserved {
 /// process in it but its Bazel servers, clean slots before dirty ones), its lease recorded as `preparing`. Then,
 /// without the lock: its Bazel servers stopped (one that does not exit skips the slot as busy), one `status` (a dirty
 /// slot is marked, skipped, and the next one tried), `checkout --force` to the source HEAD (only the diff is written),
-/// the seed. No free slot: the clones lock (`Pool::lock_clones`), waited for while another get adds a slot; after a
-/// wait the minimum and the processes as they are now; the free space again, and the reserve again, where a slot freed
-/// meanwhile wins. Else, under the lock until the slot is ready, a clone of a template without what the `delete` rules
+/// the seed. No free slot: the clones lock (`Pool::lock_clones`), waited for while another get adds a slot; a slot freed
+/// during the wait ends it, and the get reserves that one without the lock. After a wait the minimum and the processes
+/// as they are now; the free space again, and the reserve again, where a slot freed meanwhile wins. Else, under the
+/// lock until the slot is ready, a clone of a template without what the `delete` rules
 /// delete (`add_cloned_slot`), else a registration and the only full checkout. A failure after the lease was recorded
 /// gives the slot back
 ///
@@ -907,20 +911,29 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       Ok(reserved)
     })?;
     let (path, reused) = match reserved {
-      Reserved::NoFreeSlot => {
-        let (lock, waited) = lock_clones(&pool, params.lock_timeout, &report)?;
-        if let Some(waited) = waited {
-          *waited_for_clone.get_or_insert_default() += waited;
-          // the turn came minutes later perhaps: the minimum of the config and the processes in the slots as they are
-          // now; a get that took the lock at once read them a moment ago
-          min_free = required_free(params, &lease_config(git_executor, source)?)?;
+      Reserved::NoFreeSlot => match lock_clones(&pool, params.lock_timeout, &tried, &report)? {
+        CloneTurn::SlotFreed { waited } => {
+          if let Some(waited) = waited {
+            *waited_for_clone.get_or_insert_default() += waited;
+          }
+          // the slot freed meanwhile is reserved like any free slot, without the lock, with the processes as they are now
           scan = ProcessScan::scan();
+          continue;
         }
-        // a queue of gets never adds slots past the minimum: each measures what the ones before it left
-        free_bytes = free_space(&pool, &pool_dir, min_free)?;
-        clones_lock = Some(lock);
-        continue;
-      }
+        CloneTurn::Locked { lock, waited } => {
+          if let Some(waited) = waited {
+            *waited_for_clone.get_or_insert_default() += waited;
+            // the turn came minutes later perhaps: the minimum of the config and the processes in the slots as they are
+            // now; a get that took the lock at once read them a moment ago
+            min_free = required_free(params, &lease_config(git_executor, source)?)?;
+            scan = ProcessScan::scan();
+          }
+          // a queue of gets never adds slots past the minimum: each measures what the ones before it left
+          free_bytes = free_space(&pool, &pool_dir, min_free)?;
+          clones_lock = Some(lock);
+          continue;
+        }
+      },
       Reserved::Free { path, name, servers } => {
         // a slot freed while the get waited for the clones lock: the next get that adds a slot goes on
         clones_lock = None;
@@ -1171,30 +1184,59 @@ fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64) -> Result<Option<u64>
   Ok(available)
 }
 
-/// The clones lock of `pool` (`Pool::lock_clones`), and how long the get waited for it when another get held it; the
-/// wait is told (`GetStep::WaitForClone`) when it starts, when the holder or the slot it adds changes (a holder that
-/// took the lock a moment ago reserves its slot next), and once a minute
-fn lock_clones(pool: &Pool, unknown_timeout: Duration, report: &dyn Fn(GetStep)) -> Result<(RepositoryLock, Option<Duration>)> {
+/// The turn of a get at the clones lock (`lock_clones`); `waited` is how long the get waited for it, when the wait was
+/// told (`GetStep::WaitForClone`)
+enum CloneTurn {
+  Locked {
+    lock: RepositoryLock,
+    waited: Option<Duration>,
+  },
+  /// A slot was freed while the get waited (`reservable`): the get reserves it without the lock
+  SlotFreed {
+    waited: Option<Duration>,
+  },
+}
+
+/// The clones lock of `pool` (`Pool::lock_clones`), or the end of the wait for it once a slot the get has not tried
+/// (`tried`) is free: the state it reads for the holder anyway (`clone_holder`, about once a second) tells it, and an
+/// error of that read is no slot. Not the modification time of the state: two writes within one tick of the clock look
+/// like none. The wait is told (`GetStep::WaitForClone`) when it starts, when the holder or the slot it adds changes (a
+/// holder that took the lock a moment ago reserves its slot next), and once a minute
+fn lock_clones(pool: &Pool, unknown_timeout: Duration, tried: &HashSet<String>, report: &dyn Fn(GetStep)) -> Result<CloneTurn> {
   let started = Instant::now();
   // the holder told last, and when
   let mut told: Option<(CloneHolder, Instant)> = None;
-  let lock = pool.lock_clones(unknown_timeout, &mut |process| {
-    let holder = clone_holder(pool, process);
-    if told.as_ref().is_none_or(|(last, at)| *last != holder || at.elapsed() >= CLONE_WAIT_TICK) {
-      report(GetStep::WaitForClone(holder.clone()));
-      told = Some((holder, Instant::now()));
-    }
-  })?;
-  Ok((lock, told.map(|_| started.elapsed())))
+  let freed = Cell::new(false);
+  let lock = pool.lock_clones(
+    unknown_timeout,
+    &mut |process| {
+      let store = pool.read().unwrap_or_else(|error| {
+        debug!(error = %format!("{error:#}"), "cannot read the state while waiting for the clones lock");
+        LeaseStore::default()
+      });
+      if store.slots.iter().any(|slot| reservable(slot, tried)) {
+        freed.set(true);
+        return;
+      }
+      let holder = clone_holder(&store, process);
+      if told.as_ref().is_none_or(|(last, at)| *last != holder || at.elapsed() >= CLONE_WAIT_TICK) {
+        report(GetStep::WaitForClone(holder.clone()));
+        told = Some((holder, Instant::now()));
+      }
+    },
+    &|| freed.get(),
+  );
+  let waited = told.map(|_| started.elapsed());
+  match lock {
+    Ok(lock) => Ok(CloneTurn::Locked { lock, waited }),
+    Err(error) if freed.get() && error.is::<LockWaitCanceled>() => Ok(CloneTurn::SlotFreed { waited }),
+    Err(error) => Err(error),
+  }
 }
 
-/// The holder of the clones lock with the new slot it adds, read from the state without the lock: the slot whose
+/// The holder of the clones lock with the new slot it adds, as `store` (read without the lock) tells it: the slot whose
 /// `preparing` lease is of its process and that has no worktree id yet, and the free slot that lease clones
-fn clone_holder(pool: &Pool, process: &LockHolder) -> CloneHolder {
-  let store = pool.read().unwrap_or_else(|error| {
-    debug!(error = %format!("{error:#}"), "cannot read the slot the holder of the clones lock adds");
-    LeaseStore::default()
-  });
+fn clone_holder(store: &LeaseStore, process: &LockHolder) -> CloneHolder {
   let adding = store.slots.iter().find_map(|slot| {
     let lease = slot
       .lease
@@ -1239,16 +1281,17 @@ fn reserve(
   store.slots.retain(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir());
   for dirty in [false, true] {
     let mut order: Vec<usize> = (0..store.slots.len())
-      .filter(|&index| store.slots[index].lease.is_none() && store.slots[index].dirty == dirty)
+      .filter(|&index| reservable(&store.slots[index], tried) && store.slots[index].dirty == dirty)
       .collect();
     // stable: the slots never returned come last, in the order they joined
     order.sort_by_key(|&index| std::cmp::Reverse(store.slots[index].returned));
     for index in order {
       let slot = &mut store.slots[index];
-      if tried.contains(&slot.path) || !is_worktree_of(Path::new(&slot.path), git_common_dir) {
+      // tried before any check: the wait for the clones lock ends only for a slot this get has not looked at
+      tried.insert(slot.path.clone());
+      if !is_worktree_of(Path::new(&slot.path), git_common_dir) {
         continue;
       }
-      tried.insert(slot.path.clone());
       // a Bazel server serves only its slot, and a free slot is the pool's: the get stops it. A `--watchfs` server could
       // miss the events of the checkout and build stale
       let Some(servers) = servers_alone(scan, slot, skipped) else {
@@ -1281,6 +1324,13 @@ fn reserve(
     reclaimed: None,
   });
   Reserved::New { path, template }
+}
+
+/// Whether a get that looked at the slots of `tried` may reserve `slot` as free: not tried yet, and no lease, or one
+/// that `settle_abandoned` frees (its process gone, no idle lease to give back). The candidates of `reserve`, and the
+/// slot freed meanwhile that ends the wait for the clones lock (`lock_clones`)
+fn reservable(slot: &Slot, tried: &HashSet<String>) -> bool {
+  !tried.contains(&slot.path) && slot.lease.as_ref().is_none_or(|lease| lease.taking_over.is_none() && lease.is_abandoned())
 }
 
 /// The Bazel servers of `slot` when they are the only processes in it, which the get stops itself; else `None`, and the

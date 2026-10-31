@@ -1401,7 +1401,7 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
   let pool = Pool::new(std::path::Path::new(&canonical_path(std::path::Path::new(&context.dirs.git_common_dir))));
   let waiting = std::sync::atomic::AtomicBool::new(false);
   let got = std::thread::scope(|scope| {
-    let held = pool.lock_clones(std::time::Duration::from_secs(10), &mut |_| {}).unwrap();
+    let held = pool.lock_clones(std::time::Duration::from_secs(10), &mut |_| {}, &|| false).unwrap();
     let get = scope.spawn(|| {
       lease_get_reporting(&context, &environment, &LeaseGetArgs::default(), &|step| {
         if matches!(step, GetStep::WaitForClone(_)) {

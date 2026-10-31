@@ -1037,8 +1037,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `git config branchdeck.leasePool <dir>`. The ignored files `.worktreeinclude` names are copied in (`seeded`).
   `free_bytes` is the free space before the get.
 - A pool adds one slot at a time (`clones.lock` beside the state): a get that must add a slot while another adds one
-  waits, and a slot a return frees meanwhile is leased instead (`reused: true`); the free space is checked again once
-  its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). The wait lasts
+  waits, and a slot a return frees meanwhile ends the wait and is leased instead (`reused: true`), within about a
+  second, while the other clone still runs; the free space is checked again once its turn comes. `waited_for_clone_ms` says how long it waited (omitted when it waited for none). The wait lasts
   while the holder lives; a killed holder frees the lock. Each step goes to stderr as it starts, the wait with its
   holder:
 

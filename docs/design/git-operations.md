@@ -1859,7 +1859,13 @@ the gets of a remote runner: several ran past the 1800 s deadline of their calle
 One after the other, at 40 s each, they would have finished. Nothing limited the gets that clone, since the pool lock
 is never held across a git. A get that finds no free slot takes the clones lock and reserves again under it, so a slot
 that a return freed meanwhile wins over a new one; it holds the lock until its new slot is ready or given back (the
-clone or the registration, the checkout, the seed). A get that reuses a slot never takes it. The lock is beside the
+clone or the registration, the checkout, the seed). A get that reuses a slot never takes it. A slot freed during the
+wait ends it: the waiting get reads the state about once a second anyway (for the holder's new slot, below), and a
+slot there that its reserve may take and has not tried (`reservable`: free, or a lease whose process is gone) cancels
+the wait (`LockWaitCanceled`); the get reserves that slot without the lock. Before, it noticed the slot only once the
+holder's clone and checkout were done, 40 s and more in idea-1. A slot the reserve looked at is tried before any check
+of it, so a dirty or busy one ends a wait once. Not the modification time of the state: two writes within one tick of
+the clock look like one, and the wake-up is lost. The lock is beside the
 state, not in the pool directory: the reserve under it reads that state, and the directory is only config
 (`branchdeck.leasePool`). The wait is the one of the app's repository lock (`lock_file_while_held` of
 `history_rewrite::repository_lock`): it lasts while the record of the holder (`clones.lock.holder`, its command, pid,
