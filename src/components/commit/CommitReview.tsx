@@ -27,10 +27,12 @@ import {
   buildReviewTree,
   dependencyRows,
   flattenTreeFiles,
+  foldedGroups,
   getInitiallyCollapsed,
-  MECHANICAL_GROUP_KEY,
+  hasReviewGroups,
   mechanicalKindsOf,
   revealInTree,
+  sectionRows,
   toggleInSet,
 } from "@/lib/file-tree"
 import type { FileTreeNode } from "@/lib/file-tree"
@@ -392,7 +394,9 @@ interface TreeSelection {
   filterText: string
   collapsed: ReadonlySet<string>
   selectedPath: string | null
-  /** The tree has the Mechanical group: a plan that comes after the files folds it once */
+  /** The row of the selected file when it is not its main row: the file "also in" another concern of a review */
+  selectedRow: string | null
+  /** The tree has the groups of a review: a plan that comes after the files folds the Mechanical group once */
   grouped: boolean
   /** The file the diffs of this key open at (`LoadedReview.initialPath` at the start of the key) */
   initialPath: string | null
@@ -402,13 +406,9 @@ interface TreeSelection {
   revealed: string | null
 }
 
-function hasMechanicalGroup(nodes: readonly FileTreeNode[]): boolean {
-  return nodes.some(node => node.key === MECHANICAL_GROUP_KEY)
-}
-
 function initialSelection(loaded: LoadedReview | null, filterText: string, nodes: readonly FileTreeNode[], fileCount: number, firstPath: string | null): TreeSelection {
   if (loaded === null) {
-    return { key: null, filterText, collapsed: new Set(), selectedPath: null, grouped: false, initialPath: null, defaultPath: null, revealed: null }
+    return { key: null, filterText, collapsed: new Set(), selectedPath: null, selectedRow: null, grouped: false, initialPath: null, defaultPath: null, revealed: null }
   }
   // what a search found shows whole: its directories open
   const initial = filterText.trim() === "" ? getInitiallyCollapsed(nodes, fileCount) : new Set<string>()
@@ -417,7 +417,8 @@ function initialSelection(loaded: LoadedReview | null, filterText: string, nodes
     filterText,
     collapsed: loaded.initialPath === null ? initial : revealInTree(initial, loaded.initialPath, nodes),
     selectedPath: loaded.initialPath ?? firstPath,
-    grouped: hasMechanicalGroup(nodes),
+    selectedRow: null,
+    grouped: hasReviewGroups(nodes),
     initialPath: loaded.initialPath,
     defaultPath: loaded.initialPath === null ? firstPath : null,
     revealed: loaded.revealPath,
@@ -437,33 +438,37 @@ function searchedSelection(previous: TreeSelection, filterText: string, nodes: r
     filterText,
     collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
     selectedPath,
-    grouped: hasMechanicalGroup(nodes),
+    selectedRow: null,
+    grouped: hasReviewGroups(nodes),
     revealed: revealPath,
   }
 }
 
 /**
- * The plan came, or went: the Mechanical group starts collapsed unless it holds the selected file. A file selected
- * only as the first of the tree without the plan, which may be a generated one, gives way to the first of the new tree
+ * The plan came, or went: the Mechanical group and the generated files of each concern start collapsed unless they
+ * hold the selected file. A file selected only as the first of the tree without the plan, which may be a generated
+ * one, gives way to the first of the new tree
  */
 function groupedSelection(previous: TreeSelection, nodes: readonly FileTreeNode[], firstPath: string | null): TreeSelection {
-  const grouped = hasMechanicalGroup(nodes)
+  const grouped = hasReviewGroups(nodes)
   if (!grouped) {
-    return { ...previous, grouped }
+    return { ...previous, grouped, selectedRow: null }
   }
   const moved = previous.selectedPath !== null && previous.selectedPath === previous.defaultPath
   const selectedPath = moved ? firstPath : previous.selectedPath
-  const collapsed = new Set(previous.collapsed).add(MECHANICAL_GROUP_KEY)
+  const collapsed = new Set([...previous.collapsed, ...foldedGroups(nodes)])
   return {
     ...previous,
     grouped,
     selectedPath,
+    selectedRow: null,
     defaultPath: moved ? firstPath : previous.defaultPath,
     collapsed: selectedPath === null ? collapsed : revealInTree(collapsed, selectedPath, nodes),
   }
 }
 
 const NO_MECHANICAL: ReadonlyMap<string, MechanicalKind> = new Map()
+const NO_ROWS = { rowOf: new Map<string, string>(), sectionOf: new Map<string, string>() }
 
 /** A section of the story that shows its file whole */
 const NO_UNITS: SectionUnits = { marks: new Map(), elsewhere: new Map() }
@@ -478,7 +483,7 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: st
   const lineCount = target?.outside?.lineCount ?? 0
   const at = ghost.line - 1
   const file: CommitFile = { path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: blobId, newId: blobId, submodule: false }
-  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside" }
+  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside", concern: null }
   if (target === undefined || blobId === null) {
     return { file, diff: undefined, pending: true, section }
   }
@@ -533,13 +538,14 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "review-sidebar", storage: localStorage, onlySaveAfterUserInteractions: true })
   const loadedFiles = loaded?.files
   const reviewFacts = loaded?.reviewFacts ?? null
-  // the files of real work as the tree, the mechanical ones in one group at the end, as Rust classed and ordered them
+  // the concerns of the plan, what no evidence joined as the tree, the mechanical ones in one group at the end, as Rust
+  // joined, classed and ordered them
   const mechanical = useMemo(() => (reviewFacts === null ? NO_MECHANICAL : mechanicalKindsOf(reviewFacts)), [reviewFacts])
   const nodes = useMemo(() => {
     if (loadedFiles === undefined) {
       return []
     }
-    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical)
+    return reviewFacts === null ? buildFileTree(loadedFiles) : buildReviewTree(loadedFiles, mechanical, reviewFacts.concerns)
   }, [loadedFiles, reviewFacts, mechanical])
   const files = useMemo(() => flattenTreeFiles(nodes), [nodes])
   const filterText = search?.text ?? ""
@@ -549,10 +555,10 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
     setSelection(initialSelection(loaded, filterText, nodes, files.length, files[0]?.path ?? null))
   } else if (selection.filterText !== filterText) {
     setSelection(searchedSelection(selection, filterText, nodes, files, loaded?.revealPath ?? null))
-  } else if (selection.grouped !== hasMechanicalGroup(nodes)) {
+  } else if (selection.grouped !== hasReviewGroups(nodes)) {
     setSelection(groupedSelection(selection, nodes, files[0]?.path ?? null))
   }
-  const { collapsed, selectedPath } = selection
+  const { collapsed, selectedPath, selectedRow } = selection
   // the file of a link is selected once: a later key or search does not select it again
   const revealApplied = loaded !== null && loaded.revealPath !== null && selection.revealed === loaded.revealPath
   const code = useRef<CommitReviewCodeHandle>(null)
@@ -581,8 +587,9 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
   // window shows once the rows of the first screen are painted (`onFirstScreen`)
   const diffs = loaded?.diffs ?? null
   const diffsComplete = loaded?.diffsComplete ?? false
-  // with the plan, the story of its units (spec/branch/review-units.spec.md): each run of changes of a file one section,
-  // each group a section per file, the mechanical ones collapsed, the uses a change left outside after it
+  // with the plan, the story of its units (spec/branch/review-units.spec.md) in the order of its concerns: each run of
+  // changes of a file one section, each group a section per file, the mechanical ones collapsed, the uses a change left
+  // outside after it
   const narrative = useMemo(() => {
     if (diffs === null || reviewFacts === null) {
       return null
@@ -592,8 +599,10 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       const diff = byPath.get(file.path)
       return { path: file.path, blocks: diff?.content.kind === "text" ? diff.content.blocks : null }
     })
-    return presentNarrative(reviewFacts.units, shown, reviewFacts.api, reviewFacts.files)
+    return presentNarrative(reviewFacts.units, shown, reviewFacts.api, reviewFacts.files, reviewFacts.concerns)
   }, [diffs, files, reviewFacts])
+  // the row of the tree each section selects, and the section each row shows: a file "also in" a concern its part there
+  const rows = useMemo(() => (narrative === null ? NO_ROWS : sectionRows(narrative, nodes)), [narrative, nodes])
   // the file at the head of each use left outside, read once per review
   const revision = loaded?.revisions.new ?? null
   const [outside, setOutside] = useState<ReadonlyMap<string, DeclarationTarget | null>>(() => new Map())
@@ -639,7 +648,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
           pending: !diffsComplete && !byPath.has(section.path),
           quietImports: true,
           ...(section.folded !== null && { folded: section.folded }),
-          section: { key: section.key, units: section.units ?? NO_UNITS, targets: section.targets, heading: section.heading },
+          section: { key: section.key, units: section.units ?? NO_UNITS, targets: section.targets, heading: section.heading, concern: section.concernHeading },
         },
       ]
     })
@@ -651,23 +660,37 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
 
   const toggleDirectory = useCallback((key: string) => setSelection(previous => ({ ...previous, collapsed: toggleInSet(previous.collapsed, key) })), [])
 
-  // the tree shows the selected file: its directories open
+  // the tree shows the selected file, at the row of it given (a file "also in" a concern) or its own: its directories open
   const select = useCallback(
-    (path: string) => {
-      setSelection(previous => ({ ...previous, selectedPath: path, collapsed: revealInTree(previous.collapsed, path, nodes) }))
+    (path: string, row: string | null) => {
+      setSelection(previous => ({ ...previous, selectedPath: path, selectedRow: row, collapsed: revealInTree(previous.collapsed, row ?? path, nodes) }))
     },
     [nodes],
   )
 
-  // the section at the top selects its file in the tree; a use left outside has no row there
-  const selectShown = useCallback((path: string) => files.some(file => file.path === path) && select(path), [files, select])
-
-  const selectInTree = useCallback(
-    (file: CommitFile) => {
-      select(file.path)
-      code.current?.scrollToFile(file.path)
+  // the section at the top selects the row of its file in its concern; a use left outside has no row there
+  const selectShown = useCallback(
+    (key: string, path: string) => {
+      if (files.some(file => file.path === path)) {
+        const row = rows.rowOf.get(key) ?? path
+        select(path, row === path ? null : row)
+      }
     },
-    [select],
+    [files, rows, select],
+  )
+
+  // a row shows its first open section: of a file its own concern, of a file "also in" a concern its part there
+  const selectInTree = useCallback(
+    (file: CommitFile, key: string) => {
+      select(file.path, key === file.path ? null : key)
+      const section = rows.sectionOf.get(key)
+      if (section === undefined) {
+        code.current?.scrollToFile(file.path)
+      } else {
+        code.current?.scrollToSection(section)
+      }
+    },
+    [rows, select],
   )
 
   // a place of a popover or of the card of the review plan: its file is selected as a row of the tree is, by its path
@@ -679,7 +702,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
         onRevealHidden(place)
         return
       }
-      select(file.path)
+      select(file.path, null)
       showPlace(code.current, { ...place, path: file.path })
     },
     [files, select, onRevealHidden],
@@ -734,15 +757,15 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       case "KeyK": {
         // with the plan the diffs are the story: J and K step through its sections, the tree follows
         if (reviewFacts !== null) {
-          const path = code.current?.moveSection(event.code === "KeyJ" ? 1 : -1)
-          if (path !== undefined) {
-            selectShown(path)
+          const next = code.current?.moveSection(event.code === "KeyJ" ? 1 : -1)
+          if (next !== undefined) {
+            selectShown(next.key, next.path)
           }
           break
         }
         const next = files[selectedIndex + (event.code === "KeyJ" ? 1 : -1)]
         if (next !== undefined) {
-          selectInTree(next)
+          selectInTree(next, next.path)
         }
         break
       }
@@ -754,7 +777,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
       case "KeyP": {
         const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1)
         if (path !== undefined) {
-          select(path)
+          select(path, null)
         }
         break
       }
@@ -809,7 +832,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                     aria-label="Changed files"
                     collapsed={collapsed}
                     onToggleDirectory={toggleDirectory}
-                    selectedKey={selectedPath}
+                    selectedKey={selectedRow ?? selectedPath}
                     onSelectFile={selectInTree}
                     fileOwners={fileOwners}
                     badges={badges}
@@ -842,7 +865,7 @@ function ReviewLayout({ loaded, message, onPositionChange, fileOwners, sidebarTo
                   files={viewFiles}
                   diffViewMode={diffViewMode}
                   initialPath={selection.initialPath}
-                  onVisibleFileChange={selectShown}
+                  onVisibleSectionChange={selectShown}
                   onFirstScreen={showWindow}
                   fileOwners={fileOwners}
                 />

@@ -1612,6 +1612,11 @@ export type Concern = {
 	parts: ConcernPart[],
 	/**  The files of its parts, each once, in the order of its parts */
 	paths: string[],
+	/**
+	 *  Its files whose main row, in the tree of the review, is another concern's: of the concerns of a file, the one whose
+	 *  parts of it change the most lines holds its row, the first of equal ones; each other one shows it as "also in"
+	 */
+	elsewhere: string[],
 	/**  Why its parts are together, the evidence of the most joins first */
 	evidence: ConcernEvidence[],
 	/**  The set of the fingerprints of its parts */

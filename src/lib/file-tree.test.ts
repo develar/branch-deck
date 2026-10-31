@@ -1,10 +1,12 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitFile, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewUnit } from "@/lib/bindings"
+import type { CommitFile, Concern, ConcernName, DependencyChange, FileFacts, FileStatus, MechanicalKind, ReviewUnit } from "@/lib/bindings"
 import { fileMenuItems } from "@/lib/file-actions"
 import {
+  alsoRowKey,
   buildFileTree,
   buildReviewTree,
+  concernRowKey,
   dependencyRows,
   fileActionTarget,
   flattenTreeFiles,
@@ -13,17 +15,19 @@ import {
   getVisibleRows,
   MECHANICAL_GROUP_KEY,
   mechanicalKindsOf,
+  OTHER_CHANGES_KEY,
   revealInTree,
+  sectionRows,
 } from "@/lib/file-tree"
-import type { FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
+import type { FileTreeAlso, FileTreeDirectory, FileTreeNode } from "@/lib/file-tree"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
 }
 
-/** `name` per row, indented by depth, directories with a trailing slash */
+/** `name` per row, indented by depth, directories with a trailing slash, a file "also in" a concern with its words */
 function outline(nodes: readonly FileTreeNode[], collapsed: ReadonlySet<string> = new Set()): string[] {
-  return getVisibleRows(nodes, collapsed).map(node => `${"  ".repeat(node.depth)}${node.name}${node.kind === "directory" ? "/" : ""}`)
+  return getVisibleRows(nodes, collapsed).map(node => `${"  ".repeat(node.depth)}${node.name}${node.kind === "directory" ? "/" : node.kind === "also" ? `, ${node.also}` : ""}`)
 }
 
 const AIR = [
@@ -143,7 +147,7 @@ describe("the tree of a review with its plan", () => {
   ])
 
   it("folds the mechanical files into one group at the end, a group per kind, each file by its path; J and K reach them last", () => {
-    const tree = buildReviewTree(files, mechanical)
+    const tree = buildReviewTree(files, mechanical, [])
     expect(outline(tree)).toEqual([
       "src/",
       "  a/",
@@ -163,7 +167,7 @@ describe("the tree of a review with its plan", () => {
     const group = tree.at(-1) as FileTreeDirectory
     expect([group.key, group.group, group.fileCount, group.additions, group.deletions]).toEqual([MECHANICAL_GROUP_KEY, "mechanical", 3, 4, 5])
     // a tree without a mechanical file has no group
-    expect(outline(buildReviewTree(files.slice(0, 2), mechanical))).toEqual(outline(buildFileTree(files.slice(0, 2))))
+    expect(outline(buildReviewTree(files.slice(0, 2), mechanical, []))).toEqual(outline(buildFileTree(files.slice(0, 2))))
   })
 
   it("orders the kinds as the units of the plan, the order Rust gave the story", () => {
@@ -178,7 +182,7 @@ describe("the tree of a review with its plan", () => {
       ["src/b/b.iml", "buildModel"],
       ["src/Base.kt", "whitespace"],
     ])
-    expect(outline(buildReviewTree(files, kinds)).slice(-7)).toEqual([
+    expect(outline(buildReviewTree(files, kinds, [])).slice(-7)).toEqual([
       "Mechanical (3)/",
       "  Generated (1)/",
       "    src/a/Old.lock",
@@ -190,7 +194,7 @@ describe("the tree of a review with its plan", () => {
   })
 
   it("starts with the Mechanical group collapsed, and opens it to reveal a file in it", () => {
-    const tree = buildReviewTree(files, mechanical)
+    const tree = buildReviewTree(files, mechanical, [])
     const collapsed = getInitiallyCollapsed(tree, files.length)
     expect([...collapsed]).toEqual([MECHANICAL_GROUP_KEY])
     expect(outline(tree, collapsed).at(-1)).toBe("Mechanical (3)/")
@@ -199,7 +203,7 @@ describe("the tree of a review with its plan", () => {
   })
 
   it("copies the paths of a group, which has no path of its own", () => {
-    const group = buildReviewTree(files, mechanical).at(-1)!
+    const group = buildReviewTree(files, mechanical, []).at(-1)!
     expect(fileActionTarget(group)).toEqual({ kind: "group", files: ["src/b/b.iml", "src/Base.kt", "src/a/Old.lock"] })
     expect(fileMenuItems(fileActionTarget(group), { copyKey: true }).map(item => item.label)).toEqual(["Copy Changed Paths"])
   })
@@ -216,7 +220,7 @@ describe("the tree of a review with its plan", () => {
       scope: "main",
       scopeBefore: null,
     })
-    const tree = buildReviewTree([...files, file("Cargo.toml"), file("lib/x/x.iml")], new Map([...mechanical, ["Cargo.toml", "buildModel"], ["lib/x/x.iml", "buildModel"]]))
+    const tree = buildReviewTree([...files, file("Cargo.toml"), file("lib/x/x.iml")], new Map([...mechanical, ["Cargo.toml", "buildModel"], ["lib/x/x.iml", "buildModel"]]), [])
     const rows = dependencyRows(tree, [change("src/b/b.iml", "b"), change("Cargo.toml", "serde"), change("lib/x/x.iml", "x"), change("gone/y.iml", "y")])
     expect([...rows].map(([key, changes]) => [key, changes.map(it => it.name)])).toEqual([
       ["src/b/", ["b"]],
@@ -226,5 +230,125 @@ describe("the tree of a review with its plan", () => {
     // the directory a merged row holds: `plugins/air/` is in the row `plugins/air/backend/`
     const merged = buildFileTree([file("plugins/air/backend/A.kt"), file("README.md")])
     expect([...dependencyRows(merged, [change("plugins/air/air.iml", "air")]).keys()]).toEqual(["plugins/air/backend/"])
+  })
+})
+
+describe("the concerns in the tree of a review", () => {
+  // the `review_concerns` template: a server dropped from three configs and the guide, grep replaced by accio in the
+  // guide, its list of tools and AGENTS.md rendered from it; a change no evidence joined, a lock file
+  const files = [
+    file(".codex/config.toml", 0, 4),
+    file(".mcp.json", 0, 5),
+    file("AGENTS.md", 1, 1),
+    file("docs/guide.md", 1, 2),
+    file("docs/tools.md", 1, 1),
+    file("pnpm-lock.yaml", 1, 0),
+    file("src/App.kt", 1, 1),
+    file("tools/codex/config.toml", 0, 4),
+  ]
+  const mechanical = new Map<string, MechanicalKind>([
+    ["AGENTS.md", "generated"],
+    ["pnpm-lock.yaml", "generated"],
+  ])
+  const concern = (id: string, name: ConcernName, paths: string[], elsewhere: string[] = []): Concern => ({
+    id,
+    name,
+    parts: paths.map(path => ({ unit: `other:${path}`, path, blocks: null })),
+    paths,
+    elsewhere,
+    evidence: name.source === "rest" ? [] : [{ kind: "token", detail: "ij-mcp-proxy", joins: 2 }],
+    fingerprint: id,
+  })
+  const concerns = [
+    concern("p", { source: "token", token: "ijproxy" }, [".codex/config.toml", "docs/guide.md", "tools/codex/config.toml", ".mcp.json"], ["docs/guide.md"]),
+    concern("g", { source: "replacement", removed: "grep", added: "accio" }, ["docs/guide.md", "docs/tools.md", "AGENTS.md"]),
+    concern("r", { source: "rest" }, ["src/App.kt"]),
+  ]
+
+  it("lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical", () => {
+    const tree = buildReviewTree(files, mechanical, concerns)
+    expect(outline(tree)).toEqual([
+      "ijproxy/",
+      "  .codex/config.toml",
+      "  docs/guide.md, also in ijproxy",
+      "  tools/codex/config.toml",
+      "  .mcp.json",
+      "grep → accio/",
+      "  docs/guide.md",
+      "  docs/tools.md",
+      "  Generated (1)/",
+      "    AGENTS.md",
+      "Other changes/",
+      "  src/",
+      "    App.kt",
+      "Mechanical (1)/",
+      "  Generated (1)/",
+      "    pnpm-lock.yaml",
+    ])
+    // one row of a file: the row "also in" counts in no group and no position, and has a key of its own
+    expect(flattenTreeFiles(tree).map(it => it.path)).toEqual([
+      ".codex/config.toml",
+      "tools/codex/config.toml",
+      ".mcp.json",
+      "docs/guide.md",
+      "docs/tools.md",
+      "AGENTS.md",
+      "src/App.kt",
+      "pnpm-lock.yaml",
+    ])
+    const [proxy, replacement] = tree as FileTreeDirectory[]
+    expect([proxy!.key, proxy!.group, proxy!.fileCount, proxy!.additions, proxy!.deletions, proxy!.title]).toEqual([
+      concernRowKey("p"),
+      "concern",
+      3,
+      0,
+      13,
+      "Joined by the identifier ij-mcp-proxy",
+    ])
+    const also = proxy!.children[1] as FileTreeAlso
+    expect([also.key, also.concern, also.home]).toEqual([alsoRowKey("p", "docs/guide.md"), "p", "Its own row is under grep → accio"])
+    expect(replacement!.fileCount).toBe(3)
+    // the generated files of a concern and the Mechanical group start collapsed, the directories of Other changes open
+    const collapsed = getInitiallyCollapsed(tree, files.length)
+    expect([...collapsed]).toEqual([`${concernRowKey("g")}generated/`, MECHANICAL_GROUP_KEY])
+    expect([...revealInTree(collapsed, "AGENTS.md", tree)]).toEqual([MECHANICAL_GROUP_KEY])
+    expect(tree.find(node => node.key === OTHER_CHANGES_KEY)?.kind).toBe("directory")
+  })
+
+  it("shows a file of what no evidence joined that is also in a concern in its place under Other changes", () => {
+    const rest = concern("r", { source: "rest" }, ["src/App.kt", "docs/tools.md"], ["docs/tools.md"])
+    const tree = buildReviewTree(files, mechanical, [concerns[0]!, concerns[1]!, rest])
+    expect(outline(tree).slice(10, 15)).toEqual(["Other changes/", "  docs/", "    tools.md, also in Other changes", "  src/", "    App.kt"])
+  })
+
+  it("is the tree without concerns while the plan has none but the rest, and leaves out a concern the filter empties", () => {
+    expect(outline(buildReviewTree(files, mechanical, [concerns[2]!]))).toEqual(outline(buildReviewTree(files, mechanical, [])))
+    const filtered = files.filter(it => it.path.includes("tools"))
+    expect(outline(buildReviewTree(filtered, mechanical, concerns))).toEqual(["ijproxy/", "  tools/codex/config.toml", "grep → accio/", "  docs/tools.md"])
+  })
+
+  it("selects the row of a section in its concern, and shows the first open section of a row", () => {
+    const tree = buildReviewTree(files, mechanical, concerns)
+    const section = (key: string, path: string, concern: string | null, folded: string | null = null) => ({ key, path, concern, folded, ghost: null })
+    const { rowOf, sectionOf } = sectionRows(
+      [
+        section("file:.codex/config.toml", ".codex/config.toml", "p"),
+        section("file:docs/guide.md#1", "docs/guide.md", "p"),
+        section("file:docs/guide.md", "docs/guide.md", "g"),
+        section("group:mechanical:generated:AGENTS.md", "AGENTS.md", "g", "Generated"),
+        section("group:mechanical:generated:pnpm-lock.yaml", "pnpm-lock.yaml", null, "Lock file"),
+      ],
+      tree,
+    )
+    expect([...rowOf]).toEqual([
+      ["file:.codex/config.toml", ".codex/config.toml"],
+      ["file:docs/guide.md#1", alsoRowKey("p", "docs/guide.md")],
+      ["file:docs/guide.md", "docs/guide.md"],
+      ["group:mechanical:generated:AGENTS.md", "AGENTS.md"],
+      ["group:mechanical:generated:pnpm-lock.yaml", "pnpm-lock.yaml"],
+    ])
+    expect(sectionOf.get("docs/guide.md")).toBe("file:docs/guide.md")
+    expect(sectionOf.get(alsoRowKey("p", "docs/guide.md"))).toBe("file:docs/guide.md#1")
+    expect(sectionOf.get("AGENTS.md")).toBe("group:mechanical:generated:AGENTS.md")
   })
 })

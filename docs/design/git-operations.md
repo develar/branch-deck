@@ -3176,7 +3176,7 @@ and the `rewritten` ones, each against its own parent:
 | 15. Pair and units | one `cat-file --batch` of the first and last blobs of the files that several commits change, for those the memory of the diffs and the `file_diff` store lack (`FileDiffs::blocks_of`); none when no file is changed twice | the blocks of each changed file from before the commits to after them, under `Default` (`pair.rs`: the hunks of a file one commit changes); cut into the units (`units.rs`, [Review Units](../../spec/branch/review-units.spec.md)) by the summaries of step 7 (`spanned_declarations`), the hunk text of step 12 and the kinds and groups of step 14: every block in one unit, in the order of step 10 |
 | 16. Concerns | none | the units of step 15 joined into the tasks of the range (`concerns.rs`, [Review Concerns](../../spec/branch/review-concerns.spec.md)) by the links of step 11, the hunk text of step 12 and the generated files of step 14: a changed declaration and the changes that name it, the files of a group, a rare identifier the changed lines of several files share, the rest to the concern of its file or subject |
 
-`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 7` (`REVIEW_PLAN_SCHEMA_VERSION`),
+`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 8` (`REVIEW_PLAN_SCHEMA_VERSION`),
 the other outputs of `bd` with 2. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes

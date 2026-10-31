@@ -417,6 +417,49 @@ pub mod templates {
       )
   }
 
+  /// A branch `search` whose one commit does two tasks: it drops the server `ijproxy` from three configs in three
+  /// directories and from the guide, and searches with accio in place of grep, in the guide, in its list of tools and in
+  /// `AGENTS.md`, rendered from the guide; with a change no evidence joins and a lock file. The guide is in both tasks,
+  /// most of its lines in the second: the concerns of a review
+  pub fn review_concerns() -> RepoTemplate {
+    let mcp = |server: &str| format!("{{\n  \"mcpServers\": {{\n    \"glean\": {{\n      \"type\": \"http\"\n    }}{server}\n  }}\n}}\n");
+    let codex = |server: &str| format!("[mcp_servers.glean]\nurl = \"https://glean\"\n{server}");
+    let codex_server = |root: &str| format!("\n[mcp_servers.ijproxy]\ntype = \"stdio\"\nargs = [\"{root}build/ij-proxy/dist/ij-mcp-proxy.mjs\"]\n");
+    let guide = |tool: &str, server: &str| format!("# Guide\n\nSearch the source with `{tool}`.\n\n## Servers\n\n- glean: the search of the company\n{server}");
+    let agents = |tool: &str| format!("<!-- Generated from docs/guide.md by tools/render.mjs -->\n\nSearch the source with `{tool}`.\n");
+    let files = |tool: &str, dropped: bool, version: u8, lock: &str| {
+      let (json_server, server, nested_server, guide_server) = if dropped {
+        (String::new(), String::new(), String::new(), String::new())
+      } else {
+        (
+          ",\n    \"ijproxy\": {\n      \"type\": \"stdio\",\n      \"args\": [\"build/ij-proxy/dist/index.mjs\"]\n    }".to_string(),
+          codex_server(""),
+          codex_server("../../"),
+          "- `ijproxy`: the IDE through `ij-mcp-proxy`\n".to_string(),
+        )
+      };
+      vec![
+        (".mcp.json".to_string(), mcp(&json_server)),
+        (".codex/config.toml".to_string(), codex(&server)),
+        ("tools/codex/config.toml".to_string(), codex(&nested_server)),
+        ("docs/guide.md".to_string(), guide(tool, &guide_server)),
+        ("docs/tools.md".to_string(), format!("# Tools\n\n- `{tool}`: the text of the source\n")),
+        ("AGENTS.md".to_string(), agents(tool)),
+        ("src/App.kt".to_string(), format!("class App {{\n  fun version() = {version}\n}}\n")),
+        ("pnpm-lock.yaml".to_string(), format!("lockfileVersion: '9.0'\n\npackages:\n{lock}")),
+      ]
+    };
+    let before = files("grep", false, 1, "  a@1.0.0: {}\n");
+    let after = files("accio", true, 2, "  a@1.0.0: {}\n  b@2.0.0: {}\n");
+    fn refs(files: &[(String, String)]) -> Vec<(&str, &str)> {
+      files.iter().map(|(path, text)| (path.as_str(), text.as_str())).collect()
+    }
+    RepoTemplate::new("review_concerns")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &refs(&before), Some(1704117600))
+      .commit_with_timestamp("(search) drop ijproxy, search with accio", &refs(&after), Some(1704119400))
+  }
+
   /// A branch `rename` whose one commit makes the same edit in three files of the baseline, each of them that edit alone,
   /// and the same edit with a change of its function in a fourth: the files the review plan folds as the same edit
   pub fn repeated_edit() -> RepoTemplate {

@@ -312,8 +312,8 @@ export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" 
 /** What the tree reads of the plan: the facts of the files, their links, the dependency changes, the repeated edits */
 export type FileFactsOfPlan = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
 
-/** What the review window reads of the plan: the facts of the files and the units of the story */
-export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api">
+/** What the review window reads of the plan: the facts of the files, the units of the story and its concerns */
+export type ReviewFacts = FileFactsOfPlan & Pick<ReviewPlan, "units" | "api" | "concerns">
 
 export const MECHANICAL_WORDS: Readonly<Record<MechanicalKind, string>> = {
   buildModel: "Build files",

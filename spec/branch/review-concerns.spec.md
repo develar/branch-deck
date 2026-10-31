@@ -6,6 +6,11 @@ targets:
   - ../../crates/review-plan/src/concerns.rs
   - ../../crates/review-plan/src/units.rs
   - ../../crates/bd-rewrite/src/review_plan_command.rs
+  - ../../src/lib/file-tree.ts
+  - ../../src/presenters/review-concerns.ts
+  - ../../src/presenters/review-units.ts
+  - ../../src/components/commit/CommitReview.tsx
+  - ../../src/components/files/FileTree.tsx
 ---
 
 # Review Concerns
@@ -84,6 +89,9 @@ the measurements: [Change Review](../../docs/design/change-review.md).
 ### Order, Identity, Name
 - The concerns must come in the order of their first unit in the story, `rest` last; the parts of a concern in the
   order of the units, one per unit and file, with the blocks it holds of a file of no language (`null` for all).
+- A file of several concerns must have its main row in the one whose parts of it change the most lines, the first of
+  equal ones; each other one lists it in `elsewhere`. A generated file is in one concern only.
+  [@test] ../../crates/review-plan/src/concerns_test.rs (`a_file_of_two_concerns_has_its_main_row_in_the_one_of_its_most_changed_lines`)
 - `id` must be the fingerprint of the first part (its unit's fingerprint, its file, its block), so that a concern that
   grows keeps it; `fingerprint` the digest of the set of the fingerprints of its parts.
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_concern_keeps_its_id_as_it_grows`)
@@ -94,14 +102,46 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`)
 
 ### In `bd`
-- `bd review-plan` must print `concerns` (`"schema": 7`): per concern its `id`, `name` (`source` `token` with
+- `bd review-plan` must print `concerns` (`"schema": 8`): per concern its `id`, `name` (`source` `token` with
   `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `directory` with `directory`, `rest`),
-  its `parts` (`unit`, `path`, `blocks`), its `paths`, its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
+  its `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
   `detail` and `joins`, the most joins first) and its `fingerprint`. The hidden `--concern-edges uses,tokens,rest`
   (or `none`) picks the edges for a measurement of each; without it `uses,tokens`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 - The concerns must run no git process.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
+
+### In the Review Window
+- With a concern beside the rest, the tree of a review with its plan must list the concerns at its top, in their
+  order: a row per concern, named by its evidence ("proxy", "grep → accio", the name of a declaration, the directory
+  or "Root"), with its files and lines, why its parts are together in its hover ("Joined by the identifiers
+  ij-mcp-proxy, ij-proxy"); under it the files whose main row it holds, each named by its path, in the order of its
+  parts, then its generated files in a group per kind ("Generated (1)"), collapsed. Then the files of `rest` and of no
+  concern as the directory tree under "Other changes", then the Mechanical group of the other mechanical files.
+  Without the plan, or with no concern but `rest`, the tree is the one of
+  [Review Plan](review-plan.spec.md#in-the-review-window).
+  [@test] ../../src/lib/file-tree.test.ts (`lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical`, `is the tree without concerns while the plan has none but the rest, and leaves out a concern the filter empties`)
+  [@test] ../../src/presenters/review-concerns.test.ts (`names a concern by its evidence, and says why its parts are together`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+- A file must have one row of its own, in the concern of its main row; each other concern of it (`elsewhere`) a row
+  of its own name, "docs/guide.md, also in ijproxy", in its place among the files (in the directory tree of Other
+  changes for `rest`), its main concern in its hover. That row selects the file and shows its part of that concern;
+  it counts as no file: "File 4 / 8" is the place of the file, and the line counts of a concern are those of its own
+  rows.
+  [@test] ../../src/lib/file-tree.test.ts (`lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical`, `shows a file of what no evidence joined that is also in a concern in its place under Other changes`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+- The story must follow the concerns (`presentNarrative`): the parts of each concern together, in its order, its
+  first section under its name (`review-concern-heading`), `rest` under "Other changes"; a unit of several concerns in
+  each with the blocks it holds there, also a file of no language the story shows whole, the blocks of another
+  concern one row "Shown in grep → accio"; a generated file of a concern collapsed at its end, saying why; the
+  mechanical groups after the concerns. With no concern but `rest`, the order of the units.
+  [@test] ../../src/presenters/review-units.test.ts (`lays the parts of each concern out together under its name, a unit cut by the concerns in each, its generated file collapsed at its end, the mechanical groups after`, `keeps the order of the units while the plan has no concern but the rest`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+- A row must show the first open section of its file in its concern; the section at the top must select the row of
+  its file in its concern, the row "also in" there, as J and K step through the sections, also into the next
+  concern. The filter of the files keeps the concerns of the files it shows.
+  [@test] ../../src/lib/file-tree.test.ts (`selects the row of a section in its concern, and shows the first open section of a row`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 
 ## User Experience
 
@@ -116,7 +156,25 @@ the measurements: [Change Review](../../docs/design/change-review.md).
 ]
 ```
 
-The window does not show the concerns yet ([Change Review → Next](../../docs/design/change-review.md#next)).
+The tree of the review window, the range of the `review_concerns` template (`review-plan-concerns-tree`):
+
+```
+◎ ijproxy                          +0 −10
+    .codex/config.toml
+    docs/guide.md  also
+    tools/codex/config.toml
+    .mcp.json
+◎ grep → accio                     +3 −4
+    docs/guide.md
+    docs/tools.md
+  › Generated (1)
+≡ Other changes
+  › src / App.kt
+› Mechanical (1)
+```
+
+The first section of each concern shows its name first in its header, a `Badge` (`review-concern-heading`), before
+the heading of a group (`review-section-heading`).
 
 ## Open Questions / Risks
 

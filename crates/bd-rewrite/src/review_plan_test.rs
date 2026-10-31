@@ -23,7 +23,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(7), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&json!(8), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],

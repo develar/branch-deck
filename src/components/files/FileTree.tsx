@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon, FolderIcon, FolderOpenIcon, LayersIcon } from "lucide-react"
+import { ChevronRightIcon, FolderIcon, FolderOpenIcon, LayersIcon, TargetIcon } from "lucide-react"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
@@ -11,7 +11,7 @@ import { copyText, isCopyKey } from "@/lib/clipboard"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
 import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
-import type { FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
+import type { FileTreeAlso, FileTreeDirectory, FileTreeFile, FileTreeNode } from "@/lib/file-tree"
 import type { ReviewPlace } from "@/lib/review-place"
 import type { DependencyBadge, FileBadges } from "@/presenters/review-plan"
 
@@ -53,8 +53,8 @@ export interface InlineFileTreeProps extends FileTreeBaseProps {
 export interface NavigationFileTreeProps extends FileTreeBaseProps {
   mode: "navigate"
   selectedKey: string | null
-  /** Must keep its identity: the rows are memoized */
-  onSelectFile: (file: CommitFile) => void
+  /** The file of a row, and the key of the row: a file of a review shows also in other concerns; must keep its identity, the rows are memoized */
+  onSelectFile: (file: CommitFile, key: string) => void
 }
 
 export type FileTreeProps = InlineFileTreeProps | NavigationFileTreeProps
@@ -97,8 +97,8 @@ export function FileTree(props: FileTreeProps) {
     setFocusedKey(node.key)
     rowElements.current.get(node.key)?.focus()
     // the selection follows the focus
-    if (node.kind === "file") {
-      onSelectFile?.(node.file)
+    if (node.kind !== "directory") {
+      onSelectFile?.(node.file, node.key)
     }
   }
 
@@ -108,8 +108,8 @@ export function FileTree(props: FileTreeProps) {
     if (node.kind === "directory") {
       onToggleDirectory(node.key)
     } else if (onSelectFile !== undefined) {
-      onSelectFile(node.file)
-    } else {
+      onSelectFile(node.file, node.key)
+    } else if (node.kind === "file") {
       onToggleFile?.(node.key)
     }
   }
@@ -199,7 +199,7 @@ export function FileTree(props: FileTreeProps) {
           rowElements={rowElements}
           onToggle={toggle}
           onFocusRow={setFocusedKey}
-          owner={node.kind === "file" ? fileOwners?.get(node.file.path) : undefined}
+          owner={node.kind === "directory" ? undefined : fileOwners?.get(node.file.path)}
           fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
           dependencyBadge={badges?.dependencies.get(node.key)}
           onSelectPlace={badges?.onSelectPlace}
@@ -214,6 +214,9 @@ export function FileTree(props: FileTreeProps) {
 function isRowOpen(node: FileTreeNode, collapsed: ReadonlySet<string>, expandedFiles: ReadonlySet<string> | null): boolean | undefined {
   if (node.kind === "directory") {
     return !collapsed.has(node.key)
+  }
+  if (node.kind === "also") {
+    return undefined
   }
   return expandedFiles === null ? undefined : expandedFiles.has(node.key)
 }
@@ -256,6 +259,8 @@ const FileTreeRow = memo(function FileTreeRow({
     node.kind === "directory"
       ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
       : `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}${fileBadges === undefined ? "" : `, ${fileBadges.description}`}`
+  // a file of a review also in another concern: the row tells it from the row of the file
+  const label = node.kind === "also" ? `${node.name}, ${node.also}` : node.name
   return (
     <div
       ref={element => {
@@ -268,8 +273,8 @@ const FileTreeRow = memo(function FileTreeRow({
       role="treeitem"
       aria-level={node.depth + 1}
       aria-expanded={isOpen}
-      aria-selected={node.kind === "file" ? isSelected : undefined}
-      aria-label={node.name}
+      aria-selected={node.kind === "directory" ? undefined : isSelected}
+      aria-label={label}
       aria-description={description}
       tabIndex={inTabOrder ? 0 : -1}
       data-tree-key={node.key}
@@ -315,10 +320,16 @@ const FileTreeRow = memo(function FileTreeRow({
         ) : (
           <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
         )}
-        {node.kind === "directory" ? <DirectoryRowContent node={node} isOpen={isOpen === true} /> : <FileRowContent node={node} owner={owner} />}
+        {node.kind === "directory" ? (
+          <DirectoryRowContent node={node} isOpen={isOpen === true} />
+        ) : node.kind === "also" ? (
+          <AlsoRowContent node={node} owner={owner} />
+        ) : (
+          <FileRowContent node={node} owner={owner} />
+        )}
         {dependencyBadge !== undefined && <DependencyBadgeView badge={dependencyBadge} />}
         {fileBadges !== undefined && onSelectPlace !== undefined && <FileRowBadges badges={fileBadges} onSelectPlace={onSelectPlace} />}
-        {node.kind === "directory" ? <DirectoryLineCounts node={node} /> : <FileLineCounts node={node} />}
+        {node.kind === "directory" ? <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </FileContextMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -330,12 +341,16 @@ const FileTreeRow = memo(function FileTreeRow({
 })
 
 function DirectoryRowContent({ node, isOpen }: { node: FileTreeDirectory; isOpen: boolean }) {
-  // a group of a review is no directory: its name is what it holds
-  const Icon = node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
+  // a group of a review is no directory: its name is what it holds; a concern is a task of the range
+  const Icon = node.group === "concern" ? TargetIcon : node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
   return (
     <>
       <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate" title={node.group === undefined ? node.key.slice(0, -1) : node.name} data-group={node.group}>
+      <span
+        className={cn("min-w-0 flex-1 truncate", node.group === "concern" && "font-medium")}
+        title={node.title ?? (node.group === undefined ? node.key.slice(0, -1) : node.name)}
+        data-group={node.group}
+      >
         {node.name}
       </span>
     </>
@@ -361,6 +376,20 @@ function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | u
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup === true} letterSlot="icon" />
       </span>
     </>
+  )
+}
+
+/** A file in a concern that is not the one of its main row: its name played down, "also" after it */
+function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | undefined }) {
+  const { file } = node
+  const path = formatCommitFilePath(file)
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-1.5 text-muted-foreground" title={`${owner === undefined ? path : `${path}\nOwned by ${owner}`}\n${node.home}`}>
+      <span className="flex min-w-0">
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup} letterSlot="icon" />
+      </span>
+      <span className="shrink-0 text-xs">also</span>
+    </span>
   )
 }
 

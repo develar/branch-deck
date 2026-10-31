@@ -135,16 +135,19 @@ reason.
 The rows of an `ignored` block show as unchanged lines. Unified and Inline show its new lines and leave out its old
 lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plain, the shorter side filled.
 
-**Sections.** The review with its plan shows the story of its units (spec/branch/review-units.spec.md): a file may be
-several sections, a run of its units and its slices of groups, each a `DiffViewFile` with a `section` (`DiffSection`:
-its key, the headings of its changes, the blocks other sections show and the key of each). `buildFileRows` with the
+**Sections.** The review with its plan shows the story of its units (spec/branch/review-units.spec.md), in the order
+of its concerns (spec/branch/review-concerns.spec.md): a file may be several sections, a run of its units, its parts
+of each concern and its slices of groups, each a `DiffViewFile` with a `section` (`DiffSection`: its key, the headings
+of its changes, the blocks other sections show and the key of each, the group and the concern its header names). `buildFileRows` with the
 `SectionUnits` of a section puts a `note` row of the heading before each block it marks, and makes each block another
 section shows one `note` row that stands for its lines: no change, so N and P pass it, and a fold may hold it. The
 view keys everything by the section, not the path: the layout, the painter, the React key, the toggled files and the
 fold levels, which a section keeps by its own key (`sectionFoldKey`), its gaps being its own. A path finds the section
 that shows its line (`sectionOf`), without a line its first open section; a click on a `note` row of a block opens the
-section that shows it. A section near the end, which a scroll to it cannot bring to the top, keeps the change cursor
-of N while it is on screen.
+section that shows it; a key shows its section (`scrollToSection`), as a row of the tree of a concern does. The
+section at the top is reported by its key and its path (`onVisibleSectionChange`), so the tree selects the row of
+the file in the concern of the section. A section near the end, which a scroll to it cannot bring to the top, keeps
+the change cursor of N while it is on screen.
 
 The line indices are the engine's. A text that ends with a line end, and an empty text, end with an empty line that
 the engine counts (`emptyLastLine`). The row model leaves that line out when no block touches it, so a file shows no

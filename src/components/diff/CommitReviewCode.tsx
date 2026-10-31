@@ -1,6 +1,7 @@
 import { useImperativeHandle, useRef, useState } from "react"
 import type { Ref } from "react"
 import { UnfoldVerticalIcon } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
@@ -34,8 +35,8 @@ export interface CommitReviewCodeProps {
   diffViewMode: DiffViewMode
   /** The file shown first, at the top */
   initialPath: string | null
-  /** The file whose header is at the top, as the diffs scroll */
-  onVisibleFileChange: (path: string) => void
+  /** The section whose header is at the top, its key and its file, as the diffs scroll */
+  onVisibleSectionChange: (key: string, path: string) => void
   /** The first screen is painted: the window can show */
   onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
@@ -48,7 +49,7 @@ export interface CommitReviewCodeProps {
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed.
  */
-export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleFileChange, onFirstScreen, fileOwners, revisions }: CommitReviewCodeProps) {
+export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleSectionChange, onFirstScreen, fileOwners, revisions }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
   const review = useRef<DiffViewHandle>(null)
   // the files outside the review a jump opened, each with the name it started from, the last one shown over the review;
@@ -68,6 +69,10 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
     scrollToFile: path => {
       setFileViews([])
       review.current?.scrollToFile(path)
+    },
+    scrollToSection: key => {
+      setFileViews([])
+      review.current?.scrollToSection(key)
     },
     moveChange: direction => {
       setFileViews([])
@@ -105,7 +110,7 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
         softWraps={softWraps}
         initialPath={initialPath}
         label="Changes of the commit"
-        onVisibleFileChange={onVisibleFileChange}
+        onVisibleSectionChange={onVisibleSectionChange}
         onFirstScreen={onFirstScreen}
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
@@ -151,7 +156,18 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
       {files.slice(0, PENDING_HEADERS).map(file => (
         <div key={file.path} className="dv-card">
           <div className="dv-header">
-            <ReviewFileHeader file={file} notice={null} empty folded={null} heading={null} collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} />
+            <ReviewFileHeader
+              file={file}
+              notice={null}
+              empty
+              folded={null}
+              heading={null}
+              concern={null}
+              collapsed={false}
+              onToggle={() => {}}
+              pending
+              owner={fileOwners?.get(file.path)}
+            />
           </div>
         </div>
       ))}
@@ -170,7 +186,7 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
  * All, its owner and counts, and the menu of the file. The insets are IntelliJ's: 12 px above and below, 10 px at the
  * sides
  */
-function ReviewFileHeader({ file, notice, empty, folded, heading, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ file, notice, empty, folded, heading, concern, pending = false, owner, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -188,6 +204,12 @@ function ReviewFileHeader({ file, notice, empty, folded, heading, pending = fals
       >
         <FileHeaderChevron open={!collapsed} />
       </Button>
+      {concern !== null && (
+        // the task of the range its sections show from here on
+        <Badge variant="secondary" data-testid="review-concern-heading" className="shrink-0">
+          {concern}
+        </Badge>
+      )}
       {heading !== null && (
         <span data-testid="review-section-heading" className="shrink-0 font-medium">
           {heading}

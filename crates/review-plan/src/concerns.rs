@@ -23,6 +23,8 @@
 //!   fingerprint of its first part, `fingerprint` the set of the fingerprints of its parts.
 //! - **The name**, by its evidence: the identifier that joined most of it, else its first changed declaration, else the
 //!   directory its files share.
+//! - **The main row** of a file in several concerns is in the one whose parts of it change the most lines (`elsewhere`
+//!   of the others), so that the tree lists each file once and the others point to it.
 
 use crate::files::{ChangedFile, MechanicalKind, subject_stem, test_subject};
 use crate::links::FileLink;
@@ -197,6 +199,9 @@ pub struct Concern {
   pub parts: Vec<ConcernPart>,
   /// The files of its parts, each once, in the order of its parts
   pub paths: Vec<String>,
+  /// Its files whose main row, in the tree of the review, is another concern's: of the concerns of a file, the one whose
+  /// parts of it change the most lines holds its row, the first of equal ones; each other one shows it as "also in"
+  pub elsewhere: Vec<String>,
   /// Why its parts are together, the evidence of the most joins first
   pub evidence: Vec<ConcernEvidence>,
   /// The set of the fingerprints of its parts
@@ -778,7 +783,8 @@ fn assemble(
     let root = components.root(*node);
     *evidence.entry(root).or_default().entry((*kind, detail.clone())).or_default() += 1;
   }
-  let mut concerns: Vec<(usize, Concern)> = Vec::new();
+  // (its first unit, the concern, its nodes)
+  let mut concerns: Vec<(usize, Concern, Vec<usize>)> = Vec::new();
   let mut rest: Vec<usize> = Vec::new();
   for (root, mut of) in members {
     let generated = generated_of.get(&root);
@@ -816,16 +822,40 @@ fn assemble(
       .unwrap_or_else(|| ConcernName::Directory {
         directory: shared_directory(parts.iter().map(|part| part.path.as_str())),
       });
-    concerns.push((nodes[of[0]].unit, concern(units, nodes, name, parts, evidence, &of)));
+    let first = nodes[of[0]].unit;
+    concerns.push((first, concern(units, nodes, name, parts, evidence, &of), of));
   }
-  concerns.sort_by_key(|(first, _)| *first);
-  let mut concerns: Vec<Concern> = concerns.into_iter().map(|(_, concern)| concern).collect();
+  concerns.sort_by_key(|(first, ..)| *first);
   if !rest.is_empty() {
     rest.sort_by_key(|&node| (nodes[node].unit, node));
     let parts = parts_of(units, nodes, &rest);
-    concerns.push(concern(units, nodes, ConcernName::Rest, parts, Vec::new(), &rest));
+    concerns.push((usize::MAX, concern(units, nodes, ConcernName::Rest, parts, Vec::new(), &rest), rest));
   }
-  concerns
+  mark_elsewhere(nodes, &mut concerns);
+  concerns.into_iter().map(|(_, concern, _)| concern).collect()
+}
+
+/// The `elsewhere` of each concern (with its nodes): a file of several concerns has its main row in the one whose nodes
+/// of it change the most lines, the first of equal ones
+fn mark_elsewhere(nodes: &[Node<'_>], concerns: &mut [(usize, Concern, Vec<usize>)]) {
+  // the path -> (the concern of its main row, its changed lines there)
+  let mut main: HashMap<String, (usize, usize)> = HashMap::new();
+  for (index, (_, concern, of)) in concerns.iter().enumerate() {
+    // a generated file is no node: it changes no line of the graph, and only one concern holds it
+    let mut weights: BTreeMap<&str, usize> = concern.paths.iter().map(|path| (path.as_str(), 0)).collect();
+    for &node in of {
+      *weights.entry(nodes[node].path).or_default() += nodes[node].weight();
+    }
+    for (path, weight) in weights {
+      let entry = main.entry(path.to_string()).or_insert((index, weight));
+      if weight > entry.1 {
+        *entry = (index, weight);
+      }
+    }
+  }
+  for (index, (_, concern, _)) in concerns.iter_mut().enumerate() {
+    concern.elsewhere = concern.paths.iter().filter(|path| main[path.as_str()].0 != index).cloned().collect();
+  }
 }
 
 fn concern(units: &[ReviewUnit], nodes: &[Node<'_>], name: ConcernName, parts: Vec<ConcernPart>, evidence: Vec<ConcernEvidence>, of: &[usize]) -> Concern {
@@ -843,6 +873,7 @@ fn concern(units: &[ReviewUnit], nodes: &[Node<'_>], name: ConcernName, parts: V
     id,
     name,
     paths,
+    elsewhere: Vec::new(),
     evidence,
     fingerprint: digest(fingerprints.iter().map(String::as_str)),
     parts,

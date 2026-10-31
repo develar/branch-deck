@@ -702,7 +702,8 @@ of 3 or more files that get the same edit. The reviewed commits are those of `ba
 `--since-reviewed` only the added and rewritten ones. Without accio or its index, `usages` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
-tree order inside a cycle and between files with no edge (`"schema": 7` since the concerns, 6 a deletion as real
+tree order inside a cycle and between files with no edge (`"schema": 8` since the main row of a file of several
+concerns, 7 the concerns, 6 a deletion as real
 work, 5 the generated files). `units` (since `"schema": 4`) cuts the diff of the review
 into the changes a reviewer reads once, in that order ([Review Units](../../spec/branch/review-units.spec.md)): a
 change of the form of a declaration (`shape` with `changes`), of its body alone (`behaviour`), a new or removed
@@ -713,7 +714,9 @@ over all of their files (`mechanical`, `repeatedEdit`, last, the generated files
 `fingerprint` of the change that a rebase or an amend keeps. `concerns` (since `"schema": 7`) joins the units into the
 tasks of the range by evidence ([Review Concerns](../../spec/branch/review-concerns.spec.md)): each with its `name` by
 its `source` (`token`, `replacement`, `declaration`, `directory`), its `parts` (`unit`, `path`, `blocks`), its
-`paths` and its `evidence` (`uses`, `group`, `token`, `rest`), what no evidence joined last (`rest`).
+`paths`, its `elsewhere` (since `"schema": 8`: its files whose main row is in another concern, the one whose parts
+change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `rest`), what no evidence joined last
+(`rest`).
 
 ```json
 {"schema":5,"repository":"/repo","branch":"jane/virtual/auth","base":"1a2b3c4d","head":"7a8b9c0d",

@@ -90,6 +90,8 @@ export interface DiffSection {
   readonly targets: ReadonlyMap<number, string>
   /** The words of the header: the group the section is of ("Same edit in 3 files") */
   readonly heading: string | null
+  /** The words of the header of the first section of a concern of a review: its name ("proxy") */
+  readonly concern: string | null
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -110,6 +112,8 @@ export interface DiffHeaderProps {
   folded: string | null
   /** The group of a section of a review (`DiffSection.heading`) */
   heading: string | null
+  /** The concern the first section of a concern of a review starts (`DiffSection.concern`) */
+  concern: string | null
   collapsed: boolean
   onToggle: () => void
   /** Shows all the unchanged lines of the file; undefined when it folds none */
@@ -119,13 +123,15 @@ export interface DiffHeaderProps {
 export interface DiffViewHandle {
   /** Shows the file at the top */
   scrollToFile: (path: string) => void
+  /** Shows the section of a review at the top, by its key (`DiffSection.key`) */
+  scrollToSection: (key: string) => void
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
    * the next file at the end of one. Collapsed files are skipped. Returns the path of the file it shows
    */
   moveChange: (direction: 1 | -1) => string | undefined
-  /** Shows the next (1) or previous (-1) section at the top, from the one at the top now; returns the path of its file */
-  moveSection: (direction: 1 | -1) => string | undefined
+  /** Shows the next (1) or previous (-1) section at the top, from the one at the top now; returns its key and its file */
+  moveSection: (direction: 1 | -1) => { key: string; path: string } | undefined
   focus: () => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
@@ -160,6 +166,8 @@ export interface DiffViewProps {
   label: string
   /** The file whose header is at the top, as the user scrolls */
   onVisibleFileChange?: (path: string) => void
+  /** The section at the top, its key and its file, as the user scrolls: of a file its path, of a section of a review its key */
+  onVisibleSectionChange?: (key: string, path: string) => void
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
   onFirstScreen?: () => void
   /**
@@ -362,6 +370,7 @@ export function DiffView({
   initialPath,
   label,
   onVisibleFileChange,
+  onVisibleSectionChange,
   onFirstScreen,
   renderHeader,
   scroll = "own",
@@ -663,6 +672,7 @@ export function DiffView({
           if (changeCursor.current?.key !== file.key) {
             changeCursor.current = null
           }
+          onVisibleSectionChange?.(file.key, file.path)
         }
         if (file !== undefined && file.path !== visiblePath.current) {
           visiblePath.current = file.path
@@ -943,6 +953,12 @@ export function DiffView({
         showSection(index)
       }
     },
+    scrollToSection: key => {
+      const index = prepared.findIndex(file => file.key === key)
+      if (index >= 0) {
+        showSection(index)
+      }
+    },
     moveChange: direction => {
       const order = prepared.map(file => file.key)
       const start = changeCursor.current ?? { key: visibleKey.current ?? order[0] ?? "", index: -1 }
@@ -981,7 +997,7 @@ export function DiffView({
         return undefined
       }
       showSection(next)
-      return prepared[next]!.path
+      return { key: prepared[next]!.key, path: prepared[next]!.path }
     },
     focus: () => scroller.current?.focus(),
     revealDeclaration: (place, from) => {
@@ -1203,6 +1219,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
             empty: file.pending || isEmptyNotice(file.diff, file.rows),
             folded: file.folded,
             heading: file.section?.heading ?? null,
+            concern: file.section?.concern ?? null,
             collapsed: file.collapsed,
             onToggle: () => onToggle(file.key),
             onExpandAll: rows !== null && rows.segments.some(segment => segment.kind === "fold") ? () => onExpandAll(file) : undefined,

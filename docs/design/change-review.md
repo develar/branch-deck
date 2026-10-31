@@ -117,7 +117,7 @@ the review.
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
-| Concerns (untangling) | Partial: in the plan and `bd`, the window in work | 97e92369, v4 of 2026-10-31 | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 86.2 vs 84.7, Java 95.4 vs 89.9); a server dropped from six configs is one concern | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them |
+| Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 86.2 vs 84.7, Java 95.4 vs 89.9); a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
 | LLM tour with a hard coverage gate | Not started | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -146,6 +146,7 @@ A round of polish: a real review, what looked wrong, the class of the defect, th
 | 2026-10-31 | the same | the tree lists folders while the diffs tell the story; one task is scattered over five folders | the two sides of the window disagree | concerns ([Next](#next)) |
 | 2026-10-31 | idea-1 virtual branches | the first concerns joined a branch into one: single tokens chained singletons, prose blocks shared words | soft evidence chains (single linkage) | cosine of rare tokens without the unchanged words, a token bridges no two concerns ([Review Concerns](../../spec/branch/review-concerns.spec.md#measurements)) |
 | 2026-10-31 | the lab: 739 tangled ranges of four corpora | purity below a group per file: `uses` from a body change, words of prose and comments, names of libraries joined tasks; 28 ranges crashed | evidence that is no evidence; a loop in the Rust path resolver | `uses` from a changed form only, tokens from code the change declares, the rest off; 5c20eed6 |
+| 2026-10-31 | the `review_concerns` template | the guide, cut by two concerns, showed whole in the first one: its unit of a file of no language is a slice the story shows whole | a whole slice ignores the blocks a concern holds of it | a part with its blocks lays them out as a section, the other blocks one row "Shown in grep → accio" ([Review Concerns](../../spec/branch/review-concerns.spec.md#in-the-review-window)) |
 
 ## Measurements
 
@@ -168,9 +169,8 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
 ## Next
 
 1. **Concerns**: units joined by static evidence (names declared in the change and their uses, a test and its subject,
-   a generated file and the source its header names, a shared rare identifier, a near-repeated edit), measured on four
-   corpora against SmartCommit, inspect and sem; then the tree lists the concerns, each with its files, and the story
-   follows them.
+   a generated file and the source its header names, a shared rare identifier, a near-repeated edit), now listed by
+   the tree and followed by the story; next measured on four corpora against SmartCommit, inspect and sem.
 2. Moves and renames as one unit ("rename A→B, 37 sites"), with RefactoringMiner as the oracle.
 3. The corpus evaluation of the handoff: where the hunks reviewers commented on rank, how many hunks a fold hid.
 4. Names of concerns by a language model, behind the same gate as the tour.

@@ -176,10 +176,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
   and `carried`), with
-  `"schema": 7`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 8`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)); the other outputs of `bd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -586,9 +586,11 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of a card entry while a filter hides every file, and drop only the filter that hides it`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
-- The files must stay in the tree, in tree order, in All Changes and in "Since Your Review" as one range: the plan
-  adds badges and the Mechanical group, and offers no other order. A commit of the column shows its plain tree.
-  The facts apply once the plan of the shown scope is read, not while the next one is read.
+- The tree must list the concerns of the plan, in All Changes and in "Since Your Review" as one range, and the story
+  of the diffs follow them ([Review Concerns](review-concerns.spec.md#in-the-review-window)); with no concern but the
+  rest, the files stay in tree order, the plan adds badges and the Mechanical group. There is no switch of the
+  order: one tree tells the finished review. A commit of the column shows its plain tree. The facts apply once the
+  plan of the shown scope is read, not while the next one is read.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
 - A file row must show `uses N` and `used by M`, the links among the changed files after the commits, with `+K new`
   for the links it uses that the commits added. Its popover must list each link it uses, then each link that uses it,
@@ -610,21 +612,22 @@ the repeated edits and the new API. The vision of the review, its progress and t
   first added, `a → b`) and list the other files of the group; a click selects one.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`names the same edit of a group of files and the other files that get it`)
-- The mechanical files must leave the tree for one group at its end, `Mechanical (N)`, with a group per kind in the
+- The mechanical files must leave the tree for one group at its end, `Mechanical (N)` (a generated file that follows
+  its source in the group of its concern, [Review Concerns](review-concerns.spec.md#in-the-review-window)), with a group per kind in the
   order Build files, Imports only, Whitespace only, Renamed, Generated (the order of the mechanical units,
   which the page takes from the plan), each file by its path. The group must start
   collapsed, also when the plan comes after the files, unless it holds the selected file. A file selected only as the
   first of the tree without the plan, which may be a generated one, must give way to the first file of the tree with
   the plan. The diffs, J and K must reach these files last, and a file selected in it opens it. Its menu and ⌘C copy
   its changed paths.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the generated files into their group last, each header saying why, and keep the renderer's echo out of the repeated edits`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the generated files, each header saying why, a rendering at the end of the concern of its source, and keep the renderer's echo out of the repeated edits`)
 - The diffs must be the story of the units ([Review Units](review-units.spec.md#in-the-review-window)): a mechanical
   change starts collapsed, its header saying why ("Build file", "Imports only", "Whitespace only", "Renamed only"; a
   generated file what its name makes it, "Lock file", "Minified", "Source map", "Generated
   (.gitattributes)", or the line its tool wrote, "Generated by tools/render.mjs; edit src/guide.md", cut at 100
   characters), and a repeated edit shows once, the other files of it collapsed, "Same edit as Alpha.kt". The chevron
   of the header opens either.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the generated files into their group last, each header saying why, and keep the renderer's echo out of the repeated edits`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the generated files, each header saying why, a rendering at the end of the concern of its source, and keep the renderer's echo out of the repeated edits`)
   [@test] ../../src/presenters/review-units.test.ts (`fold each with why it is generated: its name, its attributes, the line its tool wrote`)
   [@test] ../../src/presenters/review-plan.test.ts (`says why a generated file is folded: its name, its attributes, the line its tool wrote, a long one cut`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`, `should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
@@ -641,7 +644,8 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../crates/file-diffs/src/service_test.rs (`a_block_of_import_statements_alone_is_marked_by_the_syntax`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`the_import_lines_are_the_import_and_package_statements`)
 - The dependency changes of a build file must show on the directory row whose chain holds the directory of the build
-  file, else on the row of the build file (one at the root, or a module whose only change is its build file):
+  file, else on the row of the build file (one at the root, a module whose only change is its build file, or whose
+  files are in concerns, which have no directory rows):
   `+N deps −M ~K`, `new module`, `deleted module`. Its tooltip must list each change, a changed version as
   `1.2 → 1.3` and a changed scope as `test → main`.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)

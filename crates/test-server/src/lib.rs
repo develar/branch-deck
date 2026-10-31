@@ -429,6 +429,8 @@ pub enum RepositoryTemplate {
   RepeatedEdit,
   #[serde(rename = "generated_files")]
   GeneratedFiles,
+  #[serde(rename = "review_concerns")]
+  ReviewConcerns,
   #[serde(rename = "script_colors")]
   ScriptColors,
   #[serde(rename = "stacked_branches")]
@@ -516,6 +518,7 @@ impl RepositoryTemplate {
       Self::SymbolNavigation => "symbol_navigation",
       Self::RepeatedEdit => "repeated_edit",
       Self::GeneratedFiles => "generated_files",
+      Self::ReviewConcerns => "review_concerns",
       Self::ScriptColors => "script_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackedChain => "stacked_chain",

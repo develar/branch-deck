@@ -1,12 +1,15 @@
-import type { ApiChange, FileFacts, GeneratedBy, ReviewUnit, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, Concern, FileFacts, GeneratedBy, ReviewUnit, UnitBlock } from "@/lib/bindings"
 import type { SectionUnits } from "@/lib/diff/rows"
+import { formatConcernName } from "@/presenters/review-concerns"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
 
 /*
  * The story of a review (spec/branch/review-units.spec.md, "In the Review Window"): the sections of the diffs in the
  * order Rust gave the units, each run of units of one file one section with the heading of each change, each group (a
- * kind of mechanical change, a repeated edit, the files deleted from one directory) a section per file of it. Rust decides what each unit is and the order;
- * this words them and lays them out over the files the review shows.
+ * kind of mechanical change, a repeated edit, the files deleted from one directory) a section per file of it. With the
+ * concerns of the plan (spec/branch/review-concerns.spec.md), the parts of each concern together, in their order, under
+ * its heading. Rust decides what each unit is, the concerns and the order; this words them and lays them out over the
+ * files the review shows.
  */
 
 /** A file the review shows, in the order of its tree, with the blocks of its diff once read (null before) */
@@ -26,6 +29,10 @@ export interface NarrativeSection {
   readonly targets: ReadonlyMap<number, string>
   /** The group it is of, on its first file: "Same edit in 3 files", "Imports only (2)" */
   readonly heading: string | null
+  /** `Concern.id` of the concern it is of; null without concerns, for the mechanical groups and a use left outside */
+  readonly concern: string | null
+  /** The name of its concern, on the first section of the concern: "proxy", "grep → accio", "Other changes" */
+  readonly concernHeading: string | null
   /** Why it starts collapsed: a mechanical change, a file of a repeated edit after the first */
   readonly folded: string | null
   /** A use of the change before it that the change left outside: its file at the head around its line (from 1) */
@@ -119,10 +126,63 @@ interface Draft {
   folded: string | null
   /** The uses left outside of its changes, shown after it */
   ghosts: NarrativeSection[]
+  concern: string | null
+  /** The name of its concern, for the row of a block it shows in another section */
+  concernName: string | null
+  concernHeading: string | null
+}
+
+/** A unit of the story with the slices, and of a slice the blocks, that one concern holds of it */
+interface Step {
+  readonly unit: ReviewUnit
+  readonly concern: Concern | null
 }
 
 /**
- * The sections of the diffs of `files` (the files the review shows, in tree order) in the order of `units` (Rust's).
+ * The units in the order of the story: with a concern beside the rest, the parts of each concern in its order (a unit
+ * of several concerns in each, with the slices and the blocks it holds there), then what no concern holds (the
+ * mechanical groups) in the order of the units; else the units as Rust ordered them
+ */
+function storySteps(units: readonly ReviewUnit[], concerns: readonly Concern[]): Step[] {
+  if (!concerns.some(concern => concern.name.source !== "rest")) {
+    return units.map(unit => ({ unit, concern: null }))
+  }
+  const byId = new Map(units.map(unit => [unit.id, unit]))
+  const held = new Set<string>()
+  const steps: Step[] = []
+  for (const concern of concerns) {
+    for (const part of concern.parts) {
+      const unit = byId.get(part.unit)
+      const slice = unit?.slices.find(it => it.path === part.path)
+      if (unit === undefined || slice === undefined) {
+        continue
+      }
+      held.add(`${unit.id}\n${slice.path}`)
+      // the blocks a concern holds of a slice, also of one the story shows whole (a file of no language): the others
+      // are a row there that opens their concern
+      const blocks = part.blocks
+      const cut = blocks === null ? slice : { ...slice, whole: false, blocks: slice.blocks.filter(block => blocks.includes(block.index)) }
+      const last = steps.at(-1)
+      if (last !== undefined && last.concern === concern && last.unit.id === unit.id) {
+        steps[steps.length - 1] = { concern, unit: { ...last.unit, slices: [...last.unit.slices, cut] } }
+      } else {
+        steps.push({ concern, unit: { ...unit, slices: [cut] } })
+      }
+    }
+  }
+  for (const unit of units) {
+    const left = unit.slices.filter(slice => !held.has(`${unit.id}\n${slice.path}`))
+    if (left.length > 0) {
+      steps.push({ concern: null, unit: { ...unit, slices: left } })
+    }
+  }
+  return steps
+}
+
+/**
+ * The sections of the diffs of `files` (the files the review shows, in tree order) in the order of `units` (Rust's),
+ * with `concerns` beside the rest in the order of the concerns (`storySteps`): the first section of each under the name
+ * of its concern, a generated file of a concern collapsed at its end, the mechanical groups after them.
  * A run of units of one file is one section, each change with its heading before its first block; a unit with no block
  * of its own joins the heading of the block that changed its lines. A group is a section per file: a mechanical one
  * collapsed, saying its kind; of a repeated edit the first file open under "Same edit in N files", the others collapsed.
@@ -131,12 +191,19 @@ interface Draft {
  * file: in the place of its first unit, else after the story. After the section of a change of a form or a removal, its
  * uses the change left outside (`api`, by the key and the file of the unit), each its file around the use.
  */
-export function presentNarrative(units: readonly ReviewUnit[], files: readonly NarrativeFile[], api: readonly ApiChange[], facts: readonly FileFacts[]): NarrativeSection[] {
+export function presentNarrative(
+  units: readonly ReviewUnit[],
+  files: readonly NarrativeFile[],
+  api: readonly ApiChange[],
+  facts: readonly FileFacts[],
+  concerns: readonly Concern[],
+): NarrativeSection[] {
   const byPath = new Map(files.map(file => [file.path, file]))
   const generatedOf = new Map(facts.flatMap(file => (file.generated === null ? [] : [[file.path, file.generated] as const])))
+  const steps = storySteps(units, concerns)
   // a file whose blocks the units cannot cut shows whole
   const whole = new Set<string>()
-  for (const slice of units.flatMap(unit => unit.slices)) {
+  for (const slice of steps.flatMap(step => step.unit.slices)) {
     const file = byPath.get(slice.path)
     if (file !== undefined && !slice.whole && !sameBlocks(slice.blocks, file)) {
       whole.add(slice.path)
@@ -151,14 +218,30 @@ export function presentNarrative(units: readonly ReviewUnit[], files: readonly N
     counts.set(base, count + 1)
     return count === 0 ? base : `${base}#${count}`
   }
+  // the concern of the step laid out, and its name until its first section takes it
+  let concern: Concern | null = null
+  let concernHeading: string | null = null
+  const push = (draft: Omit<Draft, "concern" | "concernName" | "concernHeading">) => {
+    const full = { ...draft, concern: concern?.id ?? null, concernName: concern === null ? null : formatConcernName(concern.name), concernHeading }
+    concernHeading = null
+    drafts.push(full)
+    return full
+  }
   const placeWhole = (path: string) => {
     if (!placed.has(path)) {
       placed.add(path)
-      drafts.push({ key: path, path, blocks: null, marks: new Map(), heading: null, folded: null, ghosts: [] })
+      push({ key: path, path, blocks: null, marks: new Map(), heading: null, folded: null, ghosts: [] })
     }
   }
   let last = null as { draft: Draft; unit: string } | null
-  for (const unit of units) {
+  for (const step of steps) {
+    const unit = step.unit
+    if (step.concern !== concern) {
+      // a concern starts its own sections, under its name
+      last = null
+      concern = step.concern
+      concernHeading = concern === null ? null : formatConcernName(concern.name)
+    }
     if (isGroup(unit)) {
       last = null
       const shown = unit.slices.filter(slice => byPath.has(slice.path))
@@ -170,12 +253,13 @@ export function presentNarrative(units: readonly ReviewUnit[], files: readonly N
         placed.add(slice.path)
         const first = index === 0
         const folded = groupFolded(unit, shown, index, generatedOf.get(slice.path))
-        drafts.push({
+        push({
           key: nextKey(`group:${unit.id}`, slice.path),
           path: slice.path,
           blocks: slice.whole ? null : new Set(slice.blocks.map(block => block.index)),
           marks: new Map(),
-          heading: first ? groupHeading(unit) : null,
+          // a generated file at the end of the concern of its source says why it is folded, no group
+          heading: first && (concern === null || unit.kind.kind !== "mechanical") ? groupHeading(unit) : null,
           folded,
           ghosts: [],
         })
@@ -195,8 +279,7 @@ export function presentNarrative(units: readonly ReviewUnit[], files: readonly N
     const heading = formatUnitHeading(unit)
     let draft: Draft | undefined = last?.draft.path === slice.path ? last.draft : undefined
     if (draft === undefined) {
-      draft = { key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: null, folded: null, ghosts: [] }
-      drafts.push(draft)
+      draft = push({ key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: null, folded: null, ghosts: [] })
     }
     const first = slice.blocks[0]
     if (first === undefined) {
@@ -214,6 +297,8 @@ export function presentNarrative(units: readonly ReviewUnit[], files: readonly N
     last = { draft, unit: unit.id }
     draft.ghosts.push(...ghostsOf(unit, slice.path, api))
   }
+  concern = null
+  concernHeading = null
   for (const file of files) {
     placeWhole(file.path)
   }
@@ -246,6 +331,8 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     units: null,
     targets: new Map(),
     heading: null,
+    concern: null,
+    concernHeading: null,
     folded: null,
     ghost: { line: site.line, name: change!.name, heading: `${change!.name} — left outside: ${site.path}:${site.line}` },
   }))
@@ -254,20 +341,33 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
 /** The section of `draft`: its headings, and a row for each block another section shows (`owners`, by path and block) */
 function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number, Draft>>): NarrativeSection {
   {
+    const { concern, concernHeading } = draft
     if (draft.blocks === null) {
-      return { key: draft.key, path: draft.path, units: null, targets: new Map(), heading: draft.heading, folded: draft.folded, ghost: null }
+      return { key: draft.key, path: draft.path, units: null, targets: new Map(), heading: draft.heading, concern, concernHeading, folded: draft.folded, ghost: null }
     }
     const elsewhere = new Map<number, string>()
     const targets = new Map<number, string>()
     for (const [block, owner] of owners.get(draft.path) ?? []) {
       if (owner !== draft) {
-        elsewhere.set(
-          block,
-          `Shown in ${owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : (owner.marks.values().next().value ?? fileName(owner.path)))}`,
-        )
+        // a block of another concern says which: the section of the same file there
+        const where =
+          owner.concern !== draft.concern && owner.concernName !== null
+            ? owner.concernName
+            : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : (owner.marks.values().next().value ?? fileName(owner.path))))
+        elsewhere.set(block, `Shown in ${where}`)
         targets.set(block, owner.key)
       }
     }
-    return { key: draft.key, path: draft.path, units: { marks: draft.marks, elsewhere }, targets, heading: draft.heading, folded: draft.folded, ghost: null }
+    return {
+      key: draft.key,
+      path: draft.path,
+      units: { marks: draft.marks, elsewhere },
+      targets,
+      heading: draft.heading,
+      concern,
+      concernHeading,
+      folded: draft.folded,
+      ghost: null,
+    }
   }
 }

@@ -275,3 +275,42 @@ fn a_name_of_a_library_joins_nothing_a_word_of_a_string_does() {
     [(token("zebrafish"), vec!["c/Three.kt", "d/Four.kt"]), (ConcernName::Rest, vec!["a/One.kt", "b/Two.kt"])]
   );
 }
+
+/// A file of two concerns has its main row in the one whose parts of it change the most lines; the other lists it in
+/// `elsewhere`, with the block it holds
+#[test]
+fn a_file_of_two_concerns_has_its_main_row_in_the_one_of_its_most_changed_lines() {
+  let lines = |words: &[&str]| words.iter().map(|word| ["- `", word, "`\n"].concat()).collect::<String>();
+  let notes = |first: &str, second: &str| format!("# Notes\n{first}\nalpha\nbeta\ngamma\ndelta\n{second}");
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("a/one.md", "# One\n"), ("b/two.md", "# Two\n"), ("notes.md", &notes("", ""))]);
+  let head = repo.create_commit_with_files(
+    "Change",
+    &[
+      ("a/one.md", &format!("# One\n{}", lines(&["zebrafish", "otter", "kestrel"]))),
+      ("b/two.md", &format!("# Two\n{}", lines(&["quokka", "lemur"]))),
+      ("notes.md", &notes(&lines(&["zebrafish", "otter", "kestrel"]), &lines(&["quokka", "lemur"]))),
+    ],
+  );
+  let plan = plan(&repo, &base, &head);
+  let of = |name: &ConcernName| plan.concerns.iter().find(|concern| concern.name == *name).unwrap();
+  let (zebrafish, quokka) = (of(&token("zebrafish")), of(&token("quokka")));
+  assert_eq!(
+    (
+      zebrafish.paths.as_slice(),
+      zebrafish.elsewhere.as_slice(),
+      quokka.paths.as_slice(),
+      quokka.elsewhere.as_slice()
+    ),
+    (
+      ["a/one.md".to_string(), "notes.md".to_string()].as_slice(),
+      [].as_slice(),
+      ["b/two.md".to_string(), "notes.md".to_string()].as_slice(),
+      ["notes.md".to_string()].as_slice()
+    ),
+    "{:#?}",
+    plan.concerns
+  );
+  let part = quokka.parts.iter().find(|part| part.path == "notes.md").unwrap();
+  assert_eq!(part.blocks, Some(vec![1]));
+}
