@@ -249,8 +249,8 @@ also the prologue before the first section and the opening of each step (below).
   the facts of the step, then the group, muted. A change of step is a wider break than a change of file, so its title
   outranks the name of a file (a coloured name in bold outweighed black words of the same size); a group alone is one
   muted line. The prologue of a review is its overview (`ReviewPrologue`). The header names the file alone: its order is
-  always the chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands
-  at one x. The opening and the divider scroll with their card and never stick: the bar of the step above the diffs
+  always the chevron, the letter, the name, the path, then the actions (the mark of a story that names the section
+  first, an icon button of the header's height) and the counts, so the name of every file stands at one x. The opening and the divider scroll with their card and never stick: the bar of the step above the diffs
   names the step at the top.
 - A card of more than 30 rows and the last card end with a line one row high below their rows (`renderFooter`,
   `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: **SKILL.md** .claude/skills/setup-local-rd-flow

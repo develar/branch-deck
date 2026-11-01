@@ -99,10 +99,10 @@ fn a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path
     [(0, 0), (0, 0), (0, 0), (1, 0), (1, 0), (2, 0), (2, 0), (2, 0), (2, 0), (2, 0), (2, 0)]
   );
   // a declaration after the commits: the new side, the line of its name
-  let Some(MentionTarget::Unit { side, line, path, .. }) = &story(&plan, "Manager opens twice").mentions[0].target else {
+  let Some(MentionTarget::Unit { side, line, path, name, .. }) = &story(&plan, "Manager opens twice").mentions[0].target else {
     panic!("{:?}", story(&plan, "Manager opens twice").mentions[0]);
   };
-  assert_eq!((side, *line, path.as_str()), (&MentionSide::New, Some(4), "src/a/Manager.kt"));
+  assert_eq!((side, *line, path.as_str(), name.as_str()), (&MentionSide::New, Some(4), "src/a/Manager.kt", "open"));
   assert_eq!(mentions(&plan, "Report counts twice"), [words("count", (39, 48), "unit:b.count step Some(1)")]);
   // a story of several commits keeps the order of its author
   assert!(plan.steps.commits.iter().all(|commit| commit.told_in.is_empty()));
@@ -287,20 +287,21 @@ fn a_name_resolves_by_the_separators_of_its_language() {
     ]
   );
   // a declaration of a new file and of a deleted one, by the summary of the file at its line; a name in backticks the
-  // file is named for, which a bare one (a product name in prose) is not
-  let places: Vec<(MentionSide, Option<u32>, &str)> = story(&plan, "The page measures")
+  // file is named for, which a bare one (a product name in prose) is not; the name of the declaration, to select in the
+  // file
+  let places: Vec<(MentionSide, Option<u32>, &str, &str)> = story(&plan, "The page measures")
     .mentions
     .iter()
     .filter_map(|mention| match &mention.target {
-      Some(MentionTarget::Unit { side, line, path, .. }) => Some((*side, *line, path.as_str())),
+      Some(MentionTarget::Unit { side, line, path, name, .. }) => Some((*side, *line, path.as_str(), name.as_str())),
       _ => None,
     })
     .collect();
   assert_eq!(
     places,
     [
-      (MentionSide::New, Some(3), "web/src/use-measured-heights.ts"),
-      (MentionSide::Old, Some(1), "web/src/old-title.ts")
+      (MentionSide::New, Some(3), "web/src/use-measured-heights.ts", "useMeasuredHeights"),
+      (MentionSide::Old, Some(1), "web/src/old-title.ts", "formatTitle")
     ]
   );
   assert_eq!(

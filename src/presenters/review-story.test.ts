@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitBodyBlock, Concern, ContractEntry, ReviewPlan, ReviewStep, StoryCommit, TestRef } from "@/lib/bindings"
-import { MORE, presentOpenings, presentPrologue, presentStory } from "@/presenters/review-story"
+import type { CommitBodyBlock, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
+import { MORE, mentionWords, presentOpenings, presentPrologue, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
+import type { NarrativeSection } from "@/presenters/review-units"
 import { reviewStep, stepCommit } from "@/test-support/review-step"
 
 const commit = stepCommit
@@ -254,5 +255,80 @@ describe("the document of a review", () => {
     expect(prologue.source).toBe("One commit: the steps are its tasks")
     expect(prologue.untold?.subject).toBe("The open keeps the layout")
     expect(textOf(prologue.untold!.story)).toEqual({ lead: "The open keeps the stored layout.", shown: [["", "Names nothing."]], folded: [] })
+  })
+
+  it("links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it", () => {
+    const unit: ReviewUnit = {
+      id: "declaration:src/a/Manager.kt:a.Manager.allowed:",
+      kind: { kind: "added" },
+      name: "allowed",
+      key: "a.Manager.allowed",
+      signature: "",
+      api: false,
+      test: false,
+      line: 6,
+      slices: [],
+      fingerprint: "f",
+    }
+    const named: Mention = {
+      block: 0,
+      item: 0,
+      start: 22,
+      end: 39,
+      text: "Manager.allowed",
+      target: { kind: "unit", unit: unit.id, name: "allowed", path: "src/a/Manager.kt", side: "new", line: 6, step: 1 },
+    }
+    const file: Mention = { block: 2, item: 1, start: 2, end: 12, text: "Frame.kt", target: { kind: "file", path: "src/a/Frame.kt", step: null } }
+    const loose: Mention = { block: 0, item: 0, start: 50, end: 58, text: "Layout", target: null }
+    const rule = {
+      ...story("the rule", [paragraph("One rule decides now: `Manager.allowed` answers, by `Layout`."), label("The uses"), list("one", "- `Frame.kt` asks it")]),
+      mentions: [named, loose, file],
+    }
+    const steps = [step("a", [commit("the hooks")], [["u:hooks", "src/a/Manager.kt"]]), step("b", [commit("the rule")], [[unit.id, "src/a/Manager.kt"]])]
+    const whole = plan(steps, [story("the hooks", [paragraph("No hooks.")]), rule], { units: [unit] })
+
+    // a declaration by the heading of its unit, its line and its step, shown with its name; a file by its path; a name
+    // that resolves nothing has no place
+    const view = presentStory(rule, undefined, mentionWords(whole))
+    expect(view.mentions.map(it => [it.text, it.title, it.place])).toEqual([
+      ["Manager.allowed", "allowed — new · Manager.kt:6 · step 2", { path: "src/a/Manager.kt", side: "new", line: 6, name: "allowed" }],
+      ["Layout", null, null],
+      ["Frame.kt", "src/a/Frame.kt", { path: "src/a/Frame.kt", side: "new", line: null, name: null }],
+    ])
+
+    // a declaration of a new file, whose unit is the file, by the name the body writes, the name Rust resolved selected
+    // once shown
+    const fresh: ReviewUnit = { ...unit, id: "file:src/a/LayoutStore.kt", kind: { kind: "newFile" }, name: "LayoutStore.kt", key: null, line: null }
+    expect(
+      mentionWords({ units: [fresh] })({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read"),
+    ).toEqual({
+      place: { path: "src/a/LayoutStore.kt", side: "new", line: 4, name: "read" },
+      title: "LayoutStore.read · LayoutStore.kt:4 · step 5",
+    })
+
+    // the section of the path in the step of the target, the one that holds the unit, not another of the same heading;
+    // a file in any step
+    const section = (key: string, path: string, concern: string, marks: [number, string][] = [], unitIds: string[] = []): NarrativeSection => ({
+      key,
+      path,
+      units: { marks: new Map(marks), elsewhere: new Map() },
+      unitIds: new Set(unitIds),
+      targets: new Map(),
+      heading: null,
+      concern,
+      concernHeading: null,
+      folded: null,
+      ghost: null,
+    })
+    const marks = storyMarks(whole, [
+      section("file:src/a/Manager.kt", "src/a/Manager.kt", "a", [[0, "hooks — removed"]], ["u:hooks"]),
+      section("file:src/a/Manager.kt#1", "src/a/Manager.kt", "b", [[0, "allowed — new"]], [unit.id]),
+      section("file:src/a/Manager.kt#2", "src/a/Manager.kt", "b", [[1, "allowed — new"]], [`${unit.id}:id:String`]),
+      section("file:src/a/Frame.kt", "src/a/Frame.kt", "b"),
+    ])
+    expect([...marks].map(([key, list]) => [key, list.map(mark => [mark.commit, mark.block, mark.step, mark.title, mark.preview])])).toEqual([
+      ["file:src/a/Manager.kt#1", [["the rule", 0, "b", "Step 2 · The rule", "One rule decides now: `Manager.allowed` answers, by `Layout`."]]],
+      ["file:src/a/Frame.kt", [["the rule", 2, "b", "Step 2 · The rule", "- `Frame.kt` asks it"]]],
+    ])
   })
 })

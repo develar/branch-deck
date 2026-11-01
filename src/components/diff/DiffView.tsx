@@ -50,6 +50,7 @@ import type { TextMetrics } from "@/lib/diff/wrap"
 import type { MenuItem } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { formatCollapse } from "@/presenters/collapse"
+import type { StoryMark } from "@/presenters/review-story"
 import { blobTextsStore, putDerivedText, requestBlobTexts } from "@/stores/blob-texts"
 import type { BlobTextEntry } from "@/stores/blob-texts"
 import { useAppSettings } from "@/stores/settings/appSettings"
@@ -111,6 +112,8 @@ export interface DiffSection {
   readonly step: { readonly id: string; readonly number: string; readonly title: string } | null
   /** The words of the step the section is of, on every section of it: the hover of the map of the files names it */
   readonly stepHeading: string | null
+  /** The blocks of the stories that name the section (`storyMarks`): its header marks it, a click shows the block */
+  readonly story?: readonly StoryMark[]
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -123,6 +126,8 @@ export interface MergeViewFile {
 
 export interface DiffHeaderProps {
   file: CommitFile
+  /** The section of the story the header heads; null for a file of no review */
+  section: DiffSection | null
   /** Why the file shows no rows, or how its line ends changed */
   notice: string | null
   /** The notice says why the file shows no rows: nothing to expand */
@@ -1443,6 +1448,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
           <div className="dv-header">
             {renderHeader({
               file: file.file,
+              section,
               notice,
               empty: file.pending || isEmptyNotice(file.diff, file.rows),
               folded: file.folded,

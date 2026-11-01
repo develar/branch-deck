@@ -1,11 +1,12 @@
 import { useImperativeHandle, useRef, useState } from "react"
 import type { ReactNode, Ref } from "react"
 import { cn } from "cn"
-import { UnfoldVerticalIcon } from "lucide-react"
+import { BookOpenTextIcon, UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { LinkedText } from "@/components/commit/LinkedText"
 import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
 import { DiffView } from "@/components/diff/DiffView"
 import type { DeclarationPlace, DiffHeaderProps, DiffSection, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
@@ -15,13 +16,14 @@ import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { ChapterOpening } from "@/components/review/ChapterOpening"
+import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { presentCardEnd } from "@/presenters/review-card-end"
-import type { OpeningView } from "@/presenters/review-story"
+import type { OpeningView, StoryMark } from "@/presenters/review-story"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
@@ -223,7 +225,18 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
       {files.slice(0, PENDING_HEADERS).map(file => (
         <div key={file.path} className="dv-card">
           <div className="dv-header">
-            <ReviewFileHeader file={file} notice={null} empty folded={null} collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} muted={false} />
+            <ReviewFileHeader
+              file={file}
+              section={null}
+              notice={null}
+              empty
+              folded={null}
+              collapsed={false}
+              onToggle={() => {}}
+              pending
+              owner={fileOwners?.get(file.path)}
+              muted={false}
+            />
           </div>
         </div>
       ))}
@@ -316,7 +329,7 @@ function ReviewCardEnd({ path, next, owner, onShow }: { path: string; next: Next
  * are on its divider, so the name of every file stands at one x. The insets are IntelliJ's: 12 px above and below, 10
  * px at the sides
  */
-function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner, muted, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewFileHeader({ file, section, notice, empty, folded, pending = false, owner, muted, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -347,6 +360,7 @@ function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner,
       </span>
       <FileHeaderCopyButton path={file.path} />
       <span className="ml-auto flex shrink-0 items-center gap-3 text-xs">
+        {section?.story !== undefined && section.story.length > 0 && <StoryMarkButton marks={section.story} name={name} />}
         {/* an action on the rows of the file, with the other parts at the end, named on hover as IntelliJ's */}
         {onExpandAll !== undefined && (
           <Tooltip>
@@ -377,5 +391,42 @@ function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner,
         {(file.additions > 0 || file.deletions > 0) && <LineCounts additions={file.additions} deletions={file.deletions} colored />}
       </span>
     </FileContextMenu>
+  )
+}
+
+/**
+ * The mark of a section a body names (spec/branch/review-tour.spec.md, "Anchors"), at the end of its header, which keeps
+ * its height: its hover shows the lines of the story that name the file, each with where it is told; a click shows the
+ * first of them in its opening (or the overview), outlined
+ */
+function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: string }) {
+  const navigator = useSelectReviewFile()
+  const first = marks[0]!
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            data-testid="review-story-mark"
+            aria-label={`The story that names ${name}: ${first.title}`}
+            disabled={navigator === null}
+            className="text-muted-foreground"
+            onClick={() => navigator?.showStory(first)}
+          />
+        }
+      >
+        <BookOpenTextIcon />
+      </TooltipTrigger>
+      <TooltipContent className="flex max-w-96 flex-col gap-2" data-testid="review-story-mark-tip">
+        {marks.map(mark => (
+          <span key={mark.key} className="flex flex-col gap-0.5">
+            <span className="opacity-70">{mark.title}</span>
+            <LinkedText text={mark.preview} detectCode />
+          </span>
+        ))}
+      </TooltipContent>
+    </Tooltip>
   )
 }

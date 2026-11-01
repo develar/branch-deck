@@ -4110,7 +4110,12 @@ export type MentionTarget =
 /**  A declaration of the range */
 { kind: "unit"; 
 /**  `ReviewUnit::id` */
-unit: string; path: string; 
+unit: string; 
+/**
+ *  The name of the declaration, its last segment (`allowed` of `Manager.allowed`): of a new or deleted file, whose
+ *  unit is the file, the one name to select in it
+ */
+name: string; path: string; 
 /**  The side its line is of: the old one for a removed declaration */
 side: MentionSide; 
 /**  The line of its name, from 1 */

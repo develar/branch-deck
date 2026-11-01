@@ -6,6 +6,8 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { selectedInDiffs } from "../helpers/selection-helpers"
+import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 
 /** The card right below the opening of the step of `heading`: the space between them and the file of the card */
 function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null }> {
@@ -193,6 +195,135 @@ test.describe("Review tour", () => {
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
     await expect(tree.getByRole("treeitem", { name: "2 · The open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => topOf(second)).toBe(10)
+  })
+
+  test("should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("review_tour"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    const bar = window.getByTestId("review-step-bar")
+    const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · The open keeps a stored layout", exact: true }) })
+
+    // `Manager.allowed` in the body of step 2 resolves to the rule the step adds: a link, its hover names it, its file,
+    // its step
+    const allowed = opening.getByTestId("review-story-lead").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
+    await expect(allowed).toHaveAttribute("data-path", "src/a/Manager.kt")
+    await allowed.hover()
+    await expect(window.getByTestId("review-story-mention-tip")).toHaveText("allowed — new · Manager.kt:6 · step 2")
+    // a click shows the declaration: its file selected, its name selected in the diffs
+    await allowed.click()
+    await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
+    // the same name in the contents of the overview links too
+    await expect(window.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention")).toHaveText("Manager.allowed")
+
+    // back: the header of the section the body names marks it, its hover the line that names it, where it is told
+    const manager = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').nth(1)
+    const mark = manager.getByTestId("review-story-mark")
+    await expect(mark).toHaveCount(1)
+    await expect(window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').first().getByTestId("review-story-mark")).toHaveCount(0)
+    await mark.hover()
+    const tip = window.getByTestId("review-story-mark-tip")
+    await expect(tip).toContainText("Step 2 · The open keeps a stored layout")
+    await expect(tip).toContainText("One rule decides now: Manager.allowed answers whether the open may show a tool window.")
+    // a click shows the opening of its step, the paragraph outlined
+    await window.mouse.move(0, 0)
+    await mark.click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
+    await expect(opening.locator("[data-story-block][data-highlight]")).toContainText("One rule decides now")
+    await expect(window.locator("[data-story-block][data-highlight]")).toHaveCount(1)
+
+    // the Look closely of the author is a callout in the opening of its step and in the contents; its tests are folded
+    // always, named on the line of the folded parts
+    const restart = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 4 · The restart story checks the layout", exact: true }) })
+    await expect(restart.getByTestId("review-story-look-closely")).toContainText("the story restarts the window alone, never the whole IDE.")
+    await expect(window.getByTestId("review-contents-step").nth(3).getByTestId("review-contents-step-look-closely")).toContainText("the story restarts the window alone")
+    const tests = restart.getByTestId("review-story-fold")
+    await expect(tests).toHaveText("Tests")
+    await expect(tests).toHaveAttribute("aria-expanded", "false")
+    await expect(restart).not.toContainText("restarts the window once")
+    // a name in a folded part marks its section too: a click opens the part, its block outlined
+    await tree.getByRole("treeitem", { name: "tests/restart.json", exact: true }).click()
+    const restartMark = window.locator('[data-testid="diff-view-file"][data-path="tests/restart.json"]').getByTestId("review-story-mark")
+    await window.mouse.move(0, 0)
+    await restartMark.click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
+    await expect(tests).toHaveAttribute("aria-expanded", "true")
+    await expect(restart.locator("[data-story-block][data-highlight]")).toHaveText("restart.json restarts the window once")
+    // the disclosure closes the part and opens it again, below the line of the folded parts
+    await tests.click()
+    await expect(tests).toHaveAttribute("aria-expanded", "false")
+    await expect(restart).not.toContainText("restarts the window once")
+    await tests.click()
+    await expect(restart.getByTestId("review-story-part").filter({ hasText: "restarts the window once" })).toBeVisible()
+
+    // the outline plays once: the commit shown alone, then the whole story again, mount their stories with no block
+    // outlined and no fold opened by the click before
+    const { commitRow, column } = reviewSidebar(window)
+    await commitRow("the restart story checks the layout").click()
+    await commitRow("the restart story checks the layout").press("Enter")
+    const header = window.getByTestId("range-review-commit-header")
+    await expect(header.getByTestId("review-story-fold")).toHaveAttribute("aria-expanded", "false")
+    await expect(window.locator("[data-highlight]")).toHaveCount(0)
+    await column.filter({ hasText: "All Changes" }).click()
+    await expect(header).toHaveCount(0)
+    await expect(tests).toHaveAttribute("aria-expanded", "false")
+    await expect(window.locator("[data-highlight]")).toHaveCount(0)
+  })
+
+  test("should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const { commitRow, column } = reviewSidebar(window)
+    const bar = window.getByTestId("review-step-bar")
+    await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
+    await expect(window.getByText("Marked layout reviewed")).toBeVisible()
+
+    // a commit on top whose body names the code it changes: a new count of the manager the frame paints by, and the
+    // welcome apart; shown alone from Since Your Review
+    await repo.commit(
+      "(layout) the frame paints by the passes of the manager\n\nThe frame paints as many passes as the manager asks.\n\n`Frame.paint` asks `Manager.passes` for its count.",
+      {
+        "src/a/Manager.kt":
+          "package a\n\nclass Manager {\n  fun open(): Int = 1\n\n  fun allowed(id: String): Boolean {\n    val named = id.isNotEmpty()\n    return named\n  }\n\n  fun passes(): Int = 3\n}\n",
+        "src/a/Frame.kt":
+          'package a\n\nclass Frame(val manager: Manager) {\n  fun show(): Int = if (manager.allowed("Project")) manager.open() else 0\n\n  fun paint(): Int = manager.passes()\n}\n',
+        "src/b/Welcome.kt": "package b\n\nimport a.Manager\n\nclass Welcome(val manager: Manager) {\n  fun focus(): Int = 1\n}\n",
+      },
+      1704124800,
+    )
+    await syncAndWaitForBranches()
+    await column.filter({ hasText: "Since Your Review" }).click()
+    await commitRow("the frame paints by the passes of the manager").click()
+    await commitRow("the frame paints by the passes of the manager").press("Enter")
+    const header = window.getByTestId("range-review-commit-header")
+    await expect(header).toContainText("the frame paints by the passes of the manager")
+
+    // its own story once, in its heading; what is new since the review of the part below
+    const overview = window.getByTestId("review-overview")
+    await expect(header.getByTestId("review-story")).toHaveText("The frame paints as many passes as the manager asks.")
+    await expect(overview.getByTestId("review-overview-untold")).toHaveCount(0)
+    await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 1 new")
+    // the contents list its own steps: a click shows the opening of one
+    const titles = overview.getByTestId("review-contents-step-title")
+    await expect(titles.first()).toBeEnabled()
+    await titles.first().click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText(/^Step 1 \/ \d+$/)
+
+    // the section the body names marks it: a click outlines the line that names it where it is told
+    const mark = window.locator('[data-testid="diff-view-file"][data-path="src/a/Frame.kt"]').getByTestId("review-story-mark")
+    await window.mouse.move(0, 0)
+    await mark.first().click()
+    await expect(window.locator("[data-story-block][data-highlight]")).toHaveText("Frame.paint asks Manager.passes for its count.")
   })
 
   test("should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down", async ({

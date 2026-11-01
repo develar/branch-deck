@@ -226,6 +226,19 @@
     }
   }
 
+  /* the block of a story a mark of a section of the diffs showed: outlined in the ring colour, then fading */
+  --animate-story-highlight: story-highlight 1.6s ease-out;
+
+  @keyframes story-highlight {
+    0%,
+    40% {
+      outline-color: var(--color-ring);
+    }
+    100% {
+      outline-color: transparent;
+    }
+  }
+
   /* a running Patronus robot (RobotRing): slower than a spinner, a robot runs for minutes */
   --animate-robot-ring: robot-ring 2.4s linear infinite;
 

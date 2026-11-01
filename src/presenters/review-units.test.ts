@@ -62,6 +62,14 @@ describe("the story of a review", () => {
       [1, "open — form changed: parameters"],
       [2, "close — body changed · gone — removed"],
     ])
+    // the units each section shows, a mention of a declaration marks its section by them
+    expect(sections.map(section => [...section.unitIds])).toEqual([
+      ["shape:open", "behaviour:close", "removed:gone"],
+      ["behaviour:use"],
+      ["repeatedEdit:src/A.kt"],
+      ["repeatedEdit:src/A.kt"],
+      ["mechanical:src/Api.kt"],
+    ])
     // the block of the imports is one row here, which opens the group
     expect([...api.units!.elsewhere]).toEqual([[0, "Shown in Imports only (1)"]])
     expect(api.targets.get(0)).toBe("group:mechanical:src/Api.kt:src/Api.kt")

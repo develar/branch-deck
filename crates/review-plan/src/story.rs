@@ -95,6 +95,9 @@ pub enum MentionTarget {
   Unit {
     /// `ReviewUnit::id`
     unit: String,
+    /// The name of the declaration, its last segment (`allowed` of `Manager.allowed`): of a new or deleted file, whose
+    /// unit is the file, the one name to select in it
+    name: String,
     path: String,
     /// The side its line is of: the old one for a removed declaration
     side: MentionSide,
@@ -232,6 +235,7 @@ impl<'a> Resolver<'a> {
       let unit = declaration.unit;
       return Some(MentionTarget::Unit {
         unit: unit.id.clone(),
+        name: declaration.name.clone(),
         path: declaration.path.clone(),
         side: declaration.side,
         line: declaration.line,

@@ -464,7 +464,8 @@ pub mod templates {
   /// A branch `layout` of five commits with bodies, the story of a review (spec/branch/review-tour.spec.md): a refactor
   /// of the manager; a rule (`allowed`) the frame and the welcome use, with a test that calls it, beside a test of the
   /// welcome the branch does not touch; a change of the paint no test calls; the restart story, a rule of the spec with
-  /// its test link; and a round that renames the flags of the rule, which follows its step up
+  /// its test link, its body with a Look closely of its author and its tests folded; and a round that renames the flags
+  /// of the rule, which follows its step up
   pub fn review_tour() -> RepoTemplate {
     let manager = |hooks: &str, rule: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = 1\n{hooks}{rule}}}\n");
     let hooks = "\n  fun hooks(): List<String> = emptyList()\n";
@@ -499,7 +500,7 @@ pub mod templates {
       )
       .commit_with_timestamp(
         "(layout) the open keeps a stored layout\n\nTwo startup steps showed the project view at each open, and none read the stored layout. One rule decides now: \
-         `allowed` answers whether the open may show a tool window.\n\nThe product decision is to keep the layout of the user.",
+         `Manager.allowed` answers whether the open may show a tool window.\n\nThe product decision is to keep the layout of the user.",
         &[
           ("src/a/Manager.kt", &manager("", &rule("present"))),
           ("src/a/Frame.kt", &frame("1", "if (manager.allowed(\"Project\")) manager.open() else 0")),
@@ -517,7 +518,8 @@ pub mod templates {
         Some(1704119400),
       )
       .commit_with_timestamp(
-        "(layout) the restart story checks the layout\n\nThe story restarts the window and checks that the stored layout is kept.",
+        "(layout) the restart story checks the layout\n\nThe story restarts the window and checks that the stored layout is kept.\n\n\
+         Look closely: the story restarts the window alone, never the whole IDE.\n\nTests:\n- `restart.json` restarts the window once",
         &[
           (
             "spec/window.spec.md",

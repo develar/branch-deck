@@ -8,7 +8,7 @@ import { CommitHeading } from "@/components/commit/CommitHeading"
 import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
-import { StoryBlock, StoryBody } from "@/components/review/StoryBody"
+import { StoryBlock, StoryBody, StoryLine } from "@/components/review/StoryBody"
 import { Callout } from "@/components/shared/Callout"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
@@ -234,7 +234,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
       <div className="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
         {step.lead !== null && (
           <div data-testid="review-contents-step-lead">
-            <StoryBlock story={step.lead.story} placed={step.lead.block} />
+            <StoryBlock story={step.lead.story} placed={step.lead.block} told={false} />
           </div>
         )}
         {step.facts.unproven !== null && (
@@ -244,10 +244,15 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
         )}
         <StepFactsLine facts={step.facts} testId="review-contents-step-facts" />
         {step.lookClosely.map(({ story, part }) => (
-          <Callout key={part.key} tone="info" title={part.head?.block.type === "label" ? part.head.block.text : undefined} data-testid="review-contents-step-look-closely">
+          <Callout
+            key={part.key}
+            tone="info"
+            title={part.head?.block.type === "label" ? <StoryLine story={story} block={part.head.index} text={part.head.block.text} /> : undefined}
+            data-testid="review-contents-step-look-closely"
+          >
             <div className="flex flex-col gap-1.5 text-foreground">
               {part.blocks.map(placed => (
-                <StoryBlock key={placed.index} story={story} placed={placed} />
+                <StoryBlock key={placed.index} story={story} placed={placed} told={false} />
               ))}
             </div>
           </Callout>

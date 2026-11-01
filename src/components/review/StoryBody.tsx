@@ -1,20 +1,79 @@
-import { Fragment, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { CommitBodyBlockView } from "@/components/commit/CommitMessage"
 import type { BodyTextRenderer } from "@/components/commit/CommitMessage"
-import { LinkedText } from "@/components/commit/LinkedText"
+import { StoryText } from "@/components/review/StoryText"
 import { Callout } from "@/components/shared/Callout"
+import { useStoryHighlight } from "@/hooks/useStoryHighlight"
+import type { StoryHighlight } from "@/hooks/useStoryHighlight"
 import type { PlacedBlock, StoryPart, StoryView } from "@/presenters/review-story"
 
-/** The text of a line of a block of a story: its code and its issue links */
-function storyText(_story: StoryView, _block: number): BodyTextRenderer {
-  return text => <LinkedText text={text} detectCode />
+/** The text of a line of a block of a story: its code names links, its code and its issue links */
+function storyText(story: StoryView, block: number): BodyTextRenderer {
+  return (text, item) => <StoryText text={text} mentions={story.mentions.filter(mention => mention.block === block && mention.item === item)} />
 }
 
-/** A block of a story at its place in the body */
-export function StoryBlock({ story, placed }: { story: StoryView; placed: PlacedBlock }) {
-  return <CommitBodyBlockView block={placed.block} text={storyText(story, placed.index)} />
+/** The one line of a label or a heading of a story, its code names links */
+export function StoryLine({ story, block, text }: { story: StoryView; block: number; text: string }) {
+  return storyText(story, block)(text, 0)
+}
+
+/**
+ * The block a mark of a section showed once this story mounted (`useStoryHighlight`): a story that mounts later (the
+ * subject shown again, a search that hid every file cleared) never plays a click before it again. `revealed` is the
+ * click that opened the fold of the block, which mounts with it
+ */
+function useFreshHighlight(revealed: number | null = null): StoryHighlight | null {
+  const highlight = useStoryHighlight()
+  const [mounted] = useState(() => highlight?.serial ?? null)
+  return highlight === null || (highlight.serial === mounted && highlight.serial !== revealed) ? null : highlight
+}
+
+interface StoryPlaceProps {
+  readonly story: StoryView
+  /** A copy of a block told elsewhere (the lead of a step in the contents of the overview) is no `told` place: no mark shows it */
+  readonly told?: boolean
+  /** The click that opened the fold the block is in */
+  readonly revealed?: number | null
+}
+
+/**
+ * A block of a story at its place in the body (`data-story-block`), a paragraph, a list or the label or heading of a
+ * part, outlined for a moment when a mark of a section of the diffs showed it: its key changes with the click, so the
+ * outline plays again
+ */
+function StoryAnchor({ story, index, told = true, revealed = null, children }: StoryPlaceProps & { index: number; children: ReactNode }) {
+  const highlight = useFreshHighlight(revealed)
+  const shown = told && highlight !== null && highlight.commit === story.commit && highlight.block === index ? highlight.serial : null
+  const element = useRef<HTMLDivElement>(null)
+  // the opening of its step is at the top: a block further down comes into view
+  useEffect(() => {
+    if (shown !== null) {
+      element.current?.scrollIntoView({ block: "nearest" })
+    }
+  }, [shown])
+  return (
+    <div
+      ref={element}
+      key={shown ?? 0}
+      data-story-block={told ? `${story.commit}:${index}` : undefined}
+      data-highlight={shown === null ? undefined : ""}
+      className="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight"
+    >
+      {children}
+    </div>
+  )
+}
+
+/** A block of a story at its place in the body (`StoryAnchor`) */
+export function StoryBlock({ placed, ...props }: StoryPlaceProps & { placed: PlacedBlock }) {
+  return (
+    <StoryAnchor index={placed.index} {...props}>
+      <CommitBodyBlockView block={placed.block} text={storyText(props.story, placed.index)} />
+    </StoryAnchor>
+  )
 }
 
 /**
@@ -26,7 +85,21 @@ export function StoryBlock({ story, placed }: { story: StoryView; placed: Placed
  */
 export function StoryBody({ story, className }: { story: StoryView; className?: string }) {
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())
-  const toggle = (key: string) =>
+  // a mark of a section of the diffs showed a block a fold holds: its part opens, its blocks outlined as they mount
+  const highlight = useFreshHighlight()
+  const [seen, setSeen] = useState<number | null>(null)
+  const [revealed, setRevealed] = useState<{ readonly key: string; readonly serial: number } | null>(null)
+  if (highlight !== null && highlight.commit === story.commit && highlight.serial !== seen) {
+    setSeen(highlight.serial)
+    const folded = story.folded.find(({ part }) => part.head?.index === highlight.block || part.blocks.some(placed => placed.index === highlight.block))
+    if (folded !== undefined && !opened.has(folded.part.key)) {
+      setOpened(new Set([...opened, folded.part.key]))
+      setRevealed({ key: folded.part.key, serial: highlight.serial })
+    }
+  }
+  const toggle = (key: string) => {
+    // a part opened again by hand plays no click
+    setRevealed(null)
     setOpened(previous => {
       const next = new Set(previous)
       if (!next.delete(key)) {
@@ -34,6 +107,7 @@ export function StoryBody({ story, className }: { story: StoryView; className?: 
       }
       return next
     })
+  }
   return (
     <div
       data-testid="review-story"
@@ -75,34 +149,33 @@ export function StoryBody({ story, className }: { story: StoryView; className?: 
       {story.folded
         .filter(({ part }) => opened.has(part.key))
         .map(({ part }) => (
-          <StoryPartView key={part.key} story={story} part={part} />
+          <StoryPartView key={part.key} story={story} part={part} revealed={revealed?.key === part.key ? revealed.serial : null} />
         ))}
     </div>
   )
 }
 
-/** A part of a story: its label or heading above its blocks; a Look closely an info callout */
-function StoryPartView({ story, part }: { story: StoryView; part: StoryPart }) {
-  const blocks = part.blocks.map(placed => <StoryBlock key={placed.index} story={story} placed={placed} />)
+/** A part of a story: its label or heading above its blocks; a Look closely an info callout. A code name in a label or heading is a link too */
+function StoryPartView({ story, part, revealed = null }: { story: StoryView; part: StoryPart; revealed?: number | null }) {
+  const blocks = part.blocks.map(placed => <StoryBlock key={placed.index} story={story} placed={placed} revealed={revealed} />)
   const head = part.head
   if (part.tone === "lookClosely" && head !== null) {
     return (
-      <Callout tone="info" title={head.block.text} data-testid="review-story-look-closely" className="text-foreground">
-        <div className="flex flex-col gap-2 text-foreground">{blocks}</div>
-      </Callout>
+      <StoryAnchor story={story} index={head.index} revealed={revealed}>
+        <Callout tone="info" title={<StoryLine story={story} block={head.index} text={head.block.text} />} data-testid="review-story-look-closely" className="text-foreground">
+          <div className="flex flex-col gap-2 text-foreground">{blocks}</div>
+        </Callout>
+      </StoryAnchor>
     )
   }
   return (
     <div className="flex min-w-0 flex-col gap-1" data-testid="review-story-part" data-part={part.key}>
-      {head?.block.type === "label" && (
-        <div data-slot="story-label" className="font-semibold">
-          {head.block.text}
-        </div>
-      )}
-      {head?.block.type === "heading" && (
-        <div data-slot="story-heading" className="text-md font-semibold">
-          {storyText(story, head.index)(head.block.text, 0)}
-        </div>
+      {(head?.block.type === "label" || head?.block.type === "heading") && (
+        <StoryAnchor story={story} index={head.index} revealed={revealed}>
+          <div data-slot={head.block.type === "label" ? "story-label" : "story-heading"} className={cn("font-semibold", head.block.type === "heading" && "text-md")}>
+            <StoryLine story={story} block={head.index} text={head.block.text} />
+          </div>
+        </StoryAnchor>
       )}
       {blocks.length > 0 && <div className="flex min-w-0 flex-col gap-2">{blocks}</div>}
     </div>

@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react"
 import type { ReviewPlace } from "@/lib/review-place"
+import type { StoryMark } from "@/presenters/review-story"
 
 /** What a link of the review plan shows in the review around it */
 export interface ReviewNavigator {
@@ -7,8 +8,10 @@ export interface ReviewNavigator {
   readonly show: (place: ReviewPlace) => void
   /** A place outside the change at the head of the review: its file opens over the review, at the line */
   readonly showOutside: (place: ReviewPlace) => void
-  /** A step of the story (`ReviewStep::id`): its first section at the top of the diffs, its row selected */
+  /** A step of the story (`ReviewStep::id`): its opening at the top of the diffs, its row selected */
   readonly showStep: (step: string) => void
+  /** The block of a story that names a section: where it is told (an opening, the overview), outlined for a moment */
+  readonly showStory: (mark: StoryMark) => void
 }
 
 /** The places of the review around the component, as a link of a badge shows them; null outside a review */

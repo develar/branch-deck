@@ -14,6 +14,8 @@ import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
 import type { ReviewNavigator } from "@/hooks/useSelectReviewFile"
+import { StoryHighlightContext } from "@/hooks/useStoryHighlight"
+import type { StoryHighlight } from "@/hooks/useStoryHighlight"
 import type { CommitFile, DeclarationTarget, DiffRevisions, MechanicalKind } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -50,7 +52,8 @@ import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-p
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
 import { formatStepCount, formatStepDivider, formatStepNumber, formatStepPosition, placeCommits, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
-import { presentOpenings } from "@/presenters/review-story"
+import { presentOpenings, storyMarks } from "@/presenters/review-story"
+import type { StoryMark } from "@/presenters/review-story"
 import { presentNarrative } from "@/presenters/review-units"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -684,6 +687,8 @@ function ReviewLayout({
     }
     const fileOf = new Map(counted.map(file => [file.path, file]))
     const chapterOf = new Map(chapters.map(chapter => [chapter.id, chapter]))
+    // the sections the bodies of the story name, each marked in its header
+    const marks = storyMarks(reviewFacts!, narrative)
     return narrative.flatMap((section): DiffViewFile[] => {
       if (section.ghost !== null) {
         const target = outside.get(section.key)
@@ -704,11 +709,12 @@ function ReviewLayout({
             heading: section.heading,
             step: stepOf(section, chapterOf),
             stepHeading: stepHeadingOf(section, chapterOf),
+            story: marks.get(section.key) ?? [],
           },
         },
       ]
     })
-  }, [diffs, diffsComplete, files, narrative, outside, chapters])
+  }, [diffs, diffsComplete, files, narrative, outside, chapters, reviewFacts])
   const showWindow = useCallback(() => {
     markSubWindowOpenPhase("painted")
     markWindowContentReady()
@@ -826,7 +832,21 @@ function ReviewLayout({
     },
     [narrative, showVisibleSection],
   )
-  const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep }), [selectChangedFile, showOutside, showStep])
+  // the block of a story a mark of a section showed last: its story outlines it
+  const [highlight, setHighlight] = useState<StoryHighlight | null>(null)
+  const showStory = useCallback(
+    (mark: StoryMark) => {
+      if (mark.step === null) {
+        code.current?.scrollToPrologue()
+        setOverviewShown(true)
+      } else {
+        showStep(mark.step)
+      }
+      setHighlight(previous => ({ commit: mark.commit, block: mark.block, serial: (previous?.serial ?? 0) + 1 }))
+    },
+    [showStep],
+  )
+  const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep, showStory }), [selectChangedFile, showOutside, showStep, showStory])
 
   // a commit row: selected, its step's opening at the top of the diffs, as a step of the overview; Enter and Show Commit
   // Alone the commit alone
@@ -1054,41 +1074,43 @@ function ReviewLayout({
             {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} count={topStep.count} overview={overviewShown && hasPrologue} onShow={showStep} />}
             {/* a search that hides every file keeps the overview: a click reveals the file */}
             <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>
-              {loaded === null ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <PlainPrologue prologue={prologue} />
-                  {message}
-                </div>
-              ) : viewFiles === null ? (
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <PlainPrologue prologue={prologue} />
-                  <PendingFileHeaders files={files} fileOwners={fileOwners} />
-                  <LoadingLine key={loaded.key} className="p-6">
-                    Loading changes…
-                  </LoadingLine>
-                </div>
-              ) : (
-                <div data-testid="commit-review-code" className="min-h-0 flex-1">
-                  <CommitReviewCode
-                    key={loaded.key}
-                    revisions={loaded.revisions}
-                    ref={code}
-                    files={viewFiles}
-                    diffViewMode={diffViewMode}
-                    initialPath={selection.initialPath}
-                    onVisibleSectionChange={showVisibleSection}
-                    onFirstScreen={showWindow}
-                    fileOwners={fileOwners}
-                    marked={marked}
-                    onShowStep={showStep}
-                    prologue={prologue}
-                    openings={openings}
-                    nextSection={nextSection}
-                    onShowSection={showSection}
-                    ownerLabel={ownerLabel}
-                  />
-                </div>
-              )}
+              <StoryHighlightContext value={highlight}>
+                {loaded === null ? (
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <PlainPrologue prologue={prologue} />
+                    {message}
+                  </div>
+                ) : viewFiles === null ? (
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <PlainPrologue prologue={prologue} />
+                    <PendingFileHeaders files={files} fileOwners={fileOwners} />
+                    <LoadingLine key={loaded.key} className="p-6">
+                      Loading changes…
+                    </LoadingLine>
+                  </div>
+                ) : (
+                  <div data-testid="commit-review-code" className="min-h-0 flex-1">
+                    <CommitReviewCode
+                      key={loaded.key}
+                      revisions={loaded.revisions}
+                      ref={code}
+                      files={viewFiles}
+                      diffViewMode={diffViewMode}
+                      initialPath={selection.initialPath}
+                      onVisibleSectionChange={showVisibleSection}
+                      onFirstScreen={showWindow}
+                      fileOwners={fileOwners}
+                      marked={marked}
+                      onShowStep={showStep}
+                      prologue={prologue}
+                      openings={openings}
+                      nextSection={nextSection}
+                      onShowSection={showSection}
+                      ownerLabel={ownerLabel}
+                    />
+                  </div>
+                )}
+              </StoryHighlightContext>
             </SelectReviewFileContext>
           </div>
         </ResizablePanel>

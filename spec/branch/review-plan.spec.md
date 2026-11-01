@@ -601,6 +601,7 @@ group at the end. The overview at the top of the document of the review, before 
   the usages are missing, then "Since your review" as before (a rewritten commit with the lines per path it changes against its reviewed version).
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`)
 - "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless no use left outside
   breaks: its kind, its name, `path:line`, the parts that changed, the form before and the form after on lines of

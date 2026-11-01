@@ -25,6 +25,8 @@ export interface NarrativeSection {
   readonly path: string
   /** The headings of its changes and the blocks other sections show; null for a file shown whole */
   readonly units: SectionUnits | null
+  /** `ReviewUnit.id` of each unit it shows: a mention of a declaration marks its section by it */
+  readonly unitIds: ReadonlySet<string>
   /** The section that shows each block of `units.elsewhere` */
   readonly targets: ReadonlyMap<number, string>
   /** The group it is of, on its first file: "Same edit in 3 files", "Imports only (2)" */
@@ -121,9 +123,13 @@ interface Draft {
   path: string
   /** The headings of its declarations whose block another section holds, by that block */
   notes?: Map<number, string>
+  /** The units of `notes`, by that block */
+  noteUnits?: Map<number, readonly string[]>
   /** The blocks it shows, null for the whole file */
   blocks: Set<number> | null
   marks: Map<number, string>
+  /** The units it shows */
+  unitIds?: Set<string>
   heading: string | null
   folded: string | null
   /** The uses left outside of its changes, shown after it */
@@ -223,16 +229,26 @@ export function presentNarrative(
   // the concern of the step laid out, and its name until its first section takes it
   let concern: Chapter | null = null
   let concernHeading: string | null = null
+  const own = (draft: Draft, unit: string) => {
+    draft.unitIds ??= new Set()
+    draft.unitIds.add(unit)
+  }
   const push = (draft: Omit<Draft, "concern" | "concernName" | "concernHeading">) => {
     const full = { ...draft, concern: concern?.id ?? null, concernName: concern?.reference ?? null, concernHeading }
     concernHeading = null
     drafts.push(full)
     return full
   }
-  const placeWhole = (path: string) => {
+  // the section of each file shown whole, which the units of the file are of
+  const wholeDrafts = new Map<string, Draft>()
+  const placeWhole = (path: string, unit?: string) => {
     if (!placed.has(path)) {
       placed.add(path)
-      push({ key: path, path, blocks: null, marks: new Map(), heading: null, folded: null, ghosts: [] })
+      wholeDrafts.set(path, push({ key: path, path, blocks: null, marks: new Map(), heading: null, folded: null, ghosts: [] }))
+    }
+    const draft = wholeDrafts.get(path)
+    if (draft !== undefined && unit !== undefined) {
+      own(draft, unit)
     }
   }
   let last = null as { draft: Draft; unit: string } | null
@@ -249,13 +265,13 @@ export function presentNarrative(
       const shown = unit.slices.filter(slice => byPath.has(slice.path))
       shown.forEach((slice, index) => {
         if (whole.has(slice.path)) {
-          placeWhole(slice.path)
+          placeWhole(slice.path, unit.id)
           return
         }
         placed.add(slice.path)
         const first = index === 0
         const folded = groupFolded(unit, shown, index, generatedOf.get(slice.path))
-        push({
+        const draft = push({
           key: nextKey(`group:${unit.id}`, slice.path),
           path: slice.path,
           blocks: slice.whole ? null : new Set(slice.blocks.map(block => block.index)),
@@ -265,6 +281,7 @@ export function presentNarrative(
           folded,
           ghosts: [],
         })
+        own(draft, unit.id)
       })
       continue
     }
@@ -274,7 +291,7 @@ export function presentNarrative(
     }
     if (whole.has(slice.path) || slice.whole) {
       last = null
-      placeWhole(slice.path)
+      placeWhole(slice.path, unit.id)
       continue
     }
     placed.add(slice.path)
@@ -291,6 +308,7 @@ export function presentNarrative(
       const before = [...draft.marks.keys()].at(-1)
       if (before !== undefined && heading !== null) {
         draft.marks.set(before, `${draft.marks.get(before)} · ${heading}`)
+        own(draft, unit.id)
       } else if (heading !== null && unit.line !== null) {
         const line = unit.line - 1
         const removed = unit.kind.kind === "removed"
@@ -298,9 +316,12 @@ export function presentNarrative(
         if (index !== undefined && index >= 0) {
           draft.notes ??= new Map()
           draft.notes.set(index, heading)
+          draft.noteUnits ??= new Map()
+          draft.noteUnits.set(index, [...(draft.noteUnits.get(index) ?? []), unit.id])
         }
       }
     } else {
+      own(draft, unit.id)
       if (heading !== null) {
         draft.marks.set(first.index, heading)
       }
@@ -336,6 +357,9 @@ export function presentNarrative(
       if (owner !== undefined && owner !== draft) {
         const mark = owner.marks.get(block)
         owner.marks.set(block, mark === undefined ? note : `${mark} · ${note}`)
+        for (const unit of draft.noteUnits?.get(block) ?? []) {
+          own(owner, unit)
+        }
       }
     }
   }
@@ -353,6 +377,7 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     key: `ghost:${unit.id}:${site.path}:${site.line}`,
     path: site.path,
     units: null,
+    unitIds: new Set(),
     targets: new Map(),
     heading: null,
     concern: null,
@@ -367,7 +392,18 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
   {
     const { concern, concernHeading } = draft
     if (draft.blocks === null) {
-      return { key: draft.key, path: draft.path, units: null, targets: new Map(), heading: draft.heading, concern, concernHeading, folded: draft.folded, ghost: null }
+      return {
+        key: draft.key,
+        path: draft.path,
+        units: null,
+        unitIds: draft.unitIds ?? new Set(),
+        targets: new Map(),
+        heading: draft.heading,
+        concern,
+        concernHeading,
+        folded: draft.folded,
+        ghost: null,
+      }
     }
     const elsewhere = new Map<number, string>()
     const targets = new Map<number, string>()
@@ -387,6 +423,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
       key: draft.key,
       path: draft.path,
       units: { marks: draft.marks, elsewhere },
+      unitIds: draft.unitIds ?? new Set(),
       targets,
       heading: draft.heading,
       concern,

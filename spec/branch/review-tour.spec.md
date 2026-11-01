@@ -15,6 +15,8 @@ targets:
   - ../../src/components/review/ChapterOpening.tsx
   - ../../src/components/review/StoryBody.tsx
   - ../../src/components/review/StepFactsLine.tsx
+  - ../../src/components/review/StoryText.tsx
+  - ../../src/hooks/useStoryHighlight.ts
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/review/RangeReview.tsx
@@ -209,7 +211,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   Breakage and Since your review ([Review Plan](review-plan.spec.md#requirements)). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - The opening of a step (`ChapterOpening`) must stand on the canvas above the card of its first section, as tall as
   its words (the diffs measure it): "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
@@ -222,7 +224,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   Proof, Left out) is folded always. Then the commits that follow it up, each "Follows up: <subject>" a disclosure of
   its body, those without a story ("Without a story: …"), the facts of the step in one line and the warning of a step
   no test reaches, and the group its section starts.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - A step of the concerns of one commit (`toldIn`) must open with what joins its parts ("Joined by the identifier
   accio") and the parts of the body of that commit told in it; the lead and the parts told before the steps are in
@@ -291,6 +293,27 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   file of the tree shows its card, the opening of its step above the view.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
+
+### Anchors
+- A code name of a body that resolves (`Mention.target`) must be a link wherever the document shows its line (an
+  opening, the overview, the contents; a label, a heading and the title of a Look closely too): in the code font, a chip when the author wrote it in backticks, its hover
+  naming what it is, its file and line and its step ("allowed — new · Manager.kt:6 · step 2", a file by its path); a
+  click shows it as an entry of the overview does, its file selected, a declaration at the line of its name, the name
+  Rust resolved (`MentionTarget.name`) selected, a file at its header. A name that resolves nothing stays code; a plain word is never a link.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] ../../src/presenters/review-story.test.ts (`links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it`)
+- Back: the header of a section a told body names must carry a small mark of the story at its end, its height kept:
+  the section of the path of the target in the step of the target, the one that shows its unit (by its id) when one
+  does. Its hover shows each line that names the section, with where it is told ("Step 2 · The open keeps a stored
+  layout", "Overview"); a click shows the first of them where it is told, the opening of its step at the top (the
+  overview for a part told before the steps), its part opened when a fold held it, the block outlined for a moment
+  (a label or a heading too). The outline plays once: a story that shows later (the commit shown alone, the whole
+  story again, the files a search hid) outlines nothing and opens no fold.
+  A body is told where the document shows it: the commit that starts a step in its opening, the concerns of one
+  commit where `toldIn` says; a follow-up, folded under its step, marks nothing, and a copy of a lead in the contents
+  is no place a mark shows. A commit shown alone is told by its own plan, so its marks show its own story.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it`)
+  [@test] ../../src/presenters/review-story.test.ts (`links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it`)
 
 ## User Experience
 
