@@ -221,7 +221,7 @@ where a dialog would cover it.
   the keys reach every file.
   [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
 - The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
   "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file

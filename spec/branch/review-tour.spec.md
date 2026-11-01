@@ -1,6 +1,6 @@
 ---
 name: Review Tour
-description: Requirements for the story of a review (experimental), what a reviewer who sees a change for the first time reads before any diff; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests of the range that name its code; every block of the diff in one stop.
+description: Requirements for the story of a review (experimental), what a reviewer who sees a change for the first time reads before any diff; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/steps.rs
@@ -39,8 +39,8 @@ The story is the review's primitive: a brief, then the steps. The brief says, in
 change does for its user: the issue its commits name, the rules of the specs, the records of decisions, the guides
 and the docs it adds or changes, and the tests their test links name. A step is a part of the change with the
 words of its author: a commit whose body tells it, with the rounds that follow it up; each step shows the parts of the
-units that land in master, a declaration it adds first and the uses of it after it, and the tests of the range that
-name its code. Reviews differ: where the commits tell no story, the concerns of the range are the steps. The vision
+units that land in master, a declaration it adds first and the uses of it after it, and the tests that reach its
+code, those the change adds or changes and those it did not touch. Reviews differ: where the commits tell no story, the concerns of the range are the steps. The vision
 and the rounds: [Change Review](../../docs/design/change-review.md).
 
 ## Goals
@@ -54,8 +54,6 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 
 - A tour a language model writes, or one the author writes with `bd tour`: the next round
   ([Change Review → Next](../../docs/design/change-review.md#next)).
-- A test that reaches a declaration through its callers: accio answers it once JetBrains/accio#107 lands; until then a
-  test names a declaration in its own changed lines.
 
 ## Requirements
 
@@ -99,14 +97,19 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_declaration_a_step_adds_comes_first_and_its_uses_right_after_it`)
 - A step that holds parts of two concerns or more that a use or a group joined must mark each stop with its concern.
 
-### Tests That Name It
-- A declaration a test framework runs is a test ([Symbol Dependencies](../commit/symbol-dependencies.spec.md)). A
-  declaration of the code of a step, of a parsed language, whose body or form changed or that it adds, in no test
-  file and no test code (a test, a fixture of its class or of its Rust `mod tests`: the unit is `test`), must be `named` by the tests of the range whose changed lines within their declaration name it as a whole word
-  (a member with its owner, a type, named in the file of the test too), else `unnamed`; the words of a Kotlin test name
-  in backticks name nothing. A name two such declarations share is led by its owner (`Owner.run`).
-  [@test] ../../crates/review-plan/src/steps_test.rs (`the_tests_that_name_the_code_of_a_step_and_the_code_none_names`, `a_test_reads_as_its_words`)
-  [@test] ../../crates/review-plan/src/steps_test.rs (`a_fixture_of_a_test_is_no_code_a_test_names`)
+### Tests That Reach It
+- The code of a step is each declaration of a parsed language whose body or form changed or that it adds, in no test
+  file and no test code (a test, a fixture of its class or of its Rust `mod tests`: the unit is `test`). A name two
+  such declarations share is led by its owner (`Owner.run`).
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of`)
+- After the plan, with the usages of its API, every declaration of the code of the steps must be asked in one
+  `accio tests --at <path>:<line> --ref <head> --depth 3 --resolved` (`TEST_DEPTH`): the tests that reach it through
+  its callers, only by calls a type or an import ties. A declaration a test reaches is `reached` with its tests, each
+  with the name it reads as, its depth and the callers on the way, and its unit when the range adds or changes it
+  (the test whose lines hold the line accio gives); one no test reaches is `unreached`, `within: 3` when accio stopped
+  at the depth with callers left. `answered` says accio answered; without accio, or without a usable index, no step
+  is reached or unreached, and `index_note` says why.
+  [@test] ../../crates/review-plan/src/steps_test.rs (`the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches`, `a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of`)
 - A step that adds or changes a rule of a spec must list the tests its test links name (`scenarios`): a scenario
   that names no declaration proves it.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`)
@@ -131,7 +134,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`)
 
 ### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 12`), the ids of the commits of the steps as short as
+- `bd review-plan` must print `steps` and `brief` (`"schema": 13`), the ids of the commits of the steps as short as
   the others, and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
@@ -141,13 +144,14 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   popover of its issue; What Changes, each entry its kind ("Spec rule", "Decision", "Agent guide", "Doc"), its file and
   the heading of its section, which open the file, its paragraphs and "Proven by restart.json"; then the Steps, each its
   number and its title (the subject of the commit that starts it, without the issue key and the `(prefix)`), the first
-  paragraph of its body, the rest under More, its rounds ("Follows up: …", "Without a story: …"), "Tests that name it:
-  …", "Proven by …", and "Not named by a test: …" muted; a step no test of the range names any code of, and that no
-  scenario proves, says so in the warning tone ("No test in this change names paint"). A click of the title of a
+  paragraph of its body, the rest under More, its rounds ("Follows up: …", "Without a story: …"), "Tests of this change
+  reach allowed", "1 test it did not touch reaches focus", "Proven by …", and "No test reaches show" muted; a step
+  accio answered for whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches
+  paint within 3 calls" when the walk stopped with callers left, else "No test reaches paint"). A click of the title of a
   step must show its first section at the top of the diffs, its row selected. Steps of the concerns say why ("One
   commit: the steps are its tasks"); a range whose only step is what no evidence joined lists no step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
-  [@test] ../../src/presenters/review-steps.test.ts (`words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that name its code, a step no test proves`, `names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
+  [@test] ../../src/presenters/review-steps.test.ts (`words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that reach its code, a step no test proves`, `names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`)
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by its concern and keeps its main rows ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The
@@ -156,7 +160,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   rule across the rest of the width, a change of step being a wider break than a change of file; a click on it must show the step as the bar of the step does, the divider at the top, the bar
   and the tree following. The header of a file names the file alone (no step, no group), so the name of every file
   stands at one x.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
   [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by its concern and keeps its main rows`)
   [@test] ../../src/lib/diff/layout.test.ts (`puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
@@ -200,9 +204,9 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../src/presenters/review-steps.test.ts (`lays a declaration without a block of its own out in its step as the row of the block another step shows`)
   [@test] ../../src/lib/diff/rows.test.ts (`makes a section of no change of its own the rows of the blocks other sections show, alone`)
 - Above the diffs the bar of the step of the section at the top (`review-step-bar`) must show "Step 3 / 4", its title,
-  the first paragraph of its body and the warning of a step no test names; it follows the diffs as they scroll and as
+  the first paragraph of its body and the warning of a step no test reaches; it follows the diffs as they scroll and as
   J, K, a row of the tree and a step of the brief move them, and a click shows the first section of the step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
 
 ## User Experience
 
@@ -219,10 +223,15 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
         "blocks": null, "uses": null, "also": [], "concern": null},
        {"unit": "declaration:…/IdeProjectFrameAllocator.kt:…openProjectViewIfNeeded:", "path": "…/IdeProjectFrameAllocator.kt",
         "blocks": null, "uses": "isShownOnStartupAllowed", "also": [2], "concern": null}],
-     "tests": {"named": [{"name": "isShownOnStartupAllowed",
-                          "tests": [{"unit": "…", "path": "…/DeferredToolWindowRegistrationTest.kt",
-                                     "name": "the project open may show only the tool windows that the stored layout shows"}]}],
-               "unnamed": ["openProjectViewIfNeeded", "settleStartupFocus"], "scenarios": []}}],
+     "tests": {"answered": true,
+               "reached": [{"name": "isShownOnStartupAllowed",
+                            "tests": [{"unit": "…", "path": "…/DeferredToolWindowRegistrationTest.kt", "line": 171,
+                                       "name": "the project open may show only the tool windows that the stored layout shows",
+                                       "depth": 1, "via": []},
+                                      {"unit": null, "path": "…/DeferredToolWindowRegistrationTest.kt", "line": 186,
+                                       "name": "the first-run policy activates the project view", "depth": 2,
+                                       "via": ["keepingStoredLayout"]}]}],
+               "unreached": [{"name": "openProjectViewIfNeeded", "within": 3}], "scenarios": []}}],
   "coverage": {"blocks": 76, "inStops": 76, "mechanical": 0, "missing": 0, "twice": 0}},
 "brief": {
   "issue": "IJAI-4673",
@@ -236,9 +245,10 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 
 - A follow-up by the lines it rewrites joins a task of its own to the step that created its file: of 8 such joins of
   a branch of 66 commits, 2 were tasks of their own. Their bodies stay in the step.
-- "Unnamed" is no proof of an untested change: a test may reach the code through an entry it names
-  (JetBrains/accio#107). The window marks a step only when no test of the range names any of its code and no scenario
-  proves it.
+- "No test reaches" is as good as the call graph of accio: a call through reflection, a dependency injection or a
+  lambda passed far away is no edge, and a call only the name ties is not walked. "Within 3 calls" says the walk
+  stopped with callers left; a deeper test is not seen. A constant or a property is reached only by calls, not by the
+  declarations that read it.
 - A step whose commit lands nothing (a file added and removed again, a revert) has no stop.
 
 ## Measurements
@@ -256,5 +266,8 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 - A cap of 12 steps that made the concerns the steps of a long branch was measured on `air-local-launch`: its 42
   concerns and a rest of 201 stops were no shorter a list than its 30 steps of commits, and lost their bodies. There
   is no cap.
-- No test of the range names any code of 20 of 116 steps (17 %); 66 (57 %) have a declaration no test names, mostly a
-  helper the tests reach through an entry: the window marks the first, and lists the second muted.
+- The tests that reach the code (`bd review-plan` schema 13, 2026-11-01, the 5 virtual branches of `develar` in
+  idea-1 then, 18 steps, 11 of them with code): a test reaches code of 10 of the 11, and in 8 of those a test the
+  change did not touch does; no step is marked unproven. The text match of the changed lines of the range's tests it
+  replaced had marked 20 of 116 steps of 14 branches, most of them reached through an entry. 9 steps list code no test
+  reaches, among it constants and properties, whose readers accio does not walk yet.

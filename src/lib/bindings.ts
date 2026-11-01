@@ -4259,12 +4259,6 @@ export type MovedCommit = {
 	change: MoveChange,
 };
 
-/**  A declaration of a step and the tests that name it */
-export type NamedDeclaration = {
-	name: string,
-	tests: TestRef[],
-};
-
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
 export type NewPullRequest = {
 	/**  The `bd describe` title, else the title of the commits the pull request will show (`pull_request_text`) */
@@ -5593,6 +5587,12 @@ export type RangeScope = {
 	carried: boolean,
 };
 
+/**  A declaration of a step and the tests that reach it */
+export type ReachedDeclaration = {
+	name: string,
+	tests: TestRef[],
+};
+
 export type ReapplyBranchResult = {
 	/**  `{prefix}/unapplied/<name>`, deleted now (with a dry run: would be) */
 	unappliedBranchName: string,
@@ -6322,8 +6322,8 @@ export type ReviewPlan = {
 /**  What the plan of a window tells it, in order (`get_review_plan` of the app) */
 export type ReviewPlanEvent = 
 /**
- *  The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, and
- *  the plan with them follows
+ *  The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, no step
+ *  knows the tests that reach its code, and the plan with them follows
  */
 { kind: "plan"; plan: ReviewPlan; pending: boolean } | 
 /**  The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none */
@@ -7864,15 +7864,20 @@ export type StepStop = {
 	concern: string | null,
 };
 
-/**  The tests of the range that name the code of a step */
+/**  The tests that reach the code of a step */
 export type StepTests = {
-	/**  Its declarations that a test names, each with those tests */
-	named: NamedDeclaration[],
 	/**
-	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test of the range
-	 *  names; none of a test file, whose helpers a test runs. A name two of them share is led by its owner
+	 *  accio answered which tests reach its code (`add_tests`); without the answer `reached` and `unreached` are empty,
+	 *  and the plan's `index_note` says why
 	 */
-	unnamed: string[],
+	answered: boolean,
+	/**  Its declarations that a test reaches, each with those tests */
+	reached: ReachedDeclaration[],
+	/**
+	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test reaches; none of a
+	 *  test file, whose helpers a test runs. A name two of them share is led by its owner
+	 */
+	unreached: UnreachedDeclaration[],
 	/**
 	 *  The tests the `[@test]` lines of the rules of a spec it adds or changes name, by the path they give: a scenario
 	 *  that names no declaration
@@ -8177,13 +8182,19 @@ export type TargetReview =
 /**  The commits of a list, in its order */
 { kind: "commits"; commits: ReviewCommit[] };
 
-/**  A test of the range */
+/**  A test that reaches a declaration of a step */
 export type TestRef = {
-	/**  `ReviewUnit::id` */
-	unit: string,
+	/**  `ReviewUnit::id` of a test the range adds or changes; `None` for one the change did not touch */
+	unit: string | null,
 	path: string,
-	/**  The name the test reads as (`test_name`) */
+	/**  The line of its name at the head, from 1 */
+	line: number,
+	/**  The name the test reads as */
 	name: string,
+	/**  The calls between the test and the declaration: 1 when the test calls it */
+	depth: number,
+	/**  The callers on the way, from the test's callee to the declaration's caller */
+	via: string[],
 };
 
 /**  The diff of two texts */
@@ -8443,6 +8454,16 @@ export type UnknownReadinessReason =
 export type UnlinkPullRequestParams = {
 	repositoryPath: string,
 	number: number,
+};
+
+/**  A declaration of a step no test reaches */
+export type UnreachedDeclaration = {
+	name: string,
+	/**
+	 *  The calls the walk went: accio stopped there with callers left (`TEST_DEPTH`); `None` when it walked every
+	 *  caller
+	 */
+	within: number | null,
 };
 
 export type UnsubscribeViewParams = {

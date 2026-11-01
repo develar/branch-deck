@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs"
+import path from "node:path"
 // @spec spec/branch/review-tour.spec.md
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
@@ -35,12 +37,31 @@ function headerNameLefts(window: Page): Promise<number[]> {
 }
 
 // the `review_tour` template: the branch `layout` of five commits with bodies, a refactor of the manager, the rule
-// `allowed` with its two uses and a test that names it, a change of the paint no test names, the restart story with a
-// rule of the spec and its test link, and a round that renames the flag of the rule
+// `allowed` with its two uses and a test that calls it, a test of the welcome the branch does not touch, a change of the
+// paint no test calls, the restart story with a rule of the spec and its test link, and a round that renames the flag of
+// the rule
+
+/** The index of the repository, as accio answers `tests --at` the code of the steps of `layout` at its tip */
+function writeTestIndex(repositoryPath: string): void {
+  const test = (file: string, line: number, readsAs: string) => ({ file, line, declaration: `Test.${readsAs}`, reads_as: readsAs, framework: "junit4", depth: 1 })
+  const tests = {
+    // `allowed`, by the test the branch adds
+    "src/a/Manager.kt:6": { tests: [test("test/a/ManagerTest.kt", 8, "the open may show only the stored layout")] },
+    // `focus`, by the test of the welcome the branch does not touch
+    "src/b/Welcome.kt:6": { tests: [test("test/b/WelcomeTest.kt", 7, "the welcome focuses its project")] },
+    // `show`: no caller is a test
+    "src/a/Frame.kt:4": { tests: [] },
+    // `paint`: none within the depth, with callers left
+    "src/a/Frame.kt:6": { tests: [], cut: "depth" },
+  }
+  writeFileSync(path.join(repositoryPath, ".git", "branch-deck-accio.json"), JSON.stringify({ tests }))
+}
 
 test.describe("Review tour", () => {
-  test("should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    turnOnReviewPlan(await setupRepo("review_tour"))
+  test("should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    writeTestIndex(repo.path)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
     const brief = window.getByTestId("review-brief")
 
@@ -59,17 +80,18 @@ test.describe("Review tour", () => {
     ])
     const step = (number: number) => brief.getByTestId("review-brief-step").nth(number - 1)
     await expect(step(2)).toContainText("Two startup steps showed the project view at each open")
-    // its uses changed bodies no test names, beside the rule a test names
+    // the rule a test of the change reaches, a use a test the change did not touch reaches, a use no test reaches
     await expect(step(2).getByTestId("review-brief-step-fact")).toHaveText([
       "Follows up: The rule names its flag again",
-      "Tests that name it: allowed",
-      "Not named by a test: show, focus",
+      "Tests of this change reach allowed",
+      "1 test it did not touch reaches focus",
+      "No test reaches show",
     ])
     // the decision of the author is the rest of the body, folded
     await step(2).getByRole("button", { name: "More" }).click()
     await expect(step(2)).toContainText("The product decision is to keep the layout of the user.")
-    // the paint no test of the change names; the story proven by its scenario
-    await expect(step(3).getByTestId("review-brief-step-unproven")).toHaveText("No test in this change names paint")
+    // the paint no test reaches within the depth accio walked; the story proven by its scenario
+    await expect(step(3).getByTestId("review-brief-step-unproven")).toHaveText("No test reaches paint within 3 calls")
     await expect(step(4).getByTestId("review-brief-step-fact")).toHaveText(["Proven by restart.json"])
     await captureHtmlSnapshot(brief, "review-tour-brief")
 
@@ -133,7 +155,7 @@ test.describe("Review tour", () => {
     await step(3).getByTestId("review-brief-step-title").click()
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
     await expect(bar.getByTestId("review-step-title")).toHaveText("The view paints with the first frame")
-    await expect(bar).toContainText("No test in this change names paint")
+    await expect(bar).toContainText("No test reaches paint within 3 calls")
     await expect(tree.getByRole("treeitem", { name: "src/a/Frame.kt, also in 3 · The view paints with the first frame", exact: true })).toHaveAttribute("aria-selected", "true")
     // J goes on into the next step, the bar follows
     await window.keyboard.press("j")

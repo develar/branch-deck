@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
+import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, TestRef } from "@/lib/bindings"
 import {
   bodyParagraphs,
   formatCommitRole,
@@ -26,7 +26,7 @@ function step(id: string, commits: StepCommit[], stops: [string, string][], test
     stops: stops.map(([unit, path]) => ({ unit, path, blocks: null, uses: null, also: [], concern: null })),
     paths: [...new Set(stops.map(([, path]) => path))],
     elsewhere: [],
-    tests: { named: [], unnamed: [], scenarios: [], ...tests },
+    tests: { answered: true, reached: [], unreached: [], scenarios: [], ...tests },
   }
 }
 
@@ -150,36 +150,39 @@ describe("review steps", () => {
     expect(concerns.other.map(it => it.id)).toEqual(["e5e5e5e5", "d4d4d4d4"])
   })
 
-  it("words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that name its code, a step no test proves", () => {
+  it("words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that reach its code, a step no test proves", () => {
+    const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
+    const unreached = (name: string, within: number | null = null) => ({ name, within })
     const brief = presentBrief(
       plan([
         step(
           "a",
           [commit("the rule", "One rule decides.\n\nThe product decision is\nto keep the layout."), commit("the rule again", "Renamed.", "followsUp")],
           [["u:rule", "src/Rule.kt"]],
-          { named: [{ name: "allowed", tests: [] }], unnamed: ["show"] },
+          {
+            reached: [
+              { name: "allowed", tests: [test("allows", "u:test"), test("keeps", null, 9)] },
+              { name: "focus", tests: [test("focuses", null, 12), test("keeps", null, 9)] },
+            ],
+            unreached: [unreached("show")],
+          },
         ),
-        step("b", [commit("the paint", "It paints first.")], [["u:paint", "src/Frame.kt"]], { unnamed: ["paint", "create", "run", "open", "close"] }),
-        step("c", [commit("the story", "It restarts.")], [["u:spec", "spec/a.spec.md"]], { scenarios: ["tests/restart.json"] }),
+        step("b", [commit("the paint", "It paints first.")], [["u:paint", "src/Frame.kt"]], {
+          unreached: ["paint", "create", "run", "open"].map(name => unreached(name)).concat(unreached("close", 3)),
+        }),
+        step("c", [commit("the story", "It restarts.")], [["u:spec", "spec/a.spec.md"]], { scenarios: ["tests/restart.json"], unreached: [unreached("load")] }),
         step("d", [commit("the try", "It tried.")], []),
       ]),
     )
-    expect(brief.steps.map(it => [it.title, it.why, it.more, it.rounds, it.named, it.unnamed, it.unproven, it.scenarios, it.landsNothing])).toEqual([
-      [
-        "The rule",
-        "One rule decides.",
-        ["The product decision is to keep the layout."],
-        ["Follows up: The rule again"],
-        "Tests that name it: allowed",
-        "Not named by a test: show",
-        null,
-        null,
-        false,
-      ],
-      ["The paint", "It paints first.", [], [], null, null, "No test in this change names paint, create, run, open +1", null, false],
-      ["The story", "It restarts.", [], [], null, null, null, "Proven by restart.json", false],
-      ["The try", "It tried.", [], [], null, null, null, null, true],
+    expect(brief.steps.map(it => [it.title, it.proven, it.covered, it.unreached, it.unproven, it.scenarios, it.landsNothing])).toEqual([
+      ["The rule", "Tests of this change reach allowed", "2 tests it did not touch reach allowed, focus", "No test reaches show", null, null, false],
+      ["The paint", null, null, null, "No test reaches paint, create, run, open +1 within 3 calls", null, false],
+      ["The story", null, null, "No test reaches load", null, "Proven by restart.json", false],
+      ["The try", null, null, null, null, null, true],
     ])
+    expect(brief.steps[0]!.why).toBe("One rule decides.")
+    expect(brief.steps[0]!.more).toEqual(["The product decision is to keep the layout."])
+    expect(brief.steps[0]!.rounds).toEqual(["Follows up: The rule again"])
     expect(bodyParagraphs("a\nb\n\n\nc")).toEqual(["a b", "c"])
     // the only step what no evidence joined: no step to tell
     const rest: Concern = { id: "r", name: { source: "rest" }, parts: [], paths: [], elsewhere: [], evidence: [], fingerprint: "r" }

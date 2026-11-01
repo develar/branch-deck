@@ -278,6 +278,8 @@ test.describe("The review plan in the branch review", () => {
       const card = window.getByTestId("file-facts-card")
       const footer = window.getByTestId("review-window-footer")
       const link = card.getByTestId("file-link")
+      // the plan with the usages, after the one without them
+      await expect(store).toHaveAttribute("aria-description", /, breaks 3$/)
 
       // the focused row: the hints name I
       await reader.getByText("Reader.kt", { exact: true }).click()
@@ -328,6 +330,8 @@ test.describe("The review plan in the branch review", () => {
       const card = window.getByTestId("file-facts-card")
       const link = card.getByTestId("file-link")
       const breaks = card.getByTestId("file-facts-breaks")
+      // the plan with the usages, after the one without them
+      await expect(store).toHaveAttribute("aria-description", /, breaks 3$/)
 
       // I on Store, the last row: its card lists no file and takes the focus
       await window.mouse.move(0, 0)

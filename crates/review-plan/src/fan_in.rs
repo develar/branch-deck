@@ -182,6 +182,17 @@ fn usages_of(change: &ApiChange, references: &References, changed: &ChangedLines
   usages
 }
 
+/// The answer of one query of `index` through `Lenient`, else why there is none: accio is missing, has no usable index of
+/// the repository, or failed. Fails only when the query was canceled
+pub(crate) fn ask_index<T>(index: Option<&dyn SymbolIndex>, ask: impl FnOnce(&Lenient<'_>) -> Result<Option<T>>) -> Result<Result<T, String>> {
+  let Some(index) = index else { return Ok(Err(NO_ACCIO.to_string())) };
+  let lenient = Lenient::new(index);
+  let answer = ask(&lenient)?;
+  let unavailable = lenient.unavailable();
+  let error = lenient.error();
+  Ok(answer.ok_or_else(|| error.or(unavailable).unwrap_or_else(|| NO_INDEX.to_string())))
+}
+
 /// Add the usages at `head` to the removals and changes of `api`, asked by their places in one query, split by the
 /// lines the commits changed (`changed`, called once the index answered), and rank it again (`api::rank`); the answer
 /// is why they have none, `None` when the index answered or none was asked. Fails when the index was canceled or
@@ -203,14 +214,10 @@ pub fn add_usages(
   if asked.is_empty() {
     return Ok(None);
   }
-  let Some(index) = index else { return Ok(Some(NO_ACCIO.to_string())) };
-  let lenient = Lenient::new(index);
   let places: Vec<DeclarationAt> = asked.keys().map(|at| (*at).clone()).collect();
-  let answers = lenient.references_at(repository_path, &places, head)?;
-  let unavailable = lenient.unavailable();
-  let error = lenient.error();
-  let Some(answers) = answers else {
-    return Ok(Some(error.or(unavailable).unwrap_or_else(|| NO_INDEX.to_string())));
+  let answers = match ask_index(index, |lenient| lenient.references_at(repository_path, &places, head))? {
+    Ok(answers) => answers,
+    Err(note) => return Ok(Some(note)),
   };
   let changed = changed()?;
   let entries: Vec<Vec<usize>> = asked.into_values().collect();

@@ -108,7 +108,7 @@ function BriefStepItem({ step, onShow }: { step: BriefStep; onShow: (() => void)
           </Collapsible>
         )}
         {step.landsNothing && <span className="text-xs text-muted-foreground">Nothing of it lands: a later commit took it out</span>}
-        {[...step.rounds, step.named, step.scenarios, step.unnamed]
+        {[...step.rounds, step.proven, step.covered, step.scenarios, step.unreached]
           .filter(line => line !== null)
           .map(line => (
             <span key={line} className="truncate text-xs text-muted-foreground" title={line} data-testid="review-brief-step-fact">

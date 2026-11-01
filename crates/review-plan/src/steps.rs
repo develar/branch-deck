@@ -16,18 +16,22 @@
 //! - **A step whose lines a later commit rewrote whole** shows nothing of its own: it follows the step of that commit.
 //! - **The order** of a step is that of the story, but a declaration the step adds or changes the form of comes first
 //!   and the uses of it in the step right after it (`uses`); a mechanical part follows the step its concern is in.
-//! - **The tests that name it**: per declaration of the code of a step (no test code: a test, a fixture of its class or
-//!   module, `ReviewUnit::test`), the tests of the range whose changed lines name it (a member with its owner named in
-//!   the test's file), and those none names.
+//! - **The tests that reach it** (`add_tests`, after the plan): per declaration of the code of a step (no test code: a
+//!   test, a fixture of its class or module, `ReviewUnit::test`), the tests accio finds among its callers within
+//!   `TEST_DEPTH` calls by calls a type or an import ties (`accio tests --at`, every declaration of the plan in one
+//!   process), each a test of the range or one the change did not touch, and the declarations none reaches.
 //! - **Coverage**: every block of the range in one stop, else in a mechanical unit (`StepCoverage`).
 
 use crate::brief::ContractEntry;
 use crate::concerns::{Concern, ConcernName, EvidenceKind, names_word};
+use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
 use crate::links::FileLink;
 use crate::pair::{PairBlocks, block_of};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice};
+use anyhow::Result;
 use code_symbols::language::language_of;
+use file_diffs::accio::{DeclarationAt, ReachingTest, SymbolIndex};
 use object_cache::commit_diff::FileChange;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -38,8 +42,10 @@ use trial_check::symbol_scan::SymbolInput;
 
 /// A declaration more stops of a step use than this is a hub: its uses keep the order of the story
 const MAX_USES: usize = 6;
-/// The shortest name of a declaration whose uses follow it, or that a test names
+/// The shortest name of a declaration whose uses follow it
 const MIN_NAME: usize = 3;
+/// The calls between a test and the code of a step that `add_tests` walks at most
+pub const TEST_DEPTH: u32 = 3;
 /// The fewest words of a body that tells a step
 const MIN_BODY_WORDS: usize = 3;
 /// The lines past the last one of a file a hunk names: the base goes on unchanged
@@ -55,6 +61,27 @@ pub struct ReviewSteps {
   /// In the order of the story: the commits that start them, oldest first; "Changes without a story" last
   pub steps: Vec<ReviewStep>,
   pub coverage: StepCoverage,
+  /// The tests of the range: the lines of each at the head and its unit, for `add_tests`
+  #[serde(skip)]
+  pub range_tests: Vec<RangeTest>,
+}
+
+/// A test the range adds or changes: its path at the head, its lines from 1 (both included) and its unit
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeTest {
+  pub path: String,
+  pub lines: (u32, u32),
+  /// `ReviewUnit::id`
+  pub unit: String,
+}
+
+/// A declaration of the code of a step, as `add_tests` asks about it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepCode {
+  /// Its name, led by its owner when another declaration of the step has the same name
+  pub name: String,
+  /// The line of its name at the head
+  pub at: DeclarationAt,
 }
 
 /// Where the steps come from
@@ -102,6 +129,9 @@ pub struct ReviewStep {
   /// stops change the most lines of it holds its row, the first of equal ones
   pub elsewhere: Vec<String>,
   pub tests: StepTests,
+  /// The declarations of its code, which `add_tests` asks the tests of
+  #[serde(skip)]
+  pub code: Vec<StepCode>,
 }
 
 /// A commit of a step
@@ -151,43 +181,64 @@ pub struct StepStop {
   pub concern: Option<String>,
 }
 
-/// The tests of the range that name the code of a step
+/// The tests that reach the code of a step
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct StepTests {
-  /// Its declarations that a test names, each with those tests
-  pub named: Vec<NamedDeclaration>,
-  /// Its declarations of a parsed language whose body or form changed, or that it adds, that no test of the range
-  /// names; none of a test file, whose helpers a test runs. A name two of them share is led by its owner
-  pub unnamed: Vec<String>,
+  /// accio answered which tests reach its code (`add_tests`); without the answer `reached` and `unreached` are empty,
+  /// and the plan's `index_note` says why
+  pub answered: bool,
+  /// Its declarations that a test reaches, each with those tests
+  pub reached: Vec<ReachedDeclaration>,
+  /// Its declarations of a parsed language whose body or form changed, or that it adds, that no test reaches; none of a
+  /// test file, whose helpers a test runs. A name two of them share is led by its owner
+  pub unreached: Vec<UnreachedDeclaration>,
   /// The tests the `[@test]` lines of the rules of a spec it adds or changes name, by the path they give: a scenario
   /// that names no declaration
   pub scenarios: Vec<String>,
 }
 
-/// A declaration of a step and the tests that name it
+/// A declaration of a step and the tests that reach it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct NamedDeclaration {
+pub struct ReachedDeclaration {
   pub name: String,
   pub tests: Vec<TestRef>,
 }
 
-/// A test of the range
+/// A declaration of a step no test reaches
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct UnreachedDeclaration {
+  pub name: String,
+  /// The calls the walk went: accio stopped there with callers left (`TEST_DEPTH`); `None` when it walked every
+  /// caller
+  pub within: Option<u32>,
+}
+
+/// A test that reaches a declaration of a step
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct TestRef {
-  /// `ReviewUnit::id`
-  pub unit: String,
+  /// `ReviewUnit::id` of a test the range adds or changes; `None` for one the change did not touch
+  pub unit: Option<String>,
   pub path: String,
-  /// The name the test reads as (`test_name`)
+  /// The line of its name at the head, from 1
+  pub line: u32,
+  /// The name the test reads as
   pub name: String,
+  /// The calls between the test and the declaration: 1 when the test calls it
+  pub depth: u32,
+  /// The callers on the way, from the test's callee to the declaration's caller
+  pub via: Vec<String>,
 }
 
 /// Whether the steps show every block of the range once
@@ -414,7 +465,7 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
   };
   for step in &mut steps {
     order_stops(input, &file_of, step);
-    step.tests = tests_of(input, &file_of, step);
+    (step.code, step.tests.scenarios) = code_of(input, step);
   }
   mark_concerns(input, &mut steps);
   mark_paths(input, &mut steps);
@@ -423,6 +474,7 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
     source: source.map_or(StepSource::Commits, |reason| StepSource::Concerns { reason }),
     steps,
     coverage,
+    range_tests: range_tests(input, &file_of),
   }
 }
 
@@ -603,6 +655,7 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
       paths: Vec::new(),
       elsewhere: Vec::new(),
       tests: StepTests::default(),
+      code: Vec::new(),
     })
     .collect();
   for (commit, &step) in step_of_commit.iter().enumerate() {
@@ -712,6 +765,7 @@ fn concern_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)])
         paths: Vec::new(),
         elsewhere: Vec::new(),
         tests: StepTests::default(),
+        code: Vec::new(),
       }
     })
     .collect()
@@ -822,110 +876,62 @@ fn test_span(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, unit: &Revi
     .map(|declaration| (declaration.start_line, declaration.end_line))
 }
 
-/// The lines a test adds or changes: the lines of the blocks of its file, after the commits, within its declaration
-/// (a block may hold two tests, and the unit of one holds it), without the names in backticks: the words of a Kotlin
-/// test's name are no use of a declaration
-fn test_lines(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, path: &str, (start, end): (u32, u32)) -> Vec<String> {
-  let Some(&file) = file_of.get(path) else { return Vec::new() };
-  let new = blob_lines(input.texts, input.changed[file].after);
-  let span = start.saturating_sub(1)..end;
-  let lines = match &input.pairs[file] {
-    PairBlocks::Added => lines_in(&new, span),
-    PairBlocks::Blocks(blocks) => blocks
-      .iter()
-      .flat_map(|block| lines_in(&new, block.new.start.max(span.start)..block.new.end.min(span.end)))
-      .collect(),
-    _ => Vec::new(),
-  };
-  lines.into_iter().map(|line| line.split('`').step_by(2).collect::<Vec<_>>().join(" ")).collect()
-}
-
-/// The name a test reads as: a Kotlin name in backticks without them, the words of `snake_case`, of `testCamelCase`
-/// without its `test`
-pub(crate) fn test_name(name: &str) -> String {
-  if let Some(sentence) = name.strip_prefix('`').and_then(|rest| rest.strip_suffix('`')) {
-    return sentence.to_string();
-  }
-  if name.contains('_') {
-    return name.trim_start_matches("test_").split('_').filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" ");
-  }
-  let camel = name.strip_prefix("test").filter(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase())).unwrap_or(name);
-  let mut words = String::new();
-  for (place, c) in camel.chars().enumerate() {
-    if c.is_ascii_uppercase() && place > 0 {
-      words.push(' ');
-    }
-    words.push(c.to_ascii_lowercase());
-  }
-  words
-}
-
-/// The tests of the range that name each declaration of the code of `step` (`StepTests`)
-fn tests_of(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, step: &ReviewStep) -> StepTests {
-  let tests: Vec<(&ReviewUnit, Vec<String>, &str)> = input
+/// The tests of the range: each unit of a test function, with its lines at the head (`test_span`)
+fn range_tests(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>) -> Vec<RangeTest> {
+  input
     .units
     .iter()
     .filter(|unit| matches!(unit.kind, UnitKind::Added | UnitKind::Behaviour | UnitKind::Shape { .. }))
-    .filter_map(|unit| Some((unit, test_span(input, file_of, unit)?)))
-    .map(|(unit, span)| {
-      let path = unit.slices[0].path.as_str();
-      let added = test_lines(input, file_of, path, span);
-      let text = file_of
-        .get(path)
-        .and_then(|&file| input.changed[file].after)
-        .and_then(|blob| input.texts.get(blob))
-        .map_or("", String::as_str);
-      (unit, added, text)
+    .filter_map(|unit| {
+      Some(RangeTest {
+        path: unit.slices[0].path.clone(),
+        lines: test_span(input, file_of, unit)?,
+        unit: unit.id.clone(),
+      })
     })
-    .collect();
+    .collect()
+}
+
+/// The declarations of the code of `step` (`StepCode`), and the tests the `[@test]` lines of the rules of a spec it
+/// adds or changes name
+fn code_of(input: &StepsInput<'_>, step: &ReviewStep) -> (Vec<StepCode>, Vec<String>) {
   let place_of: HashMap<&str, &ReviewUnit> = input.units.iter().map(|unit| (unit.id.as_str(), unit)).collect();
   let mut seen: HashSet<&str> = HashSet::new();
-  let mut named = Vec::new();
-  let mut unnamed = Vec::new();
+  // name, the name led by its owner, its place
+  let mut code: Vec<(&str, String, DeclarationAt)> = Vec::new();
   for stop in &step.stops {
     let Some(unit) = place_of.get(stop.unit.as_str()) else { continue };
-    let code =
+    let is_code =
       matches!(unit.kind, UnitKind::Added | UnitKind::Behaviour | UnitKind::Shape { .. }) && language_of(&stop.path).is_some() && test_subject(&stop.path).is_none() && !unit.test;
-    let Some(name) = unit.name.as_deref().filter(|name| code && name.len() >= MIN_NAME) else {
-      continue;
-    };
-    if !seen.insert(unit.id.as_str()) {
+    let (Some(name), Some(line)) = (unit.name.as_deref(), unit.line) else { continue };
+    if !is_code || !seen.insert(unit.id.as_str()) {
       continue;
     }
-    // a member: its owner, a type, named in the file of the test too
     let owner = unit
       .key
       .as_deref()
       .and_then(|key| key.rsplit('.').nth(1))
       .filter(|owner| owner.starts_with(|c: char| c.is_ascii_uppercase()));
-    let naming: Vec<TestRef> = tests
-      .iter()
-      .filter(|(test, added, text)| test.id != unit.id && added.iter().any(|line| names_word(line, name)) && owner.is_none_or(|owner| names_word(text, owner)))
-      .map(|(test, ..)| TestRef {
-        unit: test.id.clone(),
-        path: test.slices[0].path.clone(),
-        name: test_name(test.name.as_deref().unwrap_or_default()),
-      })
-      .collect();
     let shown = owner.map_or_else(|| name.to_string(), |owner| format!("{owner}.{name}"));
-    if naming.is_empty() {
-      unnamed.push((name.to_string(), shown));
-    } else {
-      named.push((
-        shown,
-        NamedDeclaration {
-          name: name.to_string(),
-          tests: naming,
-        },
-      ));
-    }
+    let at = DeclarationAt {
+      revision: None,
+      path: stop.path.clone(),
+      line,
+    };
+    code.push((name, shown, at));
   }
   // a name two declarations share is led by its owner
-  let mut count: HashMap<String, usize> = HashMap::new();
-  for name in unnamed.iter().map(|(name, _)| name).chain(named.iter().map(|(_, named)| &named.name)) {
-    *count.entry(name.clone()).or_default() += 1;
+  let mut count: HashMap<&str, usize> = HashMap::new();
+  for (name, ..) in &code {
+    *count.entry(name).or_default() += 1;
   }
-  let qualified = |name: String, shown: String| if count.get(&name).copied().unwrap_or(0) > 1 { shown } else { name };
+  let code = code
+    .into_iter()
+    .map(|(name, shown, at)| StepCode {
+      name: if count[name] > 1 { shown } else { name.to_string() },
+      at,
+    })
+    .collect();
   let scenarios = input
     .contract
     .iter()
@@ -939,17 +945,64 @@ fn tests_of(input: &StepsInput<'_>, file_of: &HashMap<&str, usize>, step: &Revie
     .collect::<BTreeSet<String>>()
     .into_iter()
     .collect();
-  StepTests {
-    named: named
-      .into_iter()
-      .map(|(shown, mut named)| {
-        named.name = qualified(named.name.clone(), shown);
-        named
-      })
-      .collect(),
-    unnamed: unnamed.into_iter().map(|(name, shown)| qualified(name, shown)).collect(),
-    scenarios,
+  (code, scenarios)
+}
+
+/// `test` as a step lists it: a test of the range by its unit (`range_tests`, the test whose lines hold its line)
+fn test_ref(test: &ReachingTest, range_tests: &[RangeTest]) -> TestRef {
+  let unit = range_tests
+    .iter()
+    .find(|it| it.path == test.path && (it.lines.0..=it.lines.1).contains(&test.line))
+    .map(|it| it.unit.clone());
+  TestRef {
+    unit,
+    path: test.path.clone(),
+    line: test.line,
+    name: test.reads_as.clone(),
+    depth: test.depth,
+    via: test.via.iter().map(|step| step.declaration.clone()).collect(),
   }
+}
+
+/// Add the tests that reach the code of each step at `head`, within `TEST_DEPTH` calls by calls a type or an import
+/// ties, asked by their places in one query; the answer is why the steps have none, `None` when the index answered or
+/// nothing was asked. Fails when the index was canceled
+pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &str, steps: &mut ReviewSteps) -> Result<Option<String>> {
+  let places: Vec<DeclarationAt> = steps
+    .steps
+    .iter()
+    .flat_map(|step| step.code.iter().map(|code| code.at.clone()))
+    .collect::<BTreeSet<_>>()
+    .into_iter()
+    .collect();
+  if places.is_empty() {
+    return Ok(None);
+  }
+  let answers = match ask_index(index, |lenient| lenient.tests(repository_path, &places, TEST_DEPTH, head))? {
+    Ok(answers) => answers,
+    Err(note) => return Ok(Some(note)),
+  };
+  let reach_of: HashMap<&DeclarationAt, _> = places.iter().zip(&answers).collect();
+  let ReviewSteps { steps, range_tests, .. } = steps;
+  for step in steps.iter_mut() {
+    let tests = &mut step.tests;
+    tests.answered = true;
+    for code in &step.code {
+      let Some(reach) = reach_of.get(&code.at) else { continue };
+      if reach.tests.is_empty() {
+        tests.unreached.push(UnreachedDeclaration {
+          name: code.name.clone(),
+          within: reach.cut.map(|_| TEST_DEPTH),
+        });
+      } else {
+        tests.reached.push(ReachedDeclaration {
+          name: code.name.clone(),
+          tests: reach.tests.iter().map(|test| test_ref(test, range_tests)).collect(),
+        });
+      }
+    }
+  }
+  Ok(None)
 }
 
 /// Marks each stop of a step with the concern of its unit when the step holds parts of two concerns or more that

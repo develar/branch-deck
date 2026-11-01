@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 12` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 13` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -15,7 +15,8 @@
 //! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern, version 10
 //! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`, version 11 the `api`
 //! and `test` of a unit in place of its `public`, version 12 the `still_bound` and `by_name` usages, and `unbroken` in
-//! place of `updated`
+//! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
+//! `unnamed`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -40,7 +41,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 12;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 13;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -147,8 +148,9 @@ pub struct ReviewPlanOutput {
   /// without a body wrote last (`id` `no-story`); else, with no body, one commit or more than 12 steps, a step per
   /// concern. Each step shows parts of the units (`stops`: `unit`, `path`, `blocks`; a declaration it adds or changes
   /// the form of first, the stops that `uses` it right after; `also` the other steps that changed its lines) and the
-  /// tests of the range that name its code (`tests`: `named`, `unnamed`). `coverage`: every block of the diff in one
-  /// stop, else in a mechanical unit
+  /// tests accio finds among the callers of its code (`tests`: `answered`, `reached` with each test's `unit` when the
+  /// range adds or changes it, `unreached` with `within` when the walk stopped at the depth). `coverage`: every block of
+  /// the diff in one stop, else in a mechanical unit
   pub steps: ReviewSteps,
   /// The issue key the commits name (`issue`) and the prose the change adds, removes or changes (`contract`): the rules
   /// of the specs with the tests their `[@test]` lines name (`provenBy`), the records of decisions, the guides of

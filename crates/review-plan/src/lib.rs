@@ -48,7 +48,7 @@ use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
 use crate::pair::{ChangedLines, pair_blocks};
-use crate::steps::{ReviewSteps, StepsInput, review_steps};
+use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
 use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
 use file_diffs::accio::SymbolIndex;
@@ -61,6 +61,7 @@ use git_ops::revs::resolve_commit;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use sync_utils::span::in_current_span;
 use tracing::instrument;
 use trial_check::diff_scan::{read_commit_diffs_cached, read_pair_diff};
 use trial_check::symbol_scan::read_symbol_input_with;
@@ -163,8 +164,8 @@ fn resolved(git: &GitCommandExecutor, repository_path: &str, rev: &str) -> Resul
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ReviewPlanEvent {
-  /// The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, and
-  /// the plan with them follows
+  /// The plan; `pending` while the index is asked: no entry of its API has usages yet, no file counts `breaks`, no step
+  /// knows the tests that reach its code, and the plan with them follows
   Plan { plan: Box<ReviewPlan>, pending: bool },
   /// The repository turns the review plan off (`branchdeck.reviewExperimental`): the window shows none
   Disabled,
@@ -256,8 +257,8 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
   }
 }
 
-/// The plan of `subject` (`resolve_subject` of `params`): `pending` gets it once without the usages of the API, before
-/// the index is asked, when there is a query to ask; the answer is the plan with them
+/// The plan of `subject` (`resolve_subject` of `params`): `pending` gets it once without the usages of the API and the
+/// tests of the steps, before the index is asked, when there is a query to ask; the answer is the plan with them
 pub fn review_plan_of(
   git: &GitCommandExecutor,
   sources: PlanSources<'_>,
@@ -367,12 +368,21 @@ pub fn review_plan_of(
     order,
     index_note: None,
   };
-  if sources.index.is_some() && api.iter().any(|change| change.kind != ApiChangeKind::Added) {
+  let asks = api.iter().any(|change| change.kind != ApiChangeKind::Added) || plan.steps.steps.iter().any(|step| !step.code.is_empty());
+  if sources.index.is_some() && asks {
     (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
     plan.api.clone_from(&api);
     pending(&plan);
   }
-  plan.index_note = add_usages(sources.index, repository_path, &plan.head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api)?;
+  // the usages of the API and the tests of the steps, each one query of the index, at once
+  let head = plan.head.clone();
+  let steps = &mut plan.steps;
+  let (usages, tests) = std::thread::scope(|scope| {
+    let tests = scope.spawn(in_current_span(|| add_tests(sources.index, repository_path, &head, steps)));
+    let usages = add_usages(sources.index, repository_path, &head, || Ok(ChangedLines::of(&changed, &pairs)), &mut api);
+    (usages, tests.join().unwrap_or_else(|_| Err(anyhow::anyhow!("the query of the tests panicked"))))
+  });
+  plan.index_note = usages?.or(tests?);
   (plan.files, plan.repeated_edits) = file_facts(&changed, &kinds, &plan.links, &api, &inline_tests);
   plan.api = api;
   Ok(plan)

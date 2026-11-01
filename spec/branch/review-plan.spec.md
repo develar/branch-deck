@@ -179,10 +179,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
   and `carried`), with
-  `"schema": 12`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 13`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`; the other outputs of `bd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and

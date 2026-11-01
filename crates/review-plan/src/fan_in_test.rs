@@ -19,8 +19,10 @@ pub(crate) struct Counts {
   /// Every query fails with it
   failure: Option<&'static str>,
   canceled: bool,
-  /// Each query: its places (`DeclarationAt::argument`) and its revision
-  queries: Mutex<Vec<(Vec<String>, String)>>,
+  /// Each query: `references` or `tests`, its places (`DeclarationAt::argument`) and its revision
+  queries: Mutex<Vec<(&'static str, Vec<String>, String)>>,
+  /// The place -> the tests that reach it
+  tests: HashMap<String, TestReach>,
 }
 
 /// The usages an answer holds at most, as accio's `--limit`
@@ -106,6 +108,15 @@ impl Counts {
       failure: None,
       canceled: false,
       queries: Mutex::default(),
+      tests: HashMap::new(),
+    }
+  }
+
+  /// With the tests that reach each place
+  pub(crate) fn with_tests<'a>(self, tests: impl IntoIterator<Item = (&'a str, TestReach)>) -> Self {
+    Self {
+      tests: tests.into_iter().map(|(place, reach)| (place.to_string(), reach)).collect(),
+      ..self
     }
   }
 
@@ -124,25 +135,37 @@ impl Counts {
     Self { canceled: true, ..Self::of(&[]) }
   }
 
-  /// The places asked (`DeclarationAt::argument`), sorted
-  pub(crate) fn places(&self) -> Vec<String> {
-    let mut places: Vec<String> = self.queries.lock().unwrap().iter().flat_map(|(places, _)| places.clone()).collect();
+  /// The places of the queries of `command` (`DeclarationAt::argument`), sorted
+  fn asked(&self, command: &str) -> Vec<String> {
+    let queries = self.queries.lock().unwrap();
+    let mut places: Vec<String> = queries.iter().filter(|(of, ..)| *of == command).flat_map(|(_, places, _)| places.clone()).collect();
     places.sort();
     places
   }
 
-  /// The revision of each query
-  pub(crate) fn revisions(&self) -> Vec<String> {
-    self.queries.lock().unwrap().iter().map(|(_, revision)| revision.clone()).collect()
+  /// The places whose usages were asked
+  pub(crate) fn places(&self) -> Vec<String> {
+    self.asked("references")
   }
 
-  /// Records a query of `declarations`; answers whether it answers at all
-  fn ask(&self, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<bool> {
+  /// The places whose tests were asked
+  pub(crate) fn tested(&self) -> Vec<String> {
+    self.asked("tests")
+  }
+
+  /// The revisions the queries answered at, each once, sorted
+  pub(crate) fn revisions(&self) -> Vec<String> {
+    let revisions: std::collections::BTreeSet<String> = self.queries.lock().unwrap().iter().map(|(_, _, revision)| revision.clone()).collect();
+    revisions.into_iter().collect()
+  }
+
+  /// Records a query of `command` of `declarations`; answers whether it answers at all
+  fn ask(&self, command: &'static str, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<bool> {
     self
       .queries
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .push((declarations.iter().map(DeclarationAt::argument).collect(), revision.to_string()));
+      .push((command, declarations.iter().map(DeclarationAt::argument).collect(), revision.to_string()));
     if self.canceled {
       return Err(SearchCanceled.into());
     }
@@ -160,7 +183,7 @@ impl SymbolIndex for Counts {
   }
 
   fn references_at(&self, _repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<Option<Vec<References>>> {
-    if !self.ask(declarations, revision)? {
+    if !self.ask("references", declarations, revision)? {
       return Ok(None);
     }
     let answers = declarations
@@ -181,9 +204,16 @@ impl SymbolIndex for Counts {
     Ok(Some(answers))
   }
 
-  /// No tests: the usages need only references
-  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
-    Ok(None)
+  fn tests(&self, _repository_root: &str, declarations: &[DeclarationAt], _depth: u32, revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+    if !self.ask("tests", declarations, revision)? {
+      return Ok(None);
+    }
+    Ok(Some(
+      declarations
+        .iter()
+        .map(|declaration| self.tests.get(&declaration.argument()).cloned().unwrap_or_default())
+        .collect(),
+    ))
   }
 
   /// No declaration lookup: the usages need only references

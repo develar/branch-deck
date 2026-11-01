@@ -462,9 +462,9 @@ pub mod templates {
   }
 
   /// A branch `layout` of five commits with bodies, the story of a review (spec/branch/review-tour.spec.md): a refactor
-  /// of the manager; a rule (`allowed`) the frame and the welcome use, with a test that names it; a change of the paint
-  /// no test names; the restart story, a rule of the spec with its test link; and a round that renames the flags of the
-  /// rule, which follows its step up
+  /// of the manager; a rule (`allowed`) the frame and the welcome use, with a test that calls it, beside a test of the
+  /// welcome the branch does not touch; a change of the paint no test calls; the restart story, a rule of the spec with
+  /// its test link; and a round that renames the flags of the rule, which follows its step up
   pub fn review_tour() -> RepoTemplate {
     let manager = |hooks: &str, rule: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = 1\n{hooks}{rule}}}\n");
     let hooks = "\n  fun hooks(): List<String> = emptyList()\n";
@@ -484,6 +484,10 @@ pub mod templates {
           ("src/a/Frame.kt", &frame("1", "manager.open()")),
           ("src/b/Welcome.kt", &welcome("manager.open()")),
           ("test/a/ManagerTest.kt", &test("")),
+          (
+            "test/b/WelcomeTest.kt",
+            "package b\n\nimport a.Manager\nimport org.junit.Test\n\nclass WelcomeTest {\n  @Test fun `the welcome focuses its project`() = check(Welcome(Manager()).focus() >= 0)\n}\n",
+          ),
           ("spec/window.spec.md", &spec("")),
         ],
         Some(1704117600),

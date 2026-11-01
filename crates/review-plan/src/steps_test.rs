@@ -1,7 +1,10 @@
 use crate::ReviewPlan;
 use crate::brief::{ContractKind, contract_kind, shared_issue};
-use crate::steps::{CommitRole, ConcernsReason, StepSource, tells_a_story, test_name};
-use crate::test_support::plan_of_range;
+use crate::fan_in::NO_ACCIO;
+use crate::fan_in_test::Counts;
+use crate::steps::{CommitRole, ConcernsReason, StepSource, TEST_DEPTH, tells_a_story};
+use crate::test_support::{plan_of, plan_of_range, range};
+use file_diffs::accio::{ReachingTest, TestReach, TestStep, WalkCut};
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -163,25 +166,66 @@ fn a_declaration_a_step_adds_comes_first_and_its_uses_right_after_it() {
   );
 }
 
-/// The declarations the tests of the steps of `plan` name, by name with the names of their tests, sorted, and those none
-/// names
-fn named_and_unnamed(plan: &ReviewPlan) -> (Vec<(&str, Vec<&str>)>, Vec<&str>) {
-  let mut named: Vec<(&str, Vec<&str>)> = plan
+/// A test that reaches a declaration: its path, line, the name it reads as, its depth and the callers on the way
+fn reaching(path: &str, line: u32, reads_as: &str, depth: u32, via: &[&str]) -> ReachingTest {
+  ReachingTest {
+    path: path.to_string(),
+    line,
+    declaration: format!("Test.{reads_as}"),
+    reads_as: reads_as.to_string(),
+    framework: "junit4".to_string(),
+    depth,
+    via: via
+      .iter()
+      .map(|declaration| TestStep {
+        declaration: (*declaration).to_string(),
+        path: "src/a/Frame.kt".to_string(),
+        line: 1,
+      })
+      .collect(),
+  }
+}
+
+/// A test of a step as a test reads it: its name, whether the range adds or changes it, its depth and the callers on
+/// the way
+type Reached<'a> = (&'a str, bool, u32, Vec<&'a str>);
+
+/// The declarations the tests reach in the steps of `plan` with their tests, and those none reaches
+type ReachedAndUnreached<'a> = (Vec<(&'a str, Vec<Reached<'a>>)>, Vec<(&'a str, Option<u32>)>);
+
+/// The declarations the tests reach in the steps of `plan`, each with its tests, sorted, and those none reaches, with
+/// the calls the walk went
+fn reached_and_unreached(plan: &ReviewPlan) -> ReachedAndUnreached<'_> {
+  let mut reached: Vec<(&str, Vec<Reached<'_>>)> = plan
     .steps
     .steps
     .iter()
-    .flat_map(|step| &step.tests.named)
-    .map(|named| (named.name.as_str(), named.tests.iter().map(|test| test.name.as_str()).collect()))
+    .flat_map(|step| &step.tests.reached)
+    .map(|reached| {
+      let tests = reached
+        .tests
+        .iter()
+        .map(|test| (test.name.as_str(), test.unit.is_some(), test.depth, test.via.iter().map(String::as_str).collect()))
+        .collect();
+      (reached.name.as_str(), tests)
+    })
     .collect();
-  named.sort();
-  let unnamed = plan.steps.steps.iter().flat_map(|step| &step.tests.unnamed).map(String::as_str).collect();
-  (named, unnamed)
+  reached.sort();
+  let unreached = plan
+    .steps
+    .steps
+    .iter()
+    .flat_map(|step| &step.tests.unreached)
+    .map(|unreached| (unreached.name.as_str(), unreached.within))
+    .collect();
+  (reached, unreached)
 }
 
-/// The tests of the range that name a declaration of a step are its tests, a member by its owner named in the test's
-/// file too; a declaration no test names is unnamed
+/// The tests that reach a declaration of the code of a step, as accio answers by its place at the head: a test the
+/// range adds or changes by its unit, one the change did not touch apart; a declaration no test reaches says how far the
+/// walk went. Without accio no step knows its tests, and the plan says why
 #[test]
-fn the_tests_that_name_the_code_of_a_step_and_the_code_none_names() {
+fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   let repo = TestRepo::new();
   let manager = "package a\n\nclass Manager {\n  fun open(): Int = 1\n\n  fun isEmpty(): Boolean = true\n}\n";
   let base = repo.create_commit_with_files(
@@ -191,10 +235,6 @@ fn the_tests_that_name_the_code_of_a_step_and_the_code_none_names() {
       (
         "test/a/ManagerTest.kt",
         "package a\n\nimport org.junit.Test\n\nclass ManagerTest {\n  @Test fun `opens`() = check(Manager().open() == 1)\n}\n",
-      ),
-      (
-        "test/b/OtherTest.kt",
-        "package b\n\nimport org.junit.Test\n\nclass OtherTest {\n  @Test fun `lists`() = check(listOf(1).isEmpty())\n}\n",
       ),
     ],
   );
@@ -206,18 +246,51 @@ fn the_tests_that_name_the_code_of_a_step_and_the_code_none_names() {
         "test/a/ManagerTest.kt",
         "package a\n\nimport org.junit.Test\n\nclass ManagerTest {\n  @Test fun `opens`() = check(Manager().open() == 2)\n\n  @Test fun `the project open may show only the stored layout`() = check(Manager().allowed(\"Project\"))\n}\n",
       ),
-      ("test/b/OtherTest.kt", "package b\n\nimport org.junit.Test\n\nclass OtherTest {\n  @Test fun `lists`() = check(listOf(2).isEmpty())\n}\n"),
     ],
   );
-  let plan = plan_of_range(&repo, &base, &head);
-  let (named, unnamed) = named_and_unnamed(&plan);
+  let tests = |tests: Vec<ReachingTest>, cut: Option<WalkCut>| TestReach { tests, cut };
+  let index = Counts::of(&[]).with_tests([
+    ("src/a/Manager.kt:4", tests(vec![reaching("test/a/ManagerTest.kt", 6, "opens", 1, &[])], None)),
+    (
+      "src/a/Manager.kt:8",
+      tests(
+        vec![
+          reaching("test/a/ManagerTest.kt", 8, "the project open may show only the stored layout", 1, &[]),
+          reaching("test/a/LayoutTest.kt", 3, "the layout is kept", 2, &["Frame.show"]),
+        ],
+        None,
+      ),
+    ),
+    ("src/a/Manager.kt:6", tests(Vec::new(), Some(WalkCut::Depth))),
+  ]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!(index.tested(), ["src/a/Manager.kt:4", "src/a/Manager.kt:6", "src/a/Manager.kt:8"]);
+  assert_eq!(index.revisions(), std::slice::from_ref(&head));
+  let (reached, unreached) = reached_and_unreached(&plan);
   assert_eq!(
-    named,
-    [("allowed", vec!["the project open may show only the stored layout"]), ("open", vec!["opens"])],
+    reached,
+    [
+      (
+        "allowed",
+        vec![
+          ("the project open may show only the stored layout", true, 1, vec![]),
+          ("the layout is kept", false, 2, vec!["Frame.show"])
+        ]
+      ),
+      ("open", vec![("opens", true, 1, vec![])]),
+    ],
     "{:?}",
     plan.steps
   );
-  assert_eq!(unnamed, ["isEmpty"], "the isEmpty of a list in another test is no use of the manager's");
+  assert_eq!(unreached, [("isEmpty", Some(TEST_DEPTH))]);
+  assert!(plan.steps.steps.iter().all(|step| step.tests.answered));
+  assert_eq!(plan.index_note, None);
+
+  // without accio: no step knows its tests
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(reached_and_unreached(&plan), (vec![], vec![]));
+  assert!(plan.steps.steps.iter().all(|step| !step.tests.answered));
+  assert_eq!(plan.index_note.as_deref(), Some(NO_ACCIO));
 }
 
 /// A Rust source of `size` returning `value`, with a fixture of its inline tests returning `prepared` and a test that
@@ -228,15 +301,28 @@ fn store_source(value: u8, prepared: &str, asserted: u8) -> String {
   )
 }
 
-/// A fixture of a test (a helper of an inline `mod tests`, a member of a test class) is test code, no code a test
-/// names: the change of its body is neither named nor unnamed
+/// A fixture of a test (a helper of an inline `mod tests`, a member of a test class) is test code, no code a step asks
+/// the tests of; the test the range changes in the same file is its unit
 #[test]
-fn a_fixture_of_a_test_is_no_code_a_test_names() {
+fn a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files("Add", &[("src/store.rs", &store_source(1, "1", 1))]);
   let head = repo.create_commit_with_files("Change the size", &[("src/store.rs", &store_source(2, "2", 2))]);
-  let plan = plan_of_range(&repo, &base, &head);
-  assert_eq!(named_and_unnamed(&plan), (vec![("size", vec!["size is right"])], vec![]), "{:?}", plan.steps);
+  let index = Counts::of(&[]).with_tests([(
+    "src/store.rs:1",
+    TestReach {
+      tests: vec![reaching("src/store.rs", 14, "size is right", 1, &[])],
+      cut: None,
+    },
+  )]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!(index.tested(), ["src/store.rs:1"]);
+  assert_eq!(
+    reached_and_unreached(&plan),
+    (vec![("size", vec![("size is right", true, 1, vec![])])], vec![]),
+    "{:?}",
+    plan.steps
+  );
 }
 
 /// A file of no language is cut by its blocks: each block in the step of the commit that wrote it; the file has its main
@@ -355,14 +441,6 @@ fn a_commit_rewritten_whole_follows_the_step_of_the_commit_that_rewrote_it() {
       names(&["guide.md [0]"])
     )]
   );
-}
-
-#[test]
-fn a_test_reads_as_its_words() {
-  assert_eq!(test_name("`the project open keeps the layout`"), "the project open keeps the layout");
-  assert_eq!(test_name("a_changed_declaration_joins_its_uses"), "a changed declaration joins its uses");
-  assert_eq!(test_name("test_restores_the_tab"), "restores the tab");
-  assert_eq!(test_name("testRestoresTheTab"), "restores the tab");
 }
 
 #[test]

@@ -197,12 +197,17 @@ export interface BriefStep {
   readonly more: readonly string[]
   /** The other commits of the step: "Follows up: …", "Without a story: …" */
   readonly rounds: readonly string[]
-  /** "Tests that name it: open, allowed" */
-  readonly named: string | null
-  /** No test of the range names any of its code and no scenario proves it: "No test in this change names run, create" */
+  /** Its code that tests the change adds or changes reach: "Tests of this change reach open, allowed" */
+  readonly proven: string | null
+  /** Its code that tests the change did not touch reach: "2 tests it did not touch reach focus", "1 test it did not touch reaches focus" */
+  readonly covered: string | null
+  /**
+   * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
+   * reaches paint within 3 calls" when the walk stopped with callers left
+   */
   readonly unproven: string | null
-  /** Its code no test names, beside tests that name some of it: "Not named by a test: isEmpty" */
-  readonly unnamed: string | null
+  /** Its code no test reaches, beside code a test reaches or a scenario: "No test reaches isEmpty" */
+  readonly unreached: string | null
   /** "Proven by the scenario restart.json" */
   readonly scenarios: string | null
   /** Nothing of it lands: a later commit took it out */
@@ -271,7 +276,12 @@ export function presentBrief(plan: Pick<ReviewPlan, "steps" | "concerns" | "brie
     const rounds = step.commits
       .filter(commit => commit !== head)
       .map(commit => `${commit.role === "noStory" ? "Without a story" : "Follows up"}: ${formatStepTitle(commit.subject, plan.brief.issue)}`)
-    const { named, unnamed, scenarios } = step.tests
+    const { answered, reached, unreached, scenarios } = step.tests
+    const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
+    const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
+    const coveredNames = reached.filter(declaration => declaration.tests.some(test => test.unit === null)).map(it => it.name)
+    const within = Math.max(0, ...unreached.map(declaration => declaration.within ?? 0))
+    const none = unreached.length === 0 ? null : `No test reaches ${names(unreached.map(it => it.name))}`
     return {
       id: step.id,
       number: index + 1,
@@ -279,9 +289,11 @@ export function presentBrief(plan: Pick<ReviewPlan, "steps" | "concerns" | "brie
       why: paragraphs[0] ?? null,
       more: paragraphs.slice(1),
       rounds,
-      named: named.length === 0 ? null : `Tests that name it: ${names(named.map(it => it.name))}`,
-      unproven: unnamed.length > 0 && named.length === 0 && scenarios.length === 0 ? `No test in this change names ${names(unnamed)}` : null,
-      unnamed: unnamed.length > 0 && (named.length > 0 || scenarios.length > 0) ? `Not named by a test: ${names(unnamed)}` : null,
+      proven: ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
+      covered:
+        untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
+      unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
+      unreached: none !== null && (reached.length > 0 || scenarios.length > 0) ? none : null,
       scenarios: scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
       landsNothing: step.stops.length === 0,
     }
