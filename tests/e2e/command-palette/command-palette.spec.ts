@@ -81,7 +81,7 @@ testWithIssueLinks.describe("Command palette", () => {
     await expect(actions.getByRole("option", { name: /^Move to…/ })).not.toHaveAttribute("aria-disabled", "true")
     const count = (await getOpenedSubWindows(page)).length
     await runByKeyboard(page, "review changes", "Review Changes")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).slice(count).map(window => window.windowId)).toEqual(["branch-review"])
+    await expect.poll(async () => (await getOpenedSubWindows(page)).slice(count).map(window => window.windowId)).toEqual(["review"])
   })
 
   testWithIssueLinks("should show the views, Activity and every command of the app without a scroll in the window of the start", async ({ page }) => {

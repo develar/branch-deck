@@ -490,7 +490,7 @@ test.describe("Stack island", () => {
     await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
     await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(1)
     const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-    expect(opened).toMatchObject({ windowId: "branch-review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
+    expect(opened).toMatchObject({ windowId: "review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
   })
 
   test("should disable the whole stack's Safe Push while its stack branch conflicts, and land it in pieces from the header", async ({

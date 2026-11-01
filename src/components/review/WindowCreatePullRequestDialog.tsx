@@ -3,7 +3,7 @@ import { CreatePullRequestDialogFrame, CreatePullRequestForm } from "@/component
 import type { CreatePullRequestActions } from "@/components/branch/CreatePullRequestDialog"
 import { askMainWindow } from "@/hooks/useMainWindowLink"
 import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
-import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
+import { REVIEW_WINDOW } from "@/lib/window-label"
 import type { BranchReviewRequest } from "@/types/sub-window"
 
 /**
@@ -38,7 +38,7 @@ export function WindowCreatePullRequestDialog({
       | { dialog: "safePushWithoutReview" }
       | { dialog: "create"; input: Parameters<CreatePullRequestActions["create"]>[0] }
       | { dialog: "continueOnGitHub"; fields: Parameters<CreatePullRequestActions["continueOnGitHub"]>[0] },
-  ) => askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), ...request })
+  ) => askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), ...request })
   const open = dialog !== null && shown?.generation === dialog.generation
   return (
     <CreatePullRequestDialogFrame open={open} isCreating={isCreating} titleRef={titleRef} onClose={onClose}>

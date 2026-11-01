@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ReviewSegment } from "@/lib/bindings"
 import {
-  branchReviewWindowKey,
   keepSegmentRange,
   moveView,
-  planReviewOpen,
   reviewBlockerOf,
   reviewCommitKey,
   sameReviewTable,
@@ -13,13 +11,11 @@ import {
   settledReviewTable,
   stackBarItems,
 } from "@/lib/branch-review"
-import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { branchSyncStore } from "@/stores/branch-sync"
 import type { BranchSyncState, StackBranch, SyncedCommit } from "@/stores/branch-sync"
 import { placed, testBranch } from "@/stores/test-branch"
 import { disabled, enabled } from "@/test-support/actions"
 import { testSubject } from "@/test-support/subject-parts"
-import type { BranchReviewWindowData } from "@/types/sub-window"
 
 function segment(name: string, base: string, head: string): ReviewSegment {
   return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1, committerTime: 1 }] }
@@ -72,42 +68,6 @@ describe("reviewBlockerOf", () => {
     expect(reviewBlockerOf(ui, enabled("review-changes"))).toBeNull()
     expect(reviewBlockerOf(ui, [disabled("review-changes", { code: "syncFailed", problem: null })])).toBe("The branch failed to sync")
     expect(reviewBlockerOf(ui, [disabled("review-changes", { code: "noCommits" })])).toBe("No commits to review")
-  })
-})
-
-describe("the review window of a branch", () => {
-  const plain: BranchReviewWindowData = {
-    repositoryPath: "/repo",
-    baselineBranch: "origin/master",
-    chain: ["auth", "login"],
-    groups: [],
-    focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
-    openedAt: 1,
-    startedAt: 1,
-    move: false,
-    state: { repositoryPath: "/repo", selected: true, items: {}, menus: {}, createPullRequest: null, wholeStack: null, commitMenus: {}, groups: null },
-  }
-  const shown: ShownBranchReview = { repositoryPath: "/repo", chain: ["auth", "login"], wholeStack: false, startedAt: 1 }
-  const open = (branchName: string, chain: string[], focus: BranchReviewFocus) => planReviewOpen(shown, { repositoryPath: "/repo", branchName, chain, focus }, 9)
-
-  it("keeps its review for a plain open of the branch it shows, and starts over for another branch or a place", () => {
-    expect(open("login", ["auth", "login"], {})).toEqual({ chain: ["auth", "login"], startedAt: 1, move: false })
-    expect(open("auth", ["auth"], {})).toEqual({ chain: ["auth"], startedAt: 9, move: false })
-    // the "Review Changes" of the Safe Push popover: the whole stack, the files of a group, a file
-    expect(open("login", ["auth", "login"], { range: "all", filter: { kind: "group", name: "Air" }, path: "a.kt" }).startedAt).toBe(9)
-    expect(planReviewOpen(null, { repositoryPath: "/repo", branchName: "login", chain: ["auth", "login"], focus: {} }, 9).startedAt).toBe(9)
-    expect(planReviewOpen({ ...shown, wholeStack: true }, { repositoryPath: "/repo", branchName: "login", chain: ["auth", "login"], focus: {} }, 9).startedAt).toBe(9)
-    // the key follows the start: the window starts over only when it changes
-    expect(branchReviewWindowKey({ ...plain, openedAt: 2 })).toBe(branchReviewWindowKey(plain))
-    expect(branchReviewWindowKey({ ...plain, startedAt: 9 })).not.toBe(branchReviewWindowKey(plain))
-  })
-
-  it("moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch", () => {
-    // a commit of the parent: the chain on screen stays
-    expect(open("auth", ["auth"], { commitId: "a1" })).toEqual({ chain: ["auth", "login"], startedAt: 1, move: true })
-    expect(open("login", ["auth", "login"], { commitId: "l1", path: "a.kt" })).toEqual({ chain: ["auth", "login"], startedAt: 1, move: true })
-    expect(open("ui", ["auth", "login", "ui"], { commitId: "u1" })).toEqual({ chain: ["auth", "login", "ui"], startedAt: 9, move: false })
-    expect(planReviewOpen(shown, { repositoryPath: "/other", branchName: "auth", chain: ["auth"], focus: { commitId: "a1" } }, 9).move).toBe(false)
   })
 })
 

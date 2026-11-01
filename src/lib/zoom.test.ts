@@ -37,9 +37,9 @@ describe("minWindowWidth", () => {
 
 describe("minSubWindowSize", () => {
   it("is the size of the title bar of a review up to 125%, wider above", () => {
-    expect(minSubWindowSize("branch-review", 0.67)).toEqual({ width: 800, height: 500 })
-    expect(minSubWindowSize("commit-review", 1.25)).toEqual({ width: 800, height: 500 })
-    expect(minSubWindowSize("branch-review", 1.5)).toEqual({ width: 960, height: 500 })
+    expect(minSubWindowSize("review", 0.67)).toEqual({ width: 800, height: 500 })
+    expect(minSubWindowSize("review", 1.25)).toEqual({ width: 800, height: 500 })
+    expect(minSubWindowSize("review", 1.5)).toEqual({ width: 960, height: 500 })
   })
 
   it("is smaller for Settings, and wider above 107%", () => {

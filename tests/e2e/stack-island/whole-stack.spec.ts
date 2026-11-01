@@ -782,7 +782,7 @@ test.describe("Whole stack", () => {
     await page.getByRole("menuitem", { name: "Review Whole Stack" }).click()
     await expect.poll(async () => (await getOpenedSubWindows<BranchReviewWindowData>(page)).length).toBe(3)
     for (const opened of await getOpenedSubWindows<BranchReviewWindowData>(page)) {
-      expect(opened).toMatchObject({ windowId: "branch-review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
+      expect(opened).toMatchObject({ windowId: "review", title: "Review the whole air stack", data: { chain: ["air"], wholeStack: true } })
     }
   })
 

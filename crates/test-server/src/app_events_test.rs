@@ -64,7 +64,7 @@ async fn the_events_of_the_app_reach_the_pages_of_their_windows_and_end_with_the
   assert_eq!(main.next().await, of_app("activity-changed", Value::Null, None));
   assert_eq!(settings.next().await, of_app("activity-changed", Value::Null, None));
 
-  let state = json!({ "event": "branch-review/state", "payload": { "items": [] }, "window": null, "source": "main" });
+  let state = json!({ "event": "review/state", "payload": { "items": [] }, "window": null, "source": "main" });
   post(&client, addr, &format!("/repositories/{id}/events"), state.clone()).await;
   assert_eq!(main.next().await, state);
   assert_eq!(settings.next().await, state);

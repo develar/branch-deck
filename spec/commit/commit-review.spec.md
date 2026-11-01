@@ -19,7 +19,7 @@ targets:
   - ../../src/components/files/FileTree.tsx
   - ../../src/components/files/FileContextMenu.tsx
   - ../../src/components/shared/WindowPage.tsx
-  - ../../src/pages/CommitReviewPage.tsx
+  - ../../src/pages/ReviewPage.tsx
   - ../../src/lib/diff/rows.ts
   - ../../src/lib/diff/layout.ts
   - ../../src/lib/diff/file-map.ts
@@ -34,9 +34,7 @@ targets:
   - ../../src/stores/blob-texts.ts
   - ../../src/stores/commit-files.ts
   - ../../src/lib/commit-files.ts
-  - ../../src/pages/BranchReviewPage.tsx
-  - ../../src/lib/commit-review-window.ts
-  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-window.ts
   - ../../src/components/commit/CommitList.tsx
   - ../../src/hooks/useCommitReviewActions.ts
   - ../../src/hooks/usePreviewHotkeys.ts
@@ -67,7 +65,8 @@ branch ([Landing](../../docs/design/landing.md)), so a commit of a branch is rev
 branch, at the commit, with the stack, the actions and the other commits of the branch beside it
 ([Branch Review](../branch/branch-review.spec.md)), a commit of an unapplied or archived branch in the review of that
 branch ([Review Window](../review/review-window.spec.md#kept-branches)); a commit no branch review shows (unassigned, of
-a branch not built on its parents, of a conflict) opens the window `commit-review`. A sidebar with
+a branch not built on its parents, of a conflict) opens in the same window as a list of commits
+([Review Window](../review/review-window.spec.md#one-window)). A sidebar with
 the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
 header per file, as a code review in Space, GitHub or IntelliJ shows a change. The tree follows the diffs as they
 scroll, a file chosen in the tree scrolls the diffs to it, J and K step through the files and N and P through the
@@ -93,15 +92,16 @@ where a dialog would cover it.
 
 ### Opening and closing
 
-- The review of a commit is in a window: the review window of its branch, at the commit, or the window
-  `commit-review` (`/commit-review`, one window, reused, titled "Review a1b2c3d <subject>" and retitled as it steps;
-  [Title Bar](../repository/title-bar.spec.md) for how it opens). There is no review dialog, no W and no "Open in
-  Window": one action, "Review Changes" (D).
+- The review of a commit is in the review window ([Review Window](../review/review-window.spec.md#one-window)): the
+  review of its branch, at the commit, or the review of the list it is in (titled "Review a1b2c3d <subject>" and
+  retitled as it steps; [Title Bar](../repository/title-bar.spec.md) for how it opens). There is no review dialog, no
+  W and no "Open in Window": one action, "Review Changes" (D).
 - A commit of a branch must open the review window of the branch at the commit (`reviewBranchCommit`: the copy of the
   commit in the virtual branch, `focus.commitId`, and the file, `focus.path`), titled "Review login · a1b2c3d", from
   every surface below; a commit of no branch, of a branch the branch review can't show (blocked, failed, in conflict:
   `reviewBlockerOf`, the Review Changes Rust offers) or one its virtual branch doesn't have yet (no copy, a conflicting or blocked commit) opens
-  the window `commit-review`. Only the main window decides: a list in a sub-window opens `commit-review`.
+  the review of its list (`openCommitReviewWindow`). Only the main window decides: a list in a sub-window opens the
+  review of the list.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review an unassigned commit in the review window of the commit`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a branch in conflict and of a blocked one in the review window of the commit`)
@@ -121,15 +121,16 @@ where a dialog would cover it.
 - A list in a sub-window (the missing commits of a conflict) opens the same window, with the repository of that
   window (`repositoryPath` of its data).
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should review a missing commit in the review window from the missing commits window`)
-- The window gets the list as it was (its commits don't change), its name and the commit. Another commit, the same
-  one from another list, or an open at a file starts the window over; an open of the commit it shows only brings it
-  to the front, where the review is.
-  [@test] ../../src/lib/commit-review-window.test.ts (`keeps its review for an open of the commit it shows, and starts over for another commit, list or file`)
+- The window gets the list as it was (its commits don't change), its name and the commit, and reads nothing else of
+  it. How an open of a list goes on from the review on screen (another commit of the list on screen moves there,
+  another list or an open at a file starts it over) is the one rule of the window
+  ([Review Window](../review/review-window.spec.md#one-window)).
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
   commit above its diffs as the branch preview heads one (`CommitHeading`: the subject `text-md font-medium`, the meta
   line with the committer time on hover and the coloured line counts, the reading body, three lines until Show More), the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("Unassigned › 11346cdf", `listLabel` of the window data: the
-  branch, or "Unassigned") and ends with the Split/Unified/Inline toggle. Nothing is edited there.
+  branch, or "Unassigned") and ends with the Split/Unified/Inline toggle; it has no action and no "⋯". Nothing is
+  edited there.
 - ⌥↑/⌥↓ (Alt+↑/↓) must show the previous or next commit of the list.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should switch the commit of a review with Alt and the arrows`)
 

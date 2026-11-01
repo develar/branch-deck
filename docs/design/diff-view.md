@@ -12,7 +12,8 @@ rest describes the code as it runs.
 ## Problem
 
 The app shows a diff in five places:
-- the review windows: a commit, a range, a pull request;
+- the review windows: the one review window (`review`: a branch with its stack, a whole stack, a kept branch, a commit
+  of a list, [Review Window](../../spec/review/review-window.spec.md#one-window)) and the review of a pull request;
 - the files of a commit in its preview, with the diff under a tree row;
 - the uncommitted changes of the amend card;
 - the missing commits and the modify/delete file of a conflict;

@@ -261,7 +261,7 @@ test.describe("Branch Row Layout and Copy Functionality", () => {
     await expect(page.getByRole("menuitem", { name: "Move to…" })).toBeEnabled()
     // a review rewrites nothing: it opens during the sync
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.url)).toEqual([expect.stringMatching(/branch-review/)])
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.url)).toEqual([expect.stringMatching(/\/review$/)])
     await repo.holdRemoteAnswers({ release: ["sync"] })
     await expect(syncButton).not.toHaveAttribute("aria-busy", "true")
   })

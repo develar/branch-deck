@@ -1,8 +1,8 @@
 import { useEffect } from "react"
 import { useTauriListen } from "@/hooks/useTauriListen"
-import { broadcastBranchReviewState, runBranchReviewRequest } from "@/lib/branch-review-window"
+import { broadcastBranchReviewState, runBranchReviewRequest } from "@/lib/review-window"
 import { windowLinkEvents } from "@/lib/sub-window-link"
-import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
+import { REVIEW_WINDOW } from "@/lib/window-label"
 import { branchSyncStore } from "@/stores/branch-sync"
 import { indicatorsStore } from "@/stores/indicators"
 import { landedStore } from "@/stores/landed"
@@ -30,5 +30,5 @@ export function useBranchReviewLink(): void {
       }
     }
   }, [])
-  useTauriListen<BranchReviewRequest>(windowLinkEvents(BRANCH_REVIEW_WINDOW).request, runBranchReviewRequest)
+  useTauriListen<BranchReviewRequest>(windowLinkEvents(REVIEW_WINDOW).request, runBranchReviewRequest)
 }

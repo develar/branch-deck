@@ -1,10 +1,9 @@
 import { appendFileSync } from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { expect } from "../fixtures/test-fixtures"
-import { findBranchRow } from "./branch-helpers"
-import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
+import { openReviewWindow } from "./review-window-helpers"
+import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { TestRepositoryBuilder } from "./test-repository"
 
 /*
@@ -33,14 +32,6 @@ export async function reviewedPaths(page: Page): Promise<string[]> {
   return page
     .locator('[data-testid="diff-view-file"]:not([data-section^="ghost:"]) [data-testid="review-file-header"]')
     .evaluateAll(headers => headers.map(header => header.getAttribute("data-path")!))
-}
-
-/** "Review Changes" of the row of `branch`: the review window it opens */
-export async function openReviewWindow(page: Page, branch: string) {
-  await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-  return (await getOpenedSubWindows<BranchReviewWindowData>(page))[0]!
 }
 
 /** The review window of `branch` (`plan`) after a sync, as a page of its own beside the main window, its diffs shown */

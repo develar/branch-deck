@@ -64,7 +64,7 @@ targets:
   - ../../src/components/branch/BranchPreviewActions.tsx
   - ../../src/lib/push-to-baseline.ts
   - ../../src/lib/landed-closes.ts
-  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-window.ts
   - ../../src/lib/branch-review.ts
   - ../../src/types/sub-window.ts
   - ../../src/stores/update-project.ts

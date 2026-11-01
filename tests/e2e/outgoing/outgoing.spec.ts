@@ -297,9 +297,9 @@ test.describe("Push button", () => {
     // the review window of JIRA-456 asks the main window for the push of its menu: the main window runs it on the
     // table of the sync that runs, once that sync ended
     const request = { id: "window", repositoryPath: issueLinksRepo.path, branchName: "JIRA-456", menuItemId: "push" } satisfies BranchReviewRequest
-    await emitTauriEvent(page, "branch-review/request", request)
+    await emitTauriEvent(page, "review/request", request)
     await releaseHeldSync(page, issueLinksRepo, previousCount)
-    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "window", ok: true }])
+    await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "window", ok: true }])
     await expectPushedToast(page, "JIRA-456")
     expect(await remotePushes(issueLinksRepo)).toEqual([["JIRA-456"]])
     await expectNothingToPush(findBranchRow(page, "JIRA-456"))

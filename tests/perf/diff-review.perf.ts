@@ -214,7 +214,7 @@ async function openReviewData(page: Page): Promise<OpenedSubWindow<BranchReviewW
   await page.keyboard.press("d")
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
   const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
-  expect(opened?.windowId).toBe("branch-review")
+  expect(opened?.windowId).toBe("review")
   return opened!
 }
 

@@ -10,7 +10,7 @@ import { structureIn } from "@/stores/branch-sync"
 import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import { getOperationWords } from "@/stores/indicators"
 import type { UnappliedBranchesState } from "@/stores/unapplied-branches"
-import type { BranchReviewGroup, BranchReviewWindowData, KeptReview } from "@/types/sub-window"
+import type { BranchReviewGroup, KeptReview } from "@/types/sub-window"
 
 /**
  * Where a review of a branch starts: the part of its stack (the branch itself, all of it down to the baseline, or the
@@ -249,16 +249,6 @@ export function sameReviewTable(a: ReviewedTable | null, b: ReviewedTable | null
   return a === b || (a !== null && b !== null && a.baselineBranch === b.baselineBranch && sameFields(a.tips, b.tips) && sameFields(a.stackCommits, b.stackCommits))
 }
 
-/**
- * How the open of the kept branch `kept` goes on from the window on screen: a plain open of the one it shows only brings
- * it to the front, anything else starts it over
- */
-export function planKeptReviewOpen(shown: ShownBranchReview | null, repositoryPath: string, kept: KeptReview, focus: BranchReviewFocus, now: number): BranchReviewOpen {
-  const same = shown !== null && shown.repositoryPath === repositoryPath && shown.kept?.name === kept.name
-  const plain = focus.commitId == null && focus.path == null
-  return same && plain ? { chain: shown.chain, startedAt: shown.startedAt, move: false } : { chain: [], startedAt: now, move: false }
-}
-
 /** "Unapplied on 1a2b3c4d": where the kept branch is kept and the commit its own commits start on */
 export function formatKeptOrigin(kept: KeptReview, base: string | undefined): string {
   const where = kept.kind === "unapplied" ? "Unapplied" : "Archived"
@@ -268,63 +258,4 @@ export function formatKeptOrigin(kept: KeptReview, base: string | undefined): st
 /** Why the review of a kept branch shows what it read last: it was reapplied or deleted */
 export function keptGoneReason(kept: KeptReview, branchName: string): string {
   return kept.kind === "unapplied" ? `${branchName} is no longer unapplied: it was reapplied or deleted` : `The archived branch ${branchName} was deleted`
-}
-
-/**
- * What the review window of a branch is keyed by: the repository, the chain and the open that started the review
- * (`startedAt`, see `planReviewOpen`). A move to a commit of the chain on screen and a plain open of the branch on
- * screen keep it; another branch or an open at a place start the window over.
- */
-export function branchReviewWindowKey(data: BranchReviewWindowData): string {
-  return `${data.repositoryPath}\n${data.chain.join("\n")}\n${data.startedAt}`
-}
-
-/** What the review window shows, as the main window opened it */
-export interface ShownBranchReview {
-  readonly repositoryPath: string
-  readonly chain: readonly string[]
-  readonly wholeStack: boolean
-  /** The kept branch the review shows, the branch it was its chain */
-  readonly kept?: KeptReview
-  /** The open that started the review: the key of the window (`branchReviewWindowKey`) */
-  readonly startedAt: number
-}
-
-/** How an open goes on from the window on screen */
-export interface BranchReviewOpen {
-  readonly chain: readonly string[]
-  readonly startedAt: number
-  /**
-   * A move to a commit of the chain on screen: the window keeps its review (the part when it has the commit, the
-   * filter, an open dialog) and shows the commit
-   */
-  readonly move: boolean
-}
-
-/** An open at a commit and nothing else: D on a commit row of a branch */
-export function isCommitFocus(focus: BranchReviewFocus): boolean {
-  return focus.commitId != null && (focus.range === undefined || focus.range === "own") && focus.filter === undefined && focus.groups === undefined
-}
-
-/**
- * How the open of `branchName` (its `chain`, at `focus`) goes on from the window on screen: a commit of a branch of the
- * chain it shows moves there, a plain open of the branch it shows only brings it to the front; anything else (another
- * branch, a place, the whole stack on screen, another repository) starts it over
- */
-export function planReviewOpen(
-  shown: ShownBranchReview | null,
-  request: { readonly repositoryPath: string; readonly branchName: string; readonly chain: readonly string[]; readonly focus: BranchReviewFocus },
-  now: number,
-): BranchReviewOpen {
-  if (shown !== null && !shown.wholeStack && shown.kept === undefined && shown.repositoryPath === request.repositoryPath) {
-    if (isCommitFocus(request.focus) && shown.chain.includes(request.branchName)) {
-      return { chain: shown.chain, startedAt: shown.startedAt, move: true }
-    }
-    const isPlain =
-      request.focus.range === undefined && request.focus.filter === undefined && request.focus.commitId == null && request.focus.path == null && request.focus.groups === undefined
-    if (isPlain && shown.chain.join("\n") === request.chain.join("\n")) {
-      return { chain: shown.chain, startedAt: shown.startedAt, move: false }
-    }
-  }
-  return { chain: request.chain, startedAt: now, move: false }
 }

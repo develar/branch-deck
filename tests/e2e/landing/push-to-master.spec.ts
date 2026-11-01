@@ -117,7 +117,7 @@ test.describe("Push to master", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
     // the button of the title bar of the review window, asked of the main window over the link of the window
-    await emitTauriEvent(page, "branch-review/request", { id: "push", repositoryPath: repo.path, branchName: BRANCH, itemId: "push-to-baseline" } satisfies BranchReviewRequest)
+    await emitTauriEvent(page, "review/request", { id: "push", repositoryPath: repo.path, branchName: BRANCH, itemId: "push-to-baseline" } satisfies BranchReviewRequest)
     await confirmAndExpectLanded(page, repo, safePushPopover(page), copy)
   })
 

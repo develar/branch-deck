@@ -36,9 +36,9 @@ fn a_zoom_above_125_percent_widens_the_minimum_window() {
 
 #[test]
 fn a_zoom_above_125_percent_widens_the_minimum_sub_window() {
-  assert_size(sub_window_min_size("branch-review", 1.0), (800.0, 500.0));
-  assert_size(sub_window_min_size("commit-review", 1.25), (800.0, 500.0));
-  assert_size(sub_window_min_size("branch-review", 1.5), (960.0, 500.0));
+  assert_size(sub_window_min_size("review", 1.0), (800.0, 500.0));
+  assert_size(sub_window_min_size("review", 1.25), (800.0, 500.0));
+  assert_size(sub_window_min_size("review", 1.5), (960.0, 500.0));
 }
 
 #[test]

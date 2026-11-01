@@ -636,8 +636,8 @@ test.describe("Patronus actions", () => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     await startHeldAtPatronus(page, repo)
     // the review window of JIRA-456 asks the main window for the same start: its request is that start, no second one
-    await emitTauriEvent(page, "branch-review/request", { id: "window", repositoryPath: repo.path, branchName: "JIRA-456", menuItemId: "safe-push" } satisfies BranchReviewRequest)
-    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "window", ok: true }])
+    await emitTauriEvent(page, "review/request", { id: "window", repositoryPath: repo.path, branchName: "JIRA-456", menuItemId: "safe-push" } satisfies BranchReviewRequest)
+    await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "window", ok: true }])
     await expectStartedOnce(page, repo)
   })
 
@@ -934,7 +934,7 @@ test.describe("Patronus actions", () => {
       await expectSettingsOpened(page, { page: "repository", focus: "githubRepository" })
       // Review Changes opens the branch in its review window, the groups as its filters
       await popover.getByTestId("safe-push-review-changes").click()
-      await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.windowId)).toEqual(["settings", "branch-review"])
+      await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => window.windowId)).toEqual(["settings", "review"])
     })
 
     test("should not check the review of a dry run", async ({ page, setupRepo, syncAndWaitForBranches }) => {

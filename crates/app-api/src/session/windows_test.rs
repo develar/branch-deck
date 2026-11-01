@@ -88,7 +88,7 @@ fn a_closed_window_supersedes_its_request() {
 
 #[test]
 fn a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other() {
-  let review = WindowId::new("branch-review");
+  let review = WindowId::new("review");
   let windows = Windows::default();
   let plan = windows.begin_plan(&review, PlanSlot::Scope);
   // Go to Declaration while the plan reads, and its cancel: the plan goes on
@@ -111,7 +111,7 @@ fn a_review_plan_and_a_symbol_search_of_a_window_never_supersede_each_other() {
 /// supersedes its own, and the close supersedes both
 #[test]
 fn the_plan_of_a_commit_and_the_plan_of_its_scope_never_supersede_each_other() {
-  let review = WindowId::new("branch-review");
+  let review = WindowId::new("review");
   let windows = Windows::default();
   let scope = windows.begin_plan(&review, PlanSlot::Scope);
   let commit = windows.begin_plan(&review, PlanSlot::Commit);

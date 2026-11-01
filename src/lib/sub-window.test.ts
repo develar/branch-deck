@@ -10,7 +10,7 @@ const { calls, listening } = vi.hoisted(() => {
   }
 })
 
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "commit-review", close: async () => {} }) }))
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ label: "review", close: async () => {} }) }))
 vi.mock("@tauri-apps/plugin-log", () => ({
   info: async (line: string) => {
     calls.lines.push(line)
@@ -77,7 +77,7 @@ describe("the show of a sub-window", () => {
     expect(calls.loaded).toBe(1)
     markWindowContentReady()
     expect(calls.lines).toHaveLength(1)
-    expect(calls.lines[0]).toMatch(/^commit-review open \d+ ms: loaded \d+, shell \d+$/)
+    expect(calls.lines[0]).toMatch(/^review open \d+ ms: loaded \d+, shell \d+$/)
     // the next open of the window settles on its own
     page.__SUB_WINDOW_OPEN__ = { id: 8, openedAt: Date.now() }
     markWindowContentReady()

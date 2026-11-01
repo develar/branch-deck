@@ -1,13 +1,13 @@
 // @spec spec/commit/commit-review.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { SettingsChange } from "../../../src/lib/bindings"
-import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
-import type { BranchReviewWindowData } from "../../../src/types/sub-window"
+import type { BranchReviewWindowData, CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
+import { openedReview } from "../helpers/review-window-helpers"
 import {
   getEmittedEvents,
   getOpenedSubWindows,
@@ -60,36 +60,16 @@ function selectedFile(review: Locator): Locator {
 
 /** RowMapperTest.kt, the second file of the tree commit, shown as J shows it: the footer and the tree follow, its header at the top below the gap */
 async function expectSecondFileShown(review: Locator): Promise<void> {
-  await expect(review.getByTestId("branch-review-position")).toHaveText("File 2 / 5")
+  await expect(review.getByTestId("review-position")).toHaveText("File 2 / 5")
   await expect(selectedFile(review)).toHaveAttribute("aria-label", "RowMapperTest.kt")
   // the card at the top keeps the gap above it that the first card has
   await expect.poll(() => headerPlace(review, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
 }
 
-/** The `count`-th window the page opened (`open_sub_window`), once it is recorded */
-async function openedWindow<T>(page: Page, count: number): Promise<OpenedSubWindow<T>> {
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-  return (await getOpenedSubWindows<T>(page))[count - 1]!
-}
-
-/** The `count`-th open, the review of a commit of a branch: the review window of the branch, at the commit */
-async function openedReview(page: Page, count: number): Promise<OpenedSubWindow<BranchReviewWindowData>> {
-  const opened = await openedWindow<BranchReviewWindowData>(page, count)
-  expect(opened).toMatchObject({ windowId: "branch-review", url: "/branch-review" })
-  return opened
-}
-
-/** The `count`-th open, the review window of a commit of no branch it can be reviewed with */
-async function openedCommitReview(page: Page, count: number): Promise<OpenedSubWindow<CommitReviewWindowData>> {
-  const opened = await openedWindow<CommitReviewWindowData>(page, count)
-  expect(opened).toMatchObject({ windowId: "commit-review", url: "/commit-review" })
-  return opened
-}
-
 /** Shows the review window of a branch in the page, as the app opens it */
 async function showReviewWindow(page: Page, opened: OpenedSubWindow<BranchReviewWindowData>): Promise<Locator> {
   await openSubWindowPage(page, opened)
-  const window = page.getByTestId("branch-review")
+  const window = page.getByTestId("review-window")
   await expect(window).toBeVisible()
   return window
 }
@@ -209,7 +189,7 @@ simpleTest.describe("Commit review", () => {
     const window = await showReviewWindow(page, opened)
     // the branch of the commit in the title bar, with its actions
     await expect(window.getByTestId("branch-review-segment")).toHaveAttribute("data-name", "session")
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
     const code = window.getByTestId("commit-review-code")
     // the files in the order of the tree, the first one selected
     await expect(position).toHaveText("File 1 / 5")
@@ -267,7 +247,7 @@ simpleTest.describe("Commit review", () => {
   simpleTest("should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review", async ({ page }) => {
     const window = await openLowTreeReview(page)
     const code = window.getByTestId("commit-review-code")
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
     const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
     await expect(position).toHaveText("File 1 / 5")
     // its two changes, the 30 lines between them folded: a short card, whose end the header is near, has no line
@@ -303,7 +283,7 @@ simpleTest.describe("Commit review", () => {
       const view = code.getByTestId("diff-view")
       const map = code.getByTestId("review-file-map")
       const thumb = map.getByTestId("review-file-map-thumb")
-      const position = window.getByTestId("branch-review-position")
+      const position = window.getByTestId("review-position")
       const section = (name: string) => code.locator(`[data-testid=diff-view-file][data-path$="/${name}"]`)
       const scrollTop = () => view.evaluate(element => element.scrollTop)
       await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
@@ -385,7 +365,7 @@ simpleTest.describe("Commit review", () => {
     const toggle = window.getByTestId("review-sidebar-toggle")
     // 19rem in a maximized window, not a share of it
     await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(304)
-    await expect(window.getByTestId("branch-review-footer")).toContainText("FSidebar")
+    await expect(window.getByTestId("review-window-footer")).toContainText("FSidebar")
     await expect(toggle).toHaveAttribute("aria-pressed", "true")
 
     await window.locator("[aria-label='Changes of the commit']").focus()
@@ -395,7 +375,7 @@ simpleTest.describe("Commit review", () => {
     await waitForStorePersistence(page, "appSettings", settings => (settings as { reviewSidebar?: boolean } | undefined)?.reviewSidebar === false)
     // the choice stays for the next review: no window brings the sidebar back by itself
     await page.reload()
-    await expect(page.getByTestId("branch-review").getByTestId("review-sidebar-toggle")).toHaveAttribute("aria-pressed", "false")
+    await expect(page.getByTestId("review-window").getByTestId("review-sidebar-toggle")).toHaveAttribute("aria-pressed", "false")
     await expect(page.getByTestId("review-sidebar")).toHaveCount(0)
     await page.getByTestId("review-sidebar-toggle").click()
     await expect(page.getByTestId("review-sidebar")).toBeVisible()
@@ -504,7 +484,7 @@ simpleTest.describe("Commit review", () => {
     expect((await openedReview(page, 2)).data.focus.path).toBeNull()
 
     const window = await showReviewWindow(page, atFile)
-    await expect(window.getByTestId("branch-review-position")).toHaveText("File 2 / 5")
+    await expect(window.getByTestId("review-position")).toHaveText("File 2 / 5")
     await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
   })
 })
@@ -573,7 +553,7 @@ testWithIssueLinks("should keep the Activity panel the main window opened when a
   // the window sends only the field it changed, so the writer keeps the panel of the main window
   await hideSidebarSendingOnlyIt(window)
   const sidebar = await appSettingsChange(window, { reviewSidebar: false, activityPanel: true })
-  expect(sidebar.origin).toBe("branch-review")
+  expect(sidebar.origin).toBe("review")
   expect(sidebar.version).toBeGreaterThan(panel.version)
   await expect.poll(() => testStore.get("appSettings")).toMatchObject({ reviewSidebar: false, activityPanel: true })
   await expect(activityPanel(page)).toBeVisible()
@@ -591,7 +571,7 @@ testWithIssueLinks("should follow Actual Size of the main window in a review win
   // the writer's change of the zoom reaches the review window, and its own change keeps the zoom, at a later version
   await expect.poll(() => webviewZoom(window)).toBe(1.1)
   const sidebar = await appSettingsChange(window, { zoom: 1.1, reviewSidebar: false })
-  expect(sidebar.origin).toBe("branch-review")
+  expect(sidebar.origin).toBe("review")
   expect(sidebar.version).toBeGreaterThan(zoomIn.version)
 
   // Actual Size: the zoom goes back to its default, which reaches the review window too, newer than its own change
@@ -609,7 +589,7 @@ testWithIssueLinks("should switch the commit of a review with Alt and the arrows
   focusedCommit(opened)
 
   const window = await showReviewWindow(page, opened)
-  const position = window.getByTestId("branch-review-position")
+  const position = window.getByTestId("review-position")
   await expect(position).toHaveText("Commit 2 / 3 · File 1 / 1")
   await expect(window.getByTestId("range-review-commit-header")).toContainText("perf db: increase pool size to 50")
   await expect(window.getByTestId("commit-review-code")).toContainText("size: 50")
@@ -617,7 +597,7 @@ testWithIssueLinks("should switch the commit of a review with Alt and the arrows
   await page.keyboard.press("Alt+ArrowDown")
   await expect(window.getByTestId("range-review-commit-header")).toContainText("Fix database connection pool timeout")
   await expect(position).toHaveText("Commit 3 / 3 · File 1 / 1")
-  await expect(window.getByTestId("branch-review-footer")).toContainText("EscClose")
+  await expect(window.getByTestId("review-window-footer")).toContainText("EscClose")
 })
 
 testWithIssueLinks("should show the files while the patch is read, settle with the diffs, and step to a commit read beside it", async ({ page }) => {
@@ -739,7 +719,7 @@ simpleTest("should filter the files of a review by their path, with / from the d
   const files = tree.locator("[role=treeitem]:not([aria-expanded])")
   const code = window.getByTestId("commit-review-code")
   const diffs = code.locator("[aria-label='Changes of the commit']")
-  const position = window.getByTestId("branch-review-position")
+  const position = window.getByTestId("review-position")
   const header = window.getByTestId("review-files-header")
   await expect(files).toHaveCount(9)
   await expect(header).toHaveText("Files9")
@@ -798,7 +778,7 @@ simpleTest.describe("Commit review of a re-indented file", () => {
     await openCommitPreview(page, getBranchCommitRow(page, "format", "indent the block of first and return 4"))
     await page.keyboard.press("d")
     const window = await showReviewWindow(page, await openedReview(page, 1))
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
     const code = window.getByTestId("commit-review-code")
     await expect(position).toHaveText("File 1 / 2")
     await expect(code).toContainText("fun second() = 4")
@@ -888,7 +868,7 @@ simpleTest("should review an unassigned commit in the review window of the commi
   await syncAndWaitForBranches()
   await getUnassignedCommitRow(page, "Fix critical bug").hover()
   await page.keyboard.press("d")
-  const opened = await openedCommitReview(page, 1)
+  const opened = await openedReview<CommitsReviewWindowData>(page, 1)
   expect(opened.data).toMatchObject({ listLabel: "Unassigned", index: 0 })
 })
 
@@ -899,12 +879,12 @@ simpleTest("should review a commit of a branch in conflict and of a blocked one 
   await expandBranch(page, findBranchRow(page, "login"))
   await getBranchCommitRow(page, "login", "Add login form").hover()
   await page.keyboard.press("d")
-  expect((await openedCommitReview(page, 1)).data).toMatchObject({ listLabel: "login" })
+  expect((await openedReview<CommitsReviewWindowData>(page, 1)).data).toMatchObject({ listLabel: "login" })
 
   await expandBranch(page, findBranchRow(page, "auth"))
   await getBranchCommitRow(page, "auth", "Read the auth config").hover()
   await page.keyboard.press("d")
-  expect((await openedCommitReview(page, 2)).data).toMatchObject({ listLabel: "auth" })
+  expect((await openedReview<CommitsReviewWindowData>(page, 2)).data).toMatchObject({ listLabel: "auth" })
 })
 
 simpleTest(
@@ -915,7 +895,7 @@ simpleTest(
     await syncAndWaitForBranches()
     await findBranchRow(page, "search").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    const review = await openLinkedSubWindow(page, await openedWindow(page, 1))
+    const review = await openLinkedSubWindow(page, await openedReview(page, 1))
     const header = (path: string) => review.locator(`[data-testid="diff-view-file"][data-path="${path}"]`).getByTestId("review-file-header")
     const name = (path: string) => path.split("/").at(-1)!
     const collapsed: [string, string][] = [

@@ -13,7 +13,7 @@ targets:
   - ../../src/components/diff/DiffView.tsx
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/hooks/useReviewPlan.ts
-  - ../../src/pages/CommitReviewPage.tsx
+  - ../../src/pages/ReviewPage.tsx
   - ../../src/components/review/PullRequestReview.tsx
 ---
 

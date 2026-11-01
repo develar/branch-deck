@@ -22,8 +22,8 @@ targets:
   - ../../src/lib/sub-window.ts
   - ../../src/components/shared/ActionButton.tsx
   - ../../src/components/repository/ConfigurationHeader.tsx
-  - ../../src/pages/BranchReviewPage.tsx
-  - ../../src/pages/CommitReviewPage.tsx
+  - ../../src/pages/ReviewPage.tsx
+  - ../../src/components/review/ReviewBackButton.tsx
   - ../../src/components/review/PullRequestReview.tsx
   - ../../src/components/conflict/ConflictWindowPage.tsx
   - ../../src/components/repository/WindowControls.tsx
@@ -444,10 +444,11 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
 - A sub-window (`WindowPage`) is its row, then its islands, then its footer (the position and the keys). The row says
   where the user is on the left and holds the view and the actions on the right; the native title stays set
   (`useWindowTitle`) for the Window menu, Mission Control and screen readers.
-  - `branch-review`: the stack bar; Split/Unified/Inline and the actions on the branch; the native title "Review login", "Review
-    login · a1b2c3d" when it opened at a commit ([Branch Review](../branch/branch-review.spec.md)).
-  - `commit-review`: "Unassigned › 11346cdf", the list and the commit (the hash in `font-mono`), of a commit no branch
-    review shows; Split/Unified/Inline ([Commit Review](../commit/commit-review.spec.md)).
+  - `review`: Back while it has a review it left, then of a branch the stack bar, Split/Unified/Inline and the actions
+    on the branch, the native title "Review login", "Review login · a1b2c3d" when it opened at a commit
+    ([Branch Review](../branch/branch-review.spec.md)); of a list of commits "Unassigned › 11346cdf", the list and the
+    commit (the hash in `font-mono`), and Split/Unified/Inline ([Commit Review](../commit/commit-review.spec.md),
+    [Review Window](../review/review-window.spec.md#one-window)).
   - `pull-request-review`: ↑ ↓ and "Your Turn › 2 of 5"; GitHub, "⋯" and the decisions on the pull request, Approve
     last; its Split/Unified/Inline is at the end of its tabs, the header of the changes it switches
     ([Review Requests](review-requests.spec.md#review-window)).
@@ -468,7 +469,7 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
   earlier open; its first frame is that content, as the main window's ([Main window](#main-window)); no animation
   frame is waited for, a hidden window runs none. An open while its page still loads is handed over at its load, the latest one winning, with the changes of the
   settings made meanwhile ([Settings](settings.spec.md)). The page logs the
-  phases of each open ("commit-review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed 88"). The opens are serialized: two quick opens build one window. A new window opens centred on the
+  phases of each open ("review open 96 ms: loaded 41, files 44, patch 47, engine 70, primed 88"). The opens are serialized: two quick opens build one window. A new window opens centred on the
   monitor of the main window, then where it was (the window state plugin, without the visibility); it has a taskbar
   entry (Windows, Linux). Escape that nothing in the page handled and ⌘W close it.
   [@test] ../../crates/app-api/src/windows_test.rs (`an_open_while_the_page_loads_waits_for_the_page`, `a_loaded_hidden_page_takes_an_open_and_shows_for_it`, `a_deadline_shows_the_window_once_and_only_its_own_build`, `a_window_built_again_after_its_close_waits_for_its_page_again`)

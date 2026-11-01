@@ -9,14 +9,14 @@ describe("takeOpenTimingLine", () => {
     markOpenPhase(open, "files", 1090)
     markOpenPhase(open, "diffs", 1047)
     markOpenPhase(open, "ready", 1096)
-    expect(takeOpenTimingLine("commit-review", 3)).toBe("commit-review open 96 ms: loaded 41, files 44, diffs 47")
-    expect(takeOpenTimingLine("commit-review", 3)).toBeNull()
+    expect(takeOpenTimingLine("review", 3)).toBe("review open 96 ms: loaded 41, files 44, diffs 47")
+    expect(takeOpenTimingLine("review", 3)).toBeNull()
   })
 
   it("starts over for another open and tells nothing of an open it did not time", () => {
     markOpenPhase({ id: 4, openedAt: 0 }, "loaded", 10)
     markOpenPhase({ id: 5, openedAt: 100 }, "ready", 150)
-    expect(takeOpenTimingLine("branch-review", 4)).toBeNull()
-    expect(takeOpenTimingLine("branch-review", 5)).toBe("branch-review open 50 ms")
+    expect(takeOpenTimingLine("review", 4)).toBeNull()
+    expect(takeOpenTimingLine("review", 5)).toBe("review open 50 ms")
   })
 })

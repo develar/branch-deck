@@ -409,15 +409,13 @@ test.describe("Next step", () => {
     await repo.holdRemoteAnswers({ hold: ["push"] })
     // Create of the dialog of the review window, asked of the main window over the link of the window
     const input = { title: "Add auth", body: "", reviewers: [], assignSelf: false, viewerLogin: null }
-    await emitTauriEvent(page, "branch-review/request", { id: "create", repositoryPath: repo.path, branchName: BRANCH, dialog: "create", input } satisfies BranchReviewRequest)
+    await emitTauriEvent(page, "review/request", { id: "create", repositoryPath: repo.path, branchName: BRANCH, dialog: "create", input } satisfies BranchReviewRequest)
     await expect.poll(() => repo.getArrivedAnswers()).toContain("push")
 
     // the main window opens another repository while the push runs: the pull request still goes to the one asked
     await switchRepository(page, OTHER_REPOSITORY)
     await repo.holdRemoteAnswers({ release: ["push"] })
-    await expect
-      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "create").map(it => it.ok))
-      .toEqual([true])
+    await expect.poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "review/reply")).filter(it => it.id === "create").map(it => it.ok)).toEqual([true])
     await expectPushedToRemote(repo, [BRANCH])
     expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual(["POST", repoPath("pulls"), expect.objectContaining({ head: `user-name/virtual/${BRANCH}` })])
 

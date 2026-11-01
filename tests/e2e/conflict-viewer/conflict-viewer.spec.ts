@@ -1,5 +1,5 @@
 // @spec spec/commit/commit-row.spec.md
-import type { CommitReviewWindowData } from "../../../src/lib/commit-review-window"
+import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import type { ConflictingFilesWindowData, MissingCommitsWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithConflicts, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
@@ -86,8 +86,8 @@ test.describe("Conflict Viewer Feature", () => {
       await row.hover()
       await page.keyboard.press("d")
       await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
-      const [review] = await getOpenedSubWindows<CommitReviewWindowData>(page)
-      expect(review).toMatchObject({ windowId: "commit-review", url: "/commit-review" })
+      const [review] = await getOpenedSubWindows<CommitsReviewWindowData>(page)
+      expect(review).toMatchObject({ windowId: "review", url: "/review" })
       expect(review!.data).toMatchObject({ repositoryPath, path: null })
       expect(review!.data.commits[review!.data.index]!.subject).toContain("Add authentication to UserService")
     })

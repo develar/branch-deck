@@ -42,7 +42,7 @@ targets:
   - ../../src/stores/request-review-popover.ts
   - ../../src/presenters/review.ts
   - ../../src/stores/pull-requests.ts
-  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-window.ts
   - ../../src/stores/patronus.ts
   - ../../src/lib/patronus.ts
   - ../../src/hooks/useLandedIn.ts

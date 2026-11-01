@@ -10,22 +10,24 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { getRewordMenuItem } from "@/hooks/useRewordCommit"
 import { wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
-import type { PatronusReviewRequirement, ReviewPart } from "@/lib/bindings"
+import type { PatronusReviewRequirement, ReviewCommit, ReviewPart } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatBranchesAndCommits, getSimpleBranchName } from "@/lib/branch"
-import { branchGoneReason, keptGoneReason, planKeptReviewOpen, reviewBlockerOf, planReviewOpen, requestAction, reviewCommitKey } from "@/lib/branch-review"
-import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
+import { branchGoneReason, keptGoneReason, reviewBlockerOf, requestAction, reviewCommitKey } from "@/lib/branch-review"
+import type { BranchReviewFocus } from "@/lib/branch-review"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem, FROM_MENU } from "@/lib/menu"
 import { continueOnGitHub, submitPullRequest } from "@/lib/pull-request-run"
+import { planReviewOpen, reviewSubjectName, reviewWindowTitle } from "@/lib/review-reuse"
+import type { ReviewOpen, ShownReview } from "@/lib/review-reuse"
 import { chainTarget } from "@/lib/review-target"
 import { showRepository } from "@/lib/show-repository"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
 import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
-import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
+import { REVIEW_WINDOW } from "@/lib/window-label"
 import { demandReviewReadiness, showReviewReadiness } from "@/model/demand"
 import { getRowPart } from "@/model/store"
 import { findAction } from "@/presenters/actions"
@@ -36,7 +38,7 @@ import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
 import { getStackPullRequest } from "@/stores/pull-requests"
-import { getSelectedProject } from "@/stores/repository"
+import { getDiffRepositoryPath, getSelectedProject } from "@/stores/repository"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 import type {
   BranchReviewFeedback,
@@ -46,8 +48,10 @@ import type {
   BranchReviewRequest,
   BranchReviewWindowData,
   BranchReviewWindowState,
+  CommitsReviewWindowData,
   KeptReview,
   ReviewedBranch,
+  ReviewWindowData,
   WholeStackScope,
 } from "@/types/sub-window"
 
@@ -87,6 +91,29 @@ function closeDialog(): void {
 /** Ends the readiness of the branches the window shows the actions of (`showReviewReadiness`), its chain; null while closed */
 let hideChain: (() => void) | null = null
 
+/**
+ * The window starts over on `shown`: no dialog is open in it, and its Safe Push of each branch reads the next step, as a
+ * row does (of a whole stack the next step of the whole stack, as the header of its island does)
+ */
+function startShown(shown: ShownReview): void {
+  closeDialog()
+  if (shown.kind === "branch" && shown.kept === undefined) {
+    showChain(shown.wholeStack ? [stackReadinessKey(shown.chain[0] ?? "")] : shown.chain)
+  } else {
+    releaseChain()
+  }
+}
+
+/** The chain the window shows; none for a list of commits */
+function chainOf(shown: ShownReview): readonly string[] {
+  return shown.kind === "branch" ? shown.chain : []
+}
+
+/** Whether an open starts the window over (a new start): what it showed goes to its history */
+function restartsWindow(open: ReviewOpen): boolean {
+  return open.shown.startedAt !== link.shown()?.startedAt
+}
+
 function showChain(chain: readonly string[]): void {
   releaseChain()
   const hides = chain.map(name => showReviewReadiness(name))
@@ -98,15 +125,17 @@ function releaseChain(): void {
   hideChain = null
 }
 
-/** The open review window: the repository and the chain it shows, or the whole stack of its root */
-const link = createWindowLink<ShownBranchReview, BranchReviewWindowState>({
-  label: BRANCH_REVIEW_WINDOW,
+/** The open review window: the repository and the chain it shows, the whole stack of its root, or a list of commits */
+const link = createWindowLink<ShownReview, BranchReviewWindowState>({
+  label: REVIEW_WINDOW,
   buildState: shown =>
-    shown.kept !== undefined
-      ? buildKeptState(shown.repositoryPath, shown.kept, shown.chain[0] ?? "")
-      : shown.wholeStack
-        ? buildStackState(shown.repositoryPath, shown.chain[0] ?? "")
-        : buildState(shown.repositoryPath, shown.chain),
+    shown.kind === "commits"
+      ? emptyState(shown.repositoryPath)
+      : shown.kept !== undefined
+        ? buildKeptState(shown.repositoryPath, shown.kept, shown.chain[0] ?? "")
+        : shown.wholeStack
+          ? buildStackState(shown.repositoryPath, shown.chain[0] ?? "")
+          : buildState(shown.repositoryPath, shown.chain),
   onClose: () => {
     closeDialog()
     releaseChain()
@@ -173,26 +202,23 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   }
   const { repositoryPath } = source
   // the window is one, reused: a commit of the chain on screen moves there, the branch on screen comes to the front
-  const open = planReviewOpen(link.shown(), { repositoryPath, branchName, chain: source.chain, focus }, Date.now())
-  const restarts = open.startedAt !== link.shown()?.startedAt
+  const now = Date.now()
+  const open = planReviewOpen(link.shown(), { kind: "branch", repositoryPath, branchName, chain: source.chain, wholeStack: false, focus }, now)
   // a start over would drop what is typed into the "Create pull request" dialog of the window
-  if (restarts && dialog !== null) {
+  if (restartsWindow(open) && dialog !== null) {
     tellDialogOpen(branchName, dialog.branchName)
     return false
   }
-  const chain = open.chain
+  const chain = chainOf(open.shown)
   // git reads while the window starts
   prefetchReview(branchName, focus)
   // the main window keeps the state of the last opened chain up to date
-  const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: false, startedAt: open.startedAt }
-  if (restarts) {
-    // the window starts over: no dialog is open in it
-    closeDialog()
-    // its Safe Push of each branch reads the next step, as a row does
-    showChain(chain)
+  if (restartsWindow(open)) {
+    startShown(open.shown)
   }
-  link.setShown(shown)
+  link.setShown(open.shown)
   const data: BranchReviewWindowData = {
+    kind: "branch",
     ...source,
     chain: [...chain],
     groups: open.move ? reviewGroupsOf(chain.at(-1)!) : [...source.groups],
@@ -203,24 +229,24 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
       commitId: focus.commitId ?? null,
       path: focus.path ?? null,
     },
-    openedAt: Date.now(),
-    startedAt: open.startedAt,
+    openedAt: now,
+    startedAt: open.shown.startedAt,
     move: open.move,
     state: link.takeState()!,
   }
-  return openWindow(shown, reviewTitle(branchName, focus.commitId), data, branchName)
+  return openWindow(open.shown, data)
 }
 
-/** Opens the window on `data`; a failure is told, of `subject` */
-function openWindow(shown: ShownBranchReview, title: string, data: BranchReviewWindowData, subject: string): Promise<boolean> {
-  return link.open(shown, { url: "/branch-review", title, data }).then(
+/** Opens the window on `data`; a failure is told, of what it reviews */
+function openWindow(shown: ShownReview, data: ReviewWindowData): Promise<boolean> {
+  return link.open(shown, { url: "/review", title: reviewWindowTitle(data), data }).then(
     () => true,
     (error: unknown) => {
       // the link forgets a window that failed to open: nothing shows its chain
       if (link.shown() === null) {
         releaseChain()
       }
-      notifyError(`Cannot open the review of ${subject}`, error)
+      notifyError(`Cannot open the review of ${reviewSubjectName(data)}`, error)
       return false
     },
   )
@@ -270,9 +296,10 @@ export async function openKeptReviewWindow(kept: KeptReview, focus: Pick<BranchR
     return false
   }
   const branchName = keptBranchName(kept)
-  const open = planKeptReviewOpen(link.shown(), repositoryPath, kept, focus, Date.now())
-  const restarts = open.startedAt !== link.shown()?.startedAt
-  if (restarts && dialog !== null) {
+  const chain = [branchName]
+  const now = Date.now()
+  const open = planReviewOpen(link.shown(), { kind: "branch", repositoryPath, branchName, chain, wholeStack: false, kept, focus }, now)
+  if (restartsWindow(open) && dialog !== null) {
     tellDialogOpen(branchName, dialog.branchName)
     return false
   }
@@ -287,31 +314,24 @@ export async function openKeptReviewWindow(kept: KeptReview, focus: Pick<BranchR
       }
     })
   }
-  const chain = [branchName]
-  const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: false, kept, startedAt: open.startedAt }
-  if (restarts) {
-    closeDialog()
-    releaseChain()
+  if (restartsWindow(open)) {
+    startShown(open.shown)
   }
-  link.setShown(shown)
+  link.setShown(open.shown)
   const data: BranchReviewWindowData = {
+    kind: "branch",
     repositoryPath,
     baselineBranch,
     chain,
     groups: [],
     kept,
     focus: { range: "own", filter: { kind: "all" }, commitId: focus.commitId ?? null, path: focus.path ?? null },
-    openedAt: Date.now(),
-    startedAt: open.startedAt,
-    move: false,
+    openedAt: now,
+    startedAt: open.shown.startedAt,
+    move: open.move,
     state: link.takeState()!,
   }
-  return openWindow(shown, reviewTitle(branchName, focus.commitId), data, branchName)
-}
-
-/** "Review login", "Review login · 1a2b3c4d" at a commit: the title of the window */
-function reviewTitle(branchName: string, commitId: string | null | undefined): string {
-  return commitId == null ? `Review ${branchName}` : `Review ${branchName} · ${formatShortHash(commitId)}`
+  return openWindow(open.shown, data)
 }
 
 /** By kind and full name: the open of the review of a kept branch, one function per row for its menu (`useKeptBranchMenu`) */
@@ -343,35 +363,68 @@ export async function openWholeStackReviewWindow(root: string, options: { readon
   }
   const { repositoryPath } = source
   const chain = [root]
-  if (dialog !== null) {
+  const now = Date.now()
+  // the groups of a code-owner check are a place: the window starts over with them
+  const focus: BranchReviewFocus = options.groups === undefined ? {} : { groups: options.groups }
+  const open = planReviewOpen(link.shown(), { kind: "branch", repositoryPath, branchName: root, chain, wholeStack: true, focus }, now)
+  if (restartsWindow(open) && dialog !== null) {
     tellDialogOpen(formatWholeStack(root), dialog.branchName)
     return false
   }
-  const startedAt = Date.now()
-  const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: true, startedAt }
-  link.setShown(shown)
-  // its Safe Push reads the next step of the whole stack, as the header of its island does
-  showChain([stackReadinessKey(root)])
+  if (restartsWindow(open)) {
+    startShown(open.shown)
+  }
+  link.setShown(open.shown)
   const data: BranchReviewWindowData = {
+    kind: "branch",
     ...source,
     chain,
     groups: options.groups ?? [],
     wholeStack: true,
     from: from.map((name): ReviewedBranch => ({ name, commits: getBranch(name)?.commitCount ?? 0 })),
     focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
-    openedAt: startedAt,
-    startedAt,
+    openedAt: now,
+    startedAt: open.shown.startedAt,
     move: false,
     state: link.takeState()!,
   }
-  const subject = formatWholeStack(root)
-  return link.open(shown, { url: "/branch-review", title: `Review ${subject}`, data }).then(
-    () => true,
-    (error: unknown) => {
-      notifyError(`Cannot open the review of ${subject}`, error)
-      return false
-    },
-  )
+  return openWindow(open.shown, data)
+}
+
+/**
+ * Reviews `commits[index]` of a list (named `listLabel`) in the review window, at `path` (the first file when null):
+ * the commits of the list above its files, ⌥↑/⌥↓ step through them; a commit of the list on screen moves there. From
+ * any window: the missing commits of a conflict are a list in a sub-window. Resolves to whether the window opened; a
+ * failure is told.
+ */
+export async function openCommitReviewWindow(commits: readonly ReviewCommit[], listLabel: string | null, index: number, path: string | null): Promise<boolean> {
+  const repositoryPath = getDiffRepositoryPath()
+  const commit = commits[index]
+  if (repositoryPath === undefined || commit === undefined) {
+    return false
+  }
+  const now = Date.now()
+  const open = planReviewOpen(link.shown(), { kind: "commits", repositoryPath, listLabel, ids: commits.map(it => it.id), path }, now)
+  if (restartsWindow(open) && dialog !== null) {
+    tellDialogOpen(formatShortHash(commit.id), dialog.branchName)
+    return false
+  }
+  if (restartsWindow(open)) {
+    startShown(open.shown)
+  }
+  link.setShown(open.shown)
+  const data: CommitsReviewWindowData = {
+    kind: "commits",
+    repositoryPath,
+    commits: [...commits],
+    listLabel,
+    index,
+    path,
+    openedAt: now,
+    startedAt: open.shown.startedAt,
+    move: open.move,
+  }
+  return openWindow(open.shown, data)
 }
 
 /** The actions of the whole stack of `root` while the main window shows its repository and the stack has a stack branch */
@@ -491,10 +544,15 @@ function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): Wh
   }
 }
 
+/** No action: a repository the main window doesn't show, a list of commits */
+function emptyState(repositoryPath: string): BranchReviewWindowState {
+  return { repositoryPath, selected: false, items: {}, menus: {}, createPullRequest: null, wholeStack: null, commitMenus: {}, groups: null }
+}
+
 /** The actions of each branch of the chain; nothing for a repository not shown */
 function buildState(repositoryPath: string, chain: readonly string[]): BranchReviewWindowState {
   if (getSelectedProject()?.path !== repositoryPath) {
-    return { repositoryPath, selected: false, items: {}, menus: {}, createPullRequest: null, wholeStack: null, commitMenus: {}, groups: null }
+    return emptyState(repositoryPath)
   }
   const items: Record<string, BranchReviewItem[]> = {}
   const menus: Record<string, BranchReviewMenuItem[][]> = {}
@@ -600,6 +658,15 @@ export function broadcastBranchReviewState(): void {
  */
 export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchReviewFeedback>(async (request, send) => {
   const { repositoryPath, branchName } = request
+  if ("shows" in request) {
+    // the window went back to a review of its history: the main window keeps its state up to date
+    if (request.shows.startedAt !== link.shown()?.startedAt) {
+      startShown(request.shows)
+    }
+    link.setShown(request.shows)
+    link.broadcast()
+    return true
+  }
   if ("dialog" in request && (request.dialog === "open" || request.dialog === "close")) {
     closeDialog()
     if (request.dialog === "open") {
@@ -771,7 +838,7 @@ async function moveReview(
 ): Promise<boolean> {
   const { repositoryPath, branchName } = request
   const shown = link.shown()
-  const chain = shown !== null && !shown.wholeStack ? shown.chain : [branchName]
+  const chain = shown !== null && shown.kind === "branch" && !shown.wholeStack ? shown.chain : [branchName]
   const root = chain[0] ?? branchName
   const refuse = refuserOf(`Cannot review ${"scope" in request ? formatWholeStack(root) : branchName}`, send)
   const notShown = await showRepository(repositoryPath)

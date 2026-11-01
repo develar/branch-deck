@@ -4,7 +4,7 @@ import { createStore } from "zustand/vanilla"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import type { AuthStatus, FactsChanges, FactsView, SignInProvider } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { BRANCH_REVIEW_WINDOW, isMainWindow, windowLabel } from "@/lib/window-label"
+import { REVIEW_WINDOW, isMainWindow, windowLabel } from "@/lib/window-label"
 
 /*
  * The sign-ins of the app's accounts (spec/repository/github-sign-in.spec.md, youtrack.spec.md): the one status of both
@@ -89,7 +89,7 @@ export async function refreshAuthStatus(): Promise<void> {
 }
 
 /** The windows that hold the session of a repository (`ensureSession`) and take the status from its fact */
-const takesSessionFact = isMainWindow || windowLabel === BRANCH_REVIEW_WINDOW
+const takesSessionFact = isMainWindow || windowLabel === REVIEW_WINDOW
 
 /** Retry of a failed read of a window without a session (Settings): the page says it reads again until the answer */
 export function retryAuthStatus(): void {

@@ -68,7 +68,7 @@ targets:
   - ../../src/components/branch/LandingSpanLabel.tsx
   - ../../src/components/branch/LandedChip.tsx
   - ../../src/components/repository/RobotRows.tsx
-  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-window.ts
   - ../../src/hooks/useStackNextStep.ts
   - ../../crates/domain-policy/src/next_step.rs
   - ../../crates/domain-policy/src/landing_node.rs

@@ -1,8 +1,9 @@
-import type { MergeConflictInfo } from "@/lib/bindings"
+import type { MergeConflictInfo, ReviewCommit } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import type { CompareFields } from "@/lib/pull-request"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
+import type { ShownReview } from "@/lib/review-reuse"
 import type { KeptKind } from "@/lib/review-target"
 import type { ToastMessage } from "@/lib/toast-message"
 
@@ -182,6 +183,8 @@ export type BranchReviewRequest = {
   | { readonly review: "branch" }
   /** The window moves to the review of `branchName` at its commit of `commitKey` (`reviewCommitKey`), a commit of the whole stack */
   | { readonly review: "commit"; readonly commitKey: string }
+  /** The window went back to a review of its history (Back, ⌘[): the main window sends the state of what it shows now */
+  | { readonly shows: ShownReview }
 )
 
 /**
@@ -192,9 +195,29 @@ export type BranchReviewFeedback =
   | { readonly kind: "error"; readonly title: string; readonly message: string }
   | { readonly kind: "toast"; readonly toast: Omit<ToastMessage, "action">; readonly pullRequestUrl: string | null }
 
-/** `__INIT_DATA__` of the `branch-review` sub-window (opened by `openBranchReviewWindow`) */
-export interface BranchReviewWindowData {
+/** What every open of the review window carries: the repository, the open and the start it belongs to */
+interface ReviewWindowOpen {
   repositoryPath: string
+  /** A new value on every open: a move to a commit of the review on screen shows it (`move`) */
+  openedAt: number
+  /**
+   * The open that started the review (`planReviewOpen`): the window starts over when it changes, and the review it
+   * showed goes to the history of the window (Back, ⌘[)
+   */
+  startedAt: number
+  /** A move to a commit of the review on screen: the review keeps its part (when it has the commit), its filter and an open dialog */
+  move: boolean
+}
+
+/**
+ * `__INIT_DATA__` of the review window (`REVIEW_WINDOW`, opened by `@/lib/review-window`): a branch with its stack, the
+ * whole stack of a root or a kept branch (`kind: "branch"`), or a list of commits (`kind: "commits"`)
+ */
+export type ReviewWindowData = BranchReviewWindowData | CommitsReviewWindowData
+
+/** The review of a branch: its chain, the whole stack of its root, or a kept branch (`openBranchReviewWindow`, …) */
+export interface BranchReviewWindowData extends ReviewWindowOpen {
+  kind: "branch"
   /** The baseline at the open, for the read the page starts at its load; then the one of the window's session */
   baselineBranch: string
   /** The reviewed branch last, its stack parents before it, root first */
@@ -209,12 +232,21 @@ export interface BranchReviewWindowData {
   from?: ReviewedBranch[]
   /** Where the review starts: the part of the stack, the files, the commit, the file ("Review Changes" of the Safe Push popover) */
   focus: Omit<BranchReviewFocus, "groups">
-  /** A new value on every open: a move to a commit of the chain on screen shows it (`move`) */
-  openedAt: number
-  /** The open that started the review (`planReviewOpen`): the window starts over when it changes */
-  startedAt: number
-  /** A move to `focus.commitId`, a commit of the chain on screen: the review keeps its part (when it has the commit) and filter */
-  move: boolean
   /** What the main window knows of the chain at the open; it sends what changed over the link */
   state: BranchReviewWindowState
+}
+
+/**
+ * The review of a commit of a list (`openCommitReviewWindow`): the commits of the list above its files, ⌥↑/⌥↓ step
+ * through them. Commits don't change, so the list the opener passed stays true and nothing else is read.
+ */
+export interface CommitsReviewWindowData extends ReviewWindowOpen {
+  kind: "commits"
+  /** The list the commit was reviewed from, as it was */
+  commits: ReviewCommit[]
+  /** The name of that list, in the title bar: the branch, or "Unassigned"; null for a list without one */
+  listLabel: string | null
+  index: number
+  /** The file to show (Enter on a file of the preview's tree); null for the first one */
+  path: string | null
 }

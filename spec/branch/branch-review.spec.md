@@ -3,7 +3,7 @@ name: Branch Review
 description: Requirements for the review of a branch in its window: its diff from its parent or from the baseline, the parts of its stack, its commits, and its files by code owner, with the files each reviewer group of the Patronus code-owner check has to review.
 style: plain-1
 targets:
-  - ../../src/pages/BranchReviewPage.tsx
+  - ../../src/pages/ReviewPage.tsx
   - ../../src/components/review/BranchReview.tsx
   - ../../src/hooks/useBranchReview.ts
   - ../../src/components/branch/BranchPreviewActions.tsx
@@ -14,7 +14,7 @@ targets:
   - ../../src/components/shared/ActionButton.tsx
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/lib/branch-review.ts
-  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-window.ts
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../crates/app-api/src/remote/review.rs
   - ../../src/lib/review-owners.ts
@@ -125,27 +125,23 @@ keys.
   Files tree of its preview must open the window at the commit (`reviewBranchCommit`, `focus.commitId` the copy of
   the commit in the virtual branch), its branch's own part, titled "Review <branch> · a1b2c3d"
   ([Commit Review](../commit/commit-review.spec.md#opening-and-closing): a commit the branch review can't show opens
-  the review window of the commit).
+  the review of its list).
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - The "Review Changes" button of each commit of the branch preview must open the window at that commit, and the
   preview closes once the window opened; D on a row of Your Turn's own pull requests with changes requested opens the
   review of its branch ([Review Requests](../repository/review-requests.spec.md)).
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a commit of the branch preview in the review of the branch, at the commit`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should list the own pull requests a reviewer handed back after the requests, show the branch and review it`)
-- The window is one sub-window (`branch-review`, titled "Review <branch>", [Title Bar](../repository/title-bar.spec.md)
-  for how it opens), reused for the next branch: opening it again replaces what it shows, its title too. Another
-  branch or an open at a place (the Safe Push popover) starts it over; a plain open of the branch it shows only brings
-  it to the front, where the review is (`planReviewOpen`, the window keyed by the open that started it,
-  `startedAt`). An open that would start it over while its "Create pull request" dialog is open is refused with
-  "Cannot review login" and the reason, an `info` toast: the dialog holds what the user typed. It reads the repository it was opened for, not the one selected later in the
-  main window (`getDiffRepositoryPath`).
-  [@test] ../../src/lib/branch-review.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`)
-- A commit of a branch of the chain on screen must move the window there, not start it over (`move` of the window
-  data): the part stays when it has the commit, else it is the commit's segment; the owner chip stays, it hides no
-  file; the file of `path` shows. A move waits while the "Create pull request" dialog of
-  the window is open, and the dialog keeps what was typed.
+- The window is the one review window, titled "Review <branch>" ([Review Window](../review/review-window.spec.md#one-window):
+  how an open goes on from the review on screen, Back; [Title Bar](../repository/title-bar.spec.md) for how it
+  opens). An open that would start it over while its "Create pull request" dialog is open is refused with "Cannot
+  review login" and the reason, an `info` toast: the dialog holds what the user typed. It reads the repository it was
+  opened for, not the one selected later in the main window (`getDiffRepositoryPath`).
+- A move to a commit of the chain on screen (`move` of the window data) keeps the part when it has the commit, else it
+  is the commit's segment; the owner chip stays, it hides no file; the file of `path` shows. A move waits while the
+  "Create pull request" dialog of the window is open, and the dialog keeps what was typed.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes`)
-  [@test] ../../src/lib/branch-review.test.ts (`moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps the part that has the commit, else shows the commit's segment`, `shows all changes of the commit's branch when the segments don't have the commit`)
+  [@test] ../../src/lib/branch-review.test.ts (`keeps the part that has the commit, else shows the commit's segment`, `shows all changes of the commit's branch when the segments don't have the commit`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - The review gets the chain of the branch (its stack ancestors by `effectiveBase`, root first), the baseline, where
   to start (`BranchReviewFocus`: the branch itself, or the whole stack from the Safe Push popover and the island; the
@@ -226,7 +222,7 @@ keys.
   each of its commits by `reviewCommitKey`, and the baseline (`settledReviewTable`). It takes them once the view
   settled: once per finished sync of the session, whichever window asked for it, also while the main window shows
   another repository, never during a run, and not before a sync grouped the branches. The window carries the version
-  of its view (`data-view-version` of `branch-review`); the link of the main window sends none of it. The read at the
+  of its view (`data-view-version` of `review-window`); the link of the main window sends none of it. The read at the
   open uses the baseline of the window data, which the page starts at its load.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
   [@test] ../../src/model/store.test.ts (`keeps the subscription of a second window independent of the first's: its own view, its own count of the runs`)
@@ -453,10 +449,10 @@ keys.
 - `pnpm e2e`: `tests/e2e/branch-review/branch-review.spec.ts` on the `stacked_ownership` template, and the code-owner
   review of `tests/e2e/patronus/patronus-actions.spec.ts`. The mock records `open_sub_window`; the test then shows the
   route in the same page with the recorded data (`openSubWindowPage`), labelled `main`. The mock records `emit`
-  (`getEmittedEvents`) instead of delivering it: the footer test reads the `branch-review/request` requests of the
+  (`getEmittedEvents`) instead of delivering it: the footer test reads the `review/request` requests of the
   window, then shows the main window in the page again and fires them there, so the main window's listener runs them.
   A test of what both windows do at once opens the window in a page of its own (`openLinkedSubWindow`, labelled
-  `branch-review`), which subscribes to the session of the E2E server on its own stream: a sync of the main window
+  `review`), which subscribes to the session of the E2E server on its own stream: a sync of the main window
   reaches it as its patches.
 
 ## Open Questions / Risks

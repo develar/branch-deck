@@ -549,9 +549,9 @@ An E2E test pins these numbers.
 
 ### Loading
 
-Every window loads the same `index.html`. A sub-window (`/branch-review`, `/conflicting-files`, `/missing-commits`)
+Every window loads the same `index.html`. A sub-window (`/review`, `/conflicting-files`, `/missing-commits`)
 used to download and compile the main window's tree before its own page: 61 modulepreloads, about 1.1 MB of JS.
-- A window loads its page by the path of its URL (`loadWindowPage` of `src/router.ts`: eight pages, each a chunk of
+- A window loads its page by the path of its URL (`loadWindowPage` of `src/router.ts`: seven pages, each a chunk of
   its own), the main page as the sub-window pages, and the root renders once the page is here, with it
   (`src/main.tsx`). Not a `React.lazy` under `Suspense`: its fallback committed before the chunk came, and React
   reveals a boundary that showed its fallback no sooner than 300 ms after it, so every window showed 0.3 s later
@@ -647,7 +647,7 @@ used to download and compile the main window's tree before its own page: 61 modu
 - A loading line ("Loading changes…", "Loading diff…", "Loading files…", `LoadingLine`) shows only after 300 ms: a
   read from a cache answers before, and a spinner that flashes for a frame reads as a delay where there was none. The
   review shows what it has meanwhile (the tree, the headers of the files).
-- The page logs the phases of each open ("commit-review open 96 ms: loaded 41, files 44, diffs 47, painted 88"): a new
+- The page logs the phases of each open ("review open 96 ms: loaded 41, files 44, diffs 47, painted 88"): a new
   window loads the app (`loaded`), a reused one only renders.
 
 The eager part, which every window loads before its page (B13 of [Rust as the Domain

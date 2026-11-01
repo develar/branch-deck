@@ -8,9 +8,15 @@ targets:
   - ../../crates/app-api/src/remote/review.rs
   - ../../src/lib/review-target.ts
   - ../../src/lib/review-window-reads.ts
-  - ../../src/lib/branch-review-window.ts
+  - ../../src/lib/review-window.ts
+  - ../../src/lib/review-reuse.ts
   - ../../src/lib/branch-review.ts
-  - ../../src/pages/BranchReviewPage.tsx
+  - ../../src/lib/window-label.ts
+  - ../../src/router.ts
+  - ../../src/pages/ReviewPage.tsx
+  - ../../src/components/review/ReviewBackButton.tsx
+  - ../../src/types/sub-window.ts
+  - ../../src-tauri/capabilities/sub-windows.json
   - ../../src/hooks/useBranchReview.ts
   - ../../src/components/review/BranchReview.tsx
   - ../../src/components/branch/KeptBranchCommits.tsx
@@ -24,7 +30,8 @@ targets:
 
 # Review Window
 
-Status: Draft (implemented: the targets and their read, the review of the kept branches)
+Status: Draft (implemented: the targets and their read, the review of the kept branches, one window for a branch, a
+whole stack, a kept branch and a list of commits)
 Date: 2026-11-01
 
 ## Summary
@@ -47,6 +54,38 @@ with its base, its head and its commits, or the commits of a list. A pull reques
 - No review of uncommitted changes: the amend card shows them ([Amend Changes](../commit/amend.spec.md)).
 
 ## Requirements
+
+### One window
+
+- Every review but that of a pull request must be one window, `review` (`/review`, `ReviewPage`), whose data says
+  what it shows (`ReviewWindowData`): a branch with its stack ancestors, the whole stack of a root or a kept branch
+  (`kind: "branch"`, its chain with `wholeStack` or `kept`), or a commit of a list (`kind: "commits"`: the commits of
+  the list as the opener had them, its name, the commit, the file). A list of commits shows its commits above the
+  files (⌥↑/⌥↓) and the plan of each commit; it has no action and no "⋯". The window holds the session of its
+  repository whatever it shows. Its size and place are those of the window state plugin under `review`: the sizes
+  saved under the labels of the windows it replaced (`branch-review`, `commit-review`) are forgotten once.
+  [@test] ../../tests/e2e/review-window/review-window.spec.ts (`should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review an unassigned commit in the review window of the commit`)
+- How an open goes on from the review on screen must be one rule for every subject (`planReviewOpen`): an open of the
+  subject on screen only brings the window to the front, where the review is; a commit of it moves there (a commit of
+  a branch of the chain, of the kept branch, of the list: `move`); anything else (another subject, a place such as a
+  file of a list, a reviewer group or the whole stack of a branch, another repository) starts the window over
+  (`startedAt`). The main window applies it to what the window shows as it knows it (`ShownReview`), an open from
+  another window (the missing commits of a conflict) starts it over.
+  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`, `moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps a kept branch and a whole stack for a plain open of them, moves to a commit of the kept branch`, `moves to a commit of the list on screen, and starts over for another list, a file or a branch`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
+- A start over must keep the review the window left in the history of the window, the latest last, at most 20, at
+  the place it was (of a branch its part, its owner chip, its commit and its file; of a list its commit and its
+  file). Back restores the latest: ⌘[ (Ctrl+[ on Windows and Linux; not in a dialog of the window) and the Back button
+  at the start of the title bar (an arrow, "Back to login", its hover with the key), shown only while the history has
+  a review. A restore starts that review over (it reads it again) and tells the main window what the window shows, so
+  the main window sends the actions of that branch (`shows` of the link).
+  [@test] ../../tests/e2e/review-window/review-window.spec.ts (`should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back`)
+  [@test] ../../src/lib/review-reuse.test.ts (`keeps the reviews it left, the latest last, at most the limit`, `starts a review of the history over at the place it was left`, `names the review it goes back to as its title does`)
+- The native title of the window names what it shows: "Review login", "Review login · 1a2b3c4d" at a commit, "Review
+  the whole air stack", of a list "Review a1b2c3d4 Sort the start-up report", retitled as it steps
+  (`reviewWindowTitle`); the opener titles the window the same.
+  [@test] ../../src/lib/review-reuse.test.ts (`names the review it goes back to as its title does`)
 
 ### Targets
 
@@ -80,8 +119,8 @@ with its base, its head and its commits, or the commits of a list. A pull reques
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should review an archived branch from its menu, its focused row and its commits`)
 - The title bar must hold the actions Rust offers for it (`domain_policy::kept`): of an unapplied branch Reapply and
   its push, its "⋯" the rest of its menu, which the main window runs as the row's menu would; an archived branch has
-  only its "⋯" (its delete, the copies). A plain open of the kept branch on screen only brings the window to the front;
-  another one starts it over.
+  only its "⋯" (its delete, the copies). A plain open of the kept branch on screen only brings the window to the front,
+  a commit of it moves there ([One window](#one-window)).
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
 - After a Reapply the review must go on as the review of the branch it is again, once a sync built it; after a delete
   it keeps what it read, its actions disabled with why ("docs is no longer unapplied: it was reapplied or deleted").

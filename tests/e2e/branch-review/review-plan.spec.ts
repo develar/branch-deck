@@ -7,7 +7,8 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
-import { openPlanWindow, openReviewWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { openReviewWindow } from "../helpers/review-window-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
@@ -180,7 +181,7 @@ test.describe("The review plan in the branch review", () => {
     await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
-    await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+    await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
 
     // the diffs are the story: Cache, which Reader reads, before Reader; the tree keeps its order, no order to choose
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Store.kt"])
@@ -245,7 +246,7 @@ test.describe("The review plan in the branch review", () => {
       await linked.click()
       await expect(cache).toHaveAttribute("aria-selected", "true")
       await expect(popover).toHaveCount(0)
-      await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+      await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
 
       // the card of Cache lists Reader, which uses it: a click shows its first use, the name selected
       const cacheCard = await openFactsCard(window, cache)
@@ -264,7 +265,7 @@ test.describe("The review plan in the branch review", () => {
       const window = await openPlanWindow(page, syncAndWaitForBranches)
       const { reader, cache, store } = planRows(window)
       const card = window.getByTestId("file-facts-card")
-      const footer = window.getByTestId("branch-review-footer")
+      const footer = window.getByTestId("review-window-footer")
       const link = card.getByTestId("file-link")
 
       // the focused row: the hints name I
@@ -291,7 +292,7 @@ test.describe("The review plan in the branch review", () => {
       await expect(cache).toHaveAttribute("aria-selected", "true")
       await expect(card).toHaveCount(0)
       await expect(reader).toBeFocused()
-      await expect(window.getByTestId("branch-review-position")).toHaveText(/File 2 \/ 3$/)
+      await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
 
       // the card of Store lists no file: the card takes the focus, and its Escape is the card's, not the window's
       await store.getByText("Store.kt", { exact: true }).click()
@@ -355,7 +356,7 @@ test.describe("The review plan in the branch review", () => {
     const selectCacheFromReader = async () => {
       await (await openFactsCard(window, reader)).getByTestId("file-link").click()
     }
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
 
     // the chip of Monorepo keeps Cache, of Cache Team, muted: a click on its link selects it, the chip stays
     await owner("Monorepo").click()
@@ -437,7 +438,7 @@ test.describe("The review plan in the branch review", () => {
     const { cache, store } = planRows(window)
     const owner = (name: string) => window.getByTestId("branch-review-owner").filter({ hasText: name })
     const search = window.getByRole("textbox", { name: "Filter files" })
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
     const noMatch = window.getByTestId("review-files-no-match")
     const card = window.getByTestId("review-plan-card")
     const header = (filePath: string) => window.locator(`[data-testid="review-file-header"][data-path="${filePath}"]`)
@@ -645,7 +646,7 @@ test.describe("The review plan in the branch review", () => {
     const tree = window.getByRole("tree", { name: "Changed files" })
     const row = (name: string) => tree.getByRole("treeitem", { name, exact: true })
     const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
 
     // a concern per task, its files by their path; the guide's own row in the concern of most of its lines, a row
     // "also in" the other; the generated AGENTS.md folded into the concern of its source; then the rest and Mechanical
@@ -779,7 +780,7 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Base.kt", "src/Store.kt", "src/Base.kt"])
 
     // Base.kt in the tree: its new function under its heading, the import one row that names the group
-    const position = window.getByTestId("branch-review-position")
+    const position = window.getByTestId("review-position")
     await window.getByRole("treeitem", { name: "Base.kt" }).click()
     await expect(position).toHaveText(/File 3 \/ 4$/)
     await expect(own.getByTestId("diff-unit-heading")).toHaveText("other — new")
@@ -855,7 +856,7 @@ test.describe("The review plan in the branch review", () => {
     await syncAndWaitForBranches()
     await openCommitPreview(page, getUnassignedCommitRow(page, "scale the helper again"))
     await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(opened => opened.windowId)).toEqual(["commit-review"])
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(opened => opened.windowId)).toEqual(["review"])
     const window = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[0]!)
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
     await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
@@ -878,7 +879,7 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt"])
     await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 1 new")
-    await expect(window.getByTestId("branch-review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
+    await expect(window.getByTestId("review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
 
     // the commit of nav joins plan below the reviewed ones: the new commits are not one range of the branch, so Since
     // Your Review is the diff from the reviewed change, both new commits together
@@ -932,7 +933,7 @@ test.describe("The review plan in the branch review", () => {
     // Since Your Review: one diff from the reviewed version, the amend alone: the reviewed line against the new one,
     // never the line before the branch, under the card with that difference
     await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
-    await expect(window.getByTestId("branch-review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
+    await expect(window.getByTestId("review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
     await expect.poll(() => treeCommits(window)).toEqual(["scale the helperRewritten"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
     const code = window.getByTestId("diff-view")

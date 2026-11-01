@@ -23,7 +23,7 @@ the `peekaboo` CLI. An agent never does that: it checks a copy of its own
   --threshold 0 --path <dir>` in the background, then press; `<dir>/metadata.json` lists the frames with their time
   and change, so a blank or "Loading" frame before the content shows.
 - **Timings**: every sub-window open logs its phases in `~/Library/Logs/org.develar.branch-deck/BranchDeck.log`
-  ("commit-review open 258 ms: loaded 91, files 187, diffs 187, painted 235"), the backend the source of
+  ("review open 258 ms: loaded 91, files 187, diffs 187, painted 235"), the backend the source of
   each patch (memory, disk, git) at debug level. The main window logs its start from its build ("main open 812 ms:
   loaded 240, shell 300"): the time of its first rows, not of its show. The backend logs what showed it ("the page
   settled its content, showing the window", or "the page settled no content within its budget, showing the window" 1 s

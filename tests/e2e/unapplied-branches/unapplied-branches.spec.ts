@@ -223,7 +223,7 @@ test.describe("Unapplied branches", () => {
     const opened = async (count: number) => {
       await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
       const window = (await getOpenedSubWindows<BranchReviewWindowData>(page))[count - 1]!
-      expect(window).toMatchObject({ windowId: "branch-review", url: "/branch-review" })
+      expect(window).toMatchObject({ windowId: "review", url: "/review" })
       return window
     }
 

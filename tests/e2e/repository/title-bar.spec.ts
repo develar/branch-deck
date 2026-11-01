@@ -58,7 +58,7 @@ async function showBranchReviewWindow(page: Page) {
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
   const [opened] = await getOpenedSubWindows(page)
   await openSubWindowPage(page, opened!)
-  const window = page.getByTestId("branch-review")
+  const window = page.getByTestId("review-window")
   await expect(window.getByTestId("review-file-header").first()).toBeVisible()
   return window
 }

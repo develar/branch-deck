@@ -220,7 +220,7 @@ test.describe("Your Turn card", () => {
     // D, and Review Changes of its menu: the review of its branch, where the changes requested are read
     await row.focus()
     await page.keyboard.press("d")
-    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => [window.windowId, window.title])).toEqual([["branch-review", "Review JIRA-456"]])
+    await expect.poll(async () => (await getOpenedSubWindows(page)).map(window => [window.windowId, window.title])).toEqual([["review", "Review JIRA-456"]])
     await row.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
     await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)

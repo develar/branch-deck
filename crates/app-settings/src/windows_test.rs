@@ -21,7 +21,7 @@ fn a_sub_window_gets_no_key_only_the_main_window_keeps() {
     main.get("journalPaths").is_some() && main.get("repositoryState").is_some() && main.get("diffView").is_some(),
     "{main}"
   );
-  let (version, review) = window_snapshot(&service, "commit-review");
+  let (version, review) = window_snapshot(&service, "review");
   assert_eq!((review.get("journalPaths"), review.get("repositoryState")), (None, None));
   assert_eq!(review["diffView"], json!({ "mode": "unified" }));
 
@@ -30,5 +30,5 @@ fn a_sub_window_gets_no_key_only_the_main_window_keeps() {
   set(&service, "diffView", json!({ "mode": "split" }));
   let keys = |label: &str| window_changes_since(&service, label, version).into_iter().map(|change| change.key).collect::<Vec<_>>();
   assert_eq!(keys("main"), ["robotHistory", "repositoryState", "diffView"]);
-  assert_eq!(keys("commit-review"), ["diffView"]);
+  assert_eq!(keys("review"), ["diffView"]);
 }

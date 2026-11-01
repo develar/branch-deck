@@ -385,7 +385,7 @@ testWithIssueLinks.describe("Settings of a window whose page loads", () => {
 
     // the page starts from the snapshot at 110%, its load takes Actual Size, and the window shows at 100%
     const window = await openLinkedSubWindow(page, opened!)
-    await expect(window.getByTestId("branch-review")).toBeVisible()
+    await expect(window.getByTestId("review-window")).toBeVisible()
     await expect.poll(() => getSubWindowReadyOpen(window)).toBe(1)
     await expect.poll(() => webviewZoom(window)).toBe(1)
   })

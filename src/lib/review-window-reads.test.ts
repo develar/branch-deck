@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test"
 import type { GetReviewParams } from "@/lib/bindings"
-import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
 
 const { reads } = vi.hoisted(() => ({ reads: [] as unknown[] }))
 
@@ -16,14 +15,14 @@ vi.mock("@/lib/bindings", () => ({
   },
 }))
 
-const data = { repositoryPath: "/repo", baselineBranch: "origin/master", chain: ["auth", "login"] }
+const data = { kind: "branch", repositoryPath: "/repo", baselineBranch: "origin/master", chain: ["auth", "login"] }
 const params: GetReviewParams = { repositoryPath: "/repo", baselineBranch: "origin/master", target: { kind: "branch", chain: ["auth", "login"] } }
 
 describe("readReview", () => {
   it("gives the first read of the page the read its load started, once, and only for the same review", async () => {
     vi.stubGlobal("window", { __INIT_DATA__: { ...data, groups: [] } })
     const { readReview, startReviewWindowReads } = await import("@/lib/review-window-reads")
-    startReviewWindowReads(BRANCH_REVIEW_WINDOW)
+    startReviewWindowReads()
     expect(reads).toHaveLength(1)
     const started = readReview({ ...params, target: { kind: "branch", chain: ["auth", "login"] } })
     expect(reads).toHaveLength(1)
@@ -32,7 +31,7 @@ describe("readReview", () => {
     void readReview(params)
     expect(reads).toHaveLength(2)
     // another review never gets a started read
-    startReviewWindowReads(BRANCH_REVIEW_WINDOW)
+    startReviewWindowReads()
     void readReview({ ...params, target: { kind: "branch", chain: ["login"] } })
     expect(reads).toHaveLength(4)
   })

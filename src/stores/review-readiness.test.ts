@@ -17,7 +17,7 @@ const { state } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/lib/branch-review-window", () => ({ rememberReviewGroups: () => {} }))
+vi.mock("@/lib/review-window", () => ({ rememberReviewGroups: () => {} }))
 vi.mock("@/stores/repository", () => import("@/test-support/selected-repository-mock"))
 vi.mock("@/model/store", () => ({
   refreshSessionFacts: (_path: string, family: string, reason: string, subject?: string) => {

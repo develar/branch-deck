@@ -197,7 +197,7 @@ test.describe("Archived Branches Table", () => {
     await branchRow.click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
     const fromMenu = await opened(1)
-    expect(fromMenu).toMatchObject({ windowId: "branch-review", title: "Review feature-partial", data: { chain: ["feature-partial"], kept } })
+    expect(fromMenu).toMatchObject({ windowId: "review", title: "Review feature-partial", data: { chain: ["feature-partial"], kept } })
     // nothing to reapply or push: its title bar has no action, its "⋯" its delete
     expect(fromMenu.data.state.items["feature-partial"]).toEqual([])
     expect(fromMenu.data.state.menus["feature-partial"]?.flat().map(item => item.id)).toContain("delete-kept-branch")

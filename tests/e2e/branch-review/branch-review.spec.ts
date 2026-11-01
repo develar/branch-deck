@@ -12,6 +12,7 @@ import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRe
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { openReviewWindow, openedReview } from "../helpers/review-window-helpers"
 import { popoverStart, safePushPopover } from "../helpers/safe-push-helpers"
 import { clickContextMenuItem, openContextMenu } from "../helpers/selection-helpers"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -32,24 +33,6 @@ function fileHeader(page: Page, path: string) {
 /** `name:count` of the owner chips */
 async function ownerChips(page: Page): Promise<string[]> {
   return page.getByTestId("branch-review-owner").evaluateAll(chips => chips.map(chip => chip.textContent!))
-}
-
-/** The last review window the page opened (`open_sub_window`), once there are `count` */
-async function openedReview(page: Page, count: number) {
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-  const opened = (await getOpenedSubWindows<BranchReviewWindowData>(page))[count - 1]!
-  expect(opened).toMatchObject({ windowId: "branch-review", url: "/branch-review" })
-  return opened
-}
-
-/** "Review Changes" of the branch menu: the review window, still in the main window */
-async function openReviewWindow(page: Page, branch: string) {
-  const count = (await getOpenedSubWindows(page)).length
-  await findBranchRow(page, branch).click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Review Changes" }).click()
-  const opened = await openedReview(page, count + 1)
-  expect(opened.title).toBe(`Review ${branch}`)
-  return opened
 }
 
 /** Shows the window in the page, at its first diff */
@@ -94,7 +77,7 @@ function itemSummary(items: Readonly<Record<string, readonly BranchReviewItem[]>
 
 /** The window's requests without their ids */
 async function windowRequests(page: Page): Promise<Omit<BranchReviewRequest, "id">[]> {
-  return (await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")).map(({ id: _id, ...request }) => request)
+  return (await getEmittedEvents<BranchReviewRequest>(page, "review/request")).map(({ id: _id, ...request }) => request)
 }
 
 test.describe("Opening the review", () => {
@@ -132,7 +115,7 @@ test.describe("Opening the review", () => {
 
     // in the window P is the previous change, not a push: J moves to the next file, P back
     await showReviewWindow(page, byKey)
-    const position = page.getByTestId("branch-review-position")
+    const position = page.getByTestId("review-position")
     await expect(position).toHaveText(/File 1 \/ \d+$/)
     await page.locator("[aria-label='Changes of the commit']").focus()
     await page.keyboard.press("j")
@@ -385,17 +368,17 @@ test.describe("Branch review window", () => {
 
     // a chip hides no file: the review stays at the file it shows, the other owners' files muted
     await page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "login.js" }).click()
-    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 3 / 4")
+    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4")
     await page.getByTestId("branch-review-owner").filter({ hasText: "UI Team" }).click()
     await expect(fileHeader(page, "README.md")).toHaveAttribute("data-muted", "")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
     // the footer counts the part of the chip too: login.js is the one file of UI Team
-    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 3 / 4 · UI Team 1 / 1")
+    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4 · UI Team 1 / 1")
 
     // all files again: nothing muted, the review still at the file it showed
     await page.getByTestId("branch-review-owner").filter({ hasText: "All" }).click()
     await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
-    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 3 / 4")
+    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4")
 
     // the parent alone, one commit: no column, the commit above its diffs
     await segments.first().click()
@@ -418,8 +401,8 @@ test.describe("Branch review window", () => {
     const header = page.getByTestId("range-review-commit-header")
     await expect(header).toContainText("Style the form")
     await expect(header).toContainText("Test User")
-    await expect(page.getByTestId("branch-review-position")).toHaveText(/^Commit 1 \/ 3 · File \d \/ 2$/)
-    await expect(page.getByTestId("branch-review-footer")).toContainText("Commits")
+    await expect(page.getByTestId("review-position")).toHaveText(/^Commit 1 \/ 3 · File \d \/ 2$/)
+    await expect(page.getByTestId("review-window-footer")).toContainText("Commits")
 
     // ⌥↓ twice from the diffs: the second while the next commit loads, the review keeps the focus
     await page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
@@ -427,7 +410,7 @@ test.describe("Branch review window", () => {
     await page.keyboard.press("Alt+ArrowDown")
     await expect(commits.getByTestId("range-review-commit").nth(3)).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
-    await expect(page.getByTestId("branch-review-position")).toHaveText("Commit 3 / 3 · File 1 / 1")
+    await expect(page.getByTestId("review-position")).toHaveText("Commit 3 / 3 · File 1 / 1")
     // ↑ in the column, to all changes
     await commits.focus()
     await page.keyboard.press("ArrowUp")
@@ -445,7 +428,7 @@ test.describe("Branch review window", () => {
     await syncAndWaitForBranches()
     await openReviewOf(page, "login")
     const tree = page.getByRole("tree", { name: "Changed files" })
-    const position = page.getByTestId("branch-review-position")
+    const position = page.getByTestId("review-position")
     const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
     const focusDiffs = () => page.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
     await expect(position).toHaveText("All Changes · File 1 / 4")
@@ -501,7 +484,7 @@ test.describe("Branch review window", () => {
     await repo.commit("(login) Keep the session", { "auth/session.js": lines }, 1704124800)
     await syncAndWaitForBranches()
     await openReviewOf(page, "login")
-    const position = page.getByTestId("branch-review-position")
+    const position = page.getByTestId("review-position")
     const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
     const session = page.locator("[data-testid=diff-view-file][data-path='auth/session.js']")
     await expect(position).toHaveText("All Changes · File 1 / 5")
@@ -608,7 +591,7 @@ test.describe("Branch review window", () => {
     // the window holds the view of its own subscription to the session: the version the main window holds. Each window
     // hears a patch on its own channel, either one first (a fact the remote answers after the sync): both are read
     // until they agree
-    const review = window.getByTestId("branch-review")
+    const review = window.getByTestId("review-window")
     const sameVersion = async () => {
       const shown = await review.getAttribute("data-view-version")
       return shown !== null && shown === (await page.getByTestId("sync-button").getAttribute("data-view-version"))
@@ -682,15 +665,15 @@ test.describe("Branch review window", () => {
     await page.getByTestId("sync-button").click()
     await expect(page.getByTestId("sync-button")).toBeEnabled()
     const pushStates = async () =>
-      (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
+      (await getEmittedEvents<BranchReviewWindowState>(page, "review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
     // no state with a reason the push is disabled
     expect((await pushStates()).filter(it => it !== null && it !== "Pushes auth and login, parents first")).toEqual([])
 
     await showReviewWindow(page, opened)
-    const footer = page.getByTestId("branch-review-footer")
+    const footer = page.getByTestId("review-window-footer")
     // the actions on the branch are in the title bar, the keys of the review in the footer
     const actions = page.getByTestId("branch-review-actions")
-    await expect(page.getByTestId("branch-review-position")).toHaveText("All Changes · File 1 / 4")
+    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 1 / 4")
     await expect(footer).toContainText("JKFiles")
     await expect(footer).toContainText("NPChanges")
     await expect(footer).toContainText("EscClose")
@@ -722,7 +705,7 @@ test.describe("Branch review window", () => {
         { repositoryPath, branchName: "auth", itemId: "safe-push" },
         { repositoryPath, branchName: "login", itemId: "push" },
       ])
-    const requests = await getEmittedEvents<BranchReviewRequest>(page, "branch-review/request")
+    const requests = await getEmittedEvents<BranchReviewRequest>(page, "review/request")
 
     // the main window shows another repository: what it runs waits for it, the pull request opens from here
     const emptyState = (repository: string, selected: boolean): BranchReviewWindowState => ({
@@ -735,9 +718,9 @@ test.describe("Branch review window", () => {
       commitMenus: {},
       groups: null,
     })
-    await emitTauriEvent(page, "branch-review/state", emptyState("/elsewhere", true))
+    await emitTauriEvent(page, "review/state", emptyState("/elsewhere", true))
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
-    await emitTauriEvent(page, "branch-review/state", emptyState(repositoryPath, false))
+    await emitTauriEvent(page, "review/state", emptyState(repositoryPath, false))
     // they stay: a click switches the main window to this repository first, as the hover says
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
     // the tooltip of the button the mouse was on closes first
@@ -748,7 +731,7 @@ test.describe("Branch review window", () => {
     await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
 
     // a running robot disables the Safe Push; the pull request is gone
-    await emitTauriEvent(page, "branch-review/state", {
+    await emitTauriEvent(page, "review/state", {
       ...opened.data.state,
       items: { login: [{ id: "safe-push", label: "Safe Push · 2", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
     } satisfies BranchReviewWindowState)
@@ -756,10 +739,10 @@ test.describe("Branch review window", () => {
     await expect(actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true })).toHaveCount(0)
     await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeDisabled()
     await page.keyboard.press("s")
-    expect(await getEmittedEvents(page, "branch-review/request")).toHaveLength(3)
+    expect(await getEmittedEvents(page, "review/request")).toHaveLength(3)
 
     // a refusal of the main window shows where the user is
-    await emitTauriEvent(page, "branch-review/feedback", {
+    await emitTauriEvent(page, "review/feedback", {
       kind: "error",
       title: "Cannot push branch login",
       message: "The remote branch is up to date",
@@ -772,19 +755,19 @@ test.describe("Branch review window", () => {
     // the Safe Push the window asks for runs once its step is known
     await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
     // a repository the main window can't switch to: refused with the reason, in the window
-    await emitTauriEvent(page, "branch-review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
-    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "elsewhere", ok: false }])
-    expect(await getEmittedEvents(page, "branch-review/feedback")).toEqual([
+    await emitTauriEvent(page, "review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
+    await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "elsewhere", ok: false }])
+    expect(await getEmittedEvents(page, "review/feedback")).toEqual([
       { kind: "error", title: "Cannot push branch login", message: "elsewhere is no longer among the repositories of the main window" },
     ])
-    await emitTauriEvent(page, "branch-review/request", requests[2])
+    await emitTauriEvent(page, "review/request", requests[2])
     // the push of the row: the stack, in one push
     await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
     // the Safe Push of login lands auth with it: something to say, the popover at login's row
-    await emitTauriEvent(page, "branch-review/request", requests[0])
+    await emitTauriEvent(page, "review/request", requests[0])
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
     await expect(safePushPopover(page).getByTestId("safe-push-lands")).toContainText("Lands login with auth")
-    await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "branch-review/reply")).map(it => it.ok)).toEqual([false, true, true])
+    await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "review/reply")).map(it => it.ok)).toEqual([false, true, true])
     // the window asked: the main window comes to the front, once per request it ran
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls?.filter(it => it === "set_focus"))).toEqual(["set_focus", "set_focus"])
   })
@@ -817,18 +800,18 @@ test.describe("Branch review window", () => {
     await expect.poll(() => unstacks.length).toBe(1)
     // the window is told: the item of its menu runs, as on the row
     const unstackOfWindow = async () =>
-      (await getEmittedEvents<BranchReviewWindowState>(page, "branch-review/state"))
+      (await getEmittedEvents<BranchReviewWindowState>(page, "review/state"))
         .at(-1)
         ?.menus.oauth?.flat()
         .find(item => item.id === "unstack")
     await expect.poll(unstackOfWindow).toMatchObject({ running: true, disabled: true })
     // the window asks for it at the same time: its request is that start, no second one
-    await emitTauriEvent(page, "branch-review/request", { id: "again", repositoryPath, branchName: "oauth", menuItemId: "unstack" } satisfies BranchReviewRequest)
-    await expect.poll(() => getEmittedEvents(page, "branch-review/reply")).toEqual([{ id: "again", ok: true }])
+    await emitTauriEvent(page, "review/request", { id: "again", repositoryPath, branchName: "oauth", menuItemId: "unstack" } satisfies BranchReviewRequest)
+    await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "again", ok: true }])
     await runAndWaitForSync(page, () => repo.holdRepositoryLock(false))
     await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
     expect(unstacks).toHaveLength(1)
-    expect(await getEmittedEvents(page, "branch-review/feedback")).toEqual([])
+    expect(await getEmittedEvents(page, "review/feedback")).toEqual([])
   })
 
   test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -873,7 +856,7 @@ test.describe("Branch review window", () => {
 
     // a main window that shows another repository refuses the creation, in the window
     const input = { title: "Add auth", body: "", reviewers: [], assignSelf: true, viewerLogin: null }
-    await emitTauriEvent(page, "branch-review/request", {
+    await emitTauriEvent(page, "review/request", {
       id: "elsewhere",
       repositoryPath: "/elsewhere",
       branchName: "auth",
@@ -881,7 +864,7 @@ test.describe("Branch review window", () => {
       input,
     } satisfies BranchReviewRequest)
     await expect
-      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "branch-review/reply")).filter(it => it.id === "elsewhere"))
+      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "review/reply")).filter(it => it.id === "elsewhere"))
       .toEqual([{ id: "elsewhere", ok: false }])
     expect(await gitHubRequests(repo, "POST", "pulls")).toHaveLength(1)
   })

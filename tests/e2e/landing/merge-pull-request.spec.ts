@@ -172,7 +172,7 @@ test.describe("Merge #7", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
     // the button of the title bar of the review window, asked of the main window over the link of the window
-    await emitTauriEvent(page, "branch-review/request", { id: "merge", repositoryPath: repo.path, branchName: BRANCH, itemId: "merge-pull-request" } satisfies BranchReviewRequest)
+    await emitTauriEvent(page, "review/request", { id: "merge", repositoryPath: repo.path, branchName: BRANCH, itemId: "merge-pull-request" } satisfies BranchReviewRequest)
     await expectMerged(page, repo, copy)
   })
 
