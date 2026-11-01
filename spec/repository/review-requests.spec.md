@@ -52,6 +52,7 @@ targets:
   - ../../src/stores/settings/repositorySettings.ts
   - ../../src/stores/activity.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
+  - ../../src/hooks/useSessionFactStores.ts
   - ../../src/hooks/useDockStatus.ts
   - ../../src/hooks/useReviewWindowBridge.ts
   - ../../src/components/repository/YourTurnCard.tsx

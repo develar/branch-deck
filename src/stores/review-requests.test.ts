@@ -5,6 +5,7 @@ import { resetEventToasts, toastKeys } from "@/lib/event-toast"
 import { resetOsNotification, setWindowFocus } from "@/lib/os-notification"
 import {
   applyReviewRequestsFacts,
+  tellReviewRequestNews,
   approveAndSafePush,
   connectReviewWindow,
   getReviewBusy,
@@ -163,7 +164,8 @@ function listed(listing: Listing, told: number[] = [], repositoryPath = "/repo")
     checkedAt: available ? 1_000_000 : 0,
   }
   const news: News[] = told.length === 0 ? [] : [{ id: ++lastNews, event: { kind: "reviewRequested", numbers: told } }]
-  applyReviewRequestsFacts(repositoryPath, { ...view.facts, reviewRequests }, { reviewRequests }, news)
+  applyReviewRequestsFacts(repositoryPath, { ...view.facts, reviewRequests }, { reviewRequests })
+  tellReviewRequestNews(repositoryPath, news)
 }
 
 function entry(path = "/repo") {

@@ -118,6 +118,7 @@ targets:
   - ../../src/components/repository/PatronusStatusLine.tsx
   - ../../src/components/repository/ReviewStatusLine.tsx
   - ../../src/hooks/useReviewStatusRefresh.ts
+  - ../../src/hooks/useSessionFactStores.ts
   - ../../src/stores/update-project.ts
   - ../../crates/sync-core/src/baseline_fetch.rs
   - ../../crates/operations/src/update.rs

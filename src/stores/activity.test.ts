@@ -24,7 +24,7 @@ import {
 import { fakeActivity } from "@/test-support/fake-activity"
 import { conflictState } from "@/test-support/update-conflict"
 
-const { selection } = vi.hoisted(() => ({ selection: { path: "/a" } }))
+const { selection } = vi.hoisted(() => ({ selection: { path: "/a", window: null as string | null } }))
 
 vi.mock("@tauri-apps/plugin-log", () => ({ error: async () => {} }))
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: async () => {} }))
@@ -32,6 +32,8 @@ vi.mock("@/components/ui/toast", () => ({ toast: { add: () => "toast", close: ()
 vi.mock("@/stores/repository", () => ({
   getSelectedProject: () => ({ path: selection.path }),
   useSelectedProject: () => ({ path: selection.path }),
+  // a sub-window's repository is the one of its data, the main window's the one it shows
+  getDiffRepositoryPath: () => selection.window ?? selection.path,
 }))
 vi.mock("@/lib/bindings", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/bindings")>()
@@ -233,6 +235,18 @@ describe("activity", () => {
     selection.path = "/b"
     notifyError("Couldn't push auth", { message: "rejected" })
     await vi.waitFor(() => expect(entries("/b")[0]).toMatchObject({ kind: "error", title: "Couldn't push auth", description: "rejected" }))
+  })
+
+  it("records the errors of a review window in the repository it was opened for, whatever the main window shows", async () => {
+    selection.path = "/b"
+    selection.window = "/review"
+    try {
+      notifyError("Cannot read the changes of auth", { message: "gone" })
+      await vi.waitFor(() => expect(entries("/review")[0]).toMatchObject({ kind: "error", title: "Cannot read the changes of auth" }))
+      expect(entries("/b").some(entry => entry.title === "Cannot read the changes of auth")).toBe(false)
+    } finally {
+      selection.window = null
+    }
   })
 
   it("keeps the operation a failed command names, for its lines in the log", async () => {

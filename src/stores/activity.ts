@@ -11,7 +11,7 @@ import { describeRequestActivity } from "@/lib/review-requests"
 import { describeUpdateState } from "@/lib/update-state"
 import { isMainWindow, windowLabel } from "@/lib/window-label"
 import { presentActivity } from "@/presenters/activity"
-import { getSelectedProject } from "@/stores/repository"
+import { getDiffRepositoryPath } from "@/stores/repository"
 
 /*
  * Activity: what Branch Deck did in a repository, newest first, read from the journals (spec/repository/activity.spec.md).
@@ -401,11 +401,11 @@ export function recordApproval(repositoryPath: string, title: string, descriptio
   void recordActivity(repositoryPath, { kind: "review", title, description, details: { type: "pullRequest", url } })
 }
 
-// every error the user was told about (`notifyError`), in the repository the main window shows; one that names an
-// operation of a journal shows where that operation ran (`presentActivity`). errors.ts can't import the store, which
-// imports errors.ts
+// every error the user was told about (`notifyError`), in the repository of the window: the one the main window shows, the
+// one a review window was opened for (`getDiffRepositoryPath`); one that names an operation of a journal shows where
+// that operation ran (`presentActivity`). errors.ts can't import the store, which imports errors.ts
 setErrorRecorder((title, description, operationId) => {
-  void recordActivity(getSelectedProject()?.path ?? "", { kind: "error", title, description, ...(operationId !== undefined && { operationId }) })
+  void recordActivity(getDiffRepositoryPath() ?? "", { kind: "error", title, description, ...(operationId !== undefined && { operationId }) })
 })
 
 // ---- days ----

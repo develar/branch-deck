@@ -16,6 +16,9 @@ targets:
   - ../../src/pages/ReviewPage.tsx
   - ../../src/components/review/ReviewBackButton.tsx
   - ../../src/types/sub-window.ts
+  - ../../src/hooks/useSessionFactStores.ts
+  - ../../src/hooks/useReviewStatusRefresh.ts
+  - ../../src/stores/activity.ts
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src/hooks/useBranchReview.ts
   - ../../src/components/review/BranchReview.tsx
@@ -66,6 +69,13 @@ with its base, its head and its commits, or the commits of a list. A pull reques
   saved under the labels of the windows it replaced (`branch-review`, `commit-review`) are forgotten once.
   [@test] ../../tests/e2e/review-window/review-window.spec.ts (`should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review an unassigned commit in the review window of the commit`)
+- The window must hold the session of its repository whatever it shows, and fill the stores of its facts from it as
+  the main window does (`useSessionFactStores`: the robots, the pull requests, the readiness, the review requests),
+  without telling their news: the toasts, the OS notifications and the records of a review requested, a robot that
+  merged or an approval are the main window's (`useReviewStatusRefresh`). An error the window tells is recorded in
+  Activity under the repository of the window, not the one the main window shows.
+  [@test] ../../src/hooks/useSessionFactStores.test.ts (`fill in the review window from the patches of its session and tell no news there: the main window tells them`)
+  [@test] ../../src/stores/activity.test.ts (`records the errors of a review window in the repository it was opened for, whatever the main window shows`)
 - How an open goes on from the review on screen must be one rule for every subject (`planReviewOpen`): an open of the
   subject on screen only brings the window to the front, where the review is; a commit of it moves there (a commit of
   a branch of the chain, of the kept branch, of the list: `move`); anything else (another subject, a place such as a

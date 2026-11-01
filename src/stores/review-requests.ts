@@ -148,7 +148,7 @@ function update(repositoryPath: string, patch: Partial<RepositoryReviewRequests>
  * requests a listing added are unread until opened and told once. A row keeps its object where nothing changed, so a
  * poll that brings nothing new re-renders nothing. Nothing is stored for a session GitHub has not answered yet
  */
-export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null, news: readonly News[]): void {
+export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsView, change: FactsChanges | null): void {
   const part = facts.reviewRequests
   const entry = reviewRequestsStore.getState().repositories[repositoryPath]
   if ((change === null || change.reviewRequests != null) && !(entry === undefined && part.head.value === null)) {
@@ -158,6 +158,14 @@ export function applyReviewRequestsFacts(repositoryPath: string, facts: FactsVie
     const unread = [...known.unread].every(key => keys.has(key)) ? known.unread : new Set([...known.unread].filter(key => keys.has(key)))
     update(repositoryPath, { availability: part.head.value, requests, totalCount: part.totalCount, checkedAt: part.checkedAt * 1000, unread })
   }
+}
+
+/**
+ * The requests of a review the news of the session name (`reviewRequested`): unread, recorded in Activity, a toast and
+ * an OS notification. The main window's alone (`useReviewStatusRefresh`), after the store applied the facts of the same
+ * patch (`applyReviewRequestsFacts`)
+ */
+export function tellReviewRequestNews(repositoryPath: string, news: readonly News[]): void {
   const requested = new Set(news.flatMap(({ event }) => (event.kind === "reviewRequested" ? event.numbers : [])))
   if (requested.size > 0) {
     const requests = (reviewRequestsStore.getState().repositories[repositoryPath] ?? EMPTY).requests.filter(request => requested.has(request.number))

@@ -19,6 +19,7 @@ import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchRe
 import type { BranchReviewModel } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { planFacts, useSubjectPlan } from "@/hooks/useReviewPlan"
+import { useSessionFactStores } from "@/hooks/useSessionFactStores"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
 import { branchGoneReason, keptGoneReason, sameReviewTable, settledKeptTable, settledReviewTable } from "@/lib/branch-review"
@@ -91,6 +92,9 @@ export function ReviewPage() {
       ensureSession(repositoryPath)
     }
   }, [repositoryPath])
+  // the stores of its facts (the robots, the pull requests, the readiness, the review requests), as the main window's
+  // are: the actions read them; the news of the session are the main window's
+  useSessionFactStores()
 
   const back = () => {
     const previous = history.at(-1)

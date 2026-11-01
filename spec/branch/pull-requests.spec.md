@@ -30,6 +30,7 @@ targets:
   - ../../src/hooks/useBranchContextActions.ts
   - ../../src/hooks/useBranchRowKeys.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
+  - ../../src/hooks/useSessionFactStores.ts
   - ../../crates/repository-model/src/pull_request_facts.rs
   - ../../crates/remote-facts/src/scheduler_github.rs
   - ../../crates/domain-policy/src/refresh.rs

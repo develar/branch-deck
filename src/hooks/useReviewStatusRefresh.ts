@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { useSessionFactStores } from "@/hooks/useSessionFactStores"
 import { tellReadinessNews } from "@/hooks/useStackNextStep"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { approvalNewsOf } from "@/lib/approval-news"
@@ -10,13 +11,9 @@ import { tellRemoteCommitsNews } from "@/lib/remote-commits-news"
 import { setDemandFocused } from "@/model/demand"
 import { onSessionFacts } from "@/model/store"
 import { branchSyncStore } from "@/stores/branch-sync"
-import { applySessionFacts } from "@/stores/patronus"
-import { applyPullRequestsFacts, refreshPullRequests } from "@/stores/pull-requests"
-import { applyReadinessFacts } from "@/stores/review-readiness"
-import { applyReviewRequestsFacts } from "@/stores/review-requests"
-import { applyReviewsView } from "@/stores/reviews"
+import { refreshPullRequests } from "@/stores/pull-requests"
+import { tellReviewRequestNews } from "@/stores/review-requests"
 import { watchRobotCoverage } from "@/stores/robot-coverage"
-import { applyRobotDetailsFacts } from "@/stores/robot-details"
 
 /** A row or the header of a whole stack waits for an approval (Awaiting: rows 10 and 10′ of the next step) */
 function isAwaiting(): boolean {
@@ -24,7 +21,9 @@ function isAwaiting(): boolean {
 }
 
 /**
- * Keeps the review status of the main window current. The session of the repository lists the GitHub pull requests
+ * Keeps the review status of the main window current: the stores of the facts (`useSessionFactStores`, which the
+ * review window mounts too) and, the main window's alone, the news of the session as toasts, OS notifications and
+ * records of Activity, the failing and the coverage of the robots, the focus. The session of the repository lists the GitHub pull requests
  * (after a sync, on a focus, after a push and a write of the app, by its rules) and lists and polls the robots of
  * Patronus itself (`remote_facts::scheduler`, by the window's focus, which it tells from the start, and its demand); the
  * stores take them from its view (`applyPullRequestsFacts`, `applySessionFacts`) with the view the session derives of
@@ -45,15 +44,12 @@ function isAwaiting(): boolean {
  * (`tellAutoMergedNews`).
  */
 export function useReviewStatusRefresh(): void {
+  // the stores first: the news below read what they applied
+  useSessionFactStores()
   useEffect(
     () =>
-      onSessionFacts((repositoryPath, view, changes, news) => {
-        applySessionFacts(repositoryPath, view, changes)
-        applyPullRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null)
-        applyReadinessFacts(repositoryPath, view.facts, changes?.facts ?? null)
-        applyRobotDetailsFacts(repositoryPath, view.facts, changes?.facts ?? null)
-        applyReviewRequestsFacts(repositoryPath, view.facts, changes?.facts ?? null, news)
-        applyReviewsView(repositoryPath, view, changes)
+      onSessionFacts((repositoryPath, _view, _changes, news) => {
+        tellReviewRequestNews(repositoryPath, news)
         tellRobotNews(repositoryPath, news)
         approvalNewsOf(news).forEach(tellReadinessNews)
         tellRemoteCommitsNews(repositoryPath, news)
