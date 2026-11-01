@@ -13,7 +13,8 @@ export interface FilePathLabelProps {
   directory?: boolean
   /**
    * The header of a file above its diff: the name `font-semibold`, whole while the directory gives way (from its start,
-   * so its last folder shows as long as any of it does); only a name wider than the label truncates
+   * so its last folder shows as long as any of it does), the last folder in the text colour, since it is what tells
+   * apart ten files of one name in a row; only a name wider than the label truncates
    */
   emphasis?: boolean
   /** The letter in the `size-4` slot of a folder icon, so that the names of a tree align */
@@ -51,9 +52,20 @@ export function FilePathLabel({ path, oldPath = null, status, directory = true, 
       {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
       {parent !== "" && (
         <span className="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">
-          <bdi dir="ltr">{parent}</bdi>
+          <bdi dir="ltr">{emphasis ? <EmphasizedDirectory directory={parent} /> : parent}</bdi>
         </span>
       )}
     </span>
+  )
+}
+
+/** A directory with its last folder in the text colour: `.claude/skills/` muted, `find-skills` not */
+function EmphasizedDirectory({ directory }: { directory: string }) {
+  const slash = directory.lastIndexOf("/")
+  return (
+    <>
+      {directory.slice(0, slash + 1)}
+      <span className="text-foreground">{directory.slice(slash + 1)}</span>
+    </>
   )
 }

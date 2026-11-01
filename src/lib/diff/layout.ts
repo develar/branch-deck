@@ -155,6 +155,15 @@ export class DiffLayout {
     return this.fileAt(scrollTop + this.stickyTop + this.metrics.headerHeight / 2)
   }
 
+  /**
+   * The file a user's scroll to `scrollTop` shows, the one the tree and the map follow: the one at the top
+   * (`fileAtTop`), except at the end of the document, where the last file is in view entire and its header can never
+   * reach the top
+   */
+  fileShownAt(scrollTop: number, viewHeight: number): number {
+    return this.files.length > 0 && scrollTop + viewHeight >= this.height - 1 ? this.files.length - 1 : this.fileAtTop(scrollTop)
+  }
+
   /** The file at `y`: the last one whose top (its divider, else its card) is at or above it; a gap is the file above it */
   fileAt(y: number): number {
     let low = 0

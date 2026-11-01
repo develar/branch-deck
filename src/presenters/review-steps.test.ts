@@ -4,6 +4,7 @@ import {
   bodyParagraphs,
   formatCommitRole,
   formatStepDivider,
+  formatStepNumber,
   formatStepTitle,
   placeCommits,
   presentBrief,
@@ -49,7 +50,11 @@ describe("review steps", () => {
       [1, "The rule", "1 · The rule", "step 1", 1],
       [2, WITHOUT_A_STORY, `2 · ${WITHOUT_A_STORY}`, "step 2", 1],
     ])
-    // the divider above the first section of each in the diffs
+    // the divider above the first section of each in the diffs: its number muted, then its title; the hover of the map
+    expect(chapters.map(chapter => [formatStepNumber(chapter.number), chapter.label])).toEqual([
+      ["Step 1", "The rule"],
+      ["Step 2", WITHOUT_A_STORY],
+    ])
     expect(chapters.map(chapter => formatStepDivider(chapter))).toEqual(["Step 1 · The rule", `Step 2 · ${WITHOUT_A_STORY}`])
   })
 

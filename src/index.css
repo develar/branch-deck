@@ -434,16 +434,18 @@
   /*
    * The file cards of a review (docs/design/diff-view.md, "File cards"), one formula for both themes: the gap between
    * them is the canvas, so a card stands out from it as an island does; the border an opaque form of the ring of a
-   * `Card`, so the edge of the header band reads on the canvas; the header band halfway between the card and the
-   * canvas (ΔL ≈ 0.03 to either), so the header of a file is not one more row of code; the shadow under a header that
-   * is stuck while the rows of its file scroll under it; the tick of a file on the map of the files beside the cards, on
-   * the canvas (`--border` is the canvas in the light theme)
+   * `Card`, so the edge of the header band reads on the canvas, and the line under the header; the header band nearer
+   * the canvas than the card (ΔL ≈ 0.035 from the card, 0.025 from the canvas), so the header of a file is not one more
+   * row of code, in the dark theme too; the shadow under a header that is stuck while the rows of its file scroll under
+   * it (black in the dark theme, where the text colour would light the rows up); the tick of a file on the map of the
+   * files beside the cards and the tick of a step, on the canvas (`--border` is the canvas in the light theme)
    */
   --diff-card-gap: var(--canvas);
   --diff-card-border: color-mix(in oklab, var(--foreground) 8%, var(--canvas));
-  --diff-file-header: color-mix(in oklab, var(--card), var(--canvas) 45%);
+  --diff-file-header: color-mix(in oklab, var(--card), var(--canvas) 60%);
   --diff-header-shadow: color-mix(in oklab, var(--foreground) 12%, transparent);
-  --diff-map-tick: color-mix(in oklab, var(--foreground) 16%, var(--canvas));
+  --diff-map-tick: color-mix(in oklab, var(--foreground) 26%, var(--canvas));
+  --diff-map-step: color-mix(in oklab, var(--foreground) 55%, var(--canvas));
 }
 
 /* the dark tokens: `data-theme` of the root, which `useTheme` sets by the setting of Appearance, else by the system */
@@ -551,6 +553,8 @@
   --diff-selection: #214283;
   --diff-search-result: #114957;
   --diff-search-result-border: #165e70;
+  /* a shadow of the text colour would light the rows under a stuck header up: in the dark theme it is black */
+  --diff-header-shadow: oklch(0 0 0 / 0.55);
 }
 
 @layer base {

@@ -174,9 +174,12 @@ where a dialog would cover it.
   [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`, `puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
-  top must become the selected file, its directories opened. A scroll the review made (a choice, J, K, N, P) changes
-  the selection only through the key or the row that made it, also for a last file that cannot reach the top.
-  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+  top must become the selected file, its directories opened; scrolled to their end, the last file, in view entire
+  while its header can never reach the top, is the selected one, the position and the map following it. A scroll the
+  review made (a choice, J, K, N, P) changes the selection only through the key or the row that made it, also for a
+  last file that cannot reach the top.
+  [@test] ../../src/lib/diff/layout.test.ts (`shows the last file at the end of the document, whose header can never reach the top, else the file at the top`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
 - The top of the diffs must keep the gap of 10 px that the first card has above it: a file at the top and a header
   stuck while its rows scroll under it sit 10 px below the header of the commit, never against its line, and no row
   shows in the gap.
@@ -191,28 +194,30 @@ where a dialog would cover it.
   [@test] ../../src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `N and P skip a block the whitespace policy ignores`)
 - A card of more than 30 rows, whose end is far from its header, and the last card must end with a line that names
-  what J shows next, by its rows alone, never by the viewport: "Next: SKILL.md setup-local-rd-flow J", the name and
-  its last folder (ten files named SKILL.md in a row differ by it), "Next: SKILL.md, continued" for the next section of
-  the same file, under an owner chip the next of its files. With nothing left it says "End of the review", and under
+  what J shows next, by its rows alone, never by the viewport: "Next: SKILL.md .claude/skills/setup-local-rd-flow J",
+  the file as the header of its card names it, the name and then the directory, which gives way from its start, so
+  its last folder shows (ten files named SKILL.md in a row differ by it); "Next: SKILL.md, continued" for the next
+  section of the same file, under an owner chip the next of its files. With nothing left it says "End of the review", and under
   an owner chip before the last card "No more files of Design". A click shows what it names as J does: its header at
   the top, the tree and the footer following, the focus left in the diffs, so J goes on from there. It never says
   "End of <file>" (a section of the story may be a part of its file), it is out of the tab order (J does it from the
   keys) and never in a copy of the code.
   [@test] ../../src/lib/diff/layout.test.ts (`ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count`)
-  [@test] ../../src/presenters/review-card-end.test.ts (`names the next file by its name and its last folder, and the next part of the same file as continued`, `ends the review at the last card, and the files of an owner chip before it`)
+  [@test] ../../src/presenters/review-card-end.test.ts (`names the next file as its header does, its name and its directory, and the next part of the same file as continued`, `ends the review at the last card, and the files of an owner chip before it`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
 - The diffs must have a map of the files in place of their scrollbar: a column at their right, beside the diffs and
   not above them, the whole review scaled to its height (never shorter than the view, so a short review keeps its
   files where its cards are). It has a tick at the start of each section, one across it at the start of a step of the
   plan; where the pixels are too few for every section, the ticks of several are one. The section at the top is
-  filled, the files an owner chip plays down are paler, and the window of the view is its thumb. A drag of the thumb
+  filled, the files an owner chip plays down are paler, and the window of the view is its thumb, the strongest mark of
+  the map and never thinner than a mark to grab, even for a review of 500 files. A drag of the thumb
   and the wheel over the map scroll the diffs, the tree and the footer following the file at the top; a click shows the
   section under the pointer as a row of the tree does, the diffs taking the focus, so J goes on from there; the hover
   names its file, the directory after the name, and its step. Neutral at any count of files: no colour of a status.
   It is out of the tab order, hidden from a screen reader and without the menu of a file: the tree, the headers and
   the keys reach every file.
-  [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`)
+  [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
@@ -299,24 +304,31 @@ where a dialog would cover it.
   the header of the files ("Files 5", "Files 3 of 9" while searched, a muted `text-xs font-medium`
   `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
   chevron, its name keeps the indent.
-- A file header is 48 px, the band `--diff-file-header` (`color-mix` of `--card` and 45% `--canvas`) in the
-  `--diff-card-border` ring of its card (`--foreground` 8% into `--canvas`), a `--border` line under it; stuck with
-  rows under it, the shadow `0 6px 6px -6px var(--diff-header-shadow)`. In it: a ghost `icon-xs` chevron (disabled
+- A file header is 48 px, the band `--diff-file-header` (`color-mix` of `--card` and 60% `--canvas`) in the
+  `--diff-card-border` ring of its card (`--foreground` 8% into `--canvas`), a line of the ring under it; stuck with
+  rows under it, the shadow `0 6px 6px -6px var(--diff-header-shadow)` (`--foreground` 12% in the light theme, black
+  at 55% in the dark). In it: a ghost `icon-xs` chevron (disabled
   without lines to show), the file as every list of changed files names it (`FilePathLabel` with `emphasis`: the
   status letter in `font-mono text-xs` in the status colour, the name `text-sm font-semibold` in the status colour,
-  struck through when deleted, the directory `text-muted-foreground` of the same size after it), the copy button on
+  struck through when deleted, the directory `text-muted-foreground` of the same size after it, its last folder in
+  `text-foreground`), the copy button on
   hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
 - The divider of a step or a group is 32 px on the canvas at the inset of the cards, after the gap of 10 px, its words
-  at its bottom, 6 px above the card they head, not selectable: the step "Step 3 · <title>" in `text-sm font-semibold`,
-  a button underlined on hover, then the group in `text-xs text-muted-foreground` ("Same edit in 4 files").
-- The line at the end of a card is one row high below its rows, in the colour of the card, a `--border` line above
-  it, not selectable; its words at the right in `text-xs text-muted-foreground`: "Next:", the name `font-semibold` in
-  the text colour, its last folder, then `Kbd` `J`, one button out of the tab order that brightens on hover.
+  at its bottom, 6 px above the card they head, not selectable: the step in `text-sm`, "Step 3" `font-medium
+  text-muted-foreground`, then "· <title>" `font-semibold` in the text colour, a button underlined on hover, then the
+  group in `text-xs text-muted-foreground` ("Same edit in 4 files"); after the words of a step a 1-px rule in
+  `--diff-card-border` fills the rest of the width at their middle, `gap-2`; a group alone has none.
+- The line at the end of a card is one row high below its rows, in the band of the header (`--diff-file-header`),
+  a line of the ring above it unless its last row is a fold, which draws its own, not selectable; its words at the
+  right in `text-xs text-muted-foreground`: one button out of the tab order, `rounded-sm px-1.5`, `bg-accent` on hover,
+  "Next:", the file as its header names it (`FilePathLabel` with `emphasis`: the name `font-semibold` in the text
+  colour, the directory muted, its last folder not), then `Kbd` `J`.
 - The map of the files is 10 px wide on the canvas at the right of the diffs, which hide their own scrollbar, its
-  track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-map-tick` (`--foreground` 16% into
-  the canvas), 2 px from its sides, 35% opaque when an owner chip plays it down; a step a tick of 2 px in `--foreground` across it;
-  the section at the top `--primary` at 40%; the thumb `--foreground` at 15% with an inset 1-px edge at 30%, `--radius-sm`, at least
-  12 px. Its hover is a popover at its left, its middle at the height of the pointer: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
+  track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-map-tick` (`--foreground` 26% into
+  the canvas), 2 px from its sides, 35% opaque when an owner chip plays it down; a step a tick of 2 px in `--diff-map-step`
+  (`--foreground` 55% into the canvas) across it; the section at the top `--primary` at 20%; the thumb `--foreground` at
+  30% with an inset 1-px edge at 50%, 38% under the pointer, 45% dragged, `--radius-sm`, at least 16 px, a thicker one
+  centred on the window of the view and kept inside the track. Its hover is a popover at its left, its middle at the height of the pointer: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows

@@ -37,6 +37,16 @@ export function fileMapScale(mapHeight: number, documentHeight: number, viewHeig
   return mapHeight <= 0 || scrolled <= 0 ? 0 : mapHeight / scrolled
 }
 
+/**
+ * The thumb of the map for the window of the view, `top` and `height` in px of the map: at least `min`, a thicker one
+ * centred on the window, all of it inside the map
+ */
+export function fileMapThumb(windowTop: number, windowHeight: number, mapHeight: number, min: number): { top: number; height: number } {
+  const height = Math.min(Math.max(windowHeight, min), mapHeight)
+  const top = windowTop + (windowHeight - height) / 2
+  return { top: Math.min(Math.max(top, 0), mapHeight - height), height }
+}
+
 /** Where a section starts in the document for the map: its divider, else its card, as `DiffLayout.fileAt` counts it */
 export function sectionStart(layout: DiffLayout, index: number): number {
   return layout.offsets[index]! - layout.dividerHeight(index)

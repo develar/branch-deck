@@ -216,17 +216,21 @@ review windows show their notices in the header and use no notice row), and the 
   made the boundary of two files hard to see was its contrast, a gap almost the colour of the card, not its width.
 - The header is 48 px: IntelliJ's insets of 12 px around a control of 24 px, 10 px at the sides. It holds the top
   border of its card. It is a band of its own colour, `--diff-file-header`, one formula for both themes: the card
-  mixed with 45% of the canvas, about 0.03 of lightness from either, with the `--border` line under it. A header in
-  the colour of the code, its name in the blue that the highlighting of markdown gives a link, read as one more row of
-  code. Its name is `font-semibold` (the bold of a header; a bold of the code is the syntax) at `text-sm`, the size of
+  mixed with 60% of the canvas, about 0.035 of lightness from the card and 0.025 from the canvas, with a line of the
+  ring of the card under it (`--diff-card-border`, as strong as the lines of a fold: `--border` is the canvas itself
+  in the light theme, and the folds outweighed the header). At 45% the band was about 6/255 off the rows in the dark
+  theme, so only its line told it from the code. A header in the colour of the code, its name in the blue that the
+  highlighting of markdown gives a link, read as one more row of code. Its name is `font-semibold` (the bold of a header; a bold of the code is the syntax) at `text-sm`, the size of
   the header of an island: a file is not above the step of a plan it belongs to. The name keeps the colour of its
   status and the strikethrough of a deleted file (One look per role); the path is muted at the same size and gives
-  way first, from its start.
+  way first, from its start, its last folder in the text colour: of ten files named SKILL.md in a row, that folder is
+  what tells them apart.
 - The sticky header is the top of its card: it draws the top and the side borders, rounded, and the line under it, so
   it reads as a card while its rows scroll under it. It stops at the end of its card, which pushes it up, as
   IntelliJ's `y = min(blockMaxY - viewTop, h) - h`; that is the rule of `position: sticky` in its section.
 - A header stuck with rows under it casts a shadow on them (`--diff-header-shadow`, `0 6px 6px -6px`), so the rows read
-  as going on under it. The painter marks its section `data-stuck` in the DOM, written only when it changes, on a
+  as going on under it: `--foreground` at 12% in the light theme, black at 55% in the dark, where the text colour is
+  light and its shadow lit the rows under it up instead. The painter marks its section `data-stuck` in the DOM, written only when it changes, on a
   scroll and on a new layout: the file under the sticky top (`fileAt(scrollTop + stickyTop)`, not `fileAtTop`, which
   names the next file halfway through the push), once its rows reach a row height past the top of its card, so a card
   that just reached the top does not flicker. A header in its place casts none.
@@ -236,15 +240,20 @@ review windows show their notices in the header and use no notice row), and the 
   reaches up over that space and hides the rows of its card there. A scroll to a file (`DiffLayout.fileTop`) and the
   file at the top (`fileAtTop`) count it.
 - A section of the story of a review that starts a step or a group (`DiffSection.step`, `heading`) has a divider of
-  32 px on the canvas between the gap above its card and the card (`renderDivider`, `LayoutFile.divider`): "Step 3 ·
-  <title>", which a click shows as the bar of the step does, then the group, muted. A change of step is a wider break
-  than a change of file, so it is a line of its own, and the header names the file alone: its order is always the
+  32 px on the canvas between the gap above its card and the card (`renderDivider`, `LayoutFile.divider`): "Step 3"
+  muted, "· <title>" bold, which a click shows as the bar of the step does, then the group, muted, and after a step a
+  rule of 1 px across the rest of the width. A change of step is a wider break than a change of file, so it is a line
+  of its own that outranks the name of a file (a coloured name in bold outweighed black words of the same size); a
+  group alone has no rule. The header names the file alone: its order is always the
   chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands at one x.
   The divider scrolls with its card and never sticks: the bar of the step above the diffs names the step at the top.
 - A card of more than 30 rows and the last card end with a line one row high below their rows (`renderFooter`,
-  `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: SKILL.md setup-local-rd-flow `J`" (the name and
-  its last folder), "Next: SKILL.md, continued" for the next section of the same file, else "End of the review" (or,
-  under an owner chip, the end of its files). The end of a long card is far from its header, so the line says where
+  `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: **SKILL.md** .claude/skills/setup-local-rd-flow
+  `J`", the file as the header of its card names it (`FilePathLabel`), so the line promises what the next header
+  shows; a last folder alone read as a word ("Next: StepBar.kt review"). "Next: SKILL.md, continued" for the next
+  section of the same file, else "End of the review" (or, under an owner chip, the end of its files). It is in the band
+  of the header, so a long card ends as it starts, the ring's line above it unless its last row is a fold, which draws
+  its own; the words that a click follows are one target, `bg-accent` on hover. The end of a long card is far from its header, so the line says where
   the file ends and what comes next; a short card needs none, and a line on every card would be noise. It is decided
   by the rows alone, never by the viewport, so the layout stays arithmetic. It names what J shows, from the one
   function of `CommitReview` that J uses too (with the plan the next section of the story, else the next file of the
@@ -409,17 +418,22 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
   height of the track, so a short review keeps its sections where its cards are. Its layout is arithmetic, so the
   map is too (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`): nothing is measured but the sizes of
   the track and the view, from their `ResizeObserver`.
-- **Ticks.** A tick of 1 px at the start of each section, in a token of its own, `--foreground` 16% into the canvas
-  (`--diff-map-tick`, one formula for both themes: `--border` is the canvas itself in the light theme, and the edge
-  of a card, `--diff-card-border`, is too faint on the dark canvas), 2 px from the sides; at the start of a step of the plan a tick
-  of 2 px in `--foreground` across the map, at its divider, as `fileAt` counts a divider. Where the pixels are too few
+- **Ticks.** A tick of 1 px at the start of each section, in a token of its own
+  (`--diff-map-tick`, `--foreground` 26% into the canvas, one formula for both themes: `--border` is the canvas itself
+  in the light theme, and the edge of a card, `--diff-card-border`, is too faint on the dark canvas), 2 px from the
+  sides; at the start of a step of the plan a tick of 2 px across the map in `--diff-map-step` (`--foreground` 55% into
+  the canvas, quieter than the thumb), at its divider, as `fileAt` counts a divider. Where the pixels are too few
   for every section, the ticks that overlap are one: a step when any of them is. The map is neutral: at 588 files the
   colour of each status would be one blue band, and a colour of its own would compete with the diff colours.
 - **Owner chip.** The ticks of the files the chip plays down (`muted` of `DiffView`, as their headers are) are 35%
   opaque; a merged tick only when all of its sections are.
-- **The section at the top** (the one the view showed last, as the tree selects it) is filled with `--primary` at 40%,
-  from its divider to the end of its card. **The thumb** is the window of the view, `--foreground` at 15% with an
-  inset edge of 1 px at 30%, at least 12 px, so a long review keeps something to grab and its ticks do not hide it.
+- **The section at the top** (the one the view showed last, as the tree selects it; at the end of the scroll the last
+  one, `DiffLayout.fileShownAt`) is filled with `--primary` at 20%, from its divider to the end of its card. **The
+  thumb** is the window of the view and the mark the map is for, so it is its strongest: `--foreground` at 30% with an
+  inset edge of 1 px at 50%, 38% under the pointer, 45% dragged. It is at least 16 px, a thicker one centred on the
+  window and kept inside the track (`fileMapThumb`), so a review of 500 files keeps something to see and to grab and
+  its ticks do not hide it. A thumb of 15% inside a fill of 40% was a darker patch of the same blue, 11 px tall on 200
+  files, and the steps in `--foreground` outshouted it.
 - **Drawing.** The ticks are a canvas, drawn again only for a new layout (a collapse, a fold, the row height, the
   wraps), a size, the screen (`devicePixelRatio`, which the zoom of Appearance moves) and the theme (`data-theme` of
   the root). Its colours are the tokens as the page resolves them, read from a probe element: an `oklab()` that the
@@ -427,7 +441,8 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
   scroll event of the scroller, after the painter's: a scroll draws nothing on the canvas and renders no React.
 - **Interaction.** A drag of the thumb scrolls the diffs by the scale of the map, and the wheel over the map scrolls
   them as over a scrollbar; both are scrolls of the user (`followUserScroll` of the painter), so the tree and the
-  footer follow the file at the top. A click on the track shows the section under the pointer as a click in the tree
+  footer follow the file at the top, and at the end of the scroll the last file (`DiffLayout.fileShownAt`): there it
+  is in view entire, while the header at the top is still the one of a file above it. A click on the track shows the section under the pointer as a click in the tree
   does (`showSection`, then `onVisibleSectionChange`); the diffs take the focus, so the keys go on from there, as a
   click on the line at the end of a card gives it them. On a review of 500 files a pixel of the map stands for several
   sections, so a click shows one of those under it: the map is a place, the tree names a file. The hover names the

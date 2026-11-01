@@ -98,9 +98,9 @@ export interface DiffSection {
   readonly heading: string | null
   /**
    * The step of the review plan the section starts, on its first section: its id, and the words of the divider above
-   * its card ("Step 2 · The open keeps a stored layout")
+   * its card, its number ("Step 2") and its title ("The open keeps a stored layout")
    */
-  readonly step: { readonly id: string; readonly heading: string } | null
+  readonly step: { readonly id: string; readonly number: string; readonly title: string } | null
   /** The words of the step the section is of, on every section of it: the hover of the map of the files names it */
   readonly stepHeading: string | null
 }
@@ -1358,8 +1358,9 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
           </>
         )}
         {footer && renderFooter !== undefined && (
-          // after the scrollbars, which stick to the bottom of the rows above it; not selectable (diff-view.css)
-          <div className="dv-footer" data-testid="diff-view-footer" style={{ height: rowHeight }}>
+          // after the scrollbars, which stick to the bottom of the rows above it; not selectable; no line of its own under
+          // a fold, which draws one (diff-view.css)
+          <div className="dv-footer" data-testid="diff-view-footer" data-after-fold={rows?.segments.at(-1)?.kind === "fold" ? "" : undefined} style={{ height: rowHeight }}>
             {renderFooter(file.key, file.path)}
           </div>
         )}

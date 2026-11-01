@@ -75,8 +75,8 @@
  * the side borders of its card do not show above it; the clip of the card cuts it off while the card is in its place.
  *
  * Its band is a colour of its own, between the card and the canvas, so the header of a file never reads as one more row
- * of code. While it is stuck with rows under it (`data-stuck` of the section, which the painter sets), a shadow under
- * it says that the rows go on under it
+ * of code; the line under it is the ring of the card, as strong as the lines of a fold. While it is stuck with rows
+ * under it (`data-stuck` of the section, which the painter sets), a shadow under it says that the rows go on under it
  */
 .dv-card > .dv-header {
   top: 10px;
@@ -96,7 +96,6 @@
   height: 100%;
   background: var(--diff-file-header);
   border: 1px solid var(--diff-card-border);
-  border-bottom-color: var(--border);
   border-radius: var(--radius-4xl) var(--radius-4xl) 0 0;
 }
 
@@ -116,10 +115,17 @@
   user-select: none;
 }
 
+/* the rule of the divider of a step after its words, in the colour of the ring of a card */
+.dv-divider-rule {
+  height: 1px;
+  background: var(--diff-card-border);
+}
+
 /*
- * The line at the end of a long card and of the last one (`LayoutFile.footer`): one row high, the colour of the card, a
- * line above it, its words at the right in the size of the header's notices. Not selectable: a copy of the selection of
- * the code never takes it. After the horizontal scrollbars in the section, so they stick to the bottom of the rows
+ * The line at the end of a long card and of the last one (`LayoutFile.footer`): one row high, the band of the header,
+ * so the card ends as it starts, the ring of the card above it (none under a fold, which draws its own line), its words
+ * at the right in the size of the header's notices. Not selectable: a copy of the selection of the code never takes
+ * it. After the horizontal scrollbars in the section, so they stick to the bottom of the rows
  */
 .dv-footer {
   display: flex;
@@ -131,16 +137,20 @@
   color: var(--muted-foreground);
   white-space: nowrap;
   user-select: none;
-  background: var(--card);
-  border-top: 1px solid var(--border);
+  background: var(--diff-file-header);
+  border-top: 1px solid var(--diff-card-border);
+}
+
+.dv-footer[data-after-fold] {
+  border-top-width: 0;
 }
 
 /*
  * The map of the files that replaces the scrollbar of the cards (docs/design/diff-view.md, "The map of files", DiffFileMap):
  * the native bar of the scroller hidden, a column of 10 px on the canvas beside it, its track inset by the radius of the
- * cards above and below. The ticks are a canvas in the colours of the tokens below; the section at the top is filled in
- * the primary colour, the window of the view is the thumb. Not focusable and not selectable: the tree and the keys
- * reach every file
+ * cards above and below. The ticks are a canvas in the colours of the tokens below; the section at the top is a pale
+ * fill of the primary colour, the window of the view is the thumb, the strongest mark of the map. Not focusable and not
+ * selectable: the tree and the keys reach every file
  */
 .dv-cards.dv-scroller {
   scrollbar-width: none;
@@ -173,13 +183,13 @@
   pointer-events: none;
 }
 
-/* the colours of the ticks for the canvas: a file a quiet line on the canvas, a step the text */
+/* the colours of the ticks for the canvas: a file a quiet line on the canvas, a step a stronger one, below the thumb */
 .dv-map-probe {
   position: absolute;
   width: 0;
   height: 0;
   color: var(--diff-map-tick);
-  background: var(--foreground);
+  background: var(--diff-map-step);
 }
 
 .dv-map-current {
@@ -187,17 +197,28 @@
   top: 0;
   inset-inline: 0;
   pointer-events: none;
-  background: color-mix(in oklab, var(--primary) 40%, transparent);
+  background: color-mix(in oklab, var(--primary) 20%, transparent);
 }
 
-/* the window of the view; its edge keeps it apart from the ticks of a review of hundreds of files */
+/*
+ * The window of the view, the mark the map is for: darker than the fill of the section and the ticks of the steps, its
+ * edge keeping it apart from the ticks of a review of hundreds of files; darker under the pointer, darker still dragged
+ */
 .dv-map-thumb {
   position: absolute;
   top: 0;
   inset-inline: 0;
-  background: color-mix(in oklab, var(--foreground) 15%, transparent);
+  background: color-mix(in oklab, var(--foreground) 30%, transparent);
   border-radius: var(--radius-sm);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 50%, transparent);
+}
+
+.dv-map-thumb:hover {
+  background: color-mix(in oklab, var(--foreground) 38%, transparent);
+}
+
+.dv-map-thumb[data-dragging] {
+  background: color-mix(in oklab, var(--foreground) 45%, transparent);
 }
 
 /* the hover of the map: the file under the pointer and its step, at the left of the map (its look in DiffFileMap) */

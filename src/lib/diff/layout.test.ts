@@ -136,6 +136,20 @@ describe("DiffLayout of file cards", () => {
     expect([plain.stickyTop, plain.fileTop(1)]).toEqual([0, plain.offsets[1]])
   })
 
+  it("shows the last file at the end of the document, whose header can never reach the top, else the file at the top", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const layout = new DiffLayout([file("a", rows), file("b", rows), file("c", null)], CARDS)
+    // a view lower than the last two cards: scrolled to the end, the second card's header is the one at the top
+    const view = layout.height - layout.offsets[1]! - 20
+    const end = layout.height - view
+    expect(layout.fileAtTop(end)).toBe(1)
+    expect(layout.fileShownAt(end, view)).toBe(2)
+    // a px short of the end still counts as the end; above it the file at the top
+    expect(layout.fileShownAt(end - 1, view)).toBe(2)
+    expect(layout.fileShownAt(end - 2, view)).toBe(1)
+    expect(layout.fileShownAt(0, view)).toBe(0)
+  })
+
   it("puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below", () => {
     const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
     // a step starts with the first file and with the third, a group with the second

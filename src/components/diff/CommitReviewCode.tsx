@@ -222,24 +222,26 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
 
 /**
  * The divider above the card of a section of the story (spec/branch/review-tour.spec.md, "In the Review Window"): the
- * step it starts, "Step 3 · <title>", which a click shows as the bar of the step does, then the group it starts, muted
- * ("Same edit in 4 files"); its words at the bottom, near the card they head
+ * step it starts, "Step 3" muted and "· <title>" bold, which a click shows as the bar of the step does, then the group
+ * it starts, muted ("Same edit in 4 files"); a step then rules the rest of the width, so it outranks the header of a
+ * file, a group alone does not. Its words at the bottom, near the card they head
  */
 function ReviewDivider({ section, onShowStep }: { section: DiffSection; onShowStep: ((step: string) => void) | undefined }) {
   const { step, heading } = section
   return (
-    // the words at the bottom, near the card they head, on one baseline
+    // the words at the bottom, near the card they head, the rule at their middle
     <div className="flex h-full min-w-0 items-end px-1 pb-1.5">
-      <div className="flex min-w-0 items-baseline gap-3">
+      <div className="flex w-full min-w-0 items-center gap-2">
         {step !== null && (
           <button
             type="button"
             data-testid="review-concern-heading"
             data-step={step.id}
-            className="min-w-0 truncate rounded-sm text-sm font-semibold underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+            className="flex min-w-0 items-baseline rounded-sm text-sm underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
             onClick={() => onShowStep?.(step.id)}
           >
-            {step.heading}
+            <span className="shrink-0 font-medium text-muted-foreground">{step.number}</span>
+            <span className="min-w-0 truncate font-semibold whitespace-pre text-foreground">{` · ${step.title}`}</span>
           </button>
         )}
         {heading !== null && (
@@ -247,6 +249,7 @@ function ReviewDivider({ section, onShowStep }: { section: DiffSection; onShowSt
             {heading}
           </span>
         )}
+        {step !== null && <span aria-hidden className="dv-divider-rule min-w-4 flex-1" />}
       </div>
     </div>
   )
@@ -259,8 +262,8 @@ function keyOf(file: DiffViewFile): string {
 
 /**
  * The line at the end of a long card and of the last one (spec/commit/commit-review.spec.md): what J shows next, its
- * name and its last folder, which a click shows as J does, or the end (`presentCardEnd`); `owner` before the last card,
- * the chosen owner chip whose files J steps through. Not focusable: J does it from the keys
+ * name and its directory as its header names them, which a click shows as J does, or the end (`presentCardEnd`);
+ * `owner` before the last card, the chosen owner chip whose files J steps through. Not focusable: J does it from the keys
  */
 function ReviewCardEnd({ path, next, owner, onShow }: { path: string; next: NextSection | undefined; owner: string | null; onShow: (next: NextSection) => void }) {
   const end = presentCardEnd(path, next?.path, owner)
@@ -274,12 +277,19 @@ function ReviewCardEnd({ path, next, owner, onShow }: { path: string; next: Next
       data-testid="review-card-end"
       aria-label={end.label}
       title={next.path}
-      className="flex h-full min-w-0 items-center gap-1.5 rounded-sm outline-none hover:text-foreground"
+      className="flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm px-1.5 py-0.5 outline-none hover:bg-accent hover:text-accent-foreground"
       onClick={() => onShow(next)}
     >
       <span className="shrink-0">Next:</span>
-      <span className="min-w-0 truncate font-semibold text-foreground">{end.continued ? `${end.name},` : end.name}</span>
-      {end.continued ? <span className="shrink-0">continued</span> : end.folder !== null && <span className="min-w-0 shrink-[10] truncate">{end.folder}</span>}
+      {end.continued ? (
+        <>
+          <span className="min-w-0 truncate font-semibold text-foreground">{`${end.name},`}</span>
+          <span className="shrink-0">continued</span>
+        </>
+      ) : (
+        // the file as the header of its card names it: the name bold, the directory muted, its last folder not
+        <FilePathLabel path={next.path} emphasis className="text-foreground" />
+      )}
       <Kbd className="h-4 min-w-4">J</Kbd>
     </button>
   )

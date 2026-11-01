@@ -2,7 +2,7 @@ import { useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } f
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, Ref, WheelEvent as ReactWheelEvent } from "react"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import type { FileStatus } from "@/lib/bindings"
-import { fileMapScale, fileMapTicks, sectionStart } from "@/lib/diff/file-map"
+import { fileMapScale, fileMapThumb, fileMapTicks, sectionStart } from "@/lib/diff/file-map"
 import type { FileMapSection } from "@/lib/diff/file-map"
 import type { DiffLayout } from "@/lib/diff/layout"
 
@@ -39,8 +39,11 @@ export interface DiffFileMapProps {
 
 /** The paler ticks of the files of another owner than the chosen chip's */
 const MUTED_TICK_ALPHA = 0.35
-/** The window of the view is never thinner than this, in CSS px, so a review of 500 files keeps something to drag */
-const MIN_THUMB = 12
+/**
+ * The thumb is never thinner than this, in CSS px, so a review of 500 files keeps something to see and to drag; a
+ * thicker thumb than the window of the view is centred on it
+ */
+const MIN_THUMB = 16
 /** The inset of the tick of a file from the sides of the map, in CSS px; a step crosses it */
 const FILE_TICK_INSET = 2
 /** A thin section still shows as the current one */
@@ -75,8 +78,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
     if (element === null || thumb.current === null || shown.current === null || root.current === null || scale === 0) {
       return
     }
-    const height = Math.min(Math.max(size.view * scale, MIN_THUMB), size.height)
-    const top = Math.min(element.scrollTop * scale, size.height - height)
+    const { top, height } = fileMapThumb(element.scrollTop * scale, size.view * scale, size.height, MIN_THUMB)
     thumb.current.style.transform = `translateY(${top}px)`
     thumb.current.style.height = `${height}px`
     const index = current()
@@ -183,6 +185,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
     if (event.target === thumb.current) {
       onUserScroll()
       drag.current = { pointer: event.pointerId, startY: event.clientY, startTop: element.scrollTop }
+      thumb.current.dataset.dragging = ""
       event.currentTarget.setPointerCapture(event.pointerId)
       return
     }
@@ -210,6 +213,9 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (drag.current?.pointer === event.pointerId) {
       drag.current = null
+      if (thumb.current !== null) {
+        delete thumb.current.dataset.dragging
+      }
     }
   }
 

@@ -308,9 +308,14 @@ export function presentBrief(plan: Pick<ReviewPlan, "steps" | "concerns" | "brie
   }
 }
 
-/** The divider above the first section of a step in the diffs: "Step 2 · The open keeps a stored layout" */
+/** The words of a step in the diffs, in the hover of the map of the files: "Step 2 · The open keeps a stored layout" */
 export function formatStepDivider(chapter: Pick<Chapter, "number" | "label">): string {
-  return `Step ${chapter.number} · ${chapter.label}`
+  return `${formatStepNumber(chapter.number)} · ${chapter.label}`
+}
+
+/** The number of a step, which the divider above its first section mutes before its title: "Step 2" */
+export function formatStepNumber(number: number): string {
+  return `Step ${number}`
 }
 
 /** The bar above the diffs: the step of the section at the top, "Step 2 / 4" and its title */

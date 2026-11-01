@@ -133,10 +133,12 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   24-px curved divider, and its sides have a 1-px divider.
 - **File cards** of a review ([Diff View](diff-view.md), "File cards") lie on the canvas as islands do, in both themes
   (`--diff-card-gap`); their border is an opaque ring, `--foreground` 8% into the canvas (`--diff-card-border`). The
-  header of a file is a band between the card and the canvas (`--diff-file-header`, the card with 45% of the canvas),
-  one formula for both themes; a header stuck over the rows of its file casts the one shadow of an island, the
-  exception of decision 4. The ticks of the map of the files beside them are `--foreground` 16% into the canvas
-  (`--diff-map-tick`), one formula for both themes, since `--border` is the canvas itself in the light theme.
+  header of a file is a band between the card and the canvas (`--diff-file-header`, the card with 60% of the canvas),
+  one formula for both themes, the ring's line under it; a header stuck over the rows of its file casts the one
+  shadow of an island, the exception of decision 4, `--foreground` 12% in the light theme and black at 55% in the dark
+  (a shadow of the light text colour lit the rows up). The ticks of the map of the files beside them are `--foreground`
+  26% into the canvas (`--diff-map-tick`), a step 55% (`--diff-map-step`), one formula for both themes, since
+  `--border` is the canvas itself in the light theme.
 - **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline has no precedent in
   IntelliJ: it puts the deleted run beside the inserted one in one line, where only the colour would tell them apart.
   A strikethrough is the convention of tracked changes, it matches the icon of the mode, and it does not depend on
@@ -172,7 +174,7 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
    **Rationale**: Islands has no shadow; an island stands out by the contrast of `#E9EAEE` and white. The faint
    `ring-foreground/5` reads as a soft edge, not a line, and it keeps islands distinct in dark mode.
    **Exception**: the sticky header of a file card in a review casts a shadow while the rows of its file scroll under
-   it (`--diff-header-shadow`, `--foreground` 12%): it lies over content that goes on below it, which no island does,
+   it (`--diff-header-shadow`, `--foreground` 12%, black at 55% in the dark theme): it lies over content that goes on below it, which no island does,
    and only the shadow tells a stuck header from one in its place.
 
 5. **Decision**: The exact IntelliJ greys, not a stock base colour.

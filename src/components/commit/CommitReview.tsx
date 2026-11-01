@@ -46,7 +46,7 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import { formatStepDivider, formatStepPosition, placeCommits, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
+import { formatStepDivider, formatStepNumber, formatStepPosition, placeCommits, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
 import type { BriefStep, Chapter } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 import type { NarrativeSection } from "@/presenters/review-units"
@@ -482,7 +482,7 @@ const NO_UNITS: SectionUnits = { marks: new Map(), elsewhere: new Map() }
 /** The step the first section of a step starts, for the divider above its card: its id, which a click shows, and its words */
 function stepOf(section: NarrativeSection, chapterOf: ReadonlyMap<string, Chapter>): DiffSection["step"] {
   const chapter = section.concernHeading === null || section.concern === null ? undefined : chapterOf.get(section.concern)
-  return chapter === undefined ? null : { id: chapter.id, heading: formatStepDivider(chapter) }
+  return chapter === undefined ? null : { id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.label }
 }
 
 /** The words of the step every section of a step is of, for the hover of the map of the files; null outside the steps */

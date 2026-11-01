@@ -153,8 +153,8 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by its concern and keeps its main rows ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The
   story of the diffs must follow the steps: the first section of each opens with a divider on the canvas right above
-  its card, "Step 2 · The open keeps a stored layout" (`review-concern-heading`), a change of step being a wider break
-  than a change of file; a click on it must show the step as the bar of the step does, the divider at the top, the bar
+  its card, "Step 2 · The open keeps a stored layout" (`review-concern-heading`), its number muted, its title bold and a
+  rule across the rest of the width, a change of step being a wider break than a change of file; a click on it must show the step as the bar of the step does, the divider at the top, the bar
   and the tree following. The header of a file names the file alone (no step, no group), so the name of every file
   stands at one x.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)

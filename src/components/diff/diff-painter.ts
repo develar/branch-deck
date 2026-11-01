@@ -373,7 +373,7 @@ export class DiffPainter {
     // the read after the paint lays the new rows out: the cost of the event is its work and that layout
     const top = this.viewTop()
     if (this.followScroll && model.files.length > 0) {
-      this.callbacks.onTopFile(model.layout.fileAtTop(top))
+      this.callbacks.onTopFile(model.layout.fileShownAt(top, this.viewHeight()))
     }
     // the benchmark (tests/perf/diff-review.perf.ts) reads the cost of each scroll event
     ;(globalThis as { __diffPaintTimes?: number[] }).__diffPaintTimes?.push(performance.now() - start)
