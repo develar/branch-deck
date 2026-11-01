@@ -248,7 +248,9 @@ review windows show their notices in the header and use no notice row), and the 
   the file ends and what comes next; a short card needs none, and a line on every card would be noise. It is decided
   by the rows alone, never by the viewport, so the layout stays arithmetic. It names what J shows, from the one
   function of `CommitReview` that J uses too (with the plan the next section of the story, else the next file of the
-  tree, under an owner chip the next of its files), and a click does what J does. It never says "End of <file>": a
+  tree, under an owner chip the next of its files), and a click does what J does; it leaves the focus in the diffs,
+  as a fold button does, since the line unmounts with its card once the review scrolls far from it, and a focused
+  line would take the keys with it. It never says "End of <file>": a
   section of the story may be a part of its file. It lies after the horizontal scrollbars of the section, which stick
   to the bottom of the rows, so they never lie over it; it is not selectable, so a copy of the code never takes it, and
   it is out of the tab order.

@@ -275,9 +275,13 @@ simpleTest.describe("Commit review", () => {
     await expect(next).toHaveText("Next:RowMapperTest.kttestSrcJ")
     // never in a copy of the code
     await expect(mapper.getByTestId("diff-view-footer")).toHaveCSS("user-select", "none")
-    // a click shows the next file as J does: its header at the top, the tree and the footer follow
+    // a click shows the next file as J does: its header at the top, the tree and the footer follow, the focus in the
+    // diffs, so J goes on from there
     await next.click()
     await expectSecondFileShown(window)
+    await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
+    await page.keyboard.press("j")
+    await expect(position).toHaveText("File 3 / 5")
 
     // the last card ends the review
     await window.getByRole("treeitem", { name: "README.md" }).click()

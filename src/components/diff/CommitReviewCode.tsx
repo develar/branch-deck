@@ -136,6 +136,12 @@ export function CommitReviewCode({
   // the search in flight of either view, at its name
   const search = inReview.search ?? inFile.search
   const lastKey = files.length === 0 ? undefined : keyOf(files[files.length - 1]!)
+  // a click on the line at the end of a card: the diffs keep the focus, as a fold button keeps it, so J goes on from
+  // there; a focused line would unmount with its card once the review scrolls far from it, and the keys with it
+  const showFromCardEnd = (next: NextSection) => {
+    review.current?.focus()
+    onShowSection?.(next)
+  }
   return (
     <div className="relative h-full">
       <DiffView
@@ -154,7 +160,7 @@ export function CommitReviewCode({
         renderFooter={
           nextSection === undefined
             ? undefined
-            : (key, path) => <ReviewCardEnd path={path} next={nextSection(key)} owner={key === lastKey ? null : ownerLabel} onShow={next => onShowSection?.(next)} />
+            : (key, path) => <ReviewCardEnd path={path} next={nextSection(key)} owner={key === lastKey ? null : ownerLabel} onShow={showFromCardEnd} />
         }
       />
       {shownFile !== undefined && (

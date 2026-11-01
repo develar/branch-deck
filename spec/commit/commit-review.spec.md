@@ -193,8 +193,9 @@ where a dialog would cover it.
   its last folder (ten files named SKILL.md in a row differ by it), "Next: SKILL.md, continued" for the next section of
   the same file, under an owner chip the next of its files. With nothing left it says "End of the review", and under
   an owner chip before the last card "No more files of Design". A click shows what it names as J does: its header at
-  the top, the tree and the footer following. It never says "End of <file>" (a section of the story may be a part of
-  its file), it is out of the tab order (J does it from the keys) and never in a copy of the code.
+  the top, the tree and the footer following, the focus left in the diffs, so J goes on from there. It never says
+  "End of <file>" (a section of the story may be a part of its file), it is out of the tab order (J does it from the
+  keys) and never in a copy of the code.
   [@test] ../../src/lib/diff/layout.test.ts (`ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count`)
   [@test] ../../src/presenters/review-card-end.test.ts (`names the next file by its name and its last folder, and the next part of the same file as continued`, `ends the review at the last card, and the files of an owner chip before it`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
