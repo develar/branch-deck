@@ -738,7 +738,9 @@ test.describe("The review plan in the branch review", () => {
     const section = (name: string, group: boolean) =>
       window.locator(`[data-testid="diff-view-file"][data-path="src/a/${name}.kt"]${group ? '[data-section^="group:"]' : `[data-section="file:src/a/${name}.kt"]`}`)
     const header = (name: string, group: boolean) => section(name, group).getByTestId("review-file-header")
-    const divider = (name: string) => window.locator(`[data-testid="diff-view-divider"][data-section^="group:"][data-section$=":src/a/${name}.kt"]`)
+    // the divider of a group, or the opening of the step the group starts
+    const divider = (name: string) =>
+      window.locator(`:is([data-testid="diff-view-divider"], [data-testid="diff-view-opening"])[data-section^="group:"][data-section$=":src/a/${name}.kt"]`)
     await expect(
       window
         .getByRole("tree", { name: "Changed files" })

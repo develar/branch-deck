@@ -918,7 +918,7 @@ function ReviewLayout({
         // with the plan the diffs are the story: J and K step through its sections from the one at the top, else
         // through the files from the selected one; the tree follows; under an owner chip through its files only,
         // nothing moves past the last one
-        const from = reviewFacts !== null ? (code.current?.visibleSection() ?? null) : selectedPath
+        const from = reviewFacts !== null ? (code.current?.visibleStop()?.key ?? null) : selectedPath
         const next = stepSection(from, event.code === "KeyJ" ? 1 : -1)
         if (next !== undefined) {
           showSection(next)

@@ -201,7 +201,8 @@ in microseconds.
 ### Layout and virtualization
 
 **Items of the document.** The view is a document of items: the header of a file, the notice of a file (one row; the
-review windows show their notices in the header and use no notice row), and the rows of a file. Each item has a known height:
+review windows show their notices in the header and use no notice row), and the rows of a file; in a review window
+also the prologue before the first section and the opening of each step (below). Each item but those has a known height:
 - Soft wraps off (the default): every row has the row height. The height of a file is `header + rows × row height`,
   and in a review window the line at the end of a long card and the bottom border of its card (below).
   The row count comes from the blocks and the line counts, so the layout is exact before the texts arrive.
@@ -240,14 +241,16 @@ review windows show their notices in the header and use no notice row), and the 
   against the line of what is above the view (the header of the commit in a review). The gap colour of the header
   reaches up over that space and hides the rows of its card there. A scroll to a file (`DiffLayout.fileTop`) and the
   file at the top (`fileAtTop`) count it.
-- A section of the story of a review that starts a step or a group (`DiffSection.step`, `heading`) has a divider of
-  32 px on the canvas between the gap above its card and the card (`renderDivider`, `LayoutFile.divider`): "Step 3"
-  muted, "· <title>" bold, which a click shows as the bar of the step does, then the group, muted, and after a step a
-  rule of 1 px across the rest of the width. A change of step is a wider break than a change of file, so it is a line
-  of its own that outranks the name of a file (a coloured name in bold outweighed black words of the same size); a
-  group alone has no rule. The header names the file alone: its order is always the
-  chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands at one x.
-  The divider scrolls with its card and never sticks: the bar of the step above the diffs names the step at the top.
+- A section of the story of a review that starts a step (`DiffSection.step`) has its opening on the canvas between the
+  gap above its card and the card (`renderOpening`, `LayoutFile.opening`), as tall as its words; one that starts a
+  group and no step a divider of 32 px there (`renderDivider`, `LayoutFile.divider`). Today the opening holds what the
+  divider of a step held, 32 px high: "Step 3" muted, "· <title>" bold, which a click shows as the bar of the step does,
+  then the group, muted, and after a step a rule of 1 px across the rest of the width. A change of step is a wider
+  break than a change of file, so it is a line of its own that outranks the name of a file (a coloured name in bold
+  outweighed black words of the same size); a group alone has no rule. The header names the file alone: its order is
+  always the chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands
+  at one x. The opening and the divider scroll with their card and never stick: the bar of the step above the diffs
+  names the step at the top.
 - A card of more than 30 rows and the last card end with a line one row high below their rows (`renderFooter`,
   `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: **SKILL.md** .claude/skills/setup-local-rd-flow
   `J`", the file as the header of its card names it (`FilePathLabel`), so the line promises what the next header
@@ -265,11 +268,29 @@ review windows show their notices in the header and use no notice row), and the 
   to the bottom of the rows, so they never lie over it; it is not selectable, so a copy of the code never takes it, and
   it is out of the tab order.
 - The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` (`offsets[i]`, the top of its card) is the
-  space above the cards, the heights of the files before it, a gap after each and the dividers. A file is `header +
-  notice + rows + footer + bottom border`. A top in the footer is anchored above the next card, as one in the gap. A
-  divider belongs to the file below it: `fileAt` in it is that file, and `fileTop`
-  counts it, so a scroll to a step shows its divider; a y in the gap is the file above. So every offset stays
-  arithmetic, and the anchor, the rows in view and the scroll to a file need no measure.
+  space above the cards, the prologue and a gap after it, the heights of the files before it, a gap after each and the
+  openings and dividers (`openingHeight`). A file is `header + notice + rows + footer + bottom border`. An opening or a
+  divider belongs to the file below it: its section starts there (`sectionStart`), `fileAt` in it is that file, and
+  `fileTop` counts it, so a scroll to a step shows its opening; a y in the gap is the file above. `cardTop` is the
+  scroll that has the card at the top and its opening above the view: the least top of a change N shows, of a hit of
+  the find and of a declaration shown, so their place on screen never depends on the height of an opening; a scroll to
+  a section (the tree, J, the map) keeps `fileTop`. `partAt` says whether a y is in the prologue, in an opening or in
+  a card; the view tells the section at the top as it changes (`onVisibleSectionChange`, with its part then) and
+  its part at the top as it is asked (`visibleStop`).
+
+**Measured: the prologue and the openings.** Every height is arithmetic but two kinds of blocks of words of a
+review: the prologue before the first section (`prologue` of `DiffView`) and the opening of each step. Their words
+are proportional Inter text with spans of code, links and lists that the browser wraps; a count of their lines would
+miss by a line here and there, and a miss of one line lays the opening over its card. They are few (one per step, a
+hundred on the longest range) and always mounted, outside the virtualization, each at its start among the sections
+in the order of the document (`.dv-opening`), so the tab order and a screen reader read an opening before its card.
+They are measured in place (`useMeasuredHeights`): one `ResizeObserver` measures a block in the frame it mounts in,
+after the layout of that frame and before its paint, and again on every change of its height (the width of the view,
+the load of a font, a disclosure, a title or a body that arrives). It sets the heights with `flushSync`, so the first
+paint already has them. Before its first measure an opening counts 32 px. The layout takes the heights as numbers (`LayoutFile.opening`, the `prologue` of `DiffLayout`), so
+everything below stays arithmetic: a new height is a new layout, and the painter keeps the anchor across it
+(`setModel`). Only the positions of the blocks depend on the heights, never their sizes, so a measure never asks for
+another in the same frame.
 
 **The divider of Split.** The old side takes `splitRatio` of the row (`--dv-split`), the new side the rest less its
 1-px border; `codeWidthsOf` counts the same widths, so the soft wraps stay exact. A drag of the divider of a view
@@ -326,10 +347,14 @@ change makes the content jump, and each measure costs a layout.
 - the font finishes its load (wraps on).
 
 Before the change, the view keeps the anchor: the first row whose bottom is below the top of the viewport. The anchor
-is its file, its line on one side, its visual line and its pixel offset. A top below the rows of a file (the line at
-the end of its card, its bottom border, the gap, the divider of the next) is anchored above the next card, not in the last row: a scroll
-to a file keeps its gap and its divider in view when the file above changes, and the clamp of an offset to its row
-(for a row that shows fewer visual lines) never moves it. After the change, the view sets `scrollTop`
+is its file, its line on one side, its visual line and its pixel offset. A top in an opening is anchored to the start
+of the opening (`ScrollAnchor.opening`), so a disclosure in it grows downwards, below the top, and a measure of a new
+height keeps the reader where they are; an offset past the end of an opening that became lower lands at the top of
+its card. A top in the prologue, or in the space above it, keeps its offset from the top of the document
+(`PROLOGUE_KEY`), clamped to the first section; a top in the gap below the prologue is anchored to the start of the
+first section, so a scroll to it stays at it when the prologue grows. A top below the rows of a file (the line at the end of its card, its bottom border, the gap) is anchored to
+the start of the next section, not in the last row: a scroll to a file keeps its gap and its opening in view when the
+file above changes, and the clamp of an offset to its row (for a row that shows fewer visual lines) never moves it. After the change, the view sets `scrollTop`
 to the new offset of the same anchor, in the same task, before the paint. The browser's own anchoring is off
 (`overflow-anchor: none`). It chooses an anchor among the rows in the DOM, and those change with every frame. An
 expansion keeps the clicked separator at its place, so the new lines go below it. With wraps on, a resize first
@@ -355,6 +380,8 @@ rows as any other element. A shadow root would only isolate the styles, and the 
   offset;
 - the sticky header of each section (the existing header parts: status, path, owner, counts, copy, menu) and its
   notice;
+- in a review window the prologue and the opening of each step, always mounted, each a memoized block at its start
+  ("Measured: the prologue and the openings" above);
 - the find bar.
 
 Each section has the full height of its file. So its header sticks with `position: sticky`, and no code measures it.
@@ -416,20 +443,24 @@ the right of the scroller, not over it, its track inset by the radius of the car
 the diffs alone: the commit and the bar of the step above them have no place on it. None of the review tools we
 looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabricator, Reviewable, Graphite) has one.
 - **Scale.** The document as tall as the `scrollHeight` of the scroller, never shorter than the view, is scaled to the
-  height of the track, so a short review keeps its sections where its cards are. Its layout is arithmetic, so the
-  map is too (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`): nothing is measured but the sizes of
-  the track and the view, from their `ResizeObserver`.
+  height of the track, so a short review keeps its sections where its cards are. The ticks come from the layout
+  (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`, `DiffLayout.sectionStart`): the map measures
+  nothing but the sizes of the track and the view, from their `ResizeObserver`; the heights of the openings are the
+  layout's already.
 - **Ticks.** A tick of 1 px at the start of each section, in a token of its own
   (`--diff-map-tick`, `--foreground` 26% into the canvas, one formula for both themes: `--border` is the canvas itself
   in the light theme, and the edge of a card, `--diff-card-border`, is too faint on the dark canvas), 2 px from the
   sides; at the start of a step of the plan a tick of 2 px across the map in `--diff-map-step` (`--foreground` 55% into
-  the canvas, quieter than the thumb), at its divider, as `fileAt` counts a divider. Where the pixels are too few
+  the canvas, quieter than the thumb), at its opening, as `fileAt` counts an opening. Where the pixels are too few
   for every section, the ticks that overlap are one: a step when any of them is. The map is neutral: at 588 files the
   colour of each status would be one blue band, and a colour of its own would compete with the diff colours.
+- **The prologue** above the first section is a band of the map without a tick, from the top to the start of the first
+  section (`PROLOGUE_SECTION`): its hover says "Overview", a click shows the top of the review, and while the top of the
+  view is in it, it is the part filled.
 - **Owner chip.** The ticks of the files the chip plays down (`muted` of `DiffView`, as their headers are) are 35%
   opaque; a merged tick only when all of its sections are.
 - **The section at the top** (the one the view showed last, as the tree selects it; at the end of the scroll the last
-  one, `DiffLayout.fileShownAt`) is filled with `--primary` at 20%, from its divider to the end of its card. **The
+  one, `DiffLayout.fileShownAt`) is filled with `--primary` at 20%, from its opening to the end of its card. **The
   thumb** is the window of the view and the mark the map is for, so it is its strongest: `--foreground` at 30% with an
   inset edge of 1 px at 50%, 38% under the pointer, 45% dragged. It is at least 16 px, a thicker one centred on the
   window and kept inside the track (`fileMapThumb`), so a review of 500 files keeps something to see and to grab and

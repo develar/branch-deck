@@ -2,7 +2,7 @@ import { useCallback, useImperativeHandle, useLayoutEffect, useRef, useState } f
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, Ref, WheelEvent as ReactWheelEvent } from "react"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import type { FileStatus } from "@/lib/bindings"
-import { fileMapScale, fileMapThumb, fileMapTicks, sectionStart } from "@/lib/diff/file-map"
+import { fileMapBand, fileMapScale, fileMapSectionAt, fileMapThumb, fileMapTicks, PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import type { FileMapSection } from "@/lib/diff/file-map"
 import type { DiffLayout } from "@/lib/diff/layout"
 
@@ -29,9 +29,9 @@ export interface DiffFileMapProps {
   scrollTo: (top: number) => void
   layout: DiffLayout
   sections: readonly FileMapEntry[]
-  /** The index of the section at the top: the one the view showed last, or the one scrolled to */
+  /** The index of the section at the top: the one the view showed last, or the one scrolled to; `PROLOGUE_SECTION` */
   current: () => number
-  /** A click on the map: the section under the pointer at the top, as a click in the tree shows it */
+  /** A click on the map: the section under the pointer at the top, as a click in the tree shows it; `PROLOGUE_SECTION` */
   onShowSection: (index: number) => void
   /** The user scrolls with the map (its window dragged, the wheel over it): the view follows as it does a wheel */
   onUserScroll: () => void
@@ -53,7 +53,8 @@ const MIN_CURRENT = 2
  * The map of the files that replaces the scrollbar of the diffs of a review (docs/design/diff-view.md, "The map of
  * files"): the whole document scaled to its height, the ticks of the sections drawn on a canvas, the section at the
  * top filled, the window of the view the thumb that drags. A click shows the section under the pointer, the hover
- * names it. It is out of the tab order and hidden from a screen reader: the tree and the keys do the same.
+ * names it; above the first section the prologue is a band, "Overview". It is out of the tab order and hidden from a
+ * screen reader: the tree and the keys do the same.
  */
 export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current, onShowSection, onUserScroll }: DiffFileMapProps) {
   const root = useRef<HTMLDivElement>(null)
@@ -82,18 +83,16 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
     thumb.current.style.transform = `translateY(${top}px)`
     thumb.current.style.height = `${height}px`
     const index = current()
-    const section = sections[index]
-    if (section === undefined) {
+    const band = fileMapBand(layout, index)
+    if (band === null) {
       shown.current.style.display = "none"
       delete root.current.dataset.current
       return
     }
-    const start = sectionStart(layout, index) * scale
-    const end = (layout.offsets[index]! + layout.fileHeight(index)) * scale
     shown.current.style.display = ""
-    shown.current.style.transform = `translateY(${start}px)`
-    shown.current.style.height = `${Math.max(end - start, MIN_CURRENT)}px`
-    root.current.dataset.current = section.key
+    shown.current.style.transform = `translateY(${band.start * scale}px)`
+    shown.current.style.height = `${Math.max((band.end - band.start) * scale, MIN_CURRENT)}px`
+    root.current.dataset.current = index === PROLOGUE_SECTION ? "prologue" : (sections[index]?.key ?? "")
   }, [scroller, size, layout, sections, current])
   useImperativeHandle(ref, () => ({ sync }))
 
@@ -165,15 +164,14 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
     return () => element.removeEventListener("scroll", onScroll)
   }, [scroller, sync])
 
-  /** The section under a point of the map, by the layout */
-  const sectionAt = (clientY: number): number => {
+  /** The section under a point of the map, by the layout: `PROLOGUE_SECTION` in the band of the prologue; null for none */
+  const sectionAt = (clientY: number): number | null => {
     const area = track.current
     const scale = scaleOf(size.height)
     if (area === null || scale === 0) {
-      return -1
+      return null
     }
-    const y = (clientY - area.getBoundingClientRect().top) / scale
-    return y < 0 || y > layout.height ? -1 : layout.fileAt(y)
+    return fileMapSectionAt(layout, (clientY - area.getBoundingClientRect().top) / scale)
   }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -190,7 +188,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
       return
     }
     const index = sectionAt(event.clientY)
-    if (index >= 0) {
+    if (index !== null) {
       onShowSection(index)
     }
   }
@@ -207,7 +205,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
     }
     // the tip is placed in the map, whose padding insets the track: at the pointer, from the top of the map
     const index = sectionAt(event.clientY)
-    setHover(index < 0 ? null : { index, y: event.clientY - event.currentTarget.getBoundingClientRect().top })
+    setHover(index === null ? null : { index, y: event.clientY - event.currentTarget.getBoundingClientRect().top })
   }
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -234,6 +232,7 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
   const keepFocus = (event: ReactMouseEvent<HTMLDivElement>) => event.preventDefault()
 
   const hovered = hover === null ? undefined : sections[hover.index]
+  const overview = hover?.index === PROLOGUE_SECTION
   const muted = sections.reduce((count, section) => count + (section.muted ? 1 : 0), 0)
   const steps = sections.reduce((count, section) => count + (section.step ? 1 : 0), 0)
   return (
@@ -260,14 +259,20 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
         {/* the tokens of the ticks, read for the canvas */}
         <span ref={probe} className="dv-map-probe" />
       </div>
-      {hovered !== undefined && hover !== null && (
+      {(hovered !== undefined || overview) && hover !== null && (
         <div
           className="dv-map-tip flex flex-col gap-0.5 rounded-xl bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md ring-1 ring-foreground/10"
           data-testid="review-file-map-tip"
           style={{ top: hover.y }}
         >
-          <FilePathLabel path={hovered.path} oldPath={hovered.oldPath} status={hovered.status} />
-          {hovered.stepHeading !== null && <span className="truncate text-muted-foreground">{hovered.stepHeading}</span>}
+          {hovered === undefined ? (
+            <span>Overview</span>
+          ) : (
+            <>
+              <FilePathLabel path={hovered.path} oldPath={hovered.oldPath} status={hovered.status} />
+              {hovered.stepHeading !== null && <span className="truncate text-muted-foreground">{hovered.stepHeading}</span>}
+            </>
+          )}
         </div>
       )}
     </div>

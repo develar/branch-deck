@@ -9,6 +9,7 @@ targets:
   - ../../src/components/diff/DiffView.tsx
   - ../../src/components/diff/DiffFileMap.tsx
   - ../../src/components/diff/diff-painter.ts
+  - ../../src/components/diff/use-measured-heights.ts
   - ../../src/components/diff/diff-view.css
   - ../../src/components/files/FilePathLabel.tsx
   - ../../src/lib/sub-window.ts
@@ -174,10 +175,18 @@ where a dialog would cover it.
   its tooltip, its owner, its line counts, a copy button and the menu of the file
   ([Commit Files](commit-files.spec.md#the-actions-on-a-file)); the name of every file stands at one x, and the
   directory gives way, from its start, before the name. The commit a range shows is above them. With the review plan,
-  a section that starts a step or a group has a divider on the canvas between the gap above its card and the card
-  (the step, the group: [Review Tour](../branch/review-tour.spec.md#in-the-review-window)), never words in the header;
-  it scrolls with the card, and a scroll to the section shows it.
-  [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`, `puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
+  a section that starts a step has its opening on the canvas between the gap above its card and the card, as tall as
+  its words, and one that starts a group and no step a divider there (the step, the group:
+  [Review Tour](../branch/review-tour.spec.md#in-the-review-window)), never words in the header; they scroll with the
+  card, and a scroll to the section shows its opening. What comes before the first section (the overview of a review)
+  lies above it, a gap of 10 px between them.
+  [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`, `puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`, `puts the prologue before the first section, a gap below it, keeps a top in it from the top of the document and one in the gap at the first section`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
+- A new height of an opening (its words wrap at a new width, a font loads, a part of it opens, a title arrives) must
+  keep the reader's place: an opening grows and shrinks below the top of the view, the cards below it move, and a top
+  in a card keeps its line. A change N and P show, a hit of the find and a declaration shown land in their card, the
+  opening of its step above the view, so their place on screen never depends on the height of the opening.
+  [@test] ../../src/lib/diff/layout.test.ts (`keeps a top in an opening from the start of the opening, so an opening that grows grows below it and one that shrinks gives the top to its card`, `shows a change, a hit of the find and a declaration in a card below the opening of its step: the top of the card is their least top`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
   top must become the selected file, its directories opened; scrolled to their end, the last file, in view entire
@@ -220,10 +229,11 @@ where a dialog would cover it.
   the map and never thinner than a mark to grab, even for a review of 500 files. A drag of the thumb
   and the wheel over the map scroll the diffs, the tree and the footer following the file at the top; a click shows the
   section under the pointer as a row of the tree does, the diffs taking the focus, so J goes on from there; the hover
-  names its file, the directory after the name, and its step. Neutral at any count of files: no colour of a status.
+  names its file, the directory after the name, and its step. What comes before the first section is a band of the map
+  without a tick, "Overview" in its hover, which a click shows. Neutral at any count of files: no colour of a status.
   It is out of the tab order, hidden from a screen reader and without the menu of a file: the tree, the headers and
   the keys reach every file.
-  [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
+  [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `leaves the prologue above the first section a band without a tick, which the hover and a click tell from the sections and the map fills at the top`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)

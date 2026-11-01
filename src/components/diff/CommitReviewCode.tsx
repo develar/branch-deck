@@ -18,6 +18,7 @@ import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
+import type { LayoutPart } from "@/lib/diff/layout"
 import { presentCardEnd } from "@/presenters/review-card-end"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
@@ -43,8 +44,8 @@ export interface CommitReviewCodeProps {
   diffViewMode: DiffViewMode
   /** The file shown first, at the top */
   initialPath: string | null
-  /** The section whose header is at the top, its key and its file, as the diffs scroll */
-  onVisibleSectionChange: (key: string, path: string) => void
+  /** The section whose header is at the top, its key, its file and its part at the top, as the diffs scroll */
+  onVisibleSectionChange: (key: string, path: string, part: LayoutPart) => void
   /** The first screen is painted: the window can show */
   onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
@@ -53,7 +54,7 @@ export interface CommitReviewCodeProps {
   revisions: DiffRevisions
   /** The files an owner chip marks: the headers of the others are muted; none muted without */
   marked?: ReadonlySet<string> | null
-  /** A click on the divider of a step: its first section at the top, as the bar of the step above the diffs */
+  /** A click on the opening of a step: its first section at the top, as the bar of the step above the diffs */
   onShowStep?: (step: string) => void
   /**
    * What J shows after the section of a key, undefined when nothing is left: the line at the end of a long card and of
@@ -69,8 +70,8 @@ export interface CommitReviewCodeProps {
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed;
- * with the plan, a divider above the first section of each step and of each group; a long card and the last one end with
- * a line naming what J shows next.
+ * with the plan, an opening above the first section of each step and a divider above the first of each group; a long
+ * card and the last one end with a line naming what J shows next.
  */
 export function CommitReviewCode({
   ref,
@@ -107,15 +108,15 @@ export function CommitReviewCode({
       setFileViews([])
       review.current?.scrollToFile(path)
     },
-    scrollToSection: key => {
+    scrollToSection: (key, part) => {
       setFileViews([])
-      review.current?.scrollToSection(key)
+      review.current?.scrollToSection(key, part)
     },
     moveChange: (direction, accept) => {
       setFileViews([])
       return review.current?.moveChange(direction, accept)
     },
-    visibleSection: () => review.current?.visibleSection(),
+    visibleStop: () => review.current?.visibleStop(),
     focus: () => review.current?.focus(),
     revealDeclaration: (place, from) => {
       setFileViews([])
@@ -156,6 +157,12 @@ export function CommitReviewCode({
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
+        renderOpening={section => (
+          // as tall as the divider of a group, its words at the bottom near the card
+          <div className="h-8 select-none">
+            <ReviewDivider section={section} onShowStep={onShowStep} />
+          </div>
+        )}
         renderDivider={section => <ReviewDivider section={section} onShowStep={onShowStep} />}
         muted={marked === null ? undefined : path => !marked.has(path)}
         renderFooter={
@@ -221,10 +228,10 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
 }
 
 /**
- * The divider above the card of a section of the story (spec/branch/review-tour.spec.md, "In the Review Window"): the
- * step it starts, "Step 3" muted and "· <title>" bold, which a click shows as the bar of the step does, then the group
- * it starts, muted ("Same edit in 4 files"); a step then rules the rest of the width, so it outranks the header of a
- * file, a group alone does not. Its words at the bottom, near the card they head
+ * The opening or the divider above the card of a section of the story (spec/branch/review-tour.spec.md, "In the Review
+ * Window"): the step it starts, "Step 3" muted and "· <title>" bold, which a click shows as the bar of the step does,
+ * then the group it starts, muted ("Same edit in 4 files"); a step then rules the rest of the width, so it outranks the
+ * header of a file, a group alone does not. Its words at the bottom, near the card they head
  */
 function ReviewDivider({ section, onShowStep }: { section: DiffSection; onShowStep: ((step: string) => void) | undefined }) {
   const { step, heading } = section

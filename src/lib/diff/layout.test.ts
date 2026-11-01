@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { DiffLayout, endsWithFooter, FOOTER_MIN_ROWS, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, FOOTER_MIN_ROWS, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutFile } from "@/lib/diff/layout"
 import { rowHeightOf } from "@/lib/diff/metrics"
 import { buildFileRows, EXPANDED, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
@@ -150,37 +150,109 @@ describe("DiffLayout of file cards", () => {
     expect(layout.fileShownAt(0, view)).toBe(0)
   })
 
-  it("puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below", () => {
+  it("puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below", () => {
     const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
-    // a step starts with the first file and with the third, a group with the second
-    const layout = new DiffLayout([file("a", rows, { divider: "step" }), file("b", rows, { divider: "group" }), file("c", rows), file("d", rows, { divider: "step" })], CARDS)
+    // a step starts with the first file (an opening of 120 px) and with the fourth (64 px), a group with the second; the
+    // fifth starts a step and a group, its opening says both
+    const layout = new DiffLayout(
+      [file("a", rows, { opening: 120 }), file("b", rows, { divider: true }), file("c", rows), file("d", rows, { opening: 64 }), file("e", rows, { opening: 50, divider: true })],
+      CARDS,
+    )
     const height = layout.fileHeight(0)
-    expect([layout.dividerHeight(0), layout.dividerHeight(2), layout.dividerHeight(4)]).toEqual([32, 0, 0])
-    // the first card below the space above the cards and its divider; each divider after the gap below the card above
-    const a = 10 + 32
+    expect([0, 1, 2, 3, 4, 5].map(index => layout.openingHeight(index))).toEqual([120, 32, 0, 64, 50, 0])
+    // the first card below the space above the cards and its opening; each opening after the gap below the card above
+    const a = 10 + 120
     const b = a + height + 10 + 32
     const c = b + height + 10
-    const d = c + height + 10 + 32
-    expect(Array.from(layout.offsets)).toEqual([a, b, c, d, d + height + 10])
-    expect(layout.height).toBe(layout.offsets[4]! - 10 + 10)
-    // a scroll to a file with a divider has its divider and the gap above it in view; one without, the gap alone
-    expect([layout.fileTop(0), layout.fileTop(1), layout.fileTop(2)]).toEqual([0, layout.offsets[1]! - 32 - 10, layout.offsets[2]! - 10])
-    // a y in a divider is the file below it, a y in the gap above it the file above
-    expect([layout.fileAt(layout.offsets[1]! - 1), layout.fileAt(layout.offsets[1]! - 32), layout.fileAt(layout.offsets[1]! - 33)]).toEqual([1, 1, 0])
+    const d = c + height + 10 + 64
+    const e = d + height + 10 + 50
+    expect(Array.from(layout.offsets)).toEqual([a, b, c, d, e, e + height + 10])
+    expect(layout.height).toBe(layout.offsets[5]! - 10 + 10)
+    expect([layout.sectionStart(0), layout.sectionStart(1), layout.sectionStart(2), layout.sectionStart(3)]).toEqual([10, b - 32, c, d - 64])
+    // a scroll to a file has its opening and the gap above it in view; one without, the gap alone
+    expect([layout.fileTop(0), layout.fileTop(1), layout.fileTop(2), layout.fileTop(3)]).toEqual([0, b - 32 - 10, c - 10, d - 64 - 10])
+    // a y in an opening or a divider is the file below it, a y in the gap above it the file above
+    expect([layout.fileAt(b - 1), layout.fileAt(b - 32), layout.fileAt(b - 33), layout.fileAt(d - 64), layout.fileAt(d - 65)]).toEqual([1, 1, 0, 3, 2])
     expect([layout.fileAtTop(layout.fileTop(1)), layout.fileAtTop(layout.fileTop(3))]).toEqual([1, 3])
-    // the anchor of a top in a divider keeps its place across the layout
-    const anchor = layout.anchorAt(layout.offsets[3]! - 20)!
-    expect([anchor.key, layout.scrollTopOf(anchor)]).toEqual(["d", layout.offsets[3]! - 20])
-    // a scroll to a file has the place above its card, not the last row of the file above: a new height of that file
-    // keeps the divider in view whole
+    // the opening of a step is a part of its own; the divider of a group is the place of its card
+    expect([layout.partAt(d - 64), layout.partAt(d - 1), layout.partAt(d), layout.partAt(b - 1), layout.partAt(c - 5)]).toEqual(["opening", "opening", "card", "card", "card"])
+    // the anchor of a top in an opening keeps its place from the start of the opening across the layout
+    const anchor = layout.anchorAt(d - 20)!
+    expect(anchor).toEqual({ key: "d", opening: true, offset: 44 })
+    expect(layout.scrollTopOf(anchor)).toBe(d - 20)
+    // a scroll to a file has the place above its opening, not the last row of the file above: a new height of that
+    // file keeps the opening in view whole
     const shown = layout.anchorAt(layout.fileTop(1))!
-    expect([shown.key, shown.offset]).toEqual(["b", -42])
-    const folded = new DiffLayout([file("a", buildFileRows(ONE_CHANGE, "unified"), { divider: "step" }), ...layout.files.slice(1)], CARDS)
+    expect(shown).toEqual({ key: "b", opening: true, offset: -10 })
+    const folded = new DiffLayout([file("a", buildFileRows(ONE_CHANGE, "unified"), { opening: 120 }), ...layout.files.slice(1)], CARDS)
     expect(folded.fileHeight(0)).toBeLessThan(layout.fileHeight(0))
     expect(folded.scrollTopOf(shown)).toBe(folded.fileTop(1))
-    // no divider without cards
-    const plain = new DiffLayout([file("a", rows, { divider: "step" })], { rowHeight: 20, headerHeight: 36 })
-    expect([plain.offsets[0], plain.fileTop(0)]).toEqual([0, 0])
+    // no opening and no divider without cards
+    const plain = new DiffLayout([file("a", rows, { opening: 120, divider: true })], { rowHeight: 20, headerHeight: 36 })
+    expect([plain.offsets[0], plain.fileTop(0), plain.openingHeight(0), plain.partAt(0)]).toEqual([0, 0, 0, "card"])
+  })
+
+  it("keeps a top in an opening from the start of the opening, so an opening that grows grows below it and one that shrinks gives the top to its card", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const files = (opening: number) => [file("a", rows), file("b", rows, { opening })]
+    const layout = new DiffLayout(files(40), CARDS)
+    const start = layout.sectionStart(1)
+    const inOpening = layout.anchorAt(start + 15)!
+    const above = layout.anchorAt(start - 5)!
+    const inCard = layout.anchorAt(layout.rowTop(1, 3) + 2)!
+    expect([inOpening, above]).toEqual([
+      { key: "b", opening: true, offset: 15 },
+      { key: "b", opening: true, offset: -5 },
+    ])
+    // a disclosure in the opening: its start and the top stay, the card below moves down by what it grew
+    const grown = new DiffLayout(files(200), CARDS)
+    expect([grown.sectionStart(1), grown.offsets[1]]).toEqual([start, layout.offsets[1]! + 160])
+    expect([grown.scrollTopOf(inOpening), grown.scrollTopOf(above), grown.scrollTopOf(inCard)]).toEqual([start + 15, start - 5, layout.rowTop(1, 3) + 2 + 160])
+    // an opening that became lower than the offset into it: the top of its card
+    const shrunk = new DiffLayout(files(10), CARDS)
+    expect(shrunk.scrollTopOf(inOpening)).toBe(shrunk.offsets[1])
+  })
+
+  it("puts the prologue before the first section, a gap below it, keeps a top in it from the top of the document and one in the gap at the first section", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const files = [file("a", rows, { opening: 40 }), file("b", rows)]
+    const layout = new DiffLayout(files, CARDS, 300)
+    // the space above the cards, the prologue, the gap, the opening of the first step, its card
+    expect([layout.prologue, layout.sectionStart(0), layout.offsets[0]]).toEqual([300, 10 + 300 + 10, 10 + 300 + 10 + 40])
+    expect(layout.height).toBe(layout.offsets[2]! - 10 + 10)
+    // the first section shown has the prologue above the view, its gap in view as between two cards
+    expect([layout.fileTop(0), layout.cardTop(0)]).toEqual([310, 350])
+    expect([layout.partAt(0), layout.partAt(319), layout.partAt(320), layout.partAt(360)]).toEqual(["prologue", "prologue", "opening", "card"])
+    expect([layout.fileAt(100), layout.fileAtTop(0)]).toEqual([0, 0])
+    expect(layout.partShownAt(0, 200)).toBe("prologue")
+    // a top in the prologue keeps its offset from the top as the prologue grows, and is the first section once the
+    // prologue is lower than it
+    const anchor = layout.anchorAt(100)!
+    expect(anchor).toEqual({ key: PROLOGUE_KEY, offset: 100 })
+    expect([new DiffLayout(files, CARDS, 500).scrollTopOf(anchor), new DiffLayout(files, CARDS, 50).scrollTopOf(anchor)]).toEqual([100, 10 + 50 + 10])
+    // a scroll to the first section is in the gap below the prologue: it stays at the first section as the prologue grows
+    const shown = layout.anchorAt(layout.fileTop(0))!
+    expect(shown).toEqual({ key: "a", opening: true, offset: -10 })
+    const taller = new DiffLayout(files, CARDS, 500)
+    expect(taller.scrollTopOf(shown)).toBe(taller.fileTop(0))
+    // a prologue alone keeps its height; none without cards, nor of no height
+    const alone = new DiffLayout([], CARDS, 300)
+    expect([alone.height, alone.anchorAt(20), alone.partAt(20)]).toEqual([320, { key: PROLOGUE_KEY, offset: 20 }, "prologue"])
+    expect(new DiffLayout(files, { rowHeight: 20, headerHeight: 36 }, 300).prologue).toBe(0)
+    expect(new DiffLayout(files, CARDS, 0).offsets[0]).toBe(10 + 40)
+  })
+
+  it("shows a change, a hit of the find and a declaration in a card below the opening of its step: the top of the card is their least top", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const layout = new DiffLayout([file("a", rows, { opening: 200 }), file("b", rows, { opening: 32 })], CARDS)
+    // a scroll to the section shows its opening; one to the card has the opening above the view, the card at the sticky
+    // top: the first change of a step lands at the same place whatever the height of its opening
+    expect([layout.fileTop(0), layout.cardTop(0), layout.cardTop(1)]).toEqual([0, 200, layout.offsets[1]! - 10])
+    const firstRow = layout.rowTop(0, 0) - layout.stickyTop - 48 - 4 * 20
+    expect(Math.max(firstRow, layout.cardTop(0)) + layout.stickyTop).toBe(layout.offsets[0])
+    // a top in the card of a step is its card, the opening above it read
+    expect(layout.partShownAt(layout.cardTop(1), 100)).toBe("card")
+    expect(layout.partShownAt(layout.fileTop(1), 100)).toBe("opening")
   })
 
   it("ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count", () => {

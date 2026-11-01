@@ -4,7 +4,7 @@ import { lineKey } from "@/lib/diff/find"
 import type { HighlightClient, BlobWant } from "@/lib/diff/highlight/client"
 import { FONT_STYLE_SHIFT, PAGE_LINES, ROLE_MASK } from "@/lib/diff/highlight/protocol"
 import type { Priority } from "@/lib/diff/highlight/protocol"
-import type { DiffLayout } from "@/lib/diff/layout"
+import type { DiffLayout, LayoutPart } from "@/lib/diff/layout"
 import { inlineParts, lineParts, runsOf } from "@/lib/diff/line-parts"
 import type { InlinePart, LineHits, LinePart } from "@/lib/diff/line-parts"
 import { getLineTable, lineText } from "@/lib/diff/line-table"
@@ -70,8 +70,8 @@ export interface PainterCallbacks {
    * when the paint needs one outside an event, "idle" for the sections ahead
    */
   onWindow: (first: number, last: number, when: "flush" | "now" | "idle") => void
-  /** The file whose header is at the top, after a scroll of the user */
-  onTopFile: (index: number) => void
+  /** The file whose header is at the top and its part there (`DiffLayout.partShownAt`), after a scroll of the user */
+  onTopFile: (index: number, part: LayoutPart) => void
   /** A click on a fold; with ⌥ (Alt) it asks for all the lines of the file */
   onFold: (file: number, fold: FoldRow, all: boolean) => void
   /** A click on the row of a block another section shows (`NoteRow`, `elsewhere`) */
@@ -373,7 +373,8 @@ export class DiffPainter {
     // the read after the paint lays the new rows out: the cost of the event is its work and that layout
     const top = this.viewTop()
     if (this.followScroll && model.files.length > 0) {
-      this.callbacks.onTopFile(model.layout.fileShownAt(top, this.viewHeight()))
+      const height = this.viewHeight()
+      this.callbacks.onTopFile(model.layout.fileShownAt(top, height), model.layout.partShownAt(top, height))
     }
     // the benchmark (tests/perf/diff-review.perf.ts) reads the cost of each scroll event
     ;(globalThis as { __diffPaintTimes?: number[] }).__diffPaintTimes?.push(performance.now() - start)

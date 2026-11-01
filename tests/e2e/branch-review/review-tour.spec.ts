@@ -7,20 +7,20 @@ import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 
-/** The card right below the divider of `heading`: the space between them and the file of the card */
+/** The card right below the opening of the step of `heading`: the space between them and the file of the card */
 function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null }> {
   return heading.evaluate(element => {
-    const divider = element.closest("[data-testid=diff-view-divider]")!
-    const card = divider.parentElement!.querySelector(`[data-testid=diff-view-file][data-section="${divider.getAttribute("data-section")}"]`)!
-    return { gap: Math.round(card.getBoundingClientRect().top - divider.getBoundingClientRect().bottom), path: card.getAttribute("data-path") }
+    const opening = element.closest("[data-testid=diff-view-opening]")!
+    const card = opening.closest("[data-testid=diff-view]")!.querySelector(`[data-testid=diff-view-file][data-section="${opening.getAttribute("data-section")}"]`)!
+    return { gap: Math.round(card.getBoundingClientRect().top - opening.getBoundingClientRect().bottom), path: card.getAttribute("data-path") }
   })
 }
 
-/** The top of the divider of `heading` below the top of the diffs */
+/** The top of the opening of the step of `heading` below the top of the diffs */
 function topOf(heading: Locator): Promise<number> {
   return heading.evaluate(element => {
     const view = element.closest("[data-testid=diff-view]")!
-    return Math.round(element.closest("[data-testid=diff-view-divider]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
+    return Math.round(element.closest("[data-testid=diff-view-opening]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
   })
 }
 
@@ -120,7 +120,7 @@ test.describe("Review tour", () => {
         "spec/window.spec.md",
         "tests/restart.json",
       ])
-    // each step opens with a divider on the canvas right above the card of its first section; a header names its file
+    // each step opens on the canvas right above the card of its first section; a header names its file
     // alone, so the name of every file stands at one x (every card of the story on screen: the view renders the cards it
     // shows)
     const viewport = window.viewportSize()!
@@ -136,7 +136,7 @@ test.describe("Review tour", () => {
     // the map of the files beside the diffs crosses itself at the start of each step; its hover names the file and its step
     const map = window.getByTestId("review-file-map")
     await expect(map).toHaveAttribute("data-steps", "4")
-    // the second section of Manager.kt, the card below the divider of step 2
+    // the second section of Manager.kt, the card below the opening of step 2
     const start = await mapPointOf(window.locator("[data-testid=diff-view-file][data-path='src/a/Manager.kt']").nth(1))
     await window.mouse.move(start.x, start.y)
     await expect(map.getByTestId("review-file-map-tip")).toHaveText(/Manager\.ktsrc\/a.*Step 2 · The open keeps a stored layout/)
@@ -160,7 +160,7 @@ test.describe("Review tour", () => {
     // J goes on into the next step, the bar follows
     await window.keyboard.press("j")
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
-    // a click on the divider of a step shows the step as its bar does: the divider at the top, the bar and the tree follow
+    // a click on the opening of a step shows the step as its bar does: the opening at the top, the bar and the tree follow
     const second = window.getByRole("button", { name: "Step 2 · The open keeps a stored layout", exact: true })
     await second.click()
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")

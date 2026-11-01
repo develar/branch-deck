@@ -104,10 +104,21 @@
 }
 
 /*
- * The divider of a section that starts a step of the review plan or a group: a line on the canvas between the gap above
- * the card and the card, at the inset of the cards, its words at its bottom near the card they head; it scrolls with
- * the card and never sticks (the bar of the step above the diffs names the step at the top). Not selectable: a copy of
- * the selection of the code never takes it
+ * The prologue before the first section and the opening of each step of the review plan above the card of its first
+ * section: blocks on the canvas at the inset of the cards, as tall as their content, which `DiffView` measures in place
+ * (`useMeasuredHeights`), so they are never virtualized; they scroll with the cards and never stick (the bar of the
+ * step above the diffs names the step at the top). Each block is placed at its start in the document, among the
+ * sections in the order of the document
+ */
+.dv-opening {
+  position: absolute;
+  inset-inline: 12px;
+}
+
+/*
+ * The divider of a section that starts a group: a line on the canvas between the gap above the card and the card, at
+ * the inset of the cards, its words at its bottom near the card they head; it scrolls with the card and never sticks.
+ * Not selectable: a copy of the selection of the code never takes it
  */
 .dv-divider {
   position: absolute;

@@ -10,15 +10,19 @@ import type { CodeWord, PainterCallbacks, PainterFile } from "@/components/diff/
 import { DiffFileMap } from "@/components/diff/DiffFileMap"
 import type { DiffFileMapHandle, FileMapEntry } from "@/components/diff/DiffFileMap"
 import { DiffFindBar } from "@/components/diff/DiffFindBar"
+import { useMeasuredHeights } from "@/components/diff/use-measured-heights"
+import type { MeasuredHeights } from "@/components/diff/use-measured-heights"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite } from "@/lib/bindings"
 import { codeMenuItems } from "@/lib/diff/code-menu"
 import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
+import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
 import { findHits, hitsByLine } from "@/lib/diff/find"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
-import { DiffLayout, endsWithFooter, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
+import type { LayoutPart } from "@/lib/diff/layout"
 import { inlineParts } from "@/lib/diff/line-parts"
 import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
 import { DIFF_FONT_SIZE, DIFF_TAB_SIZE, measureFont, rowHeightOf, textMetricsOf } from "@/lib/diff/metrics"
@@ -57,15 +61,19 @@ import "./diff-view.css"
  * The file cards of a view with headers (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: a gap of
  * 10 px between two cards and around them, in the canvas colour, an inset of 12 px at the sides, a border of 1 px. The
  * header holds the top border of its card, a band of its own colour (diff-view.css). A section that starts a step of the
- * review plan or a group has a line on the canvas between the gap above its card and the card (`renderDivider`). A long
- * card and the last one end with a line one row high that names what comes after it (`renderFooter`, `endsWithFooter`).
- * Their own scroller hides its scrollbar for the map of the files beside it (`DiffFileMap`, "The map of files").
+ * review plan has its opening on the canvas between the gap above its card and the card (`renderOpening`), as tall as
+ * its words; one that starts a group a line of a fixed height there (`renderDivider`). A prologue may come before the
+ * first section (`prologue`). A long card and the last one end with a line one row high that names what comes after it
+ * (`renderFooter`, `endsWithFooter`). Their own scroller hides its scrollbar for the map of the files beside it
+ * (`DiffFileMap`, "The map of files").
  */
 const CARD_HEADER_HEIGHT = 48
 const CARD_GAP = 10
 const CARD_INSET = 12
 const CARD_BORDER = 1
 const CARD_DIVIDER = 32
+/** The height of an opening before its first measure, which comes before the paint */
+const OPENING_ESTIMATE = 32
 /** The font of the rows, as `.dv-rows` of diff-view.css */
 const ROWS_FONT = `${DIFF_FONT_SIZE}px "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
 /** The files after the window whose texts are read ahead */
@@ -97,7 +105,7 @@ export interface DiffSection {
   /** The group the section is of, on its first file ("Same edit in 3 files"): the divider above its card names it */
   readonly heading: string | null
   /**
-   * The step of the review plan the section starts, on its first section: its id, and the words of the divider above
+   * The step of the review plan the section starts, on its first section: its id, and the words of the opening above
    * its card, its number ("Step 2") and its title ("The open keeps a stored layout")
    */
   readonly step: { readonly id: string; readonly number: string; readonly title: string } | null
@@ -130,16 +138,22 @@ export interface DiffHeaderProps {
 export interface DiffViewHandle {
   /** Shows the file at the top */
   scrollToFile: (path: string) => void
-  /** Shows the section of a review at the top, by its key (`DiffSection.key`) */
-  scrollToSection: (key: string) => void
+  /**
+   * Shows the section of a review at the top, by its key (`DiffSection.key`): its opening (the default), or its card
+   * with the opening above the view
+   */
+  scrollToSection: (key: string, part?: "opening" | "card") => void
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
    * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. Returns the
    * path of the file it shows; undefined, and nothing moves, when no block is left in that direction
    */
   moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => string | undefined
-  /** The key of the section at the top: the one the view showed last, or the one scrolled to (`onVisibleSectionChange`) */
-  visibleSection: () => string | undefined
+  /**
+   * The section at the top and its part there: the one the view showed last, or the one scrolled to
+   * (`onVisibleSectionChange`); undefined without files
+   */
+  visibleStop: () => { key: string; part: LayoutPart } | undefined
   focus: () => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
@@ -174,8 +188,12 @@ export interface DiffViewProps {
   label: string
   /** The file whose header is at the top, as the user scrolls */
   onVisibleFileChange?: (path: string) => void
-  /** The section at the top, its key and its file, as the user scrolls: of a file its path, of a section of a review its key */
-  onVisibleSectionChange?: (key: string, path: string) => void
+  /**
+   * The section at the top, its key and its file, as the user scrolls: of a file its path, of a section of a review its
+   * key; and its part at the top then, its opening or its card, or the prologue above the first section. Told as the
+   * section changes, not as its part does (`visibleStop` has the part at the top)
+   */
+  onVisibleSectionChange?: (key: string, path: string, part: LayoutPart) => void
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
   onFirstScreen?: () => void
   /**
@@ -194,8 +212,18 @@ export interface DiffViewProps {
   /** The sticky header of each file; without it the view shows its files open, a notice in a row under each */
   renderHeader?: (props: DiffHeaderProps) => ReactNode
   /**
-   * The divider on the canvas above the card of a section that starts a step or a group (`DiffSection.step`,
-   * `heading`), with the headers only; without it no section has one
+   * What comes before the first section, with the headers only: a block of the document, always mounted, as tall as
+   * its content (measured in place), the space above the cards above it and a gap below it
+   */
+  prologue?: ReactNode
+  /**
+   * The opening on the canvas above the card of a section that starts a step (`DiffSection.step`), with the headers
+   * only: always mounted, as tall as its content (measured in place); without it no section has one
+   */
+  renderOpening?: (section: DiffSection) => ReactNode
+  /**
+   * The divider of a fixed height on the canvas above the card of a section that starts a group (`DiffSection.heading`)
+   * and no step, with the headers only; without it no section has one
    */
   renderDivider?: (section: DiffSection) => ReactNode
   /**
@@ -393,6 +421,8 @@ export function DiffView({
   onVisibleSectionChange,
   onFirstScreen,
   renderHeader,
+  prologue,
+  renderOpening,
   renderDivider,
   renderFooter,
   muted,
@@ -426,8 +456,11 @@ export function DiffView({
   const scroller = useRef<HTMLDivElement>(null)
   const fileMap = useRef<DiffFileMapHandle>(null)
   const visiblePath = useRef<string | undefined>(initialPath ?? (files[0] === undefined ? undefined : pathOf(files[0])))
-  // the section at the top: of a file its path, of a section of a review its key
+  // the section at the top: of a file its path, of a section of a review its key; and its part at the top
   const visibleKey = useRef<string | undefined>(files[0] === undefined ? undefined : keyOf(files[0]))
+  const visiblePart = useRef<LayoutPart>("card")
+  // the prologue and the openings of the steps: their heights, measured in place
+  const { heights: measured, measure } = useMeasuredHeights()
   // the block of changed lines N and P stepped to last, in the section at the top
   const changeCursor = useRef<{ key: string; index: number } | null>(null)
   const [painter] = useState(() => new DiffPainter(EMPTY_CALLBACKS, getHighlightClientOrNull, () => blobTextsStore.getState().byId))
@@ -500,6 +533,9 @@ export function DiffView({
 
   // whether the cards end with a line, not its words: a chip that changes what it names lays out nothing again
   const footers = cards && renderFooter !== undefined
+  const opens = cards && renderOpening !== undefined
+  const divides = cards && renderDivider !== undefined
+  const prologued = cards && prologue !== undefined && prologue !== null
   const layout = useMemo(
     () =>
       new DiffLayout(
@@ -510,13 +546,15 @@ export function DiffView({
             rows,
             notice: notices[index] !== null,
             visualLines: visualLines[index],
-            divider: cards && renderDivider !== undefined ? dividerOf(file.section) : undefined,
+            opening: opens && file.section?.step != null ? (measured.get(file.key) ?? OPENING_ESTIMATE) : undefined,
+            divider: divides && file.section?.heading != null,
             footer: footers && endsWithFooter(rows, index === prepared.length - 1),
           }
         }),
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
+        prologued ? (measured.get(PROLOGUE_KEY) ?? 0) : 0,
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards, renderDivider, footers],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, measured, footers],
   )
 
   // the sections as the map of the files shows them: where a step starts, which files the chip plays down
@@ -578,7 +616,7 @@ export function DiffView({
     }
     reveal.current = null
     const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-    painter.scrollTo(Math.max(top, layout.fileTop(hit.file)))
+    painter.scrollTo(Math.max(top, layout.cardTop(hit.file)))
   }, [find.current, hits, layout, painter, headerHeight])
 
   // the find reads the texts of every file it searches, behind the texts on screen
@@ -687,29 +725,39 @@ export function DiffView({
       return next
     })
 
-  /** Shows the section at `index` at the top, N and P from its top */
-  const showSection = (index: number) => {
+  /** Shows the section at `index` at the top, its opening (none: its card) or its card, N and P from its top */
+  const showSection = (index: number, part: "opening" | "card" = "opening") => {
     const file = prepared[index]!
     changeCursor.current = { key: file.key, index: -1 }
     visibleKey.current = file.key
+    visiblePart.current = part === "opening" && layout.files[index]!.opening !== undefined ? "opening" : "card"
     visiblePath.current = file.path
-    painter.scrollTo(layout.fileTop(index))
+    painter.scrollTo(part === "opening" ? layout.fileTop(index) : layout.cardTop(index))
     fileMap.current?.sync()
   }
 
   /**
-   * A click on the map of the files: the section under it at the top, the tree and the bar of the step following, as a
-   * click in the tree shows it. The diffs take the focus, as a click on the line at the end of a card gives it them: a
-   * focus in a card the jump unmounts would take the keys with it, so J goes on from the section shown
+   * A click on the map of the files: the section under it at the top (`PROLOGUE_SECTION`: the prologue), the tree and
+   * the bar of the step following, as a click in the tree shows it. The diffs take the focus, as a click on the line at
+   * the end of a card gives it them: a focus in a card the jump unmounts would take the keys with it, so J goes on from
+   * the section shown
    */
   const showMapSection = (index: number) => {
-    const file = prepared[index]
+    const file = prepared[index === PROLOGUE_SECTION ? 0 : index]
     if (file === undefined) {
       return
     }
     scroller.current?.focus({ preventScroll: true })
-    showSection(index)
-    onVisibleSectionChange?.(file.key, file.path)
+    if (index === PROLOGUE_SECTION) {
+      changeCursor.current = null
+      visibleKey.current = file.key
+      visiblePart.current = "prologue"
+      painter.scrollTo(0)
+      fileMap.current?.sync()
+    } else {
+      showSection(index)
+    }
+    onVisibleSectionChange?.(file.key, file.path, visiblePart.current)
     onVisibleFileChange?.(file.path)
   }
 
@@ -725,20 +773,28 @@ export function DiffView({
           startTransition(() => setWindowRange([first, last]))
         }
       },
-      onTopFile: index => {
+      onTopFile: (index, part) => {
         // the section the view showed last (a file of the tree, N, J) stays the one shown while it is on screen: a
-        // section near the end, which a scroll to it cannot bring to the top, is not the one above it
+        // section near the end, which a scroll to it cannot bring to the top, is not the one above it; the prologue
+        // at the top is the prologue
         const cursor = changeCursor.current === null ? -1 : layout.indexOf(changeCursor.current.key)
         const element = scroller.current
         const bottom = element === null ? index : layout.fileAt(element.scrollTop + element.clientHeight)
-        const file = prepared[cursor >= index && cursor <= bottom ? cursor : index]
+        const shown = part !== "prologue" && cursor >= index && cursor <= bottom ? cursor : index
+        const file = prepared[shown]
+        const shownPart = shown === index ? part : "card"
+        // a new part of the same section is kept for `visibleStop` and the map, not told: the tree selects by the
+        // section alone
+        if (file !== undefined) {
+          visiblePart.current = shownPart
+        }
         if (file !== undefined && file.key !== visibleKey.current) {
           visibleKey.current = file.key
           // the user scrolled into another section: N starts from its top
           if (changeCursor.current?.key !== file.key) {
             changeCursor.current = null
           }
-          onVisibleSectionChange?.(file.key, file.path)
+          onVisibleSectionChange?.(file.key, file.path, shownPart)
         }
         if (file !== undefined && file.path !== visiblePath.current) {
           visiblePath.current = file.path
@@ -821,7 +877,7 @@ export function DiffView({
 
   const scrollToChange = (file: number, row: number) => {
     const top = layout.rowTop(file, row) - layout.stickyTop - headerHeight - 4 * metrics.rowHeight
-    painter.scrollTo(Math.max(top, layout.fileTop(file)))
+    painter.scrollTo(Math.max(top, layout.cardTop(file)))
   }
 
   // Go to Declaration: the name under the pointer with the modifier held, its underline, the jump, Back and Forward
@@ -966,7 +1022,7 @@ export function DiffView({
     }
     pendingReveal.current = null
     const top = layout.rowTop(index, rowOfLine(rows, side, place.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-    painter.scrollTo(Math.max(top, layout.fileTop(index)))
+    painter.scrollTo(Math.max(top, layout.cardTop(index)))
     // the keys of the view (Back) work at the place shown, whether a choice closed or a view of a file opened
     scroller.current?.focus({ preventScroll: true })
     // once the row of the name is painted with its text, whenever that is
@@ -1019,10 +1075,10 @@ export function DiffView({
         showSection(index)
       }
     },
-    scrollToSection: key => {
+    scrollToSection: (key, part) => {
       const index = prepared.findIndex(file => file.key === key)
       if (index >= 0) {
-        showSection(index)
+        showSection(index, part)
       }
     },
     moveChange: (direction, accept) => {
@@ -1047,6 +1103,7 @@ export function DiffView({
         if (target !== undefined && clamped >= 0) {
           changeCursor.current = { key, index: clamped }
           visibleKey.current = key
+          visiblePart.current = "card"
           visiblePath.current = path
           scrollToChange(fileIndex, target)
           fileMap.current?.sync()
@@ -1057,7 +1114,7 @@ export function DiffView({
       }
       return undefined
     },
-    visibleSection: () => visibleKey.current,
+    visibleStop: () => (visibleKey.current === undefined ? undefined : { key: visibleKey.current, part: visiblePart.current }),
     focus: () => scroller.current?.focus(),
     revealDeclaration: (place, from) => {
       if (sectionOf(prepared, place.path) < 0) {
@@ -1088,7 +1145,7 @@ export function DiffView({
         notice={noticeOf(file, texts)}
         noticeRow={layout.files[index]!.notice}
         top={layout.offsets[index]!}
-        dividerHeight={layout.dividerHeight(index)}
+        dividerHeight={layout.files[index]!.opening === undefined ? layout.openingHeight(index) : 0}
         footer={layout.files[index]!.footer === true}
         height={layout.fileHeight(index)}
         rowsHeight={layout.rowsHeight(index)}
@@ -1108,6 +1165,30 @@ export function DiffView({
       />
     )
   })
+
+  // the prologue and the openings of the steps: always mounted, not virtualized, few, each measured where it lies
+  // (`useMeasuredHeights`); in the order of the document, each opening right before the card of its section, so the
+  // tab order and a screen reader read an opening before its card (the positions are absolute: the order moves nothing)
+  const openings = prepared.flatMap((file, index) => (layout.files[index]!.opening === undefined || file.section === null ? [] : [{ index, section: file.section }]))
+  const content: ReactNode[] = []
+  if (prologued) {
+    content.push(
+      <div key={PROLOGUE_KEY} ref={measure} className="dv-opening" data-testid="diff-view-prologue" data-measure={PROLOGUE_KEY} style={{ top: layout.stickyTop }}>
+        {prologue}
+      </div>,
+    )
+  }
+  let opened = 0
+  for (let index = first; index <= first + sections.length; index++) {
+    for (; opened < openings.length && (openings[opened]!.index <= index || index === first + sections.length); opened++) {
+      const { index: at, section } = openings[opened]!
+      content.push(<Opening key={`opening:${section.key}`} section={section} top={layout.sectionStart(at)} renderOpening={renderOpening!} measure={measure} />)
+    }
+    const section = sections[index - first]
+    if (section !== undefined) {
+      content.push(section)
+    }
+  }
 
   // the divider of Split, as IntelliJ's DiffSplitter: the line between the halves of a row, 4 px to each side of it
   // (`.dv-half + .dv-half[data-side="1"]::before` gives the cursor; the one column of a file with one side has none); a
@@ -1166,14 +1247,14 @@ export function DiffView({
       {navigates ? (
         <ContextMenu onOpenChange={open => open && openCodeMenu()}>
           {/* the trigger turns off the selection of its content; the code keeps it (the copy, ⌘B) */}
-          <ContextMenuTrigger render={<div className="dv-document select-text" style={{ height: layout.height }} />}>{sections}</ContextMenuTrigger>
+          <ContextMenuTrigger render={<div className="dv-document select-text" style={{ height: layout.height }} />}>{content}</ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuItems groups={[codeMenu]} />
           </ContextMenuContent>
         </ContextMenu>
       ) : (
         <div className="dv-document" style={{ height: layout.height }}>
-          {sections}
+          {content}
         </div>
       )}
       {navigates && <div ref={links} className="dv-links" aria-hidden />}
@@ -1218,9 +1299,13 @@ export function DiffView({
             }}
             layout={layout}
             sections={mapSections}
-            // the section the view showed last; one of files gone since (the story replaced the files), the one at the top
+            // the section the view showed last, or the prologue; one of files gone since (the story replaced the files), the
+            // one at the top
             current={() => {
               const shown = layout.indexOf(visibleKey.current ?? "")
+              if (visiblePart.current === "prologue" && layout.prologue > 0) {
+                return PROLOGUE_SECTION
+              }
               return shown >= 0 ? shown : layout.fileAtTop(scroller.current?.scrollTop ?? 0)
             }}
             onShowSection={showMapSection}
@@ -1241,7 +1326,7 @@ interface FileSectionProps {
   notice: string | null
   noticeRow: boolean
   top: number
-  /** The divider above the card, 0 for none: it ends at `top` */
+  /** The divider of a group above the card, 0 for none: it ends at `top` */
   dividerHeight: number
   /** The card ends with a line below its rows (`LayoutFile.footer`), one row high */
   footer: boolean
@@ -1269,8 +1354,31 @@ interface FileSectionProps {
 }
 
 /**
+ * The opening of a step above the card of its first section, at the start of the section, as tall as its words: the
+ * layout has the height `useMeasuredHeights` measures of it. It renders again only when its own props change, not on
+ * a scroll into the next files
+ */
+const Opening = memo(function Opening({
+  section,
+  top,
+  renderOpening,
+  measure,
+}: {
+  section: DiffSection
+  top: number
+  renderOpening: (section: DiffSection) => ReactNode
+  measure: MeasuredHeights["measure"]
+}) {
+  return (
+    <div ref={measure} className="dv-opening" data-testid="diff-view-opening" data-section={section.key} data-measure={section.key} style={{ top }}>
+      {renderOpening(section)}
+    </div>
+  )
+})
+
+/**
  * The section of a file: as tall as the file, its header sticky, the rows element the painter fills, the line at the
- * end of a long card; the divider of a step or a group above it
+ * end of a long card; the divider of a group above it
  */
 const FileSection = memo(function FileSection(props: FileSectionProps) {
   const {
@@ -1368,11 +1476,6 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     </>
   )
 })
-
-/** The divider above the card of a section (`LayoutFile.divider`): it starts a step, else a group; none for another */
-function dividerOf(section: DiffSection | null): "step" | "group" | undefined {
-  return section?.step != null ? "step" : section?.heading != null ? "group" : undefined
-}
 
 /** The sticky scrollbar of each column whose widest line is wider than it */
 function HorizontalBars({ file, sideWidths, columnWidth, codeWidths }: { file: PreparedFile; sideWidths: readonly number[]; columnWidth: number; codeWidths: readonly number[] }) {
