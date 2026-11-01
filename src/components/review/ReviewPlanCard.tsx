@@ -5,10 +5,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Spinner } from "@/components/ui/spinner"
 import { ReviewBrief } from "@/components/review/ReviewBrief"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import type { ReviewPlanState } from "@/hooks/useReviewPlan"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
+import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { BreakageEntry } from "@/presenters/review-plan"
 import {
   formatPairState,

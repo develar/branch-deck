@@ -15,6 +15,7 @@ import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { windowCalls } from "../helpers/title-bar-helpers"
 import { closeToast } from "../helpers/toast-helpers"
+import { holdCommandCalls } from "../helpers/wait-helpers"
 
 // the `symbol_navigation` template (src/Store.kt with the top-level `helper`, the commit of `nav`), then the branch
 // `plan` of a terminal: `helper` takes a scale (a changed declaration that src/Base.kt and others use), then
@@ -883,7 +884,12 @@ test.describe("The review plan in the branch review", () => {
     // never marked: no Since Your Review; the column keeps the scope, the tree lists the commits
     const window = await openPlanCommits(page, repo, syncAndWaitForBranches)
 
+    // Mark Reviewed reads the plan again: its steps and their commits stay in the tree while it is read
+    const plans = await holdCommandCalls(window, "get_review_plan")
     await markReviewed(window)
+    await expect.poll(() => plans.calls.length).toBe(1)
+    expect(await treeCommits(window)).toEqual(["add the cache", "scale the helper"])
+    plans.release()
 
     // a commit on top, then a sync: Since Your Review is its range, the files of that commit alone
     await repo.commit("(plan) read the cache twice", { "src/a/Reader.kt": READER('cache.get("x") + cache.get("y")') }, 1704124800)

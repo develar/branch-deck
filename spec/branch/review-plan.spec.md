@@ -43,6 +43,7 @@ targets:
   - ../../src/lib/file-tree.ts
   - ../../src/lib/file-actions.ts
   - ../../src/hooks/useReviewPlan.ts
+  - ../../src/lib/review-plan-answer.ts
   - ../../src/hooks/useBranchReview.ts
   - ../../src/hooks/useSelectReviewFile.ts
   - ../../src/lib/review-place.ts
@@ -567,11 +568,15 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - With it on, the window must read the plan of the shown part (`get_review_plan`): the reviewed branch on the base of
   the part, the whole stack as its range; again when the head of the part moves, when "Since Your Review" is chosen
   or left, and after Mark Reviewed; an answer `canceled` (a newer plan of the window) is dropped, and the plan of the
-  same branch stays while the next one is read. Its interdiff counts only while the part is one branch (the reviewed
-  pair is on the base of that branch alone) and the plan is of the head on screen: a part of several branches, or the
-  plan of the head before a sync, shows no "since" and offers no "Since Your Review".
+  same branch stays while the next one is read. The plan of the same changes, read again after Mark Reviewed, must
+  stay whole until the next one comes with its usages: the steps of the tree, its commit rows and the story of the
+  diffs stay as they were; a plan of another head or scope gives the tree and the diffs none of its facts. Its
+  interdiff counts only while the part is one branch (the reviewed pair is on the base of that branch alone) and the
+  plan is of the head on screen: a part of several branches, or the plan of the head before a sync, shows no "since"
+  and offers no "Since Your Review".
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
   [@test] ../../src/lib/range-review.test.ts (`takes the interdiff only of the part's own branch, and only of a plan of the head on screen`)
+  [@test] ../../src/lib/review-plan-answer.test.ts (`keeps the whole plan of the same changes while Mark Reviewed reads it again, until the next one has its usages`, `keeps no facts of a plan of another head or scope while the next one is read, but the plan of the branch for its card`, `replaces a plan without its usages by the next read's, and starts a read of another subject without a plan`)
 - Mark Reviewed of the title bar must mark the reviewed branch of the part on the base of its own branch, as
   `bd mark-reviewed <branch> --base <parent>` does, say so, and read the plan again: nothing is new after it. The
   whole stack has no Mark Reviewed.
