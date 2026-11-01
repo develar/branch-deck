@@ -452,6 +452,30 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() 
   assert!(rule_end < cd, "{skill}");
 }
 
+/// Below the commit subject and its settings the skill says how to write the body a review reads
+/// (docs/guide/commit-bodies.md): the lead, code names in backticks that `bd review-plan` resolves, `Look closely:`, the
+/// labels of the verification and the trailers last, in five lines
+#[test]
+fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject() {
+  let skill = skill_text("bd");
+  let subject = skill.find("- `subject_branch.on`: start each commit subject with `(branch) `").unwrap();
+  let start = skill.find("- The body is what a review reads first").unwrap();
+  let end = start + 2 + skill[start + 2..].find("\n- ").unwrap();
+  let body = &skill[start..=end];
+  assert!(subject < start, "{skill}");
+  assert_eq!(body.lines().count(), 5, "{body}");
+  for words in [
+    "a lead of 1–3 sentences with the new\n  state and why",
+    "code names in backticks as the code spells them (`Owner.member`,\n  a path)",
+    "`bd review-plan` lists those that resolve nothing (`target: null`)",
+    "`Look closely:` where the reviewer must decide",
+    "`Tests:`, `Evidence:`, `Left out:` each right before its list",
+    "the trailers last",
+  ] {
+    assert!(body.contains(words), "{words}: {body}");
+  }
+}
+
 /// `bd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
 /// master, which is `bd land` (spec/cli/agent-cli.spec.md, `bd push`)
 #[test]

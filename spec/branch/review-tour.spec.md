@@ -116,6 +116,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`)
 
 ### The Story of a Commit
+How to write a body this story reads well: [The Commit Body a Review Reads](../../docs/guide/commit-bodies.md).
 - Every commit of the range whose body has a block must have its story once (`commits`, oldest first), also when
   several steps list it: its id, its subject without the `(prefix)`, its body by the grammar of a body
   ([Commit Row → Message body](../commit/commit-row.spec.md)), its code names (`mentions`) and, of the concerns of one

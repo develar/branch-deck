@@ -1615,10 +1615,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
   every push, never reorder, squash or split commits and never drop one yourself (bd drops a commit it proves landed,
   `--landed` one after the user's yes; `bd squash` squashes the commits the user asked to squash), `bd pick` instead of a cherry-pick, `error.code`, parked branches,
-  unapply); the details of an output belong in the binary's help, not in the skill. `bd help skill` must print the
+  unapply), and below the commit subject and its settings, in five lines, the commit body a review reads (the lead
+  with the new state, a paragraph per decision, code names in backticks that `bd review-plan` resolves, `Look closely:`, the labels
+  of the verification, the trailers last; [The Commit Body a Review Reads](../../docs/guide/commit-bodies.md)); the
+  details of an output belong in the binary's help, not in the skill. `bd help skill` must print the
   same text. Its `allowed-tools` must be
   `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 - It must say whether `bd` on `PATH` is the installed one, and print `agents` `{lease, subject_branch}`, the rules of
   `bd workspace` that the global git config gives every repository; `--uninstall` must remove the skills and only its

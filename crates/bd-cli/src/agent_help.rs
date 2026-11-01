@@ -755,6 +755,11 @@ wins over it:
   the subject as the repository does, without a prefix.
 - Both are the user's settings (Settings → Agents of the app, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
   never change them.
+- The body is what a review reads first: after the subject (the behaviour change), a lead of 1–3 sentences with the new
+  state and why, then a paragraph per decision. Write code names in backticks as the code spells them (`Owner.member`,
+  a path): they link to the diffs, and `bd review-plan` lists those that resolve nothing (`target: null`). Ask with
+  `Look closely:` where the reviewer must decide; then `Tests:`, `Evidence:`, `Left out:` each right before its list,
+  measurements indented by four spaces, the trailers last.
 - A lease is the only worktree of your own: never `git worktree add` or a clone for it on your own initiative, also not
   when a bd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
   (`path`, `lease_id`, `holder`).

@@ -32,7 +32,9 @@ A review is the story of a change, not a list of files:
    user, why, how, whether it is proven, what can break and what is noise, in this order. The review opens on a brief
    (the issue, the rules of the specs and the docs the change adds) and then the steps of the change, each with the
    body of its commit, the units that carry it and the tests that reach its code; the files are an index, never the
-   spine ([Review Tour](../../spec/branch/review-tour.spec.md)).
+   spine ([Review Tour](../../spec/branch/review-tour.spec.md)). The body is written for it: a lead that says the new
+   state, a paragraph per decision, code names in backticks that resolve to the diffs, labels of one vocabulary
+   ([The Commit Body a Review Reads](../guide/commit-bodies.md)).
 1. **Each change is read once.** The diff is cut into the changes a reviewer reads (units): a changed form of a
    declaration, a changed body, a new or removed declaration, a new or deleted file, one repeated edit over all of its
    files.
