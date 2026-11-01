@@ -1,7 +1,8 @@
 // @spec spec/branch/branch-review.spec.md
 import type { Page } from "@playwright/test"
 import type { PatronusProfile } from "../../../src/lib/bindings"
-import type { BranchReviewFeedback, BranchReviewItem, BranchReviewRequest, BranchReviewWindowData, BranchReviewWindowState } from "../../../src/types/sub-window"
+import type { ReviewRunRequest } from "../../../src/lib/review-runs"
+import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, restOnBranchRow } from "../helpers/branch-helpers"
 import { readClipboard, setupClipboardPermissions } from "../helpers/clipboard-helpers"
@@ -10,6 +11,7 @@ import { AWAITING_CODE_OWNER, NO_REVIEW_NEEDED, availableRobots } from "../helpe
 import { getCommitPreview } from "../helpers/preview-helpers"
 import { availablePullRequests, createPullRequestDialog, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
 import { remotePushes, virtualBranch } from "../helpers/push-helpers"
+import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { reviewSidebar, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
 import { openReviewWindow, openedReview } from "../helpers/review-window-helpers"
@@ -70,14 +72,44 @@ async function setupAuthWithoutPullRequest(
   return repo
 }
 
-/** What the main window says of each branch: the ids of its actions, a disabled one with its reason */
-function itemSummary(items: Readonly<Record<string, readonly BranchReviewItem[]>>): Record<string, string[]> {
-  return Object.fromEntries(Object.entries(items).map(([name, list]) => [name, list.map(item => (item.disabled === true ? `${item.id}: ${item.description}` : item.id))]))
+/**
+ * stacked_ownership with the robots and the pull request of login, no approval needed: the Safe Push of each part is
+ * offered; with `otherRepository` the main window lists another repository to switch to
+ */
+async function setupLoginWithPullRequest(
+  page: Page,
+  setupRepo: (template: string, options: object) => Promise<TestRepositoryBuilder>,
+  syncAndWaitForBranches: () => Promise<unknown>,
+  { otherRepository = false }: { otherRepository?: boolean } = {},
+) {
+  const repo = await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST), patronusProfiles: PROFILES })
+  await repo.setReviewAnswers({ answers: { auth: NO_REVIEW_NEEDED, login: NO_REVIEW_NEEDED } })
+  if (otherRepository) {
+    await addRecentProject(page)
+  }
+  await syncAndWaitForBranches()
+  // the robots, the pull requests and the approvals load after the sync: the steps wait for them
+  for (const branch of ["auth", "login"]) {
+    await expect(findBranchRow(page, branch).getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
+  }
+  await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
+  return repo
 }
 
-/** The window's requests without their ids */
-async function windowRequests(page: Page): Promise<Omit<BranchReviewRequest, "id">[]> {
-  return (await getEmittedEvents<BranchReviewRequest>(page, "review/request")).map(({ id: _id, ...request }) => request)
+/** What the window asked the main window to run at the rows (`review/run`), without the ids */
+async function windowRuns(page: Page): Promise<Omit<ReviewRunRequest, "id">[]> {
+  return (await getEmittedEvents<ReviewRunRequest>(page, "review/run")).map(({ id: _id, ...request }) => request)
+}
+
+/** The labels of the buttons of the title bar of the window: the actions of the part, then "⋯" */
+async function titleBarActions(window: Page): Promise<string[]> {
+  return (
+    window
+      .getByTestId("branch-review-actions")
+      .getByRole("button")
+      // the label of an action is its first text, beside its key; "⋯" is named by its label
+      .evaluateAll(buttons => buttons.map(button => button.getAttribute("aria-label") ?? button.querySelector("span")?.textContent ?? ""))
+  )
 }
 
 test.describe("Opening the review", () => {
@@ -122,7 +154,7 @@ test.describe("Opening the review", () => {
     await expect(position).toHaveText(/File 2 \/ \d+$/)
     await page.keyboard.press("p")
     await expect(position).toHaveText(/File 1 \/ \d+$/)
-    expect(await windowRequests(page)).toEqual([])
+    expect(await windowRuns(page)).toEqual([])
   })
 })
 
@@ -221,8 +253,9 @@ test.describe("The scopes of the stack", () => {
     await expect(whole).toHaveAttribute("aria-pressed", "false")
 
     // up: the stack branch, the chain the window showed as the way back
+    // the window opens it itself, as the menus of the rows would
     await whole.click()
-    const stack = await openedReview(page, 2)
+    const stack = await openedReview(window, 1)
     expect(stack).toMatchObject({
       title: "Review the whole air stack",
       data: {
@@ -244,14 +277,14 @@ test.describe("The scopes of the stack", () => {
     await expect(fix.getByTestId("range-review-commit-branch")).toHaveText("side-fix")
     await fix.click()
     await window.getByTestId("range-review-commit-header").getByRole("button", { name: "Review side-fix" }).click()
-    const atCommit = await openedReview(page, 3)
+    const atCommit = await openedReview(window, 2)
     expect(atCommit.data).toMatchObject({ chain: ["air", "bazel", "side-fix"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
     expect(atCommit.data.wholeStack).toBeUndefined()
     expect(atCommit.title).toMatch(/^Review side-fix · [0-9a-f]{8}$/)
 
     // down: a segment of the way back reviews its branch
     await segments.first().click()
-    const back = await openedReview(page, 4)
+    const back = await openedReview(window, 3)
     expect(back.data).toMatchObject({ chain: ["air"] })
     expect(back.data.wholeStack).toBeUndefined()
   })
@@ -276,7 +309,7 @@ test.describe("The scopes of the stack", () => {
 
     // the whole stack: each commit row names the branch it came from; Enter shows it alone, whose heading reviews its branch
     await window.getByTestId("branch-review-whole-stack").click()
-    await reopenLinkedSubWindow(window, await openedReview(page, 2))
+    await reopenLinkedSubWindow(window, await openedReview(window, 1))
     const fix = commitRow("Fix the jar manifest, part 2")
     await expect(fix.getByTestId("review-commit-branch")).toHaveText("side-fix")
     await expect(column).toHaveCount(1)
@@ -285,7 +318,7 @@ test.describe("The scopes of the stack", () => {
     const header = window.getByTestId("range-review-commit-header")
     await expect(header).toContainText("Fix the jar manifest, part 2")
     await header.getByRole("button", { name: "Review side-fix" }).click()
-    const atCommit = await openedReview(page, 3)
+    const atCommit = await openedReview(window, 2)
     expect(atCommit.data).toMatchObject({ chain: ["air", "bazel", "side-fix"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
   })
 
@@ -298,7 +331,7 @@ test.describe("The scopes of the stack", () => {
     expect(opened.data.from?.map(branch => branch.name)).toEqual(["air", "bazel", "bridge", "runtime", "deploy"])
     const window = await openLinkedSubWindow(page, opened)
     await window.getByTestId("branch-review-segment").filter({ hasText: "runtime" }).click()
-    expect((await openedReview(page, 2)).data).toMatchObject({ chain: ["air", "bazel", "bridge", "runtime"] })
+    expect((await openedReview(window, 1)).data).toMatchObject({ chain: ["air", "bazel", "bridge", "runtime"] })
   })
 
   test("should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root", async ({
@@ -314,7 +347,7 @@ test.describe("The scopes of the stack", () => {
     await whole.hover()
     await expect(window.getByRole("tooltip")).toHaveText("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3 commits, what the Safe Push of perf-part-2 lands")
     await whole.click()
-    expect((await openedReview(page, 2)).data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], focus: { range: "all" } })
+    expect((await openedReview(window, 1)).data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], focus: { range: "all" } })
 
     // the last branch: From Root is the whole stack already
     await reopenLinkedSubWindow(window, await openReviewWindow(page, "perf-part-2"))
@@ -582,9 +615,8 @@ test.describe("Branch review window", () => {
   }) => {
     const repo = await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
+    // the open says what to review; the window reads the heads and the actions from its own session
     const opened = await openReviewWindow(page, "login")
-    // the link of the main window says nothing of the heads: the window reads them from its own session
-    expect(Object.keys(opened.data.state).sort()).toEqual(["commitMenus", "createPullRequest", "groups", "items", "menus", "repositoryPath", "selected", "wholeStack"])
     const window = await openLinkedSubWindow(page, opened)
     const segments = window.getByTestId("branch-review-segment")
     await expect(segments).toHaveText(["auth1", "login2"])
@@ -629,147 +661,88 @@ test.describe("Branch review window", () => {
     await expect(window.getByTestId("branch-review-gone")).toHaveText("login is no longer a branch: it landed or was renamed")
     await expect(window.getByTestId("review-file-header").first()).toBeVisible()
     await expect(segments).toHaveText(["auth1", "login3"])
-    // the push of login, which the main window can no longer run, stays, disabled
+    // the push of login, which no longer is a branch, stays, disabled
     await expect(push).toBeDisabled()
     expect(reads).toBe(1)
   })
 
-  test("should act on the branch of the part from the title bar, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    const repo = await setupRepo("stacked_ownership", { patronus: availableRobots(), pullRequests: availablePullRequests(LOGIN_PULL_REQUEST), patronusProfiles: PROFILES })
-    // no approval needed: the Safe Push of each part is offered
-    await repo.setReviewAnswers({ answers: { auth: NO_REVIEW_NEEDED, login: NO_REVIEW_NEEDED } })
-    await syncAndWaitForBranches()
-    // the robots, the pull requests and the approvals load after the sync: the steps wait for them
-    for (const branch of ["auth", "login"]) {
-      await expect(findBranchRow(page, branch).getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
-    }
-    await expect(findBranchRow(page, "login").getByTestId("pull-request-chip")).toBeVisible()
-
-    // the window opens with the actions of each branch of its chain, the items of its menu
-    const opened = await openReviewWindow(page, "login")
-    const repositoryPath = opened.data.repositoryPath
-    // auth has no pull request: its Create pushes it first, on the remote or not; the remote lacks auth, so its first
-    // push is a step of Create and Safe Push: disabled with why, in its place, "⋯" pushes it alone. login's push
-    // updates its pull request
-    expect(itemSummary(opened.data.state.items)).toEqual({
-      auth: ["create-pull-request", "safe-push", 'push: Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone'],
-      login: ["open-pull-request", "safe-push", "push"],
-    })
-    expect(opened.data.state.items.login![0]).toMatchObject({ label: "Open Pull Request", kbds: ["o"], url: LOGIN_PULL_REQUEST.url })
-    // the Safe Push of login lands auth with it: the count of the branches it lands
-    expect(opened.data.state.items.login![1]).toMatchObject({ label: "Safe Push · 2", kbds: ["s"] })
-    expect(opened.data.state.items.auth![1]).toMatchObject({ label: "Safe Push", kbds: ["s"] })
-    // the push of login's menu and button, the stack; P is the previous change in the review: the push has no key there
-    expect(opened.data.state.items.login![2]).toEqual({ id: "push", label: "Push Stack (2 branches)", description: "Pushes auth and login, parents first" })
-    // a sync that rebuilds the branches as they were changes nothing the window offers: a push during it waits for it
-    await page.getByTestId("sync-button").click()
-    await expect(page.getByTestId("sync-button")).toBeEnabled()
-    const pushStates = async () =>
-      (await getEmittedEvents<BranchReviewWindowState>(page, "review/state")).map(it => it.items.login?.find(item => item.id === "push")?.description ?? null)
-    // no state with a reason the push is disabled
-    expect((await pushStates()).filter(it => it !== null && it !== "Pushes auth and login, parents first")).toEqual([])
-
-    await showReviewWindow(page, opened)
-    const footer = page.getByTestId("review-window-footer")
-    // the actions on the branch are in the title bar, the keys of the review in the footer
-    const actions = page.getByTestId("branch-review-actions")
-    await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 1 / 4")
+  test("should build the actions of the title bar of each part from the window's own session, and open the pull request itself", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    await setupLoginWithPullRequest(page, setupRepo, syncAndWaitForBranches)
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    const actions = window.getByTestId("branch-review-actions")
+    // login: its pull request (O), its Safe Push, which lands auth with it (S), the push of its stack, without a key
+    // (P is the previous change in the review); then its whole menu
+    await expect.poll(() => titleBarActions(window)).toEqual(["Open Pull Request", "Safe Push · 2", "Push Stack (2 branches)", "More actions for login"])
+    await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).hover()
+    await expect(window.getByRole("tooltip", { name: "Pushes auth and login, parents first" })).toBeVisible()
+    await window.mouse.move(0, 0)
+    const footer = window.getByTestId("review-window-footer")
+    await expect(window.getByTestId("review-position")).toHaveText("All Changes · File 1 / 4")
     await expect(footer).toContainText("JKFiles")
     await expect(footer).toContainText("NPChanges")
     await expect(footer).toContainText("EscClose")
 
-    // O opens the pull request in the window itself; Safe Push and Push ask the main window
-    await page.keyboard.press("o")
-    await expect.poll(() => getOpenedUrls(page)).toEqual([LOGIN_PULL_REQUEST.url])
-    await actions.getByRole("button", { name: "Safe Push · 2" }).click()
-    // the parent alone: its actions, without a pull request
-    await page.getByTestId("branch-review-segment").first().click()
-    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
-    // the remote lacks auth: its first push is a step of its Safe Push, the title bar keeps the push in its place,
-    // disabled with why
-    await expect(actions.getByRole("button", { name: /^Safe Push/ })).toBeVisible()
+    // O opens the pull request in the window itself, nothing asked of the main window
+    await window.locator("[aria-label='Changes of the commit']").focus()
+    await window.keyboard.press("o")
+    await expect.poll(() => getOpenedUrls(window)).toEqual([LOGIN_PULL_REQUEST.url])
+    // the parent alone: its actions, without a pull request; the remote lacks auth, so its first push is a step of its
+    // Create and its Safe Push: disabled with why, in its place, "⋯" pushes it alone
+    await window.getByTestId("branch-review-segment").first().click()
+    await expect.poll(() => titleBarActions(window)).toEqual(["Create Pull Request…", "Safe Push", "Push Branch (1)", "More actions for auth"])
     const firstPush = actions.getByRole("button", { name: /^Push/ })
     await expect(firstPush).toBeDisabled()
     await firstPush.hover()
-    await expect(page.getByRole("tooltip", { name: 'Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone' })).toBeVisible()
-    await page.mouse.move(0, 0)
-    await page.keyboard.press("s")
-    // the whole stack: the reviewed branch
-    await page.getByRole("button", { name: "From Root" }).click()
-    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeVisible()
-    await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).click()
-    await expect
-      .poll(() => windowRequests(page))
-      .toEqual([
-        { repositoryPath, branchName: "login", itemId: "safe-push" },
-        { repositoryPath, branchName: "auth", itemId: "safe-push" },
-        { repositoryPath, branchName: "login", itemId: "push" },
-      ])
-    const requests = await getEmittedEvents<BranchReviewRequest>(page, "review/request")
+    await expect(window.getByRole("tooltip", { name: 'Safe Push and Create Pull Request… push auth first: "⋯" pushes it alone' })).toBeVisible()
+    expect(await windowRuns(window)).toEqual([])
+  })
 
-    // the main window shows another repository: what it runs waits for it, the pull request opens from here
-    const emptyState = (repository: string, selected: boolean): BranchReviewWindowState => ({
-      repositoryPath: repository,
-      selected,
-      items: {},
-      menus: {},
-      createPullRequest: null,
-      wholeStack: null,
-      commitMenus: {},
-      groups: null,
-    })
-    await emitTauriEvent(page, "review/state", emptyState("/elsewhere", true))
-    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
-    await emitTauriEvent(page, "review/state", emptyState(repositoryPath, false))
-    // they stay: a click switches the main window to this repository first, as the hover says
-    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeEnabled()
-    // the tooltip of the button the mouse was on closes first
-    await page.mouse.move(0, 0)
-    await expect(page.getByRole("tooltip")).toHaveCount(0)
-    await actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true }).hover()
-    await expect(page.getByRole("tooltip").filter({ hasText: /^Switches the main window to / })).toBeVisible()
-    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toBeEnabled()
+  test("should run the Safe Push and the push of the title bar at the rows of the main window, switched to the repository of the review first", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupLoginWithPullRequest(page, setupRepo, syncAndWaitForBranches, { otherRepository: true })
+    const opened = await openReviewWindow(page, "login")
+    const { repositoryPath } = opened.data
+    const window = await openLinkedSubWindow(page, opened)
+    const actions = window.getByTestId("branch-review-actions")
+    const push = actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true })
+    await expect(push).toBeEnabled()
 
-    // a running robot disables the Safe Push; the pull request is gone
-    await emitTauriEvent(page, "review/state", {
-      ...opened.data.state,
-      items: { login: [{ id: "safe-push", label: "Safe Push · 2", kbds: ["s"], disabled: true, description: "A Safe Push of the last commit is running" }] },
-    } satisfies BranchReviewWindowState)
-    await expect(actions.getByRole("button", { name: "Open Pull Request" })).toHaveCount(0)
-    await expect(actions.getByRole("button", { name: "Push Stack (2 branches)", exact: true })).toHaveCount(0)
-    await expect(actions.getByRole("button", { name: "Safe Push · 2" })).toBeDisabled()
-    await page.keyboard.press("s")
-    expect(await getEmittedEvents(page, "review/request")).toHaveLength(3)
-
-    // a refusal of the main window shows where the user is
-    await emitTauriEvent(page, "review/feedback", {
-      kind: "error",
-      title: "Cannot push branch login",
-      message: "The remote branch is up to date",
-    } satisfies BranchReviewFeedback)
-    await expect(page.getByText("Cannot push branch login")).toBeVisible()
-
-    // the main window, in the page again: its listener runs what the window asked for
-    await page.goto(`/?repoId=${new URL(page.url()).searchParams.get("repoId")}`)
-    await syncAndWaitForBranches()
-    // the Safe Push the window asks for runs once its step is known
-    await expect(findBranchRow(page, "login").getByTestId("next-step-slot")).toHaveAttribute("data-step", "safePush")
-    // a repository the main window can't switch to: refused with the reason, in the window
-    await emitTauriEvent(page, "review/request", { ...requests[2]!, id: "elsewhere", repositoryPath: "/elsewhere" })
-    await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "elsewhere", ok: false }])
-    expect(await getEmittedEvents(page, "review/feedback")).toEqual([
-      { kind: "error", title: "Cannot push branch login", message: "elsewhere is no longer among the repositories of the main window" },
-    ])
-    await emitTauriEvent(page, "review/request", requests[2])
-    // the push of the row: the stack, in one push
+    // the main window shows another repository: an action it runs at a row says that it switches back first
+    await switchRepository(page, OTHER_REPOSITORY)
+    await push.hover()
+    await expect(window.getByRole("tooltip").filter({ hasText: /^Switches the main window to / })).toBeVisible()
+    await window.mouse.move(0, 0)
+    // the push asks first at the row when it would drop remote commits: the main window runs it there, switched back,
+    // the stack in one push
+    await push.click()
     await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
-    // the Safe Push of login lands auth with it: something to say, the popover at login's row
-    await emitTauriEvent(page, "review/request", requests[0])
+    await expect(findBranchRow(page, "login")).toBeVisible()
+
+    // S: the Safe Push of login lands auth with it, something to say: the popover at login's row of the main window
+    await window.locator("[aria-label='Changes of the commit']").focus()
+    await window.keyboard.press("s")
     await expect(safePushPopover(page)).toHaveAttribute("data-decision", "confirm")
     await expect(safePushPopover(page).getByTestId("safe-push-lands")).toContainText("Lands login with auth")
-    await expect.poll(async () => (await getEmittedEvents<{ ok: boolean }>(page, "review/reply")).map(it => it.ok)).toEqual([false, true, true])
-    // the window asked: the main window comes to the front, once per request it ran
+    expect(await windowRuns(window)).toEqual([
+      { repositoryPath, subject: "login", itemId: "push" },
+      { repositoryPath, subject: "login", itemId: "safe-push" },
+    ])
+    // the main window comes to the front, once per action it ran
     expect(await page.evaluate(() => (window as unknown as { __e2eWindowCalls?: string[] }).__e2eWindowCalls?.filter(it => it === "set_focus"))).toEqual(["set_focus", "set_focus"])
+
+    // a repository the main window can't switch to: refused with the reason, shown in the window
+    await emitTauriEvent(page, "review/run", { id: "elsewhere", repositoryPath: "/elsewhere", subject: "login", itemId: "push" } satisfies ReviewRunRequest)
+    await expect
+      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "review/reply")).filter(it => it.id === "elsewhere"))
+      .toEqual([{ id: "elsewhere", ok: false }])
+    await expect(window.getByText("elsewhere is no longer among the repositories of the main window")).toBeVisible()
   })
 
   test("should run an item of the branch's menu from the window's ⋯, in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -780,41 +753,35 @@ test.describe("Branch review window", () => {
     await reviewPage.getByRole("menuitem", { name: "Rename…" }).click()
     // the main window runs it: the rename form of the row
     await expect(page.getByTestId("inline-rename-input")).toBeVisible()
-    expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", menuItemId: "rename" })])
+    expect(await windowRuns(reviewPage)).toEqual([expect.objectContaining({ subject: "auth", itemId: "rename" })])
   })
 
-  test("should run an Unstack the window asks for while the row's own runs once: the request joins it, its item running in the window", async ({
+  test("should show the Unstack the row runs as running in the window's menu, from the window's own session, and run it once", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
     const repo = await setupRepo("stacked_branches")
     await syncAndWaitForBranches()
-    const opened = await openReviewWindow(page, "oauth")
-    const { repositoryPath } = opened.data
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "oauth"))
+    await expect(window.getByTestId("review-file-header").first()).toBeVisible()
     const unstacks = await recordRewrites(page, "unstack")
     // the row's menu starts it: it waits in the session for the repository lock another process holds
     await repo.holdRepositoryLock(true)
     await openContextMenu(page, findBranchRow(page, "oauth"))
     await clickContextMenuItem(page, "Unstack from login")
     await expect.poll(() => unstacks.length).toBe(1)
-    // the window is told: the item of its menu runs, as on the row
-    const unstackOfWindow = async () =>
-      (await getEmittedEvents<BranchReviewWindowState>(page, "review/state"))
-        .at(-1)
-        ?.menus.oauth?.flat()
-        .find(item => item.id === "unstack")
-    await expect.poll(unstackOfWindow).toMatchObject({ running: true, disabled: true })
-    // the window asks for it at the same time: its request is that start, no second one
-    await emitTauriEvent(page, "review/request", { id: "again", repositoryPath, branchName: "oauth", menuItemId: "unstack" } satisfies BranchReviewRequest)
-    await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "again", ok: true }])
+    // the window's session runs it: the item of its menu is running, as on the row, so a click there starts nothing
+    await window.getByTestId("branch-review-actions").getByRole("button", { name: "More actions for oauth" }).click()
+    await expect(window.getByRole("menuitem", { name: "Unstack from login" })).toBeDisabled()
+    await window.keyboard.press("Escape")
     await runAndWaitForSync(page, () => repo.holdRepositoryLock(false))
     await expect(page.getByText(/^Unstacked oauth/)).toBeVisible()
     expect(unstacks).toHaveLength(1)
-    expect(await getEmittedEvents(page, "review/feedback")).toEqual([])
+    expect(await windowRuns(window)).toEqual([])
   })
 
-  test("should create the pull request in the window it was asked in, through the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should create the pull request in the window, with the context of its own session", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupAuthWithoutPullRequest(page, setupRepo, syncAndWaitForBranches)
 
     const reviewPage = await openLinkedSubWindow(page, await openReviewWindow(page, "auth"))
@@ -834,7 +801,7 @@ test.describe("Branch review window", () => {
     await expect(dialog.getByTestId("create-pull-request-title")).toBeFocused()
     await reviewPage.keyboard.type(" so")
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("Add the token so")
-    expect(await windowRequests(reviewPage)).toEqual([expect.objectContaining({ branchName: "auth", dialog: "open" })])
+    expect(await windowRuns(reviewPage)).toEqual([])
     expect(await getOpenedUrls(reviewPage)).toEqual([])
 
     // Escape closes the dialog, not the window
@@ -842,10 +809,10 @@ test.describe("Branch review window", () => {
     await expect(dialog).toBeHidden()
     expect(await windowCalls()).not.toContain("close")
 
-    // the main window creates it (the push, then the pull request: the answer first); the toast is in the window, which
+    // the window creates it (the push, then the pull request: the answer first); the toast is in the window, which
     // opens the pull request
     await actions.getByRole("button", { name: "Create Pull Request…" }).click()
-    await runAndWaitForAnswer(page, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
+    await runAndWaitForAnswer(reviewPage, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
     await expect(dialog).toBeHidden()
     const toast = reviewPage.locator("[data-slot=toast]", { hasText: "Created pull request #77" })
     await expect(toast).toBeVisible()
@@ -854,19 +821,7 @@ test.describe("Branch review window", () => {
     await toast.getByRole("button", { name: "Open Pull Request" }).click()
     await expect.poll(() => getOpenedUrls(reviewPage)).toEqual([pullRequest("auth", 77).url])
 
-    // a main window that shows another repository refuses the creation, in the window
-    const input = { title: "Add auth", body: "", reviewers: [], assignSelf: true, viewerLogin: null }
-    await emitTauriEvent(page, "review/request", {
-      id: "elsewhere",
-      repositoryPath: "/elsewhere",
-      branchName: "auth",
-      dialog: "create",
-      input,
-    } satisfies BranchReviewRequest)
-    await expect
-      .poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "review/reply")).filter(it => it.id === "elsewhere"))
-      .toEqual([{ id: "elsewhere", ok: false }])
-    expect(await gitHubRequests(repo, "POST", "pulls")).toHaveLength(1)
+    expect(await windowRuns(reviewPage)).toEqual([])
   })
 
   test("should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes", async ({
@@ -890,16 +845,16 @@ test.describe("Branch review window", () => {
     await getBranchCommitRow(page, "login", "Add the login form").hover()
     await page.keyboard.press("d")
     const moved = await openedReview(page, 2)
-    expect(moved.data).toMatchObject({ move: true, chain: ["auth", "login"] })
+    expect(moved.data).toMatchObject({ branchName: "login", chain: ["auth", "login"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
     await reopenLinkedSubWindow(reviewPage, moved)
     await expect(title).toHaveValue(typed)
     await expect(reviewPage.getByTestId("range-review-commit-header")).toHaveCount(0)
 
-    // the review of another chain would start the window over: refused, the dialog keeps what was typed
+    // the review of another chain would start the window over: the window refuses it, the dialog keeps what was typed
     await findBranchRow(page, "auth").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect(page.locator("[data-slot=toast]", { hasText: "Cannot review auth" })).toBeVisible()
-    expect(await getOpenedSubWindows(page)).toHaveLength(2)
+    await reopenLinkedSubWindow(reviewPage, await openedReview(page, 3))
+    await expect(reviewPage.locator("[data-slot=toast]", { hasText: "Cannot review auth" })).toBeVisible()
     await expect(title).toHaveValue(typed)
 
     // the dialog closes: the window shows the commit

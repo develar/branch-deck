@@ -310,5 +310,32 @@
         "op": "01JBUSY0000000000000000000"
       }
     ]
+  ],
+  "rowForms": [
+    "safe-push",
+    "safe-push-with-profile",
+    "dry-run",
+    "safe-push-without-review",
+    "push",
+    "push-with-children",
+    "pick-remote-commits",
+    "push-to-baseline",
+    "merge-pull-request",
+    "request-review",
+    "rename",
+    "move-to",
+    "stack-on",
+    "ungroup",
+    "amend-changes",
+    "add-issue-reference",
+    "squash-fixups",
+    "unapply",
+    "park",
+    "delete-kept-branch",
+    "safe-push-whole-stack",
+    "dry-run-whole-stack",
+    "safe-push-main-line",
+    "close-stack-pull-request",
+    "start-robot-in-air"
   ]
 }

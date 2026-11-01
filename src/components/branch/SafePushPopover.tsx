@@ -38,7 +38,8 @@ import { formatPushMode, formatReviewerGroup, formatReviewerGroupFiles } from "@
 import { openMergeRequest } from "@/lib/patronus-merge-request"
 import type { StackAlone } from "@/lib/patronus-stack"
 import { describeStackLanding } from "@/lib/patronus-stack"
-import { openBranchReviewWindow, openWholeStackReviewWindow, toReviewGroups } from "@/lib/review-window"
+import { toReviewGroups } from "@/lib/review-groups"
+import { openBranchReviewWindow, openWholeStackReviewWindow } from "@/lib/review-window"
 import { openSettings } from "@/lib/settings-window"
 import { joinNames } from "@/lib/text"
 import {

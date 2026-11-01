@@ -17,71 +17,91 @@ import { WindowPage } from "@/components/shared/WindowPage"
 import { WindowTitle } from "@/components/shared/WindowTitleBar"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import type { BranchReviewModel } from "@/hooks/useBranchReview"
-import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
+import { useLinkedFeedback } from "@/hooks/useMainWindowLink"
+import { useReviewActions } from "@/hooks/useReviewActions"
+import type { ReviewActionItem } from "@/hooks/useReviewActions"
 import { planFacts, useSubjectPlan } from "@/hooks/useReviewPlan"
 import { useSessionFactStores } from "@/hooks/useSessionFactStores"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
-import { branchGoneReason, keptGoneReason, sameReviewTable, settledKeptTable, settledReviewTable } from "@/lib/branch-review"
+import { branchGoneReason, keptGoneReason, reviewCommitKey, sameReviewTable, settledKeptTable, settledReviewTable } from "@/lib/branch-review"
 import type { ReviewedTable } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
+import { FROM_MENU } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { commitItems, isSingleCommit, rangePosition } from "@/lib/range-review"
-import { repositoryName } from "@/lib/repository-config"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
-import { pushReviewHistory, restoredReview, reviewSubjectName, reviewWindowTitle, shownReviewOf } from "@/lib/review-reuse"
-import type { ReviewPlace } from "@/lib/review-reuse"
+import { pushReviewHistory, restoredReview, reviewSubjectName, reviewWindowTitle, takeOpen } from "@/lib/review-reuse"
+import type { ReviewPlace, ShownReviewWindow } from "@/lib/review-reuse"
+import { askReviewRun } from "@/lib/review-runs"
+import type { ReviewRunFeedback } from "@/lib/review-runs"
+import { openBranchReviewWindow, openWholeStackReviewWindow, reviewBranchCommit } from "@/lib/review-window"
 import { showToast } from "@/lib/toast-message"
-import { formatWholeStack } from "@/lib/whole-stack"
+import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
 import { REVIEW_WINDOW } from "@/lib/window-label"
+import { showReviewReadiness } from "@/model/demand"
 import { ensureSession, viewVersionKey } from "@/model/store"
 import { archivedBranchesStore } from "@/stores/archived-branches"
-import { branchSyncStore } from "@/stores/branch-sync"
+import { branchSyncStore, getBranch, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
+import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
 import { unappliedBranchesStore } from "@/stores/unapplied-branches"
-import type {
-  BranchReviewFeedback,
-  BranchReviewItem,
-  BranchReviewMenuItem,
-  BranchReviewRequest,
-  BranchReviewRequestItem,
-  BranchReviewWindowData,
-  CommitsReviewWindowData,
-  KeptReview,
-  ReviewWindowData,
-} from "@/types/sub-window"
+import type { KeptReview, ReviewWindowData } from "@/types/sub-window"
 
-const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
+// loaded on the first open, then kept mounted (the dialog animates and returns the focus when it closes)
+const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
 
 /** Where a review of the window says it is, by the start of the review: Back restores it there */
 type ReportPlace = (place: ReviewPlace) => void
 
+type ShownBranchReview = Extract<ShownReviewWindow, { kind: "branch" }>
+type ShownCommitsReview = Extract<ShownReviewWindow, { kind: "commits" }>
+
 /**
  * The review window (spec/review/review-window.spec.md#one-window), one for every subject: a branch with its stack, the
  * whole stack of a root, a kept branch (`BranchReview` on the canvas of the window), or a list of commits (the commits
- * above the files, `RangeReview`). An open of the review on screen keeps it (a move shows its commit); a new start
- * (`startedAt`) shows the new subject and keeps the one it left in the history of the window, at the place it was:
- * Back (⌘[, the button at the start of the title bar) starts that one over. The window subscribes to the session of its
- * repository for the heads a sync built and the baseline.
+ * above the files, `RangeReview`). It gets every open and decides how it goes on from the review on screen
+ * (`takeOpen`, the one rule `planReviewOpen`): an open of the review on screen keeps it (a move shows its commit); a new
+ * start shows the new subject and keeps the one it left in the history of the window, at the place it was: Back (⌘[,
+ * the button at the start of the title bar) starts that one over. A start over while the "Create pull request" dialog
+ * holds what the user typed is refused. The window holds the session of its repository and the stores of its facts,
+ * from which it builds the actions of what it shows (`useReviewActions`).
  */
 export function ReviewPage() {
   const incoming = useSubWindowData<ReviewWindowData>()
-  // the open last taken, the review on screen, the reviews it left (the latest last)
-  const [taken, setTaken] = useState(incoming)
-  const [shown, setShown] = useState(incoming)
-  const [history, setHistory] = useState<readonly ReviewWindowData[]>([])
+  const dialogBranch = useCreatePullRequestBranch()
+  // the open last taken, the review on screen, the reviews it left (the latest last), an open the dialog refused
+  const [taken, setTaken] = useState<ReviewWindowData | null>(null)
+  const [shown, setShown] = useState<ShownReviewWindow | null>(null)
+  const [history, setHistory] = useState<readonly ShownReviewWindow[]>([])
+  const [refused, setRefused] = useState<{ subject: string; dialog: string; at: number } | null>(null)
   if (incoming !== taken) {
     setTaken(incoming)
     if (incoming !== null) {
-      if (shown !== null && incoming.startedAt !== shown.startedAt) {
-        setHistory(pushReviewHistory(history, shown))
+      // the open names its own start: the same open always takes the same way
+      const next = takeOpen(shown, incoming, incoming.openedAt)
+      if (next.restarted && dialogBranch !== null) {
+        setRefused({ subject: reviewSubjectName(incoming), dialog: dialogBranch, at: incoming.openedAt })
+      } else {
+        if (next.restarted && shown !== null) {
+          setHistory(pushReviewHistory(history, shown))
+        }
+        setShown(next.shown)
       }
-      setShown(incoming)
     }
   }
+  useEffect(() => {
+    if (refused !== null) {
+      showToast({
+        type: "info",
+        title: `Cannot review ${refused.subject}`,
+        description: `The review window has the pull request of ${refused.dialog} open: create it or close the dialog first`,
+      })
+    }
+  }, [refused])
   // where each review of the window is, by its start
   const places = useRef(new Map<number, ReviewPlace>())
   const repositoryPath = shown?.repositoryPath ?? null
@@ -95,6 +115,8 @@ export function ReviewPage() {
   // the stores of its facts (the robots, the pull requests, the readiness, the review requests), as the main window's
   // are: the actions read them; the news of the session are the main window's
   useSessionFactStores()
+  // why the main window refused an action the window asked it to run at its row
+  useLinkedFeedback<ReviewRunFeedback>(REVIEW_WINDOW, feedback => notifyError(feedback.title, feedback.message))
 
   const back = () => {
     const previous = history.at(-1)
@@ -111,12 +133,6 @@ export function ReviewPage() {
     }
     setHistory(rest)
     setShown(restored)
-    // the main window sends the actions of what the window shows now
-    void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, {
-      repositoryPath: restored.repositoryPath,
-      branchName: restored.kind === "branch" ? (restored.chain.at(-1) ?? "") : "",
-      shows: shownReviewOf(restored),
-    })
   }
   const handleBackKey = useEffectEvent((event: KeyboardEvent) => {
     // ⌘[ on macOS, Ctrl+[ elsewhere, as Back of a browser; not in a dialog of the window
@@ -136,6 +152,11 @@ export function ReviewPage() {
     return () => window.removeEventListener("keydown", listener)
   }, [])
 
+  const [isDialogLoaded, setDialogLoaded] = useState(false)
+  if (dialogBranch !== null && !isDialogLoaded) {
+    setDialogLoaded(true)
+  }
+
   if (shown === null) {
     return null
   }
@@ -146,10 +167,23 @@ export function ReviewPage() {
     places.current.set(startedAt, place)
   }
   const key = `${shown.repositoryPath}\n${startedAt}`
-  return shown.kind === "commits" ? (
-    <CommitsReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} />
-  ) : (
-    <BranchReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} />
+  const shownRepository = shown.repositoryPath
+  return (
+    <>
+      {shown.kind === "commits" ? (
+        <CommitsReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} />
+      ) : (
+        <BranchReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} dialogOpen={dialogBranch !== null} />
+      )}
+      {/* outside the review: its keys never see what is typed into the dialog */}
+      {isDialogLoaded && (
+        <Suspense fallback={null}>
+          <CreatePullRequestDialog
+            safePushWithoutReview={branchName => void askReviewRun({ repositoryPath: shownRepository, subject: branchName, itemId: "safe-push-without-review" })}
+          />
+        </Suspense>
+      )}
+    </>
   )
 }
 
@@ -190,9 +224,9 @@ function settledTable(chain: readonly string[], wholeStack: boolean, kept: KeptR
 
 /**
  * The review of a kept branch that was reapplied goes on as the review of the branch it is again, once a sync built it:
- * the window asks the main window to open it, as the menu of the row would
+ * the window opens it itself, as the menu of the row would
  */
-function useReappliedReview(data: BranchReviewWindowData, gone: boolean): void {
+function useReappliedReview(data: ShownBranchReview, gone: boolean): void {
   const kept = data.kept
   const branchName = data.chain[0] ?? ""
   const rebuilt = useStore(branchSyncStore, state => kept !== undefined && gone && state.branches[branchName] !== undefined)
@@ -202,9 +236,24 @@ function useReappliedReview(data: BranchReviewWindowData, gone: boolean): void {
   }
   useEffect(() => {
     if (asked) {
-      void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, review: "branch" })
+      void openBranchReviewWindow(branchName)
     }
-  }, [asked, data.repositoryPath, branchName])
+  }, [asked, branchName])
+}
+
+/**
+ * The readiness of the branches the review shows the Safe Push of, while it shows them: their next step reads it, as a
+ * row's does (of a whole stack the next step of the whole stack, as the header of its island does); none of a kept branch
+ */
+function useShownReadiness(chain: readonly string[], wholeStack: boolean, kept: boolean): void {
+  const subjects = kept ? "" : wholeStack ? stackReadinessKey(chain[0] ?? "") : chain.join("\n")
+  useEffect(() => {
+    if (subjects === "") {
+      return
+    }
+    const hides = subjects.split("\n").map(subject => showReviewReadiness(subject))
+    return () => hides.forEach(hide => hide())
+  }, [subjects])
 }
 
 /** The place of a review of a branch: its part by the names of its ends, the filter, the commit, the file */
@@ -229,69 +278,35 @@ function branchPlace(model: BranchReviewModel): ReviewPlace | null {
 /**
  * The review of a branch (`BranchReview` on the canvas of the window): the stack bar, Unified/Split and the actions on
  * the branch of the part in the title bar, the commits and the owner chips above the files beside the diffs in the
- * island, the position and the keys in the footer. The heads a sync built, the baseline and the branch of each commit
- * of a whole stack come from the window's own subscription to the session of its repository; the window doesn't own
- * the branches: the main window sends the actions of each branch over the link of the window, and runs what it asks
- * for.
+ * island, the position and the keys in the footer. The heads a sync built, the baseline, the branch of each commit of a
+ * whole stack and the actions come from the window's own session; the window runs the actions itself, those that open
+ * a form under the row of their subject by the main window (`review/run`).
  */
-function BranchReviewWindow({ data, back, onPlace }: { data: BranchReviewWindowData; back: ReactNode; onPlace: ReportPlace }) {
-  // what the main window says of the chain: the actions of each branch
-  const linked = useLinkedState(REVIEW_WINDOW, data.state)
+function BranchReviewWindow({ data, back, onPlace, dialogOpen }: { data: ShownBranchReview; back: ReactNode; onPlace: ReportPlace; dialogOpen: boolean }) {
   // the window's view of the session: the heads the last sync built, the baseline
   const wholeStack = data.wholeStack === true
   const table = useReviewedTable(data.chain, wholeStack, data.kept)
   const viewVersion = useStore(branchSyncStore, state => viewVersionKey(state.viewVersion))
   // the review plan, as the last sync of the window's session read `branchdeck.reviewExperimental`
   const reviewExperimental = useStore(branchSyncStore, state => state.reviewExperimental)
-  // the "Create pull request" dialog of a branch of the chain: in this window, its context from the main window; a move
-  // to a commit waits until it closes
-  const [dialog, setDialog] = useState<{ branchName: string; generation: number } | null>(null)
-  // the reviewer groups of the check that answered while the window is open, else those of the open
-  const groups = linked.selected ? linked.groups : null
+  const baselineBranch = table?.baselineBranch ?? data.baselineBranch
+  // what the window can do with the branches, from its own session
+  const actions = useReviewActions({ repositoryPath: data.repositoryPath, baselineBranch, chain: data.chain, wholeStack, kept: data.kept })
+  useShownReadiness(data.chain, wholeStack, data.kept !== undefined)
+  // the reviewer groups of the check that answered while the window is open, else those of the open; a move to a commit
+  // waits while the "Create pull request" dialog is open
   const model = useBranchReview(
-    { ...data, baselineBranch: table?.baselineBranch ?? data.baselineBranch, groups: groups === null ? data.groups : [...groups], reviewExperimental },
+    { ...data, baselineBranch, groups: actions.groups === null ? data.groups : [...actions.groups], reviewExperimental },
     data.focus,
     { known: table !== null, tips: table?.tips ?? {} },
-    { openedAt: data.openedAt, focus: data.move ? data.focus : null, held: dialog !== null },
+    { openedAt: data.openedAt, focus: data.move ? data.focus : null, held: dialogOpen },
   )
-  // the actions of each branch while the main window showed the repository and had it: they stay (those that need the
-  // main window disabled) while it shows another one, and for a branch that left
-  const [seenItems, setSeenItems] = useState(data.state.items)
-  const [knownItems, setKnownItems] = useState(data.state.items)
-  if (linked.selected && linked.items !== seenItems) {
-    setSeenItems(linked.items)
-    setKnownItems({ ...knownItems, ...linked.items })
-  }
-  useLinkedFeedback<BranchReviewFeedback>(REVIEW_WINDOW, feedback => {
-    if (feedback.kind === "error") {
-      notifyError(feedback.title, feedback.message)
-      return
-    }
-    const url = feedback.pullRequestUrl
-    showToast({ ...feedback.toast, ...(url !== null && { action: { children: "Open Pull Request", onClick: () => openPullRequestUrl(url) } }) })
-  })
-  // loaded on the first open, then kept mounted (the dialog animates and returns the focus when it closes)
-  const [isDialogLoaded, setDialogLoaded] = useState(false)
-  if (dialog !== null && !isDialogLoaded) {
-    setDialogLoaded(true)
-  }
-  // the review of the whole stack asks for the actions, the menu and the dialog of the whole stack of its root
-  const askDialog = (branchName: string, open: boolean) =>
-    void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, {
-      repositoryPath: data.repositoryPath,
-      branchName,
-      ...(wholeStack && { wholeStack }),
-      dialog: open ? "open" : "close",
-    })
-  const openDialog = (branchName: string) => {
-    setDialog({ branchName, generation: (dialog?.generation ?? 0) + 1 })
-    askDialog(branchName, true)
-  }
-  const closeDialog = () => {
-    if (dialog !== null) {
-      askDialog(dialog.branchName, false)
-    }
-    setDialog(null)
+  // the actions of each branch as the session had it last: they stay, disabled, for a branch that left
+  const [seenItems, setSeenItems] = useState(actions.items)
+  const [knownItems, setKnownItems] = useState(actions.items)
+  if (actions.items !== seenItems) {
+    setSeenItems(actions.items)
+    setKnownItems({ ...knownItems, ...actions.items })
   }
 
   const { loaded } = model
@@ -304,37 +319,18 @@ function BranchReviewWindow({ data, back, onPlace }: { data: BranchReviewWindowD
     }
   })
   const target = loaded?.target ?? data.chain.at(-1) ?? ""
-  // up to the whole stack and down to a branch of it: the main window opens the review as its menus would
+  const gone = model.gone.includes(target)
+  // up to the whole stack and down to a branch of it: the window opens the review as the menus of the rows would
   const moves: BranchReviewMoves = {
-    wholeStack: linked.wholeStack,
-    onWholeStack: () => void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName: target, scope: "wholeStack" }),
+    wholeStack: actions.wholeStack,
+    onWholeStack: () => void reviewWholeStackOf(data.chain, actions),
     from: data.from ?? [],
     stackCommits: table?.stackCommits ?? noStackCommits,
-    commitMenus: linked.commitMenus,
-    onCommitMenuItem: (branchName, commitId, commitMenuItemId) =>
-      void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, commitMenuItemId, commitId }),
-    onBranch: (branchName, commitKey) =>
-      void askMainWindow<BranchReviewRequest>(
-        REVIEW_WINDOW,
-        commitKey === undefined
-          ? { repositoryPath: data.repositoryPath, branchName, review: "branch" }
-          : { repositoryPath: data.repositoryPath, branchName, review: "commit", commitKey },
-      ),
+    commitMenus: actions.commitMenus,
+    onBranch: (branchName, commitKey) => void reviewBranchOf(branchName, commitKey),
   }
-  const actions = useBranchReviewActions(
-    data.repositoryPath,
-    loaded?.target ?? "",
-    loaded === null
-      ? []
-      : shownItems(knownItems[loaded.target] ?? [], {
-          repositoryPath: data.repositoryPath,
-          branchName: loaded.target,
-          selected: linked.selected,
-          gone: model.gone.includes(loaded.target),
-          kept: data.kept,
-        }),
-    { openCreatePullRequest: openDialog, keysSuspended: dialog !== null, wholeStack, kept: data.kept },
-  )
+  const items = loaded === null ? [] : shownItems(knownItems[loaded.target] ?? [], gone ? goneReason(loaded.target, data.kept) : null)
+  const run = useBranchReviewActions(items, dialogOpen)
   return (
     <WindowPage
       data-testid="review-window"
@@ -354,15 +350,11 @@ function BranchReviewWindow({ data, back, onPlace }: { data: BranchReviewWindowD
             <DiffViewToggle />
             <div className="flex items-center gap-1" data-testid="branch-review-actions">
               <BranchReviewMarkReviewed model={model} />
-              <BranchReviewActions actions={actions.items} branchName={loaded.target} onRun={actions.run} />
+              <BranchReviewActions actions={items} branchName={loaded.target} onRun={run} />
               <BranchReviewMenu
-                repositoryPath={data.repositoryPath}
-                branchName={loaded.target}
-                groups={linked.menus?.[loaded.target] ?? []}
-                selected={linked.selected}
-                gone={model.gone.includes(loaded.target)}
-                wholeStack={wholeStack}
-                kept={data.kept}
+                name={wholeStack ? formatWholeStack(loaded.target) : loaded.target}
+                groups={actions.menus[loaded.target] ?? []}
+                goneReason={gone ? goneReason(loaded.target, data.kept) : null}
               />
             </div>
           </>
@@ -390,12 +382,6 @@ function BranchReviewWindow({ data, back, onPlace }: { data: BranchReviewWindowD
           <BranchReviewBody model={model} moves={moves} />
         </div>
       </Card>
-      {/* outside the review: its keys never see what is typed into the dialog */}
-      {isDialogLoaded && (
-        <Suspense fallback={null}>
-          <WindowCreatePullRequestDialog repositoryPath={data.repositoryPath} dialog={dialog} wholeStack={wholeStack} context={linked.createPullRequest} onClose={closeDialog} />
-        </Suspense>
-      )}
     </WindowPage>
   )
 }
@@ -403,100 +389,70 @@ function BranchReviewWindow({ data, back, onPlace }: { data: BranchReviewWindowD
 const noStackCommits: Readonly<Record<string, string>> = {}
 
 /**
- * "⋯" of the title bar: the whole menu of the branch's row, as the main window sends it; the main window runs the item
- * (it focuses itself and shows the row: a rename or an amend is a form of the row; it switches to this repository first
- * while it shows another one). Disabled once the branch left, as the actions it runs.
+ * "Whole Stack" of the stack bar of `chain`: the review of the whole stack of its root, the chain its way back; of a
+ * straight chain the review of its last branch from the root, all of it
  */
-function BranchReviewMenu({
-  repositoryPath,
-  branchName,
-  groups,
-  selected,
-  gone,
-  wholeStack,
-  kept,
-}: {
-  repositoryPath: string
-  branchName: string
-  groups: readonly (readonly BranchReviewMenuItem[])[]
-  selected: boolean
-  gone: boolean
-  wholeStack: boolean
-  kept: KeptReview | undefined
-}) {
+function reviewWholeStackOf(
+  chain: readonly string[],
+  actions: { readonly wholeStack: { readonly root: string; readonly disabled?: boolean; readonly description: string } | null },
+): Promise<boolean> {
+  const scope = actions.wholeStack
+  const root = chain[0] ?? ""
+  if (scope === null || scope.disabled === true) {
+    notifyError(`Cannot review ${formatWholeStack(root)}`, scope?.description ?? `${root} heads no stack beyond ${chain.at(-1)}`)
+    return Promise.resolve(false)
+  }
+  if (isForkingRoot(branchSyncStore.getState(), root)) {
+    return openWholeStackReviewWindow(root, { from: chain })
+  }
+  return openBranchReviewWindow(mainLineOf(branchSyncStore.getState(), root).at(-1) ?? root, { range: "all" })
+}
+
+/** The review of the branch `name` of the stack on screen, at its commit of `commitKey` (`reviewCommitKey`) of the whole stack */
+function reviewBranchOf(name: string, commitKey: string | undefined): Promise<boolean> {
+  const branch = getBranch(name)
+  if (branch === undefined) {
+    notifyError(`Cannot review ${name}`, branchGoneReason(name))
+    return Promise.resolve(false)
+  }
+  const commit = commitKey === undefined ? undefined : branch.commits.find(it => reviewCommitKey({ ...it, subject: it.strippedSubject }) === commitKey)
+  return (commit === undefined ? null : reviewBranchCommit(name, commit.originalHash, null)) ?? openBranchReviewWindow(name)
+}
+
+/**
+ * "⋯" of the title bar: the whole menu of the row of the branch (of the whole stack, of the kept branch), each item run
+ * where its action runs (`useReviewActions`); disabled once the branch left
+ */
+function BranchReviewMenu({ name, groups, goneReason }: { name: string; groups: MenuItemGroups; goneReason: string | null }) {
   if (groups.length === 0) {
     return null
   }
-  const items: MenuItemGroups = groups.map(group =>
-    group.map(item => ({
-      ...item,
-      ...(gone && { disabled: true, description: goneReason(branchName, kept) }),
-      ...(!gone && !selected && item.disabled !== true && { description: switchesRepository(repositoryPath) }),
-      onSelect: () =>
-        void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, {
-          repositoryPath,
-          branchName,
-          ...(wholeStack && { wholeStack }),
-          ...(kept !== undefined && { kept }),
-          menuItemId: item.id,
-        }),
-    })),
-  )
-  return <MoreActionsMenu name={wholeStack ? formatWholeStack(branchName) : branchName} menu={<DropdownMenuItems groups={items} />} />
+  const items: MenuItemGroups = goneReason === null ? groups : groups.map(group => group.map(item => ({ ...item, disabled: true, description: goneReason })))
+  return <MoreActionsMenu name={name} menu={<DropdownMenuItems groups={items} />} />
 }
 
-/**
- * The actions of the footer as the main window last sent them: those it runs are disabled with the reason once the
- * branch left; while it shows another repository they stay, and their hover says that the main window switches to this
- * one first (`showRepository`); a pull request opens from here anyway
- */
-function shownItems(
-  items: readonly BranchReviewItem[],
-  { repositoryPath, branchName, selected, gone, kept }: { repositoryPath: string; branchName: string; selected: boolean; gone: boolean; kept: KeptReview | undefined },
-): readonly BranchReviewItem[] {
-  if (selected && !gone) {
+/** The actions of the title bar: disabled with the reason once the branch left, but its pull request, which still opens */
+function shownItems(items: readonly ReviewActionItem[], goneReason: string | null): readonly ReviewActionItem[] {
+  if (goneReason === null) {
     return items
   }
-  return items.map(item => {
-    if (item.url !== undefined || item.id === "open-pull-request" || item.id === "open-stack-pull-request") {
-      return item
-    }
-    return gone ? { ...item, disabled: true, description: goneReason(branchName, kept) } : { ...item, description: switchesRepository(repositoryPath) }
-  })
+  return items.map(item => (item.url !== undefined ? item : { ...item, disabled: true, description: goneReason }))
 }
 
 /**
- * The actions on the branch in the title bar, the items of its menu: O opens its pull request, Create Pull Request…
- * opens its dialog in this window, S asks the main window for its Safe Push (Push to master, Merge #7 by the route of
- * the repository), "Push Branch" to push it, without a key
- * (P is the previous change). Their keys work in the whole window, not while the dialog is open. The window doesn't
- * own the branches: the main window runs what it asks for and says why it can't.
+ * The actions on the branch in the title bar: O opens its pull request, Create Pull Request… opens its dialog in this
+ * window, S its Safe Push (Push to master, Merge #7 by the route of the repository, its popover at the row of the main
+ * window), "Push Branch" without a key (P is the previous change). Their keys work in the whole window, not while the
+ * dialog is open. Answers how a click runs one.
  */
-function useBranchReviewActions(
-  repositoryPath: string,
-  branchName: string,
-  items: readonly BranchReviewItem[],
-  {
-    openCreatePullRequest,
-    keysSuspended,
-    wholeStack,
-    kept,
-  }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean; wholeStack: boolean; kept: KeptReview | undefined },
-) {
-  const ask = (itemId: BranchReviewRequestItem) => void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), itemId })
-  const run = (item: BranchReviewItem) => {
-    if (kept !== undefined) {
-      // the actions of a kept branch are items of its menu, which the main window runs
-      void askMainWindow<BranchReviewRequest>(REVIEW_WINDOW, { repositoryPath, branchName, kept, menuItemId: item.id })
-    } else if (item.url !== undefined) {
+function useBranchReviewActions(items: readonly ReviewActionItem[], keysSuspended: boolean): (item: ReviewActionItem) => void {
+  const run = (item: ReviewActionItem) => {
+    if (item.url !== undefined) {
       openPullRequestUrl(item.url)
-    } else if (item.id === "create-pull-request" || item.id === "create-stack-pull-request") {
-      openCreatePullRequest(branchName)
-    } else if (item.id !== "open-pull-request" && item.id !== "open-stack-pull-request" && item.id !== "reapply") {
-      ask(item.id)
+    } else {
+      item.onSelect(FROM_MENU)
     }
   }
-
   const handleKey = useEffectEvent((event: KeyboardEvent) => {
     if (keysSuspended) {
       return
@@ -516,7 +472,7 @@ function useBranchReviewActions(
     window.addEventListener("keydown", listener)
     return () => window.removeEventListener("keydown", listener)
   }, [])
-  return { items, run }
+  return run
 }
 
 /** Why the actions of the review stay disabled: the branch left the table, a kept branch was reapplied or deleted */
@@ -524,17 +480,12 @@ function goneReason(branchName: string, kept: KeptReview | undefined): string {
   return kept === undefined ? branchGoneReason(branchName) : keptGoneReason(kept, branchName)
 }
 
-/** The hover of an action of the window while the main window shows another repository: the consequence of the click */
-function switchesRepository(repositoryPath: string): string {
-  return `Switches the main window to ${repositoryName(repositoryPath)}`
-}
-
 /**
  * The review of a commit of a list: the commits of the list above its files (⌥↑/⌥↓), the title bar names the list and
  * the commit, Unified/Split on its right; no action and no "⋯". It reads only the repository: the commits don't change,
  * so the list it got stays true; nothing is edited here. A move (an open of a commit of the list on screen) shows it.
  */
-function CommitsReviewWindow({ data, back, onPlace }: { data: CommitsReviewWindowData; back: ReactNode; onPlace: ReportPlace }) {
+function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview; back: ReactNode; onPlace: ReportPlace }) {
   const items = commitItems(data.commits)
   const [selected, setSelected] = useState(data.commits[data.index]?.id ?? data.commits[0]?.id ?? "")
   const [position, setPosition] = useState<ReviewPosition | null>(null)

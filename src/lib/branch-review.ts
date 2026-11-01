@@ -76,31 +76,6 @@ export function branchGoneReason(branchName: string): string {
   return `${branchName} is no longer a branch: it landed or was renamed`
 }
 
-/** What a request of the review window does, for "Cannot …": "push auth", "create the pull request of auth" */
-export function requestAction(
-  itemId: "safe-push" | "push-to-baseline" | "merge-pull-request" | "push" | "create-pull-request" | "safe-push-without-review" | "continue-on-github" | { menuLabel: string },
-  branchName: string,
-): string {
-  if (typeof itemId === "object") {
-    return `run "${itemId.menuLabel.replace(/…$/, "")}" on ${branchName}`
-  }
-  switch (itemId) {
-    case "continue-on-github":
-      return `open the pull request of ${branchName} on GitHub`
-    case "push":
-      return `push branch ${branchName}`
-    case "safe-push":
-    case "safe-push-without-review":
-      return `start the Safe Push of ${branchName}`
-    case "push-to-baseline":
-      return `push ${branchName} into the target`
-    case "merge-pull-request":
-      return `merge the pull request of ${branchName}`
-    case "create-pull-request":
-      return `create the pull request of ${branchName}`
-  }
-}
-
 /**
  * Why the branch `branch` can't be reviewed now, as Rust decides its Review Changes (`domain_policy::actions`: no
  * commits, its build blocked or failed; its virtual branch must be built on its parents); null when it can. `actions`:

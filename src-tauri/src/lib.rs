@@ -72,7 +72,13 @@ fn specta_builder() -> Builder<tauri::Wry> {
     // what the start hands the main window's page before it subscribes (`window.__BD_MODEL__`, `warm_start`)
     .typ::<domain_types::session::CachedModel>()
     .constant(APP_SETTINGS_DEFAULTS, domain_types::settings::AppSettings::default().to_full())
+    // the actions whose start opens a form under the row of their subject in the main window: a review window asks the
+    // main window to run them (`src/lib/review-runs.ts`)
+    .constant(ROW_FORM_ACTIONS, domain_types::actions::ActionId::row_forms())
 }
+
+/// The name of the actions that open a form under their row in the bindings (`ActionId::row_forms`)
+const ROW_FORM_ACTIONS: &str = "ROW_FORM_ACTIONS";
 
 /// The name of the defaults of the fields of `appSettings` Rust reads in the bindings (`AppSettings::to_full` of the
 /// defaults)

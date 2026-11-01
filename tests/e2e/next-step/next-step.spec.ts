@@ -1,7 +1,6 @@
 // @spec spec/branch/next-step.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusProfile, PatronusReviewRequirement, PullRequest } from "../../../src/lib/bindings"
-import type { BranchReviewRequest } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { waitForTransitionsSettled } from "../helpers/aria-snapshot-helpers"
@@ -23,10 +22,11 @@ import { expectPushedToRemote, pushedBefore, pushedToast, pushedBranches } from 
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { availableReviewRequests } from "../helpers/review-request-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { openReviewWindow } from "../helpers/review-window-helpers"
 import { chooseProfile, expectPopoverWithoutReview, openSafePushWithKey, popoverStart, safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
-import { getEmittedEvents } from "../helpers/sub-window-helpers"
-import { emitTauriEvent, pushedRemote } from "../helpers/sync-helpers"
+import { openLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { pushedRemote } from "../helpers/sync-helpers"
 import type { SyncOverrides, TestRepositoryBuilder } from "../helpers/test-repository"
 import { holdToast } from "../helpers/toast-helpers"
 import { waitForStepFacts } from "../helpers/wait-helpers"
@@ -396,7 +396,7 @@ test.describe("Next step", () => {
     await expect(pushedToast(page, BRANCH)).toHaveCount(0)
   })
 
-  test("should create the pull request asked from the review window in its repository when the main window opens another during its push", async ({
+  test("should create the pull request of the dialog of the review window in its repository when the main window opens another during its push", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -405,17 +405,21 @@ test.describe("Next step", () => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches, AWAITING_CODE_OWNER, [], availableRobots(), { unpushed: true })
     await addRecentProject(page)
     await syncAndWaitForBranches()
+    // the review window of the branch, beside the main window: its Create Pull Request… opens its dialog there
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, BRANCH))
+    await window.getByTestId("branch-review-actions").getByRole("button", { name: "Create Pull Request…" }).click()
+    const dialog = createPullRequestDialog(window)
+    await expect(dialog.getByTestId("create-pull-request-submit")).toBeEnabled()
     // the remote takes the push of the creation only when the test lets it
     await repo.holdRemoteAnswers({ hold: ["push"] })
-    // Create of the dialog of the review window, asked of the main window over the link of the window
-    const input = { title: "Add auth", body: "", reviewers: [], assignSelf: false, viewerLogin: null }
-    await emitTauriEvent(page, "review/request", { id: "create", repositoryPath: repo.path, branchName: BRANCH, dialog: "create", input } satisfies BranchReviewRequest)
+    await dialog.getByTestId("create-pull-request-submit").click()
     await expect.poll(() => repo.getArrivedAnswers()).toContain("push")
 
-    // the main window opens another repository while the push runs: the pull request still goes to the one asked
+    // the main window opens another repository while the push runs: the window creates it in its own repository
     await switchRepository(page, OTHER_REPOSITORY)
     await repo.holdRemoteAnswers({ release: ["push"] })
-    await expect.poll(async () => (await getEmittedEvents<{ id: string; ok: boolean }>(page, "review/reply")).filter(it => it.id === "create").map(it => it.ok)).toEqual([true])
+    await expect(window.locator("[data-slot=toast]", { hasText: "Created pull request #1079" })).toBeVisible()
+    await expect(dialog).toHaveCount(0)
     await expectPushedToRemote(repo, [BRANCH])
     expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual(["POST", repoPath("pulls"), expect.objectContaining({ head: `user-name/virtual/${BRANCH}` })])
 

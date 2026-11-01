@@ -8,7 +8,7 @@ import { createStore } from "zustand/vanilla"
  * answers (`applyReadinessFacts`).
  */
 import type { FactsChanges, FactsView, Fact, PatronusReviewRequirement, PullRequest, ReviewReadiness, ReviewReadinessBranch, SubjectReadiness } from "@/lib/bindings"
-import { rememberReviewGroups } from "@/lib/review-window"
+import { rememberReviewGroups } from "@/lib/review-groups"
 import { baselineOnRemote } from "@/lib/stack"
 import { stackRootOfReadinessKey } from "@/lib/whole-stack"
 import { refreshSessionFacts } from "@/model/store"

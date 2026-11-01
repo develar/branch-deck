@@ -1,7 +1,7 @@
 // @spec spec/branch/patronus.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { PatronusMergeRequest, PatronusProfile, PatronusReviewRequirement, PatronusRobot, PullRequest } from "../../../src/lib/bindings"
-import type { BranchReviewRequest } from "../../../src/types/sub-window"
+import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { test, expect } from "../fixtures/test-fixtures"
 import {
   expandBranch,
@@ -636,7 +636,7 @@ test.describe("Patronus actions", () => {
     const repo = await setupRobots(page, setupRepo, syncAndWaitForBranches)
     await startHeldAtPatronus(page, repo)
     // the review window of JIRA-456 asks the main window for the same start: its request is that start, no second one
-    await emitTauriEvent(page, "review/request", { id: "window", repositoryPath: repo.path, branchName: "JIRA-456", menuItemId: "safe-push" } satisfies BranchReviewRequest)
+    await emitTauriEvent(page, "review/run", { id: "window", repositoryPath: repo.path, subject: "JIRA-456", itemId: "safe-push" } satisfies ReviewRunRequest)
     await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "window", ok: true }])
     await expectStartedOnce(page, repo)
   })

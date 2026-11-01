@@ -468,7 +468,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   push, the pull request, its reviewers, the store and Activity are of that repository also when the main window opens
   another during the push.
   [@test] ../../src/lib/pull-request-run.test.ts (`runs the intent in the repository of the dialog, and toasts the pull request GitHub opened`, `pushes first and answers whom GitHub asked and refused, also when it asked nobody`)
-  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request asked from the review window in its repository when the main window opens another during its push`)
+  [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of the dialog of the review window in its repository when the main window opens another during its push`)
 - The result is one toast with "Open Pull Request", recorded in Activity: "Created pull request #123" / "feature-auth
   → master · review requested from alice · assigned to you", a `warning` toast whose description names what GitHub
   refused ("cannot request review from bob: …"). The pull request is in the row at once and stays there until
@@ -534,9 +534,9 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../src/lib/push-run.test.ts (`offers to create the pull request of a branch without one, into the baseline`, `opens the pull request the branch has`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should offer to create the pull request of a branch in the push toast, the branch menu and the preview`, `should open the pull request of a pushed branch from the push toast`)
 - The review window of a branch ([Branch Review](branch-review.spec.md#the-create-pull-request-dialog)) has "Create
-  Pull Request…" too: the dialog opens in the window, the main window sends what it shows and creates the pull request
-  it asks for, or says why it can't ("Cannot create the pull request of auth"); the toast is in the window.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`)
+  Pull Request…" too: the same dialog opens in the window, with what the window's own session holds, and creates the
+  pull request in the repository of the review; the toast is in the window.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window, with the context of its own session`)
 - At row 7 of the [next step](next-step.spec.md) the footer has "Safe Push Without Review…" at its left: it closes the
   dialog and opens the Safe Push popover at the row's slot, its profile one that skips the code-owner review
   ([Patronus](patronus.spec.md#safe-push-without-review)).

@@ -1,6 +1,6 @@
 import type { PatronusReviewRequirement, ReviewReadiness } from "@/lib/bindings"
 import { useDemandReviewReadiness } from "@/model/demand"
-import { freshReadiness, getReviewReadiness, recheckReviewReadiness, useReviewReadiness } from "@/stores/review-readiness"
+import { freshReadiness, recheckReviewReadiness, useReviewReadiness } from "@/stores/review-readiness"
 
 export type ReviewRequirementState =
   | { status: "loading" }
@@ -24,11 +24,6 @@ export function usePatronusReviewRequirement(branchName: string, enabled: boolea
   useDemandReviewReadiness(branchName, enabled)
   const state = reviewRequirementStateOf(freshReadiness(useReviewReadiness(branchName), branchName))
   return { state, recheck: () => void recheckReviewReadiness(branchName) }
-}
-
-/** Non-hook variant of the state of `usePatronusReviewRequirement`, from the store as it is (no demand) */
-export function getReviewRequirementState(branchName: string): ReviewRequirementState {
-  return reviewRequirementStateOf(freshReadiness(getReviewReadiness(branchName), branchName))
 }
 
 function reviewRequirementStateOf(entry: ReturnType<typeof freshReadiness>): ReviewRequirementState {

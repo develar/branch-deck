@@ -17,7 +17,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { reviewOwnerMarks } from "@/lib/review-owners"
 import type { ReviewOwners } from "@/lib/review-owners"
 import { markWindowContentReady } from "@/lib/sub-window"
-import type { BranchReviewMenuItem, ReviewedBranch, WholeStackScope } from "@/types/sub-window"
+import type { ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 
 /*
  * The parts of the review of a branch (`useBranchReview`), in the dialog of the branch preview and in its window: the
@@ -36,10 +36,8 @@ export interface BranchReviewMoves {
   readonly stackCommits: Readonly<Record<string, string>>
   /** The review of a branch of the stack, at a commit of the whole stack (`commitKey`) */
   readonly onBranch: (name: string, commitKey?: string) => void
-  /** The menu of each commit of the chain, by its id, as the main window sends it */
-  readonly commitMenus: Readonly<Record<string, readonly (readonly BranchReviewMenuItem[])[]>>
-  /** Runs an item of the menu of a commit of `branchName` in the main window */
-  readonly onCommitMenuItem: (branchName: string, commitId: string, itemId: string) => void
+  /** The menu of each commit of the chain, by its id in the virtual branch, as the window runs it (`useReviewActions`) */
+  readonly commitMenus: Readonly<Record<string, MenuItemGroups>>
 }
 
 /** The stack bar: the part of the stack the review shows, the scopes of the stack */
@@ -141,14 +139,9 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       commitTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
       reviewFacts={loaded.reviewFacts}
       commitMenu={commit => {
-        // the commit's branch: the segment that has it
-        const branch = loaded.segments.find(segment => segment.commits.some(it => it.id === commit.id))?.name
-        const groups: MenuItemGroups =
-          branch === undefined || source.wholeStack === true
-            ? []
-            : (moves.commitMenus[commit.id] ?? []).map(group => group.map(item => ({ ...item, onSelect: () => moves.onCommitMenuItem(branch, commit.id, item.id) })))
-        // as the items of the main window, which come without their icons
-        return [...groups, getReviewCommitCopyMenuItems(commit).map(item => ({ ...item, icon: undefined }))]
+        // the menu of a commit of a branch of the chain, not of a commit of the whole stack (its copies carry no branch)
+        const groups: MenuItemGroups = source.wholeStack === true ? [] : (moves.commitMenus[commit.id] ?? [])
+        return [...groups, getReviewCommitCopyMenuItems(commit)]
       }}
       commitAction={item => {
         const branch = item.branch
@@ -164,7 +157,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
   )
 }
 
-/** The icons of the actions on the branch: the items come over the link of the window, without their icons */
+/** The icons of the actions on the branch, for an item that comes without its own */
 const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   "open-pull-request": GitPullRequestIcon,
   "create-pull-request": GitPullRequestCreateIcon,
@@ -180,13 +173,21 @@ const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
 }
 
 /** The actions on the target branch in the title bar of the window: O or Create Pull Request…, S Safe Push, Push */
-export function BranchReviewActions<T extends BranchReviewAction>({ actions, branchName, onRun }: { actions: readonly T[]; branchName: string; onRun: (action: T) => void }) {
+export function BranchReviewActions<T extends BranchReviewAction & { readonly icon?: LucideIcon }>({
+  actions,
+  branchName,
+  onRun,
+}: {
+  actions: readonly T[]
+  branchName: string
+  onRun: (action: T) => void
+}) {
   return actions.map(action => (
     <ActionButton
       key={action.id}
       data-testid={`branch-review-${action.id}`}
       label={action.label}
-      icon={ACTION_ICONS[action.id]}
+      icon={action.icon ?? ACTION_ICONS[action.id]}
       keyHint={action.kbds?.length === 1 ? action.kbds[0] : undefined}
       disabled={action.disabled === true}
       description={action.description ?? (action.id === "push" ? `Pushes ${branchName}` : action.label)}

@@ -7,7 +7,7 @@ import { expandBranch } from "../helpers/branch-helpers"
 import { pressCopyKey, readClipboard, testCopyButtonOnHover } from "../helpers/clipboard-helpers"
 import { inlineDeleteConfirmation, testInputAutoFocus, submitInlineForm } from "../helpers/inline-form-helpers"
 import { openContextMenu, clickContextMenuItem } from "../helpers/selection-helpers"
-import { getOpenedSubWindows } from "../helpers/sub-window-helpers"
+import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { finishedSyncCount, runAndWaitForUpdate, syncBranches } from "../helpers/sync-helpers"
 import { holdCommand, recordCommand, recordRewrites, waitForCollapsibleCardExpanded } from "../helpers/wait-helpers"
 
@@ -198,9 +198,16 @@ test.describe("Archived Branches Table", () => {
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
     const fromMenu = await opened(1)
     expect(fromMenu).toMatchObject({ windowId: "review", title: "Review feature-partial", data: { chain: ["feature-partial"], kept } })
-    // nothing to reapply or push: its title bar has no action, its "⋯" its delete
-    expect(fromMenu.data.state.items["feature-partial"]).toEqual([])
-    expect(fromMenu.data.state.menus["feature-partial"]?.flat().map(item => item.id)).toContain("delete-kept-branch")
+    // nothing to reapply or push: the title bar of the window has no action, its "⋯" its delete, which opens its form
+    // at the row of the main window
+    const window = await openLinkedSubWindow(page, fromMenu)
+    const actions = window.getByTestId("branch-review-actions")
+    await expect(actions.getByRole("button", { name: "More actions for feature-partial" })).toBeVisible()
+    await expect(actions.getByRole("button")).toHaveCount(1)
+    await actions.getByRole("button", { name: "More actions for feature-partial" }).click()
+    await window.getByRole("menuitem", { name: "Delete Archived Branch…" }).click()
+    await inlineDeleteConfirmation.waitForVisible(page)
+    await page.keyboard.press("Escape")
 
     await branchRow.focus()
     await page.keyboard.press("d")

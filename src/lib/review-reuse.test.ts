@@ -1,8 +1,8 @@
 // @spec spec/review/review-window.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { BranchReviewFocus } from "@/lib/branch-review"
-import { planReviewOpen, pushReviewHistory, REVIEW_HISTORY_LIMIT, restoredReview, reviewSubjectName, reviewWindowTitle } from "@/lib/review-reuse"
-import type { ShownReview } from "@/lib/review-reuse"
+import { planReviewOpen, pushReviewHistory, REVIEW_HISTORY_LIMIT, restoredReview, reviewSubjectName, reviewWindowTitle, takeOpen } from "@/lib/review-reuse"
+import type { ShownReview, ShownReviewWindow } from "@/lib/review-reuse"
 import type { BranchReviewWindowData, CommitsReviewWindowData } from "@/types/sub-window"
 
 const shown: ShownReview = { kind: "branch", repositoryPath: "/repo", chain: ["auth", "login"], wholeStack: false, startedAt: 1 }
@@ -17,29 +17,24 @@ const commits = [
 ]
 const list: ShownReview = { kind: "commits", repositoryPath: "/repo", listLabel: "Unassigned", ids: ["a1a1a1a1a1", "b2b2b2b2b2"], startedAt: 1 }
 
-const branchData: BranchReviewWindowData = {
-  kind: "branch",
-  repositoryPath: "/repo",
-  baselineBranch: "origin/master",
-  chain: ["auth", "login"],
-  groups: [],
-  focus: { range: "own", filter: { kind: "all" }, commitId: null, path: null },
-  openedAt: 1,
-  startedAt: 1,
-  move: false,
-  state: { repositoryPath: "/repo", selected: true, items: {}, menus: {}, createPullRequest: null, wholeStack: null, commitMenus: {}, groups: null },
+/** An open of the review of `login` (on `auth`), as `openBranchReviewWindow` asks for it */
+function branchOpen(branchName: string, asked: BranchReviewFocus, openedAt: number, chain = ["auth", "login"]): BranchReviewWindowData {
+  return {
+    kind: "branch",
+    repositoryPath: "/repo",
+    baselineBranch: "origin/master",
+    chain,
+    groups: [],
+    branchName,
+    asked,
+    focus: { range: asked.range ?? "own", filter: asked.filter ?? { kind: "all" }, commitId: asked.commitId ?? null, path: asked.path ?? null },
+    openedAt,
+  }
 }
-const commitsData: CommitsReviewWindowData = {
-  kind: "commits",
-  repositoryPath: "/repo",
-  commits,
-  listLabel: "Unassigned",
-  index: 0,
-  path: null,
-  openedAt: 2,
-  startedAt: 2,
-  move: false,
-}
+const commitsOpen: CommitsReviewWindowData = { kind: "commits", repositoryPath: "/repo", commits, listLabel: "Unassigned", index: 0, path: null, openedAt: 2 }
+
+const branchData: ShownReviewWindow = { ...branchOpen("login", {}, 1), startedAt: 1, move: false }
+const commitsData: ShownReviewWindow = { ...commitsOpen, startedAt: 2, move: false }
 
 describe("planReviewOpen", () => {
   it("keeps its review for a plain open of the branch it shows, and starts over for another branch or a place", () => {
@@ -87,6 +82,26 @@ describe("planReviewOpen", () => {
     expect(openList("Unassigned", ["a1a1a1a1a1"]).shown.startedAt).toBe(9)
     expect(openList("Unassigned", ["a1a1a1a1a1", "b2b2b2b2b2"], null, shown).shown.startedAt).toBe(9)
     expect(openBranch("login", ["auth", "login"], { commitId: "l1" }, list).shown.startedAt).toBe(9)
+  })
+})
+
+describe("takeOpen", () => {
+  it("keeps the review on screen for a plain open of it, moves to a commit of it, and starts over for anything else", () => {
+    // the first open starts the window
+    expect(takeOpen(null, branchOpen("login", {}, 1), 1)).toEqual({ shown: branchData, restarted: false })
+    // the menu of the branch on screen again: kept as it is
+    expect(takeOpen(branchData, branchOpen("login", {}, 5), 5)).toEqual({ shown: branchData, restarted: false })
+    // D on a commit of the parent: the chain stays, the commit shows, by the part of its branch where the part lacks it
+    const moved = takeOpen(branchData, branchOpen("auth", { commitId: "a1" }, 6, ["auth"]), 6)
+    expect(moved).toEqual({
+      shown: { ...branchData, openedAt: 6, move: true, focus: { range: { from: "auth", to: "auth" }, filter: { kind: "all" }, commitId: "a1", path: null } },
+      restarted: false,
+    })
+    // another branch: a new start, the review on screen into the history
+    expect(takeOpen(branchData, branchOpen("ui", {}, 7, ["ui"]), 7)).toEqual({ shown: { ...branchOpen("ui", {}, 7, ["ui"]), startedAt: 7, move: false }, restarted: true })
+    // another commit of the list on screen: it selects it
+    expect(takeOpen(commitsData, { ...commitsOpen, index: 1, openedAt: 8 }, 8)).toEqual({ shown: { ...commitsData, index: 1, openedAt: 8, move: true }, restarted: false })
+    expect(takeOpen(commitsData, branchOpen("login", {}, 9), 9).restarted).toBe(true)
   })
 })
 

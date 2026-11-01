@@ -233,9 +233,6 @@ test.describe("Unapplied branches", () => {
     const fromMenu = await opened(1)
     expect(fromMenu.title).toBe("Review docs")
     expect(fromMenu.data).toMatchObject({ chain: ["docs"], kept, focus: { commitId: null } })
-    // its title bar: Reapply and its push; its "⋯" the rest of its menu
-    expect(fromMenu.data.state.items.docs?.map(item => item.id)).toEqual(["reapply", "push"])
-    expect(fromMenu.data.state.menus.docs?.flat().map(item => item.id)).toContain("delete-kept-branch")
 
     // D on its focused row
     await unappliedRow(page, "docs").focus()
@@ -252,18 +249,26 @@ test.describe("Unapplied branches", () => {
     expect(atCommit.title).toMatch(/^Review docs · [0-9a-f]{8}$/)
     expect(atCommit.data).toMatchObject({ kept, focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
 
-    // the window: its own commits on the commit it left from, Reapply asks the main window, which runs it; the review
-    // goes on as the review of the branch it is again
+    // the window: its own commits on the commit it left from; its title bar Reapply and its push, its "⋯" the rest of
+    // its menu, the actions of its own session
     const window = await openLinkedSubWindow(page, fromMenu)
     await expect(window.getByTestId("branch-review-stack")).toContainText(/^Unapplied on [0-9a-f]{8}/)
     await expect(window.getByTestId("branch-review-segment")).toHaveText(["docs1"])
     await expect(window.getByTestId("review-file-header").first()).toBeVisible()
-    await runAndWaitForSync(page, () => window.getByTestId("branch-review-actions").getByRole("button", { name: "Reapply" }).click())
+    const actions = window.getByTestId("branch-review-actions")
+    await expect(actions.getByRole("button", { name: /^Push/ })).toBeVisible()
+    await actions.getByRole("button", { name: "More actions for docs" }).click()
+    await expect(window.getByRole("menuitem", { name: "Delete Unapplied Branch…" })).toBeVisible()
+    await window.keyboard.press("Escape")
+    // Reapply runs in the window, in its repository; the review goes on as the review of the branch it is again, which
+    // the window opens itself
+    await runAndWaitForSync(page, () => actions.getByRole("button", { name: "Reapply" }).click())
     await expect(findBranchRow(page, "docs")).toHaveCount(1)
     await expect(unappliedCard(page)).toHaveCount(0)
-    const reviewOfBranch = await opened(4)
-    expect(reviewOfBranch.title).toBe("Review docs")
-    expect(reviewOfBranch.data.kept).toBeUndefined()
+    await expect.poll(async () => (await getOpenedSubWindows(window)).length).toBe(1)
+    const [reviewOfBranch] = await getOpenedSubWindows<BranchReviewWindowData>(window)
+    expect(reviewOfBranch).toMatchObject({ windowId: "review", title: "Review docs" })
+    expect(reviewOfBranch!.data.kept).toBeUndefined()
   })
 
   test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {

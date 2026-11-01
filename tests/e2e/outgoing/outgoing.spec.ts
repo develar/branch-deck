@@ -1,6 +1,6 @@
 // @spec spec/repository/outgoing.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { BranchReviewRequest } from "../../../src/types/sub-window"
+import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
@@ -294,10 +294,10 @@ test.describe("Push button", () => {
 
   test("should push a branch a review window asks for during a sync once that sync ended, in the main window", async ({ page, issueLinksRepo }) => {
     const previousCount = await pressSyncHeld(page, issueLinksRepo)
-    // the review window of JIRA-456 asks the main window for the push of its menu: the main window runs it on the
-    // table of the sync that runs, once that sync ended
-    const request = { id: "window", repositoryPath: issueLinksRepo.path, branchName: "JIRA-456", menuItemId: "push" } satisfies BranchReviewRequest
-    await emitTauriEvent(page, "review/request", request)
+    // the review window of JIRA-456 asks the main window for the push of its menu, at its row (a push may ask there
+    // first): the main window runs it on the table of the sync that runs, once that sync ended
+    const request = { id: "window", repositoryPath: issueLinksRepo.path, subject: "JIRA-456", itemId: "push" } satisfies ReviewRunRequest
+    await emitTauriEvent(page, "review/run", request)
     await releaseHeldSync(page, issueLinksRepo, previousCount)
     await expect.poll(() => getEmittedEvents(page, "review/reply")).toEqual([{ id: "window", ok: true }])
     await expectPushedToast(page, "JIRA-456")

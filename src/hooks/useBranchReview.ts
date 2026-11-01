@@ -347,7 +347,7 @@ export function hasCommitKeys(model: BranchReviewModel): boolean {
   return model.loaded !== null && !isSingleCommit(model.loaded.items)
 }
 
-/** An action on the branch in the review: the items of its menu (`BranchReviewItem`, a `MenuItem` of the main window) */
+/** An action on the branch in the review: an item of the builders of its row (`ReviewActionItem`) */
 export interface BranchReviewAction {
   readonly id: string
   readonly label: string

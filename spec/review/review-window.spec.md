@@ -19,6 +19,12 @@ targets:
   - ../../src/hooks/useSessionFactStores.ts
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../src/stores/activity.ts
+  - ../../src/hooks/useReviewActions.ts
+  - ../../src/lib/review-actions.ts
+  - ../../src/lib/review-runs.ts
+  - ../../src/hooks/useReviewRuns.ts
+  - ../../src/stores/repository.ts
+  - ../../crates/domain-types/src/actions.rs
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src/hooks/useBranchReview.ts
   - ../../src/components/review/BranchReview.tsx
@@ -34,7 +40,7 @@ targets:
 # Review Window
 
 Status: Draft (implemented: the targets and their read, the review of the kept branches, one window for a branch, a
-whole stack, a kept branch and a list of commits)
+whole stack, a kept branch and a list of commits, its actions from its own session)
 Date: 2026-11-01
 
 ## Summary
@@ -80,22 +86,47 @@ with its base, its head and its commits, or the commits of a list. A pull reques
   subject on screen only brings the window to the front, where the review is; a commit of it moves there (a commit of
   a branch of the chain, of the kept branch, of the list: `move`); anything else (another subject, a place such as a
   file of a list, a reviewer group or the whole stack of a branch, another repository) starts the window over
-  (`startedAt`). The main window applies it to what the window shows as it knows it (`ShownReview`), an open from
-  another window (the missing commits of a conflict) starts it over.
-  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`, `moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps a kept branch and a whole stack for a plain open of them, moves to a commit of the kept branch`, `moves to a commit of the list on screen, and starts over for another list, a file or a branch`)
+  (`startedAt`). The page of the window applies it to every open it gets, from any window (`takeOpen`): an opener only
+  says what to show. A start over while the "Create pull request" dialog of the window holds what the user typed is
+  refused, an `info` toast in the window ("Cannot review auth"); a move waits until the dialog closes.
+  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`, `moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps a kept branch and a whole stack for a plain open of them, moves to a commit of the kept branch`, `moves to a commit of the list on screen, and starts over for another list, a file or a branch`, `keeps the review on screen for a plain open of it, moves to a commit of it, and starts over for anything else`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - A start over must keep the review the window left in the history of the window, the latest last, at most 20, at
   the place it was (of a branch its part, its owner chip, its commit and its file; of a list its commit and its
   file). Back restores the latest: ⌘[ (Ctrl+[ on Windows and Linux; not in a dialog of the window) and the Back button
   at the start of the title bar (an arrow, "Back to login", its hover with the key), shown only while the history has
-  a review. A restore starts that review over (it reads it again) and tells the main window what the window shows, so
-  the main window sends the actions of that branch (`shows` of the link).
+  a review. A restore starts that review over: it reads it again, and its actions are those of the window's session.
   [@test] ../../tests/e2e/review-window/review-window.spec.ts (`should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back`)
   [@test] ../../src/lib/review-reuse.test.ts (`keeps the reviews it left, the latest last, at most the limit`, `starts a review of the history over at the place it was left`, `names the review it goes back to as its title does`)
 - The native title of the window names what it shows: "Review login", "Review login · 1a2b3c4d" at a commit, "Review
   the whole air stack", of a list "Review a1b2c3d4 Sort the start-up report", retitled as it steps
   (`reviewWindowTitle`); the opener titles the window the same.
   [@test] ../../src/lib/review-reuse.test.ts (`names the review it goes back to as its title does`)
+
+### Actions
+
+- The window must build the actions of what it shows from its own session, by the builders of the rows
+  (`useReviewActions`: the title bar and "⋯" of a branch, of a whole stack, of a kept branch, the menu of each commit),
+  in the repository of the review whatever the main window shows (`getSelectedProject` of the review window), and run
+  each itself (an intent, a dialog of the window, a copy, the next review), but one that opens a form under the row of
+  its subject: those Rust names (`ActionId::opens_row_form`, `ROW_FORM_ACTIONS` of the bindings: a rename, a move, a
+  stack, an ungroup, the amend, the issue reference, the squash, unapply, park, the typed delete of a kept branch, the
+  popover of a Safe Push and of its rarer starts, Request Review and Start in Air, a push, which asks at the row when
+  it would drop remote commits) and the fix of a conflict, the forms and the rewrites of a commit.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`, `should show the Unstack the row runs as running in the window's menu, from the window's own session, and run it once`, `should create the pull request in the window, with the context of its own session`)
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+  [@test] ../../crates/domain-policy/src/action_catalog_test.rs (`every_action_and_every_blocker_code_is_in_the_action_catalog_the_page_reads`)
+- A form under a row must be one request to the main window, `review/run` (`{ id, repositoryPath, subject, itemId,
+  commitIds? }`: the subject a branch, `stack:<root>`, `unapplied:<full>`, `archived:<full>`; the commits of a commit's
+  item), answered by `review/reply` and, refused, `review/feedback`: the main window switches to the repository of
+  the request (`showRepository`), finds the item by the same builders (`findReviewItem`), comes to the front, reveals
+  the row and runs it; one it can't run (the repository is gone from its list, the subject left, the item is disabled)
+  is refused with the reason, shown in the window and recorded in Activity. While the main window shows another
+  repository, the hover of such an item says "Switches the main window to app".
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run the Safe Push and the push of the title bar at the rows of the main window, switched to the repository of the review first`, `should run an item of the branch's menu from the window's ⋯, in the main window`, `should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window`)
+  [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should review an archived branch from its menu, its focused row and its commits`)
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should push a branch a review window asks for during a sync once that sync ended, in the main window`)
 
 ### Targets
 
@@ -128,11 +159,12 @@ with its base, its head and its commits, or the commits of a list. A pull reques
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should review an archived branch from its menu, its focused row and its commits`)
 - The title bar must hold the actions Rust offers for it (`domain_policy::kept`): of an unapplied branch Reapply and
-  its push, its "⋯" the rest of its menu, which the main window runs as the row's menu would; an archived branch has
-  only its "⋯" (its delete, the copies). A plain open of the kept branch on screen only brings the window to the front,
+  its push, its "⋯" the rest of its menu, run where they run ([Actions](#actions): Reapply in the window, the push and
+  the typed delete at the row); an archived branch has only its "⋯" (its delete, the copies). A plain open of the kept branch on screen only brings the window to the front,
   a commit of it moves there ([One window](#one-window)).
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
-- After a Reapply the review must go on as the review of the branch it is again, once a sync built it; after a delete
+- After a Reapply the review must go on as the review of the branch it is again, once a sync built it (the window
+  opens it itself, the kept branch into its history); after a delete
   it keeps what it read, its actions disabled with why ("docs is no longer unapplied: it was reapplied or deleted").
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
 - The review plan of a kept branch reads its range; it has no Mark Reviewed and no "Since Your Review".

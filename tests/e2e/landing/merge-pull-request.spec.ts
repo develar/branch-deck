@@ -1,7 +1,7 @@
 // @spec spec/branch/landing-routes.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ChecksSummary, PullRequest } from "../../../src/lib/bindings"
-import type { BranchReviewRequest } from "../../../src/types/sub-window"
+import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
@@ -171,8 +171,8 @@ test.describe("Merge #7", () => {
   test("should merge when the review window asks the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
-    // the button of the title bar of the review window, asked of the main window over the link of the window
-    await emitTauriEvent(page, "review/request", { id: "merge", repositoryPath: repo.path, branchName: BRANCH, itemId: "merge-pull-request" } satisfies BranchReviewRequest)
+    // the button of the title bar of the review window, run by the main window at the row
+    await emitTauriEvent(page, "review/run", { id: "merge", repositoryPath: repo.path, subject: BRANCH, itemId: "merge-pull-request" } satisfies ReviewRunRequest)
     await expectMerged(page, repo, copy)
   })
 

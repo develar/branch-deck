@@ -24,6 +24,37 @@ export function windowLinkEvents(label: string) {
   } as const
 }
 
+/** The events of a link: what the window asks, what the main window answers and what it tells of a request */
+export interface LinkRequestEvents {
+  readonly request: string
+  readonly reply: string
+  readonly feedback: string
+}
+
+/**
+ * The handler of a window's requests on `events`: runs each, then answers it; `feedback` sends a toast or an error to
+ * the window. `label` names the window in the log
+ */
+export function serveRequests<Request extends LinkedWindowRequest, Feedback>(
+  events: LinkRequestEvents,
+  label: string,
+  run: (request: Request, feedback: (feedback: Feedback) => void) => Promise<boolean> | boolean,
+): (request: Request) => void {
+  return request => {
+    const feedback = (value: unknown) => emit(events.feedback, value).catch((error: unknown) => logError(`Cannot tell ${label} how it went`, error))
+    const reply = (ok: boolean) => {
+      const answer: LinkedWindowReply = { id: request.id, ok }
+      emit(events.reply, answer).catch((error: unknown) => logError(`Cannot answer ${label}`, error))
+    }
+    Promise.resolve()
+      .then(() => run(request, value => void feedback(value)))
+      .then(reply, (error: unknown) => {
+        logError(`Cannot run the request of ${label}`, error)
+        reply(false)
+      })
+  }
+}
+
 /** What the window shows: at least its repository, which its diffs read and every event is filtered by */
 export interface LinkedWindowShown {
   readonly repositoryPath: string
@@ -160,18 +191,6 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
       sentState = json
       emit(events.state, state).catch((error: unknown) => logError(`Cannot tell ${label} its state`, error))
     },
-    serve: run => request => {
-      const feedback = (value: unknown) => emit(events.feedback, value).catch((error: unknown) => logError(`Cannot tell ${label} how it went`, error))
-      const reply = (ok: boolean) => {
-        const answer: LinkedWindowReply = { id: request.id, ok }
-        emit(events.reply, answer).catch((error: unknown) => logError(`Cannot answer ${label}`, error))
-      }
-      Promise.resolve()
-        .then(() => run(request, value => void feedback(value)))
-        .then(reply, (error: unknown) => {
-          logError(`Cannot run the request of ${label}`, error)
-          reply(false)
-        })
-    },
+    serve: run => serveRequests(events, label, run),
   }
 }

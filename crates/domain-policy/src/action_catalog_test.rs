@@ -45,11 +45,14 @@ const fn code_index(blocker: &ActionBlocker) -> usize {
 
 const CODES: usize = 21;
 
-/// What the page reads: every id, and the blockers with the action each is an example of
+/// What the page reads: every id, the blockers with the action each is an example of, the actions that open a row form
 #[derive(Serialize)]
 struct Catalog {
   ids: Vec<ActionId>,
   blockers: Vec<(ActionId, ActionBlocker)>,
+  /// The actions a review window asks the main window to run, at the row of their subject (`ActionId::opens_row_form`)
+  #[serde(rename = "rowForms")]
+  row_forms: Vec<ActionId>,
 }
 
 /// An example of every code, with the action it refuses; the codes whose words differ by the params, more than one
@@ -154,6 +157,7 @@ fn every_action_and_every_blocker_code_is_in_the_action_catalog_the_page_reads()
   let catalog = Catalog {
     ids: ActionId::ALL.to_vec(),
     blockers: examples,
+    row_forms: ActionId::row_forms(),
   };
   assert_catalog("actions.json", "UPDATE_ACTION_CATALOG", "action_catalog", &catalog);
 }

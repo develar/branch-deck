@@ -1,11 +1,23 @@
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { formatShortHash } from "@/lib/hash"
 import { formatWholeStack } from "@/lib/whole-stack"
-import type { BranchReviewWindowData, KeptReview, ReviewWindowData } from "@/types/sub-window"
+import type { BranchReviewWindowData, CommitsReviewWindowData, KeptReview, ReviewWindowData } from "@/types/sub-window"
+
+/**
+ * A review the window shows: the data of the open it started from (or of a move to a commit of it), with the start it
+ * belongs to (the key of the review: a new start shows another review) and whether the last open moved it
+ */
+export type ShownReviewWindow = (BranchReviewWindowData | CommitsReviewWindowData) & {
+  /** The open that started the review: the window starts over when it changes, and the review it left goes to its history */
+  readonly startedAt: number
+  /** The last open moved the review to a commit of it (`openedAt` of the data names it): it keeps its part and filter */
+  readonly move: boolean
+}
 
 /*
- * The one review window (spec/review/review-window.spec.md#one-window): what it shows as the main window knows it, the
- * one rule of how an open goes on from it (`planReviewOpen`), the title of what it shows, and its history (Back, ⌘[).
+ * The one review window (spec/review/review-window.spec.md#one-window): what it shows, the one rule of how an open goes
+ * on from it (`planReviewOpen`, which its page applies to every open it gets, `takeOpen`), the title of what it shows,
+ * and its history (Back, ⌘[).
  */
 
 /** What the review window shows: the key of its reuse */
@@ -97,8 +109,8 @@ export function planReviewOpen(shown: ShownReview | null, request: ReviewOpenReq
   return restart
 }
 
-/** What the window shows of `data`, for the main window to know after a Back */
-export function shownReviewOf(data: ReviewWindowData): ShownReview {
+/** What the window shows of `data`, the key `planReviewOpen` keeps or starts over */
+export function shownReviewOf(data: ShownReviewWindow): ShownReview {
   return data.kind === "commits"
     ? { kind: "commits", repositoryPath: data.repositoryPath, listLabel: data.listLabel, ids: data.commits.map(it => it.id), startedAt: data.startedAt }
     : {
@@ -141,11 +153,50 @@ export type ReviewPlace =
   | { readonly kind: "branch"; readonly focus: BranchReviewWindowData["focus"] }
   | { readonly kind: "commits"; readonly index: number; readonly path: string | null }
 
+/** What the open `data` asks the window to show */
+function openRequestOf(data: ReviewWindowData): ReviewOpenRequest {
+  return data.kind === "commits"
+    ? { kind: "commits", repositoryPath: data.repositoryPath, listLabel: data.listLabel, ids: data.commits.map(it => it.id), path: data.path }
+    : {
+        kind: "branch",
+        repositoryPath: data.repositoryPath,
+        branchName: data.branchName,
+        chain: data.chain,
+        wholeStack: data.wholeStack === true,
+        ...(data.kept !== undefined && { kept: data.kept }),
+        focus: data.asked,
+      }
+}
+
+/**
+ * How the open `data` goes on from the review on screen (`planReviewOpen`): what the window shows after it, and whether
+ * it started over (the review it showed goes to its history). A move keeps the review on screen and shows the commit of
+ * the open: a branch falls back to the part of the commit's branch when the part on screen doesn't have it, a list
+ * selects it; a plain open of what it shows keeps it as it is.
+ */
+export function takeOpen(shown: ShownReviewWindow | null, data: ReviewWindowData, now: number): { readonly shown: ShownReviewWindow; readonly restarted: boolean } {
+  const open = planReviewOpen(shown === null ? null : shownReviewOf(shown), openRequestOf(data), now)
+  if (shown === null || open.shown.startedAt !== shown.startedAt) {
+    return { shown: { ...data, startedAt: open.shown.startedAt, move: false }, restarted: shown !== null }
+  }
+  if (!open.move) {
+    return { shown, restarted: false }
+  }
+  if (shown.kind === "commits" && data.kind === "commits") {
+    return { shown: { ...shown, index: data.index, path: data.path, openedAt: data.openedAt, move: true }, restarted: false }
+  }
+  if (shown.kind === "branch" && data.kind === "branch") {
+    const focus = { range: { from: data.branchName, to: data.branchName }, filter: shown.focus.filter, commitId: data.focus.commitId, path: data.focus.path }
+    return { shown: { ...shown, focus, openedAt: data.openedAt, move: true }, restarted: false }
+  }
+  return { shown: { ...data, startedAt: now, move: false }, restarted: true }
+}
+
 /** The reviews the window showed before, the latest last: at most this many */
 export const REVIEW_HISTORY_LIMIT = 20
 
 /** The history after the window started over: the review it left last, the oldest dropped past the limit */
-export function pushReviewHistory(history: readonly ReviewWindowData[], left: ReviewWindowData): ReviewWindowData[] {
+export function pushReviewHistory(history: readonly ShownReviewWindow[], left: ShownReviewWindow): ShownReviewWindow[] {
   return [...history, left].slice(-REVIEW_HISTORY_LIMIT)
 }
 
@@ -153,7 +204,7 @@ export function pushReviewHistory(history: readonly ReviewWindowData[], left: Re
  * The review `data` of the history restored at `place` (where it was when the window left it): a start over of it at
  * `now`, which reads it again
  */
-export function restoredReview(data: ReviewWindowData, place: ReviewPlace | undefined, now: number): ReviewWindowData {
+export function restoredReview(data: ShownReviewWindow, place: ReviewPlace | undefined, now: number): ShownReviewWindow {
   const open = { openedAt: now, startedAt: now, move: false }
   if (data.kind === "commits") {
     return { ...data, ...open, ...(place?.kind === "commits" && { index: place.index, path: place.path }) }

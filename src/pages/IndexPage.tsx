@@ -13,11 +13,11 @@ import { ACTIVITY_PANEL_MIN_WIDTH, useActivityPanel } from "@/hooks/useActivityP
 import { useActivityWindowLink } from "@/hooks/useActivityWindowLink"
 import { useAppCommand } from "@/hooks/useAppCommand"
 import { useAutoUpdate } from "@/hooks/useAutoUpdate"
-import { useBranchReviewLink } from "@/hooks/useBranchReviewLink"
 import { KeptViewContext } from "@/hooks/useCloseWhenViewHides"
 import { useInstallAgentCli } from "@/hooks/useInstallAgentCli"
 import { useMenuSync } from "@/hooks/useMenuSync"
 import { useRepositoryConfigChanges } from "@/hooks/useRepositoryConfigChanges"
+import { useReviewRuns } from "@/hooks/useReviewRuns"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
 import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
@@ -154,8 +154,8 @@ export function IndexPage() {
   useInstallAgentCli()
   // the Setup dot: the main window also reads the CLIs now and then
   useSetupTracking({ readTools: true })
-  // the review window of a branch: the tips a sync built, what it can do with its branches, and what it asks for
-  useBranchReviewLink()
+  // the review window: the actions it asks to run at the rows of their subjects (the forms of a row)
+  useReviewRuns()
   // the review window of a pull request: the state of its requests, and the writes it asks for
   useReviewWindowBridge()
   // "Activity" of every window: the log of the selected repository in the side panel, or in its window, and what the
@@ -177,7 +177,7 @@ export function IndexPage() {
   useAppCommand("show_branches", () => showMainView("branches"))
   useAppCommand("show_reviews", () => showMainView("reviews"))
   useAppCommand("show_landing", () => showMainView("landing"))
-  // "Create Pull Request…" of a branch (the review window has its own, `WindowCreatePullRequestDialog`)
+  // "Create Pull Request…" of a branch (the review window mounts the same dialog in its own window)
   const createPullRequestOpen = useCreatePullRequestBranch() !== null
   const [isCreatePullRequestLoaded, setCreatePullRequestLoaded] = useState(false)
   if (createPullRequestOpen && !isCreatePullRequestLoaded) {

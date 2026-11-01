@@ -828,7 +828,7 @@ simpleTest.describe("A commit with its branch", () => {
     await own.hover()
     await page.keyboard.press("d")
     const opened = await openedReview(page, 1)
-    expect(opened.data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], move: false })
+    expect(opened.data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], branchName: "perf-part-2" })
     focusedCommit(opened)
 
     const window = await openLinkedSubWindow(page, opened)
@@ -846,9 +846,11 @@ simpleTest.describe("A commit with its branch", () => {
     await getBranchCommitRow(page, "IJPL-257337", "Load icons lazily").hover()
     await page.keyboard.press("d")
     const moved = await openedReview(page, 2)
-    expect(moved.data).toMatchObject({ chain: ["IJPL-257337", "perf-part-2"], move: true, startedAt: opened.data.startedAt })
+    // the open is of the parent's commit; the window decides it is a move: its chain stays
+    expect(moved.data).toMatchObject({ branchName: "IJPL-257337", chain: ["IJPL-257337"] })
     await reopenLinkedSubWindow(window, moved)
     await expect(window.getByTestId("range-review-commit-header")).toContainText("Load icons lazily")
+    await expect(segments).toHaveCount(2)
     await expect(window.getByRole("button", { name: "From Root" })).toHaveAttribute("aria-pressed", "true")
 
     // the own part of the child: a commit of the parent shows the parent's segment

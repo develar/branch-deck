@@ -19,9 +19,8 @@ import { getBranch, getStackAncestors, getStackNotBuilt } from "@/stores/branch-
 import { getFullBranchName, getFullStackBranchName } from "@/stores/repository"
 
 /**
- * What the "Create pull request" dialog of a branch shows, from the main window, which owns the branches: the dialog
- * of the main window builds it from its stores, the one of the review window gets it over the link of the window
- * (`BranchReviewWindowState.createPullRequest`). Plain data: it crosses the window boundary as JSON.
+ * What the "Create pull request" dialog of a branch shows: the dialog builds it from the stores of its window's session
+ * (the main window's, the review window's)
  */
 export interface CreatePullRequestContext {
   /**

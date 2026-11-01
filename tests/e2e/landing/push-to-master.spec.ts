@@ -1,6 +1,6 @@
 // @spec spec/branch/landing-routes.spec.md
 import type { Locator, Page } from "@playwright/test"
-import type { BranchReviewRequest } from "../../../src/types/sub-window"
+import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { availablePullRequests, gitHubWrites, pullRequest, repoPath } from "../helpers/pull-request-helpers"
@@ -116,8 +116,8 @@ test.describe("Push to master", () => {
   test("should push into master when the review window asks the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const copy = await repo.revision(virtualBranch(BRANCH))
-    // the button of the title bar of the review window, asked of the main window over the link of the window
-    await emitTauriEvent(page, "review/request", { id: "push", repositoryPath: repo.path, branchName: BRANCH, itemId: "push-to-baseline" } satisfies BranchReviewRequest)
+    // the button of the title bar of the review window, run by the main window at the row (its popover)
+    await emitTauriEvent(page, "review/run", { id: "push", repositoryPath: repo.path, subject: BRANCH, itemId: "push-to-baseline" } satisfies ReviewRunRequest)
     await confirmAndExpectLanded(page, repo, safePushPopover(page), copy)
   })
 

@@ -1,10 +1,10 @@
 // @spec spec/review/review-window.spec.md
 import type { Page } from "@playwright/test"
-import type { BranchReviewRequest, CommitsReviewWindowData } from "../../../src/types/sub-window"
+import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { openedReview, openReviewWindow } from "../helpers/review-window-helpers"
-import { getEmittedEvents, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
+import { openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 
 /** The review the window shows: the files of its diffs, in their order */
 async function reviewedPaths(window: Page): Promise<string[]> {
@@ -19,8 +19,7 @@ test.describe("One review window", () => {
   })
 
   test("should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back", async ({ page }) => {
-    const branch = await openReviewWindow(page, "feature")
-    const window = await openLinkedSubWindow(page, branch)
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "feature"))
     const segments = window.getByTestId("branch-review-segment")
     await expect(segments).toHaveCount(1)
     await expect.poll(() => reviewedPaths(window)).toEqual(["auth.js"])
@@ -33,7 +32,6 @@ test.describe("One review window", () => {
       await page.keyboard.press("d")
       const opened = await openedReview<CommitsReviewWindowData>(page, count)
       expect(opened.data).toMatchObject({ kind: "commits", listLabel: "Unassigned" })
-      expect(opened.data.startedAt).not.toBe(branch.data.startedAt)
       await reopenLinkedSubWindow(window, opened)
       await expect(window.getByTestId("window-title")).toContainText("Unassigned")
       await expect.poll(() => reviewedPaths(window)).toEqual(["bugfix.txt"])
@@ -49,10 +47,8 @@ test.describe("One review window", () => {
     await expect(segments).toHaveCount(1)
     await expect.poll(() => reviewedPaths(window)).toEqual(["auth.js"])
     await expect(window.getByTestId("review-back")).toHaveCount(0)
-    // the main window hears what the window shows now: it sends the actions of the branch again
-    await expect
-      .poll(async () => (await getEmittedEvents<BranchReviewRequest>(window, "review/request")).flatMap(request => ("shows" in request ? [request.shows] : [])))
-      .toEqual([expect.objectContaining({ kind: "branch", chain: ["feature"], wholeStack: false })])
+    // the branch is the window's again: its actions, from its own session
+    await expect(window.getByTestId("branch-review-actions").getByRole("button", { name: "More actions for feature" })).toBeVisible()
 
     // the list again, then the Back button
     await reviewCommit(3)

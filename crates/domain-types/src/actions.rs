@@ -158,6 +158,51 @@ impl ActionId {
     Self::OpenUnknownStart,
     Self::ForgetStart,
   ];
+
+  /// Whether a start of the action opens a form, a confirmation or a popover under the row of its subject in the main
+  /// window: the inline forms of a row (rename, park, amend, the issue reference, the squash of the fixups, unapply, the
+  /// typed delete of a kept branch, the confirmation of an ungroup and of the close of the pull request of a whole stack),
+  /// the target picker of a move or a stack, the popover of a Safe Push and of its rarer starts, of Request Review and
+  /// of Start in Air, the question of a push that would drop remote commits. A review window asks the main window to run
+  /// it there (`review/run`, spec/review/review-window.spec.md#actions); every other action runs where it is chosen.
+  #[must_use]
+  pub const fn opens_row_form(self) -> bool {
+    matches!(
+      self,
+      Self::SafePush
+        | Self::SafePushWithProfile
+        | Self::DryRun
+        | Self::SafePushWithoutReview
+        | Self::Push
+        | Self::PushWithChildren
+        | Self::PickRemoteCommits
+        | Self::PushToBaseline
+        | Self::MergePullRequest
+        | Self::RequestReview
+        | Self::Rename
+        | Self::MoveTo
+        | Self::StackOn
+        | Self::Ungroup
+        | Self::AmendChanges
+        | Self::AddIssueReference
+        | Self::SquashFixups
+        | Self::Unapply
+        | Self::Park
+        | Self::DeleteKeptBranch
+        | Self::SafePushWholeStack
+        | Self::DryRunWholeStack
+        | Self::SafePushMainLine
+        | Self::CloseStackPullRequest
+        | Self::StartRobotInAir
+    )
+  }
+
+  /// The actions that open a form under their row (`opens_row_form`), in the order of `ALL`: the bindings carry them to
+  /// the page (`ROW_FORM_ACTIONS`), the catalog lists them (`actions.json`)
+  #[must_use]
+  pub fn row_forms() -> Vec<Self> {
+    Self::ALL.into_iter().filter(|id| id.opens_row_form()).collect()
+  }
 }
 
 /// An action a subject offers now, and whether it can run

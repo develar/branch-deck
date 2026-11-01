@@ -786,7 +786,7 @@ test.describe("Whole stack", () => {
     }
   })
 
-  test("should start the Safe Push of the whole stack with S in its review, its popover at the header, and run ⋯ in the main window", async ({
+  test("should start the Safe Push of the whole stack with S in its review, its popover at the header, and its pull request in the window's dialog", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -805,11 +805,13 @@ test.describe("Whole stack", () => {
     )
     await page.keyboard.press("Escape")
 
-    // "⋯": the whole menu of the whole stack but its review, run by the main window
+    // "⋯": the whole menu of the whole stack but its review; its starts run at the header of the island in the main
+    // window, its pull request in the window's own dialog
     await actions.getByRole("button", { name: "More actions for the whole air stack" }).click()
     await expect(window.getByRole("menuitem")).toHaveText(["Safe Push Whole Stack", "Dry Run Whole Stack", "Create Pull Request of the Stack…", "Push with Children (7 branches)"])
     await window.getByRole("menuitem", { name: "Create Pull Request of the Stack…" }).click()
-    await expect(createPullRequestDialog(page).getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
+    await expect(createPullRequestDialog(window).getByTestId("create-pull-request-base")).toHaveText("Whole air stack → master")
+    await expect(createPullRequestDialog(page)).toHaveCount(0)
   })
 
   test("should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then", async ({ page, setupRepo, syncAndWaitForBranches }) => {

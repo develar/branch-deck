@@ -3,7 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event"
 import { useTauriListen } from "@/hooks/useTauriListen"
 import { logError, notifyError } from "@/lib/errors"
 import { windowLinkEvents } from "@/lib/sub-window-link"
-import type { LinkedWindowReply, LinkedWindowRequest } from "@/lib/sub-window-link"
+import type { LinkRequestEvents, LinkedWindowReply, LinkedWindowRequest } from "@/lib/sub-window-link"
 
 /*
  * The sub-window's side of its link with the main window (`@/lib/sub-window-link`): the state the main window sends,
@@ -12,23 +12,23 @@ import type { LinkedWindowReply, LinkedWindowRequest } from "@/lib/sub-window-li
 
 /** The answers the window waits for, by the id of its request */
 const replies = new Map<string, (ok: boolean) => void>()
-/** The labels whose answers are listened to: once per window, for its lifetime */
-const listenedLabels = new Set<string>()
+/** The events of the answers listened to: once per window, for its lifetime */
+const listenedReplies = new Set<string>()
 let nextRequestId = 0
 
-function listenForReplies(label: string): Promise<void> {
-  if (listenedLabels.has(label)) {
+function listenForReplies(replyEvent: string): Promise<void> {
+  if (listenedReplies.has(replyEvent)) {
     return Promise.resolve()
   }
-  listenedLabels.add(label)
-  return listen<LinkedWindowReply>(windowLinkEvents(label).reply, ({ payload }) => {
+  listenedReplies.add(replyEvent)
+  return listen<LinkedWindowReply>(replyEvent, ({ payload }) => {
     replies.get(payload.id)?.(payload.ok)
     replies.delete(payload.id)
   }).then(
     () => undefined,
     (error: unknown) => {
-      listenedLabels.delete(label)
-      logError(`Cannot listen for the answers to ${label}`, error)
+      listenedReplies.delete(replyEvent)
+      logError(`Cannot listen for the answers of ${replyEvent}`, error)
     },
   )
 }
@@ -40,12 +40,17 @@ export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omi
  * as a Safe Push may take a minute.
  */
 export function askMainWindow<Request extends LinkedWindowRequest>(label: string, request: DistributiveOmit<Request, "id">): Promise<boolean> {
+  return askOn(windowLinkEvents(label), request)
+}
+
+/** `askMainWindow` on the events of a protocol of its own (the runs of the review window, `review/run`) */
+export function askOn<Request extends LinkedWindowRequest>(events: Pick<LinkRequestEvents, "request" | "reply">, request: DistributiveOmit<Request, "id">): Promise<boolean> {
   const id = `${Date.now()}-${nextRequestId++}`
-  return listenForReplies(label).then(
+  return listenForReplies(events.reply).then(
     () =>
       new Promise<boolean>(resolve => {
         replies.set(id, resolve)
-        emit(windowLinkEvents(label).request, { ...request, id }).catch((error: unknown) => {
+        emit(events.request, { ...request, id }).catch((error: unknown) => {
           replies.delete(id)
           notifyError("Cannot reach the main window", error)
           resolve(false)

@@ -47,9 +47,10 @@ import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/setting
  * opens GitHub's form with the text instead (it takes no reviewers). Without a token GitHub accepts, it says why and
  * GitHub's form is the way.
  *
- * Loaded on the first open, then kept mounted (see `PreviewDialogFrame`); each opening starts with a new text.
+ * Loaded on the first open, then kept mounted (see `PreviewDialogFrame`); each opening starts with a new text. The
+ * review window mounts it too, its "Safe Push Without Review…" asked of the main window (`safePushWithoutReview`).
  */
-export function CreatePullRequestDialog() {
+export function CreatePullRequestDialog({ safePushWithoutReview }: { safePushWithoutReview?: (branchName: string) => void }) {
   const branchName = useCreatePullRequestBranch()
   const wholeStack = useCreatePullRequestWholeStack()
   const generation = useCreatePullRequestGeneration()
@@ -71,7 +72,9 @@ export function CreatePullRequestDialog() {
   return (
     <CreatePullRequestDialogFrame open={branchName !== null} isCreating={isCreating} titleRef={titleRef} onClose={closeCreatePullRequestDialog}>
       {shown?.wholeStack === true && <MainStackPullRequestForm key={shown.generation} root={shown.branchName} {...formProps} />}
-      {shown?.wholeStack === false && branch !== undefined && <MainCreatePullRequestForm key={shown.generation} branch={branch} {...formProps} />}
+      {shown?.wholeStack === false && branch !== undefined && (
+        <MainCreatePullRequestForm key={shown.generation} branch={branch} safePushWithoutReview={safePushWithoutReview} {...formProps} />
+      )}
     </CreatePullRequestDialogFrame>
   )
 }
@@ -116,20 +119,20 @@ export function CreatePullRequestDialogFrame({
   )
 }
 
-/** What the form does, where it runs: the main window creates the pull request, the review window asks it to */
+/** What the form does: it creates the pull request in the window it is open in (the main window, the review window) */
 export interface CreatePullRequestActions {
   /** Pushes what the pull request needs, creates it and tells how it went: true when it was (the dialog closes then) */
   create: (input: CreatePullRequestInput) => Promise<boolean>
   /** Pushes what the pull request needs, then opens GitHub's form with the fields: true when it opened */
   continueOnGitHub: (fields: CompareFields) => Promise<boolean>
-  /** "Safe Push Without Review…": the popover of the row's Safe Push, in the main window */
+  /** "Safe Push Without Review…": the popover of the row's Safe Push, in the main window (the review window asks it) */
   safePushWithoutReview: () => void
   close: () => void
 }
 
 interface FormProps {
   titleRef: RefObject<HTMLInputElement | null>
-  /** The creation or "Continue on GitHub" runs: the operation of the session, or the request a review window sent */
+  /** The creation or "Continue on GitHub" runs: the operation of the session, also one another window started */
   isCreating: boolean
   /** The wait of the form from the click on, until its action answered */
   setIsCreating?: (isCreating: boolean) => void
@@ -147,9 +150,17 @@ function usePushLabel(branchName: string): string | null {
 }
 
 /** The form of the main window's dialog: the context from its stores, the creation by its store, the toast here */
-function MainCreatePullRequestForm({ branch, ...props }: FormProps & { branch: Branch }) {
+function MainCreatePullRequestForm({ branch, safePushWithoutReview, ...props }: FormProps & { branch: Branch; safePushWithoutReview: ((branchName: string) => void) | undefined }) {
   const context = useCreatePullRequestContext(branch)
-  return <MainForm context={context} safePushWithoutReview={() => getSafePushWithoutReviewItem(branch)?.onSelect(FROM_MENU)} pushLabel={usePushLabel(branch.name)} {...props} />
+  const withoutReview = () => {
+    if (safePushWithoutReview === undefined) {
+      getSafePushWithoutReviewItem(branch)?.onSelect(FROM_MENU)
+    } else {
+      closeCreatePullRequestDialog()
+      safePushWithoutReview(branch.name)
+    }
+  }
+  return <MainForm context={context} safePushWithoutReview={withoutReview} pushLabel={usePushLabel(branch.name)} {...props} />
 }
 
 /** "Pushing 45%" while the push of the stack branch a creation of the whole stack's pull request starts with runs, else null */

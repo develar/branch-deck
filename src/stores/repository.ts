@@ -4,6 +4,7 @@ import { commands } from "@/lib/bindings"
 import type { ApiError } from "@/lib/bindings"
 import { getErrorDetails, notifyError } from "@/lib/errors"
 import { repositoryName } from "@/lib/repository-config"
+import { REVIEW_WINDOW, windowLabel } from "@/lib/window-label"
 import { getRecentProjects, setRecentProjects, useRecentProjects } from "@/stores/settings/repositorySettings"
 import type { ProjectMetadata } from "@/stores/settings/repositorySettings"
 import { useRepositoryStateField } from "@/stores/settings/repositoryState"
@@ -58,8 +59,43 @@ export function useRepository<T>(selector: (state: RepositoryState) => T): T {
 
 // ---- selected project ----
 
+/**
+ * The repository the page acts on: the one the main window shows (`recentProjects[0]`); in the review window the one of
+ * the review it shows (`reviewWindowRepository`), whatever the main window shows meanwhile, so the actions the window
+ * builds and runs itself read and change that repository
+ */
 export function getSelectedProject(): ProjectMetadata | null {
-  return getRecentProjects()[0] ?? null
+  return selectedOf(getRecentProjects())
+}
+
+/** The selected project of `projects` (the recent ones), as this window selects it (`getSelectedProject`) */
+function selectedOf(projects: readonly ProjectMetadata[]): ProjectMetadata | null {
+  const own = reviewWindowRepository()
+  if (own === null) {
+    return projects[0] ?? null
+  }
+  return projects.find(project => project.path === own) ?? unlistedProject(own)
+}
+
+/** A repository no recent project names, one object per path: a selector that answers it renders nothing again */
+const unlistedProjects = new Map<string, ProjectMetadata>()
+
+function unlistedProject(path: string): ProjectMetadata {
+  let project = unlistedProjects.get(path)
+  if (project === undefined) {
+    project = { path }
+    unlistedProjects.set(path, project)
+  }
+  return project
+}
+
+/** The repository of the review the review window shows (`repositoryPath` of its data); null in every other window */
+function reviewWindowRepository(): string | null {
+  if (windowLabel !== REVIEW_WINDOW) {
+    return null
+  }
+  const data = window.__INIT_DATA__
+  return typeof data === "object" && data !== null && "repositoryPath" in data && typeof data.repositoryPath === "string" ? data.repositoryPath : null
 }
 
 /**
@@ -96,12 +132,12 @@ export function getDiffRepositoryPath(): string | undefined {
 
 /** The whole metadata: re-renders on every change of it (the last sync time, the issue links); prefer a field */
 export function useSelectedProject(): ProjectMetadata | null {
-  return useRecentProjects(projects => projects[0] ?? null)
+  return useRecentProjects(selectedOf)
 }
 
 /** The path of the selected repository; re-renders only when another one is selected, not when its metadata changes */
 export function useSelectedProjectPath(): string | undefined {
-  return useRecentProjects(projects => projects[0]?.path)
+  return useRecentProjects(projects => selectedOf(projects)?.path)
 }
 
 /** One field of what the syncs recorded of the selected repository (`repositoryState`); re-renders only when it changes */

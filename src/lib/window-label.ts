@@ -18,8 +18,7 @@ export const isMainWindow = windowLabel === "main"
 /**
  * The label of the review window, one for every subject (a branch with its stack, a whole stack, a kept branch, a list
  * of commits), reused for the next one (`@/lib/review-window`). The window subscribes to the session of its repository
- * itself for the heads a sync built (`settledReviewTable`); its link (`@/lib/sub-window-link`) sends the actions of each
- * branch of its chain (`BranchReviewWindowState`), and carries the actions it asks for (`BranchReviewRequest`) with their
- * refusals.
+ * itself and builds the actions of what it shows from it (`useReviewActions`); it asks the main window only for those
+ * that open a form under a row (`review/run`, `@/lib/review-runs`).
  */
 export const REVIEW_WINDOW = "review"

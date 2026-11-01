@@ -1,17 +1,17 @@
 import { getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
-import { getReviewRequirementState, usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
+import { usePatronusReviewRequirement } from "@/hooks/usePatronusReviewRequirement"
 import type { CreatePullRequestContext } from "@/lib/pull-request-dialog"
 import { toCreatePullRequestContext, toStackPullRequestContext } from "@/lib/pull-request-dialog"
 import { stackReadinessKey } from "@/lib/whole-stack"
 import type { Branch } from "@/stores/branch-sync"
-import { branchSyncStore, getBranch, getStackBranch, useBranchSync, useStackBranch } from "@/stores/branch-sync"
-import { isPatronusAvailable, usePatronusAvailable } from "@/stores/patronus"
-import { getPullRequest, getPullRequestAvailability, getStackPullRequest, usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
-import { getSelectedProject, useSelectedProjectPath } from "@/stores/repository"
+import { useBranchSync, useStackBranch } from "@/stores/branch-sync"
+import { usePatronusAvailable } from "@/stores/patronus"
+import { usePullRequest, usePullRequestAvailability, useStackPullRequest } from "@/stores/pull-requests"
+import { useSelectedProjectPath } from "@/stores/repository"
 
 /**
- * The context of the "Create pull request" dialog of the main window, re-rendering when a fact of it changes; it asks
+ * The context of the "Create pull request" dialog of a window, re-rendering when a fact of it changes; it asks
  * for the readiness of the branch (the code owners) while the dialog is open
  */
 export function useCreatePullRequestContext(branch: Branch): CreatePullRequestContext {
@@ -26,23 +26,6 @@ export function useCreatePullRequestContext(branch: Branch): CreatePullRequestCo
     review: usePatronusReviewRequirement(branch.name, patronusAvailable).state,
     withoutReview: nextStep === null ? null : getSafePushWithoutReviewItem(branch, nextStep),
     layer: useBranchSync(state => state.githubLayers[branch.name] ?? null),
-  })
-}
-
-/**
- * The same context from the stores as they are, for the dialog of the review window (the main window sends it over the
- * link while the dialog is open, and asks for the readiness meanwhile)
- */
-export function getCreatePullRequestContext(branch: Branch): CreatePullRequestContext {
-  return toCreatePullRequestContext(branch, {
-    repositoryPath: getSelectedProject()?.path ?? "",
-    baselineBranch: branchSyncStore.getState().baselineBranch,
-    pullRequest: getPullRequest(branch.name),
-    availability: getPullRequestAvailability(),
-    patronusAvailable: isPatronusAvailable(),
-    review: getReviewRequirementState(branch.name),
-    withoutReview: getSafePushWithoutReviewItem(branch),
-    layer: branchSyncStore.getState().githubLayers[branch.name] ?? null,
   })
 }
 
@@ -65,19 +48,5 @@ export function useStackPullRequestContext(root: string): CreatePullRequestConte
     branchOf: name => branches[name],
     patronusAvailable,
     review: usePatronusReviewRequirement(stackReadinessKey(root), patronusAvailable).state,
-  })
-}
-
-/** The same context from the stores as they are, for a request of the review window */
-export function getStackPullRequestContext(root: string): CreatePullRequestContext {
-  const stack = getStackBranch(root)
-  return toStackPullRequestContext(root, stack, {
-    repositoryPath: getSelectedProject()?.path ?? "",
-    baselineBranch: branchSyncStore.getState().baselineBranch,
-    pullRequest: getStackPullRequest(root),
-    availability: getPullRequestAvailability(),
-    branchOf: getBranch,
-    patronusAvailable: isPatronusAvailable() && stack?.state === "Built",
-    review: getReviewRequirementState(stackReadinessKey(root)),
   })
 }

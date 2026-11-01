@@ -24,7 +24,10 @@ targets:
   - ../../src/stores/settings/repositorySettings.ts
   - ../../src/lib/range-review.ts
   - ../../src/components/review/RangeReview.tsx
-  - ../../src/hooks/useBranchReviewLink.ts
+  - ../../src/hooks/useReviewActions.ts
+  - ../../src/hooks/useReviewRuns.ts
+  - ../../src/lib/review-actions.ts
+  - ../../src/lib/review-runs.ts
   - ../../src/hooks/useMainWindowLink.ts
   - ../../src/lib/sub-window-link.ts
   - ../../src/model/store.ts
@@ -43,9 +46,8 @@ targets:
   - ../../src/types/sub-window.ts
   - ../../src/lib/pull-request-dialog.ts
   - ../../src/lib/pull-request-run.ts
-  - ../../src/components/review/WindowCreatePullRequestDialog.tsx
-  - ../../src/hooks/useCreatePullRequestContext.ts
   - ../../src/components/branch/CreatePullRequestDialog.tsx
+  - ../../src/hooks/useCreatePullRequestContext.ts
   - ../../src/lib/sub-window.ts
   - ../../src/router.ts
   - ../../src-tauri/capabilities/sub-windows.json
@@ -77,8 +79,8 @@ reviewer groups the code-owner check of a Safe Push asks for and by owner: the s
 muted, and the keys move through the chosen owner's files. The Safe Push popover names the files each
 group has to review, and its "Review Changes" opens the review on them. The title bar of the window holds the stack, the diff view and the
 actions on the branch: Open Pull Request, Safe Push (Push to master or Merge #7 in its place, by the route of the
-repository, [Landing Routes](landing-routes.spec.md)) and Push Branch, which the main window runs; the footer holds the
-keys.
+repository, [Landing Routes](landing-routes.spec.md)) and Push Branch, built and run by the window from its own
+session, a form of a row by the main window at that row; the footer holds the keys.
 
 ## Goals
 
@@ -89,8 +91,8 @@ keys.
 ## Non-goals
 
 - No comments and no approvals: the review happens in the pull request.
-- No branch state in the window: the main window owns the branches and runs the actions the window asks for; the
-  "Create pull request" dialog of the window shows what the main window sends and asks it to create the pull request.
+- No form of a row in the window: a rename, a move, the popover of a Safe Push, the question of a push that drops
+  remote commits open at the row of the branch in the main window ([Review Window](../review/review-window.spec.md#actions)).
 - No review of the children of a branch in its window: each has its own, with this branch as a segment; "Whole Stack"
   reviews every branch of the stack, the children too.
 - No group membership: "my files" needs the members of a group, which the repository doesn't hold.
@@ -179,11 +181,11 @@ keys.
   left of it, `StackLanding.rest`), disabled with the reason while the stack branch is not built; of a straight chain
   it is the review of its last branch from the root ("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3
   commits, what the Safe Push of perf-part-2 lands"), and its last branch has none: From Root is the whole stack. The
-  window asks the main window (`{ scope: "wholeStack" }`), which opens the review with the chain as the way back.
+  window opens that review itself (`openWholeStackReviewWindow`), the chain as the way back.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root`)
 - The stack bar of the review of the whole stack must show the chain it came from (`from` of the window data; the
   main line from the island and the menus), each segment with its number of commits, none pressed, then "Whole
-  Stack", pressed; a segment reviews its branch (`{ review: "branch" }`). Each commit of the column (with the plan,
+  Stack", pressed; a segment reviews its branch, which the window opens itself. Each commit of the column (with the plan,
   each commit row of the tree) names its branch, muted after its subject, matched across the copies by author, author
   time and subject (`reviewCommitKey`: the stack branch has no mapping notes; `stackCommits` of the window state), and
   the heading of the shown commit ends with
@@ -222,7 +224,7 @@ keys.
   each of its commits by `reviewCommitKey`, and the baseline (`settledReviewTable`). It takes them once the view
   settled: once per finished sync of the session, whichever window asked for it, also while the main window shows
   another repository, never during a run, and not before a sync grouped the branches. The window carries the version
-  of its view (`data-view-version` of `review-window`); the link of the main window sends none of it. The read at the
+  of its view (`data-view-version` of `review-window`); the main window sends none of it. The read at the
   open uses the baseline of the window data, which the page starts at its load.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the stack again from the window's own session when a sync of the main window moves a tip of it, and keep a branch that left`)
   [@test] ../../src/model/store.test.ts (`keeps the subscription of a second window independent of the first's: its own view, its own count of the runs`)
@@ -248,31 +250,30 @@ keys.
   the previous change. A first push whose landing pushes the branch (`isFirstPushInLanding`) is a step of Create Pull
   Request… and Safe Push: the push stays in its place, disabled with why ("Safe Push and Create Pull Request… push auth
   first: "⋯" pushes it alone"), and so it is while Patronus or GitHub haven't answered whether they push it
-  (`firstPushWait`), so their answers move no button of the title bar. "⋯" after them is the whole menu of the branch's row (`BranchReviewWindowState.menus`, its
-  items without their submenus): the main window runs the item it asks for (`menuItemId`), comes to the front and
-  shows the row (a rename or an amend is a form of the row); disabled with the reason while it shows another
-  repository or the branch left.
+  (`firstPushWait`), so their answers move no button of the title bar. "⋯" after them is the whole menu of the branch's row (`branchReviewMenu`, its
+  items without their submenus, the collapse of the stack and the review it is, without key hints): an item that opens a form of the row (a rename, an amend) runs in
+  the main window, at the row ([Review Window](../review/review-window.spec.md#actions)); disabled with the reason once the branch left.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run an item of the branch's menu from the window's ⋯, in the main window`)
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`)
 - The title bar of the review of the whole stack must hold the actions of the whole stack, from the one builder of
   its menus (`getWholeStackMenuItems`, `getWholeStackReviewItems`), in the order of a branch's: `O Open Pull Request
   #12` of its pull request (opened by the window) or "Create Pull Request of the Stack…" (its dialog in the window,
   the context of the whole stack, `getStackPullRequestContext`; Create pushes its stack branch alone, then creates
   it, the toast in the window), `S Safe Push Whole Stack` (its popover at the header of the island, else at the
   root's row; disabled with the reason of the next step of the whole stack) and Push with Children of the root,
-  without a key; "⋯" is the whole menu of the whole stack but "Review Whole Stack". Every request says it is of the
-  whole stack (`wholeStack` of `BranchReviewRequest`), and the main window runs the item of the whole stack of the
-  root; while the window is open it asks for the readiness of `stack:<root>`. Opened from the Safe Push popover, the
-  review gets the reviewer groups of the code-owner check of the whole stack.
-  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should start the Safe Push of the whole stack with S in its review, its popover at the header, and run ⋯ in the main window`, `should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then`)
+  without a key; "⋯" is the whole menu of the whole stack but "Review Whole Stack". A start the main window runs at the
+  header names the whole stack (the subject `stack:<root>` of `review/run`); while the window shows it, it asks for
+  the readiness of `stack:<root>`. Opened from the Safe Push popover, the review gets the reviewer groups of the
+  code-owner check of the whole stack.
+  [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should start the Safe Push of the whole stack with S in its review, its popover at the header, and its pull request in the window's dialog`, `should create the pull request of the whole stack in its review, in its window, its Safe Push disabled until then`)
 - A commit of the review must have the menu of its row: its right-click in the column, on its row in the steps of the
   tree after Show Commit Alone ([Review Tour](review-tour.spec.md#in-the-review-window)), and "⋯" at the end of its
   heading (a part of one commit has no column, its heading has it), built when it opens, without key hints and
   without submenus: "Reword…", "Move to…", the way back ("Move to Unassigned", "Move Back to …"), the squash into its
   target, "Push Up to Here" (`getCommitMenuGroups`, the one builder of the menus of commits, every item by a stable
-  id), which the main window sends by the id of the commit in the virtual branch (`commitMenus` of the window state)
-  and runs (`commitMenuItemId`): it comes to the front, reveals the row, and a form opens at the row
-  (`requestCommitForm`: Move to… and the squash in the list, Reword… in the preview of the commit). The copies
+  id), which the window builds from its own session by the id of the commit in the virtual branch and asks the main
+  window to run (`review/run` with `commitIds`): it comes to the front, reveals the row, and a form opens at the row
+  (`requestCommitForm`: Move to… and the squash in the list, Reword… in the preview of the commit), a push pushes. The copies
   ("Copy Commit Hash", "Copy Commit Message", "Copy Changed Paths") run in the window, of the commit as it shows it.
   The review of the whole stack has the copies only: "Review side-fix" leads to the menu.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window`)
@@ -282,52 +283,36 @@ keys.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should save the diff view the window chooses through the writer of the backend`)
 - The target branch is the branch of the last selected segment, the reviewed end of the part: for "From Root", the
   reviewed branch; for a parent alone, the parent.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
-- What the window offers comes from the main window, over the link of the window (`sub-window-link.ts`): the state of
-  the window data at the open (`BranchReviewWindowState`: the items and the menus of each branch), then
-  `branch-review/state` whenever it changes (the branches, a sync or a push, the pull requests, the robots, the inline
-  action of a row, the selected repository), deduplicated, for the last opened chain. An unavailable Safe Push or
-  Push Branch stays, disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for
-  the sync to finish"): one blocker for the menu, S on the row, the branch preview and the review
-  (the `safe-push` and `push` actions Rust decides, `domain_policy::actions`).
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`)
+- What the window offers it builds from its own session (`useReviewActions`), by the builders of the rows
+  (`getBranchReviewItems`, `branchReviewMenu`), again whenever a store they read changes (the branches, a sync or a
+  push, the pull requests, the robots, the operations of the session): an unavailable Safe Push or Push Branch stays,
+  disabled, with the reason of the menu on hover ("A Safe Push of the last commit is running", "Wait for the sync to
+  finish"): one blocker for the menu, S on the row, the branch preview and the review (the `safe-push` and `push`
+  actions Rust decides, `domain_policy::actions`). The actions of a branch that left stay, disabled with why.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should build the actions of the title bar of each part from the window's own session, and open the pull request itself`, `should show the Unstack the row runs as running in the window's menu, from the window's own session, and run it once`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`says why a branch can't start a Safe Push in the words of its next step, and what runs on the row over it`)
-- While the main window shows another repository, the title bar keeps the last items, enabled: their hover says the
-  consequence, "Switches the main window to app", and a click makes the main window select the window's repository,
-  wait for its sync and run the action on its branches (`showRepository`); the user never selects it by hand. The pull
-  request still opens from the window. A repository the main window no longer lists is refused with "app is no longer
-  among the repositories of the main window".
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
+- O (and its button) opens the pull request from the window. Safe Push (S) and Push Branch open their popover or their
+  question at the row: the main window runs them there ([Review Window](../review/review-window.spec.md#actions)),
+  switched to the repository of the review first, the hover of each saying so meanwhile ("Switches the main window to
+  app").
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run the Safe Push and the push of the title bar at the rows of the main window, switched to the repository of the review first`)
   [@test] ../../src/lib/show-repository.test.ts (`switches the main window to another repository and waits for its first sync`, `says why a repository that is no recent one any more can't be shown`)
-- O (and its button) opens the pull request from the window. Safe Push (S) and Push Branch only ask: the window sends
-  `branch-review/request` (`{ id, repositoryPath, branchName, itemId: "safe-push" | "push" }`). The main window builds
-  the item again and runs it as the row would: it comes to the front, reveals the row and asks its start
-  (`requestSafePush`: it starts at once, or opens the popover at the row's slot, or says why in an `info` toast), or
-  pushes as the push button of the row does (`pushOrConfirm`: the stack while a parent has work, a push that drops
-  remote commits asks in the row). A request of another repository switches the main window to it first; one it can't
-  run (the repository is gone from its list, the branch left, the item is disabled) is refused with the reason, shown in the window (`branch-review/feedback`: "Cannot push branch login", "Cannot
-  start the Safe Push of login") and recorded in Activity; `branch-review/reply` answers each request by its id.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should act on the branch of the part from the title bar, through the main window`)
 
 ### The Create pull request dialog
 
 - "Create Pull Request…" opens the dialog of [Pull Requests](pull-requests.spec.md#creating-a-pull-request) in the
-  window (`WindowCreatePullRequestDialog`, loaded on the first open), the form of the main window's dialog
-  (`CreatePullRequestForm`, its frame outside the review, so the keys of the
-  review never see what is typed; they are off while it is open); the main window stays where it is. The window asks
-  `{ dialog: "open" }` and `{ dialog: "close" }`: while it is open, the main window asks for the readiness of the branch
-  and sends what the dialog shows with the state (`createPullRequest`, a `CreatePullRequestContext`: the head and the
-  base, the live pull request, the GitHub availability, the code owners, "Safe Push Without Review…"); the dialog opens
-  once it came, and keeps the last one while the main window shows another repository. The window reads the text of
-  the branch and searches the users itself. Escape in the dialog closes the dialog, not the window.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`)
-- Create asks `{ dialog: "create", input }`: the main window creates the pull request as its own dialog does (the head
-  and the base from its branches, Activity) and sends the toast to the window (`branch-review/feedback`, `kind:
-  "toast"`, "Open Pull Request" opens it from the window); another repository shown or a branch that left refuse it
-  ("Cannot create the pull request of auth"), as GitHub's error does. "Safe Push Without Review…" closes the dialog and
-  asks `{ dialog: "safePushWithoutReview" }`: the main window comes to the front, reveals the row and opens the Safe
-  Push popover without review at its slot ([Patronus](patronus.spec.md#safe-push-without-review)).
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window it was asked in, through the main window`, `should start the Safe Push without review the window's dialog offers in the main window`)
+  window, the dialog of the main window (`CreatePullRequestDialog`, loaded on the first open, its frame outside the
+  review, so the keys of the review never see what is typed; they are off while it is open), with the context the
+  window builds from its own session (the head and the base, the live pull request, the GitHub availability, the code
+  owners, whose readiness it asks for while it is open); the main window stays where it is. Escape in the dialog
+  closes the dialog, not the window.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window, with the context of its own session`)
+- Create creates the pull request in the window, in the repository of the review, as the dialog of the main window
+  does (the push first, Activity, the toast with "Open Pull Request" in the window). "Safe Push Without Review…" closes
+  the dialog and asks the main window, which comes to the front, reveals the row and opens the Safe Push popover
+  without review at its slot ([Patronus](patronus.spec.md#safe-push-without-review)).
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should create the pull request in the window, with the context of its own session`, `should start the Safe Push without review the window's dialog offers in the main window`)
 
 ## Code owners
 
@@ -397,8 +382,8 @@ keys.
   the line of the approvals a profile skips ("Starts without the approvals of …"), reviews the branch over the popover
   on the whole stack, the groups as chips (`toReviewGroups`). D on the row and "Review Changes" of the branch menu
   review the branch with the groups of its last code-owner check at its current head (`rememberReviewGroups`). A
-  check that answers while the window is open marks its groups there too: the main window sends them with the state
-  (`BranchReviewWindowState.groups`, null while none answered, when the groups of the open stay).
+  check that answers while the window is open marks its groups there too: the window's session answers it
+  (`knownReviewGroupsOf`, null while none answered, when the groups of the open stay).
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the groups that need approval as the code-owner check answers while the window is open`)
 - The files come from Patronus when it sends them (`paths`, `branchWide` of a reviewer group); otherwise a group gets
@@ -444,22 +429,20 @@ keys.
 
 - `cargo nextest run`: `git-ops` (`ownership_test`), `sync-core` (`review_target_test`, `patronus_test`).
 - `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`,
-  `src/hooks/useBranchContextActions.test.ts`, `src/lib/sub-window-link.test.ts`, `src/model/store.test.ts` (two
+  `src/hooks/useBranchContextActions.test.ts`, `src/lib/review-reuse.test.ts`, `src/model/store.test.ts` (two
   windows on the fake sessions).
 - `pnpm e2e`: `tests/e2e/branch-review/branch-review.spec.ts` on the `stacked_ownership` template, and the code-owner
   review of `tests/e2e/patronus/patronus-actions.spec.ts`. The mock records `open_sub_window`; the test then shows the
-  route in the same page with the recorded data (`openSubWindowPage`), labelled `main`. The mock records `emit`
-  (`getEmittedEvents`) instead of delivering it: the footer test reads the `review/request` requests of the
-  window, then shows the main window in the page again and fires them there, so the main window's listener runs them.
-  A test of what both windows do at once opens the window in a page of its own (`openLinkedSubWindow`, labelled
-  `review`), which subscribes to the session of the E2E server on its own stream: a sync of the main window
-  reaches it as its patches.
+  route in the same page with the recorded data (`openSubWindowPage`), labelled `main`. A test of what both windows
+  do opens the window in a page of its own (`openLinkedSubWindow`, labelled `review`), which subscribes to the session
+  of the E2E server on its own stream: a sync of the main window reaches it as its patches, and its `review/run`
+  reaches the main window's page.
 
 ## Open Questions / Risks
 
 - Until Patronus sends `paths` per group, a group named in `review-rules.yaml` as the reviewer of another owner, or
   one Patronus delegates to, shows no files.
-- The window acts only through the main window: closed or showing another repository, it pushes nothing.
+- A form of a row needs the main window: it switches to the repository of the review to open it.
 - The tips are those of the app's session; a `bd` sync in a terminal moves the virtual branches without telling the
   window until the app syncs.
 - A change of the branch prefix while the window is open leaves it on the session of the old prefix: it follows no

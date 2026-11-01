@@ -385,6 +385,8 @@ export const commands = {
 /* Constants */
 export const APP_SETTINGS_DEFAULTS = {"autoSyncOnFocus":true,"patronusNewApi":false,"systemTitleBar":false,"zoom":1} as const;
 
+export const ROW_FORM_ACTIONS = ["safe-push","safe-push-with-profile","dry-run","safe-push-without-review","push","push-with-children","pick-remote-commits","push-to-baseline","merge-pull-request","request-review","rename","move-to","stack-on","ungroup","amend-changes","add-issue-reference","squash-fixups","unapply","park","delete-kept-branch","safe-push-whole-stack","dry-run-whole-stack","safe-push-main-line","close-stack-pull-request","start-robot-in-air"] as const;
+
 /* Types */
 /**  An account of the app, which a sign-out removes the token of */
 export type Account = "gitHub" | "youTrack";
