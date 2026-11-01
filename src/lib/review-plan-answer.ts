@@ -73,6 +73,19 @@ export function planStateOf(answer: Answer | null, keys: { subjectKey: string; c
 }
 
 /**
+ * The read of the plan ended for the changes asked: the plan with its usages, `disabled`, a failure, or no plan; a
+ * review that waits for it keeps the one on screen meanwhile
+ */
+export function planSettled(state: ReviewPlanState): boolean {
+  return state.current && !state.pending && (state.plan !== null || state.disabled || state.error !== null || !state.loading)
+}
+
+/** The two states show the same: the review keeps the one it took */
+export function samePlanState(a: ReviewPlanState, b: ReviewPlanState): boolean {
+  return a.plan === b.plan && a.loading === b.loading && a.current === b.current && a.pending === b.pending && a.disabled === b.disabled && a.error === b.error
+}
+
+/**
  * The facts of the plan for the tree and the story of the diffs: those of the changes shown, also while the plan is read
  * again after Mark Reviewed; a plan still read again for another head or scope is of other changes
  */

@@ -427,7 +427,7 @@ function BranchReviewWindow({ data, back, onPlace, dialogOpen }: { data: ShownBr
     >
       <BranchReviewGone model={model} />
       <Card className="min-h-0 flex-1 flex-row gap-0 overflow-hidden py-0">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1" aria-busy={model.reading || undefined} data-testid="branch-review-body">
           <BranchReviewBody model={model} moves={moves} />
         </div>
       </Card>

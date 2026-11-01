@@ -7,14 +7,14 @@ import type { ReviewSegment, CommitFile, ReviewSubject } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
-import { diffSubjectId } from "@/lib/commit-files"
+import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { isTypingTarget } from "@/lib/preview-keys"
 import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, rangePosition, segmentItems, shownInterdiff } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { reviewFilterChips } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { markBranchReviewed } from "@/lib/review-plan"
-import { planFacts } from "@/lib/review-plan-answer"
+import { planFacts, planSettled, samePlanState } from "@/lib/review-plan-answer"
 import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
@@ -23,15 +23,17 @@ import { readReview } from "@/lib/review-window-reads"
 import { showToast } from "@/lib/toast-message"
 import { formatMarkedReviewed } from "@/presenters/review-plan"
 import type { ReviewFacts } from "@/presenters/review-plan"
-import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
-import { dropFileDiffsOf } from "@/stores/file-diffs"
+import { dropFilesOf, getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
+import { dropFileDiffsOf, loadFileDiffs, useFileDiffs } from "@/stores/file-diffs"
+import { useDiffWhitespacePolicy } from "@/stores/settings/diff-view-settings"
 import type { BranchReviewGroup, KeptReview } from "@/types/sub-window"
 
 /*
  * The review of a branch (spec/branch/branch-review.spec.md), in the dialog of the branch preview and in its window: its
  * stack from the baseline (a click picks the part, Shift+click extends it), the commits of the part beside the diffs
  * (`RangeReview`), the files of a reviewer group of the code-owner check or of an owner by the `OWNERSHIP` files marked.
- * A sync that moves a tip of the stack reads it again, keeping the part, the commit and the file. The parts it renders
+ * A sync that moves a tip of the stack reads it again, keeping the part, the commit and the file, and the review on
+ * screen until the new one is read (files, diffs and plan read ahead, as the neighbours are). The parts it renders
  * are in `@/components/review/BranchReview`.
  */
 
@@ -137,6 +139,10 @@ export interface BranchReviewModel {
     /** Mark Reviewed of the target, with the flag on, of a branch (not of the whole stack); null without it */
     readonly markReviewed: (() => void) | null
   } | null
+  /** The part of the stack chosen or read last, for the stack bar: it shows at once, ahead of the review it reads */
+  readonly stack: { readonly segments: readonly ReviewSegment[]; readonly range: SegmentRange } | null
+  /** A newer review (a sync that moved a head, another part) is read while `loaded` keeps the one on screen */
+  readonly reading: boolean
 }
 
 /**
@@ -200,9 +206,10 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   // a move to a commit of the chain: once the review is read, not under an open dialog; the owner chip stays, it hides
   // no file
   const [movedAt, setMovedAt] = useState(move?.openedAt)
-  if (move !== undefined && move.focus !== null && move.openedAt !== movedAt && state.status === "loaded" && !move.held) {
+  const moving = move !== undefined && move.focus !== null && move.openedAt !== movedAt && state.status === "loaded" && !move.held
+  if (moving) {
     setMovedAt(move.openedAt)
-    setState({ status: "loaded", view: moveView(state.view, move.focus) })
+    setState({ status: "loaded", view: moveView(state.view, move.focus!) })
     if (move.focus.path != null) {
       setLastPath(move.focus.path)
     }
@@ -210,37 +217,73 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
 
   const view = state.status === "loaded" ? state.view : null
   const setView = (change: Partial<ReviewView>) => setState(previous => (previous.status === "loaded" ? { status: "loaded", view: { ...previous.view, ...change } } : previous))
-  const rangeSubject = view === null ? null : segmentRangeSubject(view.segments, view.range)
+  // a choice of the user in the column (another commit, D on a commit row): it shows at once; anything else the review
+  // reads anew (a sync that moved a head, another part, Mark Reviewed) shows once it is read
+  const [choice, setChoice] = useState(0)
+  if (moving) {
+    setChoice(choice + 1)
+  }
+  const asRange = wholeStack || keptName !== null
 
   // the review plan of the part (spec/branch/review-plan.spec.md): a branch on the base of its part, the whole stack as
   // its range; "Since Your Review" only of one branch, whose base is the one Mark Reviewed keeps
   const experimental = source.reviewExperimental === true
   const [planGeneration, setPlanGeneration] = useState(0)
-  const planPart = experimental && view !== null ? reviewPlanPart(view.segments, view.range, wholeStack || keptName !== null) : null
+  const rangeSubject = view === null ? null : segmentRangeSubject(view.segments, view.range)
+  const planPart = experimental && view !== null ? reviewPlanPart(view.segments, view.range, asRange) : null
   const plan = useReviewPlan(
     planPart === null || rangeSubject?.kind !== "range"
       ? null
       : { repositoryPath, subject: planPart.subject, sinceReviewed: planPart.ownBranch && view!.since, head: rangeSubject.head, generation: planGeneration },
   )
-  const interdiff = shownInterdiff(plan.plan, planPart?.ownBranch === true, rangeSubject?.kind === "range" ? rangeSubject.head : null)
-  const sinceReview = localSinceReview(interdiff)
-  const sinceShown = view?.since === true && sinceReview !== null
-  // the shown item: the commit chosen, else the scope; "Since Your Review" of commits that are not one range shows the
-  // newest of them, the column lists only them
-  const sinceKey = sinceReview === null ? ALL_CHANGES : sinceReview.scope === null ? (sinceReview.newestFirst[0] ?? ALL_CHANGES) : SINCE_REVIEW
-  const selected = view?.commitId ?? (sinceShown ? sinceKey : ALL_CHANGES)
-  let subject: DiffSubject | null = rangeSubject
-  if (selected === SINCE_REVIEW && sinceReview?.scope != null) {
-    subject = { kind: "range", base: sinceReview.scope.base, head: sinceReview.scope.head }
-  } else if (selected !== ALL_CHANGES && selected !== SINCE_REVIEW) {
-    subject = { kind: "commit", id: selected }
-  }
+  const fresh = view === null ? null : reviewShape(view, plan, asRange, experimental)
   // a commit of the column has its own plan, read beside the plan of the part (a slot of its own in Rust): its card and
   // the story of its diffs
-  const commitId = subject?.kind === "commit" ? subject.id : null
+  const freshCommitId = fresh?.commitId ?? null
   const commitPlan = useReviewPlan(
-    experimental && commitId !== null ? { repositoryPath, subject: { kind: "commit", id: commitId }, sinceReviewed: false, head: commitId, generation: planGeneration } : null,
+    experimental && freshCommitId !== null
+      ? { repositoryPath, subject: { kind: "commit", id: freshCommitId }, sinceReviewed: false, head: freshCommitId, generation: planGeneration }
+      : null,
   )
+
+  // the review read last is ready once its files, its diffs and its plan are read; until then the window keeps the one
+  // it showed, the tree with its story, the files, the diffs and the file on screen, and reads the new one ahead
+  const freshId = fresh?.subject == null ? null : diffSubjectId(fresh.subject)
+  const policy = useDiffWhitespacePolicy()
+  const freshFilesRead = useFilesOfCommit(freshId ?? "") !== undefined
+  const freshDiffs = useFileDiffs(fresh?.subject ?? null, policy)
+  const [failedId, setFailedId] = useState<string | null>(null)
+  const plansRead = !experimental || ((planPart === null || rangeSubject?.kind !== "range" || planSettled(plan)) && (freshCommitId === null || planSettled(commitPlan)))
+  const ready =
+    fresh !== null && (failedId === freshId || (freshFilesRead && (freshDiffs?.kind === "error" || (freshDiffs?.kind === "loaded" && freshDiffs.complete)) && plansRead))
+  const [lastReady, setLastReady] = useState<ShownReview | null>(null)
+  if (
+    ready &&
+    view !== null &&
+    (lastReady === null || lastReady.view !== view || lastReady.choice !== choice || !samePlanState(lastReady.plan, plan) || !samePlanState(lastReady.commitPlan, commitPlan))
+  ) {
+    setLastReady({ view, plan, commitPlan, choice })
+  }
+  const holding = !ready && view !== null && lastReady !== null && lastReady.choice === choice
+  const shownView = holding ? lastReady.view : view
+  const shownPlan = holding ? lastReady.plan : plan
+  const shownCommitPlan = holding ? lastReady.commitPlan : commitPlan
+  const shown = holding ? reviewShape(lastReady.view, lastReady.plan, asRange, experimental) : fresh
+  const priorityPath = lastPath
+  useEffect(() => {
+    if (!holding || freshId === null) {
+      return
+    }
+    const next = parseDiffSubjectId(freshId)
+    void loadFilesOfSubject(next).then(() => {
+      if (getFilesOfCommit(freshId) === undefined) {
+        setFailedId(freshId)
+      }
+    })
+    loadFileDiffs(next, policy, { priorityPaths: priorityPath === null ? [] : [priorityPath] })
+  }, [holding, freshId, policy, priorityPath])
+
+  const subject = shown?.subject ?? null
   const files = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
   const paths = useMemo(() => files?.map(file => file.path) ?? [], [files])
   const owners = useFileOwners(repositoryPath, baselineBranch, paths)
@@ -251,37 +294,21 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     named: focus.filter === undefined || focus.filter.kind === "all" ? null : focus.filter,
   })
 
-  // a range is read for this review only: drop it once another one shows, and at the end of the review
-  const rangeId = rangeSubject === null ? null : diffSubjectId(rangeSubject)
-  useEffect(() => {
-    if (rangeId === null) {
-      return
-    }
-    return () => {
-      dropFilesOf([rangeId])
-      dropFileDiffsOf([rangeId])
-    }
-  }, [rangeId])
-
-  // the range of "Since Your Review" is read for this review only, as the range of the part
-  const sinceId = subject?.kind === "range" && subject !== rangeSubject ? diffSubjectId(subject) : null
-  useEffect(() => {
-    if (sinceId === null) {
-      return
-    }
-    return () => {
-      dropFilesOf([sinceId])
-      dropFileDiffsOf([sinceId])
-    }
-  }, [sinceId])
+  // a range (of the part, of "Since Your Review") is read for this review only: dropped once neither the review on
+  // screen nor the one read ahead shows it, and at the end of the review
+  const rangeIds = [...new Set([shown, fresh].flatMap(it => (it === null ? [] : it.ranges)))].join("\n")
+  useDroppedRanges(rangeIds)
 
   let loaded: BranchReviewModel["loaded"] = null
-  if (view !== null && subject !== null) {
-    const items = segmentItems(view.segments.slice(view.range.from, view.range.to + 1), sinceReview, sinceShown)
-    const target = view.segments[view.range.to]!
+  if (shownView !== null && shown !== null && subject !== null) {
+    const { sinceReview, sinceShown, selected, commitId, interdiff } = shown
+    const items = segmentItems(shownView.segments.slice(shownView.range.from, shownView.range.to + 1), sinceReview, sinceShown)
+    const target = shownView.segments[shownView.range.to]!
+    // Mark Reviewed marks the target as the review read it last
+    const markTarget = view === null ? target : view.segments[view.range.to]!
     loaded = {
-      segments: view.segments,
-      range: view.range,
+      segments: shownView.segments,
+      range: shownView.range,
       items,
       selected,
       subject,
@@ -293,18 +320,18 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
       plan: !experimental
         ? null
         : commitId !== null && !sinceShown
-          ? commitPlan
-          : plan.plan === null || plan.plan.interdiff === interdiff
-            ? plan
-            : { ...plan, plan: { ...plan.plan, interdiff } },
+          ? shownCommitPlan
+          : shownPlan.plan === null || shownPlan.plan.interdiff === interdiff
+            ? shownPlan
+            : { ...shownPlan, plan: { ...shownPlan.plan, interdiff } },
       sinceShown,
-      reviewFacts: !experimental ? null : commitId !== null ? planFacts(commitPlan) : selected === ALL_CHANGES || selected === SINCE_REVIEW ? planFacts(plan) : null,
+      reviewFacts: !experimental ? null : commitId !== null ? planFacts(shownCommitPlan) : selected === ALL_CHANGES || selected === SINCE_REVIEW ? planFacts(shownPlan) : null,
       markReviewed:
-        planPart?.markable === true
+        planPart?.markable === true && view !== null
           ? () =>
-              void markBranchReviewed(repositoryPath, target.name, target.base).then(marked => {
+              void markBranchReviewed(repositoryPath, markTarget.name, markTarget.base).then(marked => {
                 if (marked !== null) {
-                  showToast({ title: formatMarkedReviewed(target.name, marked.changed) })
+                  showToast({ title: formatMarkedReviewed(markTarget.name, marked.changed) })
                   setPlanGeneration(generation => generation + 1)
                   setView({ since: false, commitId: view.since ? null : view.commitId })
                 }
@@ -319,11 +346,68 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     filter,
     setFilter,
     setRange: range => setView({ range, commitId: null, since: false }),
-    select: key => setView(key === ALL_CHANGES ? { commitId: null, since: false } : key === SINCE_REVIEW ? { commitId: null, since: true } : { commitId: key }),
+    select: key => {
+      setChoice(current => current + 1)
+      setView(key === ALL_CHANGES ? { commitId: null, since: false } : key === SINCE_REVIEW ? { commitId: null, since: true } : { commitId: key })
+    },
     showPosition,
     lastPath,
     loaded,
+    stack: view === null ? null : { segments: view.segments, range: view.range },
+    reading: holding,
   }
+}
+
+/** The inputs of a review that was ready: the window keeps showing it while the next one is read */
+interface ShownReview {
+  readonly view: ReviewView
+  readonly plan: ReviewPlanState
+  readonly commitPlan: ReviewPlanState
+  /** The choice of the user it showed (`select`): a newer choice shows at once */
+  readonly choice: number
+}
+
+/** What a review shows of its view and its plan: the subject of the diffs, the column, "Since Your Review" */
+function reviewShape(view: ReviewView, plan: ReviewPlanState, asRange: boolean, experimental: boolean) {
+  const rangeSubject = segmentRangeSubject(view.segments, view.range)
+  const planPart = experimental ? reviewPlanPart(view.segments, view.range, asRange) : null
+  const interdiff = shownInterdiff(plan.plan, planPart?.ownBranch === true, rangeSubject?.kind === "range" ? rangeSubject.head : null)
+  const sinceReview = localSinceReview(interdiff)
+  const sinceShown = view.since && sinceReview !== null
+  // the shown item: the commit chosen, else the scope; "Since Your Review" of commits that are not one range shows the
+  // newest of them, the column lists only them
+  const sinceKey = sinceReview === null ? ALL_CHANGES : sinceReview.scope === null ? (sinceReview.newestFirst[0] ?? ALL_CHANGES) : SINCE_REVIEW
+  const selected = view.commitId ?? (sinceShown ? sinceKey : ALL_CHANGES)
+  let subject: DiffSubject | null = rangeSubject
+  if (selected === SINCE_REVIEW && sinceReview?.scope != null) {
+    subject = { kind: "range", base: sinceReview.scope.base, head: sinceReview.scope.head }
+  } else if (selected !== ALL_CHANGES && selected !== SINCE_REVIEW) {
+    subject = { kind: "commit", id: selected }
+  }
+  // the ranges it reads: a commit is never dropped
+  const ranges = [rangeSubject, subject].flatMap(it => (it?.kind === "range" ? [diffSubjectId(it)] : []))
+  return { interdiff, sinceReview, sinceShown, selected, subject, commitId: subject?.kind === "commit" ? subject.id : null, ranges }
+}
+
+/** Drops the files and the diffs of each range of `rangeIds` (one per line) once it leaves them, all at the unmount */
+function useDroppedRanges(rangeIds: string): void {
+  const used = useRef<readonly string[]>([])
+  useEffect(() => {
+    const now = rangeIds === "" ? [] : rangeIds.split("\n")
+    const left = used.current.filter(id => !now.includes(id))
+    used.current = now
+    if (left.length > 0) {
+      dropFilesOf(left)
+      dropFileDiffsOf(left)
+    }
+  }, [rangeIds])
+  useEffect(
+    () => () => {
+      dropFilesOf(used.current)
+      dropFileDiffsOf(used.current)
+    },
+    [],
+  )
 }
 
 /**

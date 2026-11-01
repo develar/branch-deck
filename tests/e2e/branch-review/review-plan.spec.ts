@@ -879,6 +879,39 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByTestId("review-plan-card").getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
   })
 
+  test("should keep the review on screen after a sync that moved the head until the files, the diffs and the plan of the new head are read, then show them at once", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    const window = await openPlanCommits(page, repo, syncAndWaitForBranches)
+    const position = window.getByTestId("review-position")
+    await window.getByRole("treeitem", { name: "Reader.kt" }).click()
+    await expect(window.getByRole("treeitem", { name: "Reader.kt" })).toHaveAttribute("aria-selected", "true")
+    const shownPosition = await position.textContent()
+    const shownPaths = await reviewedPaths(window)
+
+    // a commit on top, then a sync: the window reads the new head, its plan held
+    const plans = await holdCommandCalls(window, "get_review_plan")
+    await repo.commit("(plan) read the cache twice", { "src/a/Reader.kt": READER('cache.get("x") + cache.get("y")') }, 1704124800)
+    await syncAndWaitForBranches()
+    await expect.poll(() => plans.calls.length).toBe(1)
+    // the review as it was: the story of the tree with its commits, the column, the diffs and the file on screen
+    expect(await treeCommits(window)).toEqual(["add the cache", "scale the helper"])
+    expect(await commitColumn(window)).toEqual(["All Changes2 commits"])
+    expect(await reviewedPaths(window)).toEqual(shownPaths)
+    await expect(position).toHaveText(shownPosition!)
+    await expect(window.getByTestId("branch-review-body")).toHaveAttribute("aria-busy", "true")
+
+    // the plan of the new head comes: the new review shows in one change, at the same file
+    plans.release()
+    await expect.poll(() => treeCommits(window)).toEqual(["read the cache twice", "add the cache", "scale the helper"])
+    expect(await commitColumn(window)).toEqual(["All Changes3 commits"])
+    await expect(window.getByTestId("branch-review-body")).not.toHaveAttribute("aria-busy")
+    await expect(window.getByRole("treeitem", { name: "Reader.kt" })).toHaveAttribute("aria-selected", "true")
+  })
+
   test("should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     // never marked: no Since Your Review; the column keeps the scope, the tree lists the commits

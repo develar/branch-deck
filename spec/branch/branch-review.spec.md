@@ -219,6 +219,16 @@ session, a form of a row by the main window at that row; the footer holds the ke
 - Another commit, another owner chip or a sync that reads the stack again must keep the file on screen when the new
   changes have it; an owner chip keeps every file, the selection and the collapsed directories.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+- A sync that moves a head of the part, or another part chosen in the stack bar, must keep the review on screen (the
+  tree with the steps of its plan and their commits, the column, the files, the diffs, the file on screen and the
+  position of the footer) until the files, the diffs and the plan of the new changes are read, which the window reads
+  ahead as it reads the neighbours of a commit; then the new review shows in one change, at the file on screen when the
+  new changes have it. Meanwhile the body of the review is `aria-busy`, and the stack bar shows the part chosen at
+  once. A commit chosen in the column (a click, ⌥↑/⌥↓, D on a commit row) shows at once; a review restored by Back
+  starts as an open does: the window has no review of it to keep.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep the review on screen after a sync that moved the head until the files, the diffs and the plan of the new head are read, then show them at once`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
+  [@test] ../../src/lib/review-plan-answer.test.ts (`ends the read of a plan with its usages, disabled, a failure or no plan, never with a plan of other changes or one without its usages`)
 - The window must read the tips of its own subscription: it subscribes to the session of its repository itself
   (`ensureSession` of its own `src/model/store.ts`, `subscribe_view` under its label, beside the main window's
   subscription and independent of it), and takes from its view the head of each branch of the chain (the copy of its

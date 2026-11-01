@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ReviewPlan } from "@/lib/bindings"
 import type { Answer } from "@/lib/review-plan-answer"
-import { planFacts, planStateOf, receivePlanEvent, settlePlanAnswer } from "@/lib/review-plan-answer"
+import { planFacts, planSettled, planStateOf, receivePlanEvent, settlePlanAnswer } from "@/lib/review-plan-answer"
 
 /** A plan told apart by its head; the hook holds it as Rust sent it */
 function plan(head: string): ReviewPlan {
@@ -59,5 +59,17 @@ describe("the answer of a read of the review plan", () => {
     const again = keys("h1", 1)
     expect(receivePlanEvent(pending, event(again, "h1", true)).requestKey).toBe(again.requestKey)
     expect(planStateOf(wholeAnswer(), { ...keys("h1"), subjectKey: "other" })).toMatchObject({ plan: null, loading: true, current: false })
+  })
+
+  it("ends the read of a plan with its usages, disabled, a failure or no plan, never with a plan of other changes or one without its usages", () => {
+    const read = keys("h1")
+    expect(planSettled(planStateOf(wholeAnswer(), read))).toBe(true)
+    expect(planSettled(planStateOf(receivePlanEvent(null, event(read, "h1", true)), read))).toBe(false)
+    expect(planSettled(planStateOf(wholeAnswer(), keys("h2")))).toBe(false)
+    expect(planSettled(planStateOf(null, read))).toBe(false)
+    const disabled: Answer = { ...read, plan: null, pending: false, disabled: true, done: false, error: null }
+    expect(planSettled(planStateOf(disabled, read))).toBe(true)
+    expect(planSettled(planStateOf({ ...disabled, disabled: false, done: true, error: "index failed" }, read))).toBe(true)
+    expect(planSettled(planStateOf(settlePlanAnswer(null, read), read))).toBe(true)
   })
 })

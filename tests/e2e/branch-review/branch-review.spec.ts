@@ -20,7 +20,7 @@ import { clickContextMenuItem, openContextMenu } from "../helpers/selection-help
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
-import { recordCommand, recordRewrites } from "../helpers/wait-helpers"
+import { holdCommandCalls, recordCommand, recordRewrites } from "../helpers/wait-helpers"
 
 /** The paths of the diffs the review shows, in the order of the tree: directories first */
 async function reviewedPaths(page: Page): Promise<string[]> {
@@ -413,9 +413,17 @@ test.describe("Branch review window", () => {
     await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
     await expect(page.getByTestId("review-position")).toHaveText("All Changes · File 3 / 4")
 
-    // the parent alone, one commit: no column, the commit above its diffs
+    // the parent alone, one commit: the bar shows the part at once, the review keeps the files on screen until the files
+    // of the part are read, then no column, the commit above its diffs
+    const rangeFiles = await holdCommandCalls(page, "get_range_files")
     await segments.first().click()
+    await expect(segments.first()).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => rangeFiles.calls.length).toBe(1)
+    expect(await reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
+    await expect(page.getByTestId("branch-review-body")).toHaveAttribute("aria-busy", "true")
+    rangeFiles.release()
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
+    await expect(page.getByTestId("branch-review-body")).not.toHaveAttribute("aria-busy")
     await expect(page.getByTestId("range-review-commits")).toHaveCount(0)
     await expect(page.getByTestId("range-review-commit-header")).toContainText("Add the token")
     // then extended to the reviewed branch: the whole stack from the baseline

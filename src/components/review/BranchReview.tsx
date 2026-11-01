@@ -47,13 +47,15 @@ export function BranchReviewBar({ model, moves }: { model: BranchReviewModel; mo
     return null
   }
   const kept = model.source.kept
-  const base = loaded.segments[0]?.base
+  // the part chosen shows at once, while the review keeps the one on screen until it is read
+  const stack = model.stack ?? loaded
+  const base = stack.segments[0]?.base
   return (
     <BranchReviewStackBar
       // a kept branch is read on its own base, not on today's baseline
       baselineBranch={kept === undefined ? model.source.baselineBranch : formatKeptOrigin(kept, base)}
-      segments={loaded.segments}
-      range={loaded.range}
+      segments={stack.segments}
+      range={stack.range}
       onRangeChange={model.setRange}
       wholeStack={model.source.wholeStack === true}
       wholeStackScope={moves.wholeStack}
