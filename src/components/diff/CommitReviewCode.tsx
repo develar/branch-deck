@@ -157,6 +157,7 @@ export function CommitReviewCode({
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
         renderDivider={section => <ReviewDivider section={section} onShowStep={onShowStep} />}
+        muted={marked === null ? undefined : path => !marked.has(path)}
         renderFooter={
           nextSection === undefined
             ? undefined

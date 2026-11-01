@@ -436,12 +436,14 @@
    * them is the canvas, so a card stands out from it as an island does; the border an opaque form of the ring of a
    * `Card`, so the edge of the header band reads on the canvas; the header band halfway between the card and the
    * canvas (ΔL ≈ 0.03 to either), so the header of a file is not one more row of code; the shadow under a header that
-   * is stuck while the rows of its file scroll under it
+   * is stuck while the rows of its file scroll under it; the tick of a file on the map of the files beside the cards, on
+   * the canvas (`--border` is the canvas in the light theme)
    */
   --diff-card-gap: var(--canvas);
   --diff-card-border: color-mix(in oklab, var(--foreground) 8%, var(--canvas));
   --diff-file-header: color-mix(in oklab, var(--card), var(--canvas) 45%);
   --diff-header-shadow: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --diff-map-tick: color-mix(in oklab, var(--foreground) 16%, var(--canvas));
 }
 
 /* the dark tokens: `data-theme` of the root, which `useTheme` sets by the setting of Appearance, else by the system */

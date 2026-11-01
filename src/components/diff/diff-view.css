@@ -135,6 +135,81 @@
   border-top: 1px solid var(--border);
 }
 
+/*
+ * The map of the files that replaces the scrollbar of the cards (docs/design/diff-view.md, "The map of files", DiffFileMap):
+ * the native bar of the scroller hidden, a column of 10 px on the canvas beside it, its track inset by the radius of the
+ * cards above and below. The ticks are a canvas in the colours of the tokens below; the section at the top is filled in
+ * the primary colour, the window of the view is the thumb. Not focusable and not selectable: the tree and the keys
+ * reach every file
+ */
+.dv-cards.dv-scroller {
+  scrollbar-width: none;
+}
+
+.dv-cards.dv-scroller::-webkit-scrollbar {
+  width: 0;
+}
+
+.dv-map {
+  position: relative;
+  z-index: 4;
+  flex: none;
+  width: 10px;
+  padding-block: var(--radius-4xl);
+  user-select: none;
+  background: var(--diff-card-gap);
+}
+
+.dv-map-track {
+  position: relative;
+  height: 100%;
+}
+
+.dv-map-ticks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* the colours of the ticks for the canvas: a file a quiet line on the canvas, a step the text */
+.dv-map-probe {
+  position: absolute;
+  width: 0;
+  height: 0;
+  color: var(--diff-map-tick);
+  background: var(--foreground);
+}
+
+.dv-map-current {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--primary) 40%, transparent);
+}
+
+/* the window of the view; its edge keeps it apart from the ticks of a review of hundreds of files */
+.dv-map-thumb {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  background: color-mix(in oklab, var(--foreground) 15%, transparent);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+/* the hover of the map: the file under the pointer and its step, at the left of the map (its look in DiffFileMap) */
+.dv-map-tip {
+  position: absolute;
+  right: calc(100% + 6px);
+  width: max-content;
+  max-width: 24rem;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
 /* a collapsed file is its header alone: the bottom border of the card closes it under the header */
 .dv-card[data-collapsed] > .dv-header > * {
   border-bottom-width: 0;

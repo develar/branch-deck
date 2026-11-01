@@ -323,6 +323,11 @@ export class DiffPainter {
     }
   }
 
+  /** The user scrolls with something beside the view (the map of the files): the file at the top is reported again */
+  followUserScroll(): void {
+    this.followScroll = true
+  }
+
   scrollTo(top: number): void {
     if (this.root !== null) {
       this.followScroll = false

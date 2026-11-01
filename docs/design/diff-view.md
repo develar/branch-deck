@@ -397,6 +397,45 @@ So each file keeps a horizontal offset per side:
 
 The offset is per file, as in IntelliJ's combined diff. A long line in one file does not move the others.
 
+### The map of files
+
+A review of many files scrolls through hundreds of cards, and a native scrollbar says only how far the view is. So
+the view with its own scroller and cards (the review windows) hides that bar (`scrollbar-width: none`,
+`::-webkit-scrollbar`) and shows a map of its sections beside it (`DiffFileMap`): a column of 10 px on the canvas at
+the right of the scroller, not over it, its track inset by the radius of the cards above and below. It stands for
+the diffs alone: the commit and the bar of the step above them have no place on it. None of the review tools we
+looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabricator, Reviewable, Graphite) has one.
+- **Scale.** The document as tall as the `scrollHeight` of the scroller, never shorter than the view, is scaled to the
+  height of the track, so a short review keeps its sections where its cards are. Its layout is arithmetic, so the
+  map is too (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`): nothing is measured but the sizes of
+  the track and the view, from their `ResizeObserver`.
+- **Ticks.** A tick of 1 px at the start of each section, in the colour of the edge of a card (`--diff-card-border`;
+  `--border` is the canvas itself in the light theme), 2 px from the sides; at the start of a step of the plan a tick
+  of 2 px in `--foreground` across the map, at its divider, as `fileAt` counts a divider. Where the pixels are too few
+  for every section, the ticks that overlap are one: a step when any of them is. The map is neutral: at 588 files the
+  colour of each status would be one blue band, and a colour of its own would compete with the diff colours.
+- **Owner chip.** The ticks of the files the chip plays down (`muted` of `DiffView`, as their headers are) are 35%
+  opaque; a merged tick only when all of its sections are.
+- **The section at the top** (the one the view showed last, as the tree selects it) is filled with `--primary` at 40%,
+  from its divider to the end of its card. **The thumb** is the window of the view, `--foreground` at 15%, at least
+  12 px, so a long review keeps something to grab.
+- **Drawing.** The ticks are a canvas, drawn again only for a new layout (a collapse, a fold, the row height, the
+  wraps), a size, the screen (`devicePixelRatio`, which the zoom of Appearance moves) and the theme (`data-theme` of
+  the root). Its colours are the tokens as the page resolves them, read from a probe element: an `oklab()` that the
+  canvas of WebKit and of Chromium fills. The fill and the thumb are two elements moved by `transform` from the
+  scroll event of the scroller, after the painter's: a scroll draws nothing on the canvas and renders no React.
+- **Interaction.** A drag of the thumb scrolls the diffs by the scale of the map, and the wheel over the map scrolls
+  them as over a scrollbar; both are scrolls of the user (`followUserScroll` of the painter), so the tree and the
+  footer follow the file at the top. A click on the track shows the section under the pointer as a click in the tree
+  does (`showSection`, then `onVisibleSectionChange`); the diffs take the focus, so the keys go on from there, as a
+  click on the line at the end of a card gives it them. On a review of 500 files a pixel of the map stands for several
+  sections, so a click shows one of those under it: the map is a place, the tree names a file. The hover names the
+  section under the pointer: its file as a list names it (its last folder shows while any of the directory does) and
+  its step (`DiffSection.stepHeading`).
+- **Not a list of files.** The map is out of the tab order and `aria-hidden`, and it has no menu of a file, an
+  exception to one set of actions wherever a file shows ([Commit Files](../../spec/commit/commit-files.spec.md#the-actions-on-a-file)):
+  the tree, the headers and J, K, N and P reach every file it shows.
+
 ### Syntax highlighting
 
 **Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a tree-sitter tree, as

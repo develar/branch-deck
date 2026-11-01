@@ -6,6 +6,7 @@ import type { BranchReviewWindowData } from "../../../src/types/sub-window"
 import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
+import { mapPointOf } from "../helpers/file-map-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import {
   getEmittedEvents,
@@ -116,6 +117,13 @@ async function openTreeReview(page: Page): Promise<Locator> {
   await openTreePreview(page)
   await page.keyboard.press("d")
   return showReviewWindow(page, await openedReview(page, 1))
+}
+
+/** The review window of the tree commit in a window low enough for the second file to reach the top */
+async function openLowTreeReview(page: Page): Promise<Locator> {
+  const viewport = page.viewportSize()!
+  await page.setViewportSize({ width: viewport.width, height: 420 })
+  return openTreeReview(page)
 }
 
 /**
@@ -257,10 +265,7 @@ simpleTest.describe("Commit review", () => {
   })
 
   simpleTest("should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review", async ({ page }) => {
-    // a window low enough for the second file to reach the top
-    const viewport = page.viewportSize()!
-    await page.setViewportSize({ width: viewport.width, height: 420 })
-    const window = await openTreeReview(page)
+    const window = await openLowTreeReview(page)
     const code = window.getByTestId("commit-review-code")
     const position = window.getByTestId("branch-review-position")
     const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
@@ -288,6 +293,76 @@ simpleTest.describe("Commit review", () => {
     await expect(position).toHaveText("File 5 / 5")
     await expect(code.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
   })
+
+  simpleTest(
+    "should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows",
+    async ({ page }) => {
+      const window = await openLowTreeReview(page)
+      const code = window.getByTestId("commit-review-code")
+      const view = code.getByTestId("diff-view")
+      const map = code.getByTestId("review-file-map")
+      const thumb = map.getByTestId("review-file-map-thumb")
+      const position = window.getByTestId("branch-review-position")
+      const section = (name: string) => code.locator(`[data-testid=diff-view-file][data-path$="/${name}"]`)
+      const scrollTop = () => view.evaluate(element => element.scrollTop)
+      await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
+      // the map stands for the scrollbar of the diffs, a section for each file
+      await expect(view).toHaveCSS("scrollbar-width", "none")
+      await expect(map).toHaveAttribute("data-sections", "5")
+      await expect(map).toHaveAttribute("data-current", /\/RowMapper\.kt$/)
+
+      // the hover names the file at the place, its directory after it
+      const second = await mapPointOf(section("RowMapperTest.kt"))
+      await page.mouse.move(second.x, second.y)
+      const tip = map.getByTestId("review-file-map-tip")
+      await expect(tip).toContainText("RowMapperTest.kt")
+      await expect(tip).toContainText("testSrc")
+      // a click shows it as a row of the tree does: its header at the top, the tree and the footer follow; the diffs take
+      // the focus, so J goes on from there
+      await page.mouse.click(second.x, second.y)
+      await expectSecondFileShown(window)
+      await expect(map).toHaveAttribute("data-current", /\/RowMapperTest\.kt$/)
+      await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
+      await page.keyboard.press("j")
+      await expect(position).toHaveText("File 3 / 5")
+
+      // the thumb is the window of the view: it follows the wheel over the diffs, at the scale of the map
+      await window.getByRole("treeitem", { name: "RowMapper.kt" }).click()
+      await expect(position).toHaveText("File 1 / 5")
+      await expect.poll(scrollTop).toBe(0)
+      const scale = await view.evaluate(element => element.parentElement!.querySelector("[data-testid=review-file-map-track]")!.clientHeight / element.scrollHeight)
+      const atTop = (await thumb.boundingBox())!.y
+      const box = (await view.boundingBox())!
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.wheel(0, 200)
+      await expect.poll(scrollTop).toBe(200)
+      await expect.poll(async () => (await thumb.boundingBox())!.y - atTop).toBeCloseTo(200 * scale, 0)
+
+      // a drag of the thumb scrolls the diffs by the scale of the map
+      const drag = async (by: number) => {
+        const handle = (await thumb.boundingBox())!
+        await page.mouse.move(handle.x + handle.width / 2, handle.y + 4)
+        await page.mouse.down()
+        await page.mouse.move(handle.x + handle.width / 2, handle.y + 4 + by, { steps: 3 })
+        await page.mouse.up()
+      }
+      await drag(10)
+      await expect.poll(scrollTop).toBeCloseTo(200 + 10 / scale, -1)
+      // to the end: the tree follows the file at the top
+      await drag(1000)
+      await expect.poll(scrollTop).toBe(await view.evaluate(element => element.scrollHeight - element.clientHeight))
+      const fileAtTop = await view.evaluate(element => {
+        const at = element.getBoundingClientRect()
+        const path = document
+          .elementFromPoint(at.left + at.width / 2, at.top + 30)!
+          .closest("[data-testid=diff-view-file]")!
+          .getAttribute("data-path")!
+        return path.slice(path.lastIndexOf("/") + 1)
+      })
+      expect(fileAtTop).not.toBe("RowMapper.kt")
+      await expect(selectedFile(window)).toHaveAttribute("aria-label", fileAtTop)
+    },
+  )
 
   simpleTest("should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept", async ({ page }) => {
     await page.setViewportSize({ width: 2000, height: 1000 })

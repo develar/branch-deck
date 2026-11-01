@@ -460,6 +460,9 @@ test.describe("Branch review window", () => {
     await expect(tree.getByRole("treeitem", { name: "README.md" })).not.toHaveAttribute("data-muted")
     await expect(fileHeader(page, "auth/token.js")).toHaveAttribute("data-muted", "")
     await expect(fileHeader(page, "README.md")).not.toHaveAttribute("data-muted")
+    // the map of the files plays the others down too
+    const map = page.getByTestId("review-file-map")
+    await expect(map).toHaveAttribute("data-muted", "3")
     // the footer counts the files of Monorepo, the file shown being another owner's
     await expect(position).toHaveText("All Changes · File 1 / 4 · Monorepo 1")
 
@@ -470,6 +473,7 @@ test.describe("Branch review window", () => {
     await expect(position).toHaveText("All Changes · File 4 / 4 · Monorepo 1 / 1")
     await page.keyboard.press("p")
     await owner("All").click()
+    await expect(map).toHaveAttribute("data-muted", "0")
     await focusDiffs()
     await page.keyboard.press("p")
     await expect(position).toHaveText("All Changes · File 3 / 4")

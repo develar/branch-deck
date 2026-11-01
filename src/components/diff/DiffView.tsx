@@ -7,6 +7,8 @@ import { useShallow } from "zustand/react/shallow"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { DiffPainter } from "@/components/diff/diff-painter"
 import type { CodeWord, PainterCallbacks, PainterFile } from "@/components/diff/diff-painter"
+import { DiffFileMap } from "@/components/diff/DiffFileMap"
+import type { DiffFileMapHandle, FileMapEntry } from "@/components/diff/DiffFileMap"
 import { DiffFindBar } from "@/components/diff/DiffFindBar"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import type { BlobRequest, CommitFile, DeclarationSite } from "@/lib/bindings"
@@ -57,6 +59,7 @@ import "./diff-view.css"
  * header holds the top border of its card, a band of its own colour (diff-view.css). A section that starts a step of the
  * review plan or a group has a line on the canvas between the gap above its card and the card (`renderDivider`). A long
  * card and the last one end with a line one row high that names what comes after it (`renderFooter`, `endsWithFooter`).
+ * Their own scroller hides its scrollbar for the map of the files beside it (`DiffFileMap`, "The map of files").
  */
 const CARD_HEADER_HEIGHT = 48
 const CARD_GAP = 10
@@ -98,6 +101,8 @@ export interface DiffSection {
    * its card ("Step 2 · The open keeps a stored layout")
    */
   readonly step: { readonly id: string; readonly heading: string } | null
+  /** The words of the step the section is of, on every section of it: the hover of the map of the files names it */
+  readonly stepHeading: string | null
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -198,6 +203,8 @@ export interface DiffViewProps {
    * with the headers only; without it no card has one
    */
   renderFooter?: (key: string, path: string) => ReactNode
+  /** The files the view plays down (of another owner than the chosen chip's): their ticks on the map of the files paler */
+  muted?: (path: string) => boolean
   /** "own": the view scrolls itself (the review windows); "parent": it is a block of the scroller it lies in */
   scroll?: "own" | "parent"
   /** The files are the uncommitted changes: the new side is read by its path in the working tree */
@@ -388,6 +395,7 @@ export function DiffView({
   renderHeader,
   renderDivider,
   renderFooter,
+  muted,
   scroll = "own",
   worktree = false,
   onGoToDeclaration,
@@ -396,8 +404,9 @@ export function DiffView({
   onHistoryEnd,
   plain = false,
 }: DiffViewProps) {
-  // each file a card under its header: the review windows
+  // each file a card under its header: the review windows; their own scroller has the map of the files for a scrollbar
   const cards = renderHeader !== undefined
+  const mapped = cards && scroll === "own"
   const headerHeight = cards ? CARD_HEADER_HEIGHT : 0
   const zoom = useAppSettings(state => state.zoom)
   const ligatures = useDiffLigatures()
@@ -415,6 +424,7 @@ export function DiffView({
   // the width of the rows: the view less the insets and the borders of the cards
   const width = cards ? Math.max(viewWidth - 2 * (CARD_INSET + CARD_BORDER), 0) : viewWidth
   const scroller = useRef<HTMLDivElement>(null)
+  const fileMap = useRef<DiffFileMapHandle>(null)
   const visiblePath = useRef<string | undefined>(initialPath ?? (files[0] === undefined ? undefined : pathOf(files[0])))
   // the section at the top: of a file its path, of a section of a review its key
   const visibleKey = useRef<string | undefined>(files[0] === undefined ? undefined : keyOf(files[0]))
@@ -507,6 +517,23 @@ export function DiffView({
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
       ),
     [prepared, visualLines, metrics, headerHeight, notices, cards, renderDivider, footers],
+  )
+
+  // the sections as the map of the files shows them: where a step starts, which files the chip plays down
+  const mapSections = useMemo(
+    (): readonly FileMapEntry[] =>
+      mapped
+        ? prepared.map(file => ({
+            key: file.key,
+            path: file.path,
+            oldPath: file.file.oldPath,
+            status: file.file.status,
+            step: file.section?.step != null,
+            stepHeading: file.section?.stepHeading ?? null,
+            muted: muted?.(file.path) ?? false,
+          }))
+        : [],
+    [mapped, prepared, muted],
   )
 
   // the hits of the find in the lines the rows show, from the texts read so far
@@ -667,6 +694,23 @@ export function DiffView({
     visibleKey.current = file.key
     visiblePath.current = file.path
     painter.scrollTo(layout.fileTop(index))
+    fileMap.current?.sync()
+  }
+
+  /**
+   * A click on the map of the files: the section under it at the top, the tree and the bar of the step following, as a
+   * click in the tree shows it. The diffs take the focus, as a click on the line at the end of a card gives it them: a
+   * focus in a card the jump unmounts would take the keys with it, so J goes on from the section shown
+   */
+  const showMapSection = (index: number) => {
+    const file = prepared[index]
+    if (file === undefined) {
+      return
+    }
+    scroller.current?.focus({ preventScroll: true })
+    showSection(index)
+    onVisibleSectionChange?.(file.key, file.path)
+    onVisibleFileChange?.(file.path)
   }
 
   useLayoutEffect(() => {
@@ -1005,6 +1049,7 @@ export function DiffView({
           visibleKey.current = key
           visiblePath.current = path
           scrollToChange(fileIndex, target)
+          fileMap.current?.sync()
           return path
         }
         fileIndex += direction
@@ -1105,7 +1150,7 @@ export function DiffView({
       role="region"
       aria-label={label}
       tabIndex={scroll === "own" ? 0 : undefined}
-      className={cn(scroll === "own" ? "dv-scroller min-h-0 flex-1" : "dv-embedded", cards && "dv-cards")}
+      className={cn(scroll === "own" ? "dv-scroller min-h-0 min-w-0 flex-1" : "dv-embedded", cards && "dv-cards")}
       data-ligatures={ligatures ? undefined : "off"}
       data-split={mode === "split" ? "" : undefined}
       style={mode === "split" ? ({ "--dv-split": String(split) } as CSSProperties) : undefined}
@@ -1159,7 +1204,32 @@ export function DiffView({
           inputRef={findInput}
         />
       )}
-      {view}
+      {mapped ? (
+        // the map of the files beside the scroller, in place of its scrollbar (diff-view.css)
+        <div className="flex min-h-0 flex-1">
+          {view}
+          <DiffFileMap
+            ref={fileMap}
+            scroller={() => scroller.current}
+            scrollTo={top => {
+              if (scroller.current !== null) {
+                scroller.current.scrollTop = top
+              }
+            }}
+            layout={layout}
+            sections={mapSections}
+            // the section the view showed last; one of files gone since (the story replaced the files), the one at the top
+            current={() => {
+              const shown = layout.indexOf(visibleKey.current ?? "")
+              return shown >= 0 ? shown : layout.fileAtTop(scroller.current?.scrollTop ?? 0)
+            }}
+            onShowSection={showMapSection}
+            onUserScroll={() => painter.followUserScroll()}
+          />
+        </div>
+      ) : (
+        view
+      )}
     </div>
   )
 }

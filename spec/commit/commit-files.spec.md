@@ -350,7 +350,9 @@ The views show the typed diff of each file instead of the patch ([Reading the di
 - A file and a directory have one set of actions (`fileMenuItems`), the same wherever they show: the rows of the tree,
   the headers of the diffs of a review, the headers of the conflict and missing-commits accordions, the files of a
   pull request. A file offers "Copy Path"; a directory "Copy Path" and "Copy Changed Paths" (the files under it, one
-  per line).
+  per line). The map of the files beside the diffs of a review has none
+  ([Commit Review](commit-review.spec.md)): it is a scrollbar, and the tree and the header of each file it stands for
+  have them.
 - The right click on a row or a header opens them as its menu, one menu per row or header: never on a diff, whose text
   keeps its own selection and native menu. A right click on a row focuses it. ⌘C (Ctrl+C off macOS, the key of the
   layout) on a focused row (of the tree, of the files of a pull request) copies its path, unless text is selected; the

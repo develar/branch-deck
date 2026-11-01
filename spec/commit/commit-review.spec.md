@@ -7,6 +7,7 @@ targets:
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/diff/DiffView.tsx
+  - ../../src/components/diff/DiffFileMap.tsx
   - ../../src/components/diff/diff-painter.ts
   - ../../src/components/diff/diff-view.css
   - ../../src/components/files/FilePathLabel.tsx
@@ -21,6 +22,7 @@ targets:
   - ../../src/pages/CommitReviewPage.tsx
   - ../../src/lib/diff/rows.ts
   - ../../src/lib/diff/layout.ts
+  - ../../src/lib/diff/file-map.ts
   - ../../src/lib/diff/view-files.ts
   - ../../crates/file-diffs/src/collapse.rs
   - ../../crates/generated-files/src/names.rs
@@ -200,6 +202,20 @@ where a dialog would cover it.
   [@test] ../../src/presenters/review-card-end.test.ts (`names the next file by its name and its last folder, and the next part of the same file as continued`, `ends the review at the last card, and the files of an owner chip before it`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
+- The diffs must have a map of the files in place of their scrollbar: a column at their right, beside the diffs and
+  not above them, the whole review scaled to its height (never shorter than the view, so a short review keeps its
+  files where its cards are). It has a tick at the start of each section, one across it at the start of a step of the
+  plan; where the pixels are too few for every section, the ticks of several are one. The section at the top is
+  filled, the files an owner chip plays down are paler, and the window of the view is its thumb. A drag of the thumb
+  and the wheel over the map scroll the diffs, the tree and the footer following the file at the top; a click shows the
+  section under the pointer as a row of the tree does, the diffs taking the focus, so J goes on from there; the hover
+  names its file, the directory after the name, and its step. Neutral at any count of files: no colour of a status.
+  It is out of the tab order, hidden from a screen reader and without the menu of a file: the tree, the headers and
+  the keys reach every file.
+  [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
 - The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
   "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file
   reads its texts by blob id as it comes into view, and its rows show plain text until the tokens of their page
@@ -296,6 +312,11 @@ where a dialog would cover it.
 - The line at the end of a card is one row high below its rows, in the colour of the card, a `--border` line above
   it, not selectable; its words at the right in `text-xs text-muted-foreground`: "Next:", the name `font-semibold` in
   the text colour, its last folder, then `Kbd` `J`, one button out of the tab order that brightens on hover.
+- The map of the files is 10 px wide on the canvas at the right of the diffs, which hide their own scrollbar, its
+  track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-card-border` (the edge of a card),
+  2 px from its sides, 35% opaque when an owner chip plays it down; a step a tick of 2 px in `--foreground` across it;
+  the section at the top `--primary` at 40%; the thumb `--foreground` at 15%, `--radius-sm`, at least 12 px. Its hover
+  is a popover at its left: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows
@@ -308,7 +329,7 @@ where a dialog would cover it.
 
 ## Testing / Local Run
 
-- `pnpm test:unit`: `src/lib/diff/rows.test.ts`, `layout.test.ts`, `copy-text.test.ts`, `find.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
+- `pnpm test:unit`: `src/lib/diff/rows.test.ts`, `layout.test.ts`, `file-map.test.ts`, `copy-text.test.ts`, `find.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
   the tree and the patch.
 - `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree` (`RowMapper.kt` expanded is a long
   card), `commit_many_files` (nine files, the search) and `issue_links` templates. A

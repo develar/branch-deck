@@ -485,6 +485,12 @@ function stepOf(section: NarrativeSection, chapterOf: ReadonlyMap<string, Chapte
   return chapter === undefined ? null : { id: chapter.id, heading: formatStepDivider(chapter) }
 }
 
+/** The words of the step every section of a step is of, for the hover of the map of the files; null outside the steps */
+function stepHeadingOf(section: NarrativeSection, chapterOf: ReadonlyMap<string, Chapter>): string | null {
+  const chapter = section.concern === null ? undefined : chapterOf.get(section.concern)
+  return chapter === undefined ? null : formatStepDivider(chapter)
+}
+
 /**
  * A use a change left outside (`ghost`), as a section of the story: its file at the head (`target`, unread while
  * undefined) around its line, the lines before and after it as context, a heading before the line; no change, so N
@@ -495,7 +501,7 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: st
   const lineCount = target?.outside?.lineCount ?? 0
   const at = ghost.line - 1
   const file: CommitFile = { path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: blobId, newId: blobId, submodule: false }
-  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside", step: null }
+  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside", step: null, stepHeading: null }
   if (target === undefined || blobId === null) {
     return { file, diff: undefined, pending: true, section }
   }
@@ -684,7 +690,14 @@ function ReviewLayout({
           pending: !diffsComplete && !byPath.has(section.path),
           quietImports: true,
           ...(section.folded !== null && { folded: section.folded }),
-          section: { key: section.key, units: section.units ?? NO_UNITS, targets: section.targets, heading: section.heading, step: stepOf(section, chapterOf) },
+          section: {
+            key: section.key,
+            units: section.units ?? NO_UNITS,
+            targets: section.targets,
+            heading: section.heading,
+            step: stepOf(section, chapterOf),
+            stepHeading: stepHeadingOf(section, chapterOf),
+          },
         },
       ]
     })

@@ -2,6 +2,7 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { mapPointOf } from "../helpers/file-map-helpers"
 import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 
 /** The card right below the divider of `heading`: the space between them and the file of the card */
@@ -110,6 +111,13 @@ test.describe("Review tour", () => {
       "Step 4 · The restart story checks the layout",
     ])
     await expect(window.getByTestId("review-file-header").getByTestId("review-concern-heading")).toHaveCount(0)
+    // the map of the files beside the diffs crosses itself at the start of each step; its hover names the file and its step
+    const map = window.getByTestId("review-file-map")
+    await expect(map).toHaveAttribute("data-steps", "4")
+    // the second section of Manager.kt, the card below the divider of step 2
+    const start = await mapPointOf(window.locator("[data-testid=diff-view-file][data-path='src/a/Manager.kt']").nth(1))
+    await window.mouse.move(start.x, start.y)
+    await expect(map.getByTestId("review-file-map-tip")).toHaveText(/Manager\.ktsrc\/a.*Step 2 · The open keeps a stored layout/)
     expect(await cardBelow(dividers.nth(1))).toEqual({ gap: 0, path: "src/a/Manager.kt" })
     expect(await cardBelow(dividers.nth(3))).toEqual({ gap: 0, path: "spec/window.spec.md" })
     await expect.poll(() => headerNameLefts(window)).toEqual([expect.any(Number)])
