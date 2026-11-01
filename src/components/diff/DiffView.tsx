@@ -53,8 +53,8 @@ import "./diff-view.css"
 
 /*
  * The file cards of a view with headers (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: a gap of
- * 10 px between two cards and around them, an inset of 12 px at the sides, a border of 1 px. The header holds the top
- * border of its card.
+ * 10 px between two cards and around them, in the canvas colour, an inset of 12 px at the sides, a border of 1 px. The
+ * header holds the top border of its card, a band of its own colour (diff-view.css).
  */
 const CARD_HEADER_HEIGHT = 48
 const CARD_GAP = 10

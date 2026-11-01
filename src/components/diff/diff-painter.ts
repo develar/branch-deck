@@ -176,6 +176,8 @@ export class DiffPainter {
   private textsChanged = false
   private wantsKey = ""
   private readonly viewId = newViewId()
+  /** The card whose header is stuck with rows under it (`data-stuck`, the shadow of diff-view.css) */
+  private stuckSection: HTMLElement | null = null
   /** After a scroll the view made, the file at the top is not reported until the user scrolls */
   followScroll = true
   private firstScreen: "waiting" | "tokens" | "done" = "waiting"
@@ -421,6 +423,7 @@ export class DiffPainter {
         firstScreenReady = false
       }
     }
+    this.markStuckHeader(top)
     this.requestTokens(wants)
     this.selectRevealedName()
     if (this.firstScreen === "waiting" && firstScreenReady) {
@@ -431,6 +434,33 @@ export class DiffPainter {
     const cache = this.client()?.cache
     if (this.firstScreen === "tokens" && [...wants.values()].every(want => want.priority !== 0 || want.pages.every(page => cache?.get(want.blobId, page) !== undefined))) {
       this.finishFirstScreen()
+    }
+  }
+
+  /**
+   * Marks the card whose header is stuck below the top of the view while its rows scroll under it, at least a row of
+   * them (a card that just reached the top does not flicker): the file under the sticky top, not `fileAtTop`, which
+   * names the next file while that one's card pushes the header out. Written only when it changes, on a scroll and on a
+   * new layout alike
+   */
+  private markStuckHeader(top: number): void {
+    const { layout } = this.model!
+    let section: HTMLElement | null = null
+    if (layout.metrics.cards !== undefined) {
+      const y = top + layout.stickyTop
+      const file = layout.fileAt(y)
+      if (y > layout.offsets[file]! + layout.metrics.rowHeight) {
+        section = this.hosts.get(file)?.parentElement ?? null
+      }
+    }
+    if (section !== this.stuckSection) {
+      if (this.stuckSection !== null) {
+        delete this.stuckSection.dataset.stuck
+      }
+      if (section !== null) {
+        section.dataset.stuck = ""
+      }
+      this.stuckSection = section
     }
   }
 

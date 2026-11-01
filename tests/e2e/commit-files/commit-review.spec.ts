@@ -42,6 +42,17 @@ async function headerPlace(review: Locator, name: string): Promise<{ header: num
   }, name)
 }
 
+/** The left edge of the name in each header of the diffs, in their order */
+async function headerNameLefts(code: Locator): Promise<number[]> {
+  const lefts: number[] = []
+  for (const header of await code.getByTestId("review-file-header").all()) {
+    const path = (await header.getAttribute("data-path"))!
+    const box = await header.getByText(path.slice(path.lastIndexOf("/") + 1), { exact: true }).boundingBox()
+    lefts.push(Math.round(box!.x))
+  }
+  return lefts
+}
+
 function selectedFile(review: Locator): Locator {
   return review.getByRole("tree", { name: "Changed files" }).locator("[role=treeitem][aria-selected=true]")
 }
@@ -192,6 +203,9 @@ simpleTest.describe("Commit review", () => {
     await expect(window.getByRole("textbox", { name: "Filter files" })).toHaveCount(0)
     // the header of a file names itself, then its directory, as every list of changed files does
     await expect(code.getByTestId("review-file-header").first()).toContainText("RowMapper.ktplugins/air/backend/session/catalog/src")
+    // the name of each file at one x: nothing in a header stands before it but the chevron and the letter
+    await expect(code.getByTestId("review-file-header")).toHaveCount(5)
+    await expect.poll(async () => new Set(await headerNameLefts(code)).size).toBe(1)
     // Expand All of the header shows every unchanged line of its file
     await expect(code).not.toContainText("val field10 = 10")
     await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
@@ -205,11 +219,14 @@ simpleTest.describe("Commit review", () => {
     await page.keyboard.press("j")
     await expect(position).toHaveText("File 2 / 5")
     await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
-    // the card at the top keeps the gap above it that the first card has
+    // the card at the top keeps the gap above it that the first card has; its header in its place casts no shadow
     await expect.poll(() => headerPlace(window, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
-    // its header stuck while its rows scroll under it: the same gap, never the rows above it
+    const testHeader = code.locator('[data-testid=review-file-header][data-path$="/RowMapperTest.kt"]')
+    await expect(testHeader).toHaveCSS("box-shadow", "none")
+    // its header stuck while its rows scroll under it: the same gap, never the rows above it, and a shadow under it
     await window.getByTestId("diff-view").evaluate(view => view.scrollBy(0, 120))
     await expect.poll(() => headerPlace(window, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
+    await expect(testHeader).not.toHaveCSS("box-shadow", "none")
     await page.setViewportSize(viewport)
     await page.keyboard.press("k")
     await expect(position).toHaveText("File 1 / 5")

@@ -48,7 +48,8 @@
 /*
  * A file card of a review (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: inset at the sides,
  * a 1-px border, the radius of the scale nearest to IntelliJ's 12 px, all four corners; a collapsed file is its header
- * alone. `clip` keeps the rows inside the corners and, unlike `hidden`, leaves the sticky header working
+ * alone. The gap is the canvas, so a card stands out from it as an island does (the tokens of src/index.css). `clip`
+ * keeps the rows inside the corners and, unlike `hidden`, leaves the sticky header working
  */
 .dv-cards {
   background: var(--diff-card-gap);
@@ -71,7 +72,11 @@
  * It sticks 10 px below the top of the view (the space above the first card, `LayoutMetrics.cards.padding`,
  * `DiffLayout.stickyTop`): a card at the top keeps the space it has at the top of the document, and the line above the
  * view (the header of the commit) never touches its corners. Its gap colour reaches up over that space, so the rows and
- * the side borders of its card do not show above it; the clip of the card cuts it off while the card is in its place
+ * the side borders of its card do not show above it; the clip of the card cuts it off while the card is in its place.
+ *
+ * Its band is a colour of its own, between the card and the canvas, so the header of a file never reads as one more row
+ * of code. While it is stuck with rows under it (`data-stuck` of the section, which the painter sets), a shadow under
+ * it says that the rows go on under it
  */
 .dv-card > .dv-header {
   top: 10px;
@@ -89,10 +94,14 @@
 
 .dv-card > .dv-header > * {
   height: 100%;
-  background: var(--card);
+  background: var(--diff-file-header);
   border: 1px solid var(--diff-card-border);
   border-bottom-color: var(--border);
   border-radius: var(--radius-4xl) var(--radius-4xl) 0 0;
+}
+
+.dv-card[data-stuck] > .dv-header > * {
+  box-shadow: 0 6px 6px -6px var(--diff-header-shadow);
 }
 
 /* a collapsed file is its header alone: the bottom border of the card closes it under the header */

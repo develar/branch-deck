@@ -131,6 +131,11 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   it; `TEXT_SEARCH_RESULT_ATTRIBUTES` for the other hits, with the 1-px box of Islands Dark.
 - **Kept apart from IntelliJ** ([Diff View](diff-view.md)): Split aligns its sides with filler rows instead of the
   24-px curved divider, and its sides have a 1-px divider.
+- **File cards** of a review ([Diff View](diff-view.md), "File cards") lie on the canvas as islands do, in both themes
+  (`--diff-card-gap`); their border is an opaque ring, `--foreground` 8% into the canvas (`--diff-card-border`). The
+  header of a file is a band between the card and the canvas (`--diff-file-header`, the card with 45% of the canvas),
+  one formula for both themes; a header stuck over the rows of its file casts the one shadow of an island, the
+  exception of decision 4.
 - **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline has no precedent in
   IntelliJ: it puts the deleted run beside the inserted one in one line, where only the colour would tell them apart.
   A strikethrough is the convention of tracked changes, it matches the icon of the mode, and it does not depend on
@@ -165,6 +170,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 4. **Decision**: No `Card` shadow, only the ring (`card.tsx` is locally customised).
    **Rationale**: Islands has no shadow; an island stands out by the contrast of `#E9EAEE` and white. The faint
    `ring-foreground/5` reads as a soft edge, not a line, and it keeps islands distinct in dark mode.
+   **Exception**: the sticky header of a file card in a review casts a shadow while the rows of its file scroll under
+   it (`--diff-header-shadow`, `--foreground` 12%): it lies over content that goes on below it, which no island does,
+   and only the shadow tells a stuck header from one in its place.
 
 5. **Decision**: The exact IntelliJ greys, not a stock base colour.
    **Rationale**: `zinc` is close in lightness and chroma but warmer (hue 286 instead of 265); next to the IDE the

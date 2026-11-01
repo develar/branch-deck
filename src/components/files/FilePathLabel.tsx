@@ -11,7 +11,10 @@ export interface FilePathLabelProps {
   status?: FileStatus
   /** The directory after the name; a tree row names it in the rows above */
   directory?: boolean
-  /** `font-medium` name: the header of a file above its diff */
+  /**
+   * The header of a file above its diff: the name `font-semibold`, whole while the directory gives way (from its start,
+   * so its last folder shows as long as any of it does); only a name wider than the label truncates
+   */
   emphasis?: boolean
   /** The letter in the `size-4` slot of a folder icon, so that the names of a tree align */
   letterSlot?: "inline" | "icon"
@@ -35,7 +38,16 @@ export function FilePathLabel({ path, oldPath = null, status, directory = true, 
           {getFileStatusLetter(status)}
         </span>
       )}
-      <span className={cn("min-w-0 truncate", statusClass, emphasis && "font-medium")}>{label.name}</span>
+      <span
+        className={cn(
+          "min-w-0 truncate",
+          statusClass,
+          // the width of the label less the letter and its gap: a name longer than that truncates as the last resort
+          emphasis && ["shrink-0 font-semibold", status === undefined ? "max-w-full" : letterSlot === "icon" ? "max-w-[calc(100%-1.375rem)]" : "max-w-[calc(100%-1.125rem)]"],
+        )}
+      >
+        {label.name}
+      </span>
       {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
       {parent !== "" && (
         <span className="min-w-0 shrink-[10] truncate text-muted-foreground" dir="rtl">

@@ -432,11 +432,16 @@
   --diff-search-result: #fcd47e;
   --diff-search-result-border: transparent;
   /*
-   * The file cards of a review, as IntelliJ's combined diff: the gap between them is the panel background, the border of
-   * a card Editor.Toolbar.borderColor (#E9EAEE, the canvas)
+   * The file cards of a review (docs/design/diff-view.md, "File cards"), one formula for both themes: the gap between
+   * them is the canvas, so a card stands out from it as an island does; the border an opaque form of the ring of a
+   * `Card`, so the edge of the header band reads on the canvas; the header band halfway between the card and the
+   * canvas (ΔL ≈ 0.03 to either), so the header of a file is not one more row of code; the shadow under a header that
+   * is stuck while the rows of its file scroll under it
    */
-  --diff-card-gap: #f7f8f9;
-  --diff-card-border: var(--canvas);
+  --diff-card-gap: var(--canvas);
+  --diff-card-border: color-mix(in oklab, var(--foreground) 8%, var(--canvas));
+  --diff-file-header: color-mix(in oklab, var(--card), var(--canvas) 45%);
+  --diff-header-shadow: color-mix(in oklab, var(--foreground) 12%, transparent);
 }
 
 /* the dark tokens: `data-theme` of the root, which `useTheme` sets by the setting of Appearance, else by the system */
@@ -544,9 +549,6 @@
   --diff-selection: #214283;
   --diff-search-result: #114957;
   --diff-search-result-border: #165e70;
-  /* the gap is the island itself; the border #26282C, the canvas */
-  --diff-card-gap: var(--card);
-  --diff-card-border: var(--canvas);
 }
 
 @layer base {

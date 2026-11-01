@@ -207,14 +207,28 @@ review windows show their notices in the header and use no notice row), and the 
   itself, see below.
 
 **File cards.** A view with headers (the review windows) shows each file as a card, as IntelliJ's combined diff:
-- A gap of 10 px between two cards and above the first and below the last one, in the panel colour; an inset of
-  12 px at the sides; a border of 1 px in the colour of IntelliJ's `Editor.Toolbar.borderColor`; the radius of the
-  scale nearest to IntelliJ's 12 px (`--radius-4xl`), all four corners. A collapsed file is its header alone.
+- A gap of 10 px between two cards and above the first and below the last one, in the canvas colour
+  (`--diff-card-gap`), so a card stands out from it as an island does, in both themes; an inset of 12 px at the sides;
+  a border of 1 px (`--diff-card-border`, an opaque form of the ring of a `Card`: `--foreground` 8% into the canvas,
+  so the edge of the header band reads on the canvas); the radius of the scale nearest to IntelliJ's 12 px
+  (`--radius-4xl`), all four corners. A collapsed file is its header alone. The width of the gap stays 10 px: what
+  made the boundary of two files hard to see was its contrast, a gap almost the colour of the card, not its width.
 - The header is 48 px: IntelliJ's insets of 12 px around a control of 24 px, 10 px at the sides. It holds the top
-  border of its card. Its name is bold, its path muted.
+  border of its card. It is a band of its own colour, `--diff-file-header`, one formula for both themes: the card
+  mixed with 45% of the canvas, about 0.03 of lightness from either, with the `--border` line under it. A header in
+  the colour of the code, its name in the blue that the highlighting of markdown gives a link, read as one more row of
+  code. Its name is `font-semibold` (the bold of a header; a bold of the code is the syntax) at `text-sm`, the size of
+  the header of an island: a file is not above the step of a plan it belongs to. The name keeps the colour of its
+  status and the strikethrough of a deleted file (One look per role); the path is muted at the same size and gives
+  way first, from its start.
 - The sticky header is the top of its card: it draws the top and the side borders, rounded, and the line under it, so
   it reads as a card while its rows scroll under it. It stops at the end of its card, which pushes it up, as
   IntelliJ's `y = min(blockMaxY - viewTop, h) - h`; that is the rule of `position: sticky` in its section.
+- A header stuck with rows under it casts a shadow on them (`--diff-header-shadow`, `0 6px 6px -6px`), so the rows read
+  as going on under it. The painter marks its section `data-stuck` in the DOM, written only when it changes, on a
+  scroll and on a new layout: the file under the sticky top (`fileAt(scrollTop + stickyTop)`, not `fileAtTop`, which
+  names the next file halfway through the push), once its rows reach a row height past the top of its card, so a card
+  that just reached the top does not flicker. A header in its place casts none.
 - It sticks 10 px below the top of the view (`DiffLayout.stickyTop`, the space above the first card), not at the top
   as IntelliJ's: a card at the top keeps the space it has at the top of the document, so a stuck header never lies
   against the line of what is above the view (the header of the commit in a review). The gap colour of the header

@@ -8,6 +8,8 @@ targets:
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/diff/DiffView.tsx
   - ../../src/components/diff/diff-painter.ts
+  - ../../src/components/diff/diff-view.css
+  - ../../src/components/files/FilePathLabel.tsx
   - ../../src/lib/sub-window.ts
   - ../../src/lib/open-timing.ts
   - ../../src/lib/review-window-reads.ts
@@ -155,12 +157,16 @@ where a dialog would cover it.
   read, the diffs pane says so, and the commits and the header of the files stay where they are, with their focus.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should review a stacked branch on its parent, then the whole stack, by owner`)
 - The right pane must show the diffs of all files in the order of the tree, in one virtualized view, each file a card
-  as in IntelliJ's combined diff: 10 px apart, a 1-px border, rounded corners, a collapsed file its header alone. Its
-  header is the top of the card and sticks while its rows scroll, until the end of the card pushes it up. The header
-  shows the status letter, the name bold, where a rename came from and its directory muted, Expand All with its
-  tooltip, its owner, its line counts, a copy button and the menu of the file
-  ([Commit Files](commit-files.spec.md#the-actions-on-a-file)). The commit a range shows is above them.
+  as in IntelliJ's combined diff: 10 px apart on the canvas, so a card stands out from it as an island does, a 1-px
+  border, rounded corners, a collapsed file its header alone. Its header is the top of the card, a band of its own
+  colour between the card and the canvas, so it never reads as one more row of code; it sticks while its rows scroll,
+  until the end of the card pushes it up, and once a row of them has gone under it, it casts a shadow on them. The
+  header shows the status letter, the name semibold, where a rename came from and its directory muted, Expand All with
+  its tooltip, its owner, its line counts, a copy button and the menu of the file
+  ([Commit Files](commit-files.spec.md#the-actions-on-a-file)); the name of every file stands at one x, and the
+  directory gives way, from its start, before the name. The commit a range shows is above them.
   [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
   top must become the selected file, its directories opened. A scroll the review made (a choice, J, K, N, P) changes
   the selection only through the key or the row that made it, also for a last file that cannot reach the top.
@@ -261,10 +267,13 @@ where a dialog would cover it.
   the header of the files ("Files 5", "Files 3 of 9" while searched, a muted `text-xs font-medium`
   `SectionLabel`, at least `h-10`), then the tree with the rows of the Files section. The selected row is `bg-primary/15`; a file row has no
   chevron, its name keeps the indent.
-- A file header is `h-9` on `bg-card` with a `border-b` (`FileHeaderParts`, shared with the conflict and
-  missing-commits accordions): a ghost `icon-xs` chevron (disabled without lines to show),
-  the file as every list of changed files names it (`FilePathLabel`: the status letter in `font-mono text-xs` in the
-  status colour, the name `font-medium` in the status colour, the directory muted after it), the copy button on hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
+- A file header is 48 px, the band `--diff-file-header` (`color-mix` of `--card` and 45% `--canvas`) in the
+  `--diff-card-border` ring of its card (`--foreground` 8% into `--canvas`), a `--border` line under it; stuck with
+  rows under it, the shadow `0 6px 6px -6px var(--diff-header-shadow)`. In it: a ghost `icon-xs` chevron (disabled
+  without lines to show), the file as every list of changed files names it (`FilePathLabel` with `emphasis`: the
+  status letter in `font-mono text-xs` in the status colour, the name `text-sm font-semibold` in the status colour,
+  struck through when deleted, the directory `text-muted-foreground` of the same size after it), the copy button on
+  hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows
