@@ -86,8 +86,8 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
 
   /**
    * The IPC of the page's backend commands, for the perf tests (`tests/perf/branch-table.perf.ts`): the commands that
-   * reached the mock server or a test's route of `/invoke/<cmd>` (`routeCommand` answers count too), counted at the
-   * fetch; the plugin commands the page answers itself (store, event, window, log) are not. `requestBytes` and
+   * reached the mock server or a test's route of `/invoke/<cmd>` (`routeCommand` answers count too), counted as the
+   * page asks, before the mock waits for the stream of its events (`eventsSubscribed`); the plugin commands the page answers itself (store, event, window, log) are not. `requestBytes` and
    * `responseBytes` are the UTF-8 bytes of the parameters and of the answers, `channelMessages` and `channelBytes` the
    * messages of a command's channel (the SSE events of `get_file_diffs`, `get_file_merges`, the patches of
    * `subscribe_view`, counted under its name for as long as its channel stays open); `pending`
@@ -112,12 +112,19 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
   }
   ;(window as any).__ipcStats = ipcStats
 
-  /** A backend command to the mock server, counted in `__ipcStats`: pending until `read` has its answer */
+  /**
+   * A backend command to the mock server, counted in `__ipcStats` as the page asks: pending until `read` has its answer.
+   * It goes once the page hears the events of what its commands do, as a window of the app does once it listens; under
+   * load that stream opens after the first render, and a count at the fetch missed what the page asked before its rows
+   */
   async function invokeServer<T>(cmd: string, path: string, init: RequestInit, read: (response: Response) => Promise<T>): Promise<T> {
+    // a recorder of the counts at a moment of the page sees them before this command (`recordIpcAtFirstRows`)
+    ;(window as any).__e2eBeforeInvoke?.()
     ipcStats.invokes[cmd] = (ipcStats.invokes[cmd] ?? 0) + 1
     ipcStats.requestBytes += typeof init.body === "string" ? encoder.encode(init.body).byteLength : 0
     ipcStats.pending++
     try {
+      await eventsSubscribed
       return await read(await serverFetch(path, init))
     } finally {
       ipcStats.pending--
@@ -209,9 +216,6 @@ export const tauriMockScript = (pageCommands: PageCommand[]) => {
    */
   async function proxyToTestServer(cmd: string, payload: any): Promise<any> {
     debug(`[Test Mock] Proxying command to test server: ${cmd}`)
-    // the page hears the events of what its commands do, as a window of the app does once it listens
-    await eventsSubscribed
-
     // Unwrap params if present - the frontend wraps parameters in { params: actualParams }
     // but the test server expects the parameters directly
     const actualPayload = payload?.params || payload

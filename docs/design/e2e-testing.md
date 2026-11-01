@@ -139,8 +139,9 @@ sequenceDiagram
    and starts again the same way, its init script replacing the one before for the next load. A test that looks at the
    rows before the first sync holds it in the session (`remoteAnswers: { hold: ["sync"] }`, `HeldAnswer::Sync`, with
    `waitForSync: false`, so the setup waits for the header only). What the page asked before its first row is counted
-   in the page (`recordIpcAtFirstRows`, `firstRowsAsks` of `ipc-helpers.ts`, the counters of `__ipcStats` at the
-   first `branch-row`), without what every page tells as it loads and which reads nothing of the repository
+   in the page (`recordIpcAtFirstRows`, `firstRowsAsks` of `ipc-helpers.ts`, the counters of `__ipcStats` as the
+   first `branch-row` came: before the first command the page asks once it is in the document, as the effects of the
+   commit that put it there run before a `MutationObserver` hears of it, else when the observer does), without what every page tells as it loads and which reads nothing of the repository
    (`PAGE_PROTOCOL`: `sub_window_loaded`, `get_settings_changes`, `set_demand`): B7 is the subscription and its channel.
    `pnpm perf:table` starts warm the same way (`reloadWarm`; `warmFirstRowsMs`, `warmFirstSync*` and
    `warmStartInvokes` of its report).
@@ -343,8 +344,10 @@ Mock implementation:
   `requestBytes` and `responseBytes` (UTF-8 bytes of the parameters and the answers), `channelMessages` by command and
   `channelBytes` (the SSE events of `get_file_diffs` and `get_file_merges`, and the patches of `subscribe_view` for
   as long as its channel stays open), and `pending`, the commands whose answer has not been read
-  (`subscribe_view` until its answer, not its last patch); `reset()` zeroes the counts, not `pending`. It counts at the fetch of `/invoke/<cmd>`,
-  so an answer of a `routeCommand` counts too; what the page answers itself (the plugins of Tauri: the store, the
+  (`subscribe_view` until its answer, not its last patch); `reset()` zeroes the counts, not `pending`. It counts a
+  command as the page asks it, before the mock waits for the stream of the page's events (`eventsSubscribed`) and
+  fetches `/invoke/<cmd>`: under load that stream opens after the first render, and a count at the fetch missed what
+  the page asked before. An answer of a `routeCommand` counts too; what the page answers itself (the plugins of Tauri: the store, the
   events, the window, the log) does not. `pnpm perf:table` reads it
   ([Rendering Performance](rendering-performance.md#the-ipc-of-the-branch-view)), and so do the tests that pin the IPC
   of a step (`resetIpc`, `settledInvokes` of ipc-helpers.ts, and `withoutAppTimers`, which leaves out the commands of

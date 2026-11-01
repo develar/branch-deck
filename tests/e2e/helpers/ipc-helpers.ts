@@ -50,18 +50,25 @@ export interface FirstRowsIpc {
   readonly channelMessages: Record<string, number>
 }
 
-/** Records the IPC of the page at its first branch row, for every load from now on (`firstRowsAsks`) */
+/**
+ * Records the IPC of the page at its first branch row, for every load from now on (`firstRowsAsks`): the counts as the
+ * row came into the document, taken before the first command the page asks once it is there (the effects of the commit
+ * that put it there run before a `MutationObserver` hears of it), else when the observer does
+ */
 export async function recordIpcAtFirstRows(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const observer = new MutationObserver(() => {
-      if (document.querySelector('[data-testid="branch-row"]') === null) {
+    const target = window as unknown as { __ipcStats: FirstRowsIpc; __e2eFirstRowsIpc?: FirstRowsIpc; __e2eBeforeInvoke?: () => void }
+    const record = () => {
+      if (target.__e2eFirstRowsIpc !== undefined || document.querySelector('[data-testid="branch-row"]') === null) {
         return
       }
       observer.disconnect()
-      const stats = (window as unknown as { __ipcStats: FirstRowsIpc }).__ipcStats
-      Object.assign(window, { __e2eFirstRowsIpc: { invokes: { ...stats.invokes }, channelMessages: { ...stats.channelMessages } } })
-    })
+      const stats = target.__ipcStats
+      target.__e2eFirstRowsIpc = { invokes: { ...stats.invokes }, channelMessages: { ...stats.channelMessages } }
+    }
+    const observer = new MutationObserver(record)
     observer.observe(document, { childList: true, subtree: true })
+    target.__e2eBeforeInvoke = record
   })
 }
 
