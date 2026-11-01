@@ -25,6 +25,7 @@ targets:
   - ../../crates/file-diffs/src/collapse.rs
   - ../../crates/generated-files/src/names.rs
   - ../../src/presenters/collapse.ts
+  - ../../src/presenters/review-card-end.ts
   - ../../src/lib/file-tree.ts
   - ../../src/lib/preview-keys.ts
   - ../../src/stores/file-diffs.ts
@@ -187,6 +188,17 @@ where a dialog would cover it.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit`)
   [@test] ../../src/lib/diff/rows.test.ts (`starts N and P at each block of changed lines, a deleted one too, never at a block the policy ignores`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`, `N and P skip a block the whitespace policy ignores`)
+- A card of more than 30 rows, whose end is far from its header, and the last card must end with a line that names
+  what J shows next, by its rows alone, never by the viewport: "Next: SKILL.md setup-local-rd-flow J", the name and
+  its last folder (ten files named SKILL.md in a row differ by it), "Next: SKILL.md, continued" for the next section of
+  the same file, under an owner chip the next of its files. With nothing left it says "End of the review", and under
+  an owner chip before the last card "No more files of Design". A click shows what it names as J does: its header at
+  the top, the tree and the footer following. It never says "End of <file>" (a section of the story may be a part of
+  its file), it is out of the tab order (J does it from the keys) and never in a copy of the code.
+  [@test] ../../src/lib/diff/layout.test.ts (`ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count`)
+  [@test] ../../src/presenters/review-card-end.test.ts (`names the next file by its name and its last folder, and the next part of the same file as continued`, `ends the review at the last card, and the files of an owner chip before it`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
 - The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
   "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file
   reads its texts by blob id as it comes into view, and its rows show plain text until the tokens of their page
@@ -280,6 +292,9 @@ where a dialog would cover it.
 - The divider of a step or a group is 32 px on the canvas at the inset of the cards, after the gap of 10 px, its words
   at its bottom, 6 px above the card they head, not selectable: the step "Step 3 · <title>" in `text-sm font-semibold`,
   a button underlined on hover, then the group in `text-xs text-muted-foreground` ("Same edit in 4 files").
+- The line at the end of a card is one row high below its rows, in the colour of the card, a `--border` line above
+  it, not selectable; its words at the right in `text-xs text-muted-foreground`: "Next:", the name `font-semibold` in
+  the text colour, its last folder, then `Kbd` `J`, one button out of the tab order that brightens on hover.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows
@@ -294,8 +309,8 @@ where a dialog would cover it.
 
 - `pnpm test:unit`: `src/lib/diff/rows.test.ts`, `layout.test.ts`, `copy-text.test.ts`, `find.test.ts`, and the tests of [Commit Files](commit-files.spec.md) for
   the tree and the patch.
-- `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree`, `commit_many_files` (nine files,
-  the search) and `issue_links` templates. A
+- `pnpm e2e`: `tests/e2e/commit-files/commit-review.spec.ts` on the `commit_tree` (`RowMapper.kt` expanded is a long
+  card), `commit_many_files` (nine files, the search) and `issue_links` templates. A
   virtualized view renders what is on screen: assert on the text of files the review scrolled to.
 
 ## Open Questions / Risks

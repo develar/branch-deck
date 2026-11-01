@@ -57,6 +57,14 @@ function selectedFile(review: Locator): Locator {
   return review.getByRole("tree", { name: "Changed files" }).locator("[role=treeitem][aria-selected=true]")
 }
 
+/** RowMapperTest.kt, the second file of the tree commit, shown as J shows it: the footer and the tree follow, its header at the top below the gap */
+async function expectSecondFileShown(review: Locator): Promise<void> {
+  await expect(review.getByTestId("branch-review-position")).toHaveText("File 2 / 5")
+  await expect(selectedFile(review)).toHaveAttribute("aria-label", "RowMapperTest.kt")
+  // the card at the top keeps the gap above it that the first card has
+  await expect.poll(() => headerPlace(review, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
+}
+
 /** The `count`-th window the page opened (`open_sub_window`), once it is recorded */
 async function openedWindow<T>(page: Page, count: number): Promise<OpenedSubWindow<T>> {
   await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
@@ -217,10 +225,8 @@ simpleTest.describe("Commit review", () => {
     await page.setViewportSize({ width: viewport.width, height: 420 })
     await code.locator("[aria-label='Changes of the commit']").focus()
     await page.keyboard.press("j")
-    await expect(position).toHaveText("File 2 / 5")
-    await expect(selectedFile(window)).toHaveAttribute("aria-label", "RowMapperTest.kt")
-    // the card at the top keeps the gap above it that the first card has; its header in its place casts no shadow
-    await expect.poll(() => headerPlace(window, "RowMapperTest.kt")).toEqual({ header: 10, rowInGap: false })
+    await expectSecondFileShown(window)
+    // its header in its place casts no shadow
     const testHeader = code.locator('[data-testid=review-file-header][data-path$="/RowMapperTest.kt"]')
     await expect(testHeader).toHaveCSS("box-shadow", "none")
     // its header stuck while its rows scroll under it: the same gap, never the rows above it, and a shadow under it
@@ -248,6 +254,35 @@ simpleTest.describe("Commit review", () => {
     // the view of the diffs is in the title bar of the window
     await window.getByRole("button", { name: "Unified" }).click()
     await expect(window.getByRole("button", { name: "Unified" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  simpleTest("should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review", async ({ page }) => {
+    // a window low enough for the second file to reach the top
+    const viewport = page.viewportSize()!
+    await page.setViewportSize({ width: viewport.width, height: 420 })
+    const window = await openTreeReview(page)
+    const code = window.getByTestId("commit-review-code")
+    const position = window.getByTestId("branch-review-position")
+    const mapper = code.locator('[data-testid=diff-view-file][data-path$="/RowMapper.kt"]')
+    await expect(position).toHaveText("File 1 / 5")
+    // its two changes, the 30 lines between them folded: a short card, whose end the header is near, has no line
+    await expect(mapper.getByTestId("review-file-header")).toBeVisible()
+    await expect(mapper.getByTestId("review-card-end")).toHaveCount(0)
+
+    // all its lines shown, it is a long card: its end names the next file, its last folder and the key that shows it
+    await code.getByRole("button", { name: "Expand all unchanged lines of RowMapper.kt" }).click()
+    const next = mapper.getByRole("button", { name: "Next: RowMapperTest.kt testSrc", exact: true })
+    await expect(next).toHaveText("Next:RowMapperTest.kttestSrcJ")
+    // never in a copy of the code
+    await expect(mapper.getByTestId("diff-view-footer")).toHaveCSS("user-select", "none")
+    // a click shows the next file as J does: its header at the top, the tree and the footer follow
+    await next.click()
+    await expectSecondFileShown(window)
+
+    // the last card ends the review
+    await window.getByRole("treeitem", { name: "README.md" }).click()
+    await expect(position).toHaveText("File 5 / 5")
+    await expect(code.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
   })
 
   simpleTest("should give the sidebar the width of its names, and hide and show it with F and its button, the choice kept", async ({ page }) => {

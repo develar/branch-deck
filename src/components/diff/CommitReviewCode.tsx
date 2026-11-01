@@ -3,6 +3,7 @@ import type { Ref } from "react"
 import { cn } from "cn"
 import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
@@ -17,6 +18,7 @@ import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
+import { presentCardEnd } from "@/presenters/review-card-end"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
@@ -26,6 +28,12 @@ const PENDING_HEADERS = 12
 export interface CommitReviewCodeHandle extends DiffViewHandle {
   /** Opens a file outside the review over it, at the place of `target` */
   openOutside: (target: DeclarationTarget) => void
+}
+
+/** A section J shows after another (`CommitReviewCodeProps.nextSection`): its key and its file */
+export interface NextSection {
+  readonly key: string
+  readonly path: string
 }
 
 export interface CommitReviewCodeProps {
@@ -47,12 +55,22 @@ export interface CommitReviewCodeProps {
   marked?: ReadonlySet<string> | null
   /** A click on the divider of a step: its first section at the top, as the bar of the step above the diffs */
   onShowStep?: (step: string) => void
+  /**
+   * What J shows after the section of a key, undefined when nothing is left: the line at the end of a long card and of
+   * the last one names it; no such line without
+   */
+  nextSection?: (key: string) => NextSection | undefined
+  /** A click on the line at the end of a card: the section it names, shown as J shows it */
+  onShowSection?: (next: NextSection) => void
+  /** The name of the chosen owner chip, whose files J steps through: the end of them is "No more files of Design" */
+  ownerLabel?: string | null
 }
 
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed;
- * with the plan, a divider above the first section of each step and of each group.
+ * with the plan, a divider above the first section of each step and of each group; a long card and the last one end with
+ * a line naming what J shows next.
  */
 export function CommitReviewCode({
   ref,
@@ -65,6 +83,9 @@ export function CommitReviewCode({
   revisions,
   marked = null,
   onShowStep,
+  nextSection,
+  onShowSection,
+  ownerLabel = null,
 }: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
   const review = useRef<DiffViewHandle>(null)
@@ -94,10 +115,7 @@ export function CommitReviewCode({
       setFileViews([])
       return review.current?.moveChange(direction, accept)
     },
-    moveSection: (direction, accept) => {
-      setFileViews([])
-      return review.current?.moveSection(direction, accept)
-    },
+    visibleSection: () => review.current?.visibleSection(),
     focus: () => review.current?.focus(),
     revealDeclaration: (place, from) => {
       setFileViews([])
@@ -117,6 +135,7 @@ export function CommitReviewCode({
   const inFile = useSymbolNavigation(files, { old: null, new: shownFile?.outside?.revision ?? null }, openFile)
   // the search in flight of either view, at its name
   const search = inReview.search ?? inFile.search
+  const lastKey = files.length === 0 ? undefined : keyOf(files[files.length - 1]!)
   return (
     <div className="relative h-full">
       <DiffView
@@ -132,6 +151,11 @@ export function CommitReviewCode({
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
         renderDivider={section => <ReviewDivider section={section} onShowStep={onShowStep} />}
+        renderFooter={
+          nextSection === undefined
+            ? undefined
+            : (key, path) => <ReviewCardEnd path={path} next={nextSection(key)} owner={key === lastKey ? null : ownerLabel} onShow={next => onShowSection?.(next)} />
+        }
       />
       {shownFile !== undefined && (
         <DeclarationFileView
@@ -218,6 +242,39 @@ function ReviewDivider({ section, onShowStep }: { section: DiffSection; onShowSt
         )}
       </div>
     </div>
+  )
+}
+
+/** The key of the section of a file of the review (`DiffView`'s `PreparedFile.key`) */
+function keyOf(file: DiffViewFile): string {
+  return file.section?.key ?? file.file.path
+}
+
+/**
+ * The line at the end of a long card and of the last one (spec/commit/commit-review.spec.md): what J shows next, its
+ * name and its last folder, which a click shows as J does, or the end (`presentCardEnd`); `owner` before the last card,
+ * the chosen owner chip whose files J steps through. Not focusable: J does it from the keys
+ */
+function ReviewCardEnd({ path, next, owner, onShow }: { path: string; next: NextSection | undefined; owner: string | null; onShow: (next: NextSection) => void }) {
+  const end = presentCardEnd(path, next?.path, owner)
+  if (next === undefined || end.kind === "end") {
+    return <span data-testid="review-card-end">{end.kind === "end" ? end.text : null}</span>
+  }
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      data-testid="review-card-end"
+      aria-label={end.label}
+      title={next.path}
+      className="flex h-full min-w-0 items-center gap-1.5 rounded-sm outline-none hover:text-foreground"
+      onClick={() => onShow(next)}
+    >
+      <span className="shrink-0">Next:</span>
+      <span className="min-w-0 truncate font-semibold text-foreground">{end.continued ? `${end.name},` : end.name}</span>
+      {end.continued ? <span className="shrink-0">continued</span> : end.folder !== null && <span className="min-w-0 shrink-[10] truncate">{end.folder}</span>}
+      <Kbd className="h-4 min-w-4">J</Kbd>
+    </button>
   )
 }
 

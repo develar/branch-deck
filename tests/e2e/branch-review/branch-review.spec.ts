@@ -490,6 +490,30 @@ test.describe("Branch review window", () => {
     await expect(position).toHaveText("All Changes · File 3 / 4")
   })
 
+  test("should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_ownership")
+    // a long file of Auth Team first in the tree, before the files of the others
+    const lines = Array.from({ length: 40 }, (_, index) => `export const step${index + 1} = ${index + 1}\n`).join("")
+    await repo.commit("(login) Keep the session", { "auth/session.js": lines }, 1704124800)
+    await syncAndWaitForBranches()
+    await openReviewOf(page, "login")
+    const position = page.getByTestId("branch-review-position")
+    const owner = (name: string) => page.getByTestId("branch-review-owner").filter({ hasText: name })
+    const session = page.locator("[data-testid=diff-view-file][data-path='auth/session.js']")
+    await expect(position).toHaveText("All Changes · File 1 / 5")
+    // the next file of all
+    await expect(session.getByRole("button", { name: "Next: token.js auth", exact: true })).toBeVisible()
+
+    // Monorepo has README.md, the last file: J and the line at the end of the card pass the files of the others
+    await owner("Monorepo").click()
+    const next = session.getByRole("button", { name: "Next: README.md", exact: true })
+    await expect(next).toBeVisible()
+    await next.click()
+    await expect(position).toHaveText("All Changes · File 5 / 5 · Monorepo 1 / 1")
+    await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "README.md" })).toHaveAttribute("aria-selected", "true")
+    await expect(page.locator("[data-testid=diff-view-file][data-path='README.md']").getByTestId("review-card-end")).toHaveText("End of the review")
+  })
+
   test("should keep the chip of an owner on a part without its files, muting nothing, and show no chips when one owner has them all", async ({
     page,
     setupRepo,

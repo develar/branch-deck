@@ -34,6 +34,22 @@ export interface LayoutFile {
    * edit in 3 files"); absent, none
    */
   divider?: "step" | "group"
+  /**
+   * A line at the end of its card (cards only, `endsWithFooter`), one row high below the rows: the next section, or the
+   * end of the review; absent, none
+   */
+  footer?: boolean
+}
+
+/** A card of more rows than this ends with a line naming the next section (`LayoutFile.footer`) */
+export const FOOTER_MIN_ROWS = 30
+
+/**
+ * Whether the card of a file ends with a line naming what comes after it: a long card, by its rows alone (never by the
+ * viewport, so the layout stays arithmetic), whose end is far from its header, and the last card, the end of the review
+ */
+export function endsWithFooter(rows: FileRows | null, last: boolean): boolean {
+  return last || (rows?.rowCount ?? 0) > FOOTER_MIN_ROWS
 }
 
 /** Where the view stands in a document: kept across a change of heights, restored after it */
@@ -84,9 +100,14 @@ export class DiffLayout {
     return this.files[file]?.divider === undefined ? 0 : (this.metrics.cards?.divider ?? 0)
   }
 
-  /** The header, the notice and the rows of a file, and the bottom border of its card */
+  /** The header, the notice and the rows of a file, the line at the end of its card and the bottom border of the card */
   fileHeight(file: number): number {
-    return this.rowsOffset(file) + this.rowsHeight(file) + (this.metrics.cards?.borderBottom ?? 0)
+    return this.rowsOffset(file) + this.rowsHeight(file) + this.footerHeight(file) + (this.metrics.cards?.borderBottom ?? 0)
+  }
+
+  /** The line at the end of the card of a file, below its rows: one row high; 0 without one, and without cards */
+  footerHeight(file: number): number {
+    return this.metrics.cards !== undefined && this.files[file]!.footer === true ? this.metrics.rowHeight : 0
   }
 
   /** The rows of a file */
@@ -174,8 +195,8 @@ export class DiffLayout {
   }
 
   /**
-   * The anchor at `scrollTop`: the file there, and the line of its row at the top. Below the rows of a file (the bottom
-   * border of its card, the gap, the divider of the next) it is the place above the next card: a scroll to a file
+   * The anchor at `scrollTop`: the file there, and the line of its row at the top. Below the rows of a file (the line at
+   * the end of its card, its bottom border, the gap, the divider of the next) it is the place above the next card: a scroll to a file
    * (`fileTop`) stays where it is when the file above it changes, and a row of the file above never holds it
    */
   anchorAt(scrollTop: number): ScrollAnchor | null {

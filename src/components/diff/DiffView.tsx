@@ -16,7 +16,7 @@ import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
 import { findHits, hitsByLine } from "@/lib/diff/find"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
-import { DiffLayout, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, visualLinePrefix } from "@/lib/diff/layout"
 import { inlineParts } from "@/lib/diff/line-parts"
 import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
 import { DIFF_FONT_SIZE, DIFF_TAB_SIZE, measureFont, rowHeightOf, textMetricsOf } from "@/lib/diff/metrics"
@@ -55,7 +55,8 @@ import "./diff-view.css"
  * The file cards of a view with headers (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: a gap of
  * 10 px between two cards and around them, in the canvas colour, an inset of 12 px at the sides, a border of 1 px. The
  * header holds the top border of its card, a band of its own colour (diff-view.css). A section that starts a step of the
- * review plan or a group has a line on the canvas between the gap above its card and the card (`renderDivider`).
+ * review plan or a group has a line on the canvas between the gap above its card and the card (`renderDivider`). A long
+ * card and the last one end with a line one row high that names what comes after it (`renderFooter`, `endsWithFooter`).
  */
 const CARD_HEADER_HEIGHT = 48
 const CARD_GAP = 10
@@ -132,11 +133,8 @@ export interface DiffViewHandle {
    * path of the file it shows; undefined, and nothing moves, when no block is left in that direction
    */
   moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => string | undefined
-  /**
-   * Shows the next (1) or previous (-1) section at the top, from the one at the top now, with `accept` the next one of a
-   * file it accepts; returns its key and its file, undefined (nothing moves) when none is left in that direction
-   */
-  moveSection: (direction: 1 | -1, accept?: (path: string) => boolean) => { key: string; path: string } | undefined
+  /** The key of the section at the top: the one the view showed last, or the one scrolled to (`onVisibleSectionChange`) */
+  visibleSection: () => string | undefined
   focus: () => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
@@ -195,6 +193,11 @@ export interface DiffViewProps {
    * `heading`), with the headers only; without it no section has one
    */
   renderDivider?: (section: DiffSection) => ReactNode
+  /**
+   * The line at the end of a long card and of the last one (`endsWithFooter`), by the key of its section and its file,
+   * with the headers only; without it no card has one
+   */
+  renderFooter?: (key: string, path: string) => ReactNode
   /** "own": the view scrolls itself (the review windows); "parent": it is a block of the scroller it lies in */
   scroll?: "own" | "parent"
   /** The files are the uncommitted changes: the new side is read by its path in the working tree */
@@ -384,6 +387,7 @@ export function DiffView({
   onFirstScreen,
   renderHeader,
   renderDivider,
+  renderFooter,
   scroll = "own",
   worktree = false,
   onGoToDeclaration,
@@ -484,19 +488,25 @@ export function DiffView({
   const noticeKey = prepared.map(file => (renderHeader === undefined ? (noticeOf(file, texts) ?? "") : "")).join(NOTICE_SEPARATOR)
   const notices = useMemo(() => noticeKey.split(NOTICE_SEPARATOR).map(notice => (notice === "" ? null : notice)), [noticeKey])
 
+  // whether the cards end with a line, not its words: a chip that changes what it names lays out nothing again
+  const footers = cards && renderFooter !== undefined
   const layout = useMemo(
     () =>
       new DiffLayout(
-        prepared.map((file, index) => ({
-          key: file.key,
-          rows: file.collapsed || file.rows === null || file.rows.rowCount === 0 ? null : file.rows,
-          notice: notices[index] !== null,
-          visualLines: visualLines[index],
-          divider: cards && renderDivider !== undefined ? dividerOf(file.section) : undefined,
-        })),
+        prepared.map((file, index) => {
+          const rows = file.collapsed || file.rows === null || file.rows.rowCount === 0 ? null : file.rows
+          return {
+            key: file.key,
+            rows,
+            notice: notices[index] !== null,
+            visualLines: visualLines[index],
+            divider: cards && renderDivider !== undefined ? dividerOf(file.section) : undefined,
+            footer: footers && endsWithFooter(rows, index === prepared.length - 1),
+          }
+        }),
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards, renderDivider],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, renderDivider, footers],
   )
 
   // the hits of the find in the lines the rows show, from the texts read so far
@@ -1002,20 +1012,7 @@ export function DiffView({
       }
       return undefined
     },
-    moveSection: (direction, accept) => {
-      const at = prepared.findIndex(file => file.key === visibleKey.current)
-      if (at < 0) {
-        return undefined
-      }
-      for (let next = at + direction; next >= 0 && next < prepared.length; next += direction) {
-        const { key, path } = prepared[next]!
-        if (accept === undefined || accept(path)) {
-          showSection(next)
-          return { key, path }
-        }
-      }
-      return undefined
-    },
+    visibleSection: () => visibleKey.current,
     focus: () => scroller.current?.focus(),
     revealDeclaration: (place, from) => {
       if (sectionOf(prepared, place.path) < 0) {
@@ -1047,6 +1044,7 @@ export function DiffView({
         noticeRow={layout.files[index]!.notice}
         top={layout.offsets[index]!}
         dividerHeight={layout.dividerHeight(index)}
+        footer={layout.files[index]!.footer === true}
         height={layout.fileHeight(index)}
         rowsHeight={layout.rowsHeight(index)}
         card={cards}
@@ -1059,6 +1057,7 @@ export function DiffView({
         painter={painter}
         renderHeader={renderHeader}
         renderDivider={renderDivider}
+        renderFooter={renderFooter}
         onToggle={toggleFile}
         onExpandAll={expandAll}
       />
@@ -1174,6 +1173,8 @@ interface FileSectionProps {
   top: number
   /** The divider above the card, 0 for none: it ends at `top` */
   dividerHeight: number
+  /** The card ends with a line below its rows (`LayoutFile.footer`), one row high */
+  footer: boolean
   height: number
   rowsHeight: number
   /** The file is a card: a border, rounded corners, its header the top of the card */
@@ -1192,13 +1193,14 @@ interface FileSectionProps {
   painter: DiffPainter
   renderHeader: DiffViewProps["renderHeader"]
   renderDivider: DiffViewProps["renderDivider"]
+  renderFooter: DiffViewProps["renderFooter"]
   onToggle: (path: string) => void
   onExpandAll: (file: PreparedFile) => void
 }
 
 /**
- * The section of a file: as tall as the file, its header sticky, the rows element the painter fills; the divider of a
- * step or a group above it
+ * The section of a file: as tall as the file, its header sticky, the rows element the painter fills, the line at the
+ * end of a long card; the divider of a step or a group above it
  */
 const FileSection = memo(function FileSection(props: FileSectionProps) {
   const {
@@ -1209,6 +1211,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     noticeRow,
     top,
     dividerHeight,
+    footer,
     height,
     rowsHeight,
     card,
@@ -1221,6 +1224,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     painter,
     renderHeader,
     renderDivider,
+    renderFooter,
     onToggle,
     onExpandAll,
   } = props
@@ -1282,6 +1286,12 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
               <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth, split)} />
             )}
           </>
+        )}
+        {footer && renderFooter !== undefined && (
+          // after the scrollbars, which stick to the bottom of the rows above it; not selectable (diff-view.css)
+          <div className="dv-footer" data-testid="diff-view-footer" style={{ height: rowHeight }}>
+            {renderFooter(file.key, file.path)}
+          </div>
         )}
       </section>
     </>

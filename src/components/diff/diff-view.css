@@ -116,6 +116,25 @@
   user-select: none;
 }
 
+/*
+ * The line at the end of a long card and of the last one (`LayoutFile.footer`): one row high, the colour of the card, a
+ * line above it, its words at the right in the size of the header's notices. Not selectable: a copy of the selection of
+ * the code never takes it. After the horizontal scrollbars in the section, so they stick to the bottom of the rows
+ */
+.dv-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-inline: 10px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  user-select: none;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+
 /* a collapsed file is its header alone: the bottom border of the card closes it under the header */
 .dv-card[data-collapsed] > .dv-header > * {
   border-bottom-width: 0;

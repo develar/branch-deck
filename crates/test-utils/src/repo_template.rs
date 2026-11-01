@@ -171,9 +171,9 @@ pub mod templates {
 
   const ISSUE_LINKS_VCS_XML: &str = include_str!("../fixtures/issue_links/vcs.xml");
 
-  /// A Kotlin file whose class name is on its first line and in its last function, 20 lines apart
+  /// A Kotlin file whose class name is on its first line and in its last function, 30 lines apart
   fn row_mapper(class_name: &str) -> String {
-    let fields = (1..=20).fold(String::new(), |mut fields, i| {
+    let fields = (1..=30).fold(String::new(), |mut fields, i| {
       let _ = writeln!(fields, "  val field{i} = {i}");
       fields
     });
@@ -346,8 +346,9 @@ pub mod templates {
   }
 
   /// One commit that changes files in nested directories (Kotlin, a Gradle script, the README), for the directory tree
-  /// of the commit preview: `RowMapper.kt` has two hunks with 20 unchanged lines between them, which a diff can expand;
-  /// the changed line of `Reducer.kt` is longer than a side of Split, which scrolls or wraps it
+  /// of the commit preview: `RowMapper.kt` has two hunks with 30 unchanged lines between them, which a diff can expand
+  /// (expanded, its card in a review is a long one, which ends with a line naming the next file); the changed line of
+  /// `Reducer.kt` is longer than a side of Split, which scrolls or wraps it
   pub fn commit_tree() -> RepoTemplate {
     RepoTemplate::new("commit_tree")
       .branch_prefix("user-name")

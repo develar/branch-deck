@@ -202,7 +202,7 @@ in microseconds.
 **Items of the document.** The view is a document of items: the header of a file, the notice of a file (one row; the
 review windows show their notices in the header and use no notice row), and the rows of a file. Each item has a known height:
 - Soft wraps off (the default): every row has the row height. The height of a file is `header + rows × row height`,
-  and the bottom border of its card in a review window (below).
+  and in a review window the line at the end of a long card and the bottom border of its card (below).
   The row count comes from the blocks and the line counts, so the layout is exact before the texts arrive.
 - Soft wraps on: the height of a row is its count of visual lines × the row height. The view computes this count
   itself, see below.
@@ -241,9 +241,21 @@ review windows show their notices in the header and use no notice row), and the 
   than a change of file, so it is a line of its own, and the header names the file alone: its order is always the
   chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands at one x.
   The divider scrolls with its card and never sticks: the bar of the step above the diffs names the step at the top.
+- A card of more than 30 rows and the last card end with a line one row high below their rows (`renderFooter`,
+  `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: SKILL.md setup-local-rd-flow `J`" (the name and
+  its last folder), "Next: SKILL.md, continued" for the next section of the same file, else "End of the review" (or,
+  under an owner chip, the end of its files). The end of a long card is far from its header, so the line says where
+  the file ends and what comes next; a short card needs none, and a line on every card would be noise. It is decided
+  by the rows alone, never by the viewport, so the layout stays arithmetic. It names what J shows, from the one
+  function of `CommitReview` that J uses too (with the plan the next section of the story, else the next file of the
+  tree, under an owner chip the next of its files), and a click does what J does. It never says "End of <file>": a
+  section of the story may be a part of its file. It lies after the horizontal scrollbars of the section, which stick
+  to the bottom of the rows, so they never lie over it; it is not selectable, so a copy of the code never takes it, and
+  it is out of the tab order.
 - The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` (`offsets[i]`, the top of its card) is the
   space above the cards, the heights of the files before it, a gap after each and the dividers. A file is `header +
-  notice + rows + bottom border`. A divider belongs to the file below it: `fileAt` in it is that file, and `fileTop`
+  notice + rows + footer + bottom border`. A top in the footer is anchored above the next card, as one in the gap. A
+  divider belongs to the file below it: `fileAt` in it is that file, and `fileTop`
   counts it, so a scroll to a step shows its divider; a y in the gap is the file above. So every offset stays
   arithmetic, and the anchor, the rows in view and the scroll to a file need no measure.
 
@@ -302,8 +314,8 @@ change makes the content jump, and each measure costs a layout.
 - the font finishes its load (wraps on).
 
 Before the change, the view keeps the anchor: the first row whose bottom is below the top of the viewport. The anchor
-is its file, its line on one side, its visual line and its pixel offset. A top below the rows of a file (the bottom
-border of its card, the gap, the divider of the next) is anchored above the next card, not in the last row: a scroll
+is its file, its line on one side, its visual line and its pixel offset. A top below the rows of a file (the line at
+the end of its card, its bottom border, the gap, the divider of the next) is anchored above the next card, not in the last row: a scroll
 to a file keeps its gap and its divider in view when the file above changes, and the clamp of an offset to its row
 (for a row that shows fewer visual lines) never moves it. After the change, the view sets `scrollTop`
 to the new offset of the same anchor, in the same task, before the paint. The browser's own anchoring is off

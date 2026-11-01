@@ -4,7 +4,7 @@ import { useDefaultLayout } from "react-resizable-panels"
 import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
-import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
+import type { CommitReviewCodeHandle, NextSection } from "@/components/diff/CommitReviewCode"
 import type { DiffSection, DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
 import type { FileTreeBadges, FileTreeCommitRows, FileTreeMarks } from "@/components/files/FileTree"
@@ -660,7 +660,7 @@ function ReviewLayout({
       current = false
     }
   }, [narrative, revision, outside])
-  const viewFiles = useMemo(() => {
+  const viewFiles = useMemo((): readonly DiffViewFile[] | null => {
     if (diffs === null) {
       return null
     }
@@ -846,6 +846,39 @@ function ReviewLayout({
     const counts = new Map([...presentOwnerMarks(chapters, marked)].map(([chapter, count]) => [concernRowKey(chapter), count]))
     return { label: ownerMarks.label, paths: marked, counts }
   }, [ownerMarks, marked, chapters])
+
+  // the order J and K step through: with the plan the sections of the story, else the files of the tree
+  const stepOrder = useMemo<readonly NextSection[]>(
+    () =>
+      reviewFacts !== null && viewFiles !== null
+        ? viewFiles.map(file => ({ key: file.section?.key ?? file.file.path, path: file.file.path }))
+        : files.map(file => ({ key: file.path, path: file.path })),
+    [reviewFacts, viewFiles, files],
+  )
+  // what J (1) and K (-1) show after the section of a key (none: from before the first), under an owner chip the next
+  // of its files; undefined when none is left. The line at the end of a long card names the one J shows
+  const stepSection = useCallback(
+    (key: string | null, direction: 1 | -1): NextSection | undefined => {
+      const at = key === null ? -1 : stepOrder.findIndex(it => it.key === key)
+      for (let index = at + direction; index >= 0 && index < stepOrder.length; index += direction) {
+        if (marked === null || marked.has(stepOrder[index]!.path)) {
+          return stepOrder[index]
+        }
+      }
+      return undefined
+    },
+    [stepOrder, marked],
+  )
+  const nextSection = useCallback((key: string) => stepSection(key, 1), [stepSection])
+  // J, K and a click on the line at the end of a card: the section at the top, then the tree, the bar of the step and the
+  // footer follow it, which a scroll the review made does not tell them
+  const showSection = useCallback(
+    (next: NextSection) => {
+      code.current?.scrollToSection(next.key)
+      showVisibleSection(next.key, next.path)
+    },
+    [showVisibleSection],
+  )
   const accept = marked === null ? undefined : (path: string) => marked.has(path)
 
   const selectedIndex = files.findIndex(file => file.path === selectedPath)
@@ -869,23 +902,13 @@ function ReviewLayout({
     switch (event.code) {
       case "KeyJ":
       case "KeyK": {
-        // with the plan the diffs are the story: J and K step through its sections, the tree follows; under an owner
-        // chip through the sections of its files only, nothing moves past the last one
-        const direction = event.code === "KeyJ" ? 1 : -1
-        if (reviewFacts !== null) {
-          const next = code.current?.moveSection(direction, accept)
-          if (next !== undefined) {
-            showVisibleSection(next.key, next.path)
-          }
-          break
-        }
-        let index = selectedIndex + direction
-        while (accept !== undefined && files[index] !== undefined && !accept(files[index]!.path)) {
-          index += direction
-        }
-        const next = files[index]
+        // with the plan the diffs are the story: J and K step through its sections from the one at the top, else
+        // through the files from the selected one; the tree follows; under an owner chip through its files only,
+        // nothing moves past the last one
+        const from = reviewFacts !== null ? (code.current?.visibleSection() ?? null) : selectedPath
+        const next = stepSection(from, event.code === "KeyJ" ? 1 : -1)
         if (next !== undefined) {
-          selectInTree(next, next.path)
+          showSection(next)
         }
         break
       }
@@ -993,6 +1016,9 @@ function ReviewLayout({
                   fileOwners={fileOwners}
                   marked={marked}
                   onShowStep={showStep}
+                  nextSection={nextSection}
+                  onShowSection={showSection}
+                  ownerLabel={ownerLabel}
                 />
               </div>
             )}

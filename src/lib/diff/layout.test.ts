@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { DiffLayout, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, FOOTER_MIN_ROWS, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutFile } from "@/lib/diff/layout"
 import { rowHeightOf } from "@/lib/diff/metrics"
 import { buildFileRows, EXPANDED, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
@@ -167,5 +167,27 @@ describe("DiffLayout of file cards", () => {
     // no divider without cards
     const plain = new DiffLayout([file("a", rows, { divider: "step" })], { rowHeight: 20, headerHeight: 36 })
     expect([plain.offsets[0], plain.fileTop(0)]).toEqual([0, 0])
+  })
+
+  it("ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count", () => {
+    const long = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const short = buildFileRows(ONE_CHANGE, "unified")
+    expect([long.rowCount > FOOTER_MIN_ROWS, short.rowCount > FOOTER_MIN_ROWS]).toEqual([true, false])
+    // by the rows alone: a long card, a short one, a collapsed one, and the last card whatever it is
+    const ends = [endsWithFooter(long, false), endsWithFooter(short, false), endsWithFooter(null, false), endsWithFooter(null, true), endsWithFooter(short, true)]
+    expect(ends).toEqual([true, false, false, true, true])
+    const files = [long, short, null].map((rows, index, all) => file(String(index), rows, { footer: endsWithFooter(rows, index === all.length - 1) }))
+    const layout = new DiffLayout(files, CARDS)
+    expect([layout.footerHeight(0), layout.footerHeight(1), layout.footerHeight(2)]).toEqual([20, 0, 20])
+    // the line between the rows and the bottom border; the gap, then the next card after it
+    expect(layout.fileHeight(0)).toBe(48 + long.rowCount * 20 + 20 + 1)
+    expect(layout.fileHeight(2)).toBe(48 + 20 + 1)
+    const second = 10 + layout.fileHeight(0) + 10
+    expect(Array.from(layout.offsets)).toEqual([10, second, second + layout.fileHeight(1) + 10, second + layout.fileHeight(1) + 10 + layout.fileHeight(2) + 10])
+    // a top in the line is the place above the next card, as a top in the gap is
+    const anchor = layout.anchorAt(layout.rowTop(0, long.rowCount) + 5)!
+    expect([anchor.key, layout.scrollTopOf(anchor)]).toEqual(["1", layout.rowTop(0, long.rowCount) + 5])
+    // no line without cards
+    expect(new DiffLayout(files, { rowHeight: 20, headerHeight: 36 }).footerHeight(0)).toBe(0)
   })
 })

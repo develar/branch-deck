@@ -253,16 +253,16 @@ simpleTest.describe("Commit files in nested directories", () => {
     await expect(tree.getByRole("treeitem", { name: "catalog" })).toHaveAttribute("aria-description", "2 files, +8 −2")
     await expect(tree.getByRole("treeitem", { name: "RowMapperTest.kt" })).toHaveAttribute("aria-description", "added, +6 −0")
 
-    // two changes with 20 unchanged lines between them, 4 shown next to each: the fold names the scope of its lines
+    // two changes with 30 unchanged lines between them, 4 shown next to each: the fold names the scope of its lines
     const mapper = tree.getByRole("treeitem", { name: "RowMapper.kt" })
     await mapper.getByText("RowMapper.kt").click()
     await expect(mapper).toContainText("SessionRowMapper")
     await expect(mapper).not.toContainText("field10")
     const fold = mapper.locator(".dv-fold-button")
-    await expect(fold).toHaveAttribute("aria-label", "Expand 12 unchanged lines in SessionRowMapper")
+    await expect(fold).toHaveAttribute("aria-label", "Expand 22 unchanged lines in SessionRowMapper")
     // the folds nest as IntelliJ's: 8 lines next to each change, then all
     await fold.click()
-    await expect(fold).toHaveAttribute("aria-label", "Expand 4 unchanged lines in SessionRowMapper")
+    await expect(fold).toHaveAttribute("aria-label", "Expand 14 unchanged lines in SessionRowMapper")
     await fold.click()
     await expect(mapper).toContainText("val field10 = 10")
     await expect(fold).toHaveCount(0)

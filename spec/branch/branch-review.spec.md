@@ -354,8 +354,10 @@ keys.
   the review plan, a step that shows files of the chip says how many on its row, a muted chip "Design 2" (its
   description "2 files of Design"), and a step without one is muted. J and K (the sections of the story, or the files
   without the plan) and N and P (the blocks) move through the chip's files only; when none is left in that direction,
-  nothing moves. A link of a mark or of the card selects a file of another owner as any file, and the chip stays.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
+  nothing moves. The line at the end of a long card names the next file of the chip, the one J shows
+  ([Commit Review](../commit/commit-review.spec.md#requirements)). A link of a mark or of the card selects a file of
+  another owner as any file, and the chip stays.
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`, `should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
   [@test] ../../src/presenters/review-steps.test.ts (`counts the files of the chosen owner each step shows, 0 for a step without one`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select a linked file under an owner chip, which hides none, and clear only a search that hides it`)
