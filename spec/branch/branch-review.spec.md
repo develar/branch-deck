@@ -210,7 +210,7 @@ session, a form of a row by the main window at that row; the footer holds the ke
   review ([Commit Review](../commit/commit-review.spec.md#the-sidebar-and-the-diffs)): "All Changes" with the number
   of commits of the part, then its commits newest first, under the name of their branch when the part has several, the
   subject taking the width of the row and the hash only on hover (the heading of the shown commit has it); a commit shows
-  only its own changes, its subject, author, time and message (three lines, "Show More") above them. ⌥↑/⌥↓ step
+  only its own changes, its subject, author, time and whole message at the top of its document, above them. ⌥↑/⌥↓ step
   through the commits from anywhere in the review, ↑/↓ inside them (one tab stop, a listbox), which keep the focus while
   the diffs of the next commit mount. A part of one commit has no list: it shows that commit. A sync that rebuilds the
   commits keeps the shown one by its branch, subject and author time.

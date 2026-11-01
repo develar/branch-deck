@@ -196,129 +196,6 @@ export function presentBreakage(api: readonly ApiChange[], pending: boolean): Br
   return { entries, unbroken: unbroken.length === 0 ? null : { label: `${count}, no use left outside breaks`, entries: unbroken } }
 }
 
-/** A dependency change of a module of the card */
-export interface DependencyLine {
-  readonly key: string
-  readonly change: DependencyChangeKind
-  /** "Changed crate serde 1.0.1 → 1.0.2" (`formatDependencyChange`) */
-  readonly text: string
-}
-
-/** The dependency changes of one build file */
-export interface ModuleDependencies {
-  /** The build file: a click selects it */
-  readonly manifest: string
-  /** "intellij.platform.x", "(root)" */
-  readonly module: string
-  readonly lines: readonly DependencyLine[]
-}
-
-/** A link the commits added between the files of two modules */
-export interface CrossModuleLink {
-  readonly key: string
-  readonly from: string
-  readonly to: string
-  /** The first use, in the file that uses: a click shows it */
-  readonly place: ReviewPlace
-  /** "Reader.kt → Cache.kt" */
-  readonly label: string
-  /** "Cache, get · Reader.kt:3" */
-  readonly symbols: string
-}
-
-/** "Dependencies" of the card: the changes of each build file, in Rust's order, and the new links between modules */
-export interface DependencySection {
-  readonly modules: readonly ModuleDependencies[]
-  readonly links: readonly CrossModuleLink[]
-}
-
-/** The dependency changes by build file, and the links the commits added across modules */
-export function presentDependencyChanges(plan: Pick<ReviewPlan, "dependencies" | "links">): DependencySection {
-  const modules = new Map<string, { manifest: string; module: string; lines: DependencyLine[] }>()
-  plan.dependencies.forEach((change, index) => {
-    let entry = modules.get(change.manifest)
-    if (entry === undefined) {
-      entry = { manifest: change.manifest, module: change.module, lines: [] }
-      modules.set(change.manifest, entry)
-    }
-    entry.lines.push({ key: `${index}`, change: change.change, text: formatDependencyChange(change) })
-  })
-  const links = plan.links
-    .filter(link => link.newBetweenModules)
-    .map(link => {
-      const { key, symbols } = linkEntry(link, link.to)
-      return { key, from: link.from, to: link.to, place: firstUse(link), label: `${fileName(link.from)} → ${fileName(link.to)}`, symbols }
-    })
-  return { modules: [...modules.values()], links }
-}
-
-/** A group of files that get the same edit, as the card words it */
-export interface RepeatedEditEntry {
-  readonly key: string
-  /** "Same edit in 14 files" */
-  readonly label: string
-  /** "ProjectManager → ProjectManagerEx" (`formatRepeatedEdit`) */
-  readonly edit: string
-  /** Its files: a click selects one */
-  readonly files: readonly string[]
-}
-
-/** "Repeated edits" of the card, the most files first as Rust sent them */
-export function presentRepeatedEdits(groups: readonly RepeatedEditGroup[]): RepeatedEditEntry[] {
-  return groups.map((group, index) => ({ key: `${index}`, label: `Same edit in ${group.files.length} files`, edit: formatRepeatedEdit(group), files: group.files }))
-}
-
-/** The public declarations the commits add to one file */
-export interface NewApiFile {
-  readonly path: string
-  /** Its first new declaration: a click shows it */
-  readonly place: ReviewPlace
-  /** "Cache, get" */
-  readonly names: string
-}
-
-/** "New API" of the card: the added declarations per file, the files in the order of their first declaration */
-export function presentNewApi(api: readonly ApiChange[]): NewApiFile[] {
-  const byPath = new Map<string, { line: number; names: string[] }>()
-  for (const change of api) {
-    if (change.kind === "added") {
-      const file = byPath.get(change.path) ?? { line: change.line, names: [] }
-      file.names.push(change.name)
-      byPath.set(change.path, file)
-    }
-  }
-  return [...byPath].map(([path, file]) => ({ path, place: { path, side: "new", line: file.line, name: file.names[0] ?? null }, names: file.names.join(", ") }))
-}
-
-function count(n: number, one: string, many: string): string {
-  return n === 1 ? `1 ${one}` : `${n} ${many}`
-}
-
-/**
- * "2 possible breaks · 3 dependency changes · 1 repeated edit · 4 new declarations", the line of the card's title;
- * what can break leads, "No possible break" when nothing can, "Finding possible breaks" while Rust asks the index
- * (`pending`)
- */
-export function formatPlanSummary(plan: Pick<ReviewPlan, "api" | "dependencies" | "links" | "repeatedEdits">, pending: boolean): string {
-  const breaks = presentBreakage(plan.api, pending).entries.length
-  const crossLinks = plan.links.filter(link => link.newBetweenModules).length
-  const added = plan.api.filter(change => change.kind === "added").length
-  const parts = [pending ? "Finding possible breaks" : breaks === 0 ? "No possible break" : count(breaks, "possible break", "possible breaks")]
-  if (plan.dependencies.length > 0) {
-    parts.push(count(plan.dependencies.length, "dependency change", "dependency changes"))
-  }
-  if (crossLinks > 0) {
-    parts.push(count(crossLinks, "new link between modules", "new links between modules"))
-  }
-  if (plan.repeatedEdits.length > 0) {
-    parts.push(count(plan.repeatedEdits.length, "repeated edit", "repeated edits"))
-  }
-  if (added > 0) {
-    parts.push(count(added, "new declaration", "new declarations"))
-  }
-  return parts.join(" · ")
-}
-
 /** What the tree of a review shows of its plan: the facts of each file, the links between the files, the dependency changes */
 /** What the tree reads of the plan: the facts of the files, their links, the dependency changes, the repeated edits */
 export type FileFactsOfPlan = Pick<ReviewPlan, "files" | "links" | "dependencies" | "repeatedEdits">
@@ -413,7 +290,7 @@ function fileName(path: string): string {
 }
 
 /** The first use of a link, in the file that uses; that file at its header without a name */
-function firstUse(link: FileLink): ReviewPlace {
+export function firstUse(link: FileLink): ReviewPlace {
   const first = link.symbols[0]
   // a removed link is a use before the commits
   return { path: link.from, side: link.state === "removed" ? "old" : "new", line: first?.line ?? null, name: first?.name ?? null }

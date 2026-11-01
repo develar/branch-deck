@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { BranchReviewStackBar } from "@/components/review/BranchReviewStackBar"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewOwnerChips } from "@/components/review/ReviewOwnerChips"
-import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ActionButton } from "@/components/shared/ActionButton"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
@@ -137,8 +136,7 @@ export function BranchReviewBody({ model, moves }: { model: BranchReviewModel; m
       fileOwners={loaded.owners}
       rangeNoun="branch"
       filesHeader={count => <ReviewOwnerChips of={owners} filter={model.filter} onFilterChange={model.setFilter} count={count} />}
-      scopeTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
-      commitTop={loaded.plan === null ? undefined : <ReviewPlanCard state={loaded.plan} />}
+      plan={loaded.plan}
       reviewFacts={loaded.reviewFacts}
       commitMenu={commit => {
         // the menu of a commit of a branch of the chain, not of a commit of the whole stack (its copies carry no branch)

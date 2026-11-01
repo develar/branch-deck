@@ -391,7 +391,8 @@ const FileTreeRow = memo(function FileTreeRow({
       role="treeitem"
       aria-level={node.depth + 1}
       aria-expanded={isOpen}
-      aria-selected={node.kind === "directory" ? undefined : isSelected}
+      // a step of a review is selected while its opening is at the top of the diffs; a directory never
+      aria-selected={node.kind === "directory" && node.group !== "concern" ? undefined : isSelected}
       aria-label={label}
       aria-description={description}
       tabIndex={inTabOrder ? 0 : -1}

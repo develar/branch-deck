@@ -243,11 +243,12 @@ also the prologue before the first section and the opening of each step (below).
   file at the top (`fileAtTop`) count it.
 - A section of the story of a review that starts a step (`DiffSection.step`) has its opening on the canvas between the
   gap above its card and the card (`renderOpening`, `LayoutFile.opening`), as tall as its words; one that starts a
-  group and no step a divider of 32 px there (`renderDivider`, `LayoutFile.divider`). Today the opening holds what the
-  divider of a step held, 32 px high: "Step 3" muted, "· <title>" bold, which a click shows as the bar of the step does,
-  then the group, muted, and after a step a rule of 1 px across the rest of the width. A change of step is a wider
-  break than a change of file, so it is a line of its own that outranks the name of a file (a coloured name in bold
-  outweighed black words of the same size); a group alone has no rule. The header names the file alone: its order is
+  group and no step a divider of 32 px there (`renderDivider`, `LayoutFile.divider`). The opening of a review is its
+  chapter (`ChapterOpening`, [Review Tour](../../spec/branch/review-tour.spec.md#in-the-review-window)): "Step 3"
+  muted above the full title in `text-base`, which a click shows as the bar of the step does, the body of its commit,
+  the facts of the step, then the group, muted. A change of step is a wider break than a change of file, so its title
+  outranks the name of a file (a coloured name in bold outweighed black words of the same size); a group alone is one
+  muted line. The prologue of a review is its overview (`ReviewPrologue`). The header names the file alone: its order is
   always the chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands
   at one x. The opening and the divider scroll with their card and never stick: the bar of the step above the diffs
   names the step at the top.
@@ -440,7 +441,8 @@ A review of many files scrolls through hundreds of cards, and a native scrollbar
 the view with its own scroller and cards (the review windows) hides that bar (`scrollbar-width: none`,
 `::-webkit-scrollbar`) and shows a map of its sections beside it (`DiffFileMap`): a column of 10 px on the canvas at
 the right of the scroller, not over it, its track inset by the radius of the cards above and below. It stands for
-the diffs alone: the commit and the bar of the step above them have no place on it. None of the review tools we
+the diffs alone: the bar of the step above them has no place on it, the overview at the top of the document one band
+("Overview"). None of the review tools we
 looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabricator, Reviewable, Graphite) has one.
 - **Scale.** The document as tall as the `scrollHeight` of the scroller, never shorter than the view, is scaled to the
   height of the track, so a short review keeps its sections where its cards are. The ticks come from the layout

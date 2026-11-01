@@ -138,7 +138,7 @@ async function markReviewed(window: Page): Promise<void> {
 }
 
 test.describe("The review plan in the branch review", () => {
-  test("should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree", async ({
+  test("should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -147,10 +147,11 @@ test.describe("The review plan in the branch review", () => {
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const { store, cache } = planRows(window)
 
-    // the card above the diffs of All Changes: the changed `helper` with its 3 uses outside the change, from accio
-    const card = window.getByTestId("review-plan-card")
-    await expect(card.getByTestId("review-plan-summary")).toHaveText(/^1 possible break · \d+ new declarations$/)
-    const helper = card.getByTestId("review-plan-breakage-entry")
+    // the overview at the top of the document of All Changes: the changed `helper` with its 3 uses outside the change,
+    // from accio
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-plan-breakage")).toContainText("Possible Breakage1")
+    const helper = overview.getByTestId("review-plan-breakage-entry")
     await expect(helper).toHaveCount(1)
     await expect(helper).toHaveAttribute("data-name", "helper")
     await expect(helper).toContainText("Changed")
@@ -166,31 +167,30 @@ test.describe("The review plan in the branch review", () => {
     // a call only the name ties is no use, and no proof of none
     await expect(helper.getByTestId("review-plan-sites")).toContainText("1 use by name only, unknown")
     await expect(helper.getByTestId("review-plan-sites")).not.toContainText("scripts/helper.py")
-    // the new API starts collapsed, per file
-    const newApi = card.getByTestId("review-plan-new-api")
-    await expect(newApi.getByTestId("review-plan-new-api-file")).toHaveCount(0)
-    await captureHtmlSnapshot(card, "review-plan-card")
 
-    // a use left outside opens its file at the head over the review, the name selected; one the head lacks says so
+    // a use left outside opens its file at the head over the review, the name selected, the overview under it until Back;
+    // one the head lacks says so
     const fileView = window.getByTestId("declaration-file-view")
     await helper.getByTestId("review-plan-site").filter({ hasText: "src/Base.kt:1" }).click()
     await expect(fileView).toContainText("outside the review")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Base.kt" })
+    await fileView.getByRole("button", { name: "Back" }).click()
+    await expect(fileView).toBeHidden()
     await helper.getByTestId("review-plan-site").filter({ hasText: "src/main/App.kt:9" }).click()
     const missing = window.locator("[data-slot=toast]", { hasText: "Cannot open src/main/App.kt:9" })
     await expect(missing).toContainText("The head of the review has no such line")
     await closeToast(missing)
 
-    // an entry selects its file and shows its declaration, the name selected, over a file opened outside the review
+    // an entry selects its file and shows its declaration, the name selected
     await helper.getByTestId("review-plan-breakage-file").click()
-    await expect(fileView).toBeHidden()
     await expect(store).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
-    await newApi.getByRole("button", { name: /New API/ }).click()
+    // the new API is a fact of the step that adds it, each name at its declaration
+    const newApi = overview.getByTestId("review-step-new-api")
     await expect
-      .poll(() => newApi.getByTestId("review-plan-new-api-file").evaluateAll(files => files.map(file => file.getAttribute("data-path"))))
-      .toEqual(["src/a/Reader.kt", "src/b/Cache.kt"])
-    await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
+      .poll(() => newApi.evaluateAll(names => names.map(name => `${name.textContent}:${name.getAttribute("data-path")}`)))
+      .toEqual(["Reader:src/a/Reader.kt", "Cache:src/b/Cache.kt"])
+    await newApi.filter({ hasText: "Cache" }).click()
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })
     await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
@@ -207,13 +207,18 @@ test.describe("The review plan in the branch review", () => {
     writeFileSync(path.join(repo.path, ".git", "branch-deck-accio.json"), JSON.stringify({ error: "no index of the repository" }))
     const window = await openPlanWindow(page, syncAndWaitForBranches)
 
-    const card = window.getByTestId("review-plan-card")
-    await expect(card.getByTestId("review-plan-summary")).toHaveText(/^1 possible break/)
-    const helper = card.getByTestId("review-plan-breakage-entry")
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-plan-breakage")).toContainText("Possible Breakage1")
+    const helper = overview.getByTestId("review-plan-breakage-entry")
     await expect(helper).toHaveAttribute("data-name", "helper")
     await expect(helper.getByTestId("review-plan-outside")).toHaveText("The uses are unknown")
-    await expect(card.getByTestId("review-plan-unbroken")).toHaveCount(0)
-    await expect(card.getByTestId("review-plan-index-note")).toContainText("No usages:")
+    await expect(overview.getByTestId("review-plan-unbroken")).toHaveCount(0)
+    // why, folded under it
+    const note = overview.getByTestId("review-plan-index-note")
+    const reason = note.getByText(/^No usages: /)
+    await expect(reason).toBeHidden()
+    await note.getByRole("button", { name: "Why the uses are unknown" }).click()
+    await expect(reason).toBeVisible()
     // a lower bound at 0: a quiet mark, never a safe one
     const { store } = planRows(window)
     await expect(store.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")
@@ -448,7 +453,11 @@ test.describe("The review plan in the branch review", () => {
     await expect(column).toHaveCount(1)
   })
 
-  test("should select the file of a card entry while a search hides every file, under an owner chip that hides none", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
     const repo = await setupRepo("symbol_navigation")
     const window = await openPlanWindowWithFilters(page, repo, syncAndWaitForBranches)
     const { cache, store } = planRows(window)
@@ -456,10 +465,10 @@ test.describe("The review plan in the branch review", () => {
     const search = window.getByRole("textbox", { name: "Filter files" })
     const position = window.getByTestId("review-position")
     const noMatch = window.getByTestId("review-files-no-match")
-    const card = window.getByTestId("review-plan-card")
+    const card = window.getByTestId("review-overview")
     const header = (filePath: string) => window.locator(`[data-testid="review-file-header"][data-path="${filePath}"]`)
 
-    // a search that matches no file: the card stays, its entry clears the search and selects Store
+    // a search that matches no file: the overview stays, its entry clears the search and selects Store
     await search.fill("nothing matches this")
     await expect(noMatch).toBeVisible()
     await card.getByTestId("review-plan-breakage-file").click()
@@ -474,9 +483,7 @@ test.describe("The review plan in the branch review", () => {
     await search.fill("nothing matches this")
     await owner("Cache Team").click()
     await expect(noMatch).toBeVisible()
-    const newApi = card.getByTestId("review-plan-new-api")
-    await newApi.getByRole("button", { name: /New API/ }).click()
-    await newApi.getByTestId("review-plan-new-api-file").filter({ hasText: "src/b/Cache.kt" }).getByRole("button").click()
+    await card.getByTestId("review-step-new-api").filter({ hasText: "Cache" }).click()
     await expect(search).toHaveValue("")
     await expect(owner("Cache Team")).toHaveAttribute("aria-pressed", "true")
     await expect(cache).toHaveAttribute("aria-selected", "true")
@@ -567,34 +574,20 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "Build files (1)" })).toBeVisible()
     await expect(tree.getByRole("treeitem", { name: "Whitespace only (1)" })).toBeVisible()
 
-    // the card: no possible break, `helper` folded as no use left outside breaks; the new module and the link into it; the
-    // same edit, collapsed
-    const card = window.getByTestId("review-plan-card")
-    await expect(card.getByTestId("review-plan-summary")).toHaveText(
-      /^No possible break · 1 dependency change · 1 new link between modules · 1 repeated edit · \d+ new declarations$/,
-    )
-    await expect(card.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
-    await expect(card.getByTestId("review-plan-unbroken")).toContainText("1 API change, no use left outside breaks")
-    const dependencies = card.getByTestId("review-plan-dependencies")
-    await expect(dependencies.getByTestId("review-plan-dependency-module")).toHaveAttribute("data-manifest", "src/b/b.iml")
-    await expect(dependencies.getByTestId("review-plan-dependency")).toHaveText("New module b")
-    const moduleLink = dependencies.getByTestId("review-plan-module-link")
-    await expect(moduleLink).toHaveAttribute("data-from", "src/a/Reader.kt")
-    await expect(moduleLink).toContainText("Reader.kt → Cache.kt")
-    const repeated = card.getByTestId("review-plan-repeated")
-    await expect(repeated.getByTestId("review-plan-repeated-edit")).toHaveCount(0)
-    await repeated.getByRole("button", { name: /Repeated Edits/ }).click()
-    const edit = repeated.getByTestId("review-plan-repeated-edit")
-    await expect(edit).toContainText("Same edit in 3 files:")
-    await expect(edit.locator("code")).toHaveText("+ // read by the review plan of the branch")
-    await expect(edit.getByTestId("review-plan-repeated-file")).toHaveText(["Reader.kt", "Cache.kt", "Store.kt"])
-    await captureHtmlSnapshot(card, "review-plan-card-dependencies")
+    // the overview: no possible break, `helper` folded as no use left outside breaks; the link into the new module a fact
+    // of its step, at its first use; the dependency changes and the same edit are on their rows only
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
+    await expect(overview.getByTestId("review-plan-unbroken")).toContainText("1 API change, no use left outside breaks")
+    const moduleLink = overview.getByTestId("review-step-module-link")
+    await expect(moduleLink).toHaveAttribute("data-path", "src/a/Reader.kt")
+    await expect(moduleLink).toHaveText("Reader.kt → Cache.kt")
+    await expect(overview).not.toContainText("Same edit")
+    await expect(overview).not.toContainText("New module b")
 
-    // a click selects the file of an entry: the link selects Reader, the module its build file in the Mechanical group
-    await moduleLink.getByRole("button").click()
+    // a click selects the file of the link at its first use
+    await moduleLink.click()
     await expect(reader).toHaveAttribute("aria-selected", "true")
-    await dependencies.getByTestId("review-plan-file").first().click()
-    await expect(tree.getByRole("treeitem", { name: "src/b/b.iml" })).toHaveAttribute("aria-selected", "true")
   })
 
   test("should fold the generated files, each header saying why, a rendering at the end of the concern of its source, and keep the renderer's echo out of the repeated edits", async ({
@@ -612,7 +605,6 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/guide.md", "docs/AGENTS.md", "AGENTS.md", "src/App.kt", "config/mcp.json", "dist/app.min.js", "pnpm-lock.yaml"])
     // the echo of the guide is no edit a person repeated: no group, no badge
     await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).not.toHaveAttribute("aria-description", /same edit/)
-    await expect(window.getByTestId("review-plan-repeated-file")).toHaveCount(0)
     // the first file of the tree without the plan, a generated one, gave way to the first of the real work
     await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).toHaveAttribute("aria-selected", "true")
     const concern = tree.getByRole("treeitem", { name: "guide.md", exact: true })
@@ -702,7 +694,8 @@ test.describe("The review plan in the branch review", () => {
     await expect(guideOfProxy).not.toContainText("Search the source with `grep`.")
 
     // the row "also in" selects the guide, not counted as a file of its own, and shows its part of ijproxy: J goes on in
-    // ijproxy from there, into the next concern at its end, and the tree follows; K goes back
+    // ijproxy from there, into the opening of the next concern at its end, then its first card, and the tree follows; K
+    // goes back
     await row("docs/guide.md, also in ijproxy").click()
     await expect(row("docs/guide.md, also in ijproxy")).toHaveAttribute("aria-selected", "true")
     await expect(row("docs/guide.md")).toHaveAttribute("aria-selected", "false")
@@ -712,8 +705,12 @@ test.describe("The review plan in the branch review", () => {
     await window.keyboard.press("j")
     await expect(row(".mcp.json")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("j")
+    await expect(row("grep → accio")).toHaveAttribute("aria-selected", "true")
+    await window.keyboard.press("j")
     await expect(row("docs/guide.md")).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 4 \/ 8$/)
+    await window.keyboard.press("k")
+    await expect(row("grep → accio")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("k")
     await expect(row(".mcp.json")).toHaveAttribute("aria-selected", "true")
 
@@ -753,8 +750,13 @@ test.describe("The review plan in the branch review", () => {
     await expect(divider("Alpha").getByTestId("review-section-heading")).toHaveText("Same edit in 4 files")
     await expect(window.getByTestId("review-file-header").getByTestId("review-section-heading")).toHaveCount(0)
     await expect(divider("Beta")).toHaveCount(0)
-    const [above, card] = await Promise.all([divider("Alpha").boundingBox(), section("Alpha", true).boundingBox()])
-    expect(Math.round(card!.y - (above!.y + above!.height))).toBe(0)
+    // an opening is measured in place before the frame paints: the layout has its height by the next frame
+    await expect
+      .poll(async () => {
+        const [above, card] = await Promise.all([divider("Alpha").boundingBox(), section("Alpha", true).boundingBox()])
+        return Math.round(card!.y - (above!.y + above!.height))
+      })
+      .toBe(0)
     await expect(header("Alpha", true).getByRole("button", { name: "Collapse Alpha.kt" })).toHaveAttribute("aria-expanded", "true")
     for (const name of ["Beta", "Gamma", "Delta"]) {
       await expect(header(name, true).getByTestId("review-file-folded")).toHaveText("Same edit as Alpha.kt")
@@ -832,7 +834,7 @@ test.describe("The review plan in the branch review", () => {
     // two more in files the head lacks, which show nothing
     const ghosts = window.locator('[data-testid="diff-view-file"][data-section^="ghost:"]')
     // once the plan came: the story is laid out
-    await expect(window.getByTestId("review-plan-summary")).toHaveText(/possible break/)
+    await expect(window.getByTestId("review-plan-breakage")).toContainText("Possible Breakage")
     // the name of the file, beside its badges, which open their popovers
     await window.getByRole("treeitem", { name: "Store.kt" }).getByText("Store.kt", { exact: true }).click()
     await expect.poll(() => ghosts.evaluateAll(sections => sections.map(section => section.getAttribute("data-path")))).toEqual(["src/Base.kt"])
@@ -844,7 +846,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(window.getByRole("treeitem", { name: "Store.kt" })).toHaveAttribute("aria-selected", "true")
   })
 
-  test("should show the plan of a commit shown alone from its row in the tree: its card and the story of its diffs @webkit", async ({
+  test("should show the plan of a commit shown alone from its row in the tree: its overview and the story of its diffs @webkit", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
@@ -854,19 +856,21 @@ test.describe("The review plan in the branch review", () => {
     await commitRow(window, "scale the helper").press("Enter")
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
     await expect(window.getByTestId("range-review-commit-header")).toContainText("scale the helper")
-    // the plan of that commit alone: the change of `helper` under its heading, its uses left outside on the card
+    // the plan of that commit alone: the change of `helper` under its heading, its uses left outside in the overview
+    // below the commit
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
     await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
-    const card = window.getByTestId("review-plan-card")
-    await expect(card.getByTestId("review-plan-breakage-entry")).toHaveCount(1)
-    await expect(card.getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
-    await expect(card.getByTestId("review-plan-summary")).toHaveText("1 possible break")
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("range-review-commit-header")).toContainText("scale the helper")
+    await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(1)
+    await expect(overview.getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
+    await expect(overview.getByTestId("review-step-new-api")).toHaveCount(0)
     // All Changes again: the plan of the branch, with the declarations the other commit adds
     await window.getByTestId("range-review-commit").filter({ hasText: "All Changes" }).click()
-    await expect(card.getByTestId("review-plan-summary")).toHaveText("1 possible break · 2 new declarations")
+    await expect(overview.getByTestId("review-step-new-api")).toHaveText(["Reader", "Cache"])
   })
 
-  test("should show the plan of a commit in the review window of a commit: its card and the story of its diffs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should show the plan of a commit in the review window of a commit: its overview and the story of its diffs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("symbol_navigation")
     await setupPlan(repo, { experimental: true })
     // a commit of no branch: D opens the review window of the commit
@@ -878,7 +882,7 @@ test.describe("The review plan in the branch review", () => {
     const window = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[0]!)
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
     await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
-    await expect(window.getByTestId("review-plan-card").getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
+    await expect(window.getByTestId("review-overview").getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
   })
 
   test("should keep the review on screen after a sync that moved the head until the files, the diffs and the plan of the new head are read, then show them at once", async ({
@@ -1014,10 +1018,10 @@ test.describe("The review plan in the branch review", () => {
     await expect(page.getByTestId("branch-review-actions")).toBeVisible()
     await expect(page.getByTestId("branch-review-files")).toHaveText("Files3")
     await expect.poll(() => reviewedPaths(page)).toEqual(["src/a/Reader.kt", "src/b/Cache.kt", "src/Store.kt"])
-    // and nothing of the plan: no Mark Reviewed, no card, no badges of the files, no Since Your Review, no read of a plan
+    // and nothing of the plan: no Mark Reviewed, no overview, no badges of the files, no Since Your Review, no read of a plan
     await expect(page.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "Store.kt" })).toBeVisible()
     await expect(page.getByTestId("branch-review-mark-reviewed")).toHaveCount(0)
-    await expect(page.getByTestId("review-plan-card")).toHaveCount(0)
+    await expect(page.getByTestId("review-overview")).toHaveCount(0)
     await expect(page.getByTestId("file-row-mark")).toHaveCount(0)
     await expect.poll(() => commitColumn(page)).toEqual(["All Changes2 commits", "add the cache", "scale the helper"])
     expect(plans).toBe(0)

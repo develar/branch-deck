@@ -29,9 +29,9 @@ rounds on a local branch, or folding with a correctness guarantee.
 A review is the story of a change, not a list of files:
 
 0. **The story comes first, in the words of its author.** A developer who opens a change asks what changes for its
-   user, why, how, whether it is proven, what can break and what is noise, in this order. The review opens on a brief
-   (the issue, the rules of the specs and the docs the change adds) and then the steps of the change, each with the
-   body of its commit, the units that carry it and the tests that reach its code; the files are an index, never the
+   user, why, how, whether it is proven, what can break and what is noise, in this order. The review is one document: an
+   overview (the brief: the issue, the rules of the specs and the docs the change adds; the contents of the steps;
+   what can break) and then the steps of the change, each opening above its diffs with the body of its commit, the units that carry it and the tests that reach its code; the files are an index, never the
    spine ([Review Tour](../../spec/branch/review-tour.spec.md)). The body is written for it: a lead that says the new
    state, a paragraph per decision, code names in backticks that resolve to the diffs, labels of one vocabulary
    ([The Commit Body a Review Reads](../guide/commit-bodies.md)).
@@ -65,14 +65,15 @@ flowchart LR
   C --> S[story<br/>order of the diffs]
   F --> T[tree of the window]
   C --> T
-  A --> K[Review Summary card]
+  A --> K[overview of the document]
   P --> B[bd review-plan JSON]
 ```
 
 The plan is computed in Rust once for `bd` and the app, from the git processes the review reads already (its
-budget is a test, `process_budget_test.rs`). The window only words it: the card (`ReviewPlanCard.tsx`), the one mark
-of a row and its card (`FileRowMark.tsx`, `presentRowFacts`) and the groups of the tree (`file-tree.ts`), the story
-of the diffs (`presentNarrative`). The concerns are the next part
+budget is a test, `process_budget_test.rs`). The window only words it: one document, the overview at its top
+(`ReviewPrologue.tsx`, `presentPrologue`) and the opening of each step above its first card (`ChapterOpening.tsx`,
+`presentOpenings`), the one mark of a row and its card (`FileRowMark.tsx`, `presentRowFacts`) and the groups of the
+tree (`file-tree.ts`), the story of the diffs (`presentNarrative`). The concerns are the next part
 ([Next](#next)).
 
 ## Research
@@ -135,6 +136,7 @@ the review.
 | The window, round three: the owner path, the groups of a request | Landed | 413e3ca25, 39696f0aa, b7a59c088 | while a review window shows a pull request of someone else into the default branch, the session asks Patronus about it (`request:<n>`) once its review fetch brought the head the listing names, cached as a branch's answer by its reviews; the row `pull:<n>` gets its reviewer groups with `approved` and `yours` (the GitHub login of the app's sign-in, an approval that can count) | a token of `gh` or the environment has no login, so no group is yours without the app's sign-in; the review requests now read the reviewers of each request (2 points a listing, not 1); a pull request that comes back to a window is asked again (the schedule forgets what it read of `request:<n>` once it leaves), the cache still saves the call |
 | The window, round three: owner chips in the pull request window, the remembered chip | Landed | 942179549, d6812dd20 | the pull request window has the chips of the branch window: All, the groups of the request (the user's first, "· You", a check once approved), the owners by the `OWNERSHIP` files of the baseline, No Owner, marking as round two; one chip remembered per repository (`reviewOwnerChip`), All forgets it; the pull request window opens on it where it marks files, else on the user's group that still needs an approval, else on All, and moves from All to that group when the groups come later unless the user chose All; the branch window opens on it where it marks files; a group and an owner of one name are one chip, the group's, also for a chip held as the owner before the groups came | one chip per repository, not per pull request or per window; the footer and Approve came in the next row |
 | The window, round three: the owner's part in the footer, what Approve counts for | Landed | this change | with a chip that marks files the footer of the branch and pull request windows adds its part: "All Changes · File 3 / 12 · Design 2 / 5" on a file of the owner's, "· Design 5" on another, every file for a branch-wide group (the commit window has no chips); Approve, on hover, and the confirmation of Approve and Safe Push… say "Counts for Design · You opened 1 of its 2 files": the user's groups that still need an approval, whatever chip is chosen, and how many of their files the window showed of each request, kept while the window is open, from zero on a new head; "Counts for no group that still needs an approval"; nothing without groups or while the sign-in names no login (`yours` is null then, not false) | "opened" is the file the review selected (the footer's), not one scrolled past in the story; the count lives in the window and is lost when it closes; Approve informs and never blocks, so an owner can still approve unread files |
+| The window, round four: the review is one document | Landed | this change | the panel of the Review Summary (45% of the height, a line of counts, seven sections) became the overview at the top of the document of the diffs: the headline, What Changes one header per file, the contents of the steps (each its full title, the lead of its body, one line of facts, the Look closely of its author), Possible Breakage, Since your review; each step opens above its first card with the body of its commit by Rust's grammar, the fold Rust sets, the verification sections folded always, its follow-ups as disclosures; the bar of the step is one line; J and K walk overview, openings and cards; the commit shown alone heads the document whole | the overview and the openings are not reached by ⌘F; the dependency changes and the repeated edits left the overview for the rows and the dividers |
 | Fan-in by place: what breaks, by the arguments a call passes | Landed | this change | every removed or changed declaration asked by its place (`accio references --at`, JetBrains/accio#114) in one process, no cap, no stop list, no guess at an owner; a use only the name ties (`resolved: name`, JetBrains/accio#115) is counted apart, never as a use and never as none; a call is inside by any of its lines (`end_line`); a call left outside that fits the new form (`fits`) and whose every argument binds a parameter of the same name and type as before (`parameter`, JetBrains/accio#106) still binds: the four `ProjectFrameUiPolicy(…)` calls of `startup-tool-window-place` read "4 calls left outside still bind", not a possible break | a Rust or TypeScript function keeps its parameters in its header, so its calls are never known to still bind; a `string` or `config` hit counts once accio ties a qualified name to the declaration |
 | The tests that reach the code of a step | Landed | this change | one `accio tests --at` of the code of every step (JetBrains/accio#107) in place of the words of the changed lines of the range's tests: a test of the change, a test it did not touch ("1 test it did not touch reaches focus"), and "No test reaches paint within 3 calls" only where accio answered; a call only the name ties is not walked | what accio's call graph does not see (reflection, injection, a lambda passed far away) is no edge |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
@@ -199,6 +201,15 @@ the review.
    accio knows: which declaration a hit resolves to, which tests call the code. accio now answers by the
    place of a declaration and says what ties each hit to it, so every guess was deleted rather than kept beside the
    answer; what the review still needs goes into accio, never into a heuristic here.
+13. **The panel went, the story is in the flow** (2026-11-01). The Review Summary was a muted panel of 45% of the
+   height above the diffs: a line of counts ("2 possible breaks · 2 new links between modules · 4 new declarations"),
+   seven sections of different kinds, the body of each step a cut first paragraph with raw backticks, its title cut by
+   the divider in the diffs. A reviewer could not read the author's words beside the code they explain (Gerrit shows
+   the commit message as the first file of a change for the same reason). The right column is now one document: the
+   overview first, then each step's opening (its full title and the author's body, its lead a step larger, its labels
+   as captions, the fold where Rust sets it) right above the card of its first section. What the rows of the tree and
+   the dividers say already (the dependency changes, the repeated edits) left the overview; the new API and the new
+   links between modules became facts of their steps. Nothing is muted of the author's words, nothing is cut silently.
 
 ## Review Rounds
 

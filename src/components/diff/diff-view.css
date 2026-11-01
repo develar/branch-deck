@@ -126,12 +126,6 @@
   user-select: none;
 }
 
-/* the rule of the divider of a step after its words, in the colour of the ring of a card */
-.dv-divider-rule {
-  height: 1px;
-  background: var(--diff-card-border);
-}
-
 /*
  * The line at the end of a long card and of the last one (`LayoutFile.footer`): one row high, the band of the header,
  * so the card ends as it starts, the ring of the card above it (none under a fold, which draws its own line), its words

@@ -1,0 +1,162 @@
+<section aria-label="Overview" class="flex max-w-208 min-w-0 flex-col gap-5 px-1 pt-3 pb-1 text-sm" data-testid="review-overview">
+  <h2 class="text-base font-semibold break-all" data-testid="review-overview-headline">
+    user-name/virtual/layout
+  </h2>
+  <div class="flex flex-col gap-2" data-testid="review-brief-contract">
+    <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span class="truncate">
+        What Changes
+      </span>
+    </div>
+    <ul class="flex flex-col gap-2.5">
+      <li class="flex min-w-0 flex-col gap-1" data-path="spec/window.spec.md" data-testid="review-brief-contract-entry">
+        <span class="flex min-w-0 items-center gap-2 text-xs">
+          <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
+            Spec rule
+          </span>
+          <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="spec/window.spec.md" data-testid="review-brief-contract-file" title="spec/window.spec.md" type="button">
+            <span class="text-muted-foreground">
+              spec/window.spec.md
+            </span>
+          </button>
+        </span>
+        <div class="flex min-w-0 flex-col gap-0.5 pl-3">
+          <span class="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+            <span class="min-w-0 font-medium">
+              Requirements
+            </span>
+            <span>
+              Proven by restart.json
+            </span>
+          </span>
+          <span class="max-w-prose">
+            The window keeps its stored layout across a restart, and the project view does not take the place of another tool window.
+          </span>
+        </div>
+      </li>
+    </ul>
+  </div>
+  <div class="flex flex-col gap-2" data-testid="review-contents">
+    <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span class="truncate">
+        Steps
+      </span>
+      <span class="tabular-nums">
+        4
+      </span>
+      <span class="ml-auto font-normal" />
+    </div>
+    <ol class="flex flex-col gap-3">
+      <li class="flex min-w-0 flex-col gap-1" data-step="6c0d95a29fdde55819e751872e4b01b1265af773" data-testid="review-contents-step">
+        <span class="flex min-w-0 items-baseline gap-2">
+          <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
+            1
+          </span>
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-testid="review-contents-step-title" type="button">
+            The manager drops the hooks nothing sets
+          </button>
+        </span>
+        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+          <div data-testid="review-contents-step-lead">
+            <p>
+              <span>
+                No caller asks the hooks of the manager, so they go. The behaviour does not change.
+              </span>
+            </p>
+          </div>
+        </div>
+      </li>
+      <li class="flex min-w-0 flex-col gap-1" data-step="2e35e88a63e24747fdae712c9d069e09bed33a7b" data-testid="review-contents-step">
+        <span class="flex min-w-0 items-baseline gap-2">
+          <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
+            2
+          </span>
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-testid="review-contents-step-title" type="button">
+            The open keeps a stored layout
+          </button>
+        </span>
+        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+          <div data-testid="review-contents-step-lead">
+            <p>
+              <span>
+                Two startup steps showed the project view at each open, and none read the stored layout. One rule decides now:
+                <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-explicit="" data-slot="inline-code">
+                  allowed
+                </code>
+                answers whether the open may show a tool window.
+              </span>
+            </p>
+          </div>
+          <span class="max-w-prose text-xs text-muted-foreground" data-testid="review-contents-step-facts">
+            <span>
+              Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show
+            </span>
+            ·
+            <span>
+              New API:
+              <button class="rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/a/Manager.kt" data-testid="review-step-new-api" type="button">
+                allowed
+              </button>
+            </span>
+          </span>
+        </div>
+      </li>
+      <li class="flex min-w-0 flex-col gap-1" data-step="919fd5c876be3d2342370f9745fd5e14fcbde5ba" data-testid="review-contents-step">
+        <span class="flex min-w-0 items-baseline gap-2">
+          <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
+            3
+          </span>
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-testid="review-contents-step-title" type="button">
+            The view paints with the first frame
+          </button>
+        </span>
+        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+          <div data-testid="review-contents-step-lead">
+            <p>
+              <span>
+                The project view paints as soon as its tool windows are registered, in every frame.
+              </span>
+            </p>
+          </div>
+          <span class="text-xs text-warning" data-testid="review-contents-step-unproven">
+            No test reaches paint within 3 calls
+          </span>
+        </div>
+      </li>
+      <li class="flex min-w-0 flex-col gap-1" data-step="6ca3a2d2cbac1623842777ba673d36e411f255f0" data-testid="review-contents-step">
+        <span class="flex min-w-0 items-baseline gap-2">
+          <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
+            4
+          </span>
+          <button class="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-testid="review-contents-step-title" type="button">
+            The restart story checks the layout
+          </button>
+        </span>
+        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+          <div data-testid="review-contents-step-lead">
+            <p>
+              <span>
+                The story restarts the window and checks that the stored layout is kept.
+              </span>
+            </p>
+          </div>
+          <span class="max-w-prose text-xs text-muted-foreground" data-testid="review-contents-step-facts">
+            <span>
+              Proven by restart.json
+            </span>
+          </span>
+        </div>
+      </li>
+    </ol>
+  </div>
+  <div class="flex flex-col gap-1.5" data-testid="review-plan-breakage">
+    <div class="flex flex-col gap-1" data-closed="" data-slot="collapsible" data-testid="review-plan-unbroken">
+      <button aria-expanded="false" class="group flex min-w-0 items-center gap-1 self-start rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-slot="collapsible-trigger" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
+        <span class="truncate">
+          1 API change, no use left outside breaks
+        </span>
+      </button>
+    </div>
+  </div>
+</section>

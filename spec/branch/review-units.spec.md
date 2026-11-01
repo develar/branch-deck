@@ -173,7 +173,7 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
   parent) for its card and its diffs, beside the plan of the part, which stays the card under Since Your Review; the
   review window of a commit and the review of a pull request read the plan of what they show, and show none for a
   repository that turns it off (`disabled`).
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its card and the story of its diffs @webkit`, `should show the plan of a commit in the review window of a commit: its card and the story of its diffs`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its overview and the story of its diffs @webkit`, `should show the plan of a commit in the review window of a commit: its overview and the story of its diffs`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`)
   [@test] ../../crates/review-plan/src/units_test.rs (`a_commit_is_read_against_its_first_parent`)
 - A file whose blocks are not those of the units (the window reads another whitespace policy than `Default`) and a

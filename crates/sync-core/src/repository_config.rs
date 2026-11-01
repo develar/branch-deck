@@ -51,7 +51,7 @@ pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
 pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
 
 /// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
-/// Reviewed and the local Since Your Review, the Review Summary card, the badges and the Mechanical group of the tree.
+/// Reviewed and the local Since Your Review, the overview of the plan, the badges and the Mechanical group of the tree.
 /// A git boolean, off when unset (it is an experiment, turned on in Settings), and a value git refuses is off: an
 /// experiment never turns on from a broken value.
 /// Settings → Diffs & Merge → Review writes it; `bd review-plan` and `bd mark-reviewed` work without it

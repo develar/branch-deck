@@ -48,7 +48,8 @@ targets:
   - ../../src/hooks/useSelectReviewFile.ts
   - ../../src/lib/review-place.ts
   - ../../src/presenters/review-plan.ts
-  - ../../src/components/review/ReviewPlanCard.tsx
+  - ../../src/components/review/ReviewPrologue.tsx
+  - ../../src/presenters/review-story.ts
   - ../../src/components/review/BranchReview.tsx
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/files/FileTree.tsx
@@ -82,8 +83,8 @@ changed without its tests. Then the dependency changes: the module, library, plu
 commits add to, remove from or change in the build files, and the build files they add or delete. Then the order of
 the files for `bd`: a file that declares what another uses before it, a test right after its subject. The review
 window keeps the tree of the files: each row shows its links and its risk, and the mechanical files fold into one
-group at the end. Above the diffs, the Review Summary card leads with what can break, then the dependency changes,
-the repeated edits and the new API. The vision of the review, its progress and the rounds of polish:
+group at the end. The overview at the top of the document of the review, before the story of the diffs
+([Review Tour](review-tour.spec.md#in-the-review-window)), says what can break and what changed since the review. The vision of the review, its progress and the rounds of polish:
 [Change Review](../../docs/design/change-review.md).
 
 ## Goals
@@ -590,15 +591,17 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../src/lib/range-review.test.ts (`offers no scope for a branch never marked, nor when nothing was added or rewritten`, `marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope`, `keeps the plain range of the commits added on top, and the column of one new commit`)
-- The Review Summary card must head the diffs of a scope, and in "Since Your Review" also a shown commit above its
-  heading (a rewritten commit shows its whole diff, the card what it changes against its reviewed version). Its
-  subtitle must give the counts, what can break first: "1 possible break · 1 dependency change · 1 new link between
-  modules · 1 repeated edit · 2 new declarations", or "No possible break". Then "Since your review" as before (a
-  rewritten commit with the lines per path it changes against its reviewed version), and the `index_note` last when
-  the usages are missing.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
+- The overview must head the document of a scope, and of a commit shown alone below its heading (a rewritten commit
+  shows its whole diff, the overview what it changes against its reviewed version); a commit shown alone is told by
+  its own plan, its steps, its story and its facts, under "Since Your Review" with what changed since of the part. It
+  must keep a block above the headers
+  and the messages while the diffs are read. While the plan is read it says "Reading the review plan…", while Rust asks
+  the index "Finding the uses left outside…", and "Cannot read the review plan: …" when the read failed. After the
+  steps, "Possible Breakage" in the warning tone, the `index_note` folded under it ("Why the uses are unknown") when
+  the usages are missing, then "Since your review" as before (a rewritten commit with the lines per path it changes against its reviewed version).
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
-  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `sums the card up in its title, what can break first`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`)
 - "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless no use left outside
   breaks: its kind, its name, `path:line`, the parts that changed, the form before and the form after on lines of
   their own, the uses left outside that can break ("3 uses left outside") with the first sites as `path:line`, the
@@ -607,33 +610,32 @@ the repeated edits and the new API. The vision of the review, its progress and t
   An entry whose count is not `complete` says "At least N uses left outside", or "No use found outside, the count is
   incomplete" at 0. Only the entries Rust says are `unbroken` fold into one collapsed line, "12 API changes, no use
   left outside breaks": an unknown, incomplete or by-name count never reads as safe. An addition is not listed there.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
   [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API none of whose uses left outside breaks, and keeps an unknown, incomplete or by-name count listed, also at 0`)
 - A click on a site of the uses left outside must open its file at the head of the review over the diffs, as Go to
   Declaration opens a declaration outside the review, at the line of the use with the name of the API selected
   (`get_outside_place`: one `cat-file --batch-check` and one `cat-file --batch`, no index); a file or a line the head
-  lacks says "Cannot open src/main/App.kt:9" with "The head of the review has no such line". An entry of the card
-  shown in the review closes the file over it.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
+  lacks says "Cannot open src/main/App.kt:9" with "The head of the review has no such line". The file covers the
+  document, the overview too, until Back.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../crates/file-diffs/src/outside_place_test.rs (`a_use_outside_the_review_opens_at_its_line_with_its_name_selected`)
-- "Dependencies" must list the dependency changes per build file in Rust's order, under the module and the path of
-  the build file: a changed version as `1.0.1 → 1.0.2`, a new or deleted module. Under them it must list the links
-  the commits added between the files of two modules (`new_between_modules`: `Reader.kt → Cache.kt`, with the names
-  and the line of the first use). "Repeated Edits" must list one line per group, "Same edit in 3 files:" with the edit and its files, and
-  "New API" the added declarations per file. Both start collapsed.
+- The overview lists no dependency change and no repeated edit: they are on the rows of the tree, the mark of a row
+  and the divider "Same edit in 3 files" of the story. The new API (each added declaration) and the links the commits
+  added between the files of two modules (`new_between_modules`, `Reader.kt → Cache.kt` at its first use) are facts of
+  the step that holds them, of the range when the overview lists no step.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
-  [@test] ../../src/presenters/review-plan.test.ts (`groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules`, `words each repeated edit with its files, and the new API per file in the order of its first declaration`)
-- A click on an entry of the card must select its file in the review and show its place in the diffs, its name
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
+  [@test] ../../src/presenters/review-story.test.ts (`opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+- A click on an entry of the overview must select its file in the review and show its place in the diffs, its name
   selected, as a link of the card of a row's mark does: the declaration of an API (a removal on the side before the
-  commits, by its old path too), the first use of a link between modules in the file that uses, the first declaration
-  of the new API of a file; the build file of a module and a file of a repeated edit at its header. A search that
+  commits, by its old path too), the first use of a link between modules in the file that uses, a declaration of the
+  new API; a file of What Changes at its header. A search that
   hides the file is cleared as for a link of a mark, also when it hides every file, and the place is shown once the
   file is; an owner chip hides no file and stays ([Branch Review](branch-review.spec.md#code-owners)).
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of a card entry while a search hides every file, under an owner chip that hides none`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
 - The tree must list the concerns of the plan, in All Changes and in "Since Your Review" as one range, and the story
   of the diffs follow them ([Review Concerns](review-concerns.spec.md#in-the-review-window)); with no concern but the
@@ -641,7 +643,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
   order: one tree tells the finished review. The tree of a scope lists the commits in its steps, the column above it
   only the scopes; a commit shown alone shows the tree of its own plan, the column every commit. The facts apply once
   the plan of the shown scope is read, not while the next one is read: until then the column lists every commit.
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
 - A row of the tree must show at most one small mark, where its facts are: those of its file and the dependency
   changes the row carries. The mark must be in the warning tone when the file breaks uses left outside the change
   (`breaks N` or `breaks N+`), else muted. Details are on demand: the hover of the mark (300 ms, only after a move of
@@ -746,13 +748,12 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The review window, flag on: **Mark Reviewed** in the title bar → toast "Marked plan reviewed" ("plan was already
   marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
   commit"; the tree ends with "Commits": "read the cache twice  New", "add the cache", "scale the helper".
-- The card **Review Summary**, "1 possible break · 2 new declarations": "Since your review: 1 new · 1 rewritten", under
-  it "Rewritten scale the helper: src/Store.kt +1 −1"; under Possible Breakage `Changed helper src/Store.kt:36
+- The **overview** at the top of the document: "Since your review: 1 new · 1 rewritten", under it "Rewritten scale the
+  helper: src/Store.kt +1 −1"; under Possible Breakage `Changed helper src/Store.kt:36
   parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and
   "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9 · 1 use by name only, unknown"; without an index "The uses are
-  unknown"; "1 API change, no use left outside breaks"; under Dependencies `b src/b/b.iml` "New module b" and "New links between modules
-  Reader.kt → Cache.kt"; collapsed "Repeated Edits 1" and "New API 2"; "No usages: no index of this
-  repository"; "Cannot read the review plan: …".
+  unknown"; "1 API change, no use left outside breaks"; "No usages: no index of this repository"; among the facts
+  "New API: Reader, Cache" and "New link between modules: Reader.kt → Cache.kt"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·
   Reader.kt:3" and "Same edit ×3"; `Store.kt` with a warning mark, its card "Breaks: breaks 2 · 2 uses left outside
   the change", or `breaks 2+` and a muted `breaks ?` for a lower bound; the directory `b` with a muted mark, its card
@@ -837,6 +838,6 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The tree order of `order` (`compare_tree_paths`, as the work order of the diffs) approximates the collator of the
   page's file tree for ASCII names; a name with accents may sort elsewhere.
 - A part of several branches of a stack reads the plan of the reviewed branch on the base of the part, but offers no
-  "Since Your Review" and its card no "since": the reviewed pair is on the base of the branch alone.
-- The card heads the diffs of a scope, and a commit only in "Since Your Review": a commit chosen under "All Changes"
-  shows its own heading alone.
+  "Since Your Review" and its overview no "since": the reviewed pair is on the base of the branch alone.
+- The overview of the plan heads the document of a scope, and of a commit only in "Since Your Review": a commit chosen
+  under "All Changes" shows its own heading alone.

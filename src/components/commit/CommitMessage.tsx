@@ -1,5 +1,5 @@
 import { Fragment } from "react"
-import type { MouseEvent } from "react"
+import type { MouseEvent, ReactNode } from "react"
 import { RectangleEllipsisIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -110,7 +110,17 @@ export function CommitMessageBody({ message }: { message: string }) {
   )
 }
 
-function CommitBodyBlockView({ block }: { block: CommitBodyBlock }) {
+/** The text of a line of a block, by its item (the line of a paragraph, the item of a list): prose with its code and issue links */
+export type BodyTextRenderer = (text: string, item: number) => ReactNode
+
+const linkedText: BodyTextRenderer = text => <LinkedText text={text} detectCode />
+
+/**
+ * A block of a body as `CommitBody` reads it: a paragraph its lines, a list its items, preformatted text, a rule; the
+ * text of each line by `text` (`LinkedText` by default; the review links the code names of a story). A label and a
+ * heading head their section, never a block
+ */
+export function CommitBodyBlockView({ block, text = linkedText }: { block: CommitBodyBlock; text?: BodyTextRenderer }) {
   switch (block.type) {
     case "paragraph":
       // a line of its own (after a hard break, a quote line, a table row) breaks the paragraph there
@@ -119,17 +129,13 @@ function CommitBodyBlockView({ block }: { block: CommitBodyBlock }) {
           {block.lines.map((line, index) => (
             <Fragment key={index}>
               {index > 0 && <br />}
-              <LinkedText text={line} detectCode />
+              {text(line, index)}
             </Fragment>
           ))}
         </p>
       )
     case "list": {
-      const items = block.items.map((item, index) => (
-        <li key={index}>
-          <LinkedText text={item} detectCode />
-        </li>
-      ))
+      const items = block.items.map((item, index) => <li key={index}>{text(item, index)}</li>)
       const className = "flex flex-col gap-1 pl-5 marker:text-muted-foreground"
       return block.ordered ? (
         <ol start={block.start === 1 ? undefined : block.start} className={`list-decimal ${className}`}>
@@ -147,7 +153,6 @@ function CommitBodyBlockView({ block }: { block: CommitBodyBlock }) {
       )
     case "rule":
       return <hr className="border-border" />
-    // a section holds its label or heading as its head, never as a block
     case "label":
     case "heading":
       return null

@@ -1,5 +1,5 @@
 import { useImperativeHandle, useRef, useState } from "react"
-import type { Ref } from "react"
+import type { ReactNode, Ref } from "react"
 import { cn } from "cn"
 import { UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,12 +14,14 @@ import { SymbolSearchStatus } from "@/components/diff/SymbolSearchStatus"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
+import { ChapterOpening } from "@/components/review/ChapterOpening"
 import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
 import type { CommitFile } from "@/lib/bindings"
 import { formatCommitFilePath } from "@/lib/commit-files"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { presentCardEnd } from "@/presenters/review-card-end"
+import type { OpeningView } from "@/presenters/review-story"
 import { useDiffSoftWraps } from "@/stores/settings/diff-view-settings"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 
@@ -31,10 +33,14 @@ export interface CommitReviewCodeHandle extends DiffViewHandle {
   openOutside: (target: DeclarationTarget) => void
 }
 
-/** A section J shows after another (`CommitReviewCodeProps.nextSection`): its key and its file */
+/**
+ * A stop J shows after another (`CommitReviewCodeProps.nextSection`): the key of its section, its file and its part,
+ * the opening of a step, the card, or the prologue above the first section
+ */
 export interface NextSection {
   readonly key: string
   readonly path: string
+  readonly part: LayoutPart
 }
 
 export interface CommitReviewCodeProps {
@@ -54,8 +60,12 @@ export interface CommitReviewCodeProps {
   revisions: DiffRevisions
   /** The files an owner chip marks: the headers of the others are muted; none muted without */
   marked?: ReadonlySet<string> | null
-  /** A click on the opening of a step: its first section at the top, as the bar of the step above the diffs */
+  /** A click on the title of the opening of a step: the opening at the top, as the bar of the step above the diffs */
   onShowStep?: (step: string) => void
+  /** The overview before the first section: always mounted, measured in place */
+  prologue?: ReactNode
+  /** The opening of each step by its id, above the card of its first section */
+  openings?: ReadonlyMap<string, OpeningView>
   /**
    * What J shows after the section of a key, undefined when nothing is left: the line at the end of a long card and of
    * the last one names it; no such line without
@@ -70,8 +80,8 @@ export interface CommitReviewCodeProps {
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed;
- * with the plan, an opening above the first section of each step and a divider above the first of each group; a long
- * card and the last one end with a line naming what J shows next.
+ * with the plan, the overview before the first section, the opening of each step above the card of its first section
+ * and a divider above the first of each group; a long card and the last one end with a line naming what J shows next.
  */
 export function CommitReviewCode({
   ref,
@@ -84,6 +94,8 @@ export function CommitReviewCode({
   revisions,
   marked = null,
   onShowStep,
+  prologue,
+  openings,
   nextSection,
   onShowSection,
   ownerLabel = null,
@@ -115,6 +127,10 @@ export function CommitReviewCode({
     moveChange: (direction, accept) => {
       setFileViews([])
       return review.current?.moveChange(direction, accept)
+    },
+    scrollToPrologue: () => {
+      setFileViews([])
+      review.current?.scrollToPrologue()
     },
     visibleStop: () => review.current?.visibleStop(),
     focus: () => review.current?.focus(),
@@ -157,13 +173,9 @@ export function CommitReviewCode({
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
-        renderOpening={section => (
-          // as tall as the divider of a group, its words at the bottom near the card
-          <div className="h-8 select-none">
-            <ReviewDivider section={section} onShowStep={onShowStep} />
-          </div>
-        )}
-        renderDivider={section => <ReviewDivider section={section} onShowStep={onShowStep} />}
+        prologue={prologue}
+        renderOpening={section => <ChapterOpening opening={openingOf(section, openings)} group={section.heading} onShowStep={onShowStep} />}
+        renderDivider={section => <ReviewDivider section={section} />}
         muted={marked === null ? undefined : path => !marked.has(path)}
         renderFooter={
           nextSection === undefined
@@ -227,37 +239,33 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
   muted: boolean
 }
 
-/**
- * The opening or the divider above the card of a section of the story (spec/branch/review-tour.spec.md, "In the Review
- * Window"): the step it starts, "Step 3" muted and "· <title>" bold, which a click shows as the bar of the step does,
- * then the group it starts, muted ("Same edit in 4 files"); a step then rules the rest of the width, so it outranks the
- * header of a file, a group alone does not. Its words at the bottom, near the card they head
- */
-function ReviewDivider({ section, onShowStep }: { section: DiffSection; onShowStep: ((step: string) => void) | undefined }) {
-  const { step, heading } = section
+/** The opening of the step a section starts: its words, else its number and title alone */
+function openingOf(section: DiffSection, openings: ReadonlyMap<string, OpeningView> | undefined): OpeningView {
+  const step = section.step!
   return (
-    // the words at the bottom, near the card they head, the rule at their middle
+    openings?.get(step.id) ?? {
+      id: step.id,
+      number: step.number,
+      title: step.title,
+      evidence: null,
+      story: null,
+      followUps: [],
+      withoutStory: [],
+      facts: { line: null, newApi: [], moduleLinks: [], unproven: null },
+    }
+  )
+}
+
+/**
+ * The divider above the card of a section that starts a group of the story and no step (spec/branch/review-tour.spec.md,
+ * "In the Review Window"): the group muted ("Same edit in 4 files"), its words at the bottom near the card they head
+ */
+function ReviewDivider({ section }: { section: DiffSection }) {
+  return (
     <div className="flex h-full min-w-0 items-end px-1 pb-1.5">
-      <div className="flex w-full min-w-0 items-center gap-2">
-        {step !== null && (
-          <button
-            type="button"
-            data-testid="review-concern-heading"
-            data-step={step.id}
-            className="flex min-w-0 items-baseline rounded-sm text-sm underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-            onClick={() => onShowStep?.(step.id)}
-          >
-            <span className="shrink-0 font-medium text-muted-foreground">{step.number}</span>
-            <span className="min-w-0 truncate font-semibold whitespace-pre text-foreground">{` · ${step.title}`}</span>
-          </button>
-        )}
-        {heading !== null && (
-          <span data-testid="review-section-heading" className="shrink-0 text-xs text-muted-foreground">
-            {heading}
-          </span>
-        )}
-        {step !== null && <span aria-hidden className="dv-divider-rule min-w-4 flex-1" />}
-      </div>
+      <span data-testid="review-section-heading" className="truncate text-xs text-muted-foreground">
+        {section.heading}
+      </span>
     </div>
   )
 }

@@ -315,16 +315,18 @@ simpleTest.describe("Commit review", () => {
       await page.keyboard.press("j")
       await expect(position).toHaveText("File 3 / 5")
 
-      // the thumb is the window of the view: it follows the wheel over the diffs, at the scale of the map
+      // the thumb is the window of the view: it follows the wheel over the diffs, at the scale of the map; a row shows the
+      // card of its file, the commit at the top of the document above the view
       await window.getByRole("treeitem", { name: "RowMapper.kt" }).click()
       await expect(position).toHaveText("File 1 / 5")
-      await expect.poll(scrollTop).toBe(0)
+      await expect.poll(scrollTop).toBeGreaterThan(0)
+      const start = await scrollTop()
       const scale = await view.evaluate(element => element.parentElement!.querySelector("[data-testid=review-file-map-track]")!.clientHeight / element.scrollHeight)
       const atTop = (await thumb.boundingBox())!.y
       const box = (await view.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
       await page.mouse.wheel(0, 200)
-      await expect.poll(scrollTop).toBe(200)
+      await expect.poll(scrollTop).toBe(start + 200)
       await expect.poll(async () => (await thumb.boundingBox())!.y - atTop).toBeCloseTo(200 * scale, 0)
 
       // a drag of the thumb scrolls the diffs by the scale of the map
@@ -339,7 +341,7 @@ simpleTest.describe("Commit review", () => {
         await expect(thumb).not.toHaveAttribute("data-dragging")
       }
       await drag(10)
-      await expect.poll(scrollTop).toBeCloseTo(200 + 10 / scale, -1)
+      await expect.poll(scrollTop).toBeCloseTo(start + 200 + 10 / scale, -1)
       // to the end: the last file is in view entire, its header below the top, which it can never reach; the tree, the
       // position and the map follow it, not the file whose header is at the top
       await drag(1000)

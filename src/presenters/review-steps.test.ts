@@ -1,45 +1,24 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, StoryCommit, TestRef } from "@/lib/bindings"
+import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
 import {
   formatCommitRole,
   formatStepDivider,
   formatStepNumber,
   formatStepTitle,
   placeCommits,
-  presentBrief,
   presentChapters,
   presentOwnerMarks,
   WITHOUT_A_STORY,
 } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
+import { reviewStep, stepCommit } from "@/test-support/review-step"
 
-function commit(subject: string, role: StepCommit["role"] = "starts"): StepCommit {
-  return { id: subject, subject, role }
-}
+const commit = stepCommit
+const step = reviewStep
 
-function step(id: string, commits: StepCommit[], stops: [string, string][], tests: Partial<ReviewStep["tests"]> = {}): ReviewStep {
+function plan(steps: ReviewStep[], issue: string | null = null, concerns: Concern[] = []): Pick<ReviewPlan, "steps" | "concerns" | "brief"> {
   return {
-    id,
-    commits,
-    concern: null,
-    stops: stops.map(([unit, path]) => ({ unit, path, blocks: null, uses: null, also: [], concern: null })),
-    paths: [...new Set(stops.map(([, path]) => path))],
-    elsewhere: [],
-    tests: { answered: true, reached: [], unreached: [], scenarios: [], ...tests },
-    newApi: [],
-    moduleLinks: [],
-  }
-}
-
-/** The story of the commit of `subject`, a paragraph per text */
-function story(subject: string, ...paragraphs: string[]): StoryCommit {
-  const blocks = paragraphs.map(text => ({ type: "paragraph" as const, lines: [text] }))
-  return { id: subject, subject, body: { blocks, trailers: [], lead: true, shown: blocks.length }, mentions: [], toldIn: [] }
-}
-
-function plan(steps: ReviewStep[], issue: string | null = null, concerns: Concern[] = [], commits: StoryCommit[] = []): Pick<ReviewPlan, "steps" | "concerns" | "brief"> {
-  return {
-    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits },
+    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     concerns,
     brief: { issue, contract: [] },
   }
@@ -155,52 +134,6 @@ describe("review steps", () => {
       ],
     ])
     expect(concerns.other.map(it => it.id)).toEqual(["e5e5e5e5", "d4d4d4d4"])
-  })
-
-  it("words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that reach its code, a step no test proves", () => {
-    const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
-    const unreached = (name: string, within: number | null = null) => ({ name, within })
-    const brief = presentBrief(
-      plan(
-        [
-          step("a", [commit("the rule"), commit("the rule again", "followsUp")], [["u:rule", "src/Rule.kt"]], {
-            reached: [
-              { name: "allowed", tests: [test("allows", "u:test"), test("keeps", null, 9)] },
-              { name: "focus", tests: [test("focuses", null, 12), test("keeps", null, 9)] },
-            ],
-            unreached: [unreached("show")],
-          }),
-          step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]], {
-            unreached: ["paint", "create", "run", "open"].map(name => unreached(name)).concat(unreached("close", 3)),
-          }),
-          step("c", [commit("the story")], [["u:spec", "spec/a.spec.md"]], { scenarios: ["tests/restart.json"], unreached: [unreached("load")] }),
-          step("d", [commit("the try")], []),
-        ],
-        null,
-        [],
-        [story("the rule", "One rule decides.", "The product decision is to keep the layout."), story("the rule again", "Renamed.")],
-      ),
-    )
-    expect(brief.steps.map(it => [it.title, it.proven, it.covered, it.unreached, it.unproven, it.scenarios, it.landsNothing])).toEqual([
-      ["The rule", "Tests of this change reach allowed", "2 tests it did not touch reach allowed, focus", "No test reaches show", null, null, false],
-      ["The paint", null, null, null, "No test reaches paint, create, run, open +1 within 3 calls", null, false],
-      ["The story", null, null, "No test reaches load", null, "Proven by restart.json", false],
-      ["The try", null, null, null, null, null, true],
-    ])
-    expect(brief.steps[0]!.why).toBe("One rule decides.")
-    expect(brief.steps[0]!.more).toEqual(["The product decision is to keep the layout."])
-    expect(brief.steps[0]!.rounds).toEqual(["Follows up: The rule again"])
-    // a body of a few words is the story of its commit, but no why of the step it heads
-    const fewWords = presentBrief(plan([step("w", [commit("the wip", "noStory")], [["u:wip", "src/Wip.kt"]])], null, [], [story("the wip", "Fixes it.")]))
-    expect(fewWords.steps.map(it => [it.title, it.why])).toEqual([["The wip", null]])
-    // the only step what no evidence joined: no step to tell
-    const rest: Concern = { id: "r", name: { source: "rest" }, parts: [], paths: [], elsewhere: [], evidence: [], fingerprint: "r" }
-    const restStep = { ...step("r", [commit("fix", "noStory")], [["u:a", "a.kt"]]), concern: "r" }
-    const untold = presentBrief({
-      ...plan([restStep], null, [rest]),
-      steps: { source: { kind: "concerns", reason: "noStory" }, steps: [restStep], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
-    })
-    expect([untold.steps, untold.source]).toEqual([[], null])
   })
 
   it("lays a declaration without a block of its own out in its step as the row of the block another step shows", () => {

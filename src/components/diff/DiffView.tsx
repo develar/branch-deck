@@ -143,6 +143,8 @@ export interface DiffViewHandle {
    * with the opening above the view
    */
   scrollToSection: (key: string, part?: "opening" | "card") => void
+  /** Shows the prologue at the top; nothing without one */
+  scrollToPrologue: () => void
   /**
    * Shows the next (1) or previous (-1) block of changed lines, from the last one shown in the file at the top; into
    * the next file at the end of one. Collapsed files, and with `accept` the files it refuses, are skipped. Returns the
@@ -191,7 +193,7 @@ export interface DiffViewProps {
   /**
    * The section at the top, its key and its file, as the user scrolls: of a file its path, of a section of a review its
    * key; and its part at the top then, its opening or its card, or the prologue above the first section. Told as the
-   * section changes, not as its part does (`visibleStop` has the part at the top)
+   * section or its part changes
    */
   onVisibleSectionChange?: (key: string, path: string, part: LayoutPart) => void
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
@@ -736,6 +738,15 @@ export function DiffView({
     fileMap.current?.sync()
   }
 
+  /** Shows the prologue at the top, the section of `file` (the first) the one it is above */
+  const showPrologue = (file: PreparedFile) => {
+    changeCursor.current = null
+    visibleKey.current = file.key
+    visiblePart.current = "prologue"
+    painter.scrollTo(0)
+    fileMap.current?.sync()
+  }
+
   /**
    * A click on the map of the files: the section under it at the top (`PROLOGUE_SECTION`: the prologue), the tree and
    * the bar of the step following, as a click in the tree shows it. The diffs take the focus, as a click on the line at
@@ -749,11 +760,7 @@ export function DiffView({
     }
     scroller.current?.focus({ preventScroll: true })
     if (index === PROLOGUE_SECTION) {
-      changeCursor.current = null
-      visibleKey.current = file.key
-      visiblePart.current = "prologue"
-      painter.scrollTo(0)
-      fileMap.current?.sync()
+      showPrologue(file)
     } else {
       showSection(index)
     }
@@ -783,17 +790,15 @@ export function DiffView({
         const shown = part !== "prologue" && cursor >= index && cursor <= bottom ? cursor : index
         const file = prepared[shown]
         const shownPart = shown === index ? part : "card"
-        // a new part of the same section is kept for `visibleStop` and the map, not told: the tree selects by the
-        // section alone
-        if (file !== undefined) {
-          visiblePart.current = shownPart
-        }
-        if (file !== undefined && file.key !== visibleKey.current) {
-          visibleKey.current = file.key
+        // another section, or another part of it: the tree selects the row of a step at its opening, of a file at its
+        // card, and keeps its row at the prologue
+        if (file !== undefined && (file.key !== visibleKey.current || shownPart !== visiblePart.current)) {
           // the user scrolled into another section: N starts from its top
-          if (changeCursor.current?.key !== file.key) {
+          if (file.key !== visibleKey.current && changeCursor.current?.key !== file.key) {
             changeCursor.current = null
           }
+          visibleKey.current = file.key
+          visiblePart.current = shownPart
           onVisibleSectionChange?.(file.key, file.path, shownPart)
         }
         if (file !== undefined && file.path !== visiblePath.current) {
@@ -1113,6 +1118,12 @@ export function DiffView({
         index = direction === 1 ? 0 : Number.MAX_SAFE_INTEGER
       }
       return undefined
+    },
+    scrollToPrologue: () => {
+      const file = prepared[0]
+      if (file !== undefined && layout.prologue > 0) {
+        showPrologue(file)
+      }
     },
     visibleStop: () => (visibleKey.current === undefined ? undefined : { key: visibleKey.current, part: visiblePart.current }),
     focus: () => scroller.current?.focus(),

@@ -461,8 +461,9 @@ test.describe("Review window", () => {
     await page.keyboard.press("d")
     const review = (await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))).getByTestId("review-window")
     await expect(review.getByTestId("commit-review")).toBeVisible()
-    // the plan of what the window shows: its card, Rust's words
-    await expect(review.getByTestId("review-plan-card").getByTestId("review-plan-summary")).toHaveText(/possible break/)
+    // the plan of what the window shows: its overview at the top of the document, Rust's words
+    await expect(review.getByTestId("review-overview")).toBeVisible()
+    await expect(review.getByTestId("review-overview-reading")).toHaveCount(0)
 
     // the commits of the pull request in the tree of its story, the column keeps the scope; Enter shows one alone
     const tree = review.getByRole("tree", { name: "Changed files" })

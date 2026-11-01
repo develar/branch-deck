@@ -19,6 +19,8 @@ import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
+import { PROLOGUE_KEY } from "@/lib/diff/layout"
+import type { LayoutPart } from "@/lib/diff/layout"
 import type { SectionUnits } from "@/lib/diff/rows"
 import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
@@ -46,8 +48,9 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import { formatStepDivider, formatStepNumber, formatStepPosition, placeCommits, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
-import type { BriefStep, Chapter } from "@/presenters/review-steps"
+import { formatStepCount, formatStepDivider, formatStepNumber, formatStepPosition, placeCommits, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
+import type { Chapter } from "@/presenters/review-steps"
+import { presentOpenings } from "@/presenters/review-story"
 import { presentNarrative } from "@/presenters/review-units"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
@@ -113,8 +116,12 @@ export interface CommitReviewProps {
    * "Files 3 of 9" by default, the owner chips of a branch review
    */
   filesHeader?: (count: FilesCount | null) => ReactNode
-  /** Above the diffs: the commit a range shows; it selects a changed file with `useSelectReviewFile` */
-  codeTop?: ReactNode
+  /**
+   * The first block of the document of the review, before the first section: the overview of the plan, the commit a
+   * range shows alone; its links select a changed file with `useSelectReviewFile`. Above the headers and the messages
+   * while the diffs are read
+   */
+  prologue?: ReactNode
   /** What ⌥↑/⌥↓ show next: read once the subject is, so the step is instant */
   neighbours?: readonly DiffSubject[]
   /**
@@ -143,7 +150,7 @@ export function CommitReview({
   sidebarTop,
   commitRows = null,
   filesHeader,
-  codeTop,
+  prologue,
   neighbours,
   reviewFacts = null,
 }: CommitReviewProps) {
@@ -291,7 +298,7 @@ export function CommitReview({
         sidebarTop={sidebarTop}
         commitRows={commitRows}
         filesHeader={filesHeader}
-        codeTop={codeTop}
+        prologue={prologue}
         search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
         onRevealHidden={revealHidden}
         filesRead={commitFiles !== undefined && commitFiles.files.length > 0}
@@ -384,7 +391,7 @@ interface ReviewLayoutProps {
   sidebarTop: CommitReviewProps["sidebarTop"]
   commitRows: CommitRows | null
   filesHeader: CommitReviewProps["filesHeader"]
-  codeTop: ReactNode
+  prologue: ReactNode
   search: FileSearch | null
   /** A link of a mark shows a place of a changed file that the search hides */
   onRevealHidden: (place: ReviewPlace) => void
@@ -559,7 +566,7 @@ function ReviewLayout({
   sidebarTop,
   commitRows,
   filesHeader,
-  codeTop,
+  prologue,
   search,
   onRevealHidden,
   filesRead,
@@ -728,15 +735,38 @@ function ReviewLayout({
     [files, rows, select],
   )
 
-  // the section at the top of the diffs, for the bar of its step above them: as they scroll, and as a key, a row or a step
-  // of the brief scrolls them, which the diffs do not report
-  const [topSection, setTopSection] = useState<string | null>(null)
-  const showVisibleSection = useCallback(
+  // the opening of a step at the top selects the row of its step; a step of no row (what no evidence joined) its file
+  const selectStep = useCallback(
     (key: string, path: string) => {
-      selectShown(key, path)
-      setTopSection(key)
+      const chapter = narrative?.find(it => it.key === key)?.concern ?? null
+      const row = chapter === null ? undefined : concernRowKey(chapter)
+      // the groups of the steps are rows of the top of the tree
+      if (row !== undefined && nodes.some(node => node.key === row)) {
+        setSelection(previous => ({ ...previous, selectedPath: path, selectedRow: row }))
+      } else {
+        selectShown(key, path)
+      }
     },
-    [selectShown],
+    [narrative, nodes, selectShown],
+  )
+
+  // the section at the top of the diffs, for the bar of its step above them: as they scroll, and as a key, a row or a step
+  // of the overview scrolls them, which the diffs do not report. At the opening of a step the tree selects the step, at
+  // a card its file; the overview keeps the selection
+  const [topSection, setTopSection] = useState<string | null>(null)
+  // the overview at the top, where the review opens: the bar says so
+  const [overviewShown, setOverviewShown] = useState(true)
+  const showVisibleSection = useCallback(
+    (key: string, path: string, part: LayoutPart = "card") => {
+      if (part === "opening") {
+        selectStep(key, path)
+      } else if (part === "card") {
+        selectShown(key, path)
+      }
+      setTopSection(key)
+      setOverviewShown(part === "prologue")
+    },
+    [selectShown, selectStep],
   )
 
   // a row shows its first open section: of a file its own concern, of a file "also in" a concern its part there
@@ -748,7 +778,8 @@ function ReviewLayout({
         code.current?.scrollToFile(file.path)
       } else {
         setTopSection(section)
-        code.current?.scrollToSection(section)
+        setOverviewShown(false)
+        code.current?.scrollToSection(section, "card")
       }
     },
     [rows, select],
@@ -784,28 +815,29 @@ function ReviewLayout({
     },
     [revision],
   )
-  // a step of the brief: its first section at the top of the diffs, its row selected
+  // a step of the overview, of the bar or the title of its opening: its opening at the top of the diffs, its row selected
   const showStep = useCallback(
     (step: string) => {
       const section = narrative?.find(it => it.concern === step && it.ghost === null)
       if (section !== undefined) {
-        showVisibleSection(section.key, section.path)
-        code.current?.scrollToSection(section.key)
+        showVisibleSection(section.key, section.path, "opening")
+        code.current?.scrollToSection(section.key, "opening")
       }
     },
     [narrative, showVisibleSection],
   )
   const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep }), [selectChangedFile, showOutside, showStep])
 
-  // a commit row: selected, its step's first section at the top of the diffs, as the step of the brief; Enter and Show
-  // Commit Alone the commit alone
+  // a commit row: selected, its step's opening at the top of the diffs, as a step of the overview; Enter and Show Commit
+  // Alone the commit alone
   const selectCommit = useCallback(
     (node: FileTreeCommit) => {
       const section = node.chapter === null ? undefined : narrative?.find(it => it.concern === node.chapter && it.ghost === null)
       setSelection(previous => ({ ...previous, selectedPath: section?.path ?? previous.selectedPath, selectedRow: node.key }))
       if (section !== undefined) {
         setTopSection(section.key)
-        code.current?.scrollToSection(section.key)
+        setOverviewShown(false)
+        code.current?.scrollToSection(section.key, "opening")
       }
     },
     [narrative],
@@ -827,12 +859,13 @@ function ReviewLayout({
           },
     [onShowCommit, commitMenu, selectCommit],
   )
-  const brief = useMemo(() => (reviewFacts === null ? null : presentBrief(reviewFacts)), [reviewFacts])
+  // the opening of each step above the card of its first section
+  const openings = useMemo(() => (reviewFacts === null ? undefined : presentOpenings(reviewFacts)), [reviewFacts])
   const topStep = useMemo(() => {
     const chapter = narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
     const index = chapters.findIndex(it => it.id === chapter)
-    return index < 0 || brief === null ? null : { chapter: chapters[index]!, step: brief.steps[index] ?? null, count: chapters.length }
-  }, [narrative, topSection, chapters, brief])
+    return index < 0 ? null : { chapter: chapters[index]!, count: chapters.length }
+  }, [narrative, topSection, chapters])
 
   // the badges of the review plan
   const badges = useMemo<FileTreeBadges | null>(() => {
@@ -860,35 +893,50 @@ function ReviewLayout({
     return { label: ownerMarks.label, paths: marked, counts }
   }, [ownerMarks, marked, chapters])
 
-  // the order J and K step through: with the plan the sections of the story, else the files of the tree
-  const stepOrder = useMemo<readonly NextSection[]>(
-    () =>
-      reviewFacts !== null && viewFiles !== null
-        ? viewFiles.map(file => ({ key: file.section?.key ?? file.file.path, path: file.file.path }))
-        : files.map(file => ({ key: file.path, path: file.path })),
-    [reviewFacts, viewFiles, files],
-  )
-  // what J (1) and K (-1) show after the section of a key (none: from before the first), under an owner chip the next
-  // of its files; undefined when none is left. The line at the end of a long card names the one J shows
+  // the order J and K step through: with the plan the document, its overview, then the sections of the story, a step
+  // at its opening, then at its card; else the files of the tree
+  const hasPrologue = prologue !== undefined && prologue !== null
+  const stepOrder = useMemo<readonly NextSection[]>(() => {
+    if (reviewFacts === null || viewFiles === null) {
+      return files.map(file => ({ key: file.path, path: file.path, part: "card" }))
+    }
+    const stops: NextSection[] = hasPrologue && viewFiles.length > 0 ? [{ key: PROLOGUE_KEY, path: viewFiles[0]!.file.path, part: "prologue" }] : []
+    for (const file of viewFiles) {
+      const key = file.section?.key ?? file.file.path
+      if (file.section?.step != null) {
+        stops.push({ key, path: file.file.path, part: "opening" })
+      }
+      stops.push({ key, path: file.file.path, part: "card" })
+    }
+    return stops
+  }, [reviewFacts, viewFiles, files, hasPrologue])
+  // what J (1) and K (-1) show after the stop at the top (none: from before the first), under an owner chip the next
+  // card of its files; undefined when none is left
   const stepSection = useCallback(
-    (key: string | null, direction: 1 | -1): NextSection | undefined => {
-      const at = key === null ? -1 : stepOrder.findIndex(it => it.key === key)
+    (from: { key: string; part: LayoutPart } | null, direction: 1 | -1): NextSection | undefined => {
+      const at = from === null ? -1 : stepOrder.findIndex(it => (from.part === "prologue" ? it.part === "prologue" : it.key === from.key && it.part === from.part))
       for (let index = at + direction; index >= 0 && index < stepOrder.length; index += direction) {
-        if (marked === null || marked.has(stepOrder[index]!.path)) {
-          return stepOrder[index]
+        const stop = stepOrder[index]!
+        if (marked === null || (stop.part === "card" && marked.has(stop.path))) {
+          return stop
         }
       }
       return undefined
     },
     [stepOrder, marked],
   )
-  const nextSection = useCallback((key: string) => stepSection(key, 1), [stepSection])
-  // J, K and a click on the line at the end of a card: the section at the top, then the tree, the bar of the step and the
+  // the line at the end of a card names the section J shows after it
+  const nextSection = useCallback((key: string) => stepSection({ key, part: "card" }, 1), [stepSection])
+  // J, K and a click on the line at the end of a card: the stop at the top, then the tree, the bar of the step and the
   // footer follow it, which a scroll the review made does not tell them
   const showSection = useCallback(
     (next: NextSection) => {
-      code.current?.scrollToSection(next.key)
-      showVisibleSection(next.key, next.path)
+      if (next.part === "prologue") {
+        code.current?.scrollToPrologue()
+      } else {
+        code.current?.scrollToSection(next.key, next.part)
+      }
+      showVisibleSection(next.key, next.path, next.part)
     },
     [showVisibleSection],
   )
@@ -915,10 +963,10 @@ function ReviewLayout({
     switch (event.code) {
       case "KeyJ":
       case "KeyK": {
-        // with the plan the diffs are the story: J and K step through its sections from the one at the top, else
-        // through the files from the selected one; the tree follows; under an owner chip through its files only,
-        // nothing moves past the last one
-        const from = reviewFacts !== null ? (code.current?.visibleStop()?.key ?? null) : selectedPath
+        // with the plan the diffs are the document: J and K step through the overview, the opening of each step and
+        // the sections of the story from the stop at the top, else through the files from the selected one; the tree
+        // follows; under an owner chip through its files only, nothing moves past the last one
+        const from = reviewFacts !== null ? (code.current?.visibleStop() ?? null) : selectedPath === null ? null : { key: selectedPath, part: "card" as const }
         const next = stepSection(from, event.code === "KeyJ" ? 1 : -1)
         if (next !== undefined) {
           showSection(next)
@@ -1003,38 +1051,45 @@ function ReviewLayout({
         {sidebarShown && <ResizableHandle />}
         <ResizablePanel id="code" minSize="40">
           <div className="flex h-full flex-col">
-            {/* a search that hides every file keeps the card: a click reveals the file */}
-            <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>{codeTop}</SelectReviewFileContext>
-            {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} step={topStep.step} count={topStep.count} onShow={showStep} />}
-            {loaded === null ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">{message}</div>
-            ) : viewFiles === null ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <PendingFileHeaders files={files} fileOwners={fileOwners} />
-                <LoadingLine key={loaded.key} className="p-6">
-                  Loading changes…
-                </LoadingLine>
-              </div>
-            ) : (
-              <div data-testid="commit-review-code" className="min-h-0 flex-1">
-                <CommitReviewCode
-                  key={loaded.key}
-                  revisions={loaded.revisions}
-                  ref={code}
-                  files={viewFiles}
-                  diffViewMode={diffViewMode}
-                  initialPath={selection.initialPath}
-                  onVisibleSectionChange={showVisibleSection}
-                  onFirstScreen={showWindow}
-                  fileOwners={fileOwners}
-                  marked={marked}
-                  onShowStep={showStep}
-                  nextSection={nextSection}
-                  onShowSection={showSection}
-                  ownerLabel={ownerLabel}
-                />
-              </div>
-            )}
+            {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} count={topStep.count} overview={overviewShown && hasPrologue} onShow={showStep} />}
+            {/* a search that hides every file keeps the overview: a click reveals the file */}
+            <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>
+              {loaded === null ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <PlainPrologue prologue={prologue} />
+                  {message}
+                </div>
+              ) : viewFiles === null ? (
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <PlainPrologue prologue={prologue} />
+                  <PendingFileHeaders files={files} fileOwners={fileOwners} />
+                  <LoadingLine key={loaded.key} className="p-6">
+                    Loading changes…
+                  </LoadingLine>
+                </div>
+              ) : (
+                <div data-testid="commit-review-code" className="min-h-0 flex-1">
+                  <CommitReviewCode
+                    key={loaded.key}
+                    revisions={loaded.revisions}
+                    ref={code}
+                    files={viewFiles}
+                    diffViewMode={diffViewMode}
+                    initialPath={selection.initialPath}
+                    onVisibleSectionChange={showVisibleSection}
+                    onFirstScreen={showWindow}
+                    fileOwners={fileOwners}
+                    marked={marked}
+                    onShowStep={showStep}
+                    prologue={prologue}
+                    openings={openings}
+                    nextSection={nextSection}
+                    onShowSection={showSection}
+                    ownerLabel={ownerLabel}
+                  />
+                </div>
+              )}
+            </SelectReviewFileContext>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
@@ -1043,28 +1098,38 @@ function ReviewLayout({
 }
 
 /**
- * The bar above the diffs of a review with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): the step of
- * the section at the top, its place in the story, its title and the first paragraph of its body, which a click opens at
- * its first section; it follows the diffs as they scroll
+ * The overview while the diffs are read or cannot show: a block above the headers and the message, at the inset of the
+ * cards (the diffs hold it as their prologue once they show)
  */
-function StepBar({ chapter, step, count, onShow }: { chapter: Chapter; step: BriefStep | null; count: number; onShow: (step: string) => void }) {
+function PlainPrologue({ prologue }: { prologue: ReactNode }) {
+  return prologue === undefined || prologue === null ? null : <div className="px-3 pt-2.5">{prologue}</div>
+}
+
+/**
+ * The bar above the diffs of a review with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): one line,
+ * the step of the section at the top, its place in the story and its title, whole in its hover, which a click shows at
+ * its opening; "Overview · 4 steps" while the overview is at the top, a click the first step. It follows the diffs as
+ * they scroll
+ */
+function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count: number; overview: boolean; onShow: (step: string) => void }) {
   return (
     <button
       type="button"
       data-testid="review-step-bar"
       data-step={chapter.id}
-      title={step?.why ?? chapter.label}
-      className="flex min-w-0 shrink-0 items-baseline gap-2 border-b border-border px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+      title={overview ? undefined : chapter.label}
+      className="flex min-w-0 shrink-0 items-baseline gap-1.5 border-b border-border px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
       onClick={() => onShow(chapter.id)}
     >
       <span className="shrink-0 text-muted-foreground tabular-nums" data-testid="review-step-position">
-        {formatStepPosition(chapter.number, count)}
+        {overview ? "Overview" : formatStepPosition(chapter.number, count)}
       </span>
-      <span className="shrink-0 truncate font-medium" data-testid="review-step-title">
-        {chapter.label}
+      <span aria-hidden className="shrink-0 text-muted-foreground">
+        ·
       </span>
-      {step?.why != null && <span className="min-w-0 truncate text-muted-foreground">{step.why}</span>}
-      {step?.unproven != null && <span className="ml-auto shrink-0 text-warning">{step.unproven}</span>}
+      <span className="min-w-0 truncate font-medium" data-testid="review-step-title">
+        {overview ? formatStepCount(count) : chapter.label}
+      </span>
     </button>
   )
 }

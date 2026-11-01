@@ -48,7 +48,7 @@ export interface FileRowMarkProps {
 /**
  * The mark of a row; its hover opens the card of its facts (`HoverDescription`, after a move of the pointer), and so does
  * `I` on its row. Not a tab stop: the description of the row says every fact, and the links are in the diffs and the
- * Review Summary too
+ * overview of the plan too
  */
 export function FileRowMark({ facts, onSelectPlace, open, openedByKey, onOpenChange, focusRow }: FileRowMarkProps) {
   const Icon = facts.tone === "warning" ? TriangleAlertIcon : InfoIcon

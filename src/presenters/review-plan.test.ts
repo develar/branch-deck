@@ -6,16 +6,12 @@ import {
   formatGenerated,
   formatMechanicalGroup,
   formatPairState,
-  formatPlanSummary,
   formatRewrittenChanges,
   formatSinceReview,
   formatOutsideUses,
   presentBreakage,
   presentDependencyBadge,
-  presentDependencyChanges,
   presentFileBadges,
-  presentNewApi,
-  presentRepeatedEdits,
   presentRowFacts,
 } from "@/presenters/review-plan"
 
@@ -80,7 +76,7 @@ describe("the words of the commits since the review", () => {
   })
 })
 
-describe("the possible breakage of the card", () => {
+describe("the possible breakage of the overview", () => {
   it("words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown", () => {
     expect(formatOutsideUses(usages(1, 2), false)).toBe("2 uses left outside")
     expect(formatOutsideUses(usages(0, 1), false)).toBe("1 use left outside")
@@ -197,82 +193,6 @@ describe("the possible breakage of the card", () => {
   it("says the uses are being found while Rust asks the index", () => {
     const { entries } = presentBreakage([change({ name: "open", key: "open", usages: null })], true)
     expect(entries.map(entry => entry.outside)).toEqual(["Finding the uses…"])
-    expect(formatPlanSummary({ api: [change({ usages: null })], dependencies: [], links: [], repeatedEdits: [] }, true)).toBe("Finding possible breaks")
-  })
-
-  it("sums the card up in its title, what can break first", () => {
-    const plan = { api: [], dependencies: [], links: [], repeatedEdits: [] }
-    expect(formatPlanSummary(plan, false)).toBe("No possible break")
-    expect(
-      formatPlanSummary(
-        {
-          api: [change({ usages: null }), change({ usages: usages(1, 0) }), change({ kind: "added", after: "class Cache" }), change({ kind: "added", name: "get" })],
-          dependencies: [dependency({}), dependency({ name: "b" })],
-          links: [
-            { ...link("src/a/Reader.kt", "src/b/Cache.kt", "added"), crossModule: true, newBetweenModules: true },
-            { ...link("src/a/A.kt", "src/b/B.kt", "kept"), crossModule: true },
-          ],
-          repeatedEdits: [{ files: ["a", "b", "c"], removed: [], added: ["// a line of the edit"] }],
-        },
-        false,
-      ),
-    ).toBe("1 possible break · 2 dependency changes · 1 new link between modules · 1 repeated edit · 2 new declarations")
-  })
-})
-
-describe("the dependencies, the repeated edits and the new API of the card", () => {
-  it("groups the dependency changes by build file in Rust's order, and lists only the links the commits added between modules", () => {
-    const section = presentDependencyChanges({
-      dependencies: [
-        dependency({ manifest: "crates/x/Cargo.toml", module: "x", kind: "crate", name: "serde", change: "changed", versionBefore: "1.0.1", versionAfter: "1.0.2" }),
-        dependency({ manifest: "crates/x/Cargo.toml", module: "x", kind: "crate", name: "toml", change: "added", versionAfter: "0.8" }),
-        dependency({ manifest: "src/b/b.iml", module: "b", kind: "newModule", name: "b", change: "added" }),
-      ],
-      links: [
-        { ...link("src/a/Reader.kt", "src/b/Cache.kt", "added", ["Cache", "get"]), crossModule: true, newBetweenModules: true },
-        { ...link("src/a/A.kt", "src/b/B.kt", "removed"), crossModule: true },
-        link("src/a/A.kt", "src/a/C.kt", "added"),
-      ],
-    })
-    expect(section.modules.map(module => ({ ...module, lines: module.lines.map(line => [line.change, line.text]) }))).toEqual([
-      {
-        manifest: "crates/x/Cargo.toml",
-        module: "x",
-        lines: [
-          ["changed", "Changed crate serde 1.0.1 → 1.0.2"],
-          ["added", "Added crate toml 0.8"],
-        ],
-      },
-      { manifest: "src/b/b.iml", module: "b", lines: [["added", "New module b"]] },
-    ])
-    expect(section.links.map(({ key: _key, ...entry }) => entry)).toEqual([
-      {
-        from: "src/a/Reader.kt",
-        to: "src/b/Cache.kt",
-        // the first use, in the file that uses
-        place: { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" },
-        label: "Reader.kt → Cache.kt",
-        symbols: "Cache, get · Reader.kt:3",
-      },
-    ])
-  })
-
-  it("words each repeated edit with its files, and the new API per file in the order of its first declaration", () => {
-    expect(presentRepeatedEdits([{ files: ["src/A.kt", "src/B.kt", "src/C.kt"], removed: ["ProjectManager"], added: ["ProjectManagerEx"] }])).toEqual([
-      { key: "0", label: "Same edit in 3 files", edit: "ProjectManager → ProjectManagerEx", files: ["src/A.kt", "src/B.kt", "src/C.kt"] },
-    ])
-    expect(
-      presentNewApi([
-        change({ kind: "added", name: "Cache", path: "src/b/Cache.kt", line: 3 }),
-        change({ kind: "changed", name: "helper" }),
-        change({ kind: "added", name: "Reader", path: "src/a/Reader.kt", line: 5 }),
-        change({ kind: "added", name: "get", path: "src/b/Cache.kt", line: 4 }),
-      ]),
-    ).toEqual([
-      // each at its first new declaration
-      { path: "src/b/Cache.kt", place: { path: "src/b/Cache.kt", side: "new", line: 3, name: "Cache" }, names: "Cache, get" },
-      { path: "src/a/Reader.kt", place: { path: "src/a/Reader.kt", side: "new", line: 5, name: "Reader" }, names: "Reader" },
-    ])
   })
 })
 

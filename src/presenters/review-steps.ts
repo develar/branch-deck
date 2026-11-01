@@ -1,11 +1,11 @@
-import type { CommitRole, ConcernPart, ContractKind, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+import type { CommitRole, ConcernPart, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
  * The words of the story of a review (spec/branch/review-tour.spec.md, "In the Review Window"): Rust tells the steps
  * (a step per commit whose body tells it, else the concerns), what each shows of the units in its order, the tests that
- * name its code, and the brief; this words them for the brief, the tree, the headings of the story and the bar above
- * the diffs.
+ * name its code, and the brief; this words them for the tree, the openings of the story and the bar above the diffs
+ * (the overview and the openings themselves: `review-story.ts`).
  */
 
 /** The id Rust gives the step of the changes only commits without a body wrote */
@@ -186,133 +186,6 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
   })
 }
 
-/** A step of the brief, worded */
-export interface BriefStep {
-  readonly id: string
-  readonly number: number
-  readonly title: string
-  /** The first paragraph of the body of the commit that starts it, the why; null without a body */
-  readonly why: string | null
-  /** The rest of its body, paragraph by paragraph */
-  readonly more: readonly string[]
-  /** The other commits of the step: "Follows up: …", "Without a story: …" */
-  readonly rounds: readonly string[]
-  /** Its code that tests the change adds or changes reach: "Tests of this change reach open, allowed" */
-  readonly proven: string | null
-  /** Its code that tests the change did not touch reach: "2 tests it did not touch reach focus", "1 test it did not touch reaches focus" */
-  readonly covered: string | null
-  /**
-   * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
-   * reaches paint within 3 calls" when the walk stopped with callers left
-   */
-  readonly unproven: string | null
-  /** Its code no test reaches, beside code a test reaches or a scenario: "No test reaches isEmpty" */
-  readonly unreached: string | null
-  /** "Proven by the scenario restart.json" */
-  readonly scenarios: string | null
-  /** Nothing of it lands: a later commit took it out */
-  readonly landsNothing: boolean
-}
-
-/** An entry of "What changes" */
-export interface BriefContract {
-  readonly key: string
-  readonly kind: string
-  readonly path: string
-  readonly heading: string | null
-  readonly paragraphs: readonly string[]
-  readonly removed: readonly string[]
-  readonly provenBy: string | null
-}
-
-/** The brief, worded: the issue, what changes, the steps, and why the steps are the concerns when they are */
-export interface BriefView {
-  readonly issue: string | null
-  readonly contract: readonly BriefContract[]
-  readonly steps: readonly BriefStep[]
-  /** Why the tasks of the range are its steps: "One commit: its tasks are the steps" */
-  readonly source: string | null
-}
-
-const CONTRACT_WORDS: Readonly<Record<ContractKind, string>> = {
-  spec: "Spec rule",
-  decision: "Decision",
-  guide: "Agent guide",
-  doc: "Doc",
-}
-
-/** The paragraphs of the body of a commit of the story, each its lines joined; none for a commit without a story, whose
- * few words have a story of their own but tell no step */
-function storyParagraphs(plan: Pick<ReviewPlan, "steps">, commit: StepCommit | undefined): string[] {
-  const story = commit === undefined || commit.role === "noStory" ? undefined : plan.steps.commits.find(it => it.id === commit.id)
-  return (story?.body.blocks ?? []).flatMap(block => (block.type === "paragraph" ? [block.lines.join(" ")] : []))
-}
-
-/** The names of a list, the first `shown` of them and how many more: "run, create +2" */
-function names(list: readonly string[], shown = 4): string {
-  const rest = list.length - shown
-  return rest > 0 ? `${list.slice(0, shown).join(", ")} +${rest}` : list.join(", ")
-}
-
-/** The name of a file of a path: its last part */
-function fileName(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1)
-}
-
-/** The brief of `plan`, in the order Rust gave it (`BriefView`); no step when the only one is what no evidence joined */
-export function presentBrief(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief">): BriefView {
-  const chapters = presentChapters(plan)
-  const told = chapters.some(chapter => !chapter.rest)
-  const steps = (told ? plan.steps.steps : []).map((step, index): BriefStep => {
-    const head = headOf(step)
-    const paragraphs = storyParagraphs(plan, head)
-    const rounds = step.commits
-      .filter(commit => commit !== head)
-      .map(commit => `${commit.role === "noStory" ? "Without a story" : "Follows up"}: ${formatStepTitle(commit.subject, plan.brief.issue)}`)
-    const { answered, reached, unreached, scenarios } = step.tests
-    const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
-    const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
-    const coveredNames = reached.filter(declaration => declaration.tests.some(test => test.unit === null)).map(it => it.name)
-    const within = Math.max(0, ...unreached.map(declaration => declaration.within ?? 0))
-    const none = unreached.length === 0 ? null : `No test reaches ${names(unreached.map(it => it.name))}`
-    return {
-      id: step.id,
-      number: index + 1,
-      title: chapters[index]!.label,
-      why: paragraphs[0] ?? null,
-      more: paragraphs.slice(1),
-      rounds,
-      proven: ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
-      covered:
-        untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
-      unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
-      unreached: none !== null && (reached.length > 0 || scenarios.length > 0) ? none : null,
-      scenarios: scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
-      landsNothing: step.stops.length === 0,
-    }
-  })
-  const source =
-    !told || plan.steps.source.kind === "commits"
-      ? null
-      : plan.steps.source.reason === "oneCommit"
-        ? "One commit: the steps are its tasks"
-        : "The commits tell no story: the steps are the tasks of the range"
-  return {
-    issue: plan.brief.issue,
-    contract: plan.brief.contract.map((entry, index) => ({
-      key: `${entry.unit}:${entry.block ?? "file"}:${index}`,
-      kind: CONTRACT_WORDS[entry.kind],
-      path: entry.path,
-      heading: entry.heading,
-      paragraphs: entry.newSpec !== null ? [entry.newSpec.description ?? `A new spec of ${entry.newSpec.rules} rules`] : entry.deleted ? ["Deleted"] : entry.added,
-      removed: entry.removed,
-      provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}`,
-    })),
-    steps,
-    source,
-  }
-}
-
 /** The words of a step in the diffs, in the hover of the map of the files: "Step 2 · The open keeps a stored layout" */
 export function formatStepDivider(chapter: Pick<Chapter, "number" | "label">): string {
   return `${formatStepNumber(chapter.number)} · ${chapter.label}`
@@ -326,4 +199,9 @@ export function formatStepNumber(number: number): string {
 /** The bar above the diffs: the step of the section at the top, "Step 2 / 4" and its title */
 export function formatStepPosition(number: number, count: number): string {
   return `Step ${number} / ${count}`
+}
+
+/** The bar above the diffs while the overview is at the top: "4 steps" */
+export function formatStepCount(count: number): string {
+  return count === 1 ? "1 step" : `${count} steps`
 }

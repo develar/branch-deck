@@ -1,25 +1,21 @@
-import { useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { CommitHeading } from "@/components/commit/CommitHeading"
-import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { CommitReview } from "@/components/commit/CommitReview"
 import type { CommitReviewProps } from "@/components/commit/CommitReview"
+import { ReviewPrologue } from "@/components/review/ReviewPrologue"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { ReviewCommit } from "@/lib/bindings"
-import { hasCommitMessageBody } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
 import { handlePreviewItemSwitchKey } from "@/lib/preview-keys"
 import { isSingleCommit, storyCommits } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
+import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { ReviewPosition } from "@/lib/review-position"
 
 export interface RangeReviewProps {
@@ -43,10 +39,8 @@ export interface RangeReviewProps {
   commitAction?: (item: Extract<RangeReviewItem, { kind: "commit" }>) => ReactNode
   /** The menu of a commit: its right-click in the column and the "⋯" of its heading; none without */
   commitMenu?: (commit: ReviewCommit) => MenuItemGroups
-  /** Above the diffs of a scope ("All Changes", "Since Your Review"): the card of the review plan */
-  scopeTop?: ReactNode
-  /** Above the heading of a shown commit: the card of the review plan in "Since Your Review" */
-  commitTop?: ReactNode
+  /** The read of the review plan of what is shown: its overview heads the document; none without the plan */
+  plan?: ReviewPlanState | null
   /** The facts of the review plan of the scope: the badges of the files, the Mechanical group */
   reviewFacts?: CommitReviewProps["reviewFacts"]
 }
@@ -54,7 +48,7 @@ export interface RangeReviewProps {
 /**
  * The review of a range, a pull request or a part of a stack: its commits above the files in the sidebar of the commit
  * review, as the commit picker of a code review on GitHub or in IntelliJ. A scope ("All Changes") diffs the range, a
- * commit only itself, with its subject, meta line and message above the diffs. ⌥↑/⌥↓ step through the commits from
+ * commit only itself, with its subject, meta line and whole message at the top of its document. ⌥↑/⌥↓ step through the commits from
  * anywhere in the review, ↑/↓ inside their list. A range of one commit shows that commit without the list. With the
  * plan, a scope lists its commits in the steps of its tree (spec/branch/review-tour.spec.md, "In the Review Window"),
  * and the column only the scopes: a commit row shows its step, Enter and Show Commit Alone the commit alone. The tree
@@ -73,8 +67,7 @@ export function RangeReview({
   filesHeader,
   commitAction,
   commitMenu,
-  scopeTop,
-  commitTop,
+  plan = null,
   reviewFacts,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
@@ -125,23 +118,23 @@ export function RangeReview({
         commitRows={commitRows}
         filesHeader={filesHeader}
         reviewFacts={reviewFacts}
-        codeTop={
+        prologue={
           shown?.kind === "commit" ? (
-            <>
-              {commitTop}
-              <ReviewCommitHeader
-                key={shown.key}
-                commit={shown.commit}
-                action={
+            <ReviewPrologue
+              key={shown.key}
+              state={plan}
+              commit={{
+                commit: shown.commit,
+                action: (
                   <>
                     {commitAction?.(shown)}
                     {commitMenu !== undefined && <CommitHeadingMenu commit={shown.commit} commitMenu={commitMenu} />}
                   </>
-                }
-              />
-            </>
-          ) : (
-            scopeTop
+                ),
+              }}
+            />
+          ) : plan === null ? undefined : (
+            <ReviewPrologue state={plan} />
           )
         }
       />
@@ -295,30 +288,4 @@ function CommitHeadingMenu({ commit, commitMenu }: { commit: ReviewCommit; commi
 
 function optionId(key: string): string {
   return `review-commit-${key}`
-}
-
-/** The shown commit above its diffs, as the branch preview heads a commit (`CommitHeading`); the message three lines until Show More */
-function ReviewCommitHeader({ commit, action }: { commit: ReviewCommit; action: ReactNode }) {
-  const [expanded, setExpanded] = useState(false)
-  const fileStats = useCommitFileStats(commit.id)
-  const hasBody = hasCommitMessageBody(commit.subject, commit.message)
-  return (
-    <div className="flex shrink-0 items-start gap-2 border-b border-border px-4 py-3" data-testid="range-review-commit-header">
-      <div className="min-w-0 flex-1">
-        <CommitHeading subject={commit.subject} hash={commit.id} author={commit.author} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats}>
-          {hasBody && (
-            <div className="flex flex-col items-start gap-1">
-              <div className={cn("max-h-[50vh] overflow-y-auto", !expanded && "line-clamp-3 overflow-hidden")}>
-                <CommitMessageBody message={commit.message} />
-              </div>
-              <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setExpanded(!expanded)}>
-                {expanded ? "Show Less" : "Show More"}
-              </Button>
-            </div>
-          )}
-        </CommitHeading>
-      </div>
-      {action}
-    </div>
-  )
 }

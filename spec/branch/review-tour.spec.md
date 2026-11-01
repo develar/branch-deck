@@ -1,6 +1,6 @@
 ---
 name: Review Tour
-description: Requirements for the story of a review (experimental), what a reviewer who sees a change for the first time reads before any diff; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
+description: Requirements for the story of a review (experimental), one document that a reviewer who sees a change for the first time reads from its overview into each step's opening above its diffs; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/steps.rs
@@ -10,8 +10,11 @@ targets:
   - ../../crates/review-plan/src/lib.rs
   - ../../crates/bd-rewrite/src/review_plan_command.rs
   - ../../src/presenters/review-steps.ts
-  - ../../src/components/review/ReviewBrief.tsx
-  - ../../src/components/review/ReviewPlanCard.tsx
+  - ../../src/presenters/review-story.ts
+  - ../../src/components/review/ReviewPrologue.tsx
+  - ../../src/components/review/ChapterOpening.tsx
+  - ../../src/components/review/StoryBody.tsx
+  - ../../src/components/review/StepFactsLine.tsx
   - ../../src/components/commit/CommitReview.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/review/RangeReview.tsx
@@ -188,27 +191,52 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
 
 ### In the Review Window
-- With the review plan, the Review Summary must open on the brief (`ReviewBrief`): the issue key, a link with the
-  popover of its issue; What Changes, each entry its kind ("Spec rule", "Decision", "Agent guide", "Doc"), its file and
-  the heading of its section, which open the file, its paragraphs and "Proven by restart.json"; then the Steps, each its
-  number and its title (the subject of the commit that starts it, without the issue key and the `(prefix)`), the first
-  paragraph of its body, the rest under More, its rounds ("Follows up: …", "Without a story: …"), "Tests of this change
-  reach allowed", "1 test it did not touch reaches focus", "Proven by …", and "No test reaches show" muted; a step
-  accio answered for whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches
-  paint within 3 calls" when the walk stopped with callers left, else "No test reaches paint"). A click of the title of a
-  step must show its first section at the top of the diffs, its row selected. Steps of the concerns say why ("One
-  commit: the steps are its tasks"); a range whose only step is what no evidence joined lists no step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
-  [@test] ../../src/presenters/review-steps.test.ts (`words the brief: the why of each step its first paragraph, the rest folded, its rounds, the tests that reach its code, a step no test proves`, `names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`)
+- With the review plan, the right column must be one document that scrolls: the overview first (`ReviewPrologue`),
+  then the story of the diffs. The overview must open on its headline: the issue key, a link with the popover of its
+  issue, and the title YouTrack gives it, else the branch, else the range of the commits; a commit shown alone its
+  whole heading and message instead (`range-review-commit-header`: its subject, meta line, action and menu, its body
+  whole, of the concerns of its own plan the parts of it told before the steps). Then What Changes, one header per
+  file ("Spec rule", "Decision", "Agent guide", "Doc" and its path, which open the file), under it each changed block:
+  the heading of its section, "Proven by restart.json", its paragraphs; then the Steps, each its number and its full
+  title (the subject of the commit that starts it, without the issue key and the `(prefix)`; a step of the concerns
+  its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one line ("Tests of
+  this change reach allowed", "1 test it did not touch reaches focus", "Proven by …", "No test reaches show", "New API:
+  Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place); a step accio answered for
+  whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
+  calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
+  its body as an info callout. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
+  only step is what no evidence joined lists no step, and its facts are the facts of the range. Then Possible
+  Breakage and Since your review ([Review Plan](review-plan.spec.md#requirements)). The count line of the old card,
+  its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
+  the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+- The opening of a step (`ChapterOpening`) must stand on the canvas above the card of its first section, as tall as
+  its words (the diffs measure it): "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
+  at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
+  body](../commit/commit-row.spec.md)): its lead a step larger, its paragraphs, lists, labels as the captions of their
+  blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no
+  muted text. A long body shows whole blocks up to the fold Rust sets (`shown`), then one line that names the folded
+  parts ("The cause · The fix · Tests · Evidence", a part of no label "More"), each its own disclosure, which opens
+  below the line, so the text grows downward; a verification section (Tests, Evidence, Gates, Verified, Results,
+  Proof, Left out) is folded always. Then the commits that follow it up, each "Follows up: <subject>" a disclosure of
+  its body, those without a story ("Without a story: …"), the facts of the step in one line and the warning of a step
+  no test reaches, and the group its section starts.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+  [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+- A step of the concerns of one commit (`toldIn`) must open with what joins its parts ("Joined by the identifier
+  accio") and the parts of the body of that commit told in it; the lead and the parts told before the steps are in
+  the overview (in the heading of the commit shown alone), so each part of the body is in one place. A story of
+  several commits keeps the order of its author: each part in the opening of its commit's step.
+  [@test] ../../src/presenters/review-story.test.ts (`tells the body of one commit in the openings of the concerns its sections name, its lead and the rest in the overview`)
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by its concern and keeps its main rows ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The
-  story of the diffs must follow the steps: the first section of each starts with its opening on the canvas right above
-  its card, "Step 2 · The open keeps a stored layout" (`review-concern-heading`), its number muted, its title bold and a
-  rule across the rest of the width, a change of step being a wider break than a change of file; a click on it must
-  show the step as the bar of the step does, the opening at the top, the bar and the tree following. The header of a file names the file alone (no step, no group), so the name of every file
-  stands at one x.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
+  story of the diffs must follow the steps: the first section of each starts with its opening right above its card,
+  its heading "Step 2 · The open keeps a stored layout" (`review-concern-heading`); a click on it must show the step as
+  the bar of the step does, the opening at the top, the bar and the tree following. The header of a file names the
+  file alone (no step, no group), so the name of every file stands at one x.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
   [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by its concern and keeps its main rows`)
   [@test] ../../src/lib/diff/layout.test.ts (`puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
@@ -238,23 +266,31 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   still be chosen.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
   [@test] ../../src/lib/file-tree.test.ts (`lists under a search only the commits of the steps whose files it found, no Other commits, and says when it lists none`)
-- A click on a commit row (and the focus, as ↑/↓ move it) must select it and show the first section of its step at
-  the top of the diffs, as the title of the step in the brief; Enter on it, its menu item Show Commit Alone and ⌥↑/⌥↓
+- A click on a commit row (and the focus, as ↑/↓ move it) must select it and show the opening of its step at the top
+  of the diffs, as the title of the step in the overview; Enter on it, its menu item Show Commit Alone and ⌥↑/⌥↓
   must show the commit alone (its heading, its own plan), and "All Changes" of the column goes back. Its right-click
   menu is Show Commit Alone, then the menu of the commit of the column; ⌘C copies its hash. The heading of a commit of
   the whole stack shown alone keeps "Review <branch>".
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down`)
-  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its card and the story of its diffs @webkit`, `should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its overview and the story of its diffs @webkit`, `should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
 - A declaration of a step whose block another step shows must be one row in the section of its step, "hooks —
   removed · shown in step 2", which opens that section, and its heading must join the heading of that block there
   ("allowed — new · hooks — removed"); a section of no change of its own shows only such rows.
   [@test] ../../src/presenters/review-steps.test.ts (`lays a declaration without a block of its own out in its step as the row of the block another step shows`)
   [@test] ../../src/lib/diff/rows.test.ts (`makes a section of no change of its own the rows of the blocks other sections show, alone`)
-- Above the diffs the bar of the step of the section at the top (`review-step-bar`) must show "Step 3 / 4", its title,
-  the first paragraph of its body and the warning of a step no test reaches; it follows the diffs as they scroll and as
-  J, K, a row of the tree and a step of the brief move them, and a click shows the first section of the step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
+- Above the diffs the bar of the step of the section at the top (`review-step-bar`) must be one line, "Step 3 / 4 · The
+  view paints with the first frame", the whole title in its hover and no text of the body, "Overview · 4 steps" while
+  the overview is at the top; it follows the diffs as they scroll and as J, K, a row of the tree and a step of the
+  overview move them, and a click shows the opening of the step (of the first one from the overview).
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
+- J and K must walk the document: from the overview J shows the opening of the first step, from an opening its card,
+  from a card the next card or the opening of the next step; K the same way back, from the opening of the first step
+  to the overview. While an opening is at the top the tree selects the row of its step, while a card is its file's;
+  the overview keeps the selection. Under an owner chip J and K step through the cards of its files only. A row of a
+  file of the tree shows its card, the opening of its step above the view.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 
 ## User Experience
 

@@ -131,8 +131,9 @@ where a dialog would cover it.
   another list or an open at a file starts it over) is the one rule of the window
   ([Review Window](../review/review-window.spec.md#one-window)).
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
-  commit above its diffs as the branch preview heads one (`CommitHeading`: the subject `text-md font-medium`, the meta
-  line with the committer time on hover and the coloured line counts, the reading body, three lines until Show More), the footer "Commit 2 / 3 · File 1 / 1" and
+  commit at the top of the document of its diffs as the branch preview heads one (`CommitHeading`: the subject
+  `text-md font-medium`, the meta line with the committer time on hover and the coloured line counts, the reading body
+  whole), so it scrolls away with the overview of the plan below it; the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("Unassigned › 11346cdf", `listLabel` of the window data: the
   branch, or "Unassigned") and ends with the Split/Unified/Inline toggle; it has no action and no "⋯". Nothing is
   edited there.
@@ -201,7 +202,8 @@ where a dialog would cover it.
   [@test] ../../src/lib/diff/layout.test.ts (`sticks a header below the space above the first card, so a file at the top keeps that space over its card`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - J and K must select the next and the previous file; with the review plan of a branch, whose diffs are the story of
-  its units, the next and the previous section of the story, the tree and the bar of the step above the diffs following
+  its units, the next and the previous stop of the document (the overview, the opening of a step, a card), the tree and
+  the bar of the step above the diffs following
   ([Review Units](../branch/review-units.spec.md#in-the-review-window),
   [Review Tour](../branch/review-tour.spec.md#in-the-review-window)). N and P must show the next and the previous
   block of changed lines, into the next or the previous file at the end of one; collapsed files are skipped.
@@ -235,7 +237,7 @@ where a dialog would cover it.
   the keys reach every file.
   [@test] ../../src/lib/diff/file-map.test.ts (`scales the document, never shorter than the view, to the height of the map, a tick at the start of each section`, `makes one tick of the sections whose pixels are too few, a step when any of them is, muted only when all are`, `leaves the prologue above the first section a band without a tick, which the hover and a click tell from the sections and the map fills at the top`, `draws the thumb at the window of the view, at least the least height centred on it, all of it inside the map`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should scroll the diffs with a map of the files in place of their scrollbar: a click shows the file under it, the hover names it, the thumb drags and follows`)
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that reach its code`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should mark the files of an owner chip, mute the others, and move J and K, N and P through its files only`)
 - The tree and the headers of the first files must show as soon as the files are read, while git reads the patch;
   "Loading changes…" only after 300 ms. The diffs mount with the diffs of the engine, before their texts: each file

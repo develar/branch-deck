@@ -11,7 +11,6 @@ import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions
 import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewOwnerChips } from "@/components/review/ReviewOwnerChips"
-import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { Callout } from "@/components/shared/Callout"
@@ -189,10 +188,9 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           ? { kind: "range", base: request.reviewedCommit!, head: range.head }
           : { kind: "commit", id: selectedKey }
   const reviewing = tab === "changes" && subject !== null
-  // the plan of what the review shows (spec/branch/review-units.spec.md): its card and the story of its diffs, unless the
+  // the plan of what the review shows (spec/branch/review-units.spec.md): its overview and the story of its diffs, unless the
   // repository turns the plan off; "Since Your Review" stays GitHub's
   const plan = useSubjectPlan(repositoryPath, reviewing ? subject : null)
-  const planCard = plan.plan === null ? undefined : <ReviewPlanCard state={plan} />
   // back in the overview, the keys go to its body again
   useEffect(() => {
     if (!reviewing) {
@@ -453,8 +451,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           fileOwners={fileOwners}
           rangeNoun="pull request"
           filesHeader={count => <ReviewOwnerChips of={owners} filter={ownerFilter} onFilterChange={setOwnerFilter} count={count} />}
-          scopeTop={planCard}
-          commitTop={planCard}
+          plan={plan.plan === null ? null : plan}
           reviewFacts={planFacts(plan)}
         />
       ) : (

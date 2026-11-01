@@ -7,7 +7,6 @@ import type { BranchReviewMoves } from "@/components/review/BranchReview"
 import { RangeReview } from "@/components/review/RangeReview"
 import { ReviewBackButton } from "@/components/review/ReviewBackButton"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
-import { ReviewPlanCard } from "@/components/review/ReviewPlanCard"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { DiffViewToggle } from "@/components/shared/DiffViewToggle"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
@@ -561,7 +560,7 @@ function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview
   // the native title names the commit shown, the title bar the list and the commit
   const commit = data.commits[index]
   useWindowTitle(commit === undefined ? null : reviewWindowTitle({ ...data, index }))
-  // the plan of the commit (spec/branch/review-units.spec.md): its card and the story of its diffs, unless the repository
+  // the plan of the commit (spec/branch/review-units.spec.md): its overview and the story of its diffs, unless the repository
   // turns the plan off
   const subject = { kind: "commit", id: selected } as const
   const plan = useSubjectPlan(data.repositoryPath, subject)
@@ -607,7 +606,7 @@ function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview
             initialPath={lastPath}
             onPositionChange={showPosition}
             rangeNoun="commit"
-            commitTop={plan.plan === null ? undefined : <ReviewPlanCard state={plan} />}
+            plan={plan.plan === null ? null : plan}
             reviewFacts={planFacts(plan)}
           />
         </div>

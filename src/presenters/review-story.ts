@@ -1,0 +1,411 @@
+import type { CommitBodyBlock, ContractKind, LabelKind, Mention, ReviewPlan, ReviewStep, StoryCommit } from "@/lib/bindings"
+import type { ReviewPlace } from "@/lib/review-place"
+import { formatConcernEvidence } from "@/presenters/review-concerns"
+import type { Breakage } from "@/presenters/review-plan"
+import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
+import { formatStepNumber, formatStepTitle, headOf, presentChapters } from "@/presenters/review-steps"
+
+/*
+ * The words of the review as one document (spec/branch/review-tour.spec.md, "In the Review Window"): the overview at
+ * its top (`presentPrologue`), then the opening of each step above the card of its first section (`presentOpenings`).
+ * Rust tells the steps, the story of each commit by the grammar of its body, its code names, where the fold of a body
+ * is and, of the concerns of one commit, where each block is told; this only words and places them.
+ */
+
+/** A block of a body at its place in `CommitBody.blocks`: the mentions of a line name it by that place */
+export interface PlacedBlock {
+  readonly index: number
+  readonly block: Exclude<CommitBodyBlock, { type: "label" | "heading" }>
+}
+
+/**
+ * A part of a body: a labelled section (a label or a heading and its blocks up to the next one), else a run of blocks
+ * before the first label; a run the fold cuts is two parts
+ */
+export interface StoryPart {
+  /** Its commit and its first block: unique in the document */
+  readonly key: string
+  /** The place of its first block (its label or heading, else its first block) in `CommitBody.blocks` */
+  readonly first: number
+  /** Its label or heading at its place, null for blocks before any */
+  readonly head: { readonly index: number; readonly block: Extract<CommitBodyBlock, { type: "label" | "heading" }> } | null
+  /** The kind of its label: a verification folds always, a Look closely is a callout */
+  readonly tone: LabelKind
+  readonly blocks: readonly PlacedBlock[]
+}
+
+/** A part after the fold or of verification: its own disclosure, named in the outline of the folded parts */
+export interface FoldedPart {
+  readonly part: StoryPart
+  /** "The cause", "Tests"; "More" for blocks of no label */
+  readonly name: string
+}
+
+/** The body of a commit (or the blocks of it told at one place) as the document shows it */
+export interface StoryView {
+  readonly commit: string
+  /** The code names of the whole body: a line finds its own by its block and its item */
+  readonly mentions: readonly Mention[]
+  /** The summary the body opens with, a step larger; null when it opens with a label or is told elsewhere */
+  readonly lead: PlacedBlock | null
+  /** The parts before the fold, in the order of the body */
+  readonly shown: readonly StoryPart[]
+  /** The parts after the fold and every verification section, in the order of the body */
+  readonly folded: readonly FoldedPart[]
+}
+
+/** The name of a folded part of no label */
+export const MORE = "More"
+
+/**
+ * The story of `commit` as the document shows it: of the blocks `told` keeps (all by default), the lead, the parts
+ * before the fold Rust set (`CommitBody.shown`), then the rest and the verification sections folded
+ */
+export function presentStory(commit: StoryCommit, told: (index: number) => boolean = () => true): StoryView {
+  const { blocks, shown, lead } = commit.body
+  const parts: { head: StoryPart["head"]; first: number; last: number; blocks: PlacedBlock[] }[] = []
+  let leadBlock: PlacedBlock | null = null
+  blocks.forEach((block, index) => {
+    if (!told(index)) {
+      return
+    }
+    if (index === 0 && lead && block.type === "paragraph") {
+      leadBlock = { index, block }
+      return
+    }
+    if (block.type === "label" || block.type === "heading") {
+      parts.push({ head: { index, block }, first: index, last: index, blocks: [] })
+      return
+    }
+    const current = parts.at(-1)
+    // a block told apart from the one before it, and the first block after the fold in a run of no label, start a part
+    // (Rust tells a labelled section whole, at one place)
+    if (current === undefined || current.last !== index - 1 || (current.head === null && index === shown)) {
+      parts.push({ head: null, first: index, last: index, blocks: [{ index, block }] })
+    } else {
+      current.blocks.push({ index, block })
+      current.last = index
+    }
+  })
+  const view: { shown: StoryPart[]; folded: FoldedPart[] } = { shown: [], folded: [] }
+  for (const { head, first, blocks: placed } of parts) {
+    const tone = head?.block.type === "label" ? head.block.kind : "plain"
+    const part: StoryPart = { key: `${commit.id}:${first}`, first, head, tone, blocks: placed }
+    if (tone === "verification" || first >= shown) {
+      view.folded.push({ part, name: head === null ? MORE : head.block.text })
+    } else {
+      view.shown.push(part)
+    }
+  }
+  return { commit: commit.id, mentions: commit.mentions, lead: leadBlock, ...view }
+}
+
+/** A story of the steps of the concerns of one commit: the blocks told before the steps, and those of each step */
+function storyOfOneCommit(plan: Pick<ReviewPlan, "steps">): StoryCommit | null {
+  const { source, commits } = plan.steps
+  return source.kind === "concerns" && source.reason === "oneCommit" && commits.length === 1 ? commits[0]! : null
+}
+
+/** A name of a fact of a step that shows its place: a new declaration, a new link between modules at its first use */
+export interface FactPlace {
+  readonly key: string
+  /** "Cache", "Reader.kt → Cache.kt" */
+  readonly label: string
+  readonly place: ReviewPlace
+}
+
+/** "Tests of this change reach allowed", "Proven by restart.json": the facts of a step, and its warning */
+export interface StepFacts {
+  /** The tests that reach its code and that nothing of it lands, apart in one line; null for none */
+  readonly line: string | null
+  /** The public declarations it adds ("New API:"), each at its declaration */
+  readonly newApi: readonly FactPlace[]
+  /** The links it adds between two modules ("New link between modules:"), each at its first use */
+  readonly moduleLinks: readonly FactPlace[]
+  /**
+   * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
+   * reaches paint within 3 calls" when the walk stopped with callers left
+   */
+  readonly unproven: string | null
+}
+
+/** The names of a list, the first `shown` of them and how many more: "run, create +2" */
+function names(list: readonly string[], shown = 4): string {
+  const rest = list.length - shown
+  return rest > 0 ? `${list.slice(0, shown).join(", ")} +${rest}` : list.join(", ")
+}
+
+/** The name of a file of a path: its last part */
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1)
+}
+
+/**
+ * The facts of `step` (`StepFacts`): its code the tests of the change reach, the tests it did not touch that reach its
+ * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
+ * the links it adds between modules, and that nothing of it lands
+ */
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links">): StepFacts {
+  const { answered, reached, unreached, scenarios } = step.tests
+  const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
+  const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
+  const coveredNames = reached.filter(declaration => declaration.tests.some(test => test.unit === null)).map(it => it.name)
+  const within = Math.max(0, ...unreached.map(declaration => declaration.within ?? 0))
+  const none = unreached.length === 0 ? null : `No test reaches ${names(unreached.map(it => it.name))}`
+  const newApi = new Set(step.newApi)
+  const added = plan.api
+    .filter(change => change.kind === "added" && newApi.has(change.key))
+    .map(change => ({
+      key: `${change.key}:${change.path}:${change.line}`,
+      label: change.name,
+      place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
+    }))
+  const links = step.moduleLinks.flatMap(index => {
+    const link = plan.links[index]
+    return link === undefined ? [] : [{ key: `${index}`, label: `${fileName(link.from)} → ${fileName(link.to)}`, place: firstUse(link) }]
+  })
+  const parts = [
+    ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
+    untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
+    scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
+    none !== null && (reached.length > 0 || scenarios.length > 0) ? none : null,
+    step.stops.length === 0 ? "Nothing of it lands: a later commit took it out" : null,
+  ].filter(part => part !== null)
+  return {
+    line: parts.length === 0 ? null : parts.join(" · "),
+    newApi: added,
+    moduleLinks: links,
+    unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
+  }
+}
+
+/** A step in the contents of the overview */
+export interface ContentsStep {
+  readonly id: string
+  readonly number: number
+  /** Its full title: the subject of the commit that starts it without the issue key, a concern by its name */
+  readonly title: string
+  /** The summary its commit's body opens with, with its code names; null without */
+  readonly lead: { readonly story: StoryView; readonly block: PlacedBlock } | null
+  readonly facts: StepFacts
+  /** The sections of its story where the author asks the reviewer to decide ("Look closely:") */
+  readonly lookClosely: readonly { readonly story: StoryView; readonly part: StoryPart }[]
+}
+
+/** A file of What Changes: its kind and path once, then each changed block of it */
+export interface ContractFile {
+  readonly key: string
+  readonly path: string
+  /** "Spec rule", "Decision", "Agent guide", "Doc" */
+  readonly kind: string
+  readonly entries: readonly {
+    readonly key: string
+    /** The heading of its section of Markdown */
+    readonly heading: string | null
+    readonly paragraphs: readonly string[]
+    readonly removed: readonly string[]
+    /** "Proven by restart.json" */
+    readonly provenBy: string | null
+  }[]
+}
+
+/** The overview at the top of the document, worded */
+export interface PrologueView {
+  /** The issue key the commits name, the headline of the review; null without one */
+  readonly issue: string | null
+  /** The headline without an issue: the branch, else the range */
+  readonly name: string
+  /**
+   * Of the steps of the concerns of one commit, its story told before the steps: the lead and what names nothing of a
+   * step; null otherwise
+   */
+  readonly untold: { readonly subject: string; readonly story: StoryView } | null
+  readonly contract: readonly ContractFile[]
+  /** The contents: the steps of the story; none when the only step is what no evidence joined */
+  readonly steps: readonly ContentsStep[]
+  /** Why the tasks of the range are its steps: "One commit: the steps are its tasks" */
+  readonly source: string | null
+  /** Without a step in the contents, the facts of the range: the new API, the new links between modules; null with steps */
+  readonly facts: StepFacts | null
+  readonly breakage: Breakage
+  /** "Since your review: 1 new · 1 rewritten" and the lines of each rewritten commit; null without a change since */
+  readonly since: { readonly summary: string; readonly rewritten: readonly { readonly key: string; readonly text: string; readonly title: string }[] } | null
+  /** "No usages: no index of this repository" */
+  readonly indexNote: string | null
+}
+
+const CONTRACT_WORDS: Readonly<Record<ContractKind, string>> = {
+  spec: "Spec rule",
+  decision: "Decision",
+  guide: "Agent guide",
+  doc: "Doc",
+}
+
+/** The short form of a commit id in the headline of a range */
+function short(id: string): string {
+  return id.slice(0, 8)
+}
+
+/** The parts of `story` where the author asks the reviewer to decide, before the fold or after it */
+function lookCloselyOf(story: StoryView): ContentsStep["lookClosely"] {
+  return [...story.shown, ...story.folded.map(it => it.part)].filter(part => part.tone === "lookClosely").map(part => ({ story, part }))
+}
+
+/** The story a step's commit tells: none for a commit of no story, whose few words tell no step */
+function storyOf(plan: Pick<ReviewPlan, "steps">, id: string | undefined): StoryCommit | undefined {
+  return id === undefined ? undefined : plan.steps.commits.find(it => it.id === id)
+}
+
+/**
+ * The overview of `plan` (`PrologueView`), in the order Rust gave it: the headline, the story of a commit told before
+ * the steps of its concerns, What Changes one header per file, the contents of the steps, Possible Breakage, what
+ * changed since the review; `pending`: Rust asks the index for the usages, the plan with them follows
+ */
+export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueView {
+  const chapters = presentChapters(plan)
+  const told = chapters.some(chapter => !chapter.rest)
+  const one = storyOfOneCommit(plan)
+  const steps = (told ? plan.steps.steps : []).map((step, index): ContentsStep => {
+    const chapter = chapters[index]!
+    const head = headOf(step)
+    const story = step.concern !== null ? undefined : head?.role === "noStory" ? undefined : storyOf(plan, head?.id)
+    const view = story === undefined ? null : presentStory(story)
+    const toldHere = one === null || step.concern === null ? null : presentStory(one, block => one.toldIn[block] === index)
+    return {
+      id: step.id,
+      number: chapter.number,
+      title: chapter.label,
+      lead: view?.lead == null ? null : { story: view, block: view.lead },
+      facts: presentStepFacts(step, plan),
+      lookClosely: view !== null ? lookCloselyOf(view) : toldHere === null ? [] : lookCloselyOf(toldHere),
+    }
+  })
+  const since = plan.interdiff === null ? null : formatSinceReview(plan.interdiff)
+  const contract: { key: string; path: string; kind: string; entries: ContractFile["entries"][number][] }[] = []
+  plan.brief.contract.forEach((entry, index) => {
+    const entryView = {
+      key: `${entry.unit}:${entry.block ?? "file"}:${index}`,
+      heading: entry.heading,
+      paragraphs: entry.newSpec !== null ? [entry.newSpec.description ?? `A new spec of ${entry.newSpec.rules} rules`] : entry.deleted ? ["Deleted"] : entry.added,
+      removed: entry.removed,
+      provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}`,
+    }
+    const last = contract.at(-1)
+    if (last?.path === entry.path) {
+      last.entries.push(entryView)
+    } else {
+      contract.push({ key: entryView.key, path: entry.path, kind: CONTRACT_WORDS[entry.kind], entries: [entryView] })
+    }
+  })
+  return {
+    issue: plan.brief.issue,
+    name: plan.branch ?? `${short(plan.base)}..${short(plan.head)}`,
+    // without a step of a task the diffs have no opening: the whole story is told here
+    untold: one === null ? null : { subject: formatStepTitle(one.subject, plan.brief.issue), story: presentStory(one, block => !told || (one.toldIn[block] ?? null) === null) },
+    contract,
+    steps,
+    source:
+      !told || plan.steps.source.kind === "commits"
+        ? null
+        : plan.steps.source.reason === "oneCommit"
+          ? "One commit: the steps are its tasks"
+          : "The commits tell no story: the steps are the tasks of the range",
+    facts: told ? null : rangeFacts(plan),
+    breakage: presentBreakage(plan.api, pending),
+    since:
+      since === null || plan.interdiff === null
+        ? null
+        : {
+            summary: `Since your review: ${since}`,
+            rewritten: plan.interdiff.commits
+              .filter(commit => commit.state === "rewritten" && commit.changes !== null)
+              .map((commit, index) => ({
+                key: `${commit.id ?? index}`,
+                text: `${formatPairState(commit.state)} ${commit.subject}: ${formatRewrittenChanges(commit.changes!)}`,
+                title: commit.subject,
+              })),
+          },
+    indexNote: plan.indexNote === null ? null : `No usages: ${plan.indexNote}`,
+  }
+}
+
+/** The facts of every step of `plan` as one: of a range whose contents list no step; null without a fact */
+function rangeFacts(plan: ReviewPlan): StepFacts | null {
+  const all = plan.steps.steps.map(step => presentStepFacts(step, plan))
+  const lines = all.flatMap(facts => (facts.line === null ? [] : [facts.line]))
+  const facts = {
+    line: lines.length === 0 ? null : lines.join(" · "),
+    newApi: all.flatMap(it => it.newApi),
+    moduleLinks: all.flatMap(it => it.moduleLinks),
+    unproven: null,
+  }
+  return facts.line === null && facts.newApi.length === 0 && facts.moduleLinks.length === 0 ? null : facts
+}
+
+/** A commit of a step after the one that starts it, in its opening */
+export interface OpeningCommit {
+  readonly id: string
+  /** Its subject without the issue key */
+  readonly title: string
+  /** Its story, which its disclosure opens; null for a commit of no story */
+  readonly story: StoryView | null
+}
+
+/** The opening of a step above the card of its first section, worded */
+export interface OpeningView {
+  readonly id: string
+  /** "Step 2" */
+  readonly number: string
+  /** Its full title, which wraps */
+  readonly title: string
+  /** Of a step of a concern: what joins its parts ("Joined by the identifiers …") */
+  readonly evidence: string | null
+  /** The story it tells: the body of the commit that starts it, of a concern of one commit the blocks told in it */
+  readonly story: StoryView | null
+  /** The commits that follow it up, each a disclosure of its story */
+  readonly followUps: readonly OpeningCommit[]
+  /** The commits of no story whose lines are mostly in it */
+  readonly withoutStory: readonly OpeningCommit[]
+  readonly facts: StepFacts
+}
+
+/** The opening of each step of `plan` by its id (`OpeningView`) */
+export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief" | "api" | "links">): Map<string, OpeningView> {
+  const chapters = presentChapters(plan)
+  const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
+  const one = storyOfOneCommit(plan)
+  const commitOf = (id: string, subject: string, withStory: boolean): OpeningCommit => {
+    const story = withStory ? storyOf(plan, id) : undefined
+    return { id, title: formatStepTitle(subject, plan.brief.issue), story: story === undefined ? null : presentStory(story) }
+  }
+  return new Map(
+    plan.steps.steps.map((step, index): [string, OpeningView] => {
+      const chapter = chapters[index]!
+      const concern = step.concern === null ? undefined : concerns.get(step.concern)
+      const head = concern === undefined ? headOf(step) : undefined
+      const starts = head?.role === "starts" ? head : undefined
+      const story =
+        concern !== undefined
+          ? one === null
+            ? null
+            : presentStory(one, block => one.toldIn[block] === index)
+          : starts === undefined
+            ? null
+            : commitOf(starts.id, starts.subject, true).story
+      const rest = concern === undefined ? step.commits.filter(commit => commit !== starts) : []
+      return [
+        step.id,
+        {
+          id: step.id,
+          number: formatStepNumber(chapter.number),
+          title: chapter.label,
+          evidence: concern === undefined ? null : formatConcernEvidence(concern.evidence),
+          story: story === null || (story.lead === null && story.shown.length === 0 && story.folded.length === 0) ? null : story,
+          followUps: rest.filter(commit => commit.role === "followsUp").map(commit => commitOf(commit.id, commit.subject, true)),
+          withoutStory: rest.filter(commit => commit.role === "noStory").map(commit => commitOf(commit.id, commit.subject, false)),
+          facts: presentStepFacts(step, plan),
+        },
+      ]
+    }),
+  )
+}

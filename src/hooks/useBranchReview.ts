@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useFileOwners } from "@/hooks/useFileOwners"
 import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { useReviewPlan } from "@/hooks/useReviewPlan"
-import type { ReviewSegment, CommitFile, ReviewSubject } from "@/lib/bindings"
+import type { ReviewSegment, CommitFile, Interdiff, ReviewSubject } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
@@ -54,7 +54,7 @@ export interface BranchReviewSource {
   readonly kept?: KeptReview
   /**
    * The review plan is on for the repository (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md): Mark
-   * Reviewed, "Since Your Review", the Review Summary card, the badges of the files and their Mechanical group; off, the
+   * Reviewed, "Since Your Review", the overview of the plan, the badges of the files and their Mechanical group; off, the
    * review is as it is without them
    */
   readonly reviewExperimental?: boolean
@@ -125,11 +125,11 @@ export interface BranchReviewModel {
     /** "Commit 1 / 3 · File 1 / 2" */
     readonly position: string
     /**
-     * The review plan of the part, with the flag on; null with it off. Its interdiff only when the part is one branch:
-     * the reviewed pair is on the base of that branch alone
+     * The review plan of the part, of a commit shown alone its own, with the flag on; null with it off. The interdiff of
+     * the part only when the part is one branch: the reviewed pair is on the base of that branch alone
      */
     readonly plan: ReviewPlanState | null
-    /** "Since Your Review" is shown: the card heads a commit of it too, with what its rewrite changed */
+    /** "Since Your Review" is shown: the overview of a commit of it says what changed since the review too */
     readonly sinceShown: boolean
     /**
      * The facts of the plan for the tree of the files (the badges, the Mechanical group), while the shown scope is the
@@ -316,14 +316,9 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
       owners,
       target: target.name,
       position: formatReviewPosition({ file: position, ...rangePosition(items, selected) }),
-      // the card of a commit is its own plan; under Since Your Review the plan of the part, which says what is new
-      plan: !experimental
-        ? null
-        : commitId !== null && !sinceShown
-          ? shownCommitPlan
-          : shownPlan.plan === null || shownPlan.plan.interdiff === interdiff
-            ? shownPlan
-            : { ...shownPlan, plan: { ...shownPlan.plan, interdiff } },
+      // the document of a commit shown alone is of its own plan, its story, its steps and its facts; under Since Your
+      // Review with what is new of the part (its interdiff)
+      plan: !experimental ? null : commitId === null ? withInterdiff(shownPlan, interdiff) : sinceShown ? withInterdiff(shownCommitPlan, interdiff) : shownCommitPlan,
       sinceShown,
       reviewFacts: !experimental ? null : commitId !== null ? planFacts(shownCommitPlan) : selected === ALL_CHANGES || selected === SINCE_REVIEW ? planFacts(shownPlan) : null,
       markReviewed:
@@ -356,6 +351,11 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
     stack: view === null ? null : { segments: view.segments, range: view.range },
     reading: holding,
   }
+}
+
+/** `state` with the interdiff of the part: what changed since the review */
+function withInterdiff(state: ReviewPlanState, interdiff: Interdiff | null): ReviewPlanState {
+  return state.plan === null || state.plan.interdiff === interdiff ? state : { ...state, plan: { ...state.plan, interdiff } }
 }
 
 /** The inputs of a review that was ready: the window keeps showing it while the next one is read */
