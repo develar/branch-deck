@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 13` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 14` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -16,7 +16,9 @@
 //! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`, version 11 the `api`
 //! and `test` of a unit in place of its `public`, version 12 the `still_bound` and `by_name` usages, and `unbroken` in
 //! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
-//! `unnamed`
+//! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code
+//! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, `toldIn`) in place
+//! of the `body` of each commit of a step, and the `newApi` and `moduleLinks` of a step
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -41,7 +43,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 13;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 14;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -149,8 +151,14 @@ pub struct ReviewPlanOutput {
   /// concern. Each step shows parts of the units (`stops`: `unit`, `path`, `blocks`; a declaration it adds or changes
   /// the form of first, the stops that `uses` it right after; `also` the other steps that changed its lines) and the
   /// tests accio finds among the callers of its code (`tests`: `answered`, `reached` with each test's `unit` when the
-  /// range adds or changes it, `unreached` with `within` when the walk stopped at the depth). `coverage`: every block of
-  /// the diff in one stop, else in a mechanical unit
+  /// range adds or changes it, `unreached` with `within` when the walk stopped at the depth), the public declarations it
+  /// adds (`newApi`, by the key of their `api` entry) and the links between modules it adds (`moduleLinks`, by their
+  /// place in `links`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
+  /// of each commit with a body once, oldest first: its `body` by blocks (paragraphs, lists, preformatted text,
+  /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and the blocks `shown` before the
+  /// fold; its `mentions` of code, each with its block, its line or item, its UTF-16 range and its `target` (a `unit`
+  /// with its path, side, line and step, or a `file` with its step), `null` for a name in backticks that resolves
+  /// nothing; `toldIn`, of the concerns of one commit, the step that tells each block (`null` before the steps)
   pub steps: ReviewSteps,
   /// The issue key the commits name (`issue`) and the prose the change adds, removes or changes (`contract`): the rules
   /// of the specs with the tests their `[@test]` lines name (`provenBy`), the records of decisions, the guides of
@@ -426,7 +434,12 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     let scope = interdiff.scope.iter().flat_map(|scope| [&scope.base, &scope.head]);
     [&interdiff.reviewed_base, &interdiff.reviewed_tip].into_iter().chain(commits).chain(scope)
   });
-  let step_ids = plan.steps.steps.iter().flat_map(|step| step.commits.iter().map(|commit| &commit.id));
+  let step_ids = plan
+    .steps
+    .steps
+    .iter()
+    .flat_map(|step| step.commits.iter().map(|commit| &commit.id))
+    .chain(plan.steps.commits.iter().map(|commit| &commit.id));
   let short = context.short_ids([&plan.base, &plan.head].into_iter().chain(interdiff_ids).chain(step_ids).map(String::as_str));
   let mut steps = plan.steps;
   for step in &mut steps.steps {
@@ -436,6 +449,9 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     if step.concern.is_none() && step.id != "no-story" {
       step.id = short.get(&step.id).to_string();
     }
+  }
+  for commit in &mut steps.commits {
+    commit.id = short.get(&commit.id).to_string();
   }
   Ok(ReviewPlanOutput {
     schema: ReviewPlanSchemaVersion,

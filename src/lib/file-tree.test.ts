@@ -350,7 +350,7 @@ describe("the concerns in the tree of a review", () => {
   // the commits of the range, newest first, with full ids; the plan names them short
   const item = (id: string, subject: string): ReviewCommitItem => ({ kind: "commit", key: id, commit: { id, subject } as ReviewCommit })
   const items = [item("d4d4d4d4", "bump the lock"), item("c3c3c3c3", "tidy App"), item("b2b2b2b2", "drop grep"), item("a1a1a1a1", "drop the proxy")]
-  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, body: "", role })
+  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, role })
   const steps = [
     { id: "p", commits: [commitOf("a1a1a1a1", "starts"), commitOf("b2b2b2b2", "noStory")] },
     { id: "g", commits: [commitOf("b2b2b2b2", "starts")] },

@@ -804,7 +804,7 @@ fn config_code(line: &str) -> Vec<&str> {
 
 /// Whether a run of a sentence is a name rather than a word: it holds `_`, `-` or a digit, or a capital past its first
 /// letter (`sessions-window-show`, `toolWindowId`, `v2`)
-fn compound(run: &str) -> bool {
+pub(crate) fn compound(run: &str) -> bool {
   let run = run.trim_matches(['_', '-']);
   run.contains(['_', '-']) || run.contains(|c: char| c.is_ascii_digit()) || run.chars().skip(1).any(|c| c.is_ascii_uppercase())
 }

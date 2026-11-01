@@ -22,12 +22,14 @@
 //!   process), each a test of the range or one the change did not touch, and the declarations none reaches.
 //! - **Coverage**: every block of the range in one stop, else in a mechanical unit (`StepCoverage`).
 
+use crate::api::ApiChange;
 use crate::brief::ContractEntry;
 use crate::concerns::{Concern, ConcernName, EvidenceKind, names_word};
 use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
 use crate::links::FileLink;
 use crate::pair::{PairBlocks, block_of};
+use crate::story::{StoryCommit, add_step_facts, story_commits};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice};
 use anyhow::Result;
 use code_symbols::language::language_of;
@@ -63,6 +65,9 @@ pub struct ReviewSteps {
   /// In the order of the story: the commits that start them, oldest first; "Changes without a story" last
   pub steps: Vec<ReviewStep>,
   pub coverage: StepCoverage,
+  /// Every commit of the range whose body has a block, once, oldest first: its body by the grammar of a body, its code
+  /// names resolved to the units and the files (`story`)
+  pub commits: Vec<StoryCommit>,
   /// The tests of the range: the lines of each at the head and its unit, for `add_tests`
   #[serde(skip)]
   pub range_tests: Vec<RangeTest>,
@@ -131,12 +136,36 @@ pub struct ReviewStep {
   /// stops change the most lines of it holds its row, the first of equal ones
   pub elsewhere: Vec<String>,
   pub tests: StepTests,
+  /// The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
+  /// first step whose stops show it
+  pub new_api: Vec<String>,
+  /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
+  /// step whose stop shows the first use, each in one step
+  pub module_links: Vec<u32>,
   /// The declarations of its code, which `add_tests` asks the tests of
   #[serde(skip)]
   pub code: Vec<StepCode>,
 }
 
-/// A commit of a step
+impl ReviewStep {
+  /// A step of `id` that shows nothing yet
+  fn new(id: String) -> Self {
+    Self {
+      id,
+      commits: Vec::new(),
+      concern: None,
+      stops: Vec::new(),
+      paths: Vec::new(),
+      elsewhere: Vec::new(),
+      tests: StepTests::default(),
+      new_api: Vec::new(),
+      module_links: Vec::new(),
+      code: Vec::new(),
+    }
+  }
+}
+
+/// A commit of a step; its body is its `StoryCommit` of `ReviewSteps::commits`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -145,8 +174,6 @@ pub struct StepCommit {
   pub id: String,
   /// Its subject without the `(prefix)` that groups it
   pub subject: String,
-  /// The message after its subject, trimmed; empty for a commit of no story
-  pub body: String,
   pub role: CommitRole,
 }
 
@@ -275,6 +302,8 @@ pub(crate) struct StepsInput<'a> {
   pub links: &'a [FileLink],
   /// The prose of the brief: the tests the `[@test]` lines of a spec name prove the step that changes it
   pub contract: &'a [ContractEntry],
+  /// The API of the plan, before its usages: the new API of each step (`story::add_step_facts`)
+  pub api: &'a [ApiChange],
 }
 
 /// Whether a commit message tells a step: a body of `MIN_BODY_WORDS` words or more after its subject, its trailers
@@ -485,11 +514,14 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
   }
   mark_concerns(input, &mut steps);
   mark_paths(input, &mut steps);
+  add_step_facts(input, &mut steps);
   let coverage = coverage(input, &steps);
+  let commits = story_commits(input, &steps, source == Some(ConcernsReason::OneCommit));
   ReviewSteps {
     source: source.map_or(StepSource::Commits, |reason| StepSource::Concerns { reason }),
     steps,
     coverage,
+    commits,
     range_tests: range_tests(input, &file_of),
   }
 }
@@ -663,16 +695,7 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
     .iter()
     .map(|&head| input.commits[head].0.clone())
     .chain(std::iter::once("no-story".to_string()))
-    .map(|id| ReviewStep {
-      id,
-      commits: Vec::new(),
-      concern: None,
-      stops: Vec::new(),
-      paths: Vec::new(),
-      elsewhere: Vec::new(),
-      tests: StepTests::default(),
-      code: Vec::new(),
-    })
+    .map(ReviewStep::new)
     .collect();
   for (commit, &step) in step_of_commit.iter().enumerate() {
     let role = match head_of[commit] {
@@ -705,14 +728,13 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
   steps
 }
 
-/// A commit of a step, its message cut into its subject and its body
+/// A commit of a step: its id and its subject
 fn step_commit(input: &StepsInput<'_>, commit: usize, role: CommitRole) -> StepCommit {
   let (id, message) = &input.commits[commit];
-  let (subject, body) = split_message(message);
+  let (subject, _) = split_message(message);
   StepCommit {
     id: id.clone(),
     subject: stripped_subject(subject).trim().to_string(),
-    body: if role == CommitRole::NoStory { String::new() } else { body.to_string() },
     role,
   }
 }
@@ -778,10 +800,7 @@ fn concern_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)])
             concern: None,
           })
           .collect(),
-        paths: Vec::new(),
-        elsewhere: Vec::new(),
-        tests: StepTests::default(),
-        code: Vec::new(),
+        ..ReviewStep::new(concern.id.clone())
       }
     })
     .collect()

@@ -700,7 +700,7 @@ of 3 or more files that get the same edit. The reviewed commits are those of `ba
 `--since-reviewed` only the added and rewritten ones. Without accio or its index, `usages` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
-tree order inside a cycle and between files with no edge (`"schema": 13` since the `reached` and `unreached` tests of a step from accio, 12 `still_bound`, `by_name` and `unbroken` in place of `updated` of the usages, 11 the `api` and `test` of a unit in place of its `public`, 10 the `steps` of the story and
+tree order inside a cycle and between files with no edge (`"schema": 14` since the story of each commit once, `steps.commits` with its body by blocks and its code names resolved to the units (`target: null` for a name in backticks that resolves nothing), and the `newApi` and `moduleLinks` of a step, 13 the `reached` and `unreached` tests of a step from accio, 12 `still_bound`, `by_name` and `unbroken` in place of `updated` of the usages, 11 the `api` and `test` of a unit in place of its `public`, 10 the `steps` of the story and
 the `brief` ([Review Tour](../../spec/branch/review-tour.spec.md)), 9 the name `file` of a concern, 8 the
 main row of a file of several concerns, 7 the concerns, 6 a deletion as real
 work, 5 the generated files). `units` (since `"schema": 4`) cuts the diff of the review

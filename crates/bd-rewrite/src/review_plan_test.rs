@@ -23,7 +23,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(13), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&json!(14), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -87,8 +87,9 @@ fn a_branch_never_marked_and_a_range_have_no_interdiff() {
 }
 
 /// A range that changes the parameters of a public Kotlin function and adds an untested file: `api` with the forms
-/// before and after, the facts per file, the steps of its story with their coverage and its brief, and why there are no
-/// usages (accio missing here, or without an index of the test repository)
+/// before and after, the facts per file, the steps of its story with their coverage and its brief, the story of its
+/// commit with the code names its body resolves and the one it does not, and why there are no usages (accio missing
+/// here, or without an index of the test repository)
 #[test_log::test]
 fn prints_the_api_and_the_files_of_a_range() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -98,7 +99,11 @@ fn prints_the_api_and_the_files_of_a_range() {
   let base = git(&repo, &["rev-parse", "HEAD"]);
   write(&repo, "src/a/Api.kt", "package a\n\nfun open(path: String, mode: Int): Int = mode\n");
   write(&repo, "src/a/Session.kt", "package a\n\ninternal fun session(): Int = 1\n");
-  commit_all(&repo, "Change api", 1_700_000_200);
+  commit_all(
+    &repo,
+    "Change api\n\nThe `open()` of Api.kt takes a mode, and Session.kt opens a session; `Nowhere` changes nothing.\n\nCo-Authored-By: Jane <jane@example.com>",
+    1_700_000_200,
+  );
 
   let (exit_code, output) = run_in(&repo, &["review-plan", &format!("{base}..HEAD")]);
   assert_eq!(exit_code, 0, "{output}");
@@ -154,6 +159,31 @@ fn prints_the_api_and_the_files_of_a_range() {
     ),
     "{output}"
   );
+  // the story of the commit once, its id as short as the others: the names its body resolves, and in backticks the
+  // one it does not (`target: null`); its blocks before the steps, which name them in no section
+  let story = &output["steps"]["commits"];
+  assert_eq!(
+    (&story[0]["id"], &story[0]["subject"], &story[0]["body"]["trailers"], &story[0]["toldIn"]),
+    (&output["head"], &json!("Change api"), &json!(["Co-Authored-By: Jane <jane@example.com>"]), &json!([null])),
+    "{output}"
+  );
+  let mentions: Vec<(&Value, &Value, &Value)> = story[0]["mentions"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|mention| (&mention["text"], &mention["target"]["kind"], &mention["target"]["path"]))
+    .collect();
+  assert_eq!(
+    mentions,
+    [
+      (&json!("open"), &json!("unit"), &json!("src/a/Api.kt")),
+      (&json!("Api.kt"), &json!("file"), &json!("src/a/Api.kt")),
+      (&json!("Session.kt"), &json!("file"), &json!("src/a/Session.kt")),
+      (&json!("Nowhere"), &Value::Null, &Value::Null),
+    ],
+    "{output}"
+  );
+  assert_eq!(story[0]["mentions"][3]["target"], Value::Null, "{output}");
   // no accio on the machine, or accio's reason under `--no-build`: the repository of the test has no index
   assert!(
     matches!(output["index_note"].as_str(), Some("accio is not installed" | "no index of this repository")),

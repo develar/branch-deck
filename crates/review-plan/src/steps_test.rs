@@ -4,6 +4,7 @@ use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::steps::{CommitRole, ConcernsReason, StepSource, TEST_DEPTH, tells_a_story};
 use crate::test_support::{plan_of, plan_of_range, range};
+use domain_types::commit_body::CommitBodyBlock;
 use file_diffs::accio::{ReachingTest, TestReach, TestStep, WalkCut};
 use pretty_assertions::assert_eq;
 use test_log::test;
@@ -74,9 +75,24 @@ fn the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote()
       (commits(&[("Other counts twice", CommitRole::Starts)]), names(&["other"])),
     ]
   );
+  // the body of each commit once, in the story of the commits
+  let bodies: Vec<(&str, &[CommitBodyBlock])> = plan.steps.commits.iter().map(|commit| (commit.subject.as_str(), commit.body.blocks.as_slice())).collect();
   assert_eq!(
-    plan.steps.steps[0].commits[0].body,
-    "The open of a file names how it opens, so a caller can ask for a read alone."
+    bodies,
+    [
+      (
+        "Open takes a mode",
+        &[CommitBodyBlock::Paragraph {
+          lines: vec!["The open of a file names how it opens, so a caller can ask for a read alone.".to_string()]
+        }][..]
+      ),
+      (
+        "Other counts twice",
+        &[CommitBodyBlock::Paragraph {
+          lines: vec!["The other file counts every item twice, as the report expects.".to_string()]
+        }][..]
+      ),
+    ]
   );
   let coverage = plan.steps.coverage;
   assert_eq!((coverage.missing, coverage.twice, coverage.in_stops), (0, 0, 2), "{coverage:?}");
@@ -112,7 +128,9 @@ fn a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines
     ]
   );
   assert_eq!(plan.steps.steps[1].id, "no-story");
-  assert_eq!(plan.steps.steps[1].commits[0].body, "");
+  // a commit without a body has no story
+  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.subject.as_str()).collect();
+  assert_eq!(told, ["Open takes a mode", "Open names its flags again"]);
 }
 
 /// Commits without a body make the concerns the steps, and so does a range of one commit

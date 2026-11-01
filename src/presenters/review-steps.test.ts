@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, TestRef } from "@/lib/bindings"
+import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit, StoryCommit, TestRef } from "@/lib/bindings"
 import {
-  bodyParagraphs,
   formatCommitRole,
   formatStepDivider,
   formatStepNumber,
@@ -14,8 +13,8 @@ import {
 } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 
-function commit(subject: string, body: string, role: StepCommit["role"] = "starts"): StepCommit {
-  return { id: subject, subject, body, role }
+function commit(subject: string, role: StepCommit["role"] = "starts"): StepCommit {
+  return { id: subject, subject, role }
 }
 
 function step(id: string, commits: StepCommit[], stops: [string, string][], tests: Partial<ReviewStep["tests"]> = {}): ReviewStep {
@@ -27,12 +26,20 @@ function step(id: string, commits: StepCommit[], stops: [string, string][], test
     paths: [...new Set(stops.map(([, path]) => path))],
     elsewhere: [],
     tests: { answered: true, reached: [], unreached: [], scenarios: [], ...tests },
+    newApi: [],
+    moduleLinks: [],
   }
 }
 
-function plan(steps: ReviewStep[], issue: string | null = null, concerns: Concern[] = []): Pick<ReviewPlan, "steps" | "concerns" | "brief"> {
+/** The story of the commit of `subject`, a paragraph per text */
+function story(subject: string, ...paragraphs: string[]): StoryCommit {
+  const blocks = paragraphs.map(text => ({ type: "paragraph" as const, lines: [text] }))
+  return { id: subject, subject, body: { blocks, trailers: [], lead: true, shown: blocks.length }, mentions: [], toldIn: [] }
+}
+
+function plan(steps: ReviewStep[], issue: string | null = null, concerns: Concern[] = [], commits: StoryCommit[] = []): Pick<ReviewPlan, "steps" | "concerns" | "brief"> {
   return {
-    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 } },
+    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits },
     concerns,
     brief: { issue, contract: [] },
   }
@@ -44,7 +51,7 @@ describe("review steps", () => {
     expect(formatStepTitle("IJAI-1: the open asks", "IJAI-1")).toBe("The open asks")
     expect(formatStepTitle("the open asks", null)).toBe("The open asks")
     const chapters = presentChapters(
-      plan([step("a", [commit("IJAI-1 the rule", "Why.")], [["u:rule", "src/Rule.kt"]]), step("no-story", [commit("wip", "", "noStory")], [["u:wip", "src/Wip.kt"]])], "IJAI-1"),
+      plan([step("a", [commit("IJAI-1 the rule")], [["u:rule", "src/Rule.kt"]]), step("no-story", [commit("wip", "noStory")], [["u:wip", "src/Wip.kt"]])], "IJAI-1"),
     )
     expect(chapters.map(chapter => [chapter.number, chapter.label, chapter.heading, chapter.reference, chapter.parts.length])).toEqual([
       [1, "The rule", "1 · The rule", "step 1", 1],
@@ -68,7 +75,7 @@ describe("review steps", () => {
       evidence: [{ kind: "token", detail: "ij-proxy", joins: 2 }],
       fingerprint: "f",
     }
-    const of = plan([{ ...step("c", [commit("one", "")], [["u:a", "a.json"]]), concern: "c" }], null, [concern])
+    const of = plan([{ ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c" }], null, [concern])
     const [chapter] = presentChapters(of)
     expect([chapter!.label, chapter!.heading, chapter!.hover, chapter!.elsewhere, formatStepDivider(chapter!)]).toEqual([
       "proxy",
@@ -84,15 +91,15 @@ describe("review steps", () => {
       plan([
         step(
           "a",
-          [commit("the rule", "Why.")],
+          [commit("the rule")],
           [
             ["u:rule", "src/Rule.kt"],
             ["u:rule2", "src/Rule.kt"],
             ["u:style", "ui/style.css"],
           ],
         ),
-        step("b", [commit("the paint", "Why.")], [["u:paint", "src/Frame.kt"]]),
-        step("c", [commit("the look", "Why.")], [["u:look", "ui/look.css"]]),
+        step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]]),
+        step("c", [commit("the look")], [["u:look", "ui/look.css"]]),
       ]),
     )
     const marks = presentOwnerMarks(chapters, new Set(["ui/style.css", "ui/look.css", "src/Rule.kt"]))
@@ -108,7 +115,7 @@ describe("review steps", () => {
     // the range lists full ids, newest first; the plan names them as its input did, maybe short
     const item = (id: string, subject: string) => ({ key: `key-${id}`, commit: { id, subject } })
     const items = [item("e5e5e5e5", "unrelated"), item("d4d4d4d4", "wip"), item("c3c3c3c3", "the rule again"), item("b2b2b2b2", "the paint"), item("a1a1a1a1", "the rule")]
-    const short = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, body: "", role })
+    const short = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, role })
     const told = placeCommits(
       [step("a1a1", [short("a1a1a1a1", "starts"), short("c3c3c3c3", "followsUp"), short("d4d4d4d4", "noStory")], []), step("b2b2", [short("b2b2b2b2", "starts")], [])],
       items,
@@ -154,25 +161,25 @@ describe("review steps", () => {
     const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
     const unreached = (name: string, within: number | null = null) => ({ name, within })
     const brief = presentBrief(
-      plan([
-        step(
-          "a",
-          [commit("the rule", "One rule decides.\n\nThe product decision is\nto keep the layout."), commit("the rule again", "Renamed.", "followsUp")],
-          [["u:rule", "src/Rule.kt"]],
-          {
+      plan(
+        [
+          step("a", [commit("the rule"), commit("the rule again", "followsUp")], [["u:rule", "src/Rule.kt"]], {
             reached: [
               { name: "allowed", tests: [test("allows", "u:test"), test("keeps", null, 9)] },
               { name: "focus", tests: [test("focuses", null, 12), test("keeps", null, 9)] },
             ],
             unreached: [unreached("show")],
-          },
-        ),
-        step("b", [commit("the paint", "It paints first.")], [["u:paint", "src/Frame.kt"]], {
-          unreached: ["paint", "create", "run", "open"].map(name => unreached(name)).concat(unreached("close", 3)),
-        }),
-        step("c", [commit("the story", "It restarts.")], [["u:spec", "spec/a.spec.md"]], { scenarios: ["tests/restart.json"], unreached: [unreached("load")] }),
-        step("d", [commit("the try", "It tried.")], []),
-      ]),
+          }),
+          step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]], {
+            unreached: ["paint", "create", "run", "open"].map(name => unreached(name)).concat(unreached("close", 3)),
+          }),
+          step("c", [commit("the story")], [["u:spec", "spec/a.spec.md"]], { scenarios: ["tests/restart.json"], unreached: [unreached("load")] }),
+          step("d", [commit("the try")], []),
+        ],
+        null,
+        [],
+        [story("the rule", "One rule decides.", "The product decision is to keep the layout."), story("the rule again", "Renamed.")],
+      ),
     )
     expect(brief.steps.map(it => [it.title, it.proven, it.covered, it.unreached, it.unproven, it.scenarios, it.landsNothing])).toEqual([
       ["The rule", "Tests of this change reach allowed", "2 tests it did not touch reach allowed, focus", "No test reaches show", null, null, false],
@@ -183,13 +190,15 @@ describe("review steps", () => {
     expect(brief.steps[0]!.why).toBe("One rule decides.")
     expect(brief.steps[0]!.more).toEqual(["The product decision is to keep the layout."])
     expect(brief.steps[0]!.rounds).toEqual(["Follows up: The rule again"])
-    expect(bodyParagraphs("a\nb\n\n\nc")).toEqual(["a b", "c"])
+    // a body of a few words is the story of its commit, but no why of the step it heads
+    const fewWords = presentBrief(plan([step("w", [commit("the wip", "noStory")], [["u:wip", "src/Wip.kt"]])], null, [], [story("the wip", "Fixes it.")]))
+    expect(fewWords.steps.map(it => [it.title, it.why])).toEqual([["The wip", null]])
     // the only step what no evidence joined: no step to tell
     const rest: Concern = { id: "r", name: { source: "rest" }, parts: [], paths: [], elsewhere: [], evidence: [], fingerprint: "r" }
-    const restStep = { ...step("r", [commit("fix", "", "noStory")], [["u:a", "a.kt"]]), concern: "r" }
+    const restStep = { ...step("r", [commit("fix", "noStory")], [["u:a", "a.kt"]]), concern: "r" }
     const untold = presentBrief({
       ...plan([restStep], null, [rest]),
-      steps: { source: { kind: "concerns", reason: "noStory" }, steps: [restStep], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 } },
+      steps: { source: { kind: "concerns", reason: "noStory" }, steps: [restStep], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     })
     expect([untold.steps, untold.source]).toEqual([[], null])
   })
@@ -210,7 +219,7 @@ describe("review steps", () => {
     })
     const units = [unit("u:hooks", { kind: "removed" }, "hooks", []), unit("u:allowed", { kind: "added" }, "allowed", [block])]
     const chapters = presentChapters(
-      plan([step("a", [commit("drop the hooks", "Why.")], [["u:hooks", "src/Manager.kt"]]), step("b", [commit("the rule", "Why.")], [["u:allowed", "src/Manager.kt"]])]),
+      plan([step("a", [commit("drop the hooks")], [["u:hooks", "src/Manager.kt"]]), step("b", [commit("the rule")], [["u:allowed", "src/Manager.kt"]])]),
     )
     const sections = presentNarrative(units, [{ path: "src/Manager.kt", blocks: [block] }], [], [], chapters)
     expect(sections.map(section => [section.key, section.concernHeading, [...(section.units?.marks ?? [])], [...(section.units?.elsewhere ?? [])]])).toEqual([

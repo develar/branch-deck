@@ -334,7 +334,12 @@ fn a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no
   assert_eq!(big.shown, 1);
   // a body that opens with a section shows it whole however long it is, as it would its first block
   assert_eq!(commit_body(&format!("Why: {}", lines_of_prose(20))).shown, 2);
-  let summary = commit_body(&format!("## Summary\n\n{}\n\n{}\n\nThe fix:\n\n{}", lines_of_prose(10), lines_of_prose(10), lines_of_prose(1)));
+  let summary = commit_body(&format!(
+    "## Summary\n\n{}\n\n{}\n\nThe fix:\n\n{}",
+    lines_of_prose(10),
+    lines_of_prose(10),
+    lines_of_prose(1)
+  ));
   assert_eq!(summary.shown, 3);
   assert_eq!(summary.blocks[3], label("The fix"));
   // the tests in between cost nothing: the fix after them still shows

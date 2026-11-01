@@ -19,6 +19,8 @@
 //! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, else the concerns,
 //!   each with the parts of the units it shows and the tests that name its code
 //! - `brief`: the issue the commits name and the prose of the specs and the docs the change adds or changes
+//! - `story`: the body of each commit once, its code names resolved to the units and the files of the range, and the
+//!   new API and the new links between modules of each step
 //!
 //! The types of the plan: `ReviewPlanParams` names what is reviewed (`ReviewSubject`), `ReviewPlan` is the answer of
 //! `review_plan_core`, the one entry of `bd review-plan` and the app.
@@ -35,6 +37,7 @@ pub mod mark_reviewed;
 pub mod order;
 pub mod pair;
 pub mod steps;
+pub mod story;
 pub mod units;
 
 use crate::api::{ApiChange, ApiChangeKind, api_changes};
@@ -344,6 +347,7 @@ pub fn review_plan_of(
     texts: &texts,
     links: &links,
     contract: &brief.contract,
+    api: &api,
   });
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
@@ -443,6 +447,8 @@ mod mark_reviewed_test;
 mod order_test;
 #[cfg(test)]
 mod steps_test;
+#[cfg(test)]
+mod story_test;
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]

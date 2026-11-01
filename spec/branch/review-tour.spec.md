@@ -1,9 +1,10 @@
 ---
 name: Review Tour
-description: Requirements for the story of a review (experimental), what a reviewer who sees a change for the first time reads before any diff; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop.
+description: Requirements for the story of a review (experimental), what a reviewer who sees a change for the first time reads before any diff; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/steps.rs
+  - ../../crates/review-plan/src/story.rs
   - ../../crates/review-plan/src/brief.rs
   - ../../crates/review-plan/src/interdiff.rs
   - ../../crates/review-plan/src/lib.rs
@@ -79,7 +80,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   units only such commits wrote are the step `no-story`, last.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
 - The commits of a step must be the one that starts it, then those that follow it up, then those of no story, each
-  with its subject and its body.
+  with its subject; its body is told once, in the story of the commits ([The Story of a Commit](#the-story-of-a-commit)).
 - A mechanical part must follow the step of the commit that wrote it, at its end: the imports a step needs, the
   generated files of its sources.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_mechanical_change_follows_the_step_that_wrote_it`)
@@ -114,6 +115,51 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   that names no declaration proves it.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`)
 
+### The Story of a Commit
+- Every commit of the range whose body has a block must have its story once (`commits`, oldest first), also when
+  several steps list it: its id, its subject without the `(prefix)`, its body by the grammar of a body
+  ([Commit Row → Message body](../commit/commit-row.spec.md)), its code names (`mentions`) and, of the concerns of one
+  commit, where each block is told (`toldIn`). A commit of a step names no body of its own.
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue`)
+  [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`, `a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
+- A code name of a block that is no preformatted text must resolve to a unit or a changed file of the range, with no
+  git process and no query of the index: a span in backticks that names code (a path, a file name, identifiers joined
+  by `.`, `::` or `#`; a trailing `(…)` or `<…>` and a leading `@` aside), and a bare compound name (`toolWindowId`,
+  `snake_case`), `Owner.member` with a capitalised owner, a path or a file name outside backticks. A plain lowercase
+  word is no name, in backticks neither, unless its call (`open()`); a span with a space, its arguments aside
+  (`open(path, mode)`), is a command, no name.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+- A path must resolve to the changed path itself, else the one it ends on at a `/`, else the one changed file of that
+  name (a `:171` after it aside); two files of that name resolve nothing. A declaration must resolve by its segments:
+  the units of a declaration, and the declarations of a new or a deleted file by its summary (its unit is the file,
+  the line that of the name, of the old side for a deleted file), whose name is the last one, with an owner those whose key ends with all of them (a leading crate or
+  package the key does not hold aside, down to the owner and the name; `crate`, `self`, `super`, `Self` aside): JVM
+  `Owner.member`, Rust `module::Type::member`, TypeScript `Type#member`. One key resolves (overloads are one name); of
+  two keys or more, the one among the stops of the commit's own steps, of two there the one that lands (not a
+  removal), else nothing. Only a name in backticks: a capitalised name no declaration of the range has resolves to the
+  file of the units declared inside it, when they are in one (a type whose members changed); a capitalised or compound
+  one to the one changed file named for it, its case, `-` and `_` aside (`Session` of `Session.kt`,
+  `useMeasuredHeights` of `use-measured-heights.ts`). A bare word resolves to a declaration or a path alone, so a
+  product name in prose (`YouTrack`, `Node.js`) names no file.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_name_two_declarations_share_resolves_to_the_one_of_its_step_else_to_nothing`, `a_name_resolves_by_the_separators_of_its_language`)
+- A mention must carry its block, the line of its paragraph or the item of its list (0 of a heading or a label), its
+  UTF-16 range in it, the backticks included, its text, and its `target`: a `unit` with its path, its side (`old`
+  for a removed declaration), the line of its name and the step whose stops hold it, a step of the commit first; a
+  `file` with its step. A bare name is kept only when it resolves; a name in backticks that resolves nothing has
+  `target: null`, so the author sees what did not bind.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
+- Of the concerns of one commit, each labelled section (a label or a heading and its blocks up to the next one), else
+  each block, must be told in the step that holds the targets of most of its resolved mentions, the earliest of equal
+  ones (`toldIn`, by the place of the step); the lead and a part that names nothing are told before the steps
+  (`null`). A story of several commits keeps the order of its author: `toldIn` is empty.
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+- A step must list the public declarations it adds (`newApi`, the keys of the `added` entries of `api` whose
+  declaration or new file its stops show) and the links it adds between two modules (`moduleLinks`, by their place in
+  `links`, in the step whose stop shows the first use of the link, else the first step of the file that uses), each
+  in one step, the first that holds it.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_step_lists_the_new_api_and_the_new_links_between_modules_it_holds`)
+
 ### Coverage
 - Every block of the diff must be in one stop, else in a mechanical unit no stop shows; a file of no blocks counts as
   one, a file changed and changed back as none (`coverage`: `blocks`, `inStops`, `mechanical`, `missing`, `twice`).
@@ -134,8 +180,9 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`)
 
 ### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 13`), the ids of the commits of the steps as short as
-  the others, and run no git process for them.
+- `bd review-plan` must print `steps` and `brief` (`"schema": 14`), the ids of the commits of the steps and of the
+  story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
+  nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
 
@@ -216,7 +263,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   "steps": [
     {"id": "8fd70458",
      "commits": [{"id": "8fd70458", "subject": "IJAI-4673 the project open shows the Project view only when …",
-                  "body": "Three startup steps showed the Project view at each open: …", "role": "starts"}],
+                  "role": "starts"}],
      "concern": null,
      "stops": [
        {"unit": "declaration:…/ToolWindowManagerImpl.kt:…isShownOnStartupAllowed:id:String", "path": "…/ToolWindowManagerImpl.kt",
@@ -231,8 +278,20 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
                                       {"unit": null, "path": "…/DeferredToolWindowRegistrationTest.kt", "line": 186,
                                        "name": "the first-run policy activates the project view", "depth": 2,
                                        "via": ["keepingStoredLayout"]}]}],
-               "unreached": [{"name": "openProjectViewIfNeeded", "within": 3}], "scenarios": []}}],
-  "coverage": {"blocks": 76, "inStops": 76, "mechanical": 0, "missing": 0, "twice": 0}},
+               "unreached": [{"name": "openProjectViewIfNeeded", "within": 3}], "scenarios": []},
+     "newApi": [], "moduleLinks": []}],
+  "coverage": {"blocks": 76, "inStops": 76, "mechanical": 0, "missing": 0, "twice": 0},
+  "commits": [
+    {"id": "8fd70458", "subject": "IJAI-4673 the project open shows the Project view only when …",
+     "body": {"blocks": [{"type": "paragraph", "lines": ["Three startup steps showed the Project view at each open: …"]},
+                         {"type": "label", "text": "Tests", "kind": "verification", "runIn": false},
+                         {"type": "list", "ordered": false, "start": 1, "items": ["DeferredToolWindowRegistrationTest …"]}],
+              "trailers": ["Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"], "lead": true, "shown": 3},
+     "mentions": [{"block": 0, "item": 0, "start": 41, "end": 66, "text": "isShownOnStartupAllowed",
+                   "target": {"kind": "unit", "unit": "declaration:…/ToolWindowManagerImpl.kt:…isShownOnStartupAllowed:id:String",
+                              "path": "…/ToolWindowManagerImpl.kt", "side": "new", "line": 171, "step": 0}},
+                  {"block": 0, "item": 0, "start": 80, "end": 94, "text": "LayoutPolicy", "target": null}],
+     "toldIn": []}]},
 "brief": {
   "issue": "IJAI-4673",
   "contract": [{"kind": "spec", "unit": "other:plugins/air/spec/frame/agent-sessions-window.spec.md", "path": "…",

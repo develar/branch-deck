@@ -241,18 +241,11 @@ const CONTRACT_WORDS: Readonly<Record<ContractKind, string>> = {
   doc: "Doc",
 }
 
-/** The paragraphs of a commit body: a blank line ends one, its lines joined */
-export function bodyParagraphs(body: string): string[] {
-  return body
-    .split(/\n\s*\n/)
-    .map(paragraph =>
-      paragraph
-        .split("\n")
-        .map(line => line.trim())
-        .join(" ")
-        .trim(),
-    )
-    .filter(paragraph => paragraph.length > 0)
+/** The paragraphs of the body of a commit of the story, each its lines joined; none for a commit without a story, whose
+ * few words have a story of their own but tell no step */
+function storyParagraphs(plan: Pick<ReviewPlan, "steps">, commit: StepCommit | undefined): string[] {
+  const story = commit === undefined || commit.role === "noStory" ? undefined : plan.steps.commits.find(it => it.id === commit.id)
+  return (story?.body.blocks ?? []).flatMap(block => (block.type === "paragraph" ? [block.lines.join(" ")] : []))
 }
 
 /** The names of a list, the first `shown` of them and how many more: "run, create +2" */
@@ -272,7 +265,7 @@ export function presentBrief(plan: Pick<ReviewPlan, "steps" | "concerns" | "brie
   const told = chapters.some(chapter => !chapter.rest)
   const steps = (told ? plan.steps.steps : []).map((step, index): BriefStep => {
     const head = headOf(step)
-    const paragraphs = head === undefined ? [] : bodyParagraphs(head.body)
+    const paragraphs = storyParagraphs(plan, head)
     const rounds = step.commits
       .filter(commit => commit !== head)
       .map(commit => `${commit.role === "noStory" ? "Without a story" : "Follows up"}: ${formatStepTitle(commit.subject, plan.brief.issue)}`)

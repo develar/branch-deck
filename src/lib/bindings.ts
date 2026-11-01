@@ -4087,6 +4087,41 @@ export type MechanicalKind =
  */
 "generated";
 
+/**  A code name in a block of a body */
+export type Mention = {
+	/**  The block of `CommitBody::blocks` it is in */
+	block: number,
+	/**  The line of a paragraph, the item of a list; 0 for a heading or a label */
+	item: number,
+	/**  Its UTF-16 offsets in that line, the end excluded, the backticks included */
+	start: number,
+	end: number,
+	/**  The name as the body writes it, without the backticks, a trailing `(…)` and `<…>` */
+	text: string,
+	/**  What it names; `None` when it resolves nothing, only of a span in backticks */
+	target: MentionTarget | null,
+};
+
+/**  A side of the diff of a file */
+export type MentionSide = "old" | "new";
+
+/**  What a code name of a body names */
+export type MentionTarget = 
+/**  A declaration of the range */
+{ kind: "unit"; 
+/**  `ReviewUnit::id` */
+unit: string; path: string; 
+/**  The side its line is of: the old one for a removed declaration */
+side: MentionSide; 
+/**  The line of its name, from 1 */
+line: number | null; 
+/**  The step whose stops hold it, by its place in `ReviewSteps::steps`: a step of the commit first */
+step: number | null } | 
+/**  A changed file */
+{ kind: "file"; path: string; 
+/**  The step that shows the file, a step of the commit first */
+step: number | null };
+
 /**  A block of a merge */
 export type MergeBlock = {
 	/**  0-based line indices of each side, the end exclusive */
@@ -6611,6 +6646,16 @@ export type ReviewStep = {
 	 */
 	elsewhere: string[],
 	tests: StepTests,
+	/**
+	 *  The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
+	 *  first step whose stops show it
+	 */
+	newApi: string[],
+	/**
+	 *  The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
+	 *  step whose stop shows the first use, each in one step
+	 */
+	moduleLinks: number[],
 };
 
 /**  The steps of a review */
@@ -6619,6 +6664,11 @@ export type ReviewSteps = {
 	/**  In the order of the story: the commits that start them, oldest first; "Changes without a story" last */
 	steps: ReviewStep[],
 	coverage: StepCoverage,
+	/**
+	 *  Every commit of the range whose body has a block, once, oldest first: its body by the grammar of a body, its code
+	 *  names resolved to the units and the files (`story`)
+	 */
+	commits: StoryCommit[],
 };
 
 /**  What is reviewed */
@@ -7703,13 +7753,11 @@ export type StepBlocker =
 /**  The step stands on a stale answer of the readiness: its action waits for the new one */
 { code: "staleReadiness" };
 
-/**  A commit of a step */
+/**  A commit of a step; its body is its `StoryCommit` of `ReviewSteps::commits` */
 export type StepCommit = {
 	id: string,
 	/**  Its subject without the `(prefix)` that groups it */
 	subject: string,
-	/**  The message after its subject, trimmed; empty for a commit of no story */
-	body: string,
 	role: CommitRole,
 };
 
@@ -7943,6 +7991,21 @@ export type StoreTips = {
 	issueGroups: string | null,
 	stackParents: string | null,
 	parked: string | null,
+};
+
+/**  A commit of the range whose body has a block, its story once */
+export type StoryCommit = {
+	id: string,
+	/**  Its subject without the `(prefix)` that groups it */
+	subject: string,
+	body: CommitBody,
+	/**  The code names of its blocks, in the order of the body */
+	mentions: Mention[],
+	/**
+	 *  Of the steps of the concerns of one commit only, per block of `body`: the step (by its place in
+	 *  `ReviewSteps::steps`) whose opening tells it; `None` before the steps. Empty for a story of several commits
+	 */
+	toldIn: (number | null)[],
 };
 
 /**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */
