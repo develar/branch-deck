@@ -33,7 +33,8 @@ targets:
   - ../../src/lib/review-requests.ts
   - ../../src/lib/review-request-actions.ts
   - ../../src/lib/pull-request-review.ts
-  - ../../src/lib/pull-request-review-window.ts
+  - ../../src/lib/review-window.ts
+  - ../../src/lib/review-runs.ts
   - ../../src/lib/event-toast.ts
   - ../../src/lib/sub-window-link.ts
   - ../../src/hooks/useMainWindowLink.ts
@@ -54,7 +55,7 @@ targets:
   - ../../src/hooks/useReviewStatusRefresh.ts
   - ../../src/hooks/useSessionFactStores.ts
   - ../../src/hooks/useDockStatus.ts
-  - ../../src/hooks/useReviewWindowBridge.ts
+  - ../../src/hooks/useReviewRuns.ts
   - ../../src/components/repository/YourTurnCard.tsx
   - ../../src/hooks/useSettledLayout.ts
   - ../../src/components/repository/ReviewRequestRow.tsx
@@ -70,7 +71,8 @@ targets:
   - ../../src/components/review/ReviewDecisions.tsx
   - ../../src/lib/review-draft.ts
   - ../../src/components/review/ReviewRail.tsx
-  - ../../src/pages/PullRequestReviewPage.tsx
+  - ../../src/pages/PullRequestReviewWindow.tsx
+  - ../../src/pages/ReviewPage.tsx
   - ../../src/components/shared/MenuItemButton.tsx
   - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/components/commit/CommitReview.tsx
@@ -350,15 +352,17 @@ Safe Push it allows.
 
 ### Review window
 
-- The review of a pull request is only in the window `pull-request-review` (`/pull-request-review`, one window, reused;
+- The review of a pull request is only in the review window ([Review Window](../review/review-window.spec.md#one-window),
+  the subject `kind: "pullRequest"`, its part a chunk of its own the page loads for it;
   [Title Bar](title-bar.spec.md) for how it opens; the native title says "Review #101 <title>", as "Review login" of a
-  branch and "Review a1b2c3d <subject>" of a commit, also when it is reused or ↑/↓ shows another request). A click on a
-  row, Enter, `D`, the toast's Review and a write of the row's menu open it; there is no review dialog, no Open in
-  Window, no `W` and no ⇧-click. Another request, or an open with an intent (a write of the menu, `D`), starts the
-  window over; a plain open of the request it was opened on only brings it to the front, where the review is (also
-  after ↑/↓ showed another one: that request again).
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
-  [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
+  branch and "Review a1b2c3d <subject>" of a commit, also when it is reused or ↑/↓ shows another request). Back (⌘[)
+  goes to the review the window showed before, and back to a pull request fetches it again (the window stops the fetch
+  of a pull request it leaves, and drops its range). A click on a row, Enter, `D`, the toast's Review and a write of
+  the row's menu open it; there is no review dialog, no Open in Window, no `W` and no ⇧-click. Another request, or an
+  open with an intent (a write of the menu, `D`), starts the window over; a plain open of the request it was opened on
+  only brings it to the front, where the review is (also after ↑/↓ showed another one: that request again).
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should go back to the pull request with ⌘[ after the review of a branch in the same window, and fetch it again`)
+  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 - The window opens at once with what the search returned. Its title bar ([Title Bar](title-bar.spec.md)): ↑ ↓ (in the
   tooltips) and the window title "Your Turn › 2 of 5" on the left ("Reviews › 3 of 14" opened from [Reviews](reviews.spec.md), whose rows it walks); GitHub (`O`), "⋯" (Copy Pull Request Link, Copy
   Branch Name) and the decisions ([Reviews](#reviews)) on the right, Approve last, in the corner. In a title bar
@@ -369,7 +373,8 @@ Safe Push it allows.
   - the title (`text-base font-medium`, as the subject of a commit preview), then the chips: `#101` (opens GitHub), `master ← alice/feature` (copies the
     branch), "2 files +12 −3", "● checks failing" (`StatusChipDot`: `destructive`, `warning` running, `success` passed),
     GitHub's decision ("approved", "changes requested"), and "approved by you" / "changes requested by you".
-  ↑/↓ show the previous or next request; the window tells the main window (`shown`: the request is read, its refs stay).
+  ↑/↓ show the previous or next request; the window asks the main window to mark it read in Your Turn (`review/run`,
+  the item `read` of `pull:<number>`), and its session keeps its refs (`Demand::review_windows`).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left; while the changes show, the sidebar
@@ -409,7 +414,7 @@ Safe Push it allows.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review a commit of the pull request in the changes, step through the commits, and show the next request with ↓`)
 - Escape closes a form first, then goes back from Changes to the overview, then closes the window; while a write it
   asked for runs, the window stays. ⌘W closes it too.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should keep the window while a write runs, and tell its result in the window, which runs it`)
 - `O` opens the pull request on GitHub, from the overview and from Changes.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
 - A failed fetch is a `destructive` callout "Cannot fetch pull request #101" with the reason (e.g. "GitHub asked for
@@ -424,30 +429,25 @@ Safe Push it allows.
 - A request withdrawn while the window shows it stays, with the quiet line "No longer waiting for your review" ("No
   longer in Reviews" of one opened from Reviews).
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should keep the review when the request is withdrawn meanwhile, and its refs`)
-- The main window owns the requests: the window gets them in its data (`PullRequestReviewWindowData`: the request, its
-  place, the intent, the list it was opened from, and the state of the requests of its repository: the rows of that
-  list, how the user takes part in each pull request of Reviews, the actions Rust decides of each (`pull:<number>`; the
-  window's pull request among them while it shows it, `Demand::review_windows`, also once no listing has it), the
-  reviewer groups of the pull request it shows ([Owner chips](#owner-chips)), the baseline, what runs, whether the main
-  window shows that repository), and `pull-request-review/state` whenever that changed
-  (deduplicated), over the link of the window (`sub-window-link.ts`, the events of a window prefixed with its label).
-- A write of the window (Approve, Request Changes, Approve and Safe Push, Open Pull Request) is a
-  `pull-request-review/request` with the whole request; the main window runs it on the window's repository, the toast
-  goes back to the window (`pull-request-review/feedback`, its action opens the pull request or the robot) while it
-  still shows the request, and the toast of the request in the main window closes, else (it closed, or shows another
-  one) the main window shows it in place of that toast; in either window the toasts of one pull request are one
-  (`toastKeys.review`), so the start of Approve and Safe Push takes the place of its approval; Activity records it in the
-  main window, and `pull-request-review/reply` ends the wait (no timeout: Patronus may take a minute). A Safe Push asks
-  Patronus of the repository the main window shows: for another one the main window switches to the request's
-  repository first (`showRepository`, it waits for its sync), and the window keeps the Safe Push of the Patronus it last
-  saw there. Each write is an operation of the session of the request's repository (`SubmitReview`,
-  `crates/operations/src/review.rs`, holding the review of the pull request): one at a time, a second one waits with
-  its busy state, the same one joins it, and the window reads what runs from the state the main window sends (`busy`,
-  of the operations of its session).
+- The window reads the requests from its own session (the stores of its facts, [Review Window](../review/review-window.spec.md#one-window)):
+  its data names the request, its place, the intent and the list it was opened from (`PullRequestReviewWindowData`);
+  the rows of that list, how the user takes part in each pull request of Reviews, the actions Rust decides of each
+  (`pull:<number>`; the window's pull request among them while it shows it, `Demand::review_windows` of the window,
+  also once no listing has it), the reviewer groups of the pull request it shows ([Owner chips](#owner-chips)), the
+  baseline and what runs are those of its session.
+- Approve and Request Changes run in the window, as intents of its session (`SubmitReview`,
+  `crates/operations/src/review.rs`, holding the review of the pull request: one at a time, a second one waits with its
+  busy state, the same one joins it): their toast is in the window (its action opens the pull request), Activity
+  records them. Approve and Safe Push asks the main window (`review/run`, the item `safe-push-pull-request` of
+  `pull:<number>` with the whole request, an approved one having left its list): Patronus answers its comment there,
+  which switches to the request's repository first (`showRepository`, it waits for its sync) and watches the robot;
+  its toast goes back to the window (`review/feedback`, its action opens the robot or the pull request) and the toast of
+  the request in the main window closes; the toasts of one pull request are one (`toastKeys.review`), so the start
+  takes the place of its approval; `review/reply` ends the wait (no timeout: Patronus may take a minute). Open Pull
+  Request opens GitHub from the window and asks the main window to mark the request read.
   [@test] ../../src/stores/review-requests.test.ts (`says what runs for a pull request from the reviews of the session: the review, then its Safe Push`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the main window once the window closed`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should approve the commit the review shows, in the review too, and keep its place once it left the list`, `should keep the window while a write runs, and tell its result in the window, which runs it`)
   [@test] ../../src/stores/review-requests.test.ts (`tells the window that asked and switches the main window to the request's repository first`)
-  [@test] ../../src/lib/sub-window-link.test.ts (`knows what the window shows until it is destroyed, and only by its own label`, `sends the state only when it changed`, `answers each request by its id, with the feedback in between`, `forgets a window that failed to open`)
 - The close of the window stops its fetch, and the session prunes the refs of the request it showed (the demand no
   longer names it); the stores of the files and the diffs of a range are the window's and go with it.
   [@test] ../../src/stores/commit-files.test.ts (`loads the range of a review by its id, base..head, until its review drops it`)
@@ -478,13 +478,14 @@ Safe Push it allows.
   shows) on the chip the user last chose in a review window of the repository when it marks at least one file of the
   pull request, else on the user's first group that still needs an approval and has files there, else on All
   ([Branch Review](../branch/branch-review.spec.md#code-owners): remembered for the repository, All forgets it), as
-  remembered when it opened: a chip chosen in another window meanwhile does not move it. While it opened on All and
+  remembered when it opened: a chip chosen in another review meanwhile does not move it. While it opened on All and
   the user chose nothing, the groups and the owners that come later choose again (the user's group once Patronus
-  answers); then the first chip other than All holds, and a chip the user chose, All too (a press of the chosen All),
-  is never moved.
+  answers), and so does the user's group while the remembered chip may still come (the owners by the `OWNERSHIP` files
+  come after the groups, `awaitsRememberedChip`); then the first chip other than All holds, and a chip the user chose,
+  All too (a press of the chosen All), is never moved.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should open on the user's group that needs an approval, then on the chip the user chose, which All forgets`, `should keep the chip the user chose when the groups of the request come later`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move from All to the user's group when the groups of the request come later, unless the user chose All`, `should open again on the remembered chip when the main window opens the same request again, a chip chosen in another window not moving the one shown`)
-  [@test] ../../src/lib/review-owners.test.ts (`opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should move from All to the user's group when the groups of the request come later, unless the user chose All`, `should open again on the remembered chip when the main window opens the same request again, a chip chosen in the review of a branch in between`)
+  [@test] ../../src/lib/review-owners.test.ts (`opens on the remembered chip where it marks files, else the user's group that still needs an approval, else All`, `waits for a remembered chip the chips don't have yet: the owners come after the groups`)
 - A group and an owner of the `OWNERSHIP` files of one name are one owner, and one chip: the group's, without the owner
   chip of its name. A chip chosen, or opened on (remembered as the group), as the owner while Patronus has not
   answered becomes the group's chip once the groups come: one chip, pressed, with "· You", the group's count and the

@@ -20,8 +20,8 @@ import type { PullRequestAvailability, ReviewEntry, ReviewRequest, ReviewSection
 import { describeError } from "@/lib/errors"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatAvailabilityHint, openPullRequestUrl } from "@/lib/pull-request"
-import { openPullRequestReviewWindow } from "@/lib/pull-request-review-window"
 import { handleReviewRowKeys } from "@/lib/review-row-keys"
+import { openPullRequestReview } from "@/lib/review-window"
 import { matchesAllWords, searchWords } from "@/lib/text-search"
 import { formatRelativeTime } from "@/lib/time"
 import { showReviews } from "@/model/demand"
@@ -142,7 +142,7 @@ export function ReviewsView({ visible, headingRef }: { visible: boolean; heading
         }
         setFilterText("")
         const { requests: reviewed } = reviewRows(repositoryPath)
-        void openPullRequestReviewWindow(
+        void openPullRequestReview(
           repositoryPath,
           answer.entry.request,
           reviewed.findIndex(request => request.number === answer.entry.request.number),

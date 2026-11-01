@@ -2,7 +2,8 @@
 import { appendFileSync } from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
-import type { ReviewWindowRequest } from "../../../src/lib/pull-request-review"
+import type { ReviewRunRequest } from "../../../src/lib/review-runs"
+import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
@@ -13,12 +14,12 @@ import {
   availableReviewRequests,
   getReviewRow,
   getYourTurnCard,
-  openedReviewWindow,
-  openReviewWindow,
+  openRequestReview,
   pressDecisionKey,
   reviewRequest,
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
+import { openedReview } from "../helpers/review-window-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -184,7 +185,7 @@ test.describe("Your Turn card", () => {
     await expect(getReviewRow(page, 102)).toBeFocused()
     // Enter: the review window of the row; the main window keeps the focus on the row
     await page.keyboard.press("Enter")
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect(opened).toMatchObject({ title: "Review #102 Add OAuth login", data: { number: 102, index: 1, intent: null } })
     await expect(getReviewRow(page, 102)).toBeFocused()
   })
@@ -279,7 +280,7 @@ test.describe("New review requests", () => {
 
     // Review: the review window of the request, read now
     await toast.getByRole("button", { name: "Review" }).click()
-    expect((await openedReviewWindow(page)).data).toMatchObject({ number: 104, intent: null })
+    expect((await openedReview<PullRequestReviewWindowData>(page, 1)).data).toMatchObject({ number: 104, intent: null })
     await expect(row.getByTestId("review-request-unread")).toHaveCount(0)
 
     // the Activity keeps it
@@ -298,14 +299,15 @@ test.describe("Review window", () => {
       window: reviewPage,
       review,
       opened,
-    } = await openReviewWindow(page, 101, {
+    } = await openRequestReview(page, 101, {
       beforeLoad: async window => {
         fetches = await routeReviewFetch(window, { progress: [42], release: new Promise<void>(resolve => (release = resolve)) })
       },
     })
     expect(opened).toMatchObject({
       title: "Review #101 Rework the session store",
-      data: { number: 101, index: 0, intent: null, state: { selected: true, requests: [{ number: 101 }, { number: 102 }] } },
+      windowId: "review",
+      data: { kind: "pullRequest", number: 101, index: 0, intent: null, source: "yourTurn" },
     })
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
     // who asks, for how long, then the chips of what GitHub said
@@ -354,9 +356,9 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-file-position")).toHaveText(/File 2 \/ \d+$/)
     await reviewPage.keyboard.press("Escape")
     await expect(changes).toBeHidden()
-    // O: the main window opens it on GitHub
+    // O: the window opens it on GitHub, and the main window marks it read
     await reviewPage.keyboard.press("o")
-    await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101"])
+    await expect.poll(() => getOpenedUrls(reviewPage)).toEqual(["https://github.com/acme/monorepo/pull/101"])
     // Escape in the overview closes the window
     await reviewPage.keyboard.press("Escape")
     await expect.poll(() => windowCalls(reviewPage)).toContain("close")
@@ -368,7 +370,7 @@ test.describe("Review window", () => {
     syncAndWaitForBranches,
   }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    const { window: reviewPage, review } = await openReviewWindow(page, 101)
+    const { window: reviewPage, review } = await openRequestReview(page, 101)
     // the rail lists the commits newest first, as the column of the changes
     const commits = review.getByTestId("review-commit")
     await expect(commits.first()).toBeVisible()
@@ -402,17 +404,43 @@ test.describe("Review window", () => {
     await reviewPage.keyboard.press("ArrowDown")
     await expect(review.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
     await expect(review.getByTestId("review-dialog-position")).toHaveText("2 of 2")
-    expect((await getEmittedEvents<ReviewWindowRequest>(reviewPage, "pull-request-review/request")).at(-1)).toMatchObject({ action: "shown", request: { number: 102 } })
+    expect((await getEmittedEvents<ReviewRunRequest>(reviewPage, "review/run")).at(-1)).toMatchObject({ subject: "pull:102", itemId: "read", request: { number: 102 } })
     // the ↑ of the title bar shows the one before
     await review.getByTestId("review-previous").click()
     await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+  })
+
+  test("should go back to the pull request with ⌘[ after the review of a branch in the same window, and fetch it again", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+    let fetches: Record<string, unknown>[] = []
+    const { window: reviewPage, review } = await openRequestReview(page, 101, {
+      beforeLoad: async window => {
+        fetches = await routeReviewFetch(window, { progress: [], release: Promise.resolve() })
+      },
+    })
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    expect(fetches).toHaveLength(1)
+
+    // the review of a branch of the main window: the same window, the pull request in its history
+    await findBranchRow(page, "JIRA-456").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await reopenLinkedSubWindow(reviewPage, await openedReview(page, 2))
+    await expect(reviewPage.getByTestId("branch-review-segment")).toHaveCount(1)
+
+    // Back: the pull request again, fetched again
+    const mac = await reviewPage.evaluate(() => navigator.userAgent.toLowerCase().includes("mac"))
+    await reviewPage.keyboard.press(mac ? "Meta+BracketLeft" : "Control+BracketLeft")
+    await expect(review.getByRole("heading", { name: "Rework the session store" })).toBeVisible()
+    await expect(review.getByTestId("review-commit").first()).toBeVisible()
+    expect(fetches).toHaveLength(2)
+    await expect(reviewPage.getByTestId("review-back")).toHaveCount(0)
   })
 
   test("should review the changes of a row with D", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     await getReviewRow(page, 101).focus()
     await page.keyboard.press("d")
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "review" })
     // once the pull request is fetched: its changes
     const reviewPage = await openLinkedSubWindow(page, opened)
@@ -431,7 +459,7 @@ test.describe("Review window", () => {
     appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
     await getReviewRow(page, 101).focus()
     await page.keyboard.press("d")
-    const review = (await openLinkedSubWindow(page, await openedReviewWindow(page))).getByTestId("review-window")
+    const review = (await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))).getByTestId("review-window")
     await expect(review.getByTestId("commit-review")).toBeVisible()
     // the plan of what the window shows: its card, Rust's words
     await expect(review.getByTestId("review-plan-card").getByTestId("review-plan-summary")).toHaveText(/possible break/)
@@ -463,7 +491,7 @@ test.describe("Review window", () => {
     await expect(getReviewRow(page, 101)).toBeVisible()
     await getReviewRow(page, 101).focus()
     await page.keyboard.press("d")
-    const review = (await openLinkedSubWindow(page, await openedReviewWindow(page))).getByTestId("review-window")
+    const review = (await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))).getByTestId("review-window")
     const tree = review.getByRole("tree", { name: "Changed files" })
     const commitSubjects = tree.getByTestId("review-commit-subject")
     const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
@@ -487,7 +515,7 @@ test.describe("Review window", () => {
   test("should say why a fetch failed and fetch again on Retry", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD)
     await repo.setReviewRequests(availableReviewRequests([OLD]), "GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
-    const { review } = await openReviewWindow(page, 101)
+    const { review } = await openRequestReview(page, 101)
     const failure = review.getByTestId("review-fetch-failed")
     await expect(failure).toContainText("Cannot fetch pull request #101")
     await expect(failure).toContainText("GitHub asked for credentials: store HTTPS credentials of github.com in git (gh auth setup-git does)")
@@ -501,7 +529,7 @@ test.describe("Review window", () => {
   test("should approve the commit the review shows, in the review too, and keep its place once it left the list", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // the main window runs the write
-    const { window: reviewPage, review } = await openReviewWindow(page, 101)
+    const { window: reviewPage, review } = await openRequestReview(page, 101)
     const approve = review.getByTestId("review-approve")
     // nothing to approve before the commit the user sees is there
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
@@ -523,9 +551,9 @@ test.describe("Review window", () => {
     await expect(approve).toHaveAttribute("data-approved")
     await reviewPage.keyboard.press("a")
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toHaveLength(1)
-    // Open Pull Request of the toast: the main window opens it
+    // Open Pull Request of the toast: the window opens it
     await reviewToast(reviewPage, "Approved #101").getByRole("button", { name: "Open Pull Request" }).click()
-    await expect.poll(() => getOpenedUrls(page)).toEqual(["https://github.com/acme/monorepo/pull/101"])
+    await expect.poll(() => getOpenedUrls(reviewPage)).toEqual(["https://github.com/acme/monorepo/pull/101"])
 
     // GitHub is asked at once: the approved request leaves the card, the window keeps it and its place
     await expect(getReviewRow(page, 101)).toHaveCount(0)
@@ -538,11 +566,11 @@ test.describe("Review window", () => {
     await expect(review.getByRole("heading", { name: "Add OAuth login" })).toBeVisible()
   })
 
-  test("should keep the window while a write runs, and tell its result in the main window once the window closed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should keep the window while a write runs, and tell its result in the window, which runs it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
     // GitHub holds the review: the write runs
     await repo.holdRemoteAnswers({ hold: ["submitReview"] })
-    const { window: reviewPage, review } = await openReviewWindow(page, 101)
+    const { window: reviewPage, review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await pressDecisionKey(reviewPage, review, "a")
     await expect(review.getByTestId("review-approve")).toBeDisabled()
@@ -550,12 +578,12 @@ test.describe("Review window", () => {
     await reviewPage.keyboard.press("Escape")
     expect(await windowCalls(reviewPage)).not.toContain("close")
 
-    // the window went meanwhile: the main window says how it went
-    await emitTauriEvent(page, "tauri://destroyed", null, "pull-request-review")
+    // the window runs the approval in its own session: it says how it went, nothing asked of the main window
     await expect.poll(() => repo.getArrivedAnswers()).toContain("submitReview")
     await repo.holdRemoteAnswers({ release: ["submitReview"] })
-    await expect(reviewToast(page, "Approved #101")).toBeVisible()
+    await expect(reviewToast(reviewPage, "Approved #101")).toBeVisible()
     expect(await gitHubRequests(repo, "POST", "pulls", 101, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
+    expect((await getEmittedEvents<ReviewRunRequest>(reviewPage, "review/run")).filter(it => it.itemId !== "read")).toEqual([])
   })
 
   test("should request changes with a comment whose letters are no keys of the review, and keep the draft for the pull request", async ({
@@ -567,7 +595,7 @@ test.describe("Review window", () => {
     // the row's menu opens the window with the form, once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Request Changes…" }).click()
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "requestChanges" })
     const reviewPage = await openLinkedSubWindow(page, opened)
     const review = reviewPage.getByTestId("review-window")
@@ -625,7 +653,7 @@ test.describe("Review window", () => {
       message: "Unprocessable Entity",
       errors: ["User can only have one pending review per pull request"],
     })
-    const { window: reviewPage, review } = await openReviewWindow(page, 101)
+    const { window: reviewPage, review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await review.getByTestId("review-approve").click()
     await expect(reviewToast(reviewPage, "Cannot approve pull request #101")).toContainText("User can only have one pending review per pull request")
@@ -652,7 +680,7 @@ test.describe("Review window", () => {
     await expect(page.getByRole("menuitem", { name: /^Approve and Safe Push…/ })).not.toHaveAttribute("aria-disabled", "true")
     await page.keyboard.press("Escape")
 
-    const { window: reviewPage, review } = await openReviewWindow(page, 101)
+    const { window: reviewPage, review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     const safePush = review.getByTestId("review-safe-push")
     await expect(safePush).toHaveText("Approve and Safe Push…M")
@@ -701,7 +729,7 @@ test.describe("Review window", () => {
     // Patronus lists it once the bot started it: the list the app asks after the thumbs up has it
     await repo.setPatronus(availableRobots(started))
 
-    const { window: reviewPage, review } = await openReviewWindow(page, 101)
+    const { window: reviewPage, review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     await pressDecisionKey(reviewPage, review, "m")
     await reviewPage.getByTestId("review-safe-push-form").getByTestId("review-safe-push-start").click()
@@ -730,7 +758,7 @@ test.describe("Review window", () => {
     // from the row's menu: the window opens with the confirmation once the pull request is fetched
     await getReviewRow(page, 101).click({ button: "right" })
     await page.getByRole("menuitem", { name: "Approve and Safe Push…" }).click()
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect(opened.data).toMatchObject({ number: 101, intent: "safePush" })
     const reviewPage = await openLinkedSubWindow(page, opened)
     const form = reviewPage.getByTestId("review-safe-push-form")
@@ -743,7 +771,7 @@ test.describe("Review window", () => {
   test("should keep the review when the request is withdrawn meanwhile, and its refs", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links", { reviewRequests: availableReviewRequests([OLD, RECENT]) })
     await syncAndWaitForBranches()
-    const { review } = await openReviewWindow(page, 101)
+    const { review } = await openRequestReview(page, 101)
     await expect(review.getByTestId("review-commit").first()).toBeVisible()
     // the window shows #101: the session prunes the review refs of every other pull request, an earlier start's too
     await expect.poll(async () => (await repo.getReviewRequestsFixture()).prunes).toEqual([[101]])
@@ -842,7 +870,7 @@ async function showChanges(window: Page, review: ReturnType<Page["getByTestId"]>
 /** The review window of #7 from Your Turn, its changes shown */
 async function openOwnedChanges(page: Page): Promise<{ window: Page; review: ReturnType<Page["getByTestId"]> }> {
   await expect(getYourTurnCard(page)).toBeVisible()
-  const { window, review } = await openReviewWindow(page, 7)
+  const { window, review } = await openRequestReview(page, 7)
   await showChanges(window, review)
   return { window, review }
 }
@@ -1004,30 +1032,29 @@ test.describe("Owner chips", () => {
     await expect(diffHeader(window, "README.md")).not.toHaveAttribute("data-muted")
   })
 
-  test("should open again on the remembered chip when the main window opens the same request again, a chip chosen in another window not moving the one shown", async ({
+  test("should open again on the remembered chip when the main window opens the same request again, a chip chosen in the review of a branch in between", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
     testStore,
   }) => {
     await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
-    const { window } = await openOwnedChanges(page)
+    const { window, review } = await openOwnedChanges(page)
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
 
-    // the review window of the branch login chooses UI Team: remembered, heard by the window of #7, which keeps Design
+    // the review of the branch login, in the same window, chooses UI Team: remembered
     await findBranchRow(page, "login").click({ button: "right" })
     await page.getByRole("menuitem", { name: "Review Changes" }).click()
-    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(2)
-    const branchWindow = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[1]!)
-    await ownerChip(branchWindow, "UI Team").click()
+    await reopenLinkedSubWindow(window, await openedReview(page, 2))
+    await ownerChip(window, "UI Team").click()
     await expect.poll(() => testStore.get("recentProjects")).toMatchObject([{ reviewOwnerChip: { name: "UI Team" } }])
+    // the writer's answer reached the window: its copy of the settings has the chip
     await expect.poll(async () => JSON.stringify(await getEmittedEvents(window, "settings_changed"))).toContain("UI Team")
-    await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")
-    await expect(diffHeader(window, "ui/login.js")).toHaveAttribute("data-muted", "")
 
     // the main window opens #7 again: the window opens on the remembered chip
     await getReviewRow(page, 7).getByTestId("review-request-title").click()
-    await reopenLinkedSubWindow(window, await openedReviewWindow(page, 3))
+    await reopenLinkedSubWindow(window, await openedReview<PullRequestReviewWindowData>(page, 3))
+    await showChanges(window, review)
     await expect(ownerChip(window, "UI Team")).toHaveAttribute("aria-pressed", "true")
     await expect(diffHeader(window, "ui/login.js")).not.toHaveAttribute("data-muted")
     await expect(diffHeader(window, "ui/login.css")).toHaveAttribute("data-muted", "")
@@ -1045,7 +1072,7 @@ test.describe("Owner chips", () => {
     await repo.advanceBackendClock(121_000)
     await emitTauriEvent(page, "tauri://focus")
     await expect(getReviewRow(page, 8)).toHaveCount(0)
-    const { window, review } = await openReviewWindow(page, 7)
+    const { window, review } = await openRequestReview(page, 7)
     await showChanges(window, review)
     const column = review.getByTestId("range-review-commits").getByTestId("range-review-commit")
     await expect(ownerChip(window, "Design")).toHaveAttribute("aria-pressed", "true")

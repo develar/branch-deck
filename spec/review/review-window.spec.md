@@ -14,6 +14,7 @@ targets:
   - ../../src/lib/window-label.ts
   - ../../src/router.ts
   - ../../src/pages/ReviewPage.tsx
+  - ../../src/pages/PullRequestReviewWindow.tsx
   - ../../src/components/review/ReviewBackButton.tsx
   - ../../src/types/sub-window.ts
   - ../../src/hooks/useSessionFactStores.ts
@@ -66,10 +67,13 @@ with its base, its head and its commits, or the commits of a list. A pull reques
 
 ### One window
 
-- Every review but that of a pull request must be one window, `review` (`/review`, `ReviewPage`), whose data says
-  what it shows (`ReviewWindowData`): a branch with its stack ancestors, the whole stack of a root or a kept branch
-  (`kind: "branch"`, its chain with `wholeStack` or `kept`), or a commit of a list (`kind: "commits"`: the commits of
-  the list as the opener had them, its name, the commit, the file). A list of commits shows its commits above the
+- Every review must be one window, `review` (`/review`, `ReviewPage`), whose data says what it shows
+  (`ReviewWindowData`): a branch with its stack ancestors, the whole stack of a root or a kept branch (`kind:
+  "branch"`, its chain with `wholeStack` or `kept`), a commit of a list (`kind: "commits"`: the commits of the list as
+  the opener had them, its name, the commit, the file), or a pull request waiting for the user's review (`kind:
+  "pullRequest"`: the request, its place in Your Turn or Reviews, the write the row asked for;
+  [Review Requests](../repository/review-requests.spec.md#review-window)), whose review is a chunk of its own the page
+  loads only for it, so the first frame of the others keeps its size. A list of commits shows its commits above the
   files (⌥↑/⌥↓) and the plan of each commit; it has no action and no "⋯". The window holds the session of its
   repository whatever it shows. Its size and place are those of the window state plugin under `review`: the sizes
   saved under the labels of the windows it replaced (`branch-review`, `commit-review`) are forgotten once.
@@ -85,19 +89,21 @@ with its base, its head and its commits, or the commits of a list. A pull reques
 - How an open goes on from the review on screen must be one rule for every subject (`planReviewOpen`): an open of the
   subject on screen only brings the window to the front, where the review is; a commit of it moves there (a commit of
   a branch of the chain, of the kept branch, of the list: `move`); anything else (another subject, a place such as a
-  file of a list, a reviewer group or the whole stack of a branch, another repository) starts the window over
+  file of a list, a reviewer group, the whole stack of a branch, another pull request or a write of one, another
+  repository) starts the window over
   (`startedAt`). The page of the window applies it to every open it gets, from any window (`takeOpen`): an opener only
   says what to show. A start over while the "Create pull request" dialog of the window holds what the user typed is
   refused, an `info` toast in the window ("Cannot review auth"); a move waits until the dialog closes.
-  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`, `moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps a kept branch and a whole stack for a plain open of them, moves to a commit of the kept branch`, `moves to a commit of the list on screen, and starts over for another list, a file or a branch`, `keeps the review on screen for a plain open of it, moves to a commit of it, and starts over for anything else`)
+  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`, `keeps its review for a plain open of the branch it shows, and starts over for another branch or a place`, `moves to a commit of a branch of the chain on screen, and starts over for a commit of another branch`, `keeps a kept branch and a whole stack for a plain open of them, moves to a commit of the kept branch`, `moves to a commit of the list on screen, and starts over for another list, a file or a branch`, `keeps the review on screen for a plain open of it, moves to a commit of it, and starts over for anything else`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should keep the Create pull request dialog of the window while a commit is reviewed, and move to the commit once it closes`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a stacked branch with its stack and its actions, and move to a commit of the chain`)
 - A start over must keep the review the window left in the history of the window, the latest last, at most 20, at
   the place it was (of a branch its part, its owner chip, its commit and its file; of a list its commit and its
-  file). Back restores the latest: ⌘[ (Ctrl+[ on Windows and Linux; not in a dialog of the window) and the Back button
+  file; of a pull request the request ↑/↓ walked to, which it fetches again). Back restores the latest: ⌘[ (Ctrl+[ on Windows and Linux; not in a dialog of the window) and the Back button
   at the start of the title bar (an arrow, "Back to login", its hover with the key), shown only while the history has
   a review. A restore starts that review over: it reads it again, and its actions are those of the window's session.
   [@test] ../../tests/e2e/review-window/review-window.spec.ts (`should review a branch and then a commit of the unassigned list in the same window, and go back with ⌘[ and with Back`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should go back to the pull request with ⌘[ after the review of a branch in the same window, and fetch it again`)
   [@test] ../../src/lib/review-reuse.test.ts (`keeps the reviews it left, the latest last, at most the limit`, `starts a review of the history over at the place it was left`, `names the review it goes back to as its title does`)
 - The native title of the window names what it shows: "Review login", "Review login · 1a2b3c4d" at a commit, "Review
   the whole air stack", of a list "Review a1b2c3d4 Sort the start-up report", retitled as it steps

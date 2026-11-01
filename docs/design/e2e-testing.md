@@ -480,7 +480,7 @@ Mock implementation:
     (**Events of the app**), so the link of the window works end to end: the window asks, the main window runs it
     against the test server and answers, and the toast shows where the app shows it. A route of what the window asks itself (its fetch) is set on its page before it loads (`beforeLoad`). Escape
     that closes the window is the `close` of `__e2eWindowCalls` of its page. `tests/e2e/review-requests/review-requests.spec.ts`
-    reviews and writes in the `pull-request-review` window this way. A write of the settings in the window reaches the
+    reviews and writes in the `review` window this way. A write of the settings in the window reaches the
     main window, which saves it in the store of the test server (`testStore`); `reopenLinkedSubWindow` hands the shown
     window a later open, as the backend does. The Activity window is always linked too (`openActivityWindow` of
     `activity-helpers.ts`, by Open in Window of the side panel unless the test opens it otherwise: the window reads the
@@ -501,7 +501,7 @@ Mock implementation:
     server's writer made after the version of that snapshot.
   `getEmittedEvents` reads what a page emitted and the events of the app it heard; a test fires an event in a page with
   `emitTauriEvent`, in that page alone. An event fired for a window (`emitTauriEvent(page, "tauri://destroyed", null,
-  "pull-request-review")`) reaches only the listeners of any target and of that window (`target: { label }`), so the
+  "activity")`) reaches only the listeners of any target and of that window (`target: { label }`), so the
   links of the other kinds stay open; one fired without a window reaches every listener of its name
 
 State isolation:

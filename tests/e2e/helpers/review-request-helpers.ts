@@ -1,8 +1,9 @@
 import type { Locator, Page } from "@playwright/test"
 import type { PullRequestAvailability, ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
-import type { PullRequestReviewWindowData } from "../../../src/lib/pull-request-review"
+import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
 import { expect } from "../fixtures/base-test"
-import { getOpenedSubWindows, openLinkedSubWindow } from "./sub-window-helpers"
+import { openedReview } from "./review-window-helpers"
+import { openLinkedSubWindow } from "./sub-window-helpers"
 import type { OpenedSubWindow } from "./sub-window-helpers"
 import { sendProgress } from "./wait-helpers"
 
@@ -88,25 +89,24 @@ export function getReviewRow(page: Page, number: number): Locator {
 }
 
 /**
- * Clicks the row of `number`: the review window opens (`open_sub_window`, the `count`-th of the page), shown as a page
+ * Clicks the row of `number`: the review window opens on it (`open_sub_window`, the `count`-th of the page), shown as a page
  * of its own linked to the main window (`openLinkedSubWindow`), its body focused. `beforeLoad` routes what the window
  * asks itself (its fetch).
  */
-export async function openReviewWindow(
+export async function openRequestReview(
   page: Page,
   number: number,
   { count = 1, beforeLoad }: { count?: number; beforeLoad?: (window: Page) => Promise<unknown> } = {},
 ): Promise<{ window: Page; review: Locator; opened: OpenedSubWindow<PullRequestReviewWindowData> }> {
   await getReviewRow(page, number).getByTestId("review-request-title").click()
-  const opened = await openedReviewWindow(page, count)
-  expect(opened.data.number).toBe(number)
+  const opened = await openedReview<PullRequestReviewWindowData>(page, count)
+  expect(opened.data).toMatchObject({ kind: "pullRequest", number })
   const window = await openLinkedSubWindow(page, opened, { beforeLoad })
   const review = window.getByTestId("review-window")
   await expect(review.getByTestId("review-dialog-body")).toBeFocused()
   return { window, review, opened }
 }
 
-/** The `count`-th review window the main window opened, once it is recorded */
 /** The button of each key of a decision of the review window */
 const DECISION_BUTTONS = { a: "review-approve", r: "review-request-changes", m: "review-safe-push" } as const
 
@@ -118,13 +118,6 @@ const DECISION_BUTTONS = { a: "review-approve", r: "review-request-changes", m: 
 export async function pressDecisionKey(window: Page, review: Locator, key: keyof typeof DECISION_BUTTONS): Promise<void> {
   await expect(review.getByTestId(DECISION_BUTTONS[key])).toBeEnabled()
   await window.keyboard.press(key)
-}
-
-export async function openedReviewWindow(page: Page, count = 1): Promise<OpenedSubWindow<PullRequestReviewWindowData>> {
-  await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(count)
-  const opened = (await getOpenedSubWindows<PullRequestReviewWindowData>(page))[count - 1]!
-  expect(opened).toMatchObject({ windowId: "pull-request-review", url: "/pull-request-review" })
-  return opened
 }
 
 /**

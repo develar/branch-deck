@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitFile } from "@/lib/bindings"
-import { canonicalOwnerFilter, initialOwnerFilter, ownerChipKey, ownerEmptyText, ownerLabel, ownerPaths, reviewFilterChips, reviewOwnerMarks, soleOwner } from "@/lib/review-owners"
+import {
+  awaitsRememberedChip,
+  canonicalOwnerFilter,
+  initialOwnerFilter,
+  ownerChipKey,
+  ownerEmptyText,
+  ownerLabel,
+  ownerPaths,
+  reviewFilterChips,
+  reviewOwnerMarks,
+  soleOwner,
+} from "@/lib/review-owners"
 import type { BranchReviewGroup } from "@/types/sub-window"
 
 function file(path: string, oldPath: string | null = null): CommitFile {
@@ -96,6 +107,15 @@ describe("the groups of a pull request", () => {
     expect(initialOwnerFilter(chips, { kind: "owner", name: "Kotlin" }, true)).toEqual({ kind: "group", name: "Design" })
     expect(initialOwnerFilter(reviewFilterChips(files.slice(0, 2), requestGroups, owners), { kind: "owner", name: "Build" }, true)).toEqual({ kind: "all" })
     expect(initialOwnerFilter(chips, { kind: "unowned" }, true)).toEqual({ kind: "unowned" })
+  })
+
+  it("waits for a remembered chip the chips don't have yet: the owners come after the groups", () => {
+    const chips = reviewFilterChips(files, requestGroups, owners)
+    // the groups alone: the owner "Air Plugin" may still come, named by its group here
+    expect(awaitsRememberedChip(reviewFilterChips(files, requestGroups, new Map()), { kind: "owner", name: "Kotlin" })).toBe(true)
+    expect(awaitsRememberedChip(chips, { kind: "owner", name: "air plugin" })).toBe(false)
+    expect(awaitsRememberedChip(chips, undefined)).toBe(false)
+    expect(awaitsRememberedChip(chips, { kind: "all" })).toBe(false)
   })
 
   it("never opens on a group whose files Patronus doesn't tell, and opens on a branch-wide one", () => {

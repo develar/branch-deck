@@ -19,7 +19,6 @@ import { useMenuSync } from "@/hooks/useMenuSync"
 import { useRepositoryConfigChanges } from "@/hooks/useRepositoryConfigChanges"
 import { useReviewRuns } from "@/hooks/useReviewRuns"
 import { useReviewStatusRefresh } from "@/hooks/useReviewStatusRefresh"
-import { useReviewWindowBridge } from "@/hooks/useReviewWindowBridge"
 import { useSyncOnOpen } from "@/hooks/useSyncOnOpen"
 import { useWindowFocus } from "@/hooks/useWindowFocus"
 import { notifyError } from "@/lib/errors"
@@ -156,8 +155,6 @@ export function IndexPage() {
   useSetupTracking({ readTools: true })
   // the review window: the actions it asks to run at the rows of their subjects (the forms of a row)
   useReviewRuns()
-  // the review window of a pull request: the state of its requests, and the writes it asks for
-  useReviewWindowBridge()
   // "Activity" of every window: the log of the selected repository in the side panel, or in its window, and what the
   // window asks for
   const area = useRef<HTMLDivElement>(null)

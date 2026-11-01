@@ -109,6 +109,18 @@ export function startReviewFetch(repositoryPath: string, request: ReviewRequest)
   })
 }
 
+/**
+ * The review window left the pull request (another review, a review of its history): its fetch in flight stops, its
+ * range goes, and a later review of it (Back) fetches it again
+ */
+export function stopReviewFetch(): void {
+  if (latestKey !== null) {
+    forget(latestKey, true)
+    latestKey = null
+    latestOp = null
+  }
+}
+
 function forget(key: string, cancel: boolean): void {
   const fetch = reviewFetchStore.getState().fetches[key]
   if (cancel && fetch?.status === "fetching" && latestOp !== null) {

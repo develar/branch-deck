@@ -5,7 +5,7 @@ import { expandBranch, findBranchRow, getBranchDetailsRow } from "../helpers/bra
 import { boxOf, expectHeaderControlsOnOneLine, header, HEADER_CONTROLS, HEADER_ROW, headerLineProblems, MIN_WINDOW } from "../helpers/header-helpers"
 import { settledIpc } from "../helpers/ipc-helpers"
 import { availableRobots } from "../helpers/patronus-helpers"
-import { availableReviewRequests, getYourTurnCard, openReviewWindow, reviewRequest } from "../helpers/review-request-helpers"
+import { availableReviewRequests, getYourTurnCard, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents, getOpenedSubWindows, getWindowMenus, openSubWindowPage } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
@@ -211,7 +211,7 @@ test.describe("Title bar of a sub-window", () => {
     await syncAndWaitForBranches()
     await expect(getYourTurnCard(page)).toBeVisible()
     // the minimum size of a sub-window
-    const { window, review } = await openReviewWindow(page, 101, {
+    const { window, review } = await openRequestReview(page, 101, {
       beforeLoad: async it => {
         await useTitleBar(it, TITLE_BARS.macos)
         await it.setViewportSize({ width: 800, height: 500 })

@@ -14,7 +14,6 @@ const PAGES: Readonly<Record<string, () => Promise<ComponentType>>> = {
   "/conflicting-files": async () => (await import("@/pages/ConflictingFilesPage")).ConflictingFilesPage,
   "/missing-commits": async () => (await import("@/pages/MissingCommitsPage")).MissingCommitsPage,
   "/review": async () => (await import("@/pages/ReviewPage")).ReviewPage,
-  "/pull-request-review": async () => (await import("@/pages/PullRequestReviewPage")).PullRequestReviewPage,
   "/settings": async () => (await import("@/pages/SettingsPage")).SettingsPage,
   "/activity": async () => (await import("@/pages/ActivityPage")).ActivityPage,
 }

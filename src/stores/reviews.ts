@@ -46,9 +46,18 @@ export function useIsRefreshingReviews(): boolean {
 }
 
 /** The rows of Reviews in their order, the requests of Your Turn first, with how the user takes part in each of the rest */
-export function reviewRows(repositoryPath: string): { readonly requests: readonly ReviewRequest[]; readonly involvements: Readonly<Record<number, ReviewInvolvement>> } {
-  const requests = reviewRequestsStore.getState().repositories[repositoryPath]?.requests ?? []
-  const sections = reviewsStore.getState().repositories[repositoryPath]?.sections ?? []
+export function reviewRows(repositoryPath: string): ReviewRows {
+  return reviewRowsOf(reviewRequestsStore.getState().repositories[repositoryPath]?.requests ?? [], reviewsStore.getState().repositories[repositoryPath]?.sections ?? [])
+}
+
+/** The rows of Reviews and how the user takes part in each */
+export interface ReviewRows {
+  readonly requests: readonly ReviewRequest[]
+  readonly involvements: Readonly<Record<number, ReviewInvolvement>>
+}
+
+/** The rows of Reviews of the requests of Your Turn and the sections of Reviews (`reviewRows`) */
+export function reviewRowsOf(requests: readonly ReviewRequest[], sections: ReviewsView["sections"]): ReviewRows {
   const entries: ReviewEntry[] = sections.flatMap(section => section.entries)
   const involvements: Record<number, ReviewInvolvement> = {}
   for (const entry of entries) {

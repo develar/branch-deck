@@ -266,7 +266,7 @@ is not stacked") once it got the lock.
 - **The review of a pull request**: Approve, Request Changes and Approve and Safe Push are an operation of the session
   in Rust (`SubmitReview` of `operations::review`, holding the review of the pull request: a second write of it waits,
   the same one joins); `getReviewBusy` reads them from `RepositoryView.operations`, for the review list and the review
-  window (`ReviewWindowState.busy`).
+  window, each from its own session.
 
 The next step reads the operation of the view on its row (`busyOf`, `useRowOperation`): the slot's own action runs
 (`running`, a retarget), the others wait with its busy state, but an action that writes another field of the pull

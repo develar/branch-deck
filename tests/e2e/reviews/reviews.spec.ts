@@ -1,12 +1,14 @@
 // @spec spec/repository/reviews.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewEntry, ReviewRequest } from "../../../src/lib/bindings"
+import type { PullRequestReviewWindowData } from "../../../src/types/sub-window"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow } from "../helpers/branch-helpers"
 import { openPalette, runByKeyboard } from "../helpers/command-palette-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest } from "../helpers/pull-request-helpers"
-import { NOW, availableReviewRequests, openedReviewWindow, pressDecisionKey, reviewRequest } from "../helpers/review-request-helpers"
+import { NOW, availableReviewRequests, pressDecisionKey, reviewRequest } from "../helpers/review-request-helpers"
 import type { ReviewRequestsFixture } from "../helpers/review-request-helpers"
+import { openedReview } from "../helpers/review-window-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, waitForTauriListener } from "../helpers/sync-helpers"
@@ -137,7 +139,7 @@ test.describe("Reviews view", () => {
     const repo = await setupReviews(page, setupRepo, syncAndWaitForBranches)
     await showReviews(page)
     await entryRow(page, "team", 201).getByTestId("review-request-title").click()
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect([opened.data.number, opened.data.source]).toEqual([201, "reviews"])
     const window = await openLinkedSubWindow(page, opened)
     const review = window.getByTestId("review-window")
@@ -180,7 +182,7 @@ test.describe("Reviews view", () => {
     // the link the author forgot to ask the user for: the review opens, the section keeps it
     await field.fill("https://github.com/acme/monorepo/pull/305/files")
     await field.press("Enter")
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect([opened.data.number, opened.data.source]).toEqual([305, "reviews"])
     await expect(field).toHaveValue("")
     await expect(entryRow(page, "linked", 305).getByTestId("review-request-meta")).toContainText("#305 · carol")
@@ -188,7 +190,7 @@ test.describe("Reviews view", () => {
     // a merged one opens, but is not kept
     await field.fill("#306")
     await field.press("Enter")
-    await openedReviewWindow(page, 2)
+    await openedReview<PullRequestReviewWindowData>(page, 2)
     await expect(section(page, "linked").getByTestId("review-request-row")).toHaveCount(1)
 
     // the link outlives the window
@@ -235,7 +237,7 @@ test.describe("Reviews view", () => {
     await expect(section(page, "authored")).toHaveCount(0)
     // Enter opens the one match
     await field.press("Enter")
-    const opened = await openedReviewWindow(page)
+    const opened = await openedReview<PullRequestReviewWindowData>(page, 1)
     expect([opened.data.number, opened.data.source]).toEqual([201, "reviews"])
 
     // Escape clears the filter: every section again, the collapsed one collapsed
@@ -271,14 +273,14 @@ test.describe("Reviews view", () => {
     await field.fill("#305")
     await expect(empty.getByRole("button", { name: /Add Pull Request/ })).toBeVisible()
     await field.press("Enter")
-    expect((await openedReviewWindow(page, 2)).data.number).toBe(305)
+    expect((await openedReview<PullRequestReviewWindowData>(page, 2)).data.number).toBe(305)
     await expect(field).toHaveValue("")
     await expect(entryRow(page, "linked", 305)).toBeVisible()
     expect(linkCalls).toHaveLength(1)
     // a shown one opens without a link
     await field.fill("#202")
     await field.press("Enter")
-    expect((await openedReviewWindow(page, 3)).data.number).toBe(202)
+    expect((await openedReview<PullRequestReviewWindowData>(page, 3)).data.number).toBe(202)
     expect(linkCalls).toHaveLength(1)
   })
 

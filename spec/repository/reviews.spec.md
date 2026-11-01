@@ -42,10 +42,10 @@ targets:
   - ../../src/model/patch.ts
   - ../../src/lib/review-request-actions.ts
   - ../../src/lib/pull-request-review.ts
-  - ../../src/lib/pull-request-review-window.ts
+  - ../../src/lib/review-window.ts
   - ../../src/components/review/ReviewHeader.tsx
   - ../../src/components/review/PullRequestReview.tsx
-  - ../../src/pages/PullRequestReviewPage.tsx
+  - ../../src/pages/PullRequestReviewWindow.tsx
   - ../../src/lib/command-palette.ts
 ---
 
@@ -168,7 +168,7 @@ adds any pull request of the repository by its link, opening it in the review wi
   asked for a review of carol's pull request", "Added by link: …") and, of a pull request the user reviewed, offers
   "Since Your Review". A write is the `SubmitReview` of any pull request.
   [@test] ../../tests/e2e/reviews/reviews.spec.ts (`should review a pull request of a team in the window of Reviews and approve it there`)
-  [@test] ../../src/lib/pull-request-review.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
+  [@test] ../../src/lib/review-reuse.test.ts (`keeps its review for a plain open of the request it shows, and starts over for another request or an intent`)
 
 ### Links
 

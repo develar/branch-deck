@@ -58,7 +58,7 @@ fn a_call_names_the_page_of_its_window_and_a_closed_window_answers_its_fetches()
 
 #[test]
 fn a_window_supersedes_only_its_own_request() {
-  let (main, review) = (WindowId::new("main"), WindowId::new("pull-request-review"));
+  let (main, review) = (WindowId::new("main"), WindowId::new("review"));
   let requests = WindowRequests::default();
   let first = requests.begin(&main);
   let window = requests.begin(&review);
@@ -74,7 +74,7 @@ fn a_window_supersedes_only_its_own_request() {
 
 #[test]
 fn a_closed_window_supersedes_its_request() {
-  let review = WindowId::new("pull-request-review");
+  let review = WindowId::new("review");
   let windows = Windows::default();
   let search = windows.begin_search(&review);
   windows.forget_reads(&review);

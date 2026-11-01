@@ -430,7 +430,7 @@ function markRead(repositoryPath: string, request: ReviewRequest): void {
 
 // ---- review refs ----
 
-/** The review window as this store sees it; set by its main-window side (`pull-request-review-window.ts`), which imports this store */
+/** The opener of the review of a request as this store sees it; set by the main window (`useReviewRuns`), whose opener imports this store */
 export interface ReviewWindowConnection {
   /** Shows the request in the window, opened or reused */
   readonly open: (repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource) => void

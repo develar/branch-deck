@@ -26,7 +26,7 @@ export function readReview(params: GetReviewParams): ReviewRead {
  * The reads of the review window start with its page (`src/lib/review-window-start.ts` imports this module only in the
  * review window), beside the load of its route chunk (the diff engine, about 640 KB to parse), which they need nothing
  * of: of a list of commits the files and the diffs of its commit (into their stores, which the review then finds read or
- * being read), of a branch its segments (`readReview`)
+ * being read), of a branch its segments (`readReview`), of a pull request the chunk of its review
  */
 export function startReviewWindowReads(): void {
   const data = window.__INIT_DATA__ as ReviewWindowData | undefined
@@ -40,6 +40,9 @@ export function startReviewWindowReads(): void {
       void loadFilesOfSubject(subject)
       loadFileDiffs(subject, getDiffWhitespacePolicy(), { priorityPaths: data.path == null ? [] : [data.path] })
     }
+  } else if (data.kind === "pullRequest") {
+    // the review of a pull request is a chunk of its own, which the page asks for once it renders: asked now
+    void import("@/pages/PullRequestReviewWindow")
   } else {
     const target = data.kept === undefined ? chainTarget(data.chain, data.wholeStack === true) : ({ kind: "kept", name: data.kept.name } as const)
     const params = { repositoryPath: data.repositoryPath, baselineBranch: data.baselineBranch, target }

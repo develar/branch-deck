@@ -84,7 +84,7 @@ export interface WindowLink<Shown extends LinkedWindowShown, State> {
   readonly label: string
   /** What the open window shows; null while it is closed */
   readonly shown: () => Shown | null
-  /** The window shows something else now (it moved to another object itself): the next `broadcast` sends its state */
+  /** The window shows something else now (it moved to another object itself) */
   readonly setShown: (shown: Shown) => void
   /** The state of what the window shows, recorded as sent: for the data of an open */
   readonly takeState: () => State | undefined
@@ -163,8 +163,6 @@ export function createWindowLink<Shown extends LinkedWindowShown, State = never>
     shown: () => shown,
     setShown: next => {
       shown = next
-      // the window shows `next` now: its state is sent anew, also when the last one sent was the same
-      sentState = null
     },
     takeState,
     open: async (next, window) => {

@@ -1,6 +1,8 @@
-import type { MergeConflictInfo, ReviewCommit } from "@/lib/bindings"
+import type { MergeConflictInfo, ReviewCommit, ReviewRequest } from "@/lib/bindings"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
+import type { ReviewSource } from "@/lib/pull-request-review"
+import type { ReviewIntent } from "@/lib/review-request-actions"
 import type { KeptKind } from "@/lib/review-target"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
@@ -85,9 +87,10 @@ interface ReviewWindowOpen {
 
 /**
  * `__INIT_DATA__` of the review window (`REVIEW_WINDOW`, opened by `@/lib/review-window`): a branch with its stack, the
- * whole stack of a root or a kept branch (`kind: "branch"`), or a list of commits (`kind: "commits"`)
+ * whole stack of a root or a kept branch (`kind: "branch"`), a list of commits (`kind: "commits"`), or a pull request
+ * waiting for the user's review (`kind: "pullRequest"`)
  */
-export type ReviewWindowData = BranchReviewWindowData | CommitsReviewWindowData
+export type ReviewWindowData = BranchReviewWindowData | CommitsReviewWindowData | PullRequestReviewWindowData
 
 /** The review of a branch: its chain, the whole stack of its root, or a kept branch (`openBranchReviewWindow`, …) */
 export interface BranchReviewWindowData extends ReviewWindowOpen {
@@ -125,4 +128,20 @@ export interface CommitsReviewWindowData extends ReviewWindowOpen {
   index: number
   /** The file to show (Enter on a file of the preview's tree); null for the first one */
   path: string | null
+}
+
+/**
+ * The review of a pull request of a list of the main window (`openPullRequestReview`): Your Turn or Reviews, whose rows
+ * ↑/↓ walk; the window fetches it itself
+ */
+export interface PullRequestReviewWindowData extends ReviewWindowOpen {
+  kind: "pullRequest"
+  number: number
+  /** The request when it opened: it stays while it is withdrawn */
+  request: ReviewRequest
+  /** Its place in the list when it opened */
+  index: number
+  /** The write the row's menu asked for, or "review" (D on the row): an open with one starts the window over */
+  intent: ReviewIntent | null
+  source: ReviewSource
 }

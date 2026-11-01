@@ -448,10 +448,9 @@ doesn't fit (WSL, a tiling window manager, an unknown desktop) and where the use
     on the branch, the native title "Review login", "Review login · a1b2c3d" when it opened at a commit
     ([Branch Review](../branch/branch-review.spec.md)); of a list of commits "Unassigned › 11346cdf", the list and the
     commit (the hash in `font-mono`), and Split/Unified/Inline ([Commit Review](../commit/commit-review.spec.md),
-    [Review Window](../review/review-window.spec.md#one-window)).
-  - `pull-request-review`: ↑ ↓ and "Your Turn › 2 of 5"; GitHub, "⋯" and the decisions on the pull request, Approve
-    last; its Split/Unified/Inline is at the end of its tabs, the header of the changes it switches
-    ([Review Requests](review-requests.spec.md#review-window)).
+    [Review Window](../review/review-window.spec.md#one-window)); of a pull request ↑ ↓ and "Your Turn › 2 of 5",
+    GitHub, "⋯" and the decisions on the pull request, Approve last, its Split/Unified/Inline at the end of its tabs, the
+    header of the changes it switches ([Review Requests](review-requests.spec.md#review-window)).
   - `conflicting-files`, `missing-commits`: "bug-fix › Conflicting files", the islands scrolling under the row.
   - `settings`: "Settings", the sidebar of its pages and the page ([Settings](settings.spec.md)).
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`, `should end the row of a review window with the window buttons of a custom title bar`, `should keep the row of a conflict window above the islands, which scroll under it`, `should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs`)

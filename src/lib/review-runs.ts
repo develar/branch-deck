@@ -1,11 +1,14 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { askOn } from "@/hooks/useMainWindowLink"
+import type { ReviewRequest } from "@/lib/bindings"
 import { ROW_FORM_ACTIONS } from "@/lib/bindings"
 import { branchGoneReason, keptGoneReason } from "@/lib/branch-review"
 import { logError, recordError } from "@/lib/errors"
+import { closeEventToasts } from "@/lib/event-toast"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItem } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
+import type { ReviewToast } from "@/lib/pull-request-review"
 import { findReviewItem, keptBranchName, keptOfSubject } from "@/lib/review-actions"
 import { showRepository } from "@/lib/show-repository"
 import { serveRequests, windowLinkEvents } from "@/lib/sub-window-link"
@@ -16,6 +19,7 @@ import { archivedBranchesStore } from "@/stores/archived-branches"
 import { getBranch } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import type { RevealRequest } from "@/stores/commit-move"
+import { approveAndSafePush, markReviewRequestRead } from "@/stores/review-requests"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 
 /*
@@ -38,15 +42,23 @@ export interface ReviewRunRequest {
   readonly subject: string
   /** The id of its item, as the builders of the row name it */
   readonly itemId: string
-  /** An item of the menu of these commits of the branch, by their ids in the virtual branch */
+  /** An item of the menu of these commits of the branch, by their ids in the virtual branch; of a pull request the reviewed commit */
   readonly commitIds?: readonly string[]
+  /** Of a pull request (`pull:<number>`), the whole request: an approved one has left the list of the main window */
+  readonly request?: ReviewRequest
 }
 
-/** How a run went, shown in the window: why the main window refused it (it recorded it in Activity) */
-export interface ReviewRunFeedback {
-  readonly title: string
-  readonly message: string
-}
+/**
+ * How a run went, shown in the window: why the main window refused it (it recorded it in Activity), or the toast of the
+ * Safe Push of a pull request it started
+ */
+export type ReviewRunFeedback = { readonly kind: "error"; readonly title: string; readonly message: string } | { readonly kind: "toast"; readonly toast: ReviewToast }
+
+/** The item of a pull request the window asks the main window for: its Safe Push, which Patronus answers there */
+export const PULL_REQUEST_SAFE_PUSH = "safe-push-pull-request"
+
+/** The item of a pull request the window shows (↑/↓, Open on GitHub): it is read in Your Turn */
+export const PULL_REQUEST_READ = "read"
 
 /** Items the builders offer that Rust's catalog doesn't name, which open their form at the row too */
 const ROW_ITEMS: ReadonlySet<string> = new Set(["fix-conflict", "push-branch-only"])
@@ -100,11 +112,14 @@ function subjectName(request: ReviewRunRequest): string {
  * item whose intent runs in the session already is that start (a click in both windows runs it once). Main window only.
  */
 export const runReviewRequest = serveRequests<ReviewRunRequest, ReviewRunFeedback>(REVIEW_RUN_EVENTS, REVIEW_WINDOW, async (request, send) => {
+  if (request.request !== undefined) {
+    return runPullRequestRequest(request, request.request, send)
+  }
   const commitId = request.commitIds?.[0] ?? null
   const label = (findReviewItem(request.subject, request.itemId, commitId)?.label ?? request.itemId).replace(/…$/, "")
   const title = `Cannot ${runAction(request.itemId, label, subjectName(request))}`
   const refuse = (reason: unknown): false => {
-    send({ title, message: recordError(title, reason) })
+    send({ kind: "error", title, message: recordError(title, reason) })
     return false
   }
   const notShown = await showRepository(request.repositoryPath)
@@ -141,6 +156,30 @@ export const runReviewRequest = serveRequests<ReviewRunRequest, ReviewRunFeedbac
         }
   return runItem(item, reveal, refuse)
 })
+
+/**
+ * Runs what the review of a pull request asks of the main window: the read of the request in Your Turn, its Safe Push
+ * (the approval first where it lacks, Patronus answers the comment, the robot watched here; `approveAndSafePush` shows
+ * the repository first): its toast goes to the window, the toast of the request in the main window closes
+ */
+function runPullRequestRequest(request: ReviewRunRequest, pullRequest: ReviewRequest, send: (feedback: ReviewRunFeedback) => void): Promise<boolean> | boolean {
+  if (request.itemId === PULL_REQUEST_READ) {
+    markReviewRequestRead(request.repositoryPath, pullRequest)
+    return true
+  }
+  const commitId = request.commitIds?.[0]
+  if (request.itemId !== PULL_REQUEST_SAFE_PUSH || commitId === undefined) {
+    send({ kind: "error", title: `Cannot run "${request.itemId}" on #${pullRequest.number}`, message: "The review has no such action" })
+    return false
+  }
+  return approveAndSafePush(request.repositoryPath, pullRequest, commitId, {
+    toast: toast => {
+      closeEventToasts(toast.key)
+      send({ kind: "toast", toast })
+    },
+    error: (title, error) => send({ kind: "error", title, message: recordError(title, error) }),
+  })
+}
 
 /**
  * Runs an item the window asked for as the row would: the main window comes to the front and shows the row; one whose

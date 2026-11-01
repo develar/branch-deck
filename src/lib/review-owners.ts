@@ -152,6 +152,14 @@ export function initialOwnerFilter(chips: readonly ReviewFilterChip[], remembere
  * The chip of a filter: its own, else the chip of the other kind with the same name, a group of the check and an owner by
  * the `OWNERSHIP` files being one owner (the groups list no owner chip of their names)
  */
+/**
+ * Whether the chips may still bring the remembered chip: a chip other than All the chips don't have yet (the owners of
+ * the `OWNERSHIP` files come after the groups of the request), so the chip a review opens on is not settled yet
+ */
+export function awaitsRememberedChip(chips: readonly ReviewFilterChip[], remembered: ReviewFilter | undefined): boolean {
+  return remembered !== undefined && remembered.kind !== "all" && chipOf(chips, remembered) === undefined
+}
+
 function chipOf(chips: readonly ReviewFilterChip[], filter: ReviewFilter): ReviewFilterChip | undefined {
   const own = chips.find(chip => sameFilter(chip.filter, filter))
   if (own !== undefined || (filter.kind !== "group" && filter.kind !== "owner")) {

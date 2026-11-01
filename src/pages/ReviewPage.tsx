@@ -32,6 +32,7 @@ import type { MenuItemGroups } from "@/lib/menu"
 import { FROM_MENU } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { openPullRequestUrl } from "@/lib/pull-request"
+import { showReviewToast } from "@/lib/pull-request-review"
 import { commitItems, isSingleCommit, rangePosition } from "@/lib/range-review"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
@@ -115,8 +116,8 @@ export function ReviewPage() {
   // the stores of its facts (the robots, the pull requests, the readiness, the review requests), as the main window's
   // are: the actions read them; the news of the session are the main window's
   useSessionFactStores()
-  // why the main window refused an action the window asked it to run at its row
-  useLinkedFeedback<ReviewRunFeedback>(REVIEW_WINDOW, feedback => notifyError(feedback.title, feedback.message))
+  // why the main window refused an action the window asked it to run at its row, the toast of a Safe Push it started
+  useLinkedFeedback<ReviewRunFeedback>(REVIEW_WINDOW, showRunFeedback)
 
   const back = () => {
     const previous = history.at(-1)
@@ -172,6 +173,8 @@ export function ReviewPage() {
     <>
       {shown.kind === "commits" ? (
         <CommitsReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} />
+      ) : shown.kind === "pullRequest" ? (
+        <LazyPullRequestReview key={key} data={shown} back={backButton} onPlace={reportPlace} />
       ) : (
         <BranchReviewWindow key={key} data={shown} back={backButton} onPlace={reportPlace} dialogOpen={dialogBranch !== null} />
       )}
@@ -185,6 +188,51 @@ export function ReviewPage() {
       )}
     </>
   )
+}
+
+/** The module of the review of a pull request, a chunk of its own; null until it loaded */
+let pullRequestModule: typeof import("@/pages/PullRequestReviewWindow") | null = null
+
+/** Loads the chunk of the review of a pull request (asked already with the page, `startReviewWindowReads`) */
+function loadPullRequestReview(): Promise<typeof import("@/pages/PullRequestReviewWindow")> {
+  return import("@/pages/PullRequestReviewWindow")
+}
+
+/**
+ * The review of a pull request once its chunk loaded (`src/lib/review-window-reads.ts` asks for it with the page): no
+ * `React.lazy` under `Suspense`, whose fallback would hold the content back (`src/router.ts`); the window shows by its
+ * content anyway (`readyByContent`)
+ */
+function LazyPullRequestReview(props: { data: Extract<ShownReviewWindow, { kind: "pullRequest" }>; back: ReactNode; onPlace: ReportPlace }) {
+  const [loaded, setLoaded] = useState(pullRequestModule)
+  useEffect(() => {
+    if (loaded !== null) {
+      return
+    }
+    let current = true
+    loadPullRequestReview().then(
+      module => {
+        pullRequestModule = module
+        if (current) {
+          setLoaded(module)
+        }
+      },
+      (error: unknown) => notifyError("Cannot load the review of the pull request", error),
+    )
+    return () => {
+      current = false
+    }
+  }, [loaded])
+  return loaded === null ? null : <loaded.PullRequestReviewWindow {...props} />
+}
+
+/** A refusal of the main window, or the toast of the Safe Push of a pull request it started for the window */
+function showRunFeedback(feedback: ReviewRunFeedback): void {
+  if (feedback.kind === "error") {
+    notifyError(feedback.title, feedback.message)
+    return
+  }
+  showReviewToast(feedback.toast)
 }
 
 /**

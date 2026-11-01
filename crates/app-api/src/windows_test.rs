@@ -100,27 +100,27 @@ fn a_loaded_hidden_page_takes_an_open_and_shows_for_it() {
 #[test]
 fn a_deadline_shows_the_window_once_and_only_its_own_build() {
   let state = SubWindowState::default();
-  let (_, closed) = build_with_deadline(&state, "pull-request-review");
-  state.forget("pull-request-review");
-  let (second, built) = build_with_deadline(&state, "pull-request-review");
+  let (_, closed) = build_with_deadline(&state, "review");
+  state.forget("review");
+  let (second, built) = build_with_deadline(&state, "review");
   // the fallback timer of the closed window leaves the new one hidden
-  assert!(!state.deadline_passed("pull-request-review", &closed));
-  assert!(state.deadline_passed("pull-request-review", &built));
-  assert!(!state.deadline_passed("pull-request-review", &built));
+  assert!(!state.deadline_passed("review", &closed));
+  assert!(state.deadline_passed("review", &built));
+  assert!(!state.deadline_passed("review", &built));
   // shown by the deadline: the page's later ready does nothing
-  assert!(!state.ready("pull-request-review", second.id));
+  assert!(!state.ready("review", second.id));
 }
 
 #[test]
 fn a_window_built_again_after_its_close_waits_for_its_page_again() {
   let state = SubWindowState::default();
-  build(&state, "pull-request-review");
-  loaded_update(&state, "pull-request-review");
-  state.forget("pull-request-review");
-  build(&state, "pull-request-review");
+  build(&state, "review");
+  loaded_update(&state, "review");
+  state.forget("review");
+  build(&state, "review");
   let again = update(&state, "again");
-  assert_eq!(state.reopened("pull-request-review", again.clone()), Reopen::Pending);
-  assert_eq!(loaded_update(&state, "pull-request-review"), Some(again));
+  assert_eq!(state.reopened("review", again.clone()), Reopen::Pending);
+  assert_eq!(loaded_update(&state, "review"), Some(again));
 }
 
 #[test]

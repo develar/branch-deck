@@ -551,7 +551,7 @@ An E2E test pins these numbers.
 
 Every window loads the same `index.html`. A sub-window (`/review`, `/conflicting-files`, `/missing-commits`)
 used to download and compile the main window's tree before its own page: 61 modulepreloads, about 1.1 MB of JS.
-- A window loads its page by the path of its URL (`loadWindowPage` of `src/router.ts`: seven pages, each a chunk of
+- A window loads its page by the path of its URL (`loadWindowPage` of `src/router.ts`: six pages, each a chunk of
   its own), the main page as the sub-window pages, and the root renders once the page is here, with it
   (`src/main.tsx`). Not a `React.lazy` under `Suspense`: its fallback committed before the chunk came, and React
   reveals a boundary that showed its fallback no sooner than 300 ms after it, so every window showed 0.3 s later

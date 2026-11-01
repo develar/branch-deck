@@ -1,22 +1,26 @@
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
-import type { ReviewCommit, ReviewPart } from "@/lib/bindings"
+import type { ReviewCommit, ReviewPart, ReviewRequest } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { reviewBlockerOf } from "@/lib/branch-review"
 import type { BranchReviewFocus } from "@/lib/branch-review"
 import { logError, notifyError } from "@/lib/errors"
+import type { ReviewSource } from "@/lib/pull-request-review"
 import { keptBranchName } from "@/lib/review-actions"
 import { reviewGroupsOf } from "@/lib/review-groups"
+import type { ReviewIntent } from "@/lib/review-request-actions"
 import { reviewSubjectName, reviewWindowTitle } from "@/lib/review-reuse"
 import { chainTarget } from "@/lib/review-target"
 import { REVIEW_WINDOW } from "@/lib/window-label"
 import { openSubWindow } from "@/lib/window-management"
 import { branchSyncStore, getBranch, getStackAncestors, mainLineOf } from "@/stores/branch-sync"
 import { getDiffRepositoryPath, getSelectedProject } from "@/stores/repository"
+import { markReviewRequestRead } from "@/stores/review-requests"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 import type { BranchReviewGroup, BranchReviewWindowData, CommitsReviewWindowData, KeptReview, ReviewedBranch, ReviewWindowData } from "@/types/sub-window"
 
 /*
- * The openers of the one review window (spec/review/review-window.spec.md#one-window): each says what to show and opens
+ * The openers of the one review window (spec/review/review-window.spec.md#one-window): a branch, a whole stack, a kept
+ * branch, a commit of a list, a pull request to review. Each says what to show and opens
  * the window on it, from any window (the review window opens the next review itself: a branch of its stack, the whole
  * stack, the branch a reapplied kept branch is again). The page of the window decides how the open goes on from the
  * review on screen (`planReviewOpen`): it gets every open.
@@ -206,4 +210,15 @@ export async function openCommitReviewWindow(commits: readonly ReviewCommit[], l
   }
   const data: CommitsReviewWindowData = { kind: "commits", repositoryPath, commits: [...commits], listLabel, index, path, openedAt: Date.now() }
   return openWindow(data)
+}
+
+/**
+ * Reviews `request` of a list of the main window (`source`: Your Turn, Reviews) in the review window, at its place in
+ * that list (`index`, which ↑/↓ walk from), with the write the row's menu asked for (`intent`, "review" for D on the
+ * row): the window fetches the pull request itself (spec/repository/review-requests.spec.md#review-window). Main window
+ * only: it marks the request read.
+ */
+export async function openPullRequestReview(repositoryPath: string, request: ReviewRequest, index: number, intent: ReviewIntent | null, source: ReviewSource): Promise<boolean> {
+  markReviewRequestRead(repositoryPath, request)
+  return openWindow({ kind: "pullRequest", repositoryPath, number: request.number, request, index, intent, source, openedAt: Date.now() })
 }

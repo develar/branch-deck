@@ -214,7 +214,7 @@ export async function waitForTauriListener(page: Page, event: string): Promise<v
 
 /**
  * Fires the Tauri event listeners of the page mock, e.g. `tauri://focus` (the window gained focus, auto-sync listens to
- * it). `label` names the window of the event, for a listener of one window: `tauri://destroyed` of `pull-request-review`.
+ * it). `label` names the window of the event, for a listener of one window: `tauri://destroyed` of `review`.
  */
 export async function emitTauriEvent(page: Page, event: string, payload: unknown = null, label: string | null = null): Promise<void> {
   await page.evaluate(

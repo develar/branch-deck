@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { KeyboardEvent, RefObject } from "react"
+import type { KeyboardEvent, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -42,7 +42,7 @@ import type { ReviewFetch } from "@/stores/review-fetch"
 import { reviewFetchKey, startReviewFetch, useReviewFetch } from "@/stores/review-fetch"
 import type { ReviewAction, SubmittedReview } from "@/stores/review-requests"
 
-/** What the review window of a pull request shows and does: its writes ask the main window (`PullRequestReviewPage`) */
+/** What the review of a pull request shows and does, from the session of the review window (`PullRequestReviewWindow`) */
 export interface PullRequestReviewHost {
   readonly repositoryPath: string
   /** The list the window walks */
@@ -58,7 +58,7 @@ export interface PullRequestReviewHost {
   readonly openedIndex: number
   /** No longer waiting for the user's review, and not reviewed by the user here */
   readonly withdrawn: boolean
-  /** The review the user submitted here, until the main window's state says it */
+  /** The review the user submitted here, until the session says it */
   readonly submitted: SubmittedReview | undefined
   /** The actions Rust decides of the pull request (`pull:<number>`) */
   readonly actions: ReviewRequestActionContext["actions"]
@@ -67,13 +67,13 @@ export interface PullRequestReviewHost {
    * none while it is not known, Patronus doesn't answer, or the pull request goes into another branch
    */
   readonly reviewGroups: readonly ReviewerGroupView[]
-  /** The baseline whose `OWNERSHIP` files name the owners of the files; null while the main window has not shown it */
+  /** The baseline whose `OWNERSHIP` files name the owners of the files; null before a sync of the window's session */
   readonly baselineBranch: string | null
   readonly busy: ReviewAction | undefined
   /** The write the row's menu asked for, offered once per open (`openToken`); "review" shows the changes */
   readonly intent: ReviewIntent | null
   readonly openToken: unknown
-  /** The last open of the window from the main window: each one opens on the remembered owner chip again */
+  /** The last open of the review (an open of a request of the list too): each one opens on the remembered owner chip again */
   readonly openedAt: number
   readonly showRequest: (index: number) => void
   readonly close: () => void
@@ -87,10 +87,12 @@ export interface PullRequestReviewProps {
   host: PullRequestReviewHost
   /** The body, focused when the review opens: PageUp/PageDown scroll it */
   bodyRef: RefObject<HTMLDivElement | null>
+  /** Back to the review the window showed before, at the start of the title bar; null while it has none */
+  back: ReactNode
 }
 
 /**
- * The review of a pull request that waits for the user (spec/repository/review-requests.spec.md), in its own window.
+ * The review of a pull request that waits for the user (spec/repository/review-requests.spec.md), in the review window.
  * The title bar: ↑ ↓ of Your Turn, then Open on GitHub, "⋯" and the decisions, Request Changes… (R), Approve and Safe
  * Push… (M) where Patronus merges, Approve (A), the primary, last. The header island: who asks and how long, the title
  * and the chips, then Overview / Changes (D), and while the changes show the sidebar and the diff view at the end of
@@ -98,7 +100,7 @@ export interface PullRequestReviewProps {
  * of `base..head` (the tree beside all diffs, J/K, N/P). A write is on the fetched head, the commit the user sees; the
  * keys work in both views (`getReviewRequestActions`, as the row's menu).
  */
-export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
+export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProps) {
   const { request, repositoryPath, requests, index } = host
   const fetch = useReviewFetch(reviewFetchKey(repositoryPath, request))
   const range = fetch?.status === "fetched" ? fetch.range : null
@@ -211,7 +213,7 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
   const reviewedCommit = getReviewedCommit(request, fetch)
 
   // the owner chips (spec/repository/review-requests.spec.md, "Owner chips"): the groups of the request, the owners by
-  // the OWNERSHIP files of the baseline (of the base of the pull request until the main window names it), of the files
+  // the OWNERSHIP files of the baseline (of the base of the pull request until a sync of the window names it), of the files
   // of the shown scope; the window opens on the remembered chip, else the user's group that still needs an approval
   const subjectFiles = useFilesOfCommit(subject === null ? "" : diffSubjectId(subject))?.files
   const rangeFiles = files?.files
@@ -484,7 +486,12 @@ export function PullRequestReview({ host, bodyRef }: PullRequestReviewProps) {
       data-testid="review-window"
       onKeyDown={handleKeyDown}
       body="fill"
-      title={<ReviewNavigation {...toolbarProps} />}
+      title={
+        <>
+          {back}
+          <ReviewNavigation {...toolbarProps} />
+        </>
+      }
       titleEnd={
         <div className="flex items-center gap-1" data-testid="review-toolbar">
           <ReviewToolbarActions {...toolbarProps} />

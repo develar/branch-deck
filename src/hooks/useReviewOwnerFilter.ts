@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { canonicalOwnerFilter, initialOwnerFilter } from "@/lib/review-owners"
+import { awaitsRememberedChip, canonicalOwnerFilter, initialOwnerFilter } from "@/lib/review-owners"
 import type { ReviewFilter, ReviewFilterChip } from "@/lib/review-owners"
 import { setReviewOwnerChip, useRecentProjects } from "@/stores/settings/repositorySettings"
 
@@ -22,8 +22,9 @@ interface Held {
 /**
  * The owner chip of a review window (spec/branch/branch-review.spec.md, "Code owners"), per `scope` (an open of the
  * window on a request): until the user chooses one, the chip it opens on (`initialOwnerFilter`) of the remembered chip
- * as the scope began, so a choice in another window does not move it. While that is All, the chips that come later (the
- * groups of the readiness of the request, the owners) choose again; once it is another chip, it holds. A chip the user
+ * as the scope began, so a choice in another review does not move it. While that is All, or the user's group while the
+ * remembered chip may still come (`awaitsRememberedChip`), the chips that come later (the groups of the readiness of the
+ * request, the owners) choose again; once it is another chip, it holds. A chip the user
  * chooses holds, All too, and is remembered for the repository; All forgets it. A chip held as an owner of the
  * `OWNERSHIP` files is the group of its name once the groups come (`canonicalOwnerFilter`): one chip, the group's.
  */
@@ -38,7 +39,8 @@ export function useReviewOwnerFilter(repositoryPath: string, scope: string, star
   let filter = current.filter
   if (filter === null) {
     filter = initialOwnerFilter(start.chips, current.remembered, start.preferYours)
-    if (filter.kind !== "all") {
+    // the remembered chip may come with the owners, after the groups: the user's group holds only once it can't
+    if (filter.kind !== "all" && !awaitsRememberedChip(start.chips, current.remembered)) {
       setHeld({ ...current, filter })
     }
   }

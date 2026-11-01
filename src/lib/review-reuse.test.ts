@@ -85,6 +85,21 @@ describe("planReviewOpen", () => {
   })
 })
 
+describe("planReviewOpen of a pull request", () => {
+  it("keeps its review for a plain open of the request it shows, and starts over for another request or an intent", () => {
+    const pull: ShownReview = { kind: "pullRequest", repositoryPath: "/repo", source: "yourTurn", number: 7, startedAt: 1 }
+    const openPull = (number: number, intent: "requestChanges" | null = null, source: "yourTurn" | "reviews" = "yourTurn") =>
+      planReviewOpen(pull, { kind: "pullRequest", repositoryPath: "/repo", source, number, intent }, 9)
+    // the request on screen again: shown again, also after ↑/↓ walked away from it
+    expect(openPull(7)).toEqual({ shown: pull, move: true })
+    expect(openPull(8).shown.startedAt).toBe(9)
+    // the same pull request opened from Reviews walks another list
+    expect(openPull(7, null, "reviews").shown.startedAt).toBe(9)
+    // a write of the row's menu, D on the row: every time
+    expect(openPull(7, "requestChanges").shown.startedAt).toBe(9)
+  })
+})
+
 describe("takeOpen", () => {
   it("keeps the review on screen for a plain open of it, moves to a commit of it, and starts over for anything else", () => {
     // the first open starts the window
