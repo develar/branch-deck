@@ -1,8 +1,10 @@
 // @spec spec/repository/landed-commits.spec.md
 import type { Locator, Page } from "@playwright/test"
+import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { expect, test } from "../fixtures/test-fixtures"
 import { expandBranch, findBranchRow, getBranchCommitRow, getPushButton } from "../helpers/branch-helpers"
 import { testCopyButtonOnHover } from "../helpers/clipboard-helpers"
+import { openedReview } from "../helpers/review-window-helpers"
 import { runAndWaitForUpdate } from "../helpers/sync-helpers"
 
 // The `landed_upstream` template: a robot pushed `feature-auth` (one commit) and the first of the two `search` commits to
@@ -19,6 +21,14 @@ function landedCard(page: Page): Locator {
 
 function landedBranch(page: Page, name: string): Locator {
   return landedCard(page).locator(`[data-testid="landed-branch"][data-branch-name="${name}"]`)
+}
+
+/** The `landed_upstream` template updated: the row of `feature-auth` in the Landed island */
+async function updateToLandedFeatureAuth(page: Page, setupRepo: (template: string) => Promise<unknown>, syncAndWaitForBranches: () => Promise<unknown>): Promise<Locator> {
+  await setupRepo("landed_upstream")
+  await syncAndWaitForBranches()
+  await runAndWaitForUpdate(page, () => updateButton(page).click())
+  return landedBranch(page, "feature-auth")
 }
 
 test.describe("Landed commits", () => {
@@ -123,12 +133,31 @@ test.describe("Landed commits", () => {
     await expect(landedCard(page)).toHaveCount(0)
   })
 
-  test("should show the copy button of a baseline commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
-    await setupRepo("landed_upstream")
-    await syncAndWaitForBranches()
-    await runAndWaitForUpdate(page, () => updateButton(page).click())
+  test("should review what landed of a branch and of a commit of it from the island, with D and with their buttons", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const branch = await updateToLandedFeatureAuth(page, setupRepo, syncAndWaitForBranches)
+    // D on the row of the branch: its landed commits as a list named by the branch, as the baseline has them
+    await branch.getByRole("button", { expanded: false }).focus()
+    await page.keyboard.press("d")
+    const byKey = await openedReview<CommitsReviewWindowData>(page, 1)
+    expect(byKey).toMatchObject({ title: expect.stringMatching(/^Review [0-9a-f]{8} Add login$/), data: { kind: "commits", listLabel: "feature-auth", index: 0 } })
+    expect(byKey.data.commits.map(commit => commit.subject)).toEqual(["Add login"])
 
-    const branch = landedBranch(page, "feature-auth")
+    // the button of the branch, then D and the button of an expanded commit: the review at that commit
+    await branch.getByTestId("landed-branch-review").click()
+    expect((await openedReview<CommitsReviewWindowData>(page, 2)).data).toMatchObject({ kind: "commits", listLabel: "feature-auth" })
+    await branch.getByRole("button", { expanded: false }).click()
+    const commit = branch.getByTestId("landed-commit").filter({ hasText: "Add login" })
+    await commit.focus()
+    await page.keyboard.press("d")
+    const atCommit = await openedReview<CommitsReviewWindowData>(page, 3)
+    // the baseline commit that carries it
+    expect(atCommit.data.commits[atCommit.data.index]!.id.slice(0, 8)).toBe(await commit.getByTestId("landed-upstream-hash").textContent())
+    await commit.getByTestId("landed-commit-review").click()
+    expect((await openedReview<CommitsReviewWindowData>(page, 4)).data).toMatchObject({ kind: "commits", listLabel: "feature-auth", index: 0 })
+  })
+
+  test("should show the copy button of a baseline commit on hover", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const branch = await updateToLandedFeatureAuth(page, setupRepo, syncAndWaitForBranches)
     await branch.getByRole("button", { expanded: false }).click()
     const commit = branch.getByTestId("landed-commits").locator("li", { hasText: "Add login" })
     const hash = commit.getByTestId("landed-upstream-hash")

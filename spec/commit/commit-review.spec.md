@@ -37,6 +37,7 @@ targets:
   - ../../src/lib/review-window.ts
   - ../../src/components/commit/CommitList.tsx
   - ../../src/hooks/useCommitReviewActions.ts
+  - ../../src/components/preview/CommitsPreviewBody.tsx
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/components/review/RangeReview.tsx
   - ../../src/components/review/ReviewKeyHints.tsx
@@ -107,10 +108,13 @@ where a dialog would cover it.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a branch in conflict and of a blocked one in the review window of the commit`)
 - D on a commit row (the focused row while the pointer hasn't moved, else the row under it, `usePreviewHotkeys`) and
   "Review Changes" (D), the first item of the row's menu, must open the window at the first file; no preview opens. A
-  commit without files gets its preview, which says so; the menu item is disabled with "The commit changes no files",
-  and with "Review one commit at a time" for a selection of several. An open menu keeps D and Space (they act on no
-  row under it); a closing one does not, so D right after Escape reviews.
+  commit without files gets its preview, which says so; the menu item is disabled with "The commit changes no files".
+  D and the item on a row of a selection of several review them together: inside a branch the review of the branch at
+  the first of them in the order of the list (the focus of a review is one commit, and its column lists the others),
+  in a list no branch owns (unassigned) a review of the selection as a list of its own. An open menu keeps D and Space
+  (they act on no row under it); a closing one does not, so D right after Escape reviews.
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a commit of a row in its window with D and with the item of its menu`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should review a selection of several unassigned commits together, as a list of its own`, `should review a selection of commits of a branch in the review of the branch, at the first of them`)
 - In the preview, D and the `D Review Changes` button of its footer must open the window at the first file, Enter on
   a file of the Files tree at that file; the preview closes once the window opened, and stays (the error told) when
   it could not.

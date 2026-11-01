@@ -160,6 +160,10 @@ is outgoing compares content, not hashes: the question is whether the remote has
   and list the newest ten of the commits a push drops (`droppedCommits`: id, subject, author, time), newest first;
   `commitsBehind` counts them all. A push leases on that commit ([Push](#push)).
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`test_dropped_commits_are_listed_newest_first_up_to_the_limit`)
+- Before the push, the list of the commits it drops in the description of the push button must offer Review Changes:
+  the review window reviews them as a list ("ABC-123 on the remote", [Review Window](../review/review-window.spec.md#one-window)),
+  reachable by the remote-tracking branch; the list of an Activity entry after the push has none, its commits may be gone.
+  [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should review the remote commits a force push would drop from the description of its button, before the push`)
 - The last push time of a remote status (`lastPushTime`, "Pushed …" in the description of the status text and in the
   branch preview) must be the time of the newest push of the branch from this clone, by its remote-tracking ref: a
   fetch that moved the remote branch later doesn't change it, also for a branch whose name holds a `{`. Without such

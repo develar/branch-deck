@@ -21,6 +21,7 @@ targets:
   - ../../src/stores/update-project.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/components/repository/LandedCard.tsx
+  - ../../src/lib/review-window.ts
   - ../../src/components/repository/ActivityLog.tsx
   - ../../src/stores/settings/repositorySettings.ts
   - ../../src/components/repository/UpdateProjectButton.tsx
@@ -232,6 +233,12 @@ by the next sync the same way.
   just now"). Dismiss (`XIcon`) closes it and clears the report, the chips and the "New" marks of the archive.
   [@test] ../../src/lib/landed.test.ts (`names the committer once when every branch has the same one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
+- D on a branch row of the island and its Review Changes button must review what landed of it in the review window as
+  a list of commits named by the branch ([Review Window](../review/review-window.spec.md#one-window), `kind:
+  "commits"`), each commit as the baseline has it, else as it was here (squashed upstream); D on a commit of an
+  expanded row and its button review the list at that commit (`openCommitIdsReview`: the commits read by `get_review`
+  of the target `commits`). Activity lists the same rows without it.
+  [@test] ../../tests/e2e/update-project/landed.spec.ts (`should review what landed of a branch and of a commit of it from the island, with D and with their buttons`)
 - The island shows from the report until the first successful sync that completes while the window has focus, at least
   10 s after the user saw the island (it showed while the window had focus): the sync that follows the update keeps it,
   a later one hides what was seen. Hidden is remembered for the repository (`landedHiddenUntil` of its `repositoryState`, the newest

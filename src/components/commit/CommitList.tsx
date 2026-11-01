@@ -140,7 +140,7 @@ export function CommitList<T extends CommitUnion>({
     contextMenuItems: typeof contextMenuItems
     onDragCommits: typeof onDragCommits
     onDragEnd: typeof onDragEnd
-    review: (commit: CommitUnion) => void
+    review: (commits: readonly CommitUnion[]) => void
     reword: ((commit: CommitUnion) => void) | null
   }>({ selection, contextMenuItems, onDragCommits, onDragEnd, review: () => {}, reword: null })
 
@@ -216,7 +216,33 @@ export function CommitList<T extends CommitUnion>({
     const inBranch = reviewIn?.(hash, path) ?? (branchName === undefined ? null : reviewBranchCommit(branchName, hash, path))
     return inBranch ?? openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
   }
-  const reviewRow = (commit: CommitUnion) => void review(getCommitHash(commit))
+  // D on a selection of several: inside a branch the review of the branch at the first of them (its column lists the
+  // others), in a list no branch owns the review of the selection as a list of its own
+  const reviewCommits = (selected: readonly CommitUnion[]) => {
+    const ordered = commits.filter(it => selected.includes(it))
+    const first = ordered[0]
+    if (first === undefined) {
+      return
+    }
+    if (ordered.length === 1) {
+      void review(getCommitHash(first))
+      return
+    }
+    const hash = getCommitHash(first)
+    const inBranch = reviewIn?.(hash, null) ?? (branchName === undefined ? null : reviewBranchCommit(branchName, hash, null))
+    if (inBranch === null) {
+      void openCommitReviewWindow(ordered.map(toReviewCommit), listLabel ?? branchName ?? null, 0, null)
+    }
+  }
+  // the commits D acts on: the selection the row is in, else the row
+  const reviewHash = (hash: string) => {
+    const commit = commits.find(it => getCommitHash(it) === hash)
+    const current = latestRef.current.selection
+    if (commit === undefined) {
+      return
+    }
+    reviewCommits(current === undefined ? [commit] : getActionCommits(current, commit))
+  }
   // "Reword…" another window asked for (the menu of a commit in the review window): the preview edits the message,
   // the store forgets the request in an effect
   const formRequest = useCommitFormRequest(branchName ?? UNASSIGNED_SOURCE)
@@ -236,7 +262,7 @@ export function CommitList<T extends CommitUnion>({
   }, [rewordRequest])
   usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getAnchorId() ?? null, {
     preview: openPreview,
-    review: hash => void review(hash),
+    review: reviewHash,
   })
   useEffect(() => {
     latestRef.current = {
@@ -244,7 +270,7 @@ export function CommitList<T extends CommitUnion>({
       contextMenuItems,
       onDragCommits,
       onDragEnd,
-      review: reviewRow,
+      review: reviewCommits,
       reword: editable ? commit => openPreview(getCommitHash(commit), true) : null,
     }
   })

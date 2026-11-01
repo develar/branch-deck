@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef } from "react"
+import { lazy, Suspense, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitList } from "@/components/commit/CommitList"
@@ -10,30 +10,47 @@ import { TableHeader } from "@/components/shared/TableHeader"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { Commit } from "@/lib/bindings"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
+import type { KeptKind } from "@/lib/review-target"
 import type { ActiveInline, InlineActionType } from "@/stores/inline-row-action"
 import { closeInline, portalTargetIdFor } from "@/stores/inline-row-action"
 
+// the preview pulls in the commit headings and the frame of a preview
+const KeptBranchPreviewDialog = lazy(() => import("@/components/branch/KeptBranchPreviewDialog").then(it => ({ default: it.KeptBranchPreviewDialog })))
 const InlineDeleteConfirmationInput = lazy(() => import("@/components/branch/InlineDeleteConfirmationInput").then(it => ({ default: it.InlineDeleteConfirmationInput })))
 
 /**
  * The table of a card of kept branches (archived, unapplied): Branch Name, `columns` (hidden on a narrow window),
- * Actions; one menu for the right-click of its rows, `menu` the items of the row of a name
+ * Actions; one menu for the right-click of its rows, `menu` the items of the row of a name. Space previews a row
+ * (`KeptBranchPreviewDialog`), D reviews it, as on a branch row.
  */
 export function KeptBranchTable({
+  kind,
+  names,
   columns,
   menu,
   onReview,
   children,
 }: {
+  kind: KeptKind
+  /** The full names of the rows, in their order: ↑/↓ of the preview step through them */
+  names: readonly string[]
   columns: readonly string[]
   menu: (name: string) => ReactNode
   /** D on the focused row: the review of the branch of that full name */
   onReview: (name: string) => void
   children: ReactNode
 }) {
-  // D on the focused row or the one under the pointer, as on a branch row; a commit of an expanded row is its list's
+  // Space and D on the focused row or the one under the pointer, as on a branch row; a commit of an expanded row is its
+  // list's
   const tableRef = useRef<HTMLTableElement>(null)
-  usePreviewHotkeys(tableRef, () => null, { review: onReview })
+  const [preview, setPreview] = useState<string | null>(null)
+  // loaded on the first use, then kept mounted (the dialog moves the focus only when it opens or closes)
+  const [isPreviewLoaded, setPreviewLoaded] = useState(false)
+  const openPreview = (name: string) => {
+    setPreview(name)
+    setPreviewLoaded(true)
+  }
+  usePreviewHotkeys(tableRef, () => null, { review: onReview, preview: openPreview })
   return (
     <TableContextMenu menu={menu}>
       <table ref={tableRef} className="w-full" onKeyDown={copyFocusedBranchRow}>
@@ -50,6 +67,11 @@ export function KeptBranchTable({
         </thead>
         <TableMenuBody className="divide-y divide-border">{children}</TableMenuBody>
       </table>
+      {isPreviewLoaded && (
+        <Suspense fallback={null}>
+          <KeptBranchPreviewDialog kind={kind} names={names} name={preview} onNameChange={setPreview} onClose={() => setPreview(null)} />
+        </Suspense>
+      )}
     </TableContextMenu>
   )
 }

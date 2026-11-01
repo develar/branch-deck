@@ -2,12 +2,13 @@
 import type { Locator, Page } from "@playwright/test"
 import type { SettingsChange } from "../../../src/lib/bindings"
 import type { BranchReviewWindowData, CommitsReviewWindowData } from "../../../src/types/sub-window"
-import { test as simpleTest, testWithIssueLinks, expect } from "../fixtures/test-fixtures"
+import { test as simpleTest, testWithIssueLinks, testWithUnassigned, expect } from "../fixtures/test-fixtures"
 import { activityButton, activityPanel } from "../helpers/activity-helpers"
 import { findBranchRow, expandBranch, expectNothingToPush, getBranchCommitRow, getPushButton, getUnassignedCommitRow } from "../helpers/branch-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { chooseWhitespace, getCommitPreview, openCommitFilesSection, openCommitPreview } from "../helpers/preview-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
+import { multiSelectCommit, selectCommit } from "../helpers/selection-helpers"
 import {
   getEmittedEvents,
   getOpenedSubWindows,
@@ -863,6 +864,44 @@ simpleTest.describe("A commit with its branch", () => {
     await expect(segments.nth(0)).toHaveAttribute("aria-pressed", "true")
     await expect(segments.nth(1)).toHaveAttribute("aria-pressed", "false")
   })
+})
+
+testWithUnassigned("should review a selection of several unassigned commits together, as a list of its own", async ({ page, setupUnassignedRepo }) => {
+  // the `unassigned` template: two commits without a prefix
+  await setupUnassignedRepo()
+  const first = getUnassignedCommitRow(page, "Fix login validation bug")
+  const second = getUnassignedCommitRow(page, "Add user authentication")
+  await selectCommit(first)
+  await multiSelectCommit(second)
+  // D on a row of the selection: the selection, as a list of its own, in the order of the list
+  await second.hover()
+  await page.keyboard.press("d")
+  const opened = await openedReview<CommitsReviewWindowData>(page, 1)
+  expect(opened.data).toMatchObject({ kind: "commits", listLabel: "Unassigned", index: 0 })
+  expect(opened.data.commits.map(commit => commit.subject)).toEqual(["Fix login validation bug", "Add user authentication"])
+  // Review Changes of the menu of the selection, enabled: the same
+  await second.click({ button: "right" })
+  const item = page.getByRole("menuitem", { name: "Review Changes" })
+  await expect(item).toBeEnabled()
+  await item.click()
+  expect((await openedReview<CommitsReviewWindowData>(page, 2)).data.commits).toHaveLength(2)
+})
+
+simpleTest("should review a selection of commits of a branch in the review of the branch, at the first of them", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // the `stack_push_alone` template: IJPL-257337, two commits, and perf-part-2 stacked on it
+  await setupRepo("stack_push_alone")
+  await syncAndWaitForBranches()
+  await expandBranch(page, findBranchRow(page, "IJPL-257337"))
+  const newer = getBranchCommitRow(page, "IJPL-257337", "Parse the icon off the EDT")
+  const older = getBranchCommitRow(page, "IJPL-257337", "Load icons lazily")
+  await selectCommit(newer)
+  await multiSelectCommit(older)
+  await older.hover()
+  await page.keyboard.press("d")
+  // the branch review lists both in its column: it opens at the first of the selection, as the list orders it
+  const opened = await openedReview(page, 1)
+  expect(opened.data).toMatchObject({ kind: "branch", chain: ["IJPL-257337"], focus: { commitId: expect.stringMatching(/^[0-9a-f]{40}$/) } })
+  expect(opened.title).toMatch(/^Review IJPL-257337 · [0-9a-f]{8}$/)
 })
 
 simpleTest("should review an unassigned commit in the review window of the commit", async ({ page, setupRepo, syncAndWaitForBranches }) => {

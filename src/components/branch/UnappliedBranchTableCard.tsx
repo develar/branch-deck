@@ -46,6 +46,8 @@ export function UnappliedBranchTableCard() {
       help={<UnappliedBranchesHelpPopover />}
     >
       <KeptBranchTable
+        kind="unapplied"
+        names={order}
         onReview={name => void openKeptReviewWindow({ kind: "unapplied", name })}
         columns={UNAPPLIED_COLUMNS}
         menu={name => <UnappliedBranchMenuItems name={name} Items={ContextMenuItems} />}

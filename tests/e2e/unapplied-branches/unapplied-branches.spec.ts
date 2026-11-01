@@ -5,6 +5,7 @@ import { test as base, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getMoreButton, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineDeleteConfirmation, submitInlineForm } from "../helpers/inline-form-helpers"
 import { branchOf, expectPushedToRemote, remotePushes } from "../helpers/push-helpers"
+import { openedReview } from "../helpers/review-window-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow } from "../helpers/sub-window-helpers"
 import { finishedSyncCount, runAndWaitForSync } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
@@ -269,6 +270,26 @@ test.describe("Unapplied branches", () => {
     const [reviewOfBranch] = await getOpenedSubWindows<BranchReviewWindowData>(window)
     expect(reviewOfBranch).toMatchObject({ windowId: "review", title: "Review docs" })
     expect(reviewOfBranch!.data.kept).toBeUndefined()
+  })
+
+  test("should preview an unapplied branch with Space, its own commits with their messages, and review it from the preview", async ({ page }) => {
+    await unapplyFromMenu(page, "docs")
+    await unappliedRow(page, "docs").focus()
+    await page.keyboard.press(" ")
+    const preview = page.getByTestId("kept-preview")
+    await expect(preview.getByRole("heading", { name: "docs" })).toBeVisible()
+    await expect(preview.getByTestId("kept-preview-meta")).toHaveText("Unapplied·1 commit")
+    await expect(preview.getByTestId("kept-preview-commit")).toHaveCount(1)
+    await expect(preview.getByTestId("kept-preview-commit")).toContainText("Document the API")
+    // D: the review of the kept branch, the preview closes once the window opened
+    await page.keyboard.press("d")
+    expect((await openedReview(page, 1)).data).toMatchObject({ kind: "branch", chain: ["docs"], kept: { kind: "unapplied", name: "user-name/unapplied/docs" } })
+    await expect(preview).toBeHidden()
+    // the review button of a commit: the review at that commit
+    await unappliedRow(page, "docs").focus()
+    await page.keyboard.press(" ")
+    await preview.getByTestId("kept-preview-commit-review").click()
+    expect((await openedReview(page, 2)).data.focus.commitId).toMatch(/^[0-9a-f]{40}$/)
   })
 
   test("should keep an unapplied branch whose reapply conflicts and say why", async ({ page }) => {

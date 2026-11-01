@@ -36,12 +36,13 @@ targets:
   - ../../src/hooks/useKeptBranchMenu.ts
   - ../../src/components/commit/CommitList.tsx
   - ../../src/hooks/usePreviewHotkeys.ts
+  - ../../src/components/branch/KeptBranchPreviewDialog.tsx
+  - ../../src/components/preview/CommitsPreviewBody.tsx
 ---
 
 # Review Window
 
-Status: Draft (implemented: the targets and their read, the review of the kept branches, one window for a branch, a
-whole stack, a kept branch and a list of commits, its actions from its own session)
+Status: Implemented
 Date: 2026-11-01
 
 ## Summary
@@ -169,6 +170,12 @@ with its base, its head and its commits, or the commits of a list. A pull reques
   the typed delete at the row); an archived branch has only its "⋯" (its delete, the copies). A plain open of the kept branch on screen only brings the window to the front,
   a commit of it moves there ([One window](#one-window)).
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
+- Space on an unapplied or archived row (focused, or under the pointer) must open its preview
+  (`KeptBranchPreviewDialog`): its name and where it is kept with the count of its commits, then its own commits as
+  its review reads them, newest first, with their whole messages, as the preview of a branch reads its commits
+  (`CommitsPreviewBody`); ↑/↓ show the previous or next row of the card, D and the footer's `D Review Changes` review
+  it (a commit's button at that commit), the preview closing once the window opened; Space and Escape close it.
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should preview an unapplied branch with Space, its own commits with their messages, and review it from the preview`)
 - After a Reapply the review must go on as the review of the branch it is again, once a sync built it (the window
   opens it itself, the kept branch into its history); after a delete
   it keeps what it read, its actions disabled with why ("docs is no longer unapplied: it was reapplied or deleted").

@@ -828,8 +828,8 @@ test.describe("Whole stack", () => {
     await expect(dialog.getByTestId("create-pull-request-title")).toHaveValue("air, with the 6 branches built on it")
     await expect(createPullRequestDialog(page)).toHaveCount(0)
 
-    // Create: the main window pushes the stack branch alone and creates it; the toast is in the window
-    await dialog.getByTestId("create-pull-request-submit").click()
+    // Create: the window pushes the stack branch alone and creates it (the answer of its run first); the toast is there
+    await runAndWaitForAnswer(window, "execute", () => dialog.getByTestId("create-pull-request-submit").click())
     await expect.poll(() => gitHubRequests(repo, "POST", "pulls")).toEqual([expect.objectContaining({ head: "user-name/stack/air", base: "master" })])
     await expectPushedToRemote(repo, [stackBranchOf("air")])
     expect(await pushedBranches(repo)).toEqual([stackBranchOf("air")])

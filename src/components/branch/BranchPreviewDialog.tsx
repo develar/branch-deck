@@ -1,7 +1,7 @@
 import { Fragment, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
-import { FileDiffIcon, TriangleAlertIcon } from "lucide-react"
+import { TriangleAlertIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,14 +16,14 @@ import { PatronusChip } from "@/components/branch/PatronusChip"
 import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { StackBaseLabel } from "@/components/branch/StackBaseLabel"
 import { StackProblemAlert } from "@/components/branch/StackProblemAlert"
-import { CommitHeading } from "@/components/commit/CommitHeading"
-import { CommitMessageBody } from "@/components/commit/CommitMessage"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ConflictFixPanel } from "@/components/conflict/ConflictFixPanel"
+import { CommitsPreviewBody } from "@/components/preview/CommitsPreviewBody"
+import type { PreviewCommit } from "@/components/preview/CommitsPreviewBody"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { useBranchNextStep } from "@/hooks/useBranchNextStep"
 import { ClosePreviewContext } from "@/hooks/useClosePreview"
-import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
+import { useCommitFiles } from "@/hooks/useCommitFiles"
 import { useConflictBase } from "@/hooks/useConflictBase"
 import { useLandedIn } from "@/hooks/useLandedIn"
 import { useMissingCommitOwners } from "@/hooks/useMissingCommitOwners"
@@ -32,8 +32,7 @@ import { requestSafePush, useLandsByPush } from "@/hooks/useSafePush"
 import type { MissingCommit } from "@/lib/bindings"
 import { getBranchSummary } from "@/lib/branch"
 import { reviewBlockerOf } from "@/lib/branch-review"
-import { getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
-import { formatShortHash } from "@/lib/hash"
+import { getCommitHash, getCommitSubject } from "@/lib/commit"
 import { formatMissingCommitsTitle } from "@/lib/merge-conflict"
 import { formatLandedWith } from "@/lib/patronus"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
@@ -183,11 +182,12 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
               <BranchErrorNotice branch={branch} />
               <OrphanedStackPullRequestNotice root={branch.name} />
               {renderReviewSections?.(branch)}
-              <ol data-testid="branch-preview-commits" aria-busy={isLoadingFiles || undefined} className="flex flex-col divide-y divide-border">
-                {branch.commits.map(commit => (
-                  <BranchPreviewCommit key={getCommitHash(commit)} commit={commit} onReview={canReview ? () => review(commit) : undefined} />
-                ))}
-              </ol>
+              <CommitsPreviewBody
+                commits={branch.commits.map(previewCommitOf)}
+                busy={isLoadingFiles}
+                testId="branch-preview"
+                onReview={canReview ? commit => review(branch.commits.find(it => getCommitHash(it) === commit.hash)) : undefined}
+              />
             </div>
           </PreviewDialogBody>
 
@@ -346,47 +346,15 @@ function lowerFirst(text: string): string {
   return text.startsWith("No ") ? `no ${text.slice(3)}` : text
 }
 
-function BranchPreviewCommit({ commit, onReview }: { commit: SyncedCommit; onReview: (() => void) | undefined }) {
-  const subject = getCommitSubject(commit)
-  const hash = getCommitHash(commit)
-  const fileStats = useCommitFileStats(hash)
-  return (
-    <li data-testid="branch-preview-commit" className="py-4 first:pt-0 last:pb-0">
-      <CommitHeading
-        subject={subject}
-        badge={
-          <>
-            {commit.error?.MergeConflict != null && <Badge variant="destructive">Merge conflict</Badge>}
-            {/* the commit in the review of the branch, as D on its row opens it */}
-            {onReview !== undefined && (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      className="ml-auto shrink-0 text-muted-foreground"
-                      aria-label={`Review Changes of ${formatShortHash(hash)}`}
-                      data-testid="branch-preview-commit-review"
-                      onClick={onReview}
-                    />
-                  }
-                >
-                  <FileDiffIcon />
-                </TooltipTrigger>
-                <TooltipContent>Review Changes</TooltipContent>
-              </Tooltip>
-            )}
-          </>
-        }
-        hash={hash}
-        newHash={commit.hash}
-        authorTime={commit.authorTime}
-        committerTime={commit.committerTime}
-        fileStats={fileStats}
-      >
-        {hasCommitMessageBody(subject, commit.message) && <CommitMessageBody message={commit.message} size="reading" />}
-      </CommitHeading>
-    </li>
-  )
+/** A commit of the branch as its preview reads it: its copy beside it, a conflict in its badge */
+function previewCommitOf(commit: SyncedCommit): PreviewCommit {
+  return {
+    hash: getCommitHash(commit),
+    ...(commit.hash !== undefined && { newHash: commit.hash }),
+    subject: getCommitSubject(commit),
+    message: commit.message,
+    authorTime: commit.authorTime,
+    committerTime: commit.committerTime,
+    ...(commit.error?.MergeConflict != null && { badge: <Badge variant="destructive">Merge conflict</Badge> }),
+  }
 }

@@ -222,3 +222,23 @@ export async function openPullRequestReview(repositoryPath: string, request: Rev
   markReviewRequestRead(repositoryPath, request)
   return openWindow({ kind: "pullRequest", repositoryPath, number: request.number, request, index, intent, source, openedAt: Date.now() })
 }
+
+/**
+ * Reviews the commits `ids` (in that order) as a list named `listLabel`, at `ids[index]`: a list whose rows carry no
+ * message (a landed report, the remote commits a force push drops), so the commits are read first, by the one resolver
+ * of a review (`get_review` of the target `commits`). Resolves to whether the window opened; a failure is told.
+ */
+export async function openCommitIdsReview(ids: readonly string[], listLabel: string, index: number): Promise<boolean> {
+  const repositoryPath = getDiffRepositoryPath()
+  const baselineBranch = branchSyncStore.getState().baselineBranch
+  if (repositoryPath === undefined || baselineBranch === null || ids.length === 0) {
+    return false
+  }
+  const result = await commands.getReview({ repositoryPath, baselineBranch, target: { kind: "commits", ids: [...ids] } })
+  if (result.status === "error") {
+    notifyError(`Cannot review ${listLabel}`, result.error)
+    return false
+  }
+  const commits = result.data.kind === "commits" ? result.data.commits : []
+  return openCommitReviewWindow(commits, listLabel, Math.min(index, commits.length - 1), null)
+}

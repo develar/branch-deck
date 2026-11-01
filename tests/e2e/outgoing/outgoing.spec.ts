@@ -1,11 +1,13 @@
 // @spec spec/repository/outgoing.spec.md
 import type { Locator, Page } from "@playwright/test"
 import type { ReviewRunRequest } from "../../../src/lib/review-runs"
+import type { CommitsReviewWindowData } from "../../../src/types/sub-window"
 import { testWithIssueLinks as test, expect } from "../fixtures/test-fixtures"
 import { expectNothingToPush, findBranchRow, getPushButton } from "../helpers/branch-helpers"
 import { confirmForcePush, expectPushedToast, expectPushedToRemote, holdRemotePushes, pushedBefore, pushedToast, remotePushes, virtualBranch } from "../helpers/push-helpers"
 import { addRecentProject, OTHER_REPOSITORY, switchRepository } from "../helpers/repository-switch-helpers"
 import { openBranchPreview } from "../helpers/review-status-helpers"
+import { openedReview } from "../helpers/review-window-helpers"
 import { openSettingsWindow } from "../helpers/settings-helpers"
 import { getEmittedEvents } from "../helpers/sub-window-helpers"
 import { emitTauriEvent, pressSyncHeld, releaseHeldSync, syncFromMenu } from "../helpers/sync-helpers"
@@ -67,13 +69,21 @@ function theirCommit(subject: string, author: string, file: string): RemoteCommi
   return { subject, author: `${author} <${author.toLowerCase()}@example.com>`, timestamp: Date.parse("2024-01-02T07:00:00Z") / 1000, files: { [file]: `${subject}\n` } }
 }
 
+/**
+ * ABC-123 pushed without its newest commit, then someone else (Ann) pushed a commit it lacks, which a fetch brought:
+ * a force push drops it; answers its id
+ */
+async function pushAnnsCommitBehind(page: Page, repo: TestRepositoryBuilder): Promise<string> {
+  await repo.pushInTerminal(virtualBranch("ABC-123"), { revision: `${virtualBranch("ABC-123")}~1` })
+  const theirs = await repo.commitOnRemote(virtualBranch("ABC-123"), theirCommit("Fix login", "Ann", "login.txt"))
+  await repo.fetchInTerminal()
+  await syncFromMenu(page)
+  return theirs
+}
+
 test.describe("Force push", () => {
   test("should force push a branch the remote has commits for, leased on the remote head the row shows", async ({ page, issueLinksRepo }) => {
-    // ABC-123 was pushed without its newest commit, then someone else pushed a commit it lacks, which a fetch brought
-    await issueLinksRepo.pushInTerminal(virtualBranch("ABC-123"), { revision: `${virtualBranch("ABC-123")}~1` })
-    const theirs = await issueLinksRepo.commitOnRemote(virtualBranch("ABC-123"), theirCommit("Fix login", "Ann", "login.txt"))
-    await issueLinksRepo.fetchInTerminal()
-    await syncFromMenu(page)
+    const theirs = await pushAnnsCommitBehind(page, issueLinksRepo)
     const row = findBranchRow(page, "ABC-123")
     const forcePush = row.getByRole("button", { name: "Force Push Branch (1)" })
     await expect(forcePush).toBeEnabled()
@@ -96,6 +106,18 @@ test.describe("Force push", () => {
     await expectPushedToRemote(issueLinksRepo, ["ABC-123"])
     expect(await remotePushes(issueLinksRepo)).toEqual([["ABC-123"]])
     await expectNothingToPush(row)
+  })
+
+  test("should review the remote commits a force push would drop from the description of its button, before the push", async ({ page, issueLinksRepo }) => {
+    const theirs = await pushAnnsCommitBehind(page, issueLinksRepo)
+    const forcePush = findBranchRow(page, "ABC-123").getByRole("button", { name: "Force Push Branch (1)" })
+    await forcePush.hover()
+    // the remote-tracking branch has them: Review Changes reviews them as a list of their own
+    await page.getByTestId("dropped-commits").getByTestId("dropped-commits-review").click()
+    const opened = await openedReview<CommitsReviewWindowData>(page, 1)
+    expect(opened.data).toMatchObject({ kind: "commits", listLabel: "ABC-123 on the remote", index: 0 })
+    expect(opened.data.commits.map(commit => [commit.id, commit.subject, commit.author])).toEqual([[theirs, "Fix login", "Ann"]])
+    expect(await remotePushes(issueLinksRepo)).toEqual([])
   })
 
   test("should show what the remote has when it moved since the status, and force push over it from the toast", async ({ page, issueLinksRepo }) => {

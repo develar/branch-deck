@@ -214,7 +214,7 @@ export function BranchPushButton({ branch, colored = true, hint, confirmTarget, 
             )}
             {/* a Safe Push another process runs holds the push: its words say whose */}
             <div className="break-words whitespace-pre-line">{waits ?? starting?.by?.description ?? push.tooltip}</div>
-            {push.dropped !== null && <DroppedCommitList dropped={push.dropped} />}
+            {push.dropped !== null && <DroppedCommitList dropped={push.dropped} reviewOf={branch.name} />}
             {push.retarget !== null && (
               <div data-testid="push-retarget" className={cn("break-words whitespace-pre-line", push.retarget.warning && "text-warning")}>
                 {push.retarget.text}

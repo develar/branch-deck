@@ -55,6 +55,8 @@ export function ArchivedBranchTableCard() {
       help={<ArchivedBranchesHelpPopover />}
     >
       <KeptBranchTable
+        kind="archived"
+        names={order}
         onReview={name => void openKeptReviewWindow({ kind: "archived", name })}
         columns={ARCHIVED_COLUMNS}
         menu={name => <ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}
