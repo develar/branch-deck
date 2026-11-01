@@ -135,7 +135,8 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   (`--diff-card-gap`); their border is an opaque ring, `--foreground` 8% into the canvas (`--diff-card-border`). The
   header of a file is a band between the card and the canvas (`--diff-file-header`, the card with 45% of the canvas),
   one formula for both themes; a header stuck over the rows of its file casts the one shadow of an island, the
-  exception of decision 4.
+  exception of decision 4. The ticks of the map of the files beside them are `--foreground` 16% into the canvas
+  (`--diff-map-tick`), one formula for both themes, since `--border` is the canvas itself in the light theme.
 - **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline has no precedent in
   IntelliJ: it puts the deleted run beside the inserted one in one line, where only the colour would tell them apart.
   A strikethrough is the convention of tracked changes, it matches the icon of the mode, and it does not depend on

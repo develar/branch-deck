@@ -202,9 +202,9 @@ export function DiffFileMap({ ref, scroller, scrollTo, layout, sections, current
       }
       return
     }
-    const area = track.current
+    // the tip is placed in the map, whose padding insets the track: at the pointer, from the top of the map
     const index = sectionAt(event.clientY)
-    setHover(index < 0 || area === null ? null : { index, y: event.clientY - area.getBoundingClientRect().top })
+    setHover(index < 0 ? null : { index, y: event.clientY - event.currentTarget.getBoundingClientRect().top })
   }
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {

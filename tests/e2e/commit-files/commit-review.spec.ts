@@ -317,6 +317,13 @@ simpleTest.describe("Commit review", () => {
       const tip = map.getByTestId("review-file-map-tip")
       await expect(tip).toContainText("RowMapperTest.kt")
       await expect(tip).toContainText("testSrc")
+      // beside the pointer, its middle at the height of it
+      await expect
+        .poll(async () => {
+          const box = (await tip.boundingBox())!
+          return Math.abs(box.y + box.height / 2 - second.y)
+        })
+        .toBeLessThan(1)
       // a click shows it as a row of the tree does: its header at the top, the tree and the footer follow; the diffs take
       // the focus, so J goes on from there
       await page.mouse.click(second.x, second.y)

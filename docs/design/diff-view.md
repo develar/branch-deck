@@ -409,16 +409,17 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
   height of the track, so a short review keeps its sections where its cards are. Its layout is arithmetic, so the
   map is too (`fileMapScale`, `fileMapTicks` of `src/lib/diff/file-map.ts`): nothing is measured but the sizes of
   the track and the view, from their `ResizeObserver`.
-- **Ticks.** A tick of 1 px at the start of each section, in the colour of the edge of a card (`--diff-card-border`;
-  `--border` is the canvas itself in the light theme), 2 px from the sides; at the start of a step of the plan a tick
+- **Ticks.** A tick of 1 px at the start of each section, in a token of its own, `--foreground` 16% into the canvas
+  (`--diff-map-tick`, one formula for both themes: `--border` is the canvas itself in the light theme, and the edge
+  of a card, `--diff-card-border`, is too faint on the dark canvas), 2 px from the sides; at the start of a step of the plan a tick
   of 2 px in `--foreground` across the map, at its divider, as `fileAt` counts a divider. Where the pixels are too few
   for every section, the ticks that overlap are one: a step when any of them is. The map is neutral: at 588 files the
   colour of each status would be one blue band, and a colour of its own would compete with the diff colours.
 - **Owner chip.** The ticks of the files the chip plays down (`muted` of `DiffView`, as their headers are) are 35%
   opaque; a merged tick only when all of its sections are.
 - **The section at the top** (the one the view showed last, as the tree selects it) is filled with `--primary` at 40%,
-  from its divider to the end of its card. **The thumb** is the window of the view, `--foreground` at 15%, at least
-  12 px, so a long review keeps something to grab.
+  from its divider to the end of its card. **The thumb** is the window of the view, `--foreground` at 15% with an
+  inset edge of 1 px at 30%, at least 12 px, so a long review keeps something to grab and its ticks do not hide it.
 - **Drawing.** The ticks are a canvas, drawn again only for a new layout (a collapse, a fold, the row height, the
   wraps), a size, the screen (`devicePixelRatio`, which the zoom of Appearance moves) and the theme (`data-theme` of
   the root). Its colours are the tokens as the page resolves them, read from a probe element: an `oklab()` that the

@@ -313,10 +313,10 @@ where a dialog would cover it.
   it, not selectable; its words at the right in `text-xs text-muted-foreground`: "Next:", the name `font-semibold` in
   the text colour, its last folder, then `Kbd` `J`, one button out of the tab order that brightens on hover.
 - The map of the files is 10 px wide on the canvas at the right of the diffs, which hide their own scrollbar, its
-  track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-card-border` (the edge of a card),
-  2 px from its sides, 35% opaque when an owner chip plays it down; a step a tick of 2 px in `--foreground` across it;
-  the section at the top `--primary` at 40%; the thumb `--foreground` at 15%, `--radius-sm`, at least 12 px. Its hover
-  is a popover at its left: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
+  track inset by `--radius-4xl` above and below. A file is a tick of 1 px in `--diff-map-tick` (`--foreground` 16% into
+  the canvas), 2 px from its sides, 35% opaque when an owner chip plays it down; a step a tick of 2 px in `--foreground` across it;
+  the section at the top `--primary` at 40%; the thumb `--foreground` at 15% with an inset 1-px edge at 30%, `--radius-sm`, at least
+  12 px. Its hover is a popover at its left, its middle at the height of the pointer: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows
