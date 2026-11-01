@@ -1,13 +1,11 @@
 import { Fragment } from "react"
 import type { MouseEvent } from "react"
-import { cn } from "cn"
 import { RectangleEllipsisIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { useCommitBodyBlocks } from "@/hooks/useCommitBodyBlocks"
+import { useCommitBody } from "@/hooks/useCommitBody"
 import type { CommitBodyBlock } from "@/lib/bindings"
-import { groupCommitBodySections } from "@/lib/commit-message"
 
 /** Icon button that opens the full commit message in the commit preview; does not change the row selection. */
 export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
@@ -37,54 +35,82 @@ export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
-export type CommitMessageBodySize = "compact" | "reading"
+/** The blocks under a label or a heading, or the ones before the first of them: a gap of 16px apart */
+interface CommitBodySection {
+  head: Extract<CommitBodyBlock, { type: "label" | "heading" }> | null
+  blocks: CommitBodyBlock[]
+}
 
-const bodySizeClasses: Record<CommitMessageBodySize, { text: string; preformatted: string }> = {
-  // the leading follows the size: `cn` drops a leading-* that comes before a text-* size
-  compact: { text: "text-sm", preformatted: "text-xs leading-relaxed" },
-  reading: { text: "text-md", preformatted: "text-sm leading-relaxed" },
+/** The sections of the blocks Rust read, as `CommitBodyBlock` defines them: a label or a heading starts one, a rule is a block of it */
+function sectionsOf(blocks: readonly CommitBodyBlock[]): CommitBodySection[] {
+  const sections: CommitBodySection[] = []
+  let current: CommitBodySection | null = null
+  for (const block of blocks) {
+    if (block.type === "label" || block.type === "heading") {
+      current = { head: block, blocks: [] }
+      sections.push(current)
+    } else if (current == null) {
+      current = { head: null, blocks: [block] }
+      sections.push(current)
+    } else {
+      current.blocks.push(block)
+    }
+  }
+  return sections
 }
 
 /**
- * Body of a commit message (the message without its subject line, as Rust parses it: `commit_body_blocks`), shown in the
- * commit preview and the hash popover; rows don't render or parse their bodies.
+ * Body of a commit message (the message without its subject line, as Rust reads it: `commit_body`), shown in the commit
+ * preview, the branch preview and the review; rows don't render or read their bodies.
  *
- * A lead-in label ("Why:", "What changed:") is a small heading above its blocks. Code tokens are set in the monospace font.
- * The text is selectable, and a click in it does not change the row selection.
- *
- * `reading` (the previews) is the 14/22 reading text, `compact` (the hash popover) the 13/20 UI text; a preformatted
- * block is one step below the text. Both keep a line at `max-w-prose` (65ch, about 80 characters).
+ * A label ("Why:", "What changed:") is a small heading above its blocks, a Markdown heading a stronger one. Code tokens
+ * are set in the monospace font. The text is selectable, and a click in it does not change the row selection. The
+ * 14/22 reading text, a preformatted block one step below it, a line at `max-w-prose` (65ch, about 80 characters).
  */
-export function CommitMessageBody({ message, size = "compact" }: { message: string; size?: CommitMessageBodySize }) {
-  const blocks = useCommitBodyBlocks(message)
-  const sections = blocks === undefined ? [] : groupCommitBodySections(blocks)
+export function CommitMessageBody({ message }: { message: string }) {
+  const body = useCommitBody(message)
+  const sections = body === undefined ? [] : sectionsOf(body.blocks)
   return (
     <div
       data-testid="commit-message-body"
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-      className={cn("flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-foreground select-text", bodySizeClasses[size].text)}
+      className="flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-md text-foreground select-text"
       onClick={event => event.stopPropagation()}
     >
       {/* sections of the same message never reorder, so the index is a stable key */}
       {sections.map((section, index) => (
         <div key={index} className="flex flex-col gap-1">
-          {section.label != null && (
+          {section.head?.type === "label" && (
             <div data-slot="commit-section-label" className="font-medium text-muted-foreground">
-              {section.label}
+              {section.head.text}
             </div>
           )}
-          <div className="flex min-w-0 flex-col gap-2">
-            {section.blocks.map((block, blockIndex) => (
-              <CommitBodyBlockView key={blockIndex} block={block} size={size} />
-            ))}
-          </div>
+          {section.head?.type === "heading" && (
+            <div data-slot="commit-section-heading" className="font-semibold">
+              <LinkedText text={section.head.text} detectCode />
+            </div>
+          )}
+          {section.blocks.length > 0 && (
+            <div className="flex min-w-0 flex-col gap-2">
+              {section.blocks.map((block, blockIndex) => (
+                <CommitBodyBlockView key={blockIndex} block={block} />
+              ))}
+            </div>
+          )}
         </div>
       ))}
+      {body !== undefined && body.trailers.length > 0 && (
+        <div className="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
+          {body.trailers.map((line, index) => (
+            <LinkedText key={index} text={line} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock; size: CommitMessageBodySize }) {
+function CommitBodyBlockView({ block }: { block: CommitBodyBlock }) {
   switch (block.type) {
     case "paragraph":
       // a line of its own (after a hard break, a quote line, a table row) breaks the paragraph there
@@ -115,17 +141,15 @@ function CommitBodyBlockView({ block, size }: { block: CommitBodyBlock; size: Co
     }
     case "preformatted":
       return (
-        <pre className={cn("overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono whitespace-pre", bodySizeClasses[size].preformatted)}>
+        <pre className="overflow-x-auto rounded-lg bg-muted px-3 py-2 font-mono text-sm leading-relaxed whitespace-pre">
           <LinkedText text={block.text} />
         </pre>
       )
-    case "trailers":
-      return (
-        <div className="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
-          {block.lines.map((line, index) => (
-            <LinkedText key={index} text={line} />
-          ))}
-        </div>
-      )
+    case "rule":
+      return <hr className="border-border" />
+    // a section holds its label or heading as its head, never as a block
+    case "label":
+    case "heading":
+      return null
   }
 }

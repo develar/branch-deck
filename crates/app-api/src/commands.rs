@@ -122,8 +122,9 @@ macro_rules! for_each_command {
       /// words the state
       read plain validate_branch_name(params: domain_types::branch_names::ValidateBranchNameParams) -> domain_types::branch_names::BranchNameCheck = $crate::reads::grammar::validate_branch_name;
 
-      /// The blocks of the body of `message`, the lines after its subject line (`sync_utils::commit_body::body_blocks`)
-      read plain commit_body_blocks(params: domain_types::commit::CommitBodyParams) -> Vec<domain_types::commit_body::CommitBodyBlock> = $crate::reads::grammar::commit_body_blocks;
+      /// The body of `message`, the lines after its subject line: its blocks, its trailers, its lead and its fold
+      /// (`sync_utils::commit_body::commit_body`)
+      read plain commit_body(params: domain_types::commit::CommitBodyParams) -> domain_types::commit_body::CommitBody = $crate::reads::grammar::commit_body;
 
       /// The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
       /// null when the session is not open, so the window subscribes again

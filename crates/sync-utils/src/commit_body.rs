@@ -1,40 +1,187 @@
-//! The grammar of a commit body (`CommitBodyBlock`), one for the commit preview of the page (`commit_body_blocks`) and
-//! the body of a pull request (`remote_facts::pull_request_text`), which writes the blocks as Markdown:
+//! The grammar of a commit body (`CommitBody`), one for the commit preview of the page (`commit_body`), the body of a
+//! pull request (`remote_facts::pull_request_text`), which writes the blocks as Markdown, and the steps of a review
+//! (`review_plan`):
 //! - blocks are separated by blank lines; a fence (```` ``` ```` or `~~~`) starts a preformatted block that runs to the
 //!   closing fence or the end of the body, blank lines included;
 //! - a last block whose lines are all trailers (`Token: value`, the token letters, digits and `-`, an indented line
 //!   continuing one; `(cherry picked from commit …)`), at least one of them a token of words joined by `-` or the
 //!   cherry-pick note, is the trailers: a one-word `Note: …` alone is prose;
 //! - inside a block, a line starting with `- `, `* `, `+ `, `• `, `1. ` or `1) ` (not a rule) starts a list, and every
-//!   following line starts an item or continues the last one, until a heading, a quote, a table row or a rule; a
-//!   change between bullets and numbers starts another list;
+//!   following line starts an item or continues the last one, until a heading, a quote, a table row, a rule or a label
+//!   line right before an item; a change between bullets and numbers starts another list;
 //! - a run of lines indented by four spaces or a tab is preformatted, without the common indent;
+//! - a heading and a rule are blocks of their own;
 //! - the other lines are prose: hard-wrapped lines joined, a line after a hard break, a quote line and a table row a
-//!   line of their own, a heading and a rule a paragraph of their own.
+//!   line of their own;
+//! - a label (`LEAD_IN_MAX`, `RUN_IN_MAX`) heads the blocks after it: a paragraph that is only `Label:` followed by a
+//!   block, a `Label:` line right before a list item, or the 1–3 words of a paragraph that starts `Label: text`; its
+//!   kind is by its words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`);
+//! - the fold (`CommitBody::shown`): the first block, a labelled section whole when the body opens with one, then whole
+//!   blocks while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS` characters), a labelled section
+//!   only whole, a verification section for free.
 
-use domain_types::commit_body::CommitBodyBlock;
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
+
+/// The lines a body shows before its fold
+const FOLD_LINES: u32 = 12;
+/// The characters of a line of prose as the fold counts them
+const LINE_CHARS: usize = 100;
+/// The longest label of a paragraph that is only `Label:`, its colon aside: "Gates on the final tree, each exit 0"
+const LEAD_IN_MAX: usize = 39;
+/// The longest run-in label of a `Label: text` paragraph: "Why", "Left out", "Look closely"
+const RUN_IN_MAX: usize = 20;
+/// The words a verification section starts with (a leading "The" and the case aside): how the author checked the change
+const VERIFICATION_LABELS: [&str; 9] = ["tests", "test", "evidence", "gates", "verified", "verification", "results", "proof", "left out"];
+/// The words of the label where the author asks the reviewer to decide
+const LOOK_CLOSELY: [&str; 1] = ["look closely"];
 
 /// The body of `message`: the lines after its first one, the subject line the rows show
 pub fn message_body(message: &str) -> &str {
   message.split_once('\n').map_or("", |(_, body)| body)
 }
 
-/// The blocks of `body`, a commit message without its subject line
-pub fn body_blocks(body: &str) -> Vec<CommitBodyBlock> {
+/// The body of a commit, `body` the message without its subject line
+pub fn commit_body(body: &str) -> CommitBody {
   let body = body.replace("\r\n", "\n");
   let raw_blocks = raw_blocks(&body);
   let mut blocks = Vec::new();
+  let mut trailer_lines = Vec::new();
   let last = raw_blocks.len().saturating_sub(1);
   for (index, raw) in raw_blocks.into_iter().enumerate() {
     match raw {
       RawBlock::Fenced(lines) => blocks.push(CommitBodyBlock::Preformatted { text: dedent(&lines).join("\n") }),
       RawBlock::Lines(lines) => match trailers(&lines).filter(|_| index == last) {
-        Some(trailers) => blocks.push(CommitBodyBlock::Trailers { lines: trailers }),
+        Some(trailers) => trailer_lines = trailers,
         None => parse_block(&lines, &mut blocks),
       },
     }
   }
-  blocks
+  let blocks = labelled(blocks);
+  let lead = matches!(blocks.first(), Some(CommitBodyBlock::Paragraph { .. }));
+  let shown = shown(&blocks);
+  CommitBody {
+    blocks,
+    trailers: trailer_lines,
+    lead,
+    shown,
+  }
+}
+
+/// `blocks` with their labels: a paragraph that is only `Label:` before a block of content, and the label of a
+/// paragraph that starts `Label: text` before the rest of it
+fn labelled(blocks: Vec<CommitBodyBlock>) -> Vec<CommitBodyBlock> {
+  let mut labelled = Vec::with_capacity(blocks.len());
+  let mut blocks = blocks.into_iter().peekable();
+  while let Some(block) = blocks.next() {
+    let CommitBodyBlock::Paragraph { lines } = block else {
+      labelled.push(block);
+      continue;
+    };
+    let content_follows = matches!(
+      blocks.peek(),
+      Some(CommitBodyBlock::Paragraph { .. } | CommitBodyBlock::List { .. } | CommitBodyBlock::Preformatted { .. })
+    );
+    if let [only] = lines.as_slice()
+      && let Some(text) = lead_in(only).filter(|_| content_follows)
+    {
+      labelled.push(label(text, false));
+    } else if let Some((text, rest)) = lines.first().and_then(|first| run_in(first)) {
+      let rest = rest.to_string();
+      labelled.push(label(text, true));
+      labelled.push(CommitBodyBlock::Paragraph {
+        lines: std::iter::once(rest).chain(lines.into_iter().skip(1)).collect(),
+      });
+    } else {
+      labelled.push(CommitBodyBlock::Paragraph { lines });
+    }
+  }
+  labelled
+}
+
+fn label(text: &str, run_in: bool) -> CommitBodyBlock {
+  CommitBodyBlock::Label {
+    text: text.to_string(),
+    kind: label_kind(text),
+    run_in,
+  }
+}
+
+/// The label of a line that is only `Label:`: a capital letter of any script, up to `LEAD_IN_MAX` characters without a
+/// colon, then the colon
+fn lead_in(line: &str) -> Option<&str> {
+  let text = line.strip_suffix(':')?;
+  (text.starts_with(char::is_uppercase) && !text.contains(':') && text.chars().count() <= LEAD_IN_MAX).then_some(text)
+}
+
+/// The label of a line that starts `Label: text` and the text after it: a capitalised word and up to two lowercase
+/// ones of any script, at most `RUN_IN_MAX` characters
+fn run_in(line: &str) -> Option<(&str, &str)> {
+  let (text, rest) = line.split_once(": ")?;
+  let mut words = text.split(' ');
+  let first = words.next()?;
+  let capitalised = first.starts_with(char::is_uppercase) && first.chars().skip(1).all(char::is_lowercase);
+  let others: Vec<&str> = words.collect();
+  let lowercase = others.len() <= 2 && others.iter().all(|word| !word.is_empty() && word.chars().all(char::is_lowercase));
+  (capitalised && lowercase && text.chars().count() <= RUN_IN_MAX && !rest.is_empty()).then_some((text, rest))
+}
+
+/// The kind of a label by its words: a leading "The", the case and what follows a comma aside, it starts with a word of
+/// `LOOK_CLOSELY` or `VERIFICATION_LABELS`
+fn label_kind(text: &str) -> LabelKind {
+  let lower = text.to_lowercase();
+  let head = lower.split(',').next().unwrap_or_default().trim();
+  let head = head.strip_prefix("the ").unwrap_or(head);
+  let starts = |word: &str| head.strip_prefix(word).is_some_and(|rest| rest.is_empty() || rest.starts_with(' '));
+  if LOOK_CLOSELY.into_iter().any(starts) {
+    LabelKind::LookClosely
+  } else if VERIFICATION_LABELS.into_iter().any(starts) {
+    LabelKind::Verification
+  } else {
+    LabelKind::Plain
+  }
+}
+
+/// The blocks before the fold (`CommitBody::shown`): the units of the body in order, a block before the first label or
+/// heading, else a labelled section whole; the first unit however long it is, so something shows before the fold, then
+/// each while the lines so far stay within `FOLD_LINES`, a verification section for free
+fn shown(blocks: &[CommitBodyBlock]) -> u32 {
+  let heads = |block: &CommitBodyBlock| matches!(block, CommitBodyBlock::Label { .. } | CommitBodyBlock::Heading { .. });
+  let mut lines = 0;
+  let mut shown = 0;
+  let mut start = 0;
+  while start < blocks.len() {
+    let end = if heads(&blocks[start]) {
+      blocks[start + 1..].iter().position(heads).map_or(blocks.len(), |next| start + 1 + next)
+    } else {
+      start + 1
+    };
+    let verification = matches!(
+      blocks[start],
+      CommitBodyBlock::Label {
+        kind: LabelKind::Verification,
+        ..
+      }
+    );
+    let cost = if verification { 0 } else { blocks[start..end].iter().map(lines_of).sum() };
+    if start > 0 && lines + cost > FOLD_LINES {
+      break;
+    }
+    lines += cost;
+    shown = end;
+    start = end;
+  }
+  u32::try_from(shown).unwrap_or(u32::MAX)
+}
+
+/// The lines a block reads in: a line of prose or an item by `LINE_CHARS` characters, a line of code one
+fn lines_of(block: &CommitBodyBlock) -> u32 {
+  let wrapped = |text: &String| u32::try_from(text.chars().count().div_ceil(LINE_CHARS).max(1)).unwrap_or(u32::MAX);
+  match block {
+    CommitBodyBlock::Paragraph { lines } => lines.iter().map(wrapped).sum(),
+    CommitBodyBlock::List { items, .. } => items.iter().map(wrapped).sum(),
+    CommitBodyBlock::Preformatted { text } => u32::try_from(text.lines().count().max(1)).unwrap_or(u32::MAX),
+    CommitBodyBlock::Heading { .. } | CommitBodyBlock::Label { .. } | CommitBodyBlock::Rule => 1,
+  }
 }
 
 /// A run of lines between blank lines, or the lines inside a fence
@@ -159,6 +306,16 @@ fn is_heading(trimmed: &str) -> bool {
   (1..=6).contains(&level) && (text.is_empty() || text.starts_with(' '))
 }
 
+/// The heading of a line: its level and its text, `None` for no heading or one without text
+fn heading(trimmed: &str) -> Option<CommitBodyBlock> {
+  let text = trimmed.trim_start_matches('#');
+  let level = u8::try_from(trimmed.len() - text.len()).ok()?;
+  (is_heading(trimmed) && !text.trim().is_empty()).then(|| CommitBodyBlock::Heading {
+    level,
+    text: text.trim().to_string(),
+  })
+}
+
 /// A line that is a line of its own in prose: a quote line or a table row
 fn is_own_line(trimmed: &str) -> bool {
   trimmed.starts_with('>') || trimmed.starts_with('|')
@@ -187,8 +344,16 @@ fn parse_block(lines: &[&str], blocks: &mut Vec<CommitBodyBlock>) {
       preformatted.clear();
     }
   };
-  for &line in lines {
+  for (index, &line) in lines.iter().enumerate() {
     let trimmed = line.trim();
+    // a `Label:` line right before an item heads the list: it ends the list or the prose before it
+    if !line.starts_with(char::is_whitespace) && lead_in(trimmed).is_some() && lines.get(index + 1).is_some_and(|next| list_item(next).is_some()) {
+      prose.flush(blocks);
+      flush_preformatted(&mut preformatted, blocks);
+      flush_list(&mut list, blocks);
+      blocks.push(CommitBodyBlock::Paragraph { lines: vec![trimmed.to_string()] });
+      continue;
+    }
     let block_start = is_heading(trimmed) || is_rule(trimmed) || is_own_line(trimmed);
     if let Some((ordered, number, text)) = list_item(line) {
       prose.flush(blocks);
@@ -229,9 +394,15 @@ struct Prose {
 impl Prose {
   fn push(&mut self, line: &str, blocks: &mut Vec<CommitBodyBlock>) {
     let trimmed = line.trim();
-    if is_heading(trimmed) || is_rule(trimmed) {
+    if is_rule(trimmed) {
       self.flush(blocks);
-      blocks.push(CommitBodyBlock::Paragraph { lines: vec![trimmed.to_string()] });
+      blocks.push(CommitBodyBlock::Rule);
+      return;
+    }
+    if is_heading(trimmed) {
+      self.flush(blocks);
+      // a `#` without text is a line of prose
+      blocks.push(heading(trimmed).unwrap_or_else(|| CommitBodyBlock::Paragraph { lines: vec![trimmed.to_string()] }));
       return;
     }
     let hard_break = line.ends_with("  ") || trimmed.ends_with('\\');

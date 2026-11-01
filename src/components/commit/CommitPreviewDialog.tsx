@@ -251,11 +251,7 @@ export function CommitPreviewDialog({
               />
             ) : (
               <div className="flex flex-col gap-5">
-                {hasCommitMessageBody(subject, commit.message) ? (
-                  <CommitMessageBody message={commit.message} size="reading" />
-                ) : (
-                  <p className="text-sm text-muted-foreground">No description</p>
-                )}
+                {hasCommitMessageBody(subject, commit.message) ? <CommitMessageBody message={commit.message} /> : <p className="text-sm text-muted-foreground">No description</p>}
                 <CommitFilesSection commitId={hash} fileCount={fileStats?.count} onReviewFile={review} />
               </div>
             )}

@@ -139,7 +139,9 @@ fn a_branch_of_several_keys_names_each_key_and_is_titled_by_its_summary() {
 #[test]
 fn each_commit_is_an_item_with_its_body_reflowed() {
   // hard-wrapped: the lines of a paragraph and of a list item are joined; a heading, a table, a quote, a rule and the
-  // lines after a hard break keep their lines; a list goes with `-` or its numbers, code into a fence
+  // lines after a hard break keep their lines; a list goes with `-` or its numbers, code into a fence; a label written
+  // on a line of its own stays a paragraph of its own (before a list, a paragraph, a table or a quote), a run-in label
+  // stays on the line of its paragraph
   let body = "The job state decides first. For the newest job whose state names no
 finished job, it decides at once:
 - the saved --settings names an existing file, or the planned resume has no flags: one bare
@@ -164,7 +166,26 @@ after it.
 fenced code
   stays too
 ~~~
-The end.";
+The end.
+
+The cause:
+- one
+
+Results:
+
+| a | b |
+| - | - |
+
+Evidence:
+
+> the log line
+
+Notes:
+
+the text.
+
+Why: it
+wraps.";
   let markdown = "The job state decides first. For the newest job whose state names no finished job, it decides at once:
 
 - the saved --settings names an existing file, or the planned resume has no flags: one bare `--bg --resume <id>`. The session keeps its options;
@@ -196,7 +217,26 @@ fenced code
   stays too
 ```
 
-The end.";
+The end.
+
+The cause:
+
+- one
+
+Results:
+
+| a | b |
+| - | - |
+
+Evidence:
+
+> the log line
+
+Notes:
+
+the text.
+
+Why: it wraps.";
   let mut commits: Vec<String> = (1..=9).map(|n| format!("Commit {n}")).collect();
   commits.push(format!("Commit 10\n\n{body}"));
   let messages: Vec<&str> = commits.iter().map(String::as_str).collect();

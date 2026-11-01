@@ -84,7 +84,7 @@ function PreviewCommitItem({ commit, testId, onReview }: { commit: PreviewCommit
         committerTime={commit.committerTime}
         fileStats={fileStats}
       >
-        {hasCommitMessageBody(commit.subject, commit.message) && <CommitMessageBody message={commit.message} size="reading" />}
+        {hasCommitMessageBody(commit.subject, commit.message) && <CommitMessageBody message={commit.message} />}
       </CommitHeading>
     </li>
   )

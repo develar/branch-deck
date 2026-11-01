@@ -309,7 +309,7 @@ function ReviewCommitHeader({ commit, action }: { commit: ReviewCommit; action: 
           {hasBody && (
             <div className="flex flex-col items-start gap-1">
               <div className={cn("max-h-[50vh] overflow-y-auto", !expanded && "line-clamp-3 overflow-hidden")}>
-                <CommitMessageBody message={commit.message} size="reading" />
+                <CommitMessageBody message={commit.message} />
               </div>
               <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setExpanded(!expanded)}>
                 {expanded ? "Show Less" : "Show More"}

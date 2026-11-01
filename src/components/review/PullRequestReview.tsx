@@ -422,7 +422,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
         {request.bodyText.trim() === "" ? (
           <p className="text-sm text-muted-foreground">No description</p>
         ) : (
-          <CommitMessageBody message={`${request.title}\n\n${request.bodyText}`} size="reading" />
+          <CommitMessageBody message={`${request.title}\n\n${request.bodyText}`} />
         )}
       </div>
       {fetch?.status !== "failed" && (

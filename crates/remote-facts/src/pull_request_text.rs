@@ -18,7 +18,7 @@ use std::task::Poll;
 use std::time::Duration;
 use sync_core::issue_navigation::issue_link;
 use sync_core::sync::branch_summary;
-use sync_utils::commit_body::body_blocks;
+use sync_utils::commit_body::commit_body;
 use sync_utils::issue_pattern::find_issue_number;
 use tracing::debug;
 use youtrack::service::YouTrackService;
@@ -292,37 +292,45 @@ fn ancestors_section(ancestors: &[AncestorText]) -> Option<String> {
 }
 
 /// The body of a commit as Markdown that GitHub shows as the commit reads, from the blocks of the commit preview
-/// (`sync_utils::commit_body::body_blocks`): a line per line of a paragraph (GitHub shows a newline of a pull request as
-/// a line break), a list with `-` or the numbers from its first, code fenced, the blocks apart by a blank line; the
-/// trailers (`Co-Authored-By:`…) left out, a mention or a `<T>` in code spans
+/// (`sync_utils::commit_body::commit_body`): a line per line of a paragraph (GitHub shows a newline of a pull request as
+/// a line break), a list with `-` or the numbers from its first, code fenced, a heading with its `#`, a rule `---`, the
+/// blocks apart by a blank line; a label `Label:` before the paragraph it heads on its line, else on a line of its own;
+/// the trailers (`Co-Authored-By:`…) left out, a mention or a `<T>` in code spans
 fn commit_body_markdown(body: &str) -> String {
-  let blocks: Vec<String> = body_blocks(body)
-    .into_iter()
-    .filter_map(|block| match block {
-      CommitBodyBlock::Paragraph { lines } => Some(lines.iter().map(|line| literal_markdown(line)).collect::<Vec<_>>().join("\n")),
-      CommitBodyBlock::List { ordered, start, items } => Some(
-        items
-          .iter()
-          .zip(start..)
-          .map(|(item, number)| {
-            if ordered {
-              format!("{number}. {}", literal_markdown(item))
-            } else {
-              format!("- {}", literal_markdown(item))
-            }
-          })
-          .collect::<Vec<_>>()
-          .join("\n"),
-      ),
+  let paragraph = |lines: &[String]| lines.iter().map(|line| literal_markdown(line)).collect::<Vec<_>>().join("\n");
+  let mut blocks = commit_body(body).blocks.into_iter().peekable();
+  let mut markdown: Vec<String> = Vec::new();
+  while let Some(block) = blocks.next() {
+    markdown.push(match block {
+      CommitBodyBlock::Paragraph { lines } => paragraph(&lines),
+      CommitBodyBlock::List { ordered, start, items } => items
+        .iter()
+        .zip(start..)
+        .map(|(item, number)| {
+          if ordered {
+            format!("{number}. {}", literal_markdown(item))
+          } else {
+            format!("- {}", literal_markdown(item))
+          }
+        })
+        .collect::<Vec<_>>()
+        .join("\n"),
       CommitBodyBlock::Preformatted { text } => {
         // a fence the code itself has no line of
         let fence = if text.lines().any(|line| line.trim_start().starts_with("```")) { "~~~" } else { "```" };
-        Some(format!("{fence}\n{text}\n{fence}"))
+        format!("{fence}\n{text}\n{fence}")
       }
-      CommitBodyBlock::Trailers { .. } => None,
-    })
-    .collect();
-  blocks.join("\n\n")
+      CommitBodyBlock::Heading { level, text } => format!("{} {}", "#".repeat(usize::from(level)), literal_markdown(&text)),
+      // as the author wrote it: a run-in label on the line of its paragraph (`Why: the text`), another a paragraph of its
+      // own, so a table or a quote after it keeps its first line
+      CommitBodyBlock::Label { text, run_in, .. } => match blocks.next_if(|next| run_in && matches!(next, CommitBodyBlock::Paragraph { .. })) {
+        Some(CommitBodyBlock::Paragraph { lines }) => format!("{}: {}", literal_markdown(&text), paragraph(&lines)),
+        _ => format!("{}:", literal_markdown(&text)),
+      },
+      CommitBodyBlock::Rule => "---".to_string(),
+    });
+  }
+  markdown.join("\n\n")
 }
 
 /// `text` with each word that GitHub would read as a mention (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) in a

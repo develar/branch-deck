@@ -37,7 +37,7 @@ use object_cache::commit_diff::FileChange;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
-use sync_utils::commit_body::body_blocks;
+use sync_utils::commit_body::commit_body;
 use sync_utils::commit_subject::stripped_subject;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::symbol_scan::SymbolInput;
@@ -287,13 +287,14 @@ pub(crate) fn tells_a_story(message: &str) -> bool {
 /// The words of `body` with a letter, the trailers left out
 fn body_words(body: &str) -> usize {
   let words = |text: &str| text.split_whitespace().filter(|word| word.chars().any(char::is_alphabetic)).count();
-  body_blocks(body)
+  commit_body(body)
+    .blocks
     .iter()
     .map(|block| match block {
       CommitBodyBlock::Paragraph { lines } => lines.iter().map(|line| words(line)).sum(),
       CommitBodyBlock::List { items, .. } => items.iter().map(|item| words(item)).sum(),
-      CommitBodyBlock::Preformatted { text } => words(text),
-      CommitBodyBlock::Trailers { .. } => 0,
+      CommitBodyBlock::Preformatted { text } | CommitBodyBlock::Heading { text, .. } | CommitBodyBlock::Label { text, .. } => words(text),
+      CommitBodyBlock::Rule => 0,
     })
     .sum()
 }

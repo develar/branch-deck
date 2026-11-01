@@ -119,8 +119,11 @@ export const commands = {
 	 *  words the state
 	 */
 	validateBranchName: (params: ValidateBranchNameParams) => __TAURI_INVOKE<BranchNameCheck>("validate_branch_name", { params }),
-	/**  The blocks of the body of `message`, the lines after its subject line (`sync_utils::commit_body::body_blocks`) */
-	commitBodyBlocks: (params: CommitBodyParams) => __TAURI_INVOKE<CommitBodyBlock[]>("commit_body_blocks", { params }),
+	/**
+	 *  The body of `message`, the lines after its subject line: its blocks, its trailers, its lead and its fold
+	 *  (`sync_utils::commit_body::commit_body`)
+	 */
+	commitBody: (params: CommitBodyParams) => __TAURI_INVOKE<CommitBody>("commit_body", { params }),
 	/**
 	 *  The view of the repository's open session at the version of its last patch (a window that lost a patch asks it);
 	 *  null when the session is not open, so the window subscribes again
@@ -1476,11 +1479,31 @@ export type Commit = {
 	subjectParts: SubjectParts,
 };
 
+/**  The body of a commit message, the lines after its subject line */
+export type CommitBody = {
+	/**  The blocks in the order of the body, without the trailers */
+	blocks: CommitBodyBlock[],
+	/**
+	 *  The `Token: value` lines that end the message (`Co-Authored-By:`, `Signed-off-by:`, `Fixes:`…), an indented line
+	 *  joined to its trailer
+	 */
+	trailers: string[],
+	/**  Whether `blocks[0]` is a paragraph, before any label or heading: the summary of the body */
+	lead: boolean,
+	/**
+	 *  The blocks shown before the fold, a prefix of `blocks`: the first block (a labelled section whole when the body
+	 *  opens with one), then whole blocks while they read in about 12 lines, a labelled section (a label or a heading and
+	 *  its blocks up to the next one) only whole; a verification section costs no line, a reader folds it wherever it
+	 *  is. `blocks.len()` when nothing folds
+	 */
+	shown: number,
+};
+
 /**  A block of a commit body */
 export type CommitBodyBlock = 
 /**
  *  Prose, a line per line it reads as: hard-wrapped lines joined by a space; a line after a hard break (two spaces,
- *  `\`), a quote line and a table row each a line of their own, a heading and a rule a paragraph of their own
+ *  `\`), a quote line and a table row each a line of their own
  */
 { type: "paragraph"; lines: string[] } | 
 /**
@@ -1495,13 +1518,23 @@ start: number; items: string[] } |
  *  without the common indent and the fences
  */
 { type: "preformatted"; text: string } | 
+/**  A Markdown heading (`## Text`): its level, one to six, and its text without the marks */
+{ type: "heading"; level: number; text: string } | 
 /**
- *  The `Token: value` lines that end the message (`Co-Authored-By:`, `Signed-off-by:`, `Fixes:`…), an indented line
- *  joined to its trailer
+ *  The label of the blocks after it, up to the next label or heading: a paragraph that is only `Label:`, a `Label:`
+ *  line right before a list, or the 1–3 words that start a `Label: text` paragraph, whose text is then the paragraph
+ *  after it. The text without its colon, as the author wrote it
  */
-{ type: "trailers"; lines: string[] };
+{ type: "label"; text: string; kind: LabelKind; 
+/**
+ *  Whether the author wrote the label at the start of its paragraph (`Why: the text`), the paragraph after it the
+ *  rest; false for a label on a line of its own
+ */
+runIn: boolean } | 
+/**  A thematic break (`---`, `***`, `___`), a block of the section it is in: it ends no section */
+{ type: "rule" };
 
-/**  The parameters of `commit_body_blocks` */
+/**  The parameters of `commit_body` */
 export type CommitBodyParams = {
 	/**  The whole message: its body is the lines after the subject line */
 	message: string,
@@ -3562,6 +3595,21 @@ export type KindCount = {
 	kind: RobotFailureKind,
 	count: number,
 };
+
+/**
+ *  What a label says its section is, by its words: a leading "The", the case and what follows a comma aside, so "The
+ *  fix", "Fix" and "Fix, in two places" are one
+ */
+export type LabelKind = 
+/**  Any other label: "The cause", "What changed", "Why" */
+"plain" | 
+/**
+ *  How the author checked the change: Tests, Evidence, Gates, Verified, Verification, Results, Proof, Left out
+ *  (also "Test", "Gates on the final tree"); a review folds it always
+ */
+"verification" | 
+/**  "Look closely": where the author asks the reviewer to decide */
+"lookClosely";
 
 /**  A start of a robot on a subject (the contract's `Land`; docs/design/rust-domain-authority.md, "Контракты") */
 export type Land = {

@@ -2658,8 +2658,8 @@ rewrites между процессами через файл `s10`; `s12` ждё
   Семейство `Rewrite` содержит и `PickRemote`/`UndoPickRemote` (`pick_remote_commits`), `RestoreBranchHead` (undo
   squash) и `Undo{token}` park с CAS. Статус auth — факт `auth` сессии (семейство, оставленное s7); как идёт сам
   вход — решение 2026-10-28 ниже, оно заменяет здесь `SignIn`/`SignOut` через `execute`. R9: `parseCommitBody` рисует тело коммита в строке
-  (`CommitMessage.tsx`), не в диалоге PR — чтение `commit_body_blocks(message)` с кэшем по id коммита на странице, тем
-  же парсером, что `commit_body_markdown`. `preview_group`, `validate_branch_name`, `commit_body_blocks` — чтения, не
+  (`CommitMessage.tsx`), не в диалоге PR — чтение `commit_body(message)` с кэшем по id коммита на странице, тем
+  же парсером, что `commit_body_markdown`. `preview_group`, `validate_branch_name`, `commit_body` — чтения, не
   `MUTATING`; `cancel_conflict_fix` и `cancel_symbol_search` остаются отменами чтений в `APP_COMMANDS`,
   `cancel_review_fetch` заменяет `cancel_operation`. Update Project переводится до удаления допуска страницы:
   `update-project.ts` стоит на `runOperation`.

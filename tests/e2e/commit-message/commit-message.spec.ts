@@ -195,6 +195,32 @@ test.describe("Commit message", () => {
     await expect(preview.getByTestId("commit-message-body")).toHaveText("Skip the cache warm-up until CRITICAL-112 is fixed upstream.")
   })
 
+  test("should render a Markdown heading, a rule and a label glued to its list as sections of the body", async ({ page, issueLinksRepo: repo }) => {
+    await enableAutoSyncOnFocus(page)
+    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
+    const hash = await unassignedRow.getAttribute("data-row-id")
+    const newHash = await repo.reword(
+      hash!,
+      "Emergency fix for CRITICAL-111\n\nSkip the cache warm-up until CRITICAL-112 is fixed.\n\n## Rollout\n\nEnable it on staging first.\n\n---\n\nTests:\n- the warm-up test",
+    )
+    await syncOnWindowFocus(page)
+    await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
+
+    await unassignedRow.getByTestId("commit-message-toggle").click()
+    const body = getPreview(page).getByTestId("commit-message-body")
+    await expect(body).toBeVisible()
+    await captureHtmlSnapshot(body, "commit-message-markdown")
+
+    // the heading heads its section without its marks, the rule is a line of that section, the label heads the list
+    const heading = body.locator("[data-slot=commit-section-heading]")
+    await expect(heading).toHaveText("Rollout")
+    await expect(body.getByRole("separator")).toBeVisible()
+    await expect(body.locator("[data-slot=commit-section-label]")).toHaveText("Tests")
+    await expect(body.locator("ul > li")).toHaveText(["the warm-up test"])
+    await expect(body).not.toContainText("##")
+    await expect(body).not.toContainText("---")
+  })
+
   test.describe("editing", () => {
     const PERF_SUBJECT = "perf db: increase pool size to 50"
 

@@ -298,9 +298,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - `text-xs` (12/16px): meta lines, column headers, key hints, help popovers;
   - `text-sm` (13/20px, the IntelliJ UI font size): rows, controls, labels, short text, the commit subjects of the
     lists and the hash popover body;
-  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitMessageBody
-    size="reading"`), at most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs
-    a user reads;
+  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitMessageBody`), at
+    most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs a user reads;
   - `text-base` (16/24px): dialog titles, also the subject in the commit preview header, the branch name in the
     branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
     preview); a commit as the heading of what follows it (`CommitHeading`: a commit of the branch preview, the commit

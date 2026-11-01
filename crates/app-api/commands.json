@@ -139,7 +139,7 @@
     "transport": "json"
   },
   {
-    "name": "commit_body_blocks",
+    "name": "commit_body",
     "class": "read",
     "transport": "json"
   },

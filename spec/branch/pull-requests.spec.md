@@ -409,9 +409,11 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - A commit body reads on GitHub as the commit preview shows it: the blocks of the one grammar of a commit body
   (`sync_utils::commit_body`, [Commit Row](../commit/commit-row.spec.md#message-body)) written as Markdown, where a
   newline is a line break. A paragraph is a line per line it reads as (its hard-wrapped lines joined; a line after a
-  hard break, a quote line and a table row each their own; a heading and a rule a paragraph of their own), a list `-`
-  or the numbers from its first, its wrapped and indented lines joined, code (fenced or indented) in a fence, the
-  blocks apart by a blank line. The trailers are left out, a one-word `Note:` alone is prose. Outside code spans, a
+  hard break, a quote line and a table row each their own), a list `-` or the numbers from its first, its wrapped and
+  indented lines joined, code (fenced or indented) in a fence, a heading with the `#` of its level, a rule `---`, the
+  blocks apart by a blank line. A label stays as the author wrote it: a run-in label on the line of its paragraph
+  (`Why: the text`), a label written on a line of its own a `Label:` paragraph of its own, so a list, a table or a
+  quote after it keeps its first line. The trailers are left out, a one-word `Note:` alone is prose. Outside code spans, a
   word GitHub would read as a mention (`@Nullable`) or as an HTML tag (`<T>`, `List<String>`) goes into a code span.
   [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`each_commit_is_an_item_with_its_body_reflowed`, `trailers_and_autosquash_commits_are_left_out`, `mentions_and_angle_brackets_stay_literal`)
 - A stacked branch's pull request holds the commits of the branches it is built on: its title and items come from its

@@ -119,7 +119,7 @@ pub struct PreviewGroupParams {
   pub message: String,
 }
 
-/// The parameters of `commit_body_blocks`
+/// The parameters of `commit_body`
 #[derive(Debug, Clone, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

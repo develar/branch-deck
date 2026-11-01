@@ -1,0 +1,48 @@
+<div class="flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-md text-foreground select-text" data-testid="commit-message-body">
+  <div class="flex flex-col gap-1">
+    <div class="flex min-w-0 flex-col gap-2">
+      <p>
+        <span>
+          <span>
+            Skip the cache warm-up until
+          </span>
+          <a class="rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground" href="https://jira.example.com/browse/CRITICAL-112" rel="noopener noreferrer" target="_blank">
+            CRITICAL-112
+          </a>
+          <span>
+            is fixed.
+          </span>
+        </span>
+      </p>
+    </div>
+  </div>
+  <div class="flex flex-col gap-1">
+    <div class="font-semibold" data-slot="commit-section-heading">
+      <span>
+        Rollout
+      </span>
+    </div>
+    <div class="flex min-w-0 flex-col gap-2">
+      <p>
+        <span>
+          Enable it on staging first.
+        </span>
+      </p>
+      <hr class="border-border" />
+    </div>
+  </div>
+  <div class="flex flex-col gap-1">
+    <div class="font-medium text-muted-foreground" data-slot="commit-section-label">
+      Tests
+    </div>
+    <div class="flex min-w-0 flex-col gap-2">
+      <ul class="list-disc flex flex-col gap-1 pl-5 marker:text-muted-foreground">
+        <li>
+          <span>
+            the warm-up test
+          </span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</div>

@@ -29,8 +29,7 @@ targets:
   - ../../crates/git-ops/src/reword_commits.rs
   - ../../src/components/commit/LinkedText.tsx
   - ../../src/lib/commit.ts
-  - ../../src/lib/commit-message.ts
-  - ../../src/hooks/useCommitBodyBlocks.ts
+  - ../../src/hooks/useCommitBody.ts
   - ../../src/hooks/usePreviewGroup.ts
   - ../../src/hooks/useDebouncedRead.ts
   - ../../crates/app-api/src/session/view.rs
@@ -292,36 +291,53 @@ The commit hash popover shows the same header and body.
 
 ### Message body
 
-The body is parsed in Rust (`commit_body_blocks`, `sync_utils::commit_body`), the grammar the body of a pull request is
-written from ([Pull Requests](../branch/pull-requests.spec.md)); the page asks once per message and keeps the answer
-for a message shown again.
+The body is read in Rust (`commit_body`, `sync_utils::commit_body`), the one grammar of a commit body: the commit
+preview renders it, the body of a pull request is written from it ([Pull Requests](../branch/pull-requests.spec.md)),
+and a review tells it ([Review Tour](../branch/review-tour.spec.md)). The page asks once per message, keeps the answer
+for a message shown again, and only lays out what Rust read.
 
 - The body must start at the first line after the subject that is not blank.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../src/lib/commit.test.ts (`is true for a message with lines after the subject`, `is false for a message that equals the subject`, `is false for a one-line message that differs from a stripped subject`, `is false for an empty message`)
   [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_body_of_a_message_is_after_its_subject_line`)
 - The body must join hard-wrapped lines into one paragraph; a blank line must start a new block. A line after a hard
-  break (two spaces or `\` at the end), a quote line and a table row must stay a line of their own; a heading and a
-  rule a paragraph of their own.
+  break (two spaces or `\` at the end), a quote line and a table row must stay a line of their own. A Markdown heading
+  (one to six `#` and a text) must be a heading of its level, a rule (`---`, `***`, `___`) a rule, each a block of its
+  own; a `#` without text stays prose.
 - Lines that start with `- `, `* `, `+ `, `• `, `1. ` or `1) ` must form a list without these markers (a rule is no
   item). A change between bullets and numbers must start a new list. An ordered list must keep the number of its first
-  item. A continuation line, wrapped, indented or not, must stay in its list item until a heading, a quote, a table row
-  or a rule.
+  item. A continuation line, wrapped, indented or not, must stay in its list item until a heading, a quote, a table row,
+  a rule or a label line right before an item.
 - Lines indented by four spaces or a tab must stay verbatim, without the common indent.
 - A fenced block (```` ``` ```` or `~~~`) must stay verbatim, blank lines included, without the fences; one without a
   closing fence must run to the end of the body.
 - A last block of git trailers (`Token: value` lines, an indented line continuing one, `(cherry picked from commit …)`)
-  must show as a separate trailer block when one of its lines is a token of words joined by `-` or the cherry-pick
-  note; a block of one-word tokens alone (`Note: …`) and a block that is not the last stay prose.
+  must be the trailers of the body, apart from its blocks, when one of its lines is a token of words joined by `-` or
+  the cherry-pick note; a block of one-word tokens alone (`Note: …`) and a block that is not the last stay prose. A body
+  of trailers alone has no block.
 - The body must treat CRLF line endings as LF.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`, `should render a Markdown heading, a rule and a label glued to its list as sections of the body`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_table_row_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
+- A paragraph that is only `Label:` (a capital letter of any script, at most 39 characters without a colon) must
+  become the label of the blocks after it when a paragraph, a list or code follows it; a `Label:` line right before a
+  list item must, also after prose or a list of its block.
+- A paragraph that starts with a short `Label: ` (a capitalised word and up to two lowercase ones of any script, at
+  most 20 characters) must become a label above its remaining text, a label written at the start of its paragraph.
+- A `Label:` paragraph without a following block of content (the last one, one before the trailers or a heading) must
+  stay a paragraph.
+- A label's kind must come from its words, a leading "The", the case and what follows a comma aside: Tests, Test,
+  Evidence, Gates, Verified, Verification, Results, Proof and Left out (also "Gates on the final tree") are a
+  verification, "Look closely" asks the reviewer to decide, any other label is plain.
+- The trailers must show last, below the blocks, without a label.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_table_row_its_own_and_a_heading_and_a_rule_a_paragraph`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
-- A paragraph that is only `Label:` must become a section label above the next blocks.
-- A paragraph that starts with a short `Label: ` must become a section label above its remaining text.
-- A `Label:` paragraph without a following content block must stay a paragraph.
-- The trailers must form the last section, without a label.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../src/lib/commit-message.test.ts (`turns a paragraph that is only Label: into the label of the next blocks`, `turns a short run-in Label: into a label above the rest of the paragraph`, `keeps a run-in label longer than 20 characters as prose`, `keeps a Label: paragraph without a following block as a paragraph`, `keeps a Label: paragraph followed only by trailers as a paragraph`, `puts the trailers into the last, unlabelled section`, `keeps the lines of a run-in paragraph after its label`, `adds unlabelled blocks to the current section`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_label_the_rest_of_its_paragraph`, `a_label_without_blocks_to_head_a_long_one_and_a_sentence_stay_prose`, `a_label_line_right_before_a_list_heads_it_after_prose_or_another_list`, `a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_aside`)
+- The lead of a body must be its first block when that is a paragraph, before any label or heading.
+- The fold of a body (the blocks a reader shows before it, `shown`) must be at a block, never at a fixed row count: the
+  first block, a labelled section whole when the body opens with one, then whole blocks while they read in about 12
+  lines (a line of prose or an item by 100 characters, a line of code one), a labelled section (a label or a heading
+  and its blocks up to the next one, a rule among them) only whole, so a label never ends what shows; a verification
+  section costs no line. A body of about 12 lines shows whole.
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_lead_is_a_paragraph_before_any_label_or_heading`, `a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines`, `a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no_line`)
 - Issue keys in the body must become links.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
 
@@ -510,13 +526,12 @@ for a message shown again.
 ### Message body
 
 - The body is at most `max-w-prose` (65ch, about 80 characters) wide.
-- The body text is `text-foreground` with the `ss04` font feature: the 14/22px reading text (`text-md`,
-  `size="reading"`) in the preview, the 13/20px UI text (`text-sm`) in the hash popover.
-- A section label is a small `font-medium text-muted-foreground` heading above its blocks.
+- The body text is `text-foreground` with the `ss04` font feature, the 14/22px reading text (`text-md`).
+- A section label is a small `font-medium text-muted-foreground` heading above its blocks; a Markdown heading of any
+  level is `font-semibold` at the size of the text; a rule is a `border-border` line of its own.
 - Sections have a 16px gap. Blocks in a section have an 8px gap.
 - Lists have a 20px indent and muted markers.
-- Preformatted text uses `font-mono` one step below the body (`text-sm` in the preview, `text-xs` in the hash popover)
-  on `bg-muted` and scrolls horizontally.
+- Preformatted text uses `font-mono` one step below the body (`text-sm`) on `bg-muted` and scrolls horizontally.
 - Trailers use `text-xs text-muted-foreground` below a `border-border` rule.
 - Detected code uses the monospace font at the size of the text, without a background: JetBrains Mono has the x-height
   and cap height of Inter, so a smaller size only shrinks it.
