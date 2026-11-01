@@ -449,6 +449,15 @@ fn a_body_of_a_few_words_tells_a_step_a_fixup_none() {
   assert!(!tells_a_story("Open takes a mode"));
   assert!(!tells_a_story("Open takes a mode\n\nSee #12"));
   assert!(!tells_a_story("fixup! Open takes a mode\n\nThe open names its mode."));
+  // the trailers tell nothing: an agent's commit has a `Co-Authored-By` whether it says anything or not
+  assert!(!tells_a_story("Open takes a mode\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>"));
+  assert!(!tells_a_story(
+    "Open takes a mode\n\nSigned-off-by: Ann Lee <ann@example.com>\nCo-Authored-By: Claude Opus <noreply@anthropic.com>"
+  ));
+  assert!(tells_a_story(
+    "Open takes a mode\n\nThe open names its mode.\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>"
+  ));
+  assert!(!tells_a_story("Open takes a mode\n\nSee #12\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>"));
 }
 
 #[test]

@@ -64,8 +64,8 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`)
 
 ### Steps of the Commits
-- A commit whose message has a body of 3 words or more after its subject, and no `fixup!`, `squash!` or `amend!`
-  subject, tells a step. When a range of two commits or more has one, the steps must be the commits: each unit of the
+- A commit whose message has a body of 3 words or more after its subject, its trailers left out (a body of only
+  `Co-Authored-By:` tells nothing), and no `fixup!`, `squash!` or `amend!` subject, tells a step. When a range of two commits or more has one, the steps must be the commits: each unit of the
   range in the step of the commit of most of its changed lines among the commits that tell a step, the later of equal
   ones; a unit of a file of no language by its blocks. The step lists the other steps whose commits changed lines of
   it (`also`).

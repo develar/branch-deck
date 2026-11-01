@@ -31,11 +31,13 @@ use crate::pair::{PairBlocks, block_of};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice};
 use anyhow::Result;
 use code_symbols::language::language_of;
+use domain_types::commit_body::CommitBodyBlock;
 use file_diffs::accio::{DeclarationAt, ReachingTest, SymbolIndex};
 use object_cache::commit_diff::FileChange;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
+use sync_utils::commit_body::body_blocks;
 use sync_utils::commit_subject::stripped_subject;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::symbol_scan::SymbolInput;
@@ -275,12 +277,25 @@ pub(crate) struct StepsInput<'a> {
   pub contract: &'a [ContractEntry],
 }
 
-/// Whether a commit message tells a step: a body of `MIN_BODY_WORDS` words or more after its subject, and no
-/// `fixup!`, `squash!` or `amend!` subject
+/// Whether a commit message tells a step: a body of `MIN_BODY_WORDS` words or more after its subject, its trailers
+/// (`Co-Authored-By: …`) left out, and no `fixup!`, `squash!` or `amend!` subject
 pub(crate) fn tells_a_story(message: &str) -> bool {
   let (subject, body) = split_message(message);
-  !["fixup!", "squash!", "amend!"].iter().any(|mark| subject.starts_with(mark))
-    && body.split_whitespace().filter(|word| word.chars().any(char::is_alphabetic)).count() >= MIN_BODY_WORDS
+  !["fixup!", "squash!", "amend!"].iter().any(|mark| subject.starts_with(mark)) && body_words(body) >= MIN_BODY_WORDS
+}
+
+/// The words of `body` with a letter, the trailers left out
+fn body_words(body: &str) -> usize {
+  let words = |text: &str| text.split_whitespace().filter(|word| word.chars().any(char::is_alphabetic)).count();
+  body_blocks(body)
+    .iter()
+    .map(|block| match block {
+      CommitBodyBlock::Paragraph { lines } => lines.iter().map(|line| words(line)).sum(),
+      CommitBodyBlock::List { items, .. } => items.iter().map(|item| words(item)).sum(),
+      CommitBodyBlock::Preformatted { text } => words(text),
+      CommitBodyBlock::Trailers { .. } => 0,
+    })
+    .sum()
 }
 
 /// The subject of a message and its body, trimmed
