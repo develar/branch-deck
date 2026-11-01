@@ -9,7 +9,7 @@ import { moveCommits } from "@/hooks/useMoveCommits"
 import { getRewordMenuItem } from "@/hooks/useRewordCommit"
 import { wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
-import type { BranchReviewPart, PatronusReviewRequirement } from "@/lib/bindings"
+import type { PatronusReviewRequirement, ReviewPart } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { branchGoneReason, reviewBlockerOf, planReviewOpen, requestAction, reviewCommitKey } from "@/lib/branch-review"
@@ -19,6 +19,7 @@ import { formatShortHash } from "@/lib/hash"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem, FROM_MENU } from "@/lib/menu"
 import { continueOnGitHub, submitPullRequest } from "@/lib/pull-request-run"
+import { chainTarget } from "@/lib/review-target"
 import { showRepository } from "@/lib/show-repository"
 import { createWindowLink } from "@/lib/sub-window-link"
 import { showToast } from "@/lib/toast-message"
@@ -119,7 +120,7 @@ function getBranchReviewSource(branchName: string, focus: BranchReviewFocus): Br
 }
 
 /** The part a review of a range shows first, when the backend can read it ahead: the own part or the whole stack */
-function prefetchedPart(range: BranchReviewFocus["range"]): BranchReviewPart | null {
+function prefetchedPart(range: BranchReviewFocus["range"]): ReviewPart | null {
   return range === undefined || range === "own" ? "own" : range === "all" ? "all" : null
 }
 
@@ -127,11 +128,11 @@ function prefetchedPart(range: BranchReviewFocus["range"]): BranchReviewPart | n
 const prefetched = new Set<string>()
 
 /**
- * Reads ahead what the review window of a branch asks for first (`prefetch_branch_review`: its parts, the files and
+ * Reads ahead what the review window of a branch asks for first (`prefetch_review`: its parts, the files and
  * the patch of the part it shows) as the window opens, beside its start, once per state of the branch. A hover or a
  * focus of its row reads nothing: a pointer that passes over the table costs no IPC and no git
  */
-function prefetchBranchReview(branchName: string, focus: BranchReviewFocus = {}): void {
+function prefetchReview(branchName: string, focus: BranchReviewFocus = {}): void {
   const source = getBranchReviewSource(branchName, focus)
   const part = prefetchedPart(focus.range)
   if (source === null || part === null) {
@@ -143,7 +144,7 @@ function prefetchBranchReview(branchName: string, focus: BranchReviewFocus = {})
     return
   }
   prefetched.add(key)
-  void commands.prefetchBranchReview({ review: { repositoryPath, baselineBranch, chain: [...chain] }, part }).then(result => {
+  void commands.prefetchReview({ review: { repositoryPath, baselineBranch, target: chainTarget(chain, false) }, part }).then(result => {
     if (result.status === "error") {
       prefetched.delete(key)
       logError("Cannot read the review of a branch ahead", result.error)
@@ -172,7 +173,7 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
   }
   const chain = open.chain
   // git reads while the window starts
-  prefetchBranchReview(branchName, focus)
+  prefetchReview(branchName, focus)
   // the main window keeps the state of the last opened chain up to date
   const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: false, startedAt: open.startedAt }
   if (restarts) {

@@ -5,7 +5,7 @@ import { ChevronRightIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { BranchReviewSegment } from "@/lib/bindings"
+import type { ReviewSegment } from "@/lib/bindings"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { selectSegment, stackBarItems } from "@/lib/branch-review"
 import type { SegmentRange } from "@/lib/branch-review"
@@ -15,7 +15,7 @@ import type { ReviewedBranch, WholeStackScope } from "@/types/sub-window"
 export interface BranchReviewStackBarProps {
   baselineBranch: string
   /** Root first, the reviewed branch last */
-  segments: readonly BranchReviewSegment[]
+  segments: readonly ReviewSegment[]
   range: SegmentRange
   onRangeChange: (range: SegmentRange) => void
   /** The review of the whole stack: its one part is the stack branch of the root, named "Whole air stack" */

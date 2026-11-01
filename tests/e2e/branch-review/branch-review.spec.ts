@@ -169,7 +169,7 @@ test.describe("Reading the review ahead", () => {
     await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
     // the server reads it: the test only records the command
-    const prefetches = await recordCommand(page, "prefetch_branch_review")
+    const prefetches = await recordCommand(page, "prefetch_review")
 
     // the pointer rests on the row, the row gets the focus: nothing is read
     await restOnBranchRow(page, "login")
@@ -182,7 +182,7 @@ test.describe("Reading the review ahead", () => {
     await page.keyboard.press("d")
     expect((await openedReview(page, 1)).title).toBe("Review login")
     await settledInvokes(page)
-    expect(prefetches).toMatchObject([{ review: { chain: ["auth", "login"] }, part: "own" }])
+    expect(prefetches).toMatchObject([{ review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" }])
 
     // Review Changes of its menu: the window comes to the front, the branch is read already
     await openReviewWindow(page, "login")
@@ -193,8 +193,8 @@ test.describe("Reading the review ahead", () => {
     await openReviewWindow(page, "auth")
     await settledInvokes(page)
     expect(prefetches).toMatchObject([
-      { review: { chain: ["auth", "login"] }, part: "own" },
-      { review: { chain: ["auth"] }, part: "own" },
+      { review: { target: { kind: "branch", chain: ["auth", "login"] } }, part: "own" },
+      { review: { target: { kind: "branch", chain: ["auth"] } }, part: "own" },
     ])
   })
 })
@@ -617,7 +617,7 @@ test.describe("Branch review window", () => {
     await expectMainVersion()
     let reads = 0
     window.on("request", request => {
-      if (request.url().endsWith("/invoke/get_branch_review")) {
+      if (request.url().endsWith("/invoke/get_review")) {
         reads++
       }
     })

@@ -248,12 +248,12 @@
     "transport": "json"
   },
   {
-    "name": "get_branch_review",
+    "name": "get_review",
     "class": "read",
     "transport": "json"
   },
   {
-    "name": "prefetch_branch_review",
+    "name": "prefetch_review",
     "class": "read",
     "transport": "json"
   },

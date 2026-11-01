@@ -210,7 +210,7 @@ Mock implementation:
   of the other tests look as before it, and a test of the plan turns it on in `.git/config`. The syncs of the
   sessions run that git too (`AppState::git_of`, `SessionEnvironment::git`), never the config of the machine.
   So the server answers what the app answers, an unknown path included, with no code of its own: the read ahead of a
-  branch review (`prefetch_branch_review`) fills the memories of the context as the app's fills its own. It answers the value Tauri resolves the `invoke` with, the
+  review (`prefetch_review`) fills the memories of the context as the app's fills its own. It answers the value Tauri resolves the `invoke` with, the
   bytes of a raw command (`get_blob_syntax`), or its error (below) with the operation it names, as the app's.
   [@test] ../../crates/test-server/src/invoke_test.rs (`a_read_of_app_api_answers_what_the_app_answers`, `a_raw_command_answers_its_bytes`, `the_arguments_of_a_command_are_its_params_or_its_named_arguments`)
   [@test] ../../crates/test-server/src/commit_files_test.rs (`commit_files_routes_read_the_fixture_repository`)

@@ -4,26 +4,26 @@
 //!
 //! - `pull_requests`: the text of a new pull request of a branch or of a whole stack, the reviewers a review can ask.
 //! - `patronus`: the Safe Push statistics, why a robot failed, the commits a running robot covers.
-//! - `branch_review`: the parts of a branch for its review window, and their read ahead.
+//! - `review`: what the review window shows of its target, and its read ahead.
 //! - `suggest`: the branch names of Claude Code.
 //! - `accounts`: the sign-ins of a window without a session, the issue of a popover.
 
 pub mod accounts;
-pub mod branch_review;
 pub mod patronus;
 pub mod pull_requests;
+pub mod review;
 pub mod suggest;
 
 use crate::remote::suggest::BranchNameRequests;
 use remote_facts::robot_stats::RobotStatsReads;
-use sync_core::branch_review::BranchReviewMemo;
+use sync_core::review_target::ReviewMemo;
 
 /// What the commands of the remote family keep between their calls, one of each per app (per test repository in the
 /// e2e server)
 #[derive(Default)]
 pub struct RemoteMemory {
-  /// The reviews of branches the windows read, by their tips (`get_branch_review`, `prefetch_branch_review`)
-  pub branch_reviews: BranchReviewMemo,
+  /// The reviews the windows read, by the tips of their targets (`get_review`, `prefetch_review`)
+  pub reviews: ReviewMemo,
   /// The latest request for branch names (`suggest_branch_names`)
   pub branch_names: BranchNameRequests,
   /// The reads of the Safe Push statistics that ask Patronus, one per repository and target (`get_robot_stats`)

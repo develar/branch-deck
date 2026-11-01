@@ -90,7 +90,7 @@ targets:
   - ../../crates/test-utils/src/repo_template.rs
   - ../../crates/sync-core/src/push.rs
   - ../../crates/sync-core/src/robot_commits.rs
-  - ../../crates/sync-core/src/branch_review.rs
+  - ../../crates/sync-core/src/review_target.rs
   - ../../crates/app-api/src/remote/pull_requests.rs
   - ../../src/components/branch/BranchPushButton.tsx
   - ../../src/components/branch/BranchActions.tsx

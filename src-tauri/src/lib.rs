@@ -213,7 +213,7 @@ pub fn run() {
         prefixes: app_settings::branch_prefixes::BranchPrefixes::default(),
         repository_state,
         // one memory of the diffs and the files of the ranges for the reviews' lists and their diffs (`get_range_files`,
-        // `get_file_diffs`) and the read ahead of a branch review (`prefetch_branch_review`)
+        // `get_file_diffs`) and the read ahead of a review (`prefetch_review`)
         file_diffs: file_diffs::service::FileDiffs::default(),
         symbol_indexes: Arc::new(app_api::reads::symbols::Accio),
         conflict_fix: app_api::reads::conflict_fix::ConflictFixSearch::default(),

@@ -542,7 +542,7 @@ it shows as they are, and Rust asks the readiness of those whose step waits for 
 where the page filtered them before), the menu of a row nothing and the popover of its
 robot one `set_demand` (the details it shows, which the session reads and sends as a patch, again every minute of a
 running robot while it is open), the hover of a row nothing. The review of a branch is read ahead as its window opens,
-beside the start of the window (`prefetch_branch_review`, [Branch Review](../../spec/branch/branch-review.spec.md)),
+beside the start of the window (`prefetch_review`, [Branch Review](../../spec/branch/branch-review.spec.md)),
 not on a hover or a focus of its row as before 2026-10-29: a pointer that passes over the table costs no IPC and no git.
 An E2E test pins these numbers.
 [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should ask the session nothing for the hover and the menu of a row, and tell it only the details of the robot whose popover opens`)
@@ -630,7 +630,7 @@ used to download and compile the main window's tree before its own page: 61 modu
   committed its fallback even after the chunk was loaded and revealed the diffs only after React's 300 ms throttle.
   The page starts the highlight worker when its module loads, beside the reads of the files and the diffs.
 - A review window starts its reads with its page (`startReviewWindowReads`): the files and the patch of the commit
-  review into their stores, the segments of the branch review for its first read (`readBranchReview`). The chunk of
+  review into their stores, the segments of the branch review for its first read (`readReview`). The chunk of
   its page holds the diff engine (about 640 KB to parse, about 100 ms in the release build), and the reads waited for
   it before. Only a review window loads them: `src/lib/review-window-start.ts`, which `main.tsx` imports before
   `src/router.ts`, imports their chunk of about 19 KB with the stores they fill (`import()` by the label of the

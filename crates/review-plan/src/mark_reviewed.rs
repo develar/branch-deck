@@ -1,7 +1,7 @@
 //! Mark Reviewed (`bd mark-reviewed`): the base and the tip a local branch has now become its reviewed pair,
 //! `refs/branch-deck/reviewed/<sha256 of the branch's full name>/{base,tip}` (`git_ops::reviewed_refs`), which the
 //! next review of the branch compares it with. The base is the merge base of the tip and the base the caller names (the
-//! head of the stack parent a review shows the branch on, `BranchReviewSegment::base`), else of the tip and the
+//! head of the stack parent a review shows the branch on, `ReviewSegment::base`), else of the tip and the
 //! baseline. One `for-each-ref` of the reviewed refs and the branches, one `merge-base`, one `update-ref --stdin` with
 //! compare-and-swap on every ref that listing read, which also deletes the pairs of the branches that are gone; no
 //! repository lock: the compare-and-swap of the transaction is the witness, as for a write of the stores alone. Without

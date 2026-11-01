@@ -1,6 +1,6 @@
 // @spec spec/branch/branch-review.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { BranchReviewSegment, Interdiff, ReviewCommit, ReviewPlan } from "@/lib/bindings"
+import type { ReviewSegment, Interdiff, ReviewCommit, ReviewPlan } from "@/lib/bindings"
 import {
   ALL_CHANGES,
   SINCE_REVIEW,
@@ -19,7 +19,7 @@ function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
   return { id, subject, message: subject, author: "Test User", authorTime, committerTime: authorTime }
 }
 
-function segment(name: string, commits: ReviewCommit[]): BranchReviewSegment {
+function segment(name: string, commits: ReviewCommit[]): ReviewSegment {
   return { name, base: `${name}-base`, head: commits[0]!.id, commits }
 }
 

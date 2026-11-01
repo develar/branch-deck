@@ -10,11 +10,13 @@ use crate::moved_remote::{MovedBranch, fetch_moved_remotes};
 use crate::push_fixture::{PushBranchesOutcome, PushBranchesParams, StackPushBranch, push_branches};
 use crate::reapply_branch::{ReapplyBranchParams, ReapplyUndoToken, reapply_branch_core, undo_reapply_core};
 use crate::remote_status::{AncestorCommits, StackParent, compute_remote_status_for_branch, forget_statuses};
+use crate::review_target::ReviewMemo;
 use crate::robot_landing::{robot_landings, robot_spans};
 use crate::stack_branch::forget_builds;
 use crate::sync::{SyncOptions, sync_branches};
 use crate::target_conflict::{TargetConflictParams, TargetOutcome, check_branch_target};
 use crate::unapply_branch::{UnapplyBranchParams, UnapplyUndoToken, unapply_branch_core, undo_unapply_core};
+use domain_types::review::{GetReviewParams, ReviewTarget};
 use domain_types::rewrite::{AmendCommandResult, AutosquashScope, CommitReword, ReapplyBranchResult, RewordText, UnapplyBranchResult};
 use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
@@ -963,4 +965,45 @@ fn a_push_into_the_baseline() {
   };
   push_baseline(&git, &push, &mut |_| {}).unwrap();
   assert_processes(&git, &[("cat-file", 1), ("for-each-ref", 1), ("log", 1), ("push", 1), ("remote", 2), ("symbolic-ref", 1)]);
+}
+
+/// The review of a target (`review_target`): a branch is one `for-each-ref` of the tips and the baseline and one `log`;
+/// a kept branch adds where its own commits start (the stack notes by `log --no-walk`, the merge base with the
+/// baseline); a list of commits is one `log --no-walk`. Read again from the memo: the `for-each-ref` alone, a list nothing
+#[test]
+fn a_review_of_a_branch_a_kept_branch_and_a_list_of_commits() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit("Base", "base.txt", "base\n");
+  repo.create_branch_at("baseline", &base).unwrap();
+  let c1 = repo.create_commit("(docs) intro", "docs.txt", "intro\n");
+  let c2 = repo.create_commit("(docs) usage", "docs.txt", "intro\nusage\n");
+  repo.create_branch_at("test/virtual/docs", &c2).unwrap();
+  repo.create_branch_at("test/unapplied/docs", &c2).unwrap();
+  let params = |target: ReviewTarget| GetReviewParams {
+    repository_path: path(&repo),
+    baseline_branch: "baseline".to_string(),
+    target,
+  };
+  let branch = params(ReviewTarget::Branch { chain: vec!["docs".to_string()] });
+  let kept = params(ReviewTarget::Kept {
+    name: "test/unapplied/docs".to_string(),
+  });
+  let list = params(ReviewTarget::Commits { ids: vec![c1, c2] });
+  let memo = ReviewMemo::new();
+
+  let git = counting();
+  memo.get(&git, PREFIX, &branch).unwrap();
+  assert_processes(&git, &[("for-each-ref", 1), ("log", 1)]);
+  let git = counting();
+  memo.get(&git, PREFIX, &kept).unwrap();
+  assert_processes(&git, &[("for-each-ref", 1), ("log", 2), ("merge-base", 1)]);
+  let git = counting();
+  memo.get(&git, PREFIX, &list).unwrap();
+  assert_processes(&git, &[("log", 1)]);
+
+  let git = counting();
+  memo.get(&git, PREFIX, &branch).unwrap();
+  memo.get(&git, PREFIX, &kept).unwrap();
+  memo.get(&git, PREFIX, &list).unwrap();
+  assert_processes(&git, &[("for-each-ref", 2)]);
 }

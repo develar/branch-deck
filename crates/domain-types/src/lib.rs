@@ -35,6 +35,7 @@
 //! - `remote_status`: what a push of a branch does over its remote status, by the counts of the status alone
 //!   (`RemoteStatusUpdate::push_action`, `needs_push`, `pushes_again`), which the sync sets and the push orders read
 //! - `repository_view`: what Rust derives of the branch table for the page and `bd`
+//! - `review`: the targets of a review (a branch, a whole stack, a kept branch, a list of commits) and what they answer
 //! - `review_request`: the review requests of Your Turn
 //! - `robot_failure`: why a robot failed and the commits it checked
 //! - `robot_landing`: what a merged robot landed and what a running one lands
@@ -84,6 +85,7 @@ pub mod pull_request;
 pub mod reason;
 pub mod remote_status;
 pub mod repository_view;
+pub mod review;
 pub mod review_request;
 pub mod rewrite;
 pub mod robot_failure;

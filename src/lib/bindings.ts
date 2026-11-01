@@ -226,16 +226,17 @@ export const commands = {
 	 */
 	getRobotCommitMap: (params: GetRobotCommitMapParams) => typedError<RobotCommitMap, ApiError>(__TAURI_INVOKE("get_robot_commit_map", { params })),
 	/**
-	 *  The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
-	 *  commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a baseline the memo hasn't seen
+	 *  What a review shows of a target (a branch with its stack, a whole stack, a kept branch, a list of commits): its
+	 *  parts with their base, head and commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a
+	 *  baseline the memo hasn't seen, nothing again for a list of commits
 	 */
-	getBranchReview: (params: GetBranchReviewParams) => typedError<BranchReview, ApiError>(__TAURI_INVOKE("get_branch_review", { params })),
+	getReview: (params: GetReviewParams) => typedError<TargetReview, ApiError>(__TAURI_INVOKE("get_review", { params })),
 	/**
-	 *  Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
+	 *  Reads in the background what the review window asks for first: the parts of its target (`get_review`) and the
 	 *  files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
 	 *  a failure is the window's to tell
 	 */
-	prefetchBranchReview: (params: PrefetchBranchReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("prefetch_branch_review", { params })),
+	prefetchReview: (params: PrefetchReviewParams) => typedError<null, ApiError>(__TAURI_INVOKE("prefetch_review", { params })),
 	/**
 	 *  Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
 	 *  logged-out `claude` and its failures are outcomes
@@ -1144,28 +1145,6 @@ export type BranchPush = {
 export type BranchRemote = {
 	/**  The last remote status a sync computed; `None` until one did, kept while the branch is rebuilt */
 	status: RemoteStatusUpdate | null,
-};
-
-export type BranchReview = {
-	/**  In the order of the chain: the root first */
-	segments: BranchReviewSegment[],
-};
-
-/**  The part of a stack a review of a branch shows first */
-export type BranchReviewPart = 
-/**  The branch on its parent */
-"own" | 
-/**  The stack from the baseline */
-"all";
-
-/**  A branch of the chain: its commits on top of its parent (the baseline for the root) */
-export type BranchReviewSegment = {
-	name: string,
-	/**  The head of the parent, or the commit the root is built on */
-	base: string,
-	head: string,
-	/**  Newest first; the commits of a pull request are of the same type, a review shows both alike */
-	commits: ReviewCommit[],
 };
 
 /**
@@ -3175,22 +3154,6 @@ export type GetBranchPrefixParams = {
 	repositoryPath: string,
 };
 
-export type GetBranchReviewParams = {
-	repositoryPath: string,
-	/**  As the sync detected it, e.g. `origin/master` */
-	baselineBranch: string,
-	/**
-	 *  The branches from the root of the stack to the reviewed branch, without the `{prefix}/virtual/` namespace; one
-	 *  name for a branch outside a stack
-	 */
-	chain: string[],
-	/**
-	 *  The whole stack of the root `chain` names alone: its stack branch `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md),
-	 *  one part named by the root
-	 */
-	wholeStack?: boolean,
-};
-
 export type GetCommitFilesParams = {
 	repositoryPath: string,
 	commitId: string,
@@ -3258,6 +3221,13 @@ export type GetRangeParams = {
 
 export type GetRepositoryConfigParams = {
 	repositoryPath: string,
+};
+
+export type GetReviewParams = {
+	repositoryPath: string,
+	/**  As the sync detected it, e.g. `origin/master` */
+	baselineBranch: string,
+	target: ReviewTarget,
 };
 
 /**  The commit map of a running robot, for the commit rows of the branches it tests: which commits it covers */
@@ -5284,9 +5254,9 @@ export type PlannedGroup = {
 	folded: PlannedFixup[],
 };
 
-export type PrefetchBranchReviewParams = {
-	review: GetBranchReviewParams,
-	part: BranchReviewPart,
+export type PrefetchReviewParams = {
+	review: GetReviewParams,
+	part: ReviewPart,
 };
 
 /**  Where the prefix of the branches came from; snake case, as every value of a `bd` output */
@@ -6260,6 +6230,13 @@ export type ReviewInvolvement =
 /**  The user's own: its reviewers by their latest review, a draft, the branch of the table it is of */
 { kind: "authored"; reviewers: Reviewer[]; isDraft: boolean; branch: string | null };
 
+/**  The part of a range a review shows first */
+export type ReviewPart = 
+/**  The last part: a branch on its parent, a whole stack, a kept branch */
+"own" | 
+/**  Every part: a stack from the baseline */
+"all";
+
 /**  Who told which paths a reviewer group owes */
 export type ReviewPathsSource = 
 /**  Patronus, from the rules it checked */
@@ -6525,6 +6502,17 @@ export type ReviewSectionKind =
 /**  The user's own pull requests */
 "authored";
 
+/**  A part of a reviewed range: a branch of a stack on its parent, the whole stack, a kept branch on its base */
+export type ReviewSegment = {
+	/**  The branch, without its namespace (`auth`, the `docs` of `jane/unapplied/docs`) */
+	name: string,
+	/**  The head of the parent, the commit the root is built on, or where a kept branch starts */
+	base: string,
+	head: string,
+	/**  Newest first; the commits of a pull request are of the same type, a review shows both alike */
+	commits: ReviewCommit[],
+};
+
 /**  Where the review of a pull request was fetched from */
 export type ReviewSource = 
 /**  Both commits were local: nothing was fetched */
@@ -6587,6 +6575,29 @@ baselineBranch?: string | null } |
 { kind: "range"; base: string; head: string } | 
 /**  One commit against its first parent, as the diffs of a commit show it; no reviewed pair */
 { kind: "commit"; id: string };
+
+/**  An object with changes the review reads by its refs or ids */
+export type ReviewTarget = 
+/**
+ *  A virtual branch with its stack ancestors: the branches from the root of the stack to the reviewed branch, without
+ *  the `{prefix}/virtual/` namespace; one name for a branch outside a stack
+ */
+{ kind: "branch"; chain: string[] } | 
+/**
+ *  The whole stack of `root`: its stack branch `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md), one part
+ *  named by the root
+ */
+{ kind: "wholeStack"; root: string } | 
+/**
+ *  A branch kept outside HEAD by its full name, `{prefix}/unapplied/<name>` or `{prefix}/archived/<date>/<name>`: its
+ *  own commits, from its stack base, else from where it left the baseline (`own_commits_start`)
+ */
+{ kind: "kept"; name: string } | 
+/**
+ *  Commits of a list no branch owns (unassigned, landed, the missing commits of a conflict), in the order of the list,
+ *  each against its first parent
+ */
+{ kind: "commits"; ids: string[] };
 
 /**  A change a reviewer reads once */
 export type ReviewUnit = {
@@ -8147,6 +8158,13 @@ export type TableWitness = {
 	head: string,
 	storeTips: StoreTips,
 };
+
+/**  What the resolver answers for a target */
+export type TargetReview = 
+/**  The parts of a range, in the order of the chain: the root first */
+{ kind: "range"; segments: ReviewSegment[] } | 
+/**  The commits of a list, in its order */
+{ kind: "commits"; commits: ReviewCommit[] };
 
 /**  A test of the range */
 export type TestRef = {

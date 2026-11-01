@@ -16,7 +16,7 @@ targets:
   - ../../src/lib/branch-review.ts
   - ../../src/lib/branch-review-window.ts
   - ../../src/hooks/usePreviewHotkeys.ts
-  - ../../crates/app-api/src/remote/branch_review.rs
+  - ../../crates/app-api/src/remote/review.rs
   - ../../src/lib/review-owners.ts
   - ../../src/components/review/ReviewOwnerChips.tsx
   - ../../src/hooks/useFileOwners.ts
@@ -50,7 +50,7 @@ targets:
   - ../../src/router.ts
   - ../../src-tauri/capabilities/sub-windows.json
   - ../../src-tauri/capabilities/desktop.json
-  - ../../crates/sync-core/src/branch_review.rs
+  - ../../crates/sync-core/src/review_target.rs
   - ../../crates/git-ops/src/ownership.rs
   - ../../crates/app-api/src/reads/commits.rs
 ---
@@ -112,7 +112,7 @@ keys.
   [@test] ../../crates/domain-policy/src/actions_test.rs (`the_review_the_pull_request_actions_and_the_rarer_starts_follow_their_facts`)
 - "Review Whole Stack" (the "⋯" of a stack island and "Whole Stack ›" of the menu of every branch of the stack) must open the same window for
   the whole stack of a stack that forks (`openWholeStackReviewWindow`, titled "Review the whole air stack"): one part,
-  its stack branch `{prefix}/stack/<root>` on the baseline (`GetBranchReviewParams::whole_stack`), every commit of
+  its stack branch `{prefix}/stack/<root>` on the baseline (the target `wholeStack`, `ReviewTarget::WholeStack`), every commit of
   the stack in the order of the history, its stack bar the main line and "Whole Stack" ([below](#the-stack-and-the-commits));
   read again when a sync moves the stack branch. Its
   title bar holds the actions of the whole stack ([below](#title-bar-footer-and-actions)). It is disabled, with the
@@ -120,7 +120,7 @@ keys.
   last branch from the root (`range: "all"`).
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should review the whole stack in the window of its stack branch, from the island's menu, the root's menu and the menu of a branch of it`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should keep the popover of a row of the island at its slot, and review the whole stack in the window of its stack branch`)
-  [@test] ../../crates/sync-core/src/branch_review_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
+  [@test] ../../crates/sync-core/src/review_target_test.rs (`the_whole_stack_is_one_part_of_its_stack_branch`)
 - D on a commit row of a branch, the "Review Changes" of its menu and the D, the footer button and Enter in the
   Files tree of its preview must open the window at the commit (`reviewBranchCommit`, `focus.commitId` the copy of
   the commit in the virtual branch), its branch's own part, titled "Review <branch> · a1b2c3d"
@@ -152,7 +152,7 @@ keys.
   owner chip, the commit, the file), the reviewer groups of the last code-owner check of the branch at its current head.
 - The app must read the review ahead as its window opens, beside the start of the window: the backend reads the
   segments and the files and the patch of the part the window shows first (the branch on its parent, or the whole
-  stack) into its memory while the window starts, so its first read finds them read (`prefetch_branch_review`). Once
+  stack) into its memory while the window starts, so its first read finds them read (`prefetch_review`). Once
   per state of the branch: its chain and their heads; an open of the branch the window shows reads nothing again. A
   hover or a focus of a branch row reads nothing: no IPC for a pointer that passes over the table.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should read the review of a branch ahead as its window opens, once per state, and nothing on a hover or a focus of its row`)
@@ -202,10 +202,10 @@ keys.
 - The segments come from the virtual branches: one `for-each-ref` for the tips, one `git log --first-parent` from
   the baseline to the last tip, cut at the tips of the parents. A parent whose head is not below its child, or a
   branch without a virtual branch, is an error that asks for a sync.
-  [@test] ../../crates/sync-core/src/branch_review_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
+  [@test] ../../crates/sync-core/src/review_target_test.rs (`splits_a_stack_at_the_heads_of_the_parents`, `a_branch_outside_a_stack_is_one_segment_from_the_baseline`, `a_child_not_built_on_the_head_of_its_parent_needs_a_sync`)
 - The app must remember the segments by the tips and the baseline's refs that the `for-each-ref` reads (it lists the
   refs the baseline's name may stand for too), and run the `log` again only when a tip or the baseline moved.
-  [@test] ../../crates/sync-core/src/branch_review_test.rs (`a_memoised_review_runs_no_log_for_the_same_tips`, `a_moved_tip_or_baseline_is_read_again`)
+  [@test] ../../crates/sync-core/src/review_target_test.rs (`a_memoised_review_runs_no_log_for_the_same_tips`, `a_moved_tip_or_baseline_is_read_again`)
 - The commits (`RangeReview`, the ones of a pull request too) must be above the files in the sidebar of the commit
   review ([Commit Review](../commit/commit-review.spec.md#the-sidebar-and-the-diffs)): "All Changes" with the number
   of commits of the part, then its commits newest first, under the name of their branch when the part has several, the
@@ -446,7 +446,7 @@ keys.
 
 ## Testing / Local Run
 
-- `cargo nextest run`: `git-ops` (`ownership_test`), `sync-core` (`branch_review_test`, `patronus_test`).
+- `cargo nextest run`: `git-ops` (`ownership_test`), `sync-core` (`review_target_test`, `patronus_test`).
 - `pnpm test:unit`: `src/lib/branch-review.test.ts`, `src/lib/review-owners.test.ts`, `src/lib/patronus.test.ts`,
   `src/hooks/useBranchContextActions.test.ts`, `src/lib/sub-window-link.test.ts`, `src/model/store.test.ts` (two
   windows on the fake sessions).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { BranchReviewSegment } from "@/lib/bindings"
+import type { ReviewSegment } from "@/lib/bindings"
 import {
   branchReviewWindowKey,
   keepSegmentRange,
@@ -21,7 +21,7 @@ import { disabled, enabled } from "@/test-support/actions"
 import { testSubject } from "@/test-support/subject-parts"
 import type { BranchReviewWindowData } from "@/types/sub-window"
 
-function segment(name: string, base: string, head: string): BranchReviewSegment {
+function segment(name: string, base: string, head: string): ReviewSegment {
   return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1, committerTime: 1 }] }
 }
 

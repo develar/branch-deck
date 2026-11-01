@@ -66,6 +66,8 @@
 //!   where the repository lands by a push (`branchdeck.landing=push`)
 //! - `remote_url`: the host and the repository path of a remote URL
 //! - `review_fetch`: the commits of a pull request to review, into `refs/branch-deck/review/<n>/`
+//! - `review_target`: what a review shows of a target: the stack of a branch, a whole stack, a kept branch, a list of
+//!   commits
 //!
 //! Patronus, by the content of the repository (no HTTP):
 //! - `patronus`: the Space repository the virtual branches are pushed to, the commits and the paths of a review
@@ -78,7 +80,6 @@
 //! - `target_conflict`: the check that Patronus can rebase what a robot lands onto the newest target
 //!
 //! The rest:
-//! - `branch_review`: the stack and the commits of a branch review
 //! - `branch_name_suggestion`: branch names for commits from the user's Claude Code
 //! - `git_setup`: the branch prefix the git identity suggests, which a session without a prefix answers
 //! - `repository_validation`: whether a path is the working tree of a repository, without git
@@ -92,7 +93,6 @@ pub mod baseline_push;
 pub mod branch_name_suggestion;
 pub mod branch_prefix;
 pub mod branch_processor;
-pub mod branch_review;
 pub mod cache_memo;
 pub mod commit_owners;
 pub mod config_snapshot;
@@ -119,6 +119,7 @@ pub mod repo_facts;
 pub mod repository_config;
 pub mod repository_validation;
 pub mod review_fetch;
+pub mod review_target;
 pub mod robot_commits;
 pub mod robot_landing;
 pub mod stack_branch;
@@ -133,8 +134,6 @@ pub mod uncommitted_changes;
 mod branch_name_suggestion_test;
 #[cfg(test)]
 mod branch_prefix_test;
-#[cfg(test)]
-mod branch_review_test;
 #[cfg(test)]
 mod conflict_report_test;
 #[cfg(test)]
@@ -187,6 +186,8 @@ mod remote_command_test;
 mod repository_config_test;
 #[cfg(test)]
 mod repository_lock_test;
+#[cfg(test)]
+mod review_target_test;
 #[cfg(test)]
 mod reword_test;
 #[cfg(test)]

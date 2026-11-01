@@ -216,14 +216,15 @@ macro_rules! for_each_command {
       /// the commits added or changed since it started (`robot_subject_commit_map`). No commits for a stack without members.
       read json get_robot_commit_map(params: domain_types::robot_failure::GetRobotCommitMapParams) -> domain_types::robot_failure::RobotCommitMap = $crate::remote::patronus::get_robot_commit_map;
 
-      /// The parts of a branch for its review window: each branch of its stack from the root, with its base, head and
-      /// commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a baseline the memo hasn't seen
-      read json get_branch_review(params: sync_core::branch_review::GetBranchReviewParams) -> std::sync::Arc<sync_core::branch_review::BranchReview> = $crate::remote::branch_review::get_branch_review;
+      /// What a review shows of a target (a branch with its stack, a whole stack, a kept branch, a list of commits): its
+      /// parts with their base, head and commits, from one `for-each-ref` and one `git log`; the `log` only for tips and a
+      /// baseline the memo hasn't seen, nothing again for a list of commits
+      read json get_review(params: domain_types::review::GetReviewParams) -> std::sync::Arc<domain_types::review::TargetReview> = $crate::remote::review::get_review;
 
-      /// Reads in the background what the review window of a branch asks for first: its parts (`get_branch_review`) and the
+      /// Reads in the background what the review window asks for first: the parts of its target (`get_review`) and the
       /// files of `part` (one `diff-tree`, `RangeFilesCache::read`), so the window finds them in the caches. Answers at once;
       /// a failure is the window's to tell
-      read json prefetch_branch_review(params: $crate::remote::branch_review::PrefetchBranchReviewParams) -> () = $crate::remote::branch_review::prefetch_branch_review;
+      read json prefetch_review(params: $crate::remote::review::PrefetchReviewParams) -> () = $crate::remote::review::prefetch_review;
 
       /// Two branch names for the selected commits from the user's Claude Code (`claude -p --model haiku`); a missing or
       /// logged-out `claude` and its failures are outcomes

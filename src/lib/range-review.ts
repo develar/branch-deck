@@ -1,4 +1,4 @@
-import type { BranchReviewSegment, Interdiff, RangeScope, ReviewCommit, ReviewPlan } from "@/lib/bindings"
+import type { ReviewSegment, Interdiff, RangeScope, ReviewCommit, ReviewPlan } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import { formatPairState } from "@/presenters/review-plan"
@@ -129,7 +129,7 @@ export function localSinceReview(interdiff: Interdiff | null): LocalSinceReview 
  * With `since` (a local branch marked reviewed, something changed since), "Since Your Review" after "All Changes", each
  * changed commit says what it is, and `onlySince` lists only them: the added and the rewritten ones, adjacent or not
  */
-export function segmentItems(segments: readonly BranchReviewSegment[], since: LocalSinceReview | null = null, onlySince = false): RangeReviewItem[] {
+export function segmentItems(segments: readonly ReviewSegment[], since: LocalSinceReview | null = null, onlySince = false): RangeReviewItem[] {
   const count = segments.reduce((sum, segment) => sum + segment.commits.length, 0)
   const items: RangeReviewItem[] = [{ kind: "scope", key: ALL_CHANGES, label: "All Changes", detail: formatCommitCount(count) }]
   if (since !== null) {
@@ -165,7 +165,7 @@ export function commitItems(commits: readonly ReviewCommit[]): RangeReviewItem[]
  * The commit shown after the segments were read again: the same commit, else the commit a sync rebuilt in its place (a
  * new id: the same branch, subject and author time, the nth of such twins); null for all changes
  */
-export function keepCommit(previous: readonly BranchReviewSegment[], next: readonly BranchReviewSegment[], commitId: string | null): string | null {
+export function keepCommit(previous: readonly ReviewSegment[], next: readonly ReviewSegment[], commitId: string | null): string | null {
   if (commitId === null || next.some(segment => segment.commits.some(commit => commit.id === commitId))) {
     return commitId
   }

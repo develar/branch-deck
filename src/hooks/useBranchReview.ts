@@ -4,7 +4,7 @@ import { useFileOwners } from "@/hooks/useFileOwners"
 import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { planFacts, useReviewPlan } from "@/hooks/useReviewPlan"
 import type { ReviewPlanState } from "@/hooks/useReviewPlan"
-import type { BranchReviewSegment, CommitFile, ReviewSubject } from "@/lib/bindings"
+import type { ReviewSegment, CommitFile, ReviewSubject } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
@@ -17,7 +17,8 @@ import type { ReviewFilter } from "@/lib/review-owners"
 import { markBranchReviewed } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
 import { formatReviewPosition } from "@/lib/review-position"
-import { readBranchReview } from "@/lib/review-window-reads"
+import { chainTarget, segmentsOf } from "@/lib/review-target"
+import { readReview } from "@/lib/review-window-reads"
 import { showToast } from "@/lib/toast-message"
 import { formatMarkedReviewed } from "@/presenters/review-plan"
 import type { ReviewFacts } from "@/presenters/review-plan"
@@ -43,7 +44,7 @@ export interface BranchReviewSource {
   readonly groups: readonly BranchReviewGroup[]
   /**
    * The whole stack of the root `chain` names alone: its stack branch `{prefix}/stack/<root>`, one part of every commit
-   * of the stack (`GetBranchReviewParams.wholeStack`)
+   * of the stack (the target `wholeStack`)
    */
   readonly wholeStack?: boolean
   /**
@@ -62,7 +63,7 @@ export interface BranchReviewSync {
 }
 
 interface ReviewView {
-  segments: BranchReviewSegment[]
+  segments: ReviewSegment[]
   /** The shown part of the chain */
   range: SegmentRange
   /** One commit of the part; null for all its changes */
@@ -74,7 +75,7 @@ interface ReviewView {
 type ReviewState = { status: "loading" } | { status: "loaded"; view: ReviewView } | { status: "error"; message: string }
 
 /** The view after the segments were read: the first one shows the part asked for, a later one keeps the part shown */
-function nextView(previous: ReviewView | null, segments: BranchReviewSegment[], focus: BranchReviewFocus): ReviewView {
+function nextView(previous: ReviewView | null, segments: ReviewSegment[], focus: BranchReviewFocus): ReviewView {
   if (previous === null) {
     const commitId = focus.commitId ?? null
     return {
@@ -106,7 +107,7 @@ export interface BranchReviewModel {
   readonly lastPath: string | null
   /** Once loaded: the column, the shown subject, the files and their owners */
   readonly loaded: {
-    readonly segments: readonly BranchReviewSegment[]
+    readonly segments: readonly ReviewSegment[]
     readonly range: SegmentRange
     readonly items: readonly RangeReviewItem[]
     readonly selected: string
@@ -173,14 +174,14 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   const initialFocus = useRef(focus)
   useEffect(() => {
     let current = true
-    void readBranchReview({ repositoryPath, baselineBranch, chain: chainKey.split("\n"), wholeStack }).then(result => {
+    void readReview({ repositoryPath, baselineBranch, target: chainTarget(chainKey.split("\n"), wholeStack) }).then(result => {
       if (!current) {
         return
       }
       if (result.status === "error") {
         setState({ status: "error", message: result.error.message })
       } else {
-        setState(previous => ({ status: "loaded", view: nextView(previous.status === "loaded" ? previous.view : null, result.data.segments, initialFocus.current) }))
+        setState(previous => ({ status: "loaded", view: nextView(previous.status === "loaded" ? previous.view : null, segmentsOf(result.data), initialFocus.current) }))
       }
     })
     return () => {
@@ -321,11 +322,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
  * What the plan of the part of the review is read of: the reviewed branch on the base of the part (its own branch only
  * when the part is that branch alone, the base Mark Reviewed keeps), the whole stack as its range, never marked
  */
-function reviewPlanPart(
-  segments: readonly BranchReviewSegment[],
-  range: SegmentRange,
-  wholeStack: boolean,
-): { subject: ReviewSubject; ownBranch: boolean; markable: boolean } | null {
+function reviewPlanPart(segments: readonly ReviewSegment[], range: SegmentRange, wholeStack: boolean): { subject: ReviewSubject; ownBranch: boolean; markable: boolean } | null {
   const first = segments[range.from]
   const last = segments[range.to]
   if (first === undefined || last === undefined) {

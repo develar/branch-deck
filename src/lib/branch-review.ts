@@ -1,4 +1,4 @@
-import type { ActionState, BranchReviewSegment } from "@/lib/bindings"
+import type { ActionState, ReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { sameFields } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
@@ -25,7 +25,7 @@ export interface BranchReviewFocus {
 }
 
 /** The part of the segments a focus names; the reviewed branch alone for a part whose ends left the chain */
-export function focusRange(segments: readonly BranchReviewSegment[], range: BranchReviewFocus["range"]): SegmentRange {
+export function focusRange(segments: readonly ReviewSegment[], range: BranchReviewFocus["range"]): SegmentRange {
   const last = segments.length - 1
   if (range === "all") {
     return { from: 0, to: last }
@@ -40,7 +40,7 @@ export function focusRange(segments: readonly BranchReviewSegment[], range: Bran
 
 /** What a review shows of its segments: the part and the commit (null for all its changes) */
 export interface SegmentView {
-  readonly segments: readonly BranchReviewSegment[]
+  readonly segments: readonly ReviewSegment[]
   readonly range: SegmentRange
   readonly commitId: string | null
 }
@@ -115,7 +115,7 @@ export interface SegmentRange {
 }
 
 /** What a range of segments diffs: the base of the first one to the head of the last one */
-export function segmentRangeSubject(segments: readonly BranchReviewSegment[], range: SegmentRange): DiffSubject | null {
+export function segmentRangeSubject(segments: readonly ReviewSegment[], range: SegmentRange): DiffSubject | null {
   const first = segments[range.from]
   const last = segments[range.to]
   return first === undefined || last === undefined ? null : { kind: "range", base: first.base, head: last.head }
@@ -171,7 +171,7 @@ export function stackBarItems(count: number, range: SegmentRange, unfolded: bool
 }
 
 /** The range of the chain by the names of its ends, after the segments were read again (a sync moved a tip) */
-export function keepSegmentRange(previous: readonly BranchReviewSegment[], next: readonly BranchReviewSegment[], range: SegmentRange): SegmentRange {
+export function keepSegmentRange(previous: readonly ReviewSegment[], next: readonly ReviewSegment[], range: SegmentRange): SegmentRange {
   const from = next.findIndex(segment => segment.name === previous[range.from]?.name)
   const to = next.findIndex(segment => segment.name === previous[range.to]?.name)
   return from === -1 || to === -1 || from > to ? { from: next.length - 1, to: next.length - 1 } : { from, to }

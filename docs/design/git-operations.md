@@ -3123,6 +3123,24 @@ git plumbing does not depend on.
 Code: `crates/file-diffs/src/service.rs`, `crates/file-diffs/src/worktree.rs`, `crates/file-diffs/src/declarations.rs`,
 `crates/file-diffs/src/usages.rs`, `crates/file-diffs/src/accio.rs`, `crates/object-cache/src/file_diff.rs`.
 
+#### Review of a target
+
+What a review shows of its target (`sync_core::review_target`, [Review Window](../../spec/review/review-window.spec.md)),
+read-only, under no lock: the page asks `get_review` as the window opens (`prefetch_review` beside its start), and
+again when a sync moved a tip it read.
+
+- **Branch** (the chain from the root of its stack): one `for-each-ref` of the virtual branches and of the refs the
+  baseline may name, one `log --first-parent ^<baseline> <last tip>`, cut at the tips of the parents.
+- **Whole stack**: the same of the stack branch `{prefix}/stack/<root>`, one part.
+- **Kept branch** (`{prefix}/unapplied/<name>`, `{prefix}/archived/<date>/<name>`): one `for-each-ref`, where its own
+  commits start (`own_commits_start`: the stack notes by one `log --no-walk`, else one `merge-base` with the baseline,
+  as its row and a reapply take them), one `log --first-parent ^<start> <tip>`.
+- **List of commits**: one `log --no-walk=unsorted` of the ids, in their order.
+
+`ReviewMemo` keeps a review by the target, its tips and the ids of the baseline refs: read again, a review runs its
+`for-each-ref` alone, a list of commits nothing. The budgets: `a_review_of_a_branch_a_kept_branch_and_a_list_of_commits`
+of `crates/sync-core/src/process_budget_test.rs`.
+
 #### Review fetch
 
 The review of a pull request someone asked the user for ([Review Requests](../../spec/repository/review-requests.spec.md))
