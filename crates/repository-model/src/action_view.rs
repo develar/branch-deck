@@ -1,5 +1,6 @@
 //! The actions of each subject of the view of a session (`actions_of`): every branch of the table, the whole stack of
-//! every root that heads one (`stack:<root>`), every robot of the user (`robot:<id>`) and every start whose answer was lost
+//! every root that heads one (`stack:<root>`), every robot of the user (`robot:<id>`), every branch kept outside HEAD
+//! (`unapplied:<full name>`, `archived:<full name>`, `domain_policy::kept`) and every start whose answer was lost
 //! (`op:<id>`), as `domain_policy::actions`
 //! decides them over the table, the next steps the view derived with the same patch, its pushes and decisions of the
 //! starts, the open pull requests, what landed each subject, and the facts of the remote services
@@ -17,10 +18,11 @@ use domain_policy::actions::{
   with_operations,
 };
 use domain_policy::github_stack::stack_writes;
+use domain_policy::kept::{KeptFacts, KeptKind, kept_actions};
 use domain_policy::land::merges_on_github;
 use domain_policy::next_step::{Listing, PatronusStanding};
 use domain_types::actions::{ActionState, NothingBeyond};
-use domain_types::branch_names::{baseline_on_remote, to_final_branch_name};
+use domain_types::branch_names::{baseline_on_remote, kept_branch_name, to_final_branch_name};
 use domain_types::landing::{LandDecisions, Landed, StartRoute};
 use domain_types::landing_route::LandingRoute;
 use domain_types::next_step::NextStepView;
@@ -257,6 +259,32 @@ pub fn actions_of(state: &TableState, facts: &FactStore, sources: &ActionSources
     };
     let offered = with_operations(robot_actions(&facts), Of::Robot { id: &robot.id }, operations);
     actions.insert(format!("robot:{}", robot.id), offered);
+  }
+  // the branches kept outside HEAD (`unapplied:<full name>`, `archived:<full name>`)
+  for unapplied in &parts.sections.unapplied {
+    let facts = KeptFacts {
+      kind: KeptKind::Unapplied,
+      branch: &unapplied.branch,
+      checked_out: unapplied.checked_out,
+      remote: unapplied.remote.as_ref(),
+      cached,
+    };
+    let of = Of::Kept {
+      name: &unapplied.name,
+      branch: &unapplied.branch,
+    };
+    actions.insert(format!("unapplied:{}", unapplied.name), with_operations(kept_actions(&facts), of, operations));
+  }
+  for name in &parts.sections.archived.names {
+    let branch = kept_branch_name(name, sources.prefix).unwrap_or(name);
+    let facts = KeptFacts {
+      kind: KeptKind::Archived,
+      branch,
+      checked_out: false,
+      remote: None,
+      cached,
+    };
+    actions.insert(format!("archived:{name}"), with_operations(kept_actions(&facts), Of::Kept { name, branch }, operations));
   }
   // a start whose answer was lost, of any process (`op:<id>`)
   for operation in operations {

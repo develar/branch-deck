@@ -68,9 +68,11 @@ describe("formatReason", () => {
       "#7 shows an older commit, and the repository allows no auto-merge: Push Branch first",
       "GitHub moved #9 of oauth onto master after the layers below it merged: Update Project first",
       "#9 goes into login outside a stack of GitHub: its merge would land nothing, link the stack first",
+      "Not in master: Reapply it to land it",
+      "A worktree has docs checked out",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(51)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(53)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

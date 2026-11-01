@@ -389,5 +389,13 @@
     "code": "layerNotLinked",
     "number": 9,
     "parent": "login"
+  },
+  {
+    "code": "keptLandsNothing",
+    "branch": "docs"
+  },
+  {
+    "code": "keptCheckedOut",
+    "branch": "docs"
   }
 ]

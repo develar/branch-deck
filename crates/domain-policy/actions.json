@@ -28,6 +28,8 @@
     "unapply",
     "park",
     "unpark",
+    "reapply",
+    "delete-kept-branch",
     "safe-push-whole-stack",
     "dry-run-whole-stack",
     "safe-push-main-line",

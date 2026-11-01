@@ -719,6 +719,12 @@ pub enum Of<'a> {
   Robot {
     id: &'a str,
   },
+  /// A branch kept outside HEAD (`crate::kept`): `name` its full name, which its push writes and its delete drops;
+  /// `branch` the branch it was, which its push and its reapply name
+  Kept {
+    name: &'a str,
+    branch: &'a str,
+  },
   /// A start whose answer was lost, the operation `op`
   Start {
     op: &'a OperationId,
@@ -769,7 +775,7 @@ fn overlay(action: ActionState, of: Of<'_>, operations: &[RunningOperation]) -> 
 }
 
 /// The actions that rewrite HEAD or the refs of Branch Deck: their starts queue behind each other in the session
-const REWRITES: [ActionId; 12] = [
+const REWRITES: [ActionId; 13] = [
   ActionId::Rename,
   ActionId::MoveTo,
   ActionId::StackOn,
@@ -782,6 +788,7 @@ const REWRITES: [ActionId; 12] = [
   ActionId::Park,
   ActionId::Unpark,
   ActionId::PickRemoteCommits,
+  ActionId::Reapply,
 ];
 
 fn is_rewrite(id: ActionId) -> bool {
@@ -799,6 +806,7 @@ fn needs(id: ActionId, of: Of<'_>) -> Vec<Resource> {
     (Of::Branch { pull_request, .. } | Of::WholeStack { pull_request, .. }, ActionId::RequestReview) => field(pull_request, PullRequestField::Reviewers),
     (Of::WholeStack { pull_request, .. }, ActionId::CloseStackPullRequest) => field(pull_request, PullRequestField::State),
     (Of::Robot { id: robot }, ActionId::RestartRobot | ActionId::PushAndRestartRobot | ActionId::CancelRobot) => vec![Resource::Robot { id: robot.to_owned() }],
+    (Of::Kept { name, .. }, ActionId::Push) => vec![Resource::Ref { name: name.to_owned() }],
     _ => Vec::new(),
   }
 }
@@ -836,6 +844,14 @@ fn is_own(id: ActionId, of: Of<'_>, intent: &Intent) -> bool {
     },
     Of::Robot { id: robot } => match (id, intent) {
       (ActionId::RestartRobot | ActionId::PushAndRestartRobot, Intent::RestartRobot { robot_id }) | (ActionId::CancelRobot, Intent::CancelRobot { robot_id }) => robot_id == robot,
+      _ => false,
+    },
+    Of::Kept { name, branch } => match (id, intent) {
+      (ActionId::Push, Intent::Push(push)) => push.scope == PushScope::Unapplied && is_branch(&push.subject, branch),
+      (ActionId::Reapply, Intent::Rewrite(rewrite)) => matches!(&**rewrite, RewriteIntent::Reapply { branch_name, .. } if branch_name == branch),
+      (ActionId::DeleteKeptBranch, Intent::Rewrite(rewrite)) => {
+        matches!(&**rewrite, RewriteIntent::DeleteUnapplied { branch_name, .. } | RewriteIntent::DeleteArchived { branch_name, .. } if branch_name == name)
+      }
       _ => false,
     },
     Of::Start { op } => matches!(intent, Intent::ForgetStart { op: forgotten } if id == ActionId::ForgetStart && forgotten == op),

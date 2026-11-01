@@ -85,16 +85,23 @@ fn a_group_is_yours_by_the_github_login_of_a_member_whose_approval_can_count() {
   let cases: [(Option<&str>, [Summary<'_>; 4]); 3] = [
     (
       Some("user-name"),
-      [("Design", false, Some(true)), ("Air Plugin", true, Some(false)), ("Bots", false, Some(false)), ("Authors", false, Some(false))],
+      [
+        ("Design", false, Some(true)),
+        ("Air Plugin", true, Some(false)),
+        ("Bots", false, Some(false)),
+        ("Authors", false, Some(false)),
+      ],
     ),
     (
       Some("carol"),
-      [("Design", false, Some(false)), ("Air Plugin", true, Some(true)), ("Bots", false, Some(false)), ("Authors", false, Some(false))],
+      [
+        ("Design", false, Some(false)),
+        ("Air Plugin", true, Some(true)),
+        ("Bots", false, Some(false)),
+        ("Authors", false, Some(false)),
+      ],
     ),
-    (
-      None,
-      [("Design", false, None), ("Air Plugin", true, None), ("Bots", false, None), ("Authors", false, None)],
-    ),
+    (None, [("Design", false, None), ("Air Plugin", true, None), ("Bots", false, None), ("Authors", false, None)]),
   ];
   for (login, expected) in cases {
     assert_eq!(summary(&reviewer_groups(&answer, login)), expected, "{login:?}");

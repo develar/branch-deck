@@ -870,6 +870,58 @@ fn the_view_lays_the_operations_of_the_session_over_the_actions_from_the_admissi
   }
 }
 
+/// A branch kept outside HEAD is a subject of its own (`unapplied:<full name>`, `archived:<full name>`, the rule
+/// `domain_policy::kept`), and an operation of it lies over its actions as over a branch's: its push runs
+#[test]
+fn the_view_offers_the_actions_of_the_kept_branches_with_their_operations() {
+  use crate::table::OperationPatch;
+  use domain_types::UnappliedBranchInfo;
+  use domain_types::operation::{Intent, OperationId, OperationStep, Origin, Push, PushScope, Resource, RunningOperation};
+  let (mut state, facts) = crate::derive::derive_budget_test::session();
+  state.parts.sections.unapplied = vec![UnappliedBranchInfo {
+    name: "user/unapplied/docs".to_string(),
+    branch: "docs".to_string(),
+    tip: "tip".to_string(),
+    subject: "Document the API".to_string(),
+    checked_out: false,
+    remote: None,
+  }];
+  state.parts.sections.archived.names = vec!["user/archived/2026-10-01/old".to_string()];
+  let mut view = View::new(1);
+  let first = view.diff(&state, &facts).unwrap();
+  let ids = |key: &str| first.changes.actions[key].iter().map(|action| action.id).collect::<Vec<_>>();
+  assert_eq!(
+    ids("unapplied:user/unapplied/docs"),
+    [ActionId::ReviewChanges, ActionId::Reapply, ActionId::Push, ActionId::SafePush, ActionId::DeleteKeptBranch]
+  );
+  assert_eq!(ids("archived:user/archived/2026-10-01/old"), [ActionId::ReviewChanges, ActionId::DeleteKeptBranch]);
+
+  let op = OperationId("p1".to_string());
+  state.apply_operation(OperationPatch::Admitted(RunningOperation {
+    id: op.clone(),
+    intent: Intent::Push(Push {
+      subject: Subject::Branch { name: "docs".to_string() },
+      scope: PushScope::Unapplied,
+      expect_remote: None,
+      force: false,
+      restart_running: false,
+    }),
+    resources: vec![Resource::Ref {
+      name: "user/unapplied/docs".to_string(),
+    }],
+    step: OperationStep::Pushing,
+    origin: Origin::ThisProcess,
+    moves: Vec::new(),
+    joined: 0,
+  }));
+  let pushing = view.diff(&state, &facts).unwrap();
+  let push = pushing.changes.actions["unapplied:user/unapplied/docs"]
+    .iter()
+    .find(|action| action.id == ActionId::Push)
+    .unwrap();
+  assert_eq!(push.availability, Availability::Running { op });
+}
+
 /// A blocked row names the parent it waits for (the hover of its node offers to show it): the one its block names, else
 /// the branch it is built on, else its declared parent; a row that is not blocked waits for none
 #[test]

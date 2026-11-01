@@ -10,6 +10,7 @@
  */
 import type { LucideIcon } from "lucide-react"
 import {
+  ArchiveRestoreIcon,
   ArchiveXIcon,
   CirclePauseIcon,
   CircleSlashIcon,
@@ -42,6 +43,7 @@ import {
   ShieldOffIcon,
   SlidersHorizontalIcon,
   TagIcon,
+  Trash2Icon,
   UngroupIcon,
   UploadIcon,
   UserCheckIcon,
@@ -100,6 +102,9 @@ export const ACTION_LOOKS = {
   unapply: { label: "Unapply…", icon: ArchiveXIcon },
   park: { label: "Park Branch…", icon: CirclePauseIcon },
   unpark: { label: "Unpark Branch", icon: CirclePlayIcon },
+  reapply: { label: "Reapply", icon: ArchiveRestoreIcon },
+  // its label names where the branch is kept ("Delete Unapplied Branch…"), each surface by the facts
+  "delete-kept-branch": { label: "Delete Branch…", icon: Trash2Icon },
   "safe-push-whole-stack": { label: "Safe Push Whole Stack", icon: ShieldCheckIcon },
   "dry-run-whole-stack": { label: "Dry Run Whole Stack", icon: FlaskConicalIcon },
   "safe-push-main-line": { label: "Safe Push", icon: ShieldCheckIcon },

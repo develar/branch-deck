@@ -709,6 +709,9 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     | Reason::MergeChecksFail { .. }
     | Reason::MergeChecksRunning { .. }
     | Reason::MergeBlocked { .. } => ErrorCode::MergeBlocked,
+    // a kept branch: unapplied, it lands nothing; checked out in a worktree, it stays as it is
+    Reason::KeptLandsNothing { .. } => ErrorCode::Unapplied,
+    Reason::KeptCheckedOut { .. } => ErrorCode::BranchCheckedOut,
   }
 }
 

@@ -103,6 +103,8 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::LayerNotLinked { number, parent } => {
       format!("#{number} goes into {parent}, and GitHub lists it in no stack: a merge would merge it into {parent}; link the stack first")
     }
+    Reason::KeptLandsNothing { branch } => format!("{branch} is unapplied: it lands nothing until it is reapplied"),
+    Reason::KeptCheckedOut { branch } => format!("a worktree has {branch} checked out"),
   }
 }
 

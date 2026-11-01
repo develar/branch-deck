@@ -466,7 +466,14 @@ export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "che
  *  The stack of GitHub of a layer linked as its chain is (`Intent::LinkStack`): an old pull request into the target
  *  joins it, one outside it is linked
  */
-"link-github-stack" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | 
+"link-github-stack" | "create-pull-request" | "rename" | "move-to" | "stack-on" | "unstack" | "ungroup" | "amend-changes" | "add-issue-reference" | "squash-fixups" | "unapply" | "park" | "unpark" | 
+/**  The unapplied branch back on top of HEAD (`RewriteIntent::Reapply`) */
+"reapply" | 
+/**
+ *  The unapplied or archived branch deleted after its name is typed (`RewriteIntent::DeleteUnapplied`,
+ *  `DeleteArchived`)
+ */
+"delete-kept-branch" | "safe-push-whole-stack" | "dry-run-whole-stack" | "safe-push-main-line" | "open-stack-pull-request" | "create-stack-pull-request" | 
 /**
  *  The open pull request of its stack branch closed with a comment (`Intent::ClosePullRequest`): offered only while it
  *  no longer matches the stack (a landing took the root, or the stack no longer forks)
@@ -5789,7 +5796,11 @@ export type Reason =
  *  The open pull request `number` goes into the branch of `parent`, the layer below it, and GitHub lists it in no stack
  *  yet: a merge now would merge it into that branch, not the target; the link of the stack first
  */
-{ code: "layerNotLinked"; number: number; parent: string };
+{ code: "layerNotLinked"; number: number; parent: string } | 
+/**  The branch is kept outside HEAD, unapplied: it lands nothing until it is reapplied */
+{ code: "keptLandsNothing"; branch: string } | 
+/**  A worktree has the kept branch checked out: a reapply and a delete would take it from under that worktree */
+{ code: "keptCheckedOut"; branch: string };
 
 /**  What a branch does to the declaration of a dangling reference */
 export type ReferenceKind = "removed" | "changed" | "duplicate";

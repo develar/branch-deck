@@ -196,6 +196,8 @@ fn the_action_catalog_names_every_id_once() {
       | ActionId::Unapply
       | ActionId::Park
       | ActionId::Unpark
+      | ActionId::Reapply
+      | ActionId::DeleteKeptBranch
       | ActionId::SafePushWholeStack
       | ActionId::DryRunWholeStack
       | ActionId::SafePushMainLine

@@ -91,6 +91,8 @@ targets:
   - ../../src/lib/stack-lanes.ts
   - ../../src/index.css
   - ../../src/components/branch/ArchivedBranchTableCard.tsx
+  - ../../crates/domain-policy/src/kept.rs
+  - ../../src/hooks/useKeptBranchMenu.ts
   - ../../src/components/branch/ArchivedDateCell.tsx
   - ../../src/components/branch/ArchivedBranchesHelpPopover.tsx
   - ../../src/components/shared/SectionCardHeader.tsx
@@ -915,9 +917,11 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
 - The menu of an archived row must offer the copy items and "Delete Archived Branch…" in the `destructive` colour,
-  which asks for the branch name; its Delete button is `destructive` too. The Actions cell has "⋯" with the same menu;
+  which asks for the branch name; its Delete button is `destructive` too. Rust offers them (`domain_policy::kept`, the
+  subject `archived:<full name>` of the view). The Actions cell has "⋯" with the same menu;
   ⌘C on the focused row copies the full name, as "Copy Full Branch Name".
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should delete an archived branch from its menu, the row gone with no sync after it`)
+  [@test] ../../crates/domain-policy/src/kept_test.rs (`an_archived_branch_offers_its_review_and_its_delete`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should open the menu of an archived row from its more actions button`)
   [@test] ../../tests/e2e/archived-branches/archived-branches.spec.ts (`should copy the full name of an archived branch with ⌘C on its focused row`)
 - The delete must remove the archived branch only from the tip it read (one ref transaction with compare-and-swap),

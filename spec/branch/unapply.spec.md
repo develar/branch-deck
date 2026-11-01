@@ -29,7 +29,9 @@ targets:
   - ../../crates/bd-remote/src/status.rs
   - ../../src/stores/unapplied-branches.ts
   - ../../src/components/branch/UnappliedBranchTableCard.tsx
-  - ../../src/hooks/useUnappliedBranchMenu.ts
+  - ../../src/hooks/useKeptBranchMenu.ts
+  - ../../crates/domain-policy/src/kept.rs
+  - ../../crates/repository-model/src/action_view.rs
   - ../../src/lib/push-run.ts
   - ../../crates/repository-model/src/table.rs
   - ../../crates/sync-core/src/reapply_branch.rs
@@ -196,8 +198,13 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should list an unapplied branch in its own card with its commits, out of the branch table`)
 - The menu of a row (right-click and "⋯") must offer Reapply, Push Branch (Force Push Branch when the remote has another history,
   disabled when it has it as it is), Safe Push disabled with "Not in master: Reapply it to land it", Copy, and Delete
-  Unapplied Branch….
+  Unapplied Branch…. Rust decides them (`domain_policy::kept`, the subject `unapplied:<full name>` of the view): a
+  worktree that has the branch checked out disables Reapply and the delete ("A worktree has docs checked out"), the
+  cached frame of an earlier run the push until the first sync; a push, a reapply or a delete that runs shows on its
+  item, as on a branch row.
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should push an unapplied branch under its own name from both menus, its status shown with no sync, and refuse its Safe Push with why`)
+  [@test] ../../crates/domain-policy/src/kept_test.rs (`an_unapplied_branch_offers_its_review_reapply_push_and_delete_and_lands_nothing`, `a_checked_out_branch_keeps_its_reapply_and_delete_and_a_cached_frame_its_push`)
+  [@test] ../../crates/repository-model/src/derive_test.rs (`the_view_offers_the_actions_of_the_kept_branches_with_their_operations`)
 - Push must push it under its own name (`{prefix}/unapplied/<name>`) with a lease on the remote head of its status, the
   intent `Push` with the scope `unapplied` (`operations::push`): no robot read, no hold, no retarget (C3), "Force Push Branch"
   of its menu the user's choice to drop what the remote has; the

@@ -9,9 +9,9 @@ import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { HelpPopover } from "@/components/shared/HelpPopover"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
+import { useKeptBranchMenu } from "@/hooks/useKeptBranchMenu"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useRowBusy } from "@/hooks/useRowOperation"
-import { useUnappliedBranchMenu } from "@/hooks/useUnappliedBranchMenu"
 import { formatCommitCount } from "@/lib/commit"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -134,7 +134,7 @@ function UnappliedBranchExpanded({ branch }: { branch: UnappliedBranch }) {
 
 /** The menu of an unapplied row, the same under the right-click (`ContextMenuItems`) and under "⋯" (`DropdownMenuItems`) */
 function UnappliedBranchMenuItems({ name, Items }: { name: string; Items: ComponentType<{ groups: MenuItemGroups }> }) {
-  return <Items groups={useUnappliedBranchMenu(name)} />
+  return <Items groups={useKeptBranchMenu("unapplied", name)} />
 }
 
 /** Deletes the unapplied branch (`deleteKeptBranch`); the session's patch removes its row, no sync follows */

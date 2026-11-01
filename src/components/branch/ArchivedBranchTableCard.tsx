@@ -1,7 +1,6 @@
 import { memo } from "react"
 import type { ComponentType } from "react"
 import { cn } from "cn"
-import { Trash2Icon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ArchivedBranchesHelpPopover } from "@/components/branch/ArchivedBranchesHelpPopover"
@@ -15,14 +14,14 @@ import { CollapsibleCard } from "@/components/shared/CollapsibleCard"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
-import { getBranchCopyMenuItems } from "@/hooks/useBranchCopyActions"
+import { useKeptBranchMenu } from "@/hooks/useKeptBranchMenu"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
 import { useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
 import { useSurfaceBusy } from "@/stores/indicators"
-import { inlineSurface, openInline, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
+import { inlineSurface, useActiveInlineForRow, withRowProgress } from "@/stores/inline-row-action"
 
 const columnCount = 4
 
@@ -144,11 +143,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 
 /** The menu of an archived row, the same under the right-click (`ContextMenuItems`) and under "⋯" (`DropdownMenuItems`) */
 function ArchivedBranchMenuItems({ name, Items }: { name: string; Items: ComponentType<{ groups: MenuItemGroups }> }) {
-  return <Items groups={getArchivedContextMenuItems(name)} />
-}
-
-function getArchivedContextMenuItems(name: string): MenuItemGroups {
-  return [getBranchCopyMenuItems(name, true), [{ label: "Delete Archived Branch…", icon: Trash2Icon, color: "destructive", onSelect: () => openInline("delete-archived", name) }]]
+  return <Items groups={useKeptBranchMenu("archived", name)} />
 }
 
 /** Deletes the archived branch (`deleteKeptBranch`); the session's patch removes its row, no sync follows */

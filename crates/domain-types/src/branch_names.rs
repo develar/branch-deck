@@ -73,6 +73,16 @@ pub fn strip_branch_namespace<'a>(full_branch_name: &'a str, branch_prefix: &str
     .strip_prefix('/')
 }
 
+/// The branch a kept branch was, by its full name: `docs` of `jane/unapplied/docs` and of `jane/archived/2026-10-01/docs`
+/// (the date of the archive comes first); `None` outside the kept namespaces of the prefix
+pub fn kept_branch_name<'a>(full_branch_name: &'a str, branch_prefix: &str) -> Option<&'a str> {
+  if let Some(name) = strip_branch_namespace(full_branch_name, branch_prefix, BranchKind::Unapplied) {
+    return Some(name);
+  }
+  let (_, name) = strip_branch_namespace(full_branch_name, branch_prefix, BranchKind::Archived)?.split_once('/')?;
+  (!name.is_empty()).then_some(name)
+}
+
 /// The branch of the remote a baseline names, the part after its remote (`origin/master` -> `master`, a local `master`
 /// -> `master`): the target the page names the readiness by (`baselineOnRemote` of `src/lib/stack.ts`), and the base of
 /// a pull request whose base is unknown (empty). The Patronus target of a start is git's (the branch the baseline

@@ -19,6 +19,8 @@
 //! - `holds`: what holds the push of a branch (`branch_hold`: landed, its own Safe Push, one that lands it) and of the
 //!   stack branch of a whole stack (`stack_branch_hold`), the push an action can't make for the user (`push_blocker`),
 //!   and what a restart of a robot does (`restart_action`)
+//! - `kept`: the actions of a branch kept outside HEAD, unapplied or archived (`kept_actions`): its review, its reapply,
+//!   its push under its own name, a Safe Push refused, its delete
 //! - `land`: why a Safe Push or a Dry Run of a branch or a whole stack can't start (`start_refusal`: blocked, a robot on
 //!   the last commit, one that lands it or a part of it, the hold of the push of a Dry Run), and a restart
 //!   (`restart_refusal`); the decision of a start (`decide`: its blockers, the confirmations the user accepts, the facts
@@ -81,6 +83,7 @@ pub mod attention;
 pub mod facts;
 pub mod github_stack;
 pub mod holds;
+pub mod kept;
 pub mod land;
 pub mod land_direct;
 pub mod landed;
@@ -115,6 +118,8 @@ mod branch_name_cases_test;
 mod catalog_test;
 #[cfg(test)]
 mod holds_test;
+#[cfg(test)]
+mod kept_test;
 #[cfg(test)]
 mod land_direct_test;
 #[cfg(test)]

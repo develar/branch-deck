@@ -58,6 +58,12 @@ pub enum ActionId {
   // what sets it aside without a rewrite
   Park,
   Unpark,
+  // a branch kept outside HEAD (unapplied, archived)
+  /// The unapplied branch back on top of HEAD (`RewriteIntent::Reapply`)
+  Reapply,
+  /// The unapplied or archived branch deleted after its name is typed (`RewriteIntent::DeleteUnapplied`,
+  /// `DeleteArchived`)
+  DeleteKeptBranch,
   // the whole stack of a root
   SafePushWholeStack,
   DryRunWholeStack,
@@ -97,7 +103,7 @@ pub enum ActionId {
 
 impl ActionId {
   /// Every id, in the order of the enum: the catalog the page's presenter is tested on
-  pub const ALL: [Self; 51] = [
+  pub const ALL: [Self; 53] = [
     Self::SafePush,
     Self::SafePushWithProfile,
     Self::DryRun,
@@ -126,6 +132,8 @@ impl ActionId {
     Self::Unapply,
     Self::Park,
     Self::Unpark,
+    Self::Reapply,
+    Self::DeleteKeptBranch,
     Self::SafePushWholeStack,
     Self::DryRunWholeStack,
     Self::SafePushMainLine,

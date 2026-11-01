@@ -16,7 +16,7 @@
 
 use anyhow::{Result, anyhow, bail};
 use branch_integration::archive::own_commits_start;
-use domain_types::branch_names::{BranchKind, strip_branch_namespace, to_final_branch_name, to_stack_branch_name};
+use domain_types::branch_names::{kept_branch_name, to_final_branch_name, to_stack_branch_name};
 use domain_types::review::{GetReviewParams, ReviewSegment, ReviewTarget, TargetReview};
 use domain_types::review_request::ReviewCommit;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -60,17 +60,10 @@ fn ref_candidates(name: &str) -> Vec<String> {
     .collect()
 }
 
-/// The name a review shows of the kept branch `name` (a full name): `docs` of `jane/unapplied/docs` and of
-/// `jane/archived/2026-10-01/docs`; refused outside the kept namespaces of the prefix
-pub fn kept_branch_name<'a>(branch_prefix: &str, name: &'a str) -> Result<&'a str> {
-  if let Some(short) = strip_branch_namespace(name, branch_prefix, BranchKind::Unapplied) {
-    return Ok(short);
-  }
-  // the date of the archive comes first
-  match strip_branch_namespace(name, branch_prefix, BranchKind::Archived).and_then(|dated| dated.split_once('/')) {
-    Some((_, short)) if !short.is_empty() => Ok(short),
-    _ => bail!("{name} is no unapplied or archived branch of {branch_prefix}"),
-  }
+/// The name a review shows of the kept branch `name` (a full name, `kept_branch_name`); refused outside the kept
+/// namespaces of the prefix
+fn kept_name<'a>(branch_prefix: &str, name: &'a str) -> Result<&'a str> {
+  kept_branch_name(name, branch_prefix).ok_or_else(|| anyhow!("{name} is no unapplied or archived branch of {branch_prefix}"))
 }
 
 /// The branches a target names, as `refs/heads/…`, with the names their errors use; none for a list of commits
@@ -86,7 +79,7 @@ fn target_refs(branch_prefix: &str, target: &ReviewTarget) -> Result<Option<Vec<
         .collect::<Result<_>>()?
     }
     ReviewTarget::WholeStack { root } => vec![(format!("refs/heads/{}", to_stack_branch_name(branch_prefix, root)?), root.clone())],
-    ReviewTarget::Kept { name } => vec![(format!("refs/heads/{name}"), kept_branch_name(branch_prefix, name)?.to_string())],
+    ReviewTarget::Kept { name } => vec![(format!("refs/heads/{name}"), kept_name(branch_prefix, name)?.to_string())],
     ReviewTarget::Commits { .. } => return Ok(None),
   };
   Ok(Some(refs))
@@ -138,7 +131,7 @@ fn review_from_tips(git: &GitCommandExecutor, branch_prefix: &str, params: &GetR
       let Some(base) = own_commits_start(git, &params.repository_path, &params.baseline_branch, last_tip)? else {
         bail!("{name} has no history in common with {}", params.baseline_branch);
       };
-      let short = kept_branch_name(branch_prefix, name)?;
+      let short = kept_name(branch_prefix, name)?;
       let log = read_log(git, params, &base, last_tip, short)?;
       Ok(TargetReview::Range {
         segments: vec![ReviewSegment {
