@@ -92,6 +92,10 @@ function formatUses(count: number): string {
   return count === 1 ? "1 use" : `${count} uses`
 }
 
+function formatCalls(count: number): string {
+  return count === 1 ? "1 call" : `${count} calls`
+}
+
 /**
  * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use found outside, the count is
  * incomplete", "The uses are unknown" without a count, "Finding the uses…" while Rust asks the index (`pending`)
@@ -128,17 +132,21 @@ export interface BreakageEntry {
   readonly outside: string
   /** "2 uses updated in this change"; null for none or an unknown count */
   readonly inside: string | null
+  /** "4 calls left outside still bind", "1 call left outside still binds": they pass only what the change keeps; null for none */
+  readonly stillBound: string | null
+  /** "3 uses by name only, unknown": hits only the name ties to the declaration; null for none */
+  readonly byName: string | null
   /** The first uses left outside, "src/Base.kt:1", each at its place at the head, then "+4 more" when Rust found more */
   readonly sites: readonly { readonly label: string; readonly place: ReviewPlace }[]
   readonly moreSites: string | null
 }
 
-/** "Possible breakage" of the card: the API with uses left outside or unknown, and the API whose every use is updated */
+/** "Possible breakage" of the card: the API with uses left outside that can break or are unknown, and the API none of whose uses breaks */
 export interface Breakage {
   /** In the order Rust ranked them: the most uses left outside first */
   readonly entries: readonly BreakageEntry[]
-  /** "12 API changes, every use updated in this change", and these entries; null for none */
-  readonly updated: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
+  /** "12 API changes, no use left outside breaks", and these entries; null for none */
+  readonly unbroken: { readonly label: string; readonly entries: readonly BreakageEntry[] } | null
 }
 
 function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
@@ -157,32 +165,35 @@ function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
     after: change.kind === "removed" ? null : change.after,
     outside: formatOutsideUses(usages, pending),
     inside: usages === null || usages.inside === 0 ? null : `${formatUses(usages.inside)} updated in this change`,
+    stillBound: usages === null || usages.stillBound === 0 ? null : `${formatCalls(usages.stillBound)} left outside still ${usages.stillBound === 1 ? "binds" : "bind"}`,
+    byName: usages === null || usages.byName === 0 ? null : `${formatUses(usages.byName)} by name only, unknown`,
     sites: usages?.outsideSites.map(site => ({ label: `${site.path}:${site.line}`, place: { path: site.path, side: "new", line: site.line, name: change.name } })) ?? [],
     moreSites: more > 0 ? `+${more} more` : null,
   }
 }
 
 /**
- * The removed and changed API of the card. An entry with a use left outside, or with an unknown or incomplete count,
- * is listed; the entries whose every use is updated in this change fold into one line. An addition breaks no use.
- * `pending`: Rust asks the index, and the plan with the usages follows
+ * The removed and changed API of the card. An entry with a use left outside that can break, or with an unknown or
+ * incomplete count, is listed; the entries none of whose uses left outside breaks (each updated in this change, or a
+ * call that still binds) fold into one line. An addition breaks no use. `pending`: Rust asks the index, and the plan
+ * with the usages follows
  */
 export function presentBreakage(api: readonly ApiChange[], pending: boolean): Breakage {
   const entries: BreakageEntry[] = []
-  const updated: BreakageEntry[] = []
+  const unbroken: BreakageEntry[] = []
   for (const change of api) {
     if (change.kind === "added") {
       continue
     }
-    // Rust says every use is updated in this change; an unknown or incomplete count never is
-    if (change.usages?.updated === true) {
-      updated.push(breakageEntry(change, pending))
+    // Rust says no use left outside breaks; an unknown or incomplete count never is
+    if (change.usages?.unbroken === true) {
+      unbroken.push(breakageEntry(change, pending))
     } else {
       entries.push(breakageEntry(change, pending))
     }
   }
-  const count = updated.length === 1 ? "1 API change" : `${updated.length} API changes`
-  return { entries, updated: updated.length === 0 ? null : { label: `${count}, every use updated in this change`, entries: updated } }
+  const count = unbroken.length === 1 ? "1 API change" : `${unbroken.length} API changes`
+  return { entries, unbroken: unbroken.length === 0 ? null : { label: `${count}, no use left outside breaks`, entries: unbroken } }
 }
 
 /** A dependency change of a module of the card */

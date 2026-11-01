@@ -288,7 +288,7 @@ test.describe("Find Usages", () => {
     const snippet = "fun outsider(value: Int) = helper(value)"
     writeFileSync(
       path.join(repositoryPath, ".git", "branch-deck-accio.json"),
-      JSON.stringify({ references: { helper: [{ file: "src/Base.kt", line: 1, column: 28, snippet, kind: "call" }] } }),
+      JSON.stringify({ references: { helper: [{ file: "src/Base.kt", line: 1, column: 28, snippet, kind: "call", resolved: "typed" }] } }),
     )
     const code = await openNavigationReview(page)
     const chooser = page.getByTestId("symbol-chooser")

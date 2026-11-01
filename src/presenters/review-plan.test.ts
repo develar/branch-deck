@@ -29,7 +29,7 @@ function change(patch: Partial<ApiChange>): ApiChange {
 
 function usages(inside: number, outside: number): Usages {
   // a complete count: every use is updated with none left outside, as Rust sends it
-  return { inside, outside, outsideSites: [], complete: true, updated: outside === 0 }
+  return { inside, outside, outsideSites: [], stillBound: 0, byName: 0, complete: true, unbroken: outside === 0 }
 }
 
 function facts(patch: Partial<FileFacts>): FileFacts {
@@ -84,14 +84,14 @@ describe("the possible breakage of the card", () => {
   it("words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown", () => {
     expect(formatOutsideUses(usages(1, 2), false)).toBe("2 uses left outside")
     expect(formatOutsideUses(usages(0, 1), false)).toBe("1 use left outside")
-    expect(formatOutsideUses({ ...usages(0, 100), complete: false, updated: false }, false)).toBe("At least 100 uses left outside")
-    expect(formatOutsideUses({ ...usages(3, 0), complete: false, updated: false }, false)).toBe("No use found outside, the count is incomplete")
+    expect(formatOutsideUses({ ...usages(0, 100), complete: false, unbroken: false }, false)).toBe("At least 100 uses left outside")
+    expect(formatOutsideUses({ ...usages(3, 0), complete: false, unbroken: false }, false)).toBe("No use found outside, the count is incomplete")
     expect(formatOutsideUses(null, false)).toBe("The uses are unknown")
     expect(formatOutsideUses(null, true)).toBe("Finding the uses…")
   })
 
   it("lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites", () => {
-    const { entries, updated } = presentBreakage(
+    const { entries, unbroken } = presentBreakage(
       [
         change({
           kind: "removed",
@@ -100,7 +100,15 @@ describe("the possible breakage of the card", () => {
           path: "src/a/Api.kt",
           line: 3,
           before: "fun open(path:String)",
-          usages: { inside: 0, outside: 7, outsideSites: [1, 2, 3, 4, 5].map(line => ({ path: "src/b/Client.kt", line })), complete: true, updated: false },
+          usages: {
+            inside: 0,
+            outside: 7,
+            outsideSites: [1, 2, 3, 4, 5].map(line => ({ path: "src/b/Client.kt", line })),
+            stillBound: 0,
+            byName: 0,
+            complete: true,
+            unbroken: false,
+          },
         }),
         change({
           changes: ["parameters", "reach"],
@@ -118,7 +126,7 @@ describe("the possible breakage of the card", () => {
       ],
       false,
     )
-    expect(updated).toBeNull()
+    expect(unbroken).toBeNull()
     expect(entries.map(({ key: _key, ...entry }) => entry)).toEqual([
       {
         path: "src/a/Api.kt",
@@ -133,6 +141,8 @@ describe("the possible breakage of the card", () => {
         after: null,
         outside: "7 uses left outside",
         inside: null,
+        stillBound: null,
+        byName: null,
         // each at its place at the head, the name of the API selected there
         sites: [1, 2, 3, 4, 5].map(line => ({ label: `src/b/Client.kt:${line}`, place: { path: "src/b/Client.kt", side: "new", line, name: "open" } })),
         moreSites: "+2 more",
@@ -149,6 +159,8 @@ describe("the possible breakage of the card", () => {
         after: "fun helper(value:Int, scale:Int)",
         outside: "2 uses left outside",
         inside: "1 use updated in this change",
+        stillBound: null,
+        byName: null,
         sites: [
           { label: "src/Base.kt:1", place: { path: "src/Base.kt", side: "new", line: 1, name: "helper" } },
           { label: "src/Uses.kt:4", place: { path: "src/Uses.kt", side: "new", line: 4, name: "helper" } },
@@ -158,23 +170,28 @@ describe("the possible breakage of the card", () => {
     ])
   })
 
-  it("folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0", () => {
-    const { entries, updated } = presentBreakage(
+  it("folds only the API none of whose uses left outside breaks, and keeps an unknown, incomplete or by-name count listed, also at 0", () => {
+    const { entries, unbroken } = presentBreakage(
       [
         change({ name: "unknown", key: "unknown", usages: null }),
-        change({ name: "constructor", key: "constructor", changes: ["constructors"], usages: { ...usages(2, 0), complete: false, updated: false } }),
+        change({ name: "constructor", key: "constructor", changes: ["constructors"], usages: { ...usages(2, 0), complete: false, unbroken: false } }),
+        change({ name: "isEmpty", key: "isEmpty", usages: { ...usages(1, 0), byName: 3, unbroken: false } }),
         change({ name: "renamed", key: "renamed", kind: "removed", usages: usages(3, 0) }),
-        change({ name: "unused", key: "unused", usages: usages(0, 0) }),
+        change({ name: "policy", key: "policy", changes: ["constructors"], usages: { ...usages(0, 0), stillBound: 4 } }),
       ],
       false,
     )
-    expect(entries.map(entry => [entry.name, entry.outside])).toEqual([
-      ["unknown", "The uses are unknown"],
-      ["constructor", "No use found outside, the count is incomplete"],
+    expect(entries.map(entry => [entry.name, entry.outside, entry.byName])).toEqual([
+      ["unknown", "The uses are unknown", null],
+      ["constructor", "No use found outside, the count is incomplete", null],
+      ["isEmpty", "0 uses left outside", "3 uses by name only, unknown"],
     ])
-    expect(updated?.label).toBe("2 API changes, every use updated in this change")
-    expect(updated?.entries.map(entry => entry.name)).toEqual(["renamed", "unused"])
-    expect(presentBreakage([change({ usages: usages(1, 0) })], false).updated?.label).toBe("1 API change, every use updated in this change")
+    expect(unbroken?.label).toBe("2 API changes, no use left outside breaks")
+    expect(unbroken?.entries.map(entry => [entry.name, entry.inside, entry.stillBound])).toEqual([
+      ["renamed", "3 uses updated in this change", null],
+      ["policy", null, "4 calls left outside still bind"],
+    ])
+    expect(presentBreakage([change({ usages: usages(1, 0) })], false).unbroken?.label).toBe("1 API change, no use left outside breaks")
   })
 
   it("says the uses are being found while Rust asks the index", () => {

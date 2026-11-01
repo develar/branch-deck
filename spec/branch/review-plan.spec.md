@@ -179,10 +179,10 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
   and `carried`), with
-  `"schema": 11`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 12`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`; the other outputs of `bd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -217,7 +217,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`the_surface_of_a_kotlin_declaration`, `the_surface_of_a_kotlin_file_marked_internal`, `the_surface_of_a_java_declaration`, `the_surface_of_a_rust_declaration`)
 - A member that the summary marks as an override (Kotlin `override`, Java `@Override`) must not be listed: its
   supertype declares the API. A change is of an override when the member overrides before and after it.
-  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`, `a_changed_override_in_kotlin_or_java_is_no_entry`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_place_and_an_override_is_no_entry`, `a_changed_override_in_kotlin_or_java_is_no_entry`)
 - Test code must not be listed, added, removed or changed: a test function (`test`: `@Test` and the other annotations
   of a test framework, a JUnit 3 `testX()`, a Rust `#[test]`), a declaration a test function is declared in (a test
   class, a type around a nested test class, a Rust module that holds a test), and every declaration inside one (a
@@ -252,48 +252,52 @@ the repeated edits and the new API. The vision of the review, its progress and t
 
 ### Fan-in
 
-- Every removed or changed entry must get its `usages` at the head of the range from `accio references <query>
-  --ref <head>`, with `complete: false` when accio cut its answer at 100. An addition is never asked.
+- Every removed or changed entry must get its `usages` at the head of the range from `accio references --at <place>
+  --ref <head>`, every place of the plan in one process, with `complete: false` when accio cut the answer of a place
+  at 100. An addition is never asked.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `a_cut_answer_is_not_complete`)
+  [@test] ../../crates/file-diffs/src/accio_test.rs (`the_places_of_a_plan_are_asked_in_one_process`)
   [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
-- The query of a member must be `Owner.name`, so that a use on another type drops out. The owner is the type around
-  it that is not a Kotlin `Companion`: `ProjectManager.getInstance`, not `Companion.getInstance`. The query of a
-  top-level declaration of a Kotlin or Java file in a package must be `package.name`; else it is the bare name.
-  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`, `the_usages_at_the_head_rank_the_card`)
-- Only a hit in code must count as a usage: not the declaration itself, an `import` or a `doc` hit (`NOT_USES`).
-  A hit in a file of another family of languages than the declaration (JVM, Rust, script) must not count: it is a
-  namesake.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes`)
+- The place of an entry must be the line of its name in the last commit that touched it, `<commit>:<path>:<line>`;
+  of a removal, the line before the commit that first touched it, at that commit's parent. accio answers only that
+  declaration: a member of its own type, a top-level function of its own module, a name every type declares too.
+  Two entries of one place must share it.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_entry_is_asked_by_its_place_once`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_place_and_an_override_is_no_entry`, `a_rust_constructor_is_asked_by_its_place`, `the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
+- Only a hit in code that a type or an import ties to the declaration must count as a usage: not the declaration
+  itself, an `import` or a `doc` hit (`NOT_USES`). A hit only the name ties (`resolved: name`: a receiver nothing
+  typed, another language, a namesake's) must not count; those left outside are `by_name`, unknown, and keep the
+  entry from being `unbroken`.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes`, `a_hit_only_the_name_ties_is_no_use_and_keeps_the_api_listed`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_rust_constructor_is_asked_by_its_place`)
+- An `override` hit, an override of a changed member in a subtype, is a use: a changed parameter list breaks it.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_override_left_outside_can_break`)
 - Of a type whose only change is its constructors, only a `call` hit (`Type(…)`, `new Type(…)`, a Kotlin
   `class Sub : Type(…)`) and a `supertype` hit (a Java `extends Type`, whose `super(…)` calls a constructor) must
   count. A use of the type as a type or an import still compiles. The usages are as `complete` as the answer of accio.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes`)
-- A name that nearly every type declares (`STOP_NAMES`: `equals`, `hashCode`, `toString`, `get`, `set`, `run`,
-  `invoke`, `close`, `new` and others) must never be asked without an owner, bare or after a package: its `usages`
-  stay `null`, unknown, not a wrong count. Two entries of the same query must share one query.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_asked_by_their_query_and_never_by_a_bare_name_of_the_stop_list`)
-- A member of such a name must be asked by `Owner.name` (a Rust `Store::new` as `Store.new`). accio also answers
-  each call of the name on a receiver that it cannot type, so only a hit whose line names the owner as a word must
-  count, and the usages must be `complete: false`, a lower bound.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_member_of_a_name_of_the_stop_list_counts_the_lines_that_name_its_owner`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`a_rust_constructor_is_asked_by_its_type`)
-- The plan must ask at most 20 queries (`MAX_USAGE_QUERIES`), for the first entries of the card, in parallel.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`at_most_twenty_queries_per_plan`)
-- A usage must be `inside` when its line at the head is one the reviewed commits changed: a line of the blocks of its
-  file from the blob before the first commit that changes it to the blob after the last one, as the diffs of the
-  range show them; any line of a file they add. This change wrote or rewrote it. Else it is `outside`, a use on a line
-  of a changed file that the change left as it was too, and the first 5 outside usages must be listed as
-  `outside_sites` by path and line. A use whose name sits on a line the change left counts as outside even when the
-  change edited the rest of its call: an alarm too many, never a wrong `updated`.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_use_is_inside_only_on_a_line_the_commits_changed`)
+- A usage must be `inside` when a line of it at the head is one the reviewed commits changed, a call from its first
+  line to its last (`end_line`): a line of the blocks of its file from the blob before the first commit that changes
+  it to the blob after the last one, as the diffs of the range show them; any line of a file they add. This change
+  wrote or rewrote it. Else it is left outside, a use on lines of a changed file that the change left as they were
+  too.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_use_is_inside_only_on_a_line_the_commits_changed`, `a_call_is_inside_by_any_of_its_lines`)
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_usages_split_into_those_inside_the_change_and_those_left_outside`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_place_and_an_override_is_no_entry`)
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
-- `updated` must be true only when the usages are `complete` and none is left outside: every use is updated in this
-  change. An unknown, cut or lower-bound count never is, also at 0.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_api_is_updated_only_by_a_complete_count_with_no_use_left_outside`)
-- The entries must be sorted by their usages left outside, the most first, then by those inside, those without
-  `usages` last; then removals, changes and additions, then by file and line.
+- A call left outside must be `still_bound`, no break, when the entry changed only its parameters or its
+  constructors, accio says the call fits the new form (`fits`), and each argument binds (`parameter`) a parameter of
+  the same name and type as before the commits: a named one by its name, a positional one by its position in every
+  parameter list before (a vararg takes every position from its own), a trailing lambda as the last parameter. A
+  positional argument that now binds another parameter, a spread, and a call of an entry whose header, reach or Java
+  view changed too, can break. Every other use left outside is `outside`, and the first 5 of those must be listed as
+  `outside_sites` by path and line.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_call_left_outside_that_binds_what_it_bound_before_still_binds`, `a_trailing_lambda_and_a_vararg_bind_by_their_place`, `a_constructor_call_left_outside_that_names_only_kept_parameters_still_binds`)
+- `unbroken` must be true only when the usages are `complete`, none left outside can break and none is tied by the
+  name alone: every use is updated in this change or still binds. An unknown or cut count never is, also at 0.
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_api_is_unbroken_only_by_a_complete_count_with_no_use_left_outside_that_breaks`, `a_hit_only_the_name_ties_is_no_use_and_keeps_the_api_listed`)
+- The entries must be sorted by their usages left outside that can break, the most first, then by those inside,
+  those without `usages` last; then removals, changes and additions, then by file and line.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`the_entries_are_sorted_by_their_usages_left_outside`, `the_usages_split_into_those_inside_the_change_and_those_left_outside`)
   [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_at_the_head_rank_the_card`)
 - Without accio, or without a usable index of the repository, the `usages` must be `null` and `index_note` must say
@@ -302,8 +306,8 @@ the repeated edits and the new API. The vision of the review, its progress and t
   refreshes an index: every query runs with `--no-build`.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`without_an_index_the_usages_are_missing_and_the_note_says_why`)
   [@test] ../../crates/file-diffs/src/accio_test.rs (`an_index_accio_cannot_use_answers_no_index_with_its_reason`)
-- A failing query must fail no plan: the others keep their answers and `index_note` gives the failure; only a
-  cancel of the caller (a newer request of the window) cancels the plan.
+- A failing query must fail no plan: the entries keep no `usages` and `index_note` gives the failure; only a cancel
+  of the caller (a newer request of the window) cancels the plan.
   [@test] ../../crates/review-plan/src/fan_in_test.rs (`a_failing_index_keeps_the_api`, `a_canceled_query_cancels_the_plan`)
 
 ### Files
@@ -321,7 +325,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `breaks` must sum the usages left outside the change of the API a file removes or changes, at its last path, also
   of a removal whose entry names the old path. A usage inside the change and an addition break nothing.
   [@test] ../../crates/review-plan/src/files_test.rs (`the_usages_of_a_files_api_rank_it_first`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`, `a_member_is_asked_by_its_type_and_an_override_is_no_entry`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`, `a_member_is_asked_by_its_place_and_an_override_is_no_entry`)
 - `breaks_complete` must be true only when every API the file removes or changes has `usages` that are `complete`.
   A name not asked, no index, a failed query, a cut answer or a constructor-only change makes `breaks` a lower
   bound, also at 0. A file without such an API is complete.
@@ -590,17 +594,18 @@ the repeated edits and the new API. The vision of the review, its progress and t
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`, `sums the card up in its title, what can break first`)
-- "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless every use is
-  updated in this change: its kind, its name, `path:line`, the parts that changed, the form before and the form after
-  on lines of their own, the uses left outside ("3 uses left outside") with the first sites as `path:line`, and the
-  uses updated in this change. An entry with `usages` null says "The uses are unknown". An entry whose count is not
-  `complete` says "At least N uses left outside", or "No use found outside, the count is incomplete" at 0. Only the
-  entries Rust says are `updated` fold into one collapsed line, "12 API changes, every use updated in this change":
-  an unknown or incomplete count never reads as safe. An addition is not listed there.
+- "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless no use left outside
+  breaks: its kind, its name, `path:line`, the parts that changed, the form before and the form after on lines of
+  their own, the uses left outside that can break ("3 uses left outside") with the first sites as `path:line`, the
+  uses updated in this change, the calls left outside that still bind ("4 calls left outside still bind") and the
+  uses only the name ties ("2 uses by name only, unknown"). An entry with `usages` null says "The uses are unknown".
+  An entry whose count is not `complete` says "At least N uses left outside", or "No use found outside, the count is
+  incomplete" at 0. Only the entries Rust says are `unbroken` fold into one collapsed line, "12 API changes, no use
+  left outside breaks": an unknown, incomplete or by-name count never reads as safe. An addition is not listed there.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should lead the Review Summary with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
-  [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API whose every use is updated, and keeps an unknown or incomplete count listed, also at 0`)
+  [@test] ../../src/presenters/review-plan.test.ts (`words the uses left outside, a cut or partial count as a lower bound, an unknown count as unknown`, `lists a removed or changed API with uses left outside in Rust's order, with its place, the parts that changed, the forms apart and the first sites`, `folds only the API none of whose uses left outside breaks, and keeps an unknown, incomplete or by-name count listed, also at 0`)
 - A click on a site of the uses left outside must open its file at the head of the review over the diffs, as Go to
   Declaration opens a declaration outside the review, at the line of the use with the name of the API selected
   (`get_outside_place`: one `cat-file --batch-check` and one `cat-file --batch`, no index); a file or a line the head
@@ -724,7 +729,7 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
   open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
-  "src/b/Client.kt", "line": 8}, …], "complete": true, "updated": false}}]`, `"files": [{"path": "src/a/Api.kt",
+  "src/b/Client.kt", "line": 8}, …], "still_bound": 3, "by_name": 0, "complete": true, "unbroken": false}}]`, `"files": [{"path": "src/a/Api.kt",
   "old_path": null, "mechanical": null, "generated": null, "uses": 0, "used_by": 0, "new_links": 0, "breaks": 12,
   "breaks_complete": true, "untested": true, "repeated_edit": null, "repeated_edit_only": false}]`, `"index_note":
   null`; a rendered `AGENTS.md` → `"mechanical": "generated", "generated": {"kind": "header", "line": "Generated by
@@ -739,8 +744,8 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The card **Review Summary**, "1 possible break · 2 new declarations": "Since your review: 1 new · 1 rewritten", under
   it "Rewritten scale the helper: src/Store.kt +1 −1"; under Possible Breakage `Changed helper src/Store.kt:36
   parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and
-  "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9"; without an index "The uses are unknown"; "1 API change, every
-  use updated in this change"; under Dependencies `b src/b/b.iml` "New module b" and "New links between modules
+  "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9 · 1 use by name only, unknown"; without an index "The uses are
+  unknown"; "1 API change, no use left outside breaks"; under Dependencies `b src/b/b.iml` "New module b" and "New links between modules
   Reader.kt → Cache.kt"; collapsed "Repeated Edits 1" and "New API 2"; "No usages: no index of this
   repository"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·
@@ -773,23 +778,15 @@ the repeated edits and the new API. The vision of the review, its progress and t
 - The carried commit is on no ref: a `git gc` may prune it once it is old enough, and the next plan writes it again.
 - A drop alone, no commit added or rewritten, offers no "Since Your Review", though the diff from the carried commit
   would show the removal.
-- The usages of a top-level Rust or TypeScript declaration, and of a Kotlin or Java one in no package, are asked by
-  the bare name, so a namesake of the same family of languages counts too. accio resolves `Owner.name` by the text
-  and the types it knows, and it keeps a call on a receiver that it cannot type: a namesake can count there too. A
-  removal's usages at the head are those left behind, or of a namesake; `outside_sites` lets the reader judge.
-- A `string` hit counts: a class name in a plugin descriptor or a reflective call can break. A string that only
-  holds the name counts too.
-- Of a constructor-only change, every call of the type counts, also one that the change left valid, such as a call
-  with named arguments that skips a new default parameter.
-- An override of a changed open member in a subclass outside the change is missed: accio answers neither
-  `references Owner.member` nor `implementations Owner.member` with it, and calls its answer complete
-  (JetBrains/accio#71). A changed parameter list of an open member can therefore read as "every use updated".
-- accio keeps a call of `Owner.member` whose receiver it cannot type and does not tell it from a typed one
-  (JetBrains/accio#72); the owner check of `STOP_NAMES` stays until it does.
-- A member of `STOP_NAMES` counts only the lines that name its owner: `store.close()` through a variable is missed.
-- A usage is inside by the line of its name: a call whose arguments the change rewrote on the next lines, its name's
-  line left, counts as outside. With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated
-  counts as outside.
+- A removal's usages at the head are those left behind that accio ties to the declaration at its place before the
+  commit; `outside_sites` lets the reader judge.
+- A `string` or `config` hit counts only when accio ties it by the qualified name of the declaration (a class in a
+  plugin descriptor, a `Class.forName`); a simple name in a string is `by_name`.
+- A Rust or TypeScript function holds its parameters in its header (`FormChange::Header`, which also holds the
+  return type): its calls left outside are never `still_bound`.
+- The `path:line` of a change is the line of its name in the last commit that touched it, where the plan asks accio;
+  a later commit that moves the lines of the file without touching the declaration leaves the card's line behind.
+- With `--since-reviewed`, a use that an earlier reviewed commit of the branch updated counts as outside.
 - An answer cut at 100 hits splits only those 100: `outside` is then a lower bound, and `complete` is false.
 - The module roots of the summaries are read at the checked out HEAD, not at the head of the range.
 - A key gets one entry: when an overload changed and another was added in the same commits, only the change is
@@ -808,8 +805,6 @@ the repeated edits and the new API. The vision of the review, its progress and t
   its members are the type's entry; the top-level declarations of a Kotlin file whose `@file:ApiStatus.Internal` is
   removed are not listed, nor a declaration whose removed annotation line git's diff pairs with a like line added
   elsewhere in the file. A declaration that becomes unstable or test code in the same form is no entry.
-- `breaks` counts the usages left outside of the first 20 queries only; a name of `STOP_NAMES` without an owner
-  breaks nothing known.
 - An import statement ends where its brackets close. A Kotlin or Java import has no brackets, so a statement over
   several lines without brackets is not seen. A string or a comment over several lines is not seen either.
 - `whitespace` removes the line ends too. In Kotlin, TypeScript or Go, a joined line can change the meaning, and a

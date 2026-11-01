@@ -29,6 +29,9 @@ function storeText(helper: string): string {
   return `${text}  fun add(value: Int) {}\n}\n\n${helper}\n`
 }
 
+/** The place of `helper` in `storeText`, as the index of a fixture keys its answer */
+const HELPER = "src/Store.kt:36"
+
 const READER = (body: string) => `package a\n\nimport b.Cache\n\nclass Reader {\n  fun read(cache: Cache) = ${body}\n}\n`
 
 /** The branch `plan` of two commits on top of the template, the index of accio with three usages of `helper` */
@@ -42,11 +45,16 @@ async function setupPlan(repo: TestRepositoryBuilder, { experimental }: { experi
     { "src/b/Cache.kt": "package b\n\nclass Cache {\n  fun get(key: String): Int = key.length\n}\n", "src/a/Reader.kt": READER('cache.get("x")') },
     1704123000,
   )
-  // the index of the repository, as accio answers `references helper`
-  const usage = (file: string, line: number) => ({ file, line, column: 3, snippet: "helper(1)", kind: "call" })
+  // the index of the repository, as accio answers `references --at` the line of `helper`
+  const usage = (file: string, line: number) => ({ file, line, column: 3, snippet: "helper(1)", kind: "call", resolved: "typed" })
   writeFileSync(
     path.join(repo.path, ".git", "branch-deck-accio.json"),
-    JSON.stringify({ references: { helper: [usage("src/Base.kt", 1), usage("src/Uses.kt", 4), usage("src/main/App.kt", 9)] } }),
+    JSON.stringify({
+      references: {
+        // and a call only the name ties, in a script
+        [HELPER]: [usage("src/Base.kt", 1), usage("src/Uses.kt", 4), usage("src/main/App.kt", 9), { ...usage("scripts/helper.py", 2), resolved: "name" }],
+      },
+    }),
   )
 }
 
@@ -154,6 +162,9 @@ test.describe("The review plan in the branch review", () => {
     for (const site of ["src/Base.kt:1", "src/Uses.kt:4", "src/main/App.kt:9"]) {
       await expect(helper.getByTestId("review-plan-sites")).toContainText(site)
     }
+    // a call only the name ties is no use, and no proof of none
+    await expect(helper.getByTestId("review-plan-sites")).toContainText("1 use by name only, unknown")
+    await expect(helper.getByTestId("review-plan-sites")).not.toContainText("scripts/helper.py")
     // the new API starts collapsed, per file
     const newApi = card.getByTestId("review-plan-new-api")
     await expect(newApi.getByTestId("review-plan-new-api-file")).toHaveCount(0)
@@ -200,7 +211,7 @@ test.describe("The review plan in the branch review", () => {
     const helper = card.getByTestId("review-plan-breakage-entry")
     await expect(helper).toHaveAttribute("data-name", "helper")
     await expect(helper.getByTestId("review-plan-outside")).toHaveText("The uses are unknown")
-    await expect(card.getByTestId("review-plan-updated")).toHaveCount(0)
+    await expect(card.getByTestId("review-plan-unbroken")).toHaveCount(0)
     await expect(card.getByTestId("review-plan-index-note")).toContainText("No usages:")
     // a lower bound at 0: a quiet mark, never a safe one
     const { store } = planRows(window)
@@ -504,7 +515,7 @@ test.describe("The review plan in the branch review", () => {
     // the only use of `helper` is in Base.kt, which this change updates
     writeFileSync(
       path.join(repo.path, ".git", "branch-deck-accio.json"),
-      JSON.stringify({ references: { helper: [{ file: "src/Base.kt", line: 1, column: 31, snippet: "helper(value)", kind: "call" }] } }),
+      JSON.stringify({ references: { [HELPER]: [{ file: "src/Base.kt", line: 1, column: 31, snippet: "helper(value)", kind: "call", resolved: "typed" }] } }),
     )
     const window = await openPlanWindow(page, syncAndWaitForBranches)
     const tree = window.getByRole("tree", { name: "Changed files" })
@@ -551,14 +562,14 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "Build files (1)" })).toBeVisible()
     await expect(tree.getByRole("treeitem", { name: "Whitespace only (1)" })).toBeVisible()
 
-    // the card: no possible break, `helper` folded with every use updated; the new module and the link into it; the
+    // the card: no possible break, `helper` folded as no use left outside breaks; the new module and the link into it; the
     // same edit, collapsed
     const card = window.getByTestId("review-plan-card")
     await expect(card.getByTestId("review-plan-summary")).toHaveText(
       /^No possible break · 1 dependency change · 1 new link between modules · 1 repeated edit · \d+ new declarations$/,
     )
     await expect(card.getByTestId("review-plan-breakage-entry")).toHaveCount(0)
-    await expect(card.getByTestId("review-plan-updated")).toContainText("1 API change, every use updated in this change")
+    await expect(card.getByTestId("review-plan-unbroken")).toContainText("1 API change, no use left outside breaks")
     const dependencies = card.getByTestId("review-plan-dependencies")
     await expect(dependencies.getByTestId("review-plan-dependency-module")).toHaveAttribute("data-manifest", "src/b/b.iml")
     await expect(dependencies.getByTestId("review-plan-dependency")).toHaveText("New module b")

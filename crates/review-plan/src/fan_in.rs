@@ -1,80 +1,38 @@
 //! The usages of the API changes of a review (spec/branch/review-plan.spec.md, "Fan-in"): the usages of each removed or
-//! changed declaration at the head of the range, from `accio references` (`file_diffs::accio::SymbolIndex`), split into
-//! those in the files the reviewed commits change (updated in this change) and those left outside.
+//! changed declaration at the head of the range, from `accio references --at` (`file_diffs::accio::SymbolIndex`), split
+//! into those the change updated, those left outside that can break, and those left outside that still bind.
 //!
-//! - **The query** is `ApiChange::query`: `Owner.name` for a member, so that a use on another type drops out,
-//!   `package.name` for a top-level JVM declaration, else the bare name. A name of `STOP_NAMES`, which nearly every type
-//!   declares, is never asked bare: its usages stay unknown (`None`), not a wrong count. A member of that name is asked
-//!   by its owner, but accio keeps every call of the name whose receiver it cannot type, so only the hits whose line
-//!   names the owner count (`Store::new(…)`, `Store.of(…)`), and the usages are a lower bound (`complete: false`).
-//!   Additions are never asked.
-//! - At most `MAX_USAGE_QUERIES` queries per plan, for the first removals and changes in the order of the card, one per
-//!   distinct query, each on a thread of its own; the caller's index cancels them (`SearchCanceled`, a newer request
-//!   of the window).
-//! - An index that fails fails no plan (`Lenient`): the entries it did not answer keep no usages, and the answer of
-//!   `add_usages` says why, as it does when accio is missing or has no usable index of the repository (its own reason,
-//!   `IndexUnavailable`). Never an index build.
-//! - **A usage** is a hit in code: no declaration, `import` or `doc` hit (`NOT_USES`), none in a file of another
-//!   family of languages than the declaration (a Python `.get(` is no use of a Kotlin `Key.get`). Of a type whose
-//!   constructors are its only change, only the `call` hits (`Type(…)`, `new Type(…)`, a Kotlin `class Sub : Type(…)`)
-//!   and the `supertype` hits (a Java `extends Type`, whose `super(…)` calls a constructor) count: a use of the type as
-//!   a type or an import still compiles. It is **inside** when its line is one the commits changed
-//!   (`pair::ChangedLines`, read only when a query is asked): this change wrote or rewrote it. A use on a line it left
-//!   as it was is **outside**, in a changed file too; the first `OUTSIDE_SITES` outside ones are kept, by path and line.
-//!   The index answers at most 100 hits, and a cut answer is `complete: false`.
+//! - **Asked by its place** (`ApiChange::at`): the line of its name at the head, of a removal at the parent of the
+//!   commit that first touched it; accio answers only that declaration, every place of a plan in one process. Additions
+//!   are never asked. Never an index build: an index that fails fails no plan (`Lenient`), and the answer of
+//!   `add_usages` says why, as it does when accio is missing or has no usable index of the repository
+//!   (`IndexUnavailable`). The caller's index cancels the query (`SearchCanceled`, a newer request of the window).
+//! - **A usage** is a hit in code tied to the declaration by a type or an import: no declaration, `import` or `doc`
+//!   hit (`NOT_USES`). A hit only the name ties (`Resolved::Name`: a receiver nothing typed, another language, a
+//!   namesake's) is no use and no proof of none: those left outside are counted apart (`Usages::by_name`). Of a type
+//!   whose constructors are its only change, only the `call` hits (`Type(…)`, `new Type(…)`, a Kotlin
+//!   `class Sub : Type(…)`) and the `supertype` hits (a Java `extends Type`, whose `super(…)` calls a constructor)
+//!   count: a use of the type as a type or an import still compiles.
+//! - **Inside** when a line of it is one the commits changed (`pair::ChangedLines`, read only when the index
+//!   answered), a call from its first line to its last: this change wrote or rewrote it. A use on lines it left as they
+//!   were is **outside**, in a changed file too.
+//! - **Still bound** (`still_binds`): a call left outside of a declaration whose parameters or constructors are its only
+//!   change, which accio says fits the new form (`fits`), and each argument of which binds a parameter of the same name
+//!   and type as before the commits: by its name, by its position, as the trailing lambda. It neither breaks nor
+//!   changes its meaning. A spread argument is never known to.
+//! - The first `OUTSIDE_SITES` uses left outside that can break are kept, by path and line. The index answers at most
+//!   100 hits per declaration, and a cut answer is `complete: false`.
 
 use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages, rank};
 use crate::pair::ChangedLines;
 use anyhow::Result;
-use code_symbols::language::language_of;
-use file_diffs::accio::{Lenient, ReferenceHit, References, SymbolIndex};
+use file_diffs::accio::{CallArgument, DeclarationAt, Lenient, ReferenceHit, References, Resolved, SymbolIndex};
 use std::collections::BTreeMap;
-use sync_utils::span::in_current_span;
 use tracing::debug;
+use trial_check::symbol_dependencies::declaration_checks::ParameterForm;
 
-/// The accio queries of one plan at most
-pub const MAX_USAGE_QUERIES: usize = 20;
-
-/// The usages left outside the change that an entry lists at most
+/// The usages left outside that an entry lists at most
 pub const OUTSIDE_SITES: usize = 5;
-
-/// The names that nearly every type declares or that a convention calls on anything: the members of `Object` and
-/// `Any`, the operators of Kotlin, the common traits of Rust and the methods of the collections. An index answers
-/// their usages on every type, so they are never asked
-pub const STOP_NAMES: [&str; 32] = [
-  "equals",
-  "hashCode",
-  "toString",
-  "compareTo",
-  "clone",
-  "finalize", // Object, Any
-  "get",
-  "set",
-  "invoke",
-  "contains",
-  "iterator",
-  "next",
-  "hasNext",
-  "getValue",
-  "setValue",
-  "provideDelegate", // operators
-  "run",
-  "apply",
-  "call",
-  "close",
-  "dispose", // Runnable, Callable, Closeable, Disposable
-  "new",
-  "default",
-  "from",
-  "into",
-  "fmt",
-  "eq",
-  "hash",
-  "drop", // Rust traits
-  "size",
-  "add",
-  "remove", // collections
-];
 
 /// Why no usages: this machine has no accio
 pub const NO_ACCIO: &str = "accio is not installed";
@@ -82,82 +40,152 @@ pub const NO_ACCIO: &str = "accio is not installed";
 /// (`IndexUnavailable`). The review never builds an index
 pub const NO_INDEX: &str = "accio has no index of this repository";
 
-/// The kinds of accio hits that use nothing: the declaration itself, an import, a mention in a doc comment
+/// The kinds of accio hits that use nothing: the declaration itself, an import, a mention in a doc comment or in prose
 pub const NOT_USES: [&str; 3] = ["declaration", "import", "doc"];
 
 /// The kinds of accio hits that call a constructor of a type: a call, and a subtype, whose constructors call one
 const CONSTRUCTOR_USES: [&str; 2] = ["call", "supertype"];
-
-/// A name of `STOP_NAMES` that is asked bare: never asked
-fn stopped(change: &ApiChange) -> bool {
-  change.owner.is_none() && STOP_NAMES.contains(&change.name.as_str())
-}
-
-/// A member of a name of `STOP_NAMES`: only the hits that name its owner count
-fn by_owner(change: &ApiChange) -> Option<&str> {
-  change.owner.as_deref().filter(|_| STOP_NAMES.contains(&change.name.as_str()))
-}
-
-/// `word` stands in `text` as a whole word
-fn names(text: &str, word: &str) -> bool {
-  let part = |char: Option<char>| char.is_some_and(|char| char.is_alphanumeric() || char == '_' || char == '$');
-  text
-    .match_indices(word)
-    .any(|(at, _)| !part(text[..at].chars().next_back()) && !part(text[at + word.len()..].chars().next()))
-}
 
 /// The only change of `change` is its constructors: of its hits, only a call and a subtype are known to break
 fn constructors_only(change: &ApiChange) -> bool {
   change.kind == ApiChangeKind::Changed && change.changes == [FormChange::Constructors]
 }
 
-/// `hit` is a use of `change`: a hit in code of its family of languages; only a call or a subtype of a type whose
-/// constructors are its only change; one that names the owner of a member of `STOP_NAMES`
-fn uses(change: &ApiChange, hit: &ReferenceHit) -> bool {
-  if NOT_USES.contains(&hit.kind.as_str()) {
-    return false;
-  }
-  if let (Some(declared), Some(used)) = (language_of(&change.file), language_of(&hit.path))
-    && declared.family() != used.family()
-  {
-    return false;
-  }
-  if constructors_only(change) && !CONSTRUCTOR_USES.contains(&hit.kind.as_str()) {
-    return false;
-  }
-  by_owner(change).is_none_or(|owner| names(&hit.snippet, owner))
+/// What a hit is to the declaration asked about
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Use {
+  /// The declaration, an import, a doc, or a use of a type a constructor change cannot break
+  None,
+  /// Only the name ties it
+  ByName,
+  /// A use that may break
+  Breaks,
+  /// A call that still binds the parameters it bound before the commits
+  StillBound,
 }
 
-/// The usages of `change` in `references` (`uses`), on a line the commits changed (`changed`) or not
+fn use_of(change: &ApiChange, hit: &ReferenceHit) -> Use {
+  if NOT_USES.contains(&hit.kind.as_str()) {
+    return Use::None;
+  }
+  if hit.resolved == Resolved::Name {
+    return Use::ByName;
+  }
+  if constructors_only(change) && !CONSTRUCTOR_USES.contains(&hit.kind.as_str()) {
+    return Use::None;
+  }
+  if still_binds(change, hit) { Use::StillBound } else { Use::Breaks }
+}
+
+/// `hit` is a call that still binds what it bound before the commits: its declaration changed only its parameters or
+/// its constructors, accio says the call fits the new form, and each argument binds a parameter of the same name and type
+/// before and after the commits
+fn still_binds(change: &ApiChange, hit: &ReferenceHit) -> bool {
+  let only_parameters =
+    change.kind == ApiChangeKind::Changed && !change.changes.is_empty() && change.changes.iter().all(|it| matches!(it, FormChange::Parameters | FormChange::Constructors));
+  if !only_parameters || !CONSTRUCTOR_USES.contains(&hit.kind.as_str()) || hit.fits != Some(true) {
+    return false;
+  }
+  let Some(arguments) = &hit.arguments else { return false };
+  arguments
+    .iter()
+    .all(|argument| binds_the_same(argument, &change.signatures_before, &change.signatures_after))
+}
+
+/// The one type of the parameter `name` across `signatures`; `None` when none of them has it or two give it different
+/// types
+fn type_of<'a>(signatures: &'a [Vec<ParameterForm>], name: &str) -> Option<&'a str> {
+  let mut types = signatures
+    .iter()
+    .flatten()
+    .filter(|parameter| parameter.name == name)
+    .map(|parameter| parameter.type_text.as_str());
+  let first = types.next()?;
+  types.all(|other| other == first).then_some(first)
+}
+
+/// The parameter an argument at `position` binds in `signature`: the vararg takes every position from its own
+fn at_position(signature: &[ParameterForm], position: usize) -> Option<&ParameterForm> {
+  match signature.iter().position(|parameter| parameter.vararg) {
+    Some(vararg) if position >= vararg => signature.get(vararg),
+    _ => signature.get(position),
+  }
+}
+
+/// `argument` binds, before the commits, the parameter it binds after them (`CallArgument::parameter`), of the same type:
+/// a named one by its name, a positional one by its position in every list before that is long enough, a trailing lambda
+/// as the last parameter of every list before
+fn binds_the_same(argument: &CallArgument, before: &[Vec<ParameterForm>], after: &[Vec<ParameterForm>]) -> bool {
+  let Some(parameter) = argument.parameter.as_deref() else { return false };
+  if argument.spread || argument.unbound {
+    return false;
+  }
+  let Some(new_type) = type_of(after, parameter) else { return false };
+  if type_of(before, parameter) != Some(new_type) {
+    return false;
+  }
+  if argument.name.is_some() {
+    return argument.name.as_deref() == Some(parameter);
+  }
+  let bound_before: Vec<Option<&ParameterForm>> = if argument.trailing_lambda {
+    before.iter().map(|signature| signature.last()).collect()
+  } else if let Some(position) = argument.position {
+    before
+      .iter()
+      .map(|signature| at_position(signature, usize::try_from(position).unwrap_or(usize::MAX)))
+      .collect()
+  } else {
+    return false;
+  };
+  let bound: Vec<&ParameterForm> = bound_before.into_iter().flatten().collect();
+  !bound.is_empty() && bound.iter().all(|old| old.name == parameter)
+}
+
+/// The usages of `change` in `references` (`use_of`), on lines the commits changed (`changed`) or not
 fn usages_of(change: &ApiChange, references: &References, changed: &ChangedLines) -> Usages {
   let mut usages = Usages {
     inside: 0,
     outside: 0,
     outside_sites: Vec::new(),
-    complete: references.complete && by_owner(change).is_none(),
-    updated: false,
+    still_bound: 0,
+    by_name: 0,
+    complete: references.complete,
+    unbroken: false,
   };
-  for hit in references.hits.iter().filter(|hit| uses(change, hit)) {
-    if changed.contains(&hit.path, hit.line) {
-      usages.inside += 1;
+  for hit in &references.hits {
+    let kind = use_of(change, hit);
+    if kind == Use::None {
       continue;
     }
-    usages.outside += 1;
-    if usages.outside_sites.len() < OUTSIDE_SITES {
-      usages.outside_sites.push(UsageSite {
-        path: hit.path.clone(),
-        line: hit.line,
-      });
+    if changed.touches(&hit.path, hit.line..=hit.end_line.unwrap_or(hit.line).max(hit.line)) {
+      if kind != Use::ByName {
+        usages.inside += 1;
+      }
+      continue;
+    }
+    match kind {
+      Use::ByName => usages.by_name += 1,
+      Use::StillBound => usages.still_bound += 1,
+      Use::Breaks => {
+        usages.outside += 1;
+        if usages.outside_sites.len() < OUTSIDE_SITES {
+          usages.outside_sites.push(UsageSite {
+            path: hit.path.clone(),
+            line: hit.line,
+          });
+        }
+      }
+      Use::None => {}
     }
   }
-  usages.updated = usages.complete && usages.outside == 0;
+  usages.unbroken = usages.complete && usages.outside == 0 && usages.by_name == 0;
   usages
 }
 
-/// Add the usages at `head` to the removals and changes of `api` (at most `MAX_USAGE_QUERIES` distinct queries, no name
-/// of `STOP_NAMES` asked bare), split by the lines the commits changed (`changed`, called once the index answered), and
-/// rank it again (`api::rank`); the answer is why some have none, `None` when every query answered or none was asked.
-/// Fails when the index was canceled or `changed` fails
+/// Add the usages at `head` to the removals and changes of `api`, asked by their places in one query, split by the
+/// lines the commits changed (`changed`, called once the index answered), and rank it again (`api::rank`); the answer
+/// is why they have none, `None` when the index answered or none was asked. Fails when the index was canceled or
+/// `changed` fails
 pub fn add_usages(
   index: Option<&dyn SymbolIndex>,
   repository_path: &str,
@@ -165,57 +193,33 @@ pub fn add_usages(
   changed: impl FnOnce() -> Result<ChangedLines>,
   api: &mut [ApiChange],
 ) -> Result<Option<String>> {
-  // query -> the entries it answers, in the order of the card
-  let mut asked: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-  let mut queries: Vec<String> = Vec::new();
+  // place -> the entries it answers, in the order of the card
+  let mut asked: BTreeMap<&DeclarationAt, Vec<usize>> = BTreeMap::new();
   for (position, change) in api.iter().enumerate() {
-    if change.kind == ApiChangeKind::Added || stopped(change) {
-      continue;
+    if change.kind != ApiChangeKind::Added {
+      asked.entry(&change.at).or_default().push(position);
     }
-    if !asked.contains_key(&change.query) {
-      if queries.len() == MAX_USAGE_QUERIES {
-        continue;
-      }
-      queries.push(change.query.clone());
-    }
-    asked.entry(change.query.clone()).or_default().push(position);
   }
-  if queries.is_empty() {
+  if asked.is_empty() {
     return Ok(None);
   }
   let Some(index) = index else { return Ok(Some(NO_ACCIO.to_string())) };
   let lenient = Lenient::new(index);
-  let answers: Vec<Result<Option<References>>> = std::thread::scope(|scope| {
-    let threads: Vec<_> = queries
-      .iter()
-      .map(|query| {
-        let (lenient, query) = (&lenient, query.as_str());
-        scope.spawn(in_current_span(move || lenient.indexed_references(repository_path, query, Some(head))))
-      })
-      .collect();
-    threads
-      .into_iter()
-      .map(|thread| thread.join().unwrap_or_else(|_| Err(anyhow::anyhow!("a query of the index panicked"))))
-      .collect()
-  });
-  let answers: Vec<Option<References>> = answers.into_iter().collect::<Result<_>>()?;
-  let changed = if answers.iter().any(Option::is_some) { changed()? } else { ChangedLines::default() };
-  let mut answered = 0;
-  for (query, answer) in queries.iter().zip(answers) {
-    if let Some(references) = answer {
-      for &position in &asked[query] {
-        api[position].usages = Some(usages_of(&api[position], &references, &changed));
-      }
-      answered += 1;
-    }
-  }
-  debug!(asked = queries.len(), answered, "usages of the API changes");
-  rank(api);
+  let places: Vec<DeclarationAt> = asked.keys().map(|at| (*at).clone()).collect();
+  let answers = lenient.references_at(repository_path, &places, head)?;
   let unavailable = lenient.unavailable();
   let error = lenient.error();
-  Ok(match error {
-    Some(error) => Some(error),
-    None if answered == 0 => Some(unavailable.unwrap_or_else(|| NO_INDEX.to_string())),
-    None => None,
-  })
+  let Some(answers) = answers else {
+    return Ok(Some(error.or(unavailable).unwrap_or_else(|| NO_INDEX.to_string())));
+  };
+  let changed = changed()?;
+  let entries: Vec<Vec<usize>> = asked.into_values().collect();
+  for (positions, references) in entries.into_iter().zip(&answers) {
+    for position in positions {
+      api[position].usages = Some(usages_of(&api[position], references, &changed));
+    }
+  }
+  debug!(asked = places.len(), "usages of the API changes");
+  rank(api);
+  Ok(None)
 }

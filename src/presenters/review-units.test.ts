@@ -130,7 +130,15 @@ describe("the generated files in the story", () => {
 
 describe("the uses a change left outside in the story", () => {
   it("follow the section of the change: each its file around the use, at most five", () => {
-    const usages = { inside: 0, outside: 7, outsideSites: [1, 2, 3, 4, 5, 6].map(line => ({ path: "src/Use.kt", line })), complete: true, updated: false }
+    const usages = {
+      inside: 0,
+      outside: 7,
+      outsideSites: [1, 2, 3, 4, 5, 6].map(line => ({ path: "src/Use.kt", line })),
+      stillBound: 0,
+      byName: 0,
+      complete: true,
+      unbroken: false,
+    }
     const change: ApiChange = { path: "src/Api.kt", line: 3, name: "open", key: "open", kind: "changed", changes: ["parameters"], before: null, after: null, usages }
     const units = [unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(0, 3)] }])]
     const sections = presentNarrative(units, [file("src/Api.kt", [3])], [change], [], [])

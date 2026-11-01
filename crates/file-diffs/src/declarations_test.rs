@@ -1,7 +1,7 @@
 //! Going to a declaration in a review: by the scopes of the file, in the other files of the review ranked by the owner,
 //! from the texts the diffs read
 
-use crate::accio::{References, SymbolHit, SymbolIndex};
+use crate::accio::{DeclarationAt, References, SymbolHit, SymbolIndex, TestReach};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::{BlobRequest, DeclarationSite, DiffFile, DiffRevisions, DiffSide, DiffSource, FindDeclarationParams, ReviewFileSides};
 use crate::service::FileDiffs;
@@ -148,6 +148,15 @@ impl SymbolIndex for FakeIndex {
 
   fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
     Ok(None)
+  }
+  /// A declaration lookup asks no place
+  fn references_at(&self, _repository_root: &str, _declarations: &[DeclarationAt], _revision: &str) -> anyhow::Result<Option<Vec<References>>> {
+    anyhow::bail!("A declaration lookup asked a place")
+  }
+
+  /// A declaration lookup asks no tests
+  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+    anyhow::bail!("A declaration lookup asked for tests")
   }
 }
 

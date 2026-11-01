@@ -8581,13 +8581,20 @@ export type Usages = {
 	outside: number,
 	/**  The first `fan_in::OUTSIDE_SITES` usages left outside, by path and line */
 	outsideSites: UsageSite[],
+	/**  The calls left outside that still bind the parameters they bound before the commits: no break */
+	stillBound: number,
+	/**
+	 *  The hits in code left outside that only the name ties to the declaration (a receiver nothing typed, another
+	 *  language, a namesake's): unknown, never counted as a use
+	 */
+	byName: number,
 	/**  False when the index cut its answer at its limit (100): there are more */
 	complete: boolean,
 	/**
-	 *  Every use is updated in this change: the count is `complete` and none is left outside. An unknown or incomplete
-	 *  count never is, also at 0
+	 *  No use left outside can break: the count is `complete`, none is left outside that breaks, and none is tied by the
+	 *  name alone. An unknown or incomplete count never is, also at 0
 	 */
-	updated: boolean,
+	unbroken: boolean,
 };
 
 /**  The parameters of `validate_branch_name` */

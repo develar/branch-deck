@@ -34,7 +34,7 @@ use crate::symbol_dependencies::{
 };
 use crate::symbol_scan::SymbolInput;
 use code_symbols::language::{Family, Language, language_of};
-use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape};
+use code_symbols::summary::{DeclKind, Declaration, FileSummary, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape, Signature};
 use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -255,31 +255,68 @@ fn constructor_forms(site: &Site<'_>) -> Option<Vec<String>> {
     let mut forms: Vec<String> = constructors
       .iter()
       .map(|constructor| {
-        let parameters: Vec<String> = constructor
-          .signature
-          .parameters
-          .iter()
-          .map(|parameter| {
-            let names: Vec<&str> = parameter
-              .type_ref
-              .iter()
-              .flat_map(|type_ref| type_ref.names.iter().map(|name| summary.name(*name)))
-              .collect();
-            format!(
-              "{}:{}{}{}",
-              summary.name(parameter.name),
-              names.join("/"),
-              if parameter.optional { "=" } else { "" },
-              if parameter.vararg { "*" } else { "" }
-            )
-          })
-          .collect();
+        let parameters: Vec<String> = parameter_forms(summary, &constructor.signature).iter().map(ParameterForm::shown).collect();
         format!("{:?}({})", constructor.reach, parameters.join(","))
       })
       .collect();
     forms.sort();
     forms
   })
+}
+
+/// A parameter of a function or a constructor, as a call binds it
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParameterForm {
+  pub name: String,
+  /// Its type: the names `/` apart, `[]` per array dimension, `?` when nullable; empty where none is written
+  pub type_text: String,
+  /// It has a default
+  pub optional: bool,
+  pub vararg: bool,
+}
+
+impl ParameterForm {
+  /// `name:Type?`, `=` for a default and `*` for a vararg
+  fn shown(&self) -> String {
+    format!(
+      "{}:{}{}{}",
+      self.name,
+      self.type_text,
+      if self.optional { "=" } else { "" },
+      if self.vararg { "*" } else { "" }
+    )
+  }
+}
+
+/// The parameters of `signature`, in order
+fn parameter_forms(summary: &FileSummary, signature: &Signature) -> Vec<ParameterForm> {
+  signature
+    .parameters
+    .iter()
+    .map(|parameter| ParameterForm {
+      name: summary.name(parameter.name).to_string(),
+      type_text: parameter.type_ref.as_ref().map_or_else(String::new, |type_ref| {
+        let names: Vec<&str> = type_ref.names.iter().map(|name| summary.name(*name)).collect();
+        format!(
+          "{}{}{}",
+          names.join("/"),
+          "[]".repeat(usize::from(type_ref.arrays)),
+          if type_ref.nullable { "?" } else { "" }
+        )
+      }),
+      optional: parameter.optional,
+      vararg: parameter.vararg,
+    })
+    .collect()
+}
+
+/// The parameter lists a call of the declaration of `site` binds: of a type, one per constructor; of a function, its own
+fn signatures_of(site: &Site<'_>) -> Vec<Vec<ParameterForm>> {
+  let summary = site.ctx.summary;
+  match &site.declaration.constructors {
+    Some(constructors) if site.declaration.kind == DeclKind::Type => constructors.iter().map(|constructor| parameter_forms(summary, &constructor.signature)).collect(),
+    _ => site.signature().map(|signature| parameter_forms(summary, signature)).into_iter().collect(),
+  }
 }
 
 /// A declaration on one side of a commit's change of a file, as a use from another file sees it (`changed_declarations`)
@@ -305,6 +342,9 @@ pub struct DeclarationForm {
   /// What a review calls it (`surface_of`)
   pub surface: Surface,
   pub form: Form,
+  /// The parameter lists a call of it binds (`signatures_of`): one per constructor of a type, one of a function, none
+  /// where its parameters are unknown
+  pub signatures: Vec<Vec<ParameterForm>>,
 }
 
 /// What a review calls a declaration (`surface_of`)
@@ -398,30 +438,9 @@ pub fn surface_of(summary: &FileSummary, declaration: &Declaration, public: bool
 fn form_of(site: &Site<'_>) -> Form {
   let declaration = site.declaration;
   let summary = site.ctx.summary;
-  let parameters = site.signature().map(|signature| {
-    signature
-      .parameters
-      .iter()
-      .map(|parameter| {
-        let type_text = parameter.type_ref.as_ref().map_or_else(String::new, |type_ref| {
-          let names: Vec<&str> = type_ref.names.iter().map(|name| summary.name(*name)).collect();
-          format!(
-            "{}{}{}",
-            names.join("/"),
-            "[]".repeat(usize::from(type_ref.arrays)),
-            if type_ref.nullable { "?" } else { "" }
-          )
-        });
-        format!(
-          "{}:{type_text}{}{}",
-          summary.name(parameter.name),
-          if parameter.optional { "=" } else { "" },
-          if parameter.vararg { "*" } else { "" }
-        )
-      })
-      .collect::<Vec<_>>()
-      .join(",")
-  });
+  let parameters = site
+    .signature()
+    .map(|signature| parameter_forms(summary, signature).iter().map(ParameterForm::shown).collect::<Vec<_>>().join(","));
   let constructors = if declaration.kind == DeclKind::Type { constructor_forms(site) } else { None };
   Form {
     header: declaration.header.clone(),
@@ -459,6 +478,7 @@ fn declaration_form(ctx: &FileCtx<'_>, declaration: &Declaration) -> Declaration
     test,
     surface,
     form: form_of(&site),
+    signatures: signatures_of(&site),
     containers: site.containers,
   }
 }

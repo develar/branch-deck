@@ -1,148 +1,189 @@
 use crate::api::{ApiChange, ApiChangeKind, FormChange, UsageSite, Usages};
-use crate::fan_in::{MAX_USAGE_QUERIES, NO_ACCIO, NO_INDEX, OUTSIDE_SITES, add_usages};
+use crate::fan_in::{NO_ACCIO, NO_INDEX, OUTSIDE_SITES, add_usages};
 use crate::pair::ChangedLines;
 use crate::test_support::{plan_of, range};
-use file_diffs::accio::{ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex};
+use file_diffs::accio::{CallArgument, DeclarationAt, ReferenceHit, References, Resolved, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
+use trial_check::symbol_dependencies::declaration_checks::ParameterForm;
 
-/// A hit after the declaration: path, kind, snippet; its line is its place in the answer, from 1
-type Hit<'a> = (&'a str, &'a str, &'a str);
-/// A hit after the declaration: path, line, kind, snippet
-type Line = (String, u32, String, String);
-/// A hit as a test writes it: path, line, kind, snippet
-type LineRef<'a> = (&'a str, u32, &'a str, &'a str);
-/// The answer of a query: its hits, or the error that fails it
-type Answer<'a> = Result<Vec<Hit<'a>>, &'a str>;
-
-/// An index of usages by query: a query it does not know has none, an `Err` fails it, `canceled` is canceled; it keeps
-/// the revision of each query and the query
+/// An index of usages by place (`DeclarationAt::argument`: `<path>:<line>`, `<revision>:<path>:<line>`): a place it does
+/// not know has none; it keeps every query, its places and its revision
 pub(crate) struct Counts {
-  /// query -> the hits after the declaration
-  answers: HashMap<String, Result<Vec<Line>, String>>,
+  /// The place -> the hits after the declaration
+  answers: HashMap<String, Vec<ReferenceHit>>,
   indexed: bool,
-  queries: Mutex<Vec<(String, Option<String>)>>,
+  /// Every query fails with it
+  failure: Option<&'static str>,
+  canceled: bool,
+  /// Each query: its places (`DeclarationAt::argument`) and its revision
+  queries: Mutex<Vec<(Vec<String>, String)>>,
 }
 
-/// The query that is canceled
-const CANCELED: &str = "canceled";
 /// The usages an answer holds at most, as accio's `--limit`
 const LIMIT: usize = 100;
 /// The path of a usage that `Counts::of` answers: a file the change does not touch
 const OUTSIDE: &str = "src/Use.kt";
 
-impl Counts {
-  /// `usages` usages of each query, all in `OUTSIDE`
-  pub(crate) fn of(answers: &[(&str, Result<usize, &str>)]) -> Self {
-    let answers: Vec<(&str, Result<Vec<&str>, &str>)> = answers.iter().map(|(query, answer)| (*query, answer.map(|usages| vec![OUTSIDE; usages]))).collect();
-    Self::at(&answers)
-  }
-
-  /// A call at each path of each query
-  pub(crate) fn at(answers: &[(&str, Result<Vec<&str>, &str>)]) -> Self {
-    let answers: Vec<(&str, Answer<'_>)> = answers
-      .iter()
-      .map(|(query, answer)| (*query, answer.clone().map(|paths| paths.into_iter().map(|path| (path, "call", "")).collect())))
-      .collect();
-    Self::hits(&answers)
-  }
-
-  /// The hits of each query: (path, kind, snippet), each on the line of its place in the answer
-  pub(crate) fn hits(answers: &[(&str, Answer<'_>)]) -> Self {
-    let lines = |hits: Vec<Hit<'_>>| -> Vec<Line> {
-      (1..)
-        .zip(hits)
-        .map(|(line, (path, kind, snippet))| (path.to_string(), line, kind.to_string(), snippet.to_string()))
-        .collect()
-    };
-    Self::answers(answers.iter().map(|(query, answer)| (*query, answer.clone().map(lines))))
-  }
-
-  /// A call at each path and line of each query
-  pub(crate) fn calls(answers: &[(&str, Vec<(&str, u32)>)]) -> Self {
-    let calls: Vec<(&str, Vec<LineRef<'_>>)> = answers
-      .iter()
-      .map(|(query, calls)| (*query, calls.iter().map(|(path, line)| (*path, *line, "call", "")).collect()))
-      .collect();
-    Self::lines(&calls)
-  }
-
-  /// The hits of each query: (path, line, kind, snippet)
-  pub(crate) fn lines(answers: &[(&str, Vec<LineRef<'_>>)]) -> Self {
-    let lines = |hits: &[LineRef<'_>]| -> Vec<Line> {
-      hits
-        .iter()
-        .map(|(path, line, kind, snippet)| ((*path).to_string(), *line, (*kind).to_string(), (*snippet).to_string()))
-        .collect()
-    };
-    Self::answers(answers.iter().map(|(query, hits)| (*query, Ok(lines(hits)))))
-  }
-
-  fn answers<'a>(answers: impl Iterator<Item = (&'a str, Result<Vec<Line>, &'a str>)>) -> Self {
-    Self {
-      answers: answers.map(|(query, answer)| (query.to_string(), answer.map_err(str::to_string))).collect(),
-      indexed: true,
-      queries: Mutex::default(),
-    }
-  }
-
-  fn no_index() -> Self {
-    Self { indexed: false, ..Self::of(&[]) }
-  }
-
-  /// The revisions of the queries, sorted
-  pub(crate) fn revisions(&self) -> Vec<Option<String>> {
-    let mut revisions: Vec<Option<String>> = self.queries.lock().unwrap().iter().map(|(_, revision)| revision.clone()).collect();
-    revisions.sort();
-    revisions
-  }
-
-  /// The queries asked, sorted
-  pub(crate) fn queries(&self) -> Vec<String> {
-    let mut queries: Vec<String> = self.queries.lock().unwrap().iter().map(|(query, _)| query.clone()).collect();
-    queries.sort();
-    queries
-  }
-}
-
-fn hit(path: &str, line: u32, kind: &str, snippet: &str) -> ReferenceHit {
+/// A hit tied to the declaration by a type
+pub(crate) fn typed(path: &str, line: u32, kind: &str) -> ReferenceHit {
   ReferenceHit {
     path: path.to_string(),
     line,
     column: 1,
-    snippet: snippet.to_string(),
+    snippet: String::new(),
     kind: kind.to_string(),
+    resolved: Resolved::Typed,
+    end_line: None,
+    arguments: None,
+    fits: None,
   }
 }
 
-impl SymbolIndex for Counts {
-  fn references(&self, _repository_root: &str, name: &str, revision: Option<&str>) -> anyhow::Result<Option<References>> {
+/// A hit only the name ties to the declaration
+pub(crate) fn by_name(path: &str, line: u32, kind: &str) -> ReferenceHit {
+  ReferenceHit {
+    resolved: Resolved::Name,
+    ..typed(path, line, kind)
+  }
+}
+
+/// A typed call from `line` to `end_line` that fits the new form, with its arguments
+fn fitting(path: &str, line: u32, end_line: u32, arguments: Vec<CallArgument>) -> ReferenceHit {
+  ReferenceHit {
+    end_line: Some(end_line),
+    arguments: Some(arguments),
+    fits: Some(true),
+    ..typed(path, line, "call")
+  }
+}
+
+/// A named argument that binds its parameter
+fn named(name: &str) -> CallArgument {
+  CallArgument {
+    name: Some(name.to_string()),
+    parameter: Some(name.to_string()),
+    ..CallArgument::default()
+  }
+}
+
+/// A positional argument that binds `parameter`
+fn positional(position: u32, parameter: &str) -> CallArgument {
+  CallArgument {
+    position: Some(position),
+    parameter: Some(parameter.to_string()),
+    ..CallArgument::default()
+  }
+}
+
+impl Counts {
+  /// `usages` typed calls of each place, all in `OUTSIDE`
+  pub(crate) fn of(answers: &[(&str, usize)]) -> Self {
+    let answers = answers.iter().map(|(place, usages)| {
+      let lines = 1..=u32::try_from(*usages).unwrap();
+      (*place, lines.map(|line| typed(OUTSIDE, line, "call")).collect())
+    });
+    Self::hits(answers)
+  }
+
+  /// A typed call at each path and line of each place
+  pub(crate) fn calls(answers: &[(&str, Vec<(&str, u32)>)]) -> Self {
+    Self::hits(
+      answers
+        .iter()
+        .map(|(place, calls)| (*place, calls.iter().map(|(path, line)| typed(path, *line, "call")).collect())),
+    )
+  }
+
+  /// The hits of each place
+  pub(crate) fn hits<'a>(answers: impl IntoIterator<Item = (&'a str, Vec<ReferenceHit>)>) -> Self {
+    Self {
+      answers: answers.into_iter().map(|(place, hits)| (place.to_string(), hits)).collect(),
+      indexed: true,
+      failure: None,
+      canceled: false,
+      queries: Mutex::default(),
+    }
+  }
+
+  pub(crate) fn no_index() -> Self {
+    Self { indexed: false, ..Self::of(&[]) }
+  }
+
+  fn failing(failure: &'static str) -> Self {
+    Self {
+      failure: Some(failure),
+      ..Self::of(&[])
+    }
+  }
+
+  fn canceled() -> Self {
+    Self { canceled: true, ..Self::of(&[]) }
+  }
+
+  /// The places asked (`DeclarationAt::argument`), sorted
+  pub(crate) fn places(&self) -> Vec<String> {
+    let mut places: Vec<String> = self.queries.lock().unwrap().iter().flat_map(|(places, _)| places.clone()).collect();
+    places.sort();
+    places
+  }
+
+  /// The revision of each query
+  pub(crate) fn revisions(&self) -> Vec<String> {
+    self.queries.lock().unwrap().iter().map(|(_, revision)| revision.clone()).collect()
+  }
+
+  /// Records a query of `declarations`; answers whether it answers at all
+  fn ask(&self, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<bool> {
     self
       .queries
       .lock()
       .unwrap_or_else(std::sync::PoisonError::into_inner)
-      .push((name.to_string(), revision.map(str::to_string)));
-    if name == CANCELED {
+      .push((declarations.iter().map(DeclarationAt::argument).collect(), revision.to_string()));
+    if self.canceled {
       return Err(SearchCanceled.into());
     }
-    if !self.indexed {
+    if let Some(failure) = self.failure {
+      anyhow::bail!("{failure}");
+    }
+    Ok(self.indexed)
+  }
+}
+
+impl SymbolIndex for Counts {
+  /// No search by name: the fan-in asks by place
+  fn references(&self, _repository_root: &str, name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
+    anyhow::bail!("asked {name} by its name")
+  }
+
+  fn references_at(&self, _repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> anyhow::Result<Option<Vec<References>>> {
+    if !self.ask(declarations, revision)? {
       return Ok(None);
     }
-    let answer = match self.answers.get(name) {
-      Some(Err(error)) => anyhow::bail!("{error}"),
-      Some(Ok(answer)) => answer.clone(),
-      None => Vec::new(),
-    };
-    // the declaration itself is a hit too, which no usage counts
-    let usages = answer.iter().map(|(path, line, kind, snippet)| hit(path, *line, kind, snippet));
-    let hits: Vec<ReferenceHit> = std::iter::once(hit("src/Api.kt", 1, "declaration", "")).chain(usages).take(LIMIT).collect();
-    Ok(Some(References {
-      hits,
-      complete: answer.len() < LIMIT,
-    }))
+    let answers = declarations
+      .iter()
+      .map(|declaration| {
+        let answer = self.answers.get(&declaration.argument()).cloned().unwrap_or_default();
+        // the declaration itself is a hit too, which no usage counts
+        let hits: Vec<ReferenceHit> = std::iter::once(typed(&declaration.path, declaration.line, "declaration"))
+          .chain(answer.iter().cloned())
+          .take(LIMIT)
+          .collect();
+        References {
+          hits,
+          complete: answer.len() < LIMIT,
+        }
+      })
+      .collect();
+    Ok(Some(answers))
+  }
+
+  /// No tests: the usages need only references
+  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+    Ok(None)
   }
 
   /// No declaration lookup: the usages need only references
@@ -151,10 +192,11 @@ impl SymbolIndex for Counts {
   }
 }
 
-/// An entry of `name` whose usages are asked by `name`
+/// An entry of `name` declared on line 1 of `src/<name>.kt`, asked there at the head
 fn change(name: &str, kind: ApiChangeKind) -> ApiChange {
+  let path = format!("src/{name}.kt");
   ApiChange {
-    path: format!("src/{name}.kt"),
+    path: path.clone(),
     line: 1,
     name: name.to_string(),
     key: format!("a.{name}"),
@@ -163,19 +205,20 @@ fn change(name: &str, kind: ApiChangeKind) -> ApiChange {
     before: None,
     after: None,
     usages: None,
-    query: name.to_string(),
-    owner: None,
-    file: format!("src/{name}.kt"),
+    at: DeclarationAt {
+      revision: None,
+      path: path.clone(),
+      line: 1,
+    },
+    signatures_before: Vec::new(),
+    signatures_after: Vec::new(),
+    file: path,
   }
 }
 
-/// An entry of the member `name` of `Store`, asked by `Store.name`
-fn member(name: &str, kind: ApiChangeKind) -> ApiChange {
-  ApiChange {
-    query: format!("Store.{name}"),
-    owner: Some("Store".to_string()),
-    ..change(name, kind)
-  }
+/// The place of `change` in `Counts`
+fn place(name: &str) -> String {
+  format!("src/{name}.kt:1")
 }
 
 /// The usages of each entry: (name, inside, outside), `None` when not known
@@ -200,10 +243,11 @@ fn whole(paths: &[&str]) -> ChangedLines {
   lines
 }
 
-/// A removal and a change are asked at the head and ranked by their usages left outside; an addition is never asked
+/// A removal and a change are asked at the head by their places, in one query, and ranked by their usages left outside;
+/// an addition is never asked
 #[test]
 fn the_entries_are_sorted_by_their_usages_left_outside() {
-  let index = Counts::of(&[("few", Ok(1)), ("many", Ok(9))]);
+  let index = Counts::of(&[(&place("few"), 1), (&place("many"), 9)]);
   let mut api = vec![
     change("few", ApiChangeKind::Removed),
     change("many", ApiChangeKind::Changed),
@@ -211,7 +255,38 @@ fn the_entries_are_sorted_by_their_usages_left_outside() {
   ];
   let note = add(Some(&index), &mut api).unwrap();
   assert_eq!(counts(&api), [("many", Some((0, 9))), ("few", Some((0, 1))), ("fresh", None)]);
-  assert_eq!((note, index.revisions()), (None, vec![Some("head".to_string()); 2]));
+  assert_eq!(
+    (note, index.places(), index.revisions()),
+    (None, vec![place("few"), place("many")], vec!["head".to_string()])
+  );
+}
+
+/// Two entries of one place are asked once; a removal is asked at the revision its place is of
+#[test]
+fn an_entry_is_asked_by_its_place_once() {
+  let index = Counts::of(&[("src/Store.kt:4", 2), ("c0ffee^:src/Store.kt:4", 1)]);
+  let at = |revision: Option<&str>| DeclarationAt {
+    revision: revision.map(str::to_string),
+    path: "src/Store.kt".to_string(),
+    line: 4,
+  };
+  let mut api = vec![
+    ApiChange {
+      at: at(None),
+      ..change("open", ApiChangeKind::Changed)
+    },
+    ApiChange {
+      at: at(None),
+      ..change("open", ApiChangeKind::Changed)
+    },
+    ApiChange {
+      at: at(Some("c0ffee^")),
+      ..change("close", ApiChangeKind::Removed)
+    },
+  ];
+  add(Some(&index), &mut api).unwrap();
+  assert_eq!(index.places(), ["c0ffee^:src/Store.kt:4", "src/Store.kt:4"]);
+  assert_eq!(counts(&api), [("open", Some((0, 2))), ("open", Some((0, 2))), ("close", Some((0, 1)))]);
 }
 
 /// A usage in a file the change touches is updated in this change; one in another file is left outside, and the first
@@ -219,16 +294,16 @@ fn the_entries_are_sorted_by_their_usages_left_outside() {
 /// rank first, though fewer in all
 #[test]
 fn the_usages_split_into_those_inside_the_change_and_those_left_outside() {
-  let outside: Vec<&str> = vec!["lib/Other.kt"; OUTSIDE_SITES + 2];
-  let index = Counts::at(&[
-    ("helper", Ok(vec!["src/A.kt", "src/B.kt", "src/A.kt"])),
-    ("open", Ok([&["src/A.kt"][..], &outside].concat())),
+  let outside: Vec<(&str, u32)> = (1..=u32::try_from(OUTSIDE_SITES).unwrap() + 2).map(|line| ("lib/Other.kt", line)).collect();
+  let index = Counts::calls(&[
+    (&place("helper"), vec![("src/A.kt", 1), ("src/B.kt", 1), ("src/A.kt", 2)]),
+    (&place("open"), [&[("src/A.kt", 3)][..], &outside].concat()),
   ]);
   let mut api = vec![change("helper", ApiChangeKind::Removed), change("open", ApiChangeKind::Changed)];
   let changed = whole(&["src/A.kt", "src/B.kt"]);
   add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
   assert_eq!(counts(&api), [("open", Some((1, 7))), ("helper", Some((3, 0)))]);
-  let sites: Vec<UsageSite> = (2..=6)
+  let sites: Vec<UsageSite> = (1..=5)
     .map(|line| UsageSite {
       path: "lib/Other.kt".to_string(),
       line,
@@ -241,96 +316,54 @@ fn the_usages_split_into_those_inside_the_change_and_those_left_outside() {
 /// The index cuts an answer at its limit: the usages say they are not complete
 #[test]
 fn a_cut_answer_is_not_complete() {
-  let index = Counts::of(&[("everywhere", Ok(250))]);
+  let index = Counts::of(&[(&place("everywhere"), 250)]);
   let mut api = vec![change("everywhere", ApiChangeKind::Changed)];
   add(Some(&index), &mut api).unwrap();
   let usages = api[0].usages.clone().unwrap();
-  assert_eq!((usages.inside, usages.outside, usages.complete), (0, 99, false));
+  assert_eq!((usages.inside, usages.outside, usages.complete, usages.unbroken), (0, 99, false, false));
 }
 
-/// The query of an entry is its `query` (`Owner.name`), asked once for two entries; a name of the stop list without an
-/// owner (bare, or after a package) is never asked, so its usages stay unknown rather than counting every type's
+/// A hit only the name ties to the declaration (a receiver nothing typed, another language, a namesake's) is no use
+/// and no proof of none: left outside, it is counted apart, and the API is not unbroken; inside the change it is not
+/// counted at all
 #[test]
-fn the_entries_are_asked_by_their_query_and_never_by_a_bare_name_of_the_stop_list() {
-  let index = Counts::of(&[("Store.open", Ok(2))]);
-  let mut api = vec![
-    member("open", ApiChangeKind::Removed),
-    ApiChange {
-      path: "src/Other.kt".to_string(),
-      ..member("open", ApiChangeKind::Changed)
-    },
-    change("toString", ApiChangeKind::Changed),
-    ApiChange {
-      query: "a.get".to_string(),
-      ..change("get", ApiChangeKind::Removed)
-    },
-  ];
-  let note = add(Some(&index), &mut api).unwrap();
-  assert_eq!(index.queries(), ["Store.open"]);
-  assert_eq!(counts(&api), [("open", Some((0, 2))), ("open", Some((0, 2))), ("get", None), ("toString", None)]);
-  assert_eq!(note, None);
-
-  // only bare names of the stop list: nothing asked, no note
-  let mut api = vec![change("hashCode", ApiChangeKind::Removed)];
-  assert_eq!(add(None, &mut api).unwrap(), None);
-}
-
-/// A member of a name of the stop list is asked by its owner (`Store.new`, `Store.get`), but accio answers every call of
-/// the name on a receiver it cannot type: only a line that names the owner counts, and the usages are a lower bound
-#[test]
-fn a_member_of_a_name_of_the_stop_list_counts_the_lines_that_name_its_owner() {
-  let index = Counts::hits(&[
-    (
-      "Store.new",
-      Ok(vec![
-        ("src/user.rs", "call", "let store = Store::new(1);"),
-        ("lib/other.rs", "call", "let cache = Cache::new(1);"),
-        ("lib/other.rs", "call", "let store = crate::Store::new(2);"),
-        ("lib/other.rs", "call", "let stores = MyStore::new(3);"),
-      ]),
-    ),
-    (
-      "Store.get",
-      Ok(vec![("lib/Use.kt", "call", "val x = map.get(1)"), ("lib/Use.kt", "call", "val y = Store.get(key)")]),
-    ),
-  ]);
-  let mut api = vec![
-    ApiChange {
-      file: "src/store.rs".to_string(),
-      ..member("new", ApiChangeKind::Changed)
-    },
-    member("get", ApiChangeKind::Removed),
-  ];
-  let changed = whole(&["src/user.rs"]);
-  add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
-  assert_eq!(index.queries(), ["Store.get", "Store.new"]);
-  assert_eq!(counts(&api), [("new", Some((1, 1))), ("get", Some((0, 1)))]);
-  assert!(api.iter().all(|change| !change.usages.as_ref().unwrap().complete));
+fn a_hit_only_the_name_ties_is_no_use_and_keeps_the_api_listed() {
+  let index = Counts::hits([(
+    place("isEmpty").as_str(),
+    vec![
+      typed("src/Policy.kt", 3, "call"),
+      by_name("lib/Scanner.kt", 7, "call"),
+      by_name("lib/scan.py", 2, "call"),
+      by_name("src/Policy.kt", 9, "call"),
+    ],
+  )]);
+  let mut api = vec![change("isEmpty", ApiChangeKind::Changed)];
+  add_usages(Some(&index), "/repo", "head", || Ok(whole(&["src/Policy.kt"])), &mut api).unwrap();
+  let usages = api[0].usages.as_ref().unwrap();
+  assert_eq!((usages.inside, usages.outside, usages.by_name, usages.unbroken), (1, 0, 2, false));
 }
 
 /// The usages of an entry: the parts that changed, its kind, inside, outside, the paths of the sites outside, complete
 type Split<'a> = (Vec<FormChange>, ApiChangeKind, u32, u32, Vec<&'a str>, bool);
 
-/// Only a hit in code is a usage: no import, no doc mention, no hit in a file of another family of languages. Of a type
-/// whose constructors are its only change, only a call and a subtype count (accio tags a Kotlin `class Sub : Policy(1)`
-/// `call` and a Java `extends Policy` `supertype`), and the count is as complete as the answer of accio
+/// Only a hit in code is a usage: no import, no doc mention. Of a type whose constructors are its only change, only a
+/// call and a subtype count (accio tags a Kotlin `class Sub : Policy(1)` `call` and a Java `extends Policy`
+/// `supertype`), and the count is as complete as the answer of accio
 #[test]
 fn only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes() {
   let hits = vec![
-    ("lib/A.kt", "import", "import a.Policy"),
-    ("lib/A.kt", "type", "override fun policy(): Policy?"),
-    ("lib/B.kt", "doc", "/** The [Policy] of the frame */"),
-    ("lib/C.java", "call", "return new Policy(1);"),
-    ("web/policy.ts", "call", "new Policy(1)"),
-    ("lib/D.kt", "read", "val id = policy.id"),
-    ("src/E.kt", "call", "Policy(id = 1)"),
-    ("lib/F.kt", "call", "class Sub : Policy(1) {"),
-    ("lib/G.java", "supertype", "public class JSub extends Policy {"),
+    typed("lib/A.kt", 1, "import"),
+    typed("lib/A.kt", 2, "type"),
+    typed("lib/B.kt", 1, "doc"),
+    by_name("docs/policy.md", 1, "doc"),
+    typed("lib/C.java", 1, "call"),
+    typed("lib/D.kt", 1, "read"),
+    typed("src/E.kt", 1, "call"),
+    typed("lib/F.kt", 1, "call"),
+    typed("lib/G.java", 1, "supertype"),
   ];
-  let index = Counts::hits(&[("a.Policy", Ok(hits))]);
+  let index = Counts::hits([(place("Policy").as_str(), hits)]);
   let policy = |kind: ApiChangeKind, changes: Vec<FormChange>| ApiChange {
-    query: "a.Policy".to_string(),
-    file: "src/Policy.kt".to_string(),
     changes,
     ..change("Policy", kind)
   };
@@ -366,12 +399,181 @@ fn only_code_hits_count_and_of_a_constructor_change_only_calls_and_subtypes() {
     ]
   );
 
-  // no call and no subtype outside: every use is updated in this change
-  let index = Counts::hits(&[("a.Policy", Ok(vec![("src/E.kt", "call", "Policy(id = 1)"), ("lib/A.kt", "type", "val p: Policy")]))]);
+  // no call and no subtype outside: no use left outside breaks
+  let index = Counts::hits([(place("Policy").as_str(), vec![typed("src/E.kt", 1, "call"), typed("lib/A.kt", 1, "type")])]);
   let mut api = vec![policy(ApiChangeKind::Changed, vec![FormChange::Constructors])];
   add_usages(Some(&index), "/repo", "head", || Ok(changed.clone()), &mut api).unwrap();
   let usages = api[0].usages.as_ref().unwrap();
-  assert_eq!((usages.inside, usages.outside, usages.complete), (1, 0, true));
+  assert_eq!((usages.inside, usages.outside, usages.complete, usages.unbroken), (1, 0, true, true));
+}
+
+/// A call is inside when any of its lines is one the commits changed: a multi-line call whose arguments the change
+/// rewrote, its first line left as it was, is updated in this change
+#[test]
+fn a_call_is_inside_by_any_of_its_lines() {
+  let mut call = typed("src/User.kt", 10, "call");
+  call.end_line = Some(13);
+  let index = Counts::hits([(place("open").as_str(), vec![call, typed("src/User.kt", 20, "call")])]);
+  let mut changed = ChangedLines::default();
+  changed.add_ranges("src/User.kt", std::iter::once(12..13).collect());
+  let mut api = vec![change("open", ApiChangeKind::Changed)];
+  add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
+  assert_eq!(counts(&api), [("open", Some((1, 1)))]);
+}
+
+/// A parameter of a signature: name, type, with a default
+fn parameter(name: &str, type_text: &str, optional: bool) -> ParameterForm {
+  ParameterForm {
+    name: name.to_string(),
+    type_text: type_text.to_string(),
+    optional,
+    vararg: false,
+  }
+}
+
+/// A call left outside that accio says fits the new form, each of whose arguments binds a parameter of the same name
+/// and type as before, still binds: it neither breaks nor changes its meaning. A call whose positional argument now
+/// binds another parameter, one that misfits, a spread, a named argument of a parameter whose type changed and a call
+/// of a change of more than the parameters can break
+#[test]
+fn a_call_left_outside_that_binds_what_it_bound_before_still_binds() {
+  // the constructor of `ProjectFrameUiPolicy` loses its first and its last parameter
+  let before = vec![vec![
+    parameter("toolWindowToActivate", "String?", true),
+    parameter("projectPaneToActivateId", "String?", true),
+    parameter("activatesProjectViewOnStartup", "Boolean", true),
+    parameter("idsToHide", "Set", true),
+  ]];
+  let after = vec![vec![
+    parameter("projectPaneToActivateId", "String?", true),
+    parameter("activatesProjectViewOnStartup", "Boolean", true),
+  ]];
+  let misfit = ReferenceHit {
+    fits: Some(false),
+    arguments: Some(vec![CallArgument {
+      name: Some("idsToHide".to_string()),
+      unbound: true,
+      ..CallArgument::default()
+    }]),
+    ..typed("lib/Hide.kt", 1, "call")
+  };
+  let spread = fitting(
+    "lib/Spread.kt",
+    1,
+    1,
+    vec![CallArgument {
+      position: Some(0),
+      spread: true,
+      parameter: Some("projectPaneToActivateId".to_string()),
+      ..CallArgument::default()
+    }],
+  );
+  let hits = vec![
+    fitting("lib/Welcome.kt", 54, 57, vec![named("projectPaneToActivateId"), named("activatesProjectViewOnStartup")]),
+    fitting("lib/Agent.kt", 3, 3, vec![named("activatesProjectViewOnStartup")]),
+    // before, its first argument bound `toolWindowToActivate`
+    fitting("lib/Shifted.kt", 1, 1, vec![positional(0, "projectPaneToActivateId")]),
+    misfit,
+    spread,
+  ];
+  let index = Counts::hits([(place("ProjectFrameUiPolicy").as_str(), hits)]);
+  let policy = |changes: Vec<FormChange>, before: Vec<Vec<ParameterForm>>| ApiChange {
+    changes,
+    signatures_before: before,
+    signatures_after: after.clone(),
+    ..change("ProjectFrameUiPolicy", ApiChangeKind::Changed)
+  };
+  let mut api = vec![
+    policy(vec![FormChange::Constructors], before.clone()),
+    policy(vec![FormChange::Constructors, FormChange::Reach], before),
+  ];
+  add(Some(&index), &mut api).unwrap();
+  let split: Vec<(u32, u32, Vec<&str>)> = api
+    .iter()
+    .map(|change| {
+      let usages = change.usages.as_ref().unwrap();
+      (usages.still_bound, usages.outside, usages.outside_sites.iter().map(|site| site.path.as_str()).collect())
+    })
+    .collect();
+  assert_eq!(
+    split,
+    [
+      // the reach changed too: a call that fits can still break
+      (0, 5, vec!["lib/Welcome.kt", "lib/Agent.kt", "lib/Shifted.kt", "lib/Hide.kt", "lib/Spread.kt"]),
+      (2, 3, vec!["lib/Shifted.kt", "lib/Hide.kt", "lib/Spread.kt"]),
+    ]
+  );
+  assert!(api.iter().all(|change| !change.usages.as_ref().unwrap().unbroken));
+
+  // a named argument of a parameter whose type changed can break
+  let retyped = vec![vec![
+    parameter("toolWindowToActivate", "String?", true),
+    parameter("projectPaneToActivateId", "String", true),
+    parameter("activatesProjectViewOnStartup", "Boolean", true),
+  ]];
+  let index = Counts::hits([(
+    place("ProjectFrameUiPolicy").as_str(),
+    vec![fitting("lib/Welcome.kt", 54, 57, vec![named("projectPaneToActivateId")])],
+  )]);
+  let mut api = vec![policy(vec![FormChange::Constructors], retyped)];
+  add(Some(&index), &mut api).unwrap();
+  assert_eq!(api[0].usages.as_ref().map(|usages| (usages.still_bound, usages.outside)), Some((0, 1)));
+
+  // every call left outside still binds: no use left outside breaks
+  let index = Counts::hits([(
+    place("ProjectFrameUiPolicy").as_str(),
+    vec![fitting("lib/Welcome.kt", 54, 57, vec![named("activatesProjectViewOnStartup")])],
+  )]);
+  let mut api = vec![policy(vec![FormChange::Constructors], after.clone())];
+  add(Some(&index), &mut api).unwrap();
+  let usages = api[0].usages.as_ref().unwrap();
+  assert_eq!((usages.still_bound, usages.outside, usages.unbroken), (1, 0, true));
+}
+
+/// A trailing lambda binds the last parameter: it still binds when the last parameter keeps its name and type; a
+/// positional argument past a vararg binds the vararg
+#[test]
+fn a_trailing_lambda_and_a_vararg_bind_by_their_place() {
+  let block = parameter("block", "Function0", false);
+  let before = vec![vec![parameter("name", "String", false), block.clone()]];
+  let after = vec![vec![parameter("name", "String", false), parameter("id", "Int", true), block]];
+  let lambda = CallArgument {
+    trailing_lambda: true,
+    parameter: Some("block".to_string()),
+    ..CallArgument::default()
+  };
+  let mut vararg = parameter("paths", "String", false);
+  vararg.vararg = true;
+  let index = Counts::hits([
+    (place("open").as_str(), vec![fitting("lib/A.kt", 1, 3, vec![positional(0, "name"), lambda])]),
+    (
+      place("join").as_str(),
+      vec![fitting("lib/B.kt", 1, 1, vec![positional(0, "paths"), positional(1, "paths")])],
+    ),
+  ]);
+  let mut api = vec![
+    ApiChange {
+      changes: vec![FormChange::Parameters],
+      signatures_before: before,
+      signatures_after: after,
+      ..change("open", ApiChangeKind::Changed)
+    },
+    ApiChange {
+      changes: vec![FormChange::Parameters],
+      signatures_before: vec![vec![vararg.clone()]],
+      signatures_after: vec![vec![vararg, parameter("separator", "String", true)]],
+      ..change("join", ApiChangeKind::Changed)
+    },
+  ];
+  add(Some(&index), &mut api).unwrap();
+  let bound: Vec<(&str, u32, u32)> = api
+    .iter()
+    .map(|change| {
+      let usages = change.usages.as_ref().unwrap();
+      (change.name.as_str(), usages.still_bound, usages.outside)
+    })
+    .collect();
+  assert_eq!(bound, [("join", 1, 0), ("open", 1, 0)]);
 }
 
 /// No accio on the machine, or no index of the repository: no usages, and the note says why
@@ -388,34 +590,21 @@ fn without_an_index_the_usages_are_missing_and_the_note_says_why() {
   assert_eq!(add(None, &mut added).unwrap(), None);
 }
 
-/// A failing query fails no plan: the others keep their answers, and the note gives the failure
+/// A failing query fails no plan: the entries keep no usages, and the note gives the failure
 #[test]
 fn a_failing_index_keeps_the_api() {
-  let index = Counts::of(&[("broken", Err("index is corrupt")), ("fine", Ok(3))]);
+  let index = Counts::failing("index is corrupt");
   let mut api = vec![change("broken", ApiChangeKind::Removed), change("fine", ApiChangeKind::Changed)];
   let note = add(Some(&index), &mut api).unwrap();
-  assert_eq!(counts(&api), [("fine", Some((0, 3))), ("broken", None)]);
+  assert_eq!(counts(&api), [("broken", None), ("fine", None)]);
   assert_eq!(note.as_deref(), Some("accio did not answer: index is corrupt"));
-}
-
-/// At most `MAX_USAGE_QUERIES` queries, for the first entries of the card
-#[test]
-fn at_most_twenty_queries_per_plan() {
-  let index = Counts::of(&[]);
-  let mut api: Vec<ApiChange> = (0..MAX_USAGE_QUERIES + 5)
-    .map(|number| change(&format!("call{number:02}"), ApiChangeKind::Changed))
-    .collect();
-  add(Some(&index), &mut api).unwrap();
-  assert_eq!(index.revisions().len(), MAX_USAGE_QUERIES);
-  let answered: Vec<&str> = api.iter().filter(|change| change.usages.is_some()).map(|change| change.name.as_str()).collect();
-  assert_eq!(answered, (0..MAX_USAGE_QUERIES).map(|number| format!("call{number:02}")).collect::<Vec<_>>());
 }
 
 /// A canceled query (a newer request of the window) cancels the plan
 #[test]
 fn a_canceled_query_cancels_the_plan() {
-  let index = Counts::of(&[]);
-  let mut api = vec![change(CANCELED, ApiChangeKind::Changed)];
+  let index = Counts::canceled();
+  let mut api = vec![change("open", ApiChangeKind::Changed)];
   let error = add(Some(&index), &mut api).unwrap_err();
   assert!(error.is::<SearchCanceled>(), "{error:?}");
 }
@@ -426,29 +615,31 @@ pub(crate) fn outside(outside: u32) -> Usages {
     inside: 0,
     outside,
     outside_sites: (1..=outside.min(5)).map(|line| UsageSite { path: OUTSIDE.to_string(), line }).collect(),
+    still_bound: 0,
+    by_name: 0,
     complete: true,
-    updated: outside == 0,
+    unbroken: outside == 0,
   }
 }
 
-/// An API is updated in this change only when its count is complete and none of its uses is left outside: a cut count
-/// or one of a member of `STOP_NAMES` at 0 is not, nor a count with a use outside
+/// An API is unbroken only when its count is complete and no use left outside can break
 #[test]
-fn an_api_is_updated_only_by_a_complete_count_with_no_use_left_outside() {
+fn an_api_is_unbroken_only_by_a_complete_count_with_no_use_left_outside_that_breaks() {
   let changed = whole(&["src/inside.kt"]);
-  let index = Counts::hits(&[
-    ("inside", Ok(vec![("src/inside.kt", "call", "open(1)")])),
-    ("outside", Ok(vec![("src/inside.kt", "call", "open(1)"), ("src/other.kt", "call", "open(2)")])),
+  let index = Counts::calls(&[
+    (&place("inside"), vec![("src/inside.kt", 1)]),
+    (&place("outside"), vec![("src/inside.kt", 1), ("src/other.kt", 2)]),
   ]);
   let mut api = vec![change("inside", ApiChangeKind::Changed), change("outside", ApiChangeKind::Changed)];
   add_usages(Some(&index), "/repo", "head", || Ok(changed), &mut api).unwrap();
-  let updated: Vec<(&str, bool)> = api.iter().map(|change| (change.name.as_str(), change.usages.as_ref().unwrap().updated)).collect();
-  assert_eq!(updated, [("outside", false), ("inside", true)]);
+  let unbroken: Vec<(&str, bool)> = api.iter().map(|change| (change.name.as_str(), change.usages.as_ref().unwrap().unbroken)).collect();
+  assert_eq!(unbroken, [("outside", false), ("inside", true)]);
 }
 
 /// A use is inside only on a line the commits changed: of a file one commit changes, a line of its hunks; of a file two
 /// commits change, a line of the blocks of its first blob against its last; of an added file, any line. A use on a line
-/// the change left as it was is outside, in a changed file too
+/// the change left as it was is outside, in a changed file too. The plan asks a change at the line of its name in the
+/// last commit that touched it, and accio answers from the head
 #[test]
 fn a_use_is_inside_only_on_a_line_the_commits_changed() {
   let repo = TestRepo::new();
@@ -460,7 +651,7 @@ fn a_use_is_inside_only_on_a_line_the_commits_changed() {
       ("src/a/Once.kt", "open(1)\nopen(2)\nopen(3)\n"),
     ],
   );
-  repo.create_commit_with_files(
+  let changed = repo.create_commit_with_files(
     "Change api",
     &[
       ("src/a/Api.kt", "package a\n\nfun open(x: Int, y: Int) {}\n"),
@@ -475,8 +666,9 @@ fn a_use_is_inside_only_on_a_line_the_commits_changed() {
       ("src/a/New.kt", "open(4, 4)\n"),
     ],
   );
+  let place = format!("{changed}:src/a/Api.kt:3");
   let index = Counts::calls(&[(
-    "a.open",
+    place.as_str(),
     vec![
       ("src/a/Twice.kt", 1),
       ("src/a/Twice.kt", 2),
@@ -486,7 +678,59 @@ fn a_use_is_inside_only_on_a_line_the_commits_changed() {
     ],
   )]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert_eq!((index.places(), index.revisions()), (vec![place], vec![head]));
   let usages = plan.api[0].usages.as_ref().unwrap();
   let sites: Vec<(&str, u32)> = usages.outside_sites.iter().map(|site| (site.path.as_str(), site.line)).collect();
   assert_eq!((usages.inside, usages.outside, sites), (3, 2, vec![("src/a/Twice.kt", 1), ("src/a/Once.kt", 2)]));
+}
+
+/// An entry of a plan: its name, the parts that changed, and its usages still bound, outside and unbroken
+type Bound<'a> = (&'a str, Vec<FormChange>, Option<(u32, u32, bool)>);
+
+/// The constructor of a Kotlin type that loses a parameter: the plan gives the change the parameters of its
+/// constructors before and after the commits, so a call left outside that names only the kept ones still binds
+#[test]
+fn a_constructor_call_left_outside_that_names_only_kept_parameters_still_binds() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit(
+    "Add policy",
+    "src/a/Policy.kt",
+    "package a\n\nclass Policy(\n  val toActivate: String? = null,\n  val pane: String? = null,\n)\n",
+  );
+  let head = repo.create_commit("Drop a hook", "src/a/Policy.kt", "package a\n\nclass Policy(\n  val pane: String? = null,\n)\n");
+  let place = format!("{head}:src/a/Policy.kt:3");
+  let index = Counts::hits([(place.as_str(), vec![fitting("lib/Welcome.kt", 4, 6, vec![named("pane")])])]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  let entries: Vec<Bound<'_>> = plan
+    .api
+    .iter()
+    .map(|change| {
+      (
+        change.name.as_str(),
+        change.changes.clone(),
+        change.usages.as_ref().map(|usages| (usages.still_bound, usages.outside, usages.unbroken)),
+      )
+    })
+    .collect();
+  // its property goes with the parameter of the constructor
+  assert_eq!(
+    entries,
+    [
+      ("toActivate", Vec::new(), Some((0, 0, true))),
+      ("Policy", vec![FormChange::Constructors], Some((1, 0, true)))
+    ]
+  );
+}
+
+/// An override of a changed open member in a subtype left outside can break, as accio ties it to the member by its type
+#[test]
+fn an_override_left_outside_can_break() {
+  let index = Counts::hits([(place("start").as_str(), vec![typed("lib/Sub.kt", 4, "override")])]);
+  let mut api = vec![ApiChange {
+    changes: vec![FormChange::Parameters],
+    ..change("start", ApiChangeKind::Changed)
+  }];
+  add(Some(&index), &mut api).unwrap();
+  let usages = api[0].usages.as_ref().unwrap();
+  assert_eq!((usages.outside, usages.unbroken), (1, false));
 }

@@ -169,12 +169,12 @@ impl ChangedLines {
     lines
   }
 
-  /// The commits changed line `line` (from 1) of `path` at the head
-  pub fn contains(&self, path: &str, line: u32) -> bool {
+  /// The commits changed a line of `lines` (from 1, both included) of `path` at the head
+  pub fn touches(&self, path: &str, lines: std::ops::RangeInclusive<u32>) -> bool {
     match self.files.get(path) {
       None => false,
       Some(FileLines::Whole) => true,
-      Some(FileLines::Ranges(ranges)) => ranges.iter().any(|range| range.contains(&line)),
+      Some(FileLines::Ranges(ranges)) => ranges.iter().any(|range| range.start <= *lines.end() && *lines.start() < range.end),
     }
   }
 

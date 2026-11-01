@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 11` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 12` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -14,7 +14,8 @@
 //! with its `directory` for 3 or more deleted from one directory, version 7 the `concerns`, version 8 the `elsewhere`
 //! of each concern, its files whose main row is in another one, version 9 the name `file` of a concern, version 10
 //! the `steps` of the story (spec/branch/review-tour.spec.md), their `coverage`, and the `brief`, version 11 the `api`
-//! and `test` of a unit in place of its `public`
+//! and `test` of a unit in place of its `public`, version 12 the `still_bound` and `by_name` usages, and `unbroken` in
+//! place of `updated`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -39,7 +40,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 11;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 12;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -178,10 +179,8 @@ pub struct ApiChangeOutput {
   pub before: Option<String>,
   /// The header after the commits, of a change or an addition
   pub after: Option<String>,
-  /// Of a removal or a change: its usages at the head, from `accio references` by `Owner.name` for a member and by
-  /// `package.name` for a top-level Kotlin or Java declaration; `null` without an answer (`index_note`), for a name
-  /// that nearly every type declares (`equals`, `toString`, `get`, `run`, `invoke` and others) and for the entries
-  /// past the first 20 queries
+  /// Of a removal or a change: its usages at the head, from `accio references --at` its place (of a removal, at the
+  /// parent of the commit that first touched it); `null` without an answer (`index_note`)
   pub usages: Option<UsagesOutput>,
 }
 
@@ -191,12 +190,17 @@ pub struct UsagesOutput {
   pub inside: u32,
   /// On the other lines, of a changed file too: left outside the change, where a removal or a change may break the code
   pub outside: u32,
-  /// The first 5 usages left outside
+  /// The first 5 usages left outside that can break
   pub outside_sites: Vec<UsageSite>,
+  /// Calls left outside that still bind the parameters they bound before: accio says they fit the new form, and each
+  /// argument binds a parameter of the same name and type as before
+  pub still_bound: u32,
+  /// Hits in code left outside that only the name ties to the declaration: unknown, not counted as uses
+  pub by_name: u32,
   /// False when accio cut its answer at 100 usages
   pub complete: bool,
-  /// Every use is updated in this change: `complete` and none left outside
-  pub updated: bool,
+  /// No use left outside can break: `complete`, no use left outside that can break, none tied by the name alone
+  pub unbroken: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -465,8 +469,10 @@ fn api_output(change: ApiChange) -> ApiChangeOutput {
       inside: usages.inside,
       outside: usages.outside,
       outside_sites: usages.outside_sites,
+      still_bound: usages.still_bound,
+      by_name: usages.by_name,
       complete: usages.complete,
-      updated: usages.updated,
+      unbroken: usages.unbroken,
     }),
   }
 }

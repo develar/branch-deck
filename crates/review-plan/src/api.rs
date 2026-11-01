@@ -21,17 +21,16 @@
 //!   `@TestOnly`, on it or a type around it) is no new API: its addition is no entry, its removal and its change are,
 //!   with their usages, as callers in other modules can break. A form both sides have that becomes API from unstable
 //!   API or from no API (`@ApiStatus.Internal` removed) is an addition.
-//! - **The query of its usages** (`ApiChange::query`, `fan_in`): `Owner.name` for a member, by the type around it that
-//!   is not a Kotlin `Companion` (`ProjectManager.getInstance`, not `Companion.getInstance`); `package.name` for a
-//!   top-level declaration of a Kotlin or Java file in a package; else the bare name.
+//! - **Its usages are asked by its place** (`ApiChange::at`, `fan_in`): the line of its name at the last commit that
+//!   touched it, of a removal at the parent of the commit that first touched it; accio answers from the head.
 //! - **Shown** as the header with the parameters after the name (`fun changedCall(x:Int, y:Int) : Int`), a type by its
 //!   constructors.
 
-use code_symbols::language::{Family, language_of};
+use file_diffs::accio::DeclarationAt;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use trial_check::diff_scan::CommitDiff;
-use trial_check::symbol_dependencies::declaration_checks::{DeclarationForm, Form, Surface, changed_declarations};
+use trial_check::symbol_dependencies::declaration_checks::{DeclarationForm, Form, ParameterForm, Surface, changed_declarations};
 use trial_check::symbol_scan::SymbolInput;
 
 /// What the reviewed commits do to a public declaration
@@ -88,11 +87,16 @@ pub struct Usages {
   pub outside: u32,
   /// The first `fan_in::OUTSIDE_SITES` usages left outside, by path and line
   pub outside_sites: Vec<UsageSite>,
+  /// The calls left outside that still bind the parameters they bound before the commits: no break
+  pub still_bound: u32,
+  /// The hits in code left outside that only the name ties to the declaration (a receiver nothing typed, another
+  /// language, a namesake's): unknown, never counted as a use
+  pub by_name: u32,
   /// False when the index cut its answer at its limit (100): there are more
   pub complete: bool,
-  /// Every use is updated in this change: the count is `complete` and none is left outside. An unknown or incomplete
-  /// count never is, also at 0
-  pub updated: bool,
+  /// No use left outside can break: the count is `complete`, none is left outside that breaks, and none is tied by the
+  /// name alone. An unknown or incomplete count never is, also at 0
+  pub unbroken: bool,
 }
 
 /// A public declaration the reviewed commits add, remove or change
@@ -119,12 +123,16 @@ pub struct ApiChange {
   /// Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked (a name of
   /// `fan_in::STOP_NAMES`, past `fan_in::MAX_USAGE_QUERIES`) or not answered (no accio, no index, a failed query)
   pub usages: Option<Usages>,
-  /// The name its usages are asked by: `Owner.name`, `package.name` or the name
+  /// The place its usages are asked by: the line of its name at the last commit that touched it, of a removal at the
+  /// parent of the commit that first touched it; asked at the head
   #[serde(skip)]
-  pub query: String,
-  /// Of a member: the type of `query` (`Owner`)
+  pub at: DeclarationAt,
+  /// Of a change or a removal: the parameter lists a call bound before the commits, one per constructor of a type
   #[serde(skip)]
-  pub owner: Option<String>,
+  pub signatures_before: Vec<Vec<ParameterForm>>,
+  /// Of a change: the parameter lists a call binds after the commits
+  #[serde(skip)]
+  pub signatures_after: Vec<Vec<ParameterForm>>,
   /// The path of its file after the commits, through every rename: the file whose `breaks` it counts in (`files`); differs
   /// from `path` for a removal in a file renamed since
   #[serde(skip)]
@@ -135,7 +143,13 @@ pub struct ApiChange {
 struct KeyInFile {
   /// The path of the file before that first commit: the lines of `before` are of its content there
   before_path: String,
+  /// The revision `before` is read at: the parent of that first commit
+  before_revision: String,
   before: Vec<DeclarationForm>,
+  /// The path of the file at the last commit that touches the key there, and that commit: the lines of `after` are of
+  /// its content there; a later rename that changes no declaration moves the file, not them
+  after_path: String,
+  after_revision: String,
   after: Vec<DeclarationForm>,
 }
 
@@ -176,13 +190,20 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
         let files = keys.entry(key.to_string()).or_default();
         let after: Vec<DeclarationForm> = after.into_iter().cloned().collect();
         match files.get_mut(&file.path) {
-          Some(state) => state.after = after,
+          Some(state) => {
+            state.after = after;
+            state.after_path.clone_from(&file.path);
+            state.after_revision.clone_from(&diff.id);
+          }
           None => {
             files.insert(
               file.path.clone(),
               KeyInFile {
                 before_path: file.old_path.clone().unwrap_or_else(|| file.path.clone()),
+                before_revision: format!("{}^", diff.id),
                 before: before.into_iter().cloned().collect(),
+                after_path: file.path.clone(),
+                after_revision: diff.id.clone(),
                 after,
               },
             );
@@ -227,10 +248,13 @@ fn shown(declaration: &DeclarationForm) -> Option<String> {
   Some(tokens.join(" "))
 }
 
-/// A form of a key: the path its line is of, the path of its file after the commits, the form
+/// A form of a key: the path its line is of, the path and the revision it was read at, the path of its file after the
+/// commits, the form
 #[derive(Clone, Copy)]
 struct Site<'a> {
   path: &'a str,
+  read_path: &'a str,
+  revision: &'a str,
   file: &'a str,
   form: &'a DeclarationForm,
 }
@@ -253,6 +277,8 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     .flat_map(|(file, state)| {
       state.before.iter().map(move |form| Site {
         path: &state.before_path,
+        read_path: &state.before_path,
+        revision: &state.before_revision,
         file,
         form,
       })
@@ -260,7 +286,15 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     .collect();
   let after: Vec<Site> = files
     .iter()
-    .flat_map(|(file, state)| state.after.iter().map(move |form| Site { path: file, file, form }))
+    .flat_map(|(file, state)| {
+      state.after.iter().map(move |form| Site {
+        path: file,
+        read_path: &state.after_path,
+        revision: &state.after_revision,
+        file,
+        form,
+      })
+    })
     .collect();
   // the forms of each side the other side lacks, one for one; of a form both sides have, the first one that becomes API
   let mut unmatched_after: Vec<Site> = after.clone();
@@ -277,22 +311,24 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       None => unmatched_before.push(*site),
     }
   }
-  let entry = |kind: ApiChangeKind, site: Site| {
-    let (query, owner) = query_of(site);
-    ApiChange {
-      path: site.path.to_string(),
+  let entry = |kind: ApiChangeKind, site: Site| ApiChange {
+    path: site.path.to_string(),
+    line: site.form.line,
+    name: site.form.name.clone(),
+    key: key.to_string(),
+    kind,
+    changes: Vec::new(),
+    before: None,
+    after: None,
+    usages: None,
+    at: DeclarationAt {
+      revision: Some(site.revision.to_string()),
+      path: site.read_path.to_string(),
       line: site.form.line,
-      name: site.form.name.clone(),
-      key: key.to_string(),
-      kind,
-      changes: Vec::new(),
-      before: None,
-      after: None,
-      usages: None,
-      query,
-      owner,
-      file: site.file.to_string(),
-    }
+    },
+    signatures_before: Vec::new(),
+    signatures_after: Vec::new(),
+    file: site.file.to_string(),
   };
   let added = |new: Site| ApiChange {
     after: shown(new.form),
@@ -305,6 +341,7 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
     (false, true) => first_of(&unmatched_before, &listed)
       .map(|old| ApiChange {
         before: shown(old.form),
+        signatures_before: old.form.signatures.clone(),
         ..entry(ApiChangeKind::Removed, old)
       })
       .or_else(|| promoted.map(added)),
@@ -321,30 +358,13 @@ fn change_of(key: &str, files: &BTreeMap<String, KeyInFile>) -> Option<ApiChange
       Some(ApiChange {
         changes: form_changes(&old.form.form, &new.form.form),
         before: shown(old.form),
+        signatures_before: old.form.signatures.clone(),
+        signatures_after: new.form.signatures.clone(),
         after: shown(new.form),
         ..entry(ApiChangeKind::Changed, new)
       })
     }
   }
-}
-
-/// The name the usages of the declaration of `site` are asked by, and its owner: `Owner.name` for a member (the type
-/// around it that is not a Kotlin `Companion`), `package.name` for a top-level declaration of a JVM file in a package,
-/// else its name
-fn query_of(site: Site) -> (String, Option<String>) {
-  let declaration = site.form;
-  let name = declaration.name.as_str();
-  if !declaration.containers.is_empty() {
-    return match declaration.containers.iter().rev().find(|container| *container != "Companion") {
-      Some(owner) => (format!("{owner}.{name}"), Some(owner.clone())),
-      None => (name.to_string(), None),
-    };
-  }
-  let jvm = language_of(site.path).is_some_and(|language| language.family() == Family::Jvm);
-  if jvm && !declaration.namespace.is_empty() {
-    return (format!("{}.{name}", declaration.namespace.join(".")), None);
-  }
-  (name.to_string(), None)
 }
 
 /// The first one of `sites` of one of `surfaces`

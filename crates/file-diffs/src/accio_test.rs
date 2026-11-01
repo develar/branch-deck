@@ -1,6 +1,6 @@
 //! The accio process of a lookup: waited for as long as it runs, killed once the navigation is canceled
 
-use crate::accio::{AccioCli, Lenient, SearchCanceled, SymbolHit, SymbolIndex};
+use crate::accio::{AccioCli, CallArgument, DeclarationAt, Lenient, Resolved, SearchCanceled, SymbolHit, SymbolIndex};
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,7 +27,7 @@ fn waits_for_a_slow_index_as_long_as_it_runs() {
   let dir = tempfile::tempdir().unwrap();
   let (started, go) = (dir.path().join("started"), dir.path().join("go"));
   // accio answers only once the test lets it, as one on a loaded machine: no deadline cuts the query meanwhile
-  let answer = r#"{"hits":[{"file":"src/Base.kt","line":1,"kind":"function","name":"outsider"}]}"#;
+  let answer = r#"[{"hits":[{"file":"src/Base.kt","line":1,"kind":"function","name":"outsider"}]}]"#;
   let accio = fake_accio(
     dir.path(),
     &started,
@@ -85,7 +85,7 @@ fn a_canceled_search_kills_its_query() {
 fn an_index_accio_cannot_use_answers_no_index_with_its_reason() {
   let dir = tempfile::tempdir().unwrap();
   let started = dir.path().join("started");
-  let unavailable = r#"{"available":false,"note":"accio is building the index of this repository","target":"helper"}"#;
+  let unavailable = r#"[{"available":false,"note":"accio is building the index of this repository","target":"helper"}]"#;
   let accio = fake_accio(
     dir.path(),
     &started,
@@ -97,4 +97,65 @@ fn an_index_accio_cannot_use_answers_no_index_with_its_reason() {
   assert_eq!(lenient.indexed_references(ROOT, "helper", Some("HEAD")).unwrap(), None);
   assert_eq!(lenient.unavailable().as_deref(), Some("accio is building the index of this repository"));
   assert_eq!(lenient.error(), None);
+}
+
+/// The places of a plan are asked in one process, `--at` each, at the revision of the answer: one entry per place in
+/// their order, each hit with what ties it to the declaration, and a call with its last line, its arguments, the
+/// parameter each binds and whether it fits
+#[test]
+fn the_places_of_a_plan_are_asked_in_one_process() {
+  let dir = tempfile::tempdir().unwrap();
+  let (started, args) = (dir.path().join("started"), dir.path().join("args"));
+  let call = r#"{"file":"lib/Welcome.kt","line":54,"end_line":57,"column":3,"kind":"call","resolved":"typed","fits":true,"arguments":[{"name":"pane","parameter":"pane"},{"position":1,"parameter":"id"}]}"#;
+  let answer = format!(
+    r#"[{{"at":"c1:src/Policy.kt:3","complete":true,"hits":[{call},{{"file":"lib/a.py","line":2,"column":1,"kind":"call","resolved":"name"}}]}},{{"at":"c0^:src/Old.kt:5","complete":false,"hits":[]}}]"#
+  );
+  let accio = fake_accio(dir.path(), &started, &format!("printf '%s\\n' \"$@\" > {}\nprintf '%s' '{answer}'", shell_path(&args)));
+  let canceled = || false;
+  let search = accio.search(&canceled);
+  let places = [
+    DeclarationAt {
+      revision: Some("c1".to_string()),
+      path: "src/Policy.kt".to_string(),
+      line: 3,
+    },
+    DeclarationAt {
+      revision: Some("c0^".to_string()),
+      path: "src/Old.kt".to_string(),
+      line: 5,
+    },
+  ];
+  let answers = search.references_at(ROOT, &places, "head").unwrap().unwrap();
+  let asked = std::fs::read_to_string(&args).unwrap();
+  let asked: Vec<&str> = asked.lines().collect();
+  assert_eq!(
+    asked,
+    [
+      "references",
+      "--no-build",
+      "--format",
+      "json",
+      "--project",
+      ROOT,
+      "--limit",
+      "100",
+      "--ref",
+      "head",
+      "--at",
+      "c1:src/Policy.kt:3",
+      "--at",
+      "c0^:src/Old.kt:5"
+    ]
+  );
+  let hits: Vec<(&str, Resolved, Option<u32>, Option<bool>)> = answers[0].hits.iter().map(|hit| (hit.path.as_str(), hit.resolved, hit.end_line, hit.fits)).collect();
+  assert_eq!(hits, [("lib/Welcome.kt", Resolved::Typed, Some(57), Some(true)), ("lib/a.py", Resolved::Name, None, None)]);
+  assert_eq!(
+    answers[0].hits[0].arguments.as_deref().unwrap()[1],
+    CallArgument {
+      position: Some(1),
+      parameter: Some("id".to_string()),
+      ..CallArgument::default()
+    }
+  );
+  assert_eq!((answers[1].hits.len(), answers[1].complete), (0, false));
 }

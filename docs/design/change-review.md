@@ -37,8 +37,8 @@ A review is the story of a change, not a list of files:
    declaration, a changed body, a new or removed declaration, a new or deleted file, one repeated edit over all of its
    files.
 2. **What can break is told, and only what can.** The API whose uses the change left outside, with the places that
-   use them; a use a change cannot break (it passes only the arguments the change keeps) is no alarm
-   (JetBrains/accio#106).
+   use them; a use a change cannot break (a call that still binds the parameters it bound) is no alarm, and a use
+   only the name ties is no use and no proof of none.
 3. **Noise is folded with its reason, and a fold is never wrong.** Imports, whitespace, renames, build entries,
    generated files fold into one group with a stated reason. The budget of false folds is about zero: a fold that hides
    real work is the worst defect of the review.
@@ -118,8 +118,8 @@ the review.
 | Part | Status | Commits | What worked | What did not, or is open |
 |---|---|---|---|---|
 | Mark Reviewed, Since Your Review of a local branch | Landed | 1db3d3d4f, 4c0986ecb | the reviewed pair in `refs/branch-deck/reviewed/`; after a rebase with an amend the diff from the carried change shows the amend alone | a carry that conflicts falls back to the commits one at a time; a drop alone offers nothing |
-| Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked; an override outside the change is missed (JetBrains/accio#71) |
-| Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | the plan still asks 20 names at most |
+| Review Summary: API surface, what can break first | Landed | bfe628d8d, 8365b3951, baa953080 | the uses left outside by accio, a lower bound never read as safe | uses of a changed body are not asked |
+| Many names in one accio query | Landed in accio | JetBrains/accio#74, 1df601e | the names of one call answered in parallel | |
 | Folding: imports, whitespace, renames, build entries | Landed | 576095873, e93f1e954, 739a18b56, 116cbd179 | a line wrapped or joined is whitespace; no whitespace where the indent has a meaning | a move of a block, "rename A→B, N sites" not started; no second oracle yet |
 | Folding: generated files | Landed | 46faf0108, b57c2e95b | by name, attributes or the header a tool wrote; the renderer's echo is no repeated edit | |
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
@@ -133,6 +133,7 @@ the review.
 | The window, round three: the owner path, the groups of a request | Landed | 413e3ca25, 39696f0aa, b7a59c088 | while a review window shows a pull request of someone else into the default branch, the session asks Patronus about it (`request:<n>`) once its review fetch brought the head the listing names, cached as a branch's answer by its reviews; the row `pull:<n>` gets its reviewer groups with `approved` and `yours` (the GitHub login of the app's sign-in, an approval that can count) | a token of `gh` or the environment has no login, so no group is yours without the app's sign-in; the review requests now read the reviewers of each request (2 points a listing, not 1); a pull request that comes back to a window is asked again (the schedule forgets what it read of `request:<n>` once it leaves), the cache still saves the call |
 | The window, round three: owner chips in the pull request window, the remembered chip | Landed | 942179549, d6812dd20 | the pull request window has the chips of the branch window: All, the groups of the request (the user's first, "· You", a check once approved), the owners by the `OWNERSHIP` files of the baseline, No Owner, marking as round two; one chip remembered per repository (`reviewOwnerChip`), All forgets it; the pull request window opens on it where it marks files, else on the user's group that still needs an approval, else on All, and moves from All to that group when the groups come later unless the user chose All; the branch window opens on it where it marks files; a group and an owner of one name are one chip, the group's, also for a chip held as the owner before the groups came | one chip per repository, not per pull request or per window; the footer and Approve came in the next row |
 | The window, round three: the owner's part in the footer, what Approve counts for | Landed | this change | with a chip that marks files the footer of the branch and pull request windows adds its part: "All Changes · File 3 / 12 · Design 2 / 5" on a file of the owner's, "· Design 5" on another, every file for a branch-wide group (the commit window has no chips); Approve, on hover, and the confirmation of Approve and Safe Push… say "Counts for Design · You opened 1 of its 2 files": the user's groups that still need an approval, whatever chip is chosen, and how many of their files the window showed of each request, kept while the window is open, from zero on a new head; "Counts for no group that still needs an approval"; nothing without groups or while the sign-in names no login (`yours` is null then, not false) | "opened" is the file the review selected (the footer's), not one scrolled past in the story; the count lives in the window and is lost when it closes; Approve informs and never blocks, so an owner can still approve unread files |
+| Fan-in by place: what breaks, by the arguments a call passes | Landed | this change | every removed or changed declaration asked by its place (`accio references --at`, JetBrains/accio#114) in one process, no cap, no stop list, no guess at an owner; a use only the name ties (`resolved: name`, JetBrains/accio#115) is counted apart, never as a use and never as none; a call is inside by any of its lines (`end_line`); a call left outside that fits the new form (`fits`) and whose every argument binds a parameter of the same name and type as before (`parameter`, JetBrains/accio#106) still binds: the four `ProjectFrameUiPolicy(…)` calls of `startup-tool-window-place` read "4 calls left outside still bind", not a possible break | a Rust or TypeScript function keeps its parameters in its header, so its calls are never known to still bind; a `string` or `config` hit counts once accio ties a qualified name to the declaration |
 | LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
@@ -188,6 +189,12 @@ the review.
    Approve says which of the user's groups it counts for and how many of their files the window showed, but never
    blocks: a GitHub approval covers the whole pull request, and Patronus counts it for every group of the user, so the
    decision of what was read enough stays with the person.
+12. **What accio can answer, the review never guesses** (2026-11-01). The fan-in asked accio by a name it built
+   (`Owner.name`, `package.name`, the bare name), skipped 32 names every type declares, kept a hit only when its line
+   named the owner, dropped a hit of another family of languages, cut the plan at 20 queries and counted a use by the
+   line of its name. Each was a guess at what accio knows: which declaration a hit resolves to. accio now answers by the
+   place of a declaration and says what ties each hit to it, so every guess was deleted rather than kept beside the
+   answer; what the review still needs goes into accio, never into a heuristic here.
 
 ## Review Rounds
 

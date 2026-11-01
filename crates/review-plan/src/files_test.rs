@@ -305,11 +305,18 @@ fn api_change(path: &str, name: &str, kind: ApiChangeKind, usages: u32) -> ApiCh
       inside: 1,
       outside: usages,
       outside_sites: Vec::new(),
+      still_bound: 0,
+      by_name: 0,
       complete: true,
-      updated: usages == 0,
+      unbroken: usages == 0,
     }),
-    query: name.to_string(),
-    owner: None,
+    at: file_diffs::accio::DeclarationAt {
+      revision: None,
+      path: path.to_string(),
+      line: 1,
+    },
+    signatures_before: Vec::new(),
+    signatures_after: Vec::new(),
     file: path.to_string(),
   }
 }

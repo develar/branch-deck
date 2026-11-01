@@ -1,6 +1,11 @@
 //! `accio` (github.com/JetBrains/accio), an index of the declarations of a repository, for a declaration and the usages
 //! the files of a review lack (spec/commit/symbol-navigation.spec.md): `accio symbol <Name|Owner.name>` and
-//! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout.
+//! `accio references <name>`, with `--ref <revision>`, answer from the tree of a revision without a checkout. A review
+//! plan asks about declarations by their place (spec/branch/review-plan.spec.md, "Fan-in";
+//! spec/branch/review-tour.spec.md, "Tests that reach it"): `accio references --at <path>:<line>` and
+//! `accio tests --at …`, every place of one plan in one process, which accio answers in parallel.
+//!
+//! - **One answer per target**: accio answers a JSON array of one entry for each name or place, in the order asked.
 //!
 //! - **Never an index build**: every query runs with `--no-build`, so accio neither builds, waits for nor refreshes
 //!   an index; without a usable index of the checkout it answers `available: false` with the reason in `note` ("no
@@ -25,6 +30,8 @@ use sync_utils::child_process::{ChildProcessError, cached_login_shell_path, find
 const LIMIT: &str = "20";
 /// The usages a lookup answers at most
 const REFERENCES_LIMIT: &str = "100";
+/// The tests a lookup answers at most, per declaration
+const TESTS_LIMIT: &str = "60";
 
 /// A declaration an index knows: a path of the repository and a line from 1
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -38,8 +45,9 @@ pub struct SymbolHit {
   pub parent: Option<String>,
 }
 
-/// A usage an index knows: a path, a line and a column from 1, the text of the line, and how it uses the name
-/// (`call`, `write`, `argument`, `read`, `type`, `supertype`, `declaration`, `import`, `doc`, `string`)
+/// A usage an index knows: a path, a line and a column from 1, the text of the line, how it uses the name (`call`,
+/// `write`, `argument`, `read`, `type`, `supertype`, `override`, `declaration`, `import`, `doc`, `string`, `config`) and
+/// what ties it to the declaration
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ReferenceHit {
   #[serde(rename = "file")]
@@ -49,6 +57,124 @@ pub struct ReferenceHit {
   #[serde(default)]
   pub snippet: String,
   pub kind: String,
+  pub resolved: Resolved,
+  /// The last line of a call, from 1
+  #[serde(default)]
+  pub end_line: Option<u32>,
+  /// The arguments of a call; `None` where the grammar reads no argument list (a Rust macro) or for no call
+  #[serde(default)]
+  pub arguments: Option<Vec<CallArgument>>,
+  /// Of a call tied by a type or an import: whether its arguments bind the parameters of the declaration at the
+  /// revision of the answer
+  #[serde(default)]
+  pub fits: Option<bool>,
+}
+
+/// What ties a usage to the declaration asked about
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Resolved {
+  /// A type the index knows: the receiver, the argument or the type is the declaration's
+  Typed,
+  /// An import or a `use` of the declaration or of its module
+  Import,
+  /// The name alone: a receiver nothing typed, another language, prose or a namesake's
+  Name,
+}
+
+/// An argument of a call, as accio reads it: by its name or its position, and the parameter it binds
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[expect(clippy::struct_excessive_bools, reason = "accio's JSON gives each flag of an argument as a field of its own")]
+pub struct CallArgument {
+  /// A named argument (Kotlin `name = …`, Python `name=…`)
+  #[serde(default)]
+  pub name: Option<String>,
+  /// A positional argument, from 0
+  #[serde(default)]
+  pub position: Option<u32>,
+  /// `*args`, `...rest`; `named` for `**kwargs`
+  #[serde(default)]
+  pub spread: bool,
+  #[serde(default)]
+  pub named: bool,
+  /// A trailing lambda (Kotlin `f(x) { … }`)
+  #[serde(default)]
+  pub trailing_lambda: bool,
+  /// The parameter it binds at the revision of the answer, of a call tied by a type or an import
+  #[serde(default)]
+  pub parameter: Option<String>,
+  /// It binds no parameter: the argument that makes the call misfit
+  #[serde(default)]
+  pub unbound: bool,
+}
+
+/// A declaration by its place: the line of its name in `path` at `revision`, `None` for the revision the query
+/// answers from (for a removed declaration, the parent of the commit that removed it)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DeclarationAt {
+  pub revision: Option<String>,
+  pub path: String,
+  pub line: u32,
+}
+
+impl DeclarationAt {
+  /// The `--at` argument: `<path>:<line>`, `<revision>:<path>:<line>`
+  pub fn argument(&self) -> String {
+    match &self.revision {
+      Some(revision) => format!("{revision}:{}:{}", self.path, self.line),
+      None => format!("{}:{}", self.path, self.line),
+    }
+  }
+}
+
+/// A test that reaches a declaration through its callers (`accio tests`)
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ReachingTest {
+  #[serde(rename = "file")]
+  pub path: String,
+  pub line: u32,
+  /// `Owner.name` of the test
+  pub declaration: String,
+  /// The name the test reads as: a Kotlin name in backticks, the words of `snake_case` or `testCamelCase`
+  pub reads_as: String,
+  /// `junit5`, `rust`, `vitest`, …
+  pub framework: String,
+  /// The calls between the test and the declaration: 1 when the test calls it
+  pub depth: u32,
+  /// The callers on the way, from the test's callee to the declaration's caller
+  #[serde(default)]
+  pub via: Vec<TestStep>,
+}
+
+/// A caller on the way from a test to a declaration
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TestStep {
+  pub declaration: String,
+  #[serde(rename = "file")]
+  pub path: String,
+  pub line: u32,
+}
+
+/// Why a walk of the callers stopped short
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WalkCut {
+  /// Callers at the last depth were not walked further
+  Depth,
+  /// The limit of the answer
+  Limit,
+  /// A caller so many call that its callers were not walked
+  Hub,
+}
+
+/// The tests that reach one declaration
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct TestReach {
+  #[serde(default)]
+  pub tests: Vec<ReachingTest>,
+  /// Why the walk stopped short; `None` when it walked every caller within the depth
+  #[serde(default)]
+  pub cut: Option<WalkCut>,
 }
 
 /// The usages of a name an index answered
@@ -72,6 +198,14 @@ pub trait SymbolIndex: Send + Sync {
 
   /// The whole-word usages of `name` in the tree of `revision`; `None` when the repository has no index
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>>;
+
+  /// The usages in the tree of `revision` of each declaration of `declarations`, in their order; `None` when the
+  /// repository has no index
+  fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> Result<Option<Vec<References>>>;
+
+  /// The tests in the tree of `revision` that reach each declaration of `declarations` through at most `depth` calls,
+  /// only by calls tied by a type or an import, in their order; `None` when the repository has no index
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], depth: u32, revision: &str) -> Result<Option<Vec<TestReach>>>;
 }
 
 /// accio has no usable index of the repository (`--no-build` answered `available: false`): why, as accio words it. A
@@ -157,16 +291,34 @@ struct Answer {
   hits: Vec<SymbolHit>,
 }
 
+/// The targets of a query: names after `--`, or declarations by `--at`
+enum Targets<'a> {
+  Name(&'a str),
+  At(&'a [DeclarationAt]),
+}
+
 impl AccioSearch<'_> {
-  /// The JSON answer of `accio <command> --no-build … -- <query>` at `revision`; `IndexUnavailable` when accio has no
-  /// usable index of the repository
-  fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, limit: &str, repository_root: &str, query: &str, revision: Option<&str>) -> Result<T> {
+  /// The JSON answer of `accio <command> --no-build … <targets>` at `revision`, one entry per target in their order;
+  /// `IndexUnavailable` when accio has no usable index of the repository
+  fn query<T: serde::de::DeserializeOwned>(&self, command_name: &str, options: &[&str], repository_root: &str, targets: &Targets<'_>, revision: Option<&str>) -> Result<Vec<T>> {
     let mut command = windowless_command(&self.accio.executable);
-    command.args([command_name, "--no-build", "--format", "json", "--limit", limit, "--project", repository_root]);
+    command.args([command_name, "--no-build", "--format", "json", "--project", repository_root]);
+    command.args(options);
     if let Some(revision) = revision {
       command.args(["--ref", revision]);
     }
-    command.arg("--").arg(query);
+    let asked = match targets {
+      Targets::Name(name) => {
+        command.arg("--").arg(name);
+        1
+      }
+      Targets::At(declarations) => {
+        for declaration in *declarations {
+          command.arg("--at").arg(declaration.argument());
+        }
+        declarations.len()
+      }
+    };
     let output = run_child_until_superseded(&mut command, None, self.canceled).map_err(|error| match error {
       ChildProcessError::Superseded => anyhow::Error::new(SearchCanceled),
       other => anyhow::anyhow!("{other:?}"),
@@ -174,22 +326,55 @@ impl AccioSearch<'_> {
     if !output.status.success() {
       bail!("{}", output.failure_message("accio"));
     }
-    let answer: serde_json::Value = serde_json::from_slice(&output.stdout).context("the answer of accio")?;
-    if answer.get("available").and_then(serde_json::Value::as_bool) == Some(false) {
-      let note = answer.get("note").and_then(serde_json::Value::as_str).unwrap_or("accio has no index of this repository");
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).context("the answer of accio")?;
+    if let Some(unavailable) = entries.iter().find(|entry| entry.get("available").and_then(serde_json::Value::as_bool) == Some(false)) {
+      let note = unavailable
+        .get("note")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("accio has no index of this repository");
       return Err(IndexUnavailable(note.to_string()).into());
     }
-    serde_json::from_value(answer).context("the answer of accio")
+    if entries.len() != asked {
+      bail!("accio answered {} entries for {asked} targets", entries.len());
+    }
+    entries.into_iter().map(|entry| serde_json::from_value(entry).context("the answer of accio")).collect()
   }
 }
 
 impl SymbolIndex for AccioSearch<'_> {
   fn symbols(&self, repository_root: &str, query: &str, revision: Option<&str>) -> Result<Option<Vec<SymbolHit>>> {
-    Ok(Some(self.query::<Answer>("symbol", LIMIT, repository_root, query, revision)?.hits))
+    let entries = self.query::<Answer>("symbol", &["--limit", LIMIT], repository_root, &Targets::Name(query), revision)?;
+    Ok(Some(entries.into_iter().flat_map(|entry| entry.hits).collect()))
   }
 
   fn references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>> {
-    self.query("references", REFERENCES_LIMIT, repository_root, name, revision).map(Some)
+    let entries = self.query::<References>("references", &["--limit", REFERENCES_LIMIT], repository_root, &Targets::Name(name), revision)?;
+    Ok(entries.into_iter().next())
+  }
+
+  fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> Result<Option<Vec<References>>> {
+    if declarations.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    self
+      .query("references", &["--limit", REFERENCES_LIMIT], repository_root, &Targets::At(declarations), Some(revision))
+      .map(Some)
+  }
+
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], depth: u32, revision: &str) -> Result<Option<Vec<TestReach>>> {
+    if declarations.is_empty() {
+      return Ok(Some(Vec::new()));
+    }
+    let depth = depth.to_string();
+    self
+      .query(
+        "tests",
+        &["--limit", TESTS_LIMIT, "--depth", &depth, "--resolved"],
+        repository_root,
+        &Targets::At(declarations),
+        Some(revision),
+      )
+      .map(Some)
   }
 }
 
@@ -224,6 +409,18 @@ impl<'a> Lenient<'a> {
   /// (`error` says why)
   pub fn indexed_references(&self, repository_root: &str, name: &str, revision: Option<&str>) -> Result<Option<References>> {
     self.answered(self.index.references(repository_root, name, revision))
+  }
+
+  /// The usages of each declaration, as `SymbolIndex::references_at`: `None` when the repository has no index or the
+  /// query failed (`error` says why)
+  pub fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], revision: &str) -> Result<Option<Vec<References>>> {
+    self.answered(self.index.references_at(repository_root, declarations, revision))
+  }
+
+  /// The tests that reach each declaration, as `SymbolIndex::tests`: `None` when the repository has no index or the
+  /// query failed (`error` says why)
+  pub fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], depth: u32, revision: &str) -> Result<Option<Vec<TestReach>>> {
+    self.answered(self.index.tests(repository_root, declarations, depth, revision))
   }
 
   /// Why accio has no usable index of the repository, as accio words it: none while no query was told so
@@ -266,7 +463,8 @@ impl<'a> Lenient<'a> {
 }
 
 /// The index of a fixture, for the e2e server: `<git dir>/branch-deck-accio.json`, the hits of each query of `symbol`
-/// and of `references`, or the `error` every query fails with; a repository without the file has no index
+/// and of `references` (by a name, or by a place as `<path>:<line>`, whatever its revision), the answer of `tests` of
+/// each place, or the `error` every query fails with; a repository without the file has no index
 pub struct FixtureIndex;
 
 #[derive(Deserialize)]
@@ -275,6 +473,8 @@ struct Fixture {
   symbol: std::collections::HashMap<String, Vec<SymbolHit>>,
   #[serde(default)]
   references: std::collections::HashMap<String, Vec<ReferenceHit>>,
+  #[serde(default)]
+  tests: std::collections::HashMap<String, TestReach>,
   error: Option<String>,
 }
 
@@ -301,4 +501,30 @@ impl SymbolIndex for FixtureIndex {
       complete: true,
     }))
   }
+
+  fn references_at(&self, repository_root: &str, declarations: &[DeclarationAt], _revision: &str) -> Result<Option<Vec<References>>> {
+    Ok(Self::read(repository_root)?.map(|mut fixture| {
+      declarations
+        .iter()
+        .map(|declaration| References {
+          hits: fixture.references.remove(&fixture_place(declaration)).unwrap_or_default(),
+          complete: true,
+        })
+        .collect()
+    }))
+  }
+
+  fn tests(&self, repository_root: &str, declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> Result<Option<Vec<TestReach>>> {
+    Ok(Self::read(repository_root)?.map(|mut fixture| {
+      declarations
+        .iter()
+        .map(|declaration| fixture.tests.remove(&fixture_place(declaration)).unwrap_or_default())
+        .collect()
+    }))
+  }
+}
+
+/// The key of a place in a fixture: `<path>:<line>`, whatever its revision
+fn fixture_place(declaration: &DeclarationAt) -> String {
+  format!("{}:{}", declaration.path, declaration.line)
 }

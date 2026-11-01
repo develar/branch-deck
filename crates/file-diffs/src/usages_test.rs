@@ -1,7 +1,7 @@
 //! Find Usages in a review: the names of a local in its file, the names of a word in the files of the review from the
 //! texts the diffs read, then those outside the review that the index knows
 
-use crate::accio::{ReferenceHit, References, SearchCanceled, SymbolHit, SymbolIndex};
+use crate::accio::{DeclarationAt, ReferenceHit, References, Resolved, SearchCanceled, SymbolHit, SymbolIndex, TestReach};
 use crate::declarations_test::{params, review, single_file_params};
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};
 use crate::model::FoundUsages;
@@ -61,6 +61,15 @@ impl SymbolIndex for FakeReferences {
       complete: false,
     }))
   }
+  /// Find Usages asks no place
+  fn references_at(&self, _repository_root: &str, _declarations: &[DeclarationAt], _revision: &str) -> anyhow::Result<Option<Vec<References>>> {
+    anyhow::bail!("Find Usages asked a place")
+  }
+
+  /// Find Usages asks no tests
+  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
+    anyhow::bail!("Find Usages asked for tests")
+  }
 }
 
 fn reference(path: &str, line: u32, column: u32, kind: &str) -> ReferenceHit {
@@ -70,6 +79,10 @@ fn reference(path: &str, line: u32, column: u32, kind: &str) -> ReferenceHit {
     column,
     snippet: String::new(),
     kind: kind.to_string(),
+    resolved: Resolved::Typed,
+    end_line: None,
+    arguments: None,
+    fits: None,
   }
 }
 
@@ -129,6 +142,13 @@ impl SymbolIndex for FailingIndex {
   }
 
   fn references(&self, _repository_root: &str, _name: &str, _revision: Option<&str>) -> anyhow::Result<Option<References>> {
+    Err(self.0())
+  }
+  fn references_at(&self, _repository_root: &str, _declarations: &[DeclarationAt], _revision: &str) -> anyhow::Result<Option<Vec<References>>> {
+    Err(self.0())
+  }
+
+  fn tests(&self, _repository_root: &str, _declarations: &[DeclarationAt], _depth: u32, _revision: &str) -> anyhow::Result<Option<Vec<TestReach>>> {
     Err(self.0())
   }
 }

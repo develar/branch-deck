@@ -1,6 +1,6 @@
 use crate::ReviewPlan;
 use crate::api::{ApiChange, ApiChangeKind, FormChange, Usages};
-use crate::fan_in_test::{Counts, outside};
+use crate::fan_in_test::{Counts, by_name, outside, typed};
 use crate::interdiff::PairState;
 use crate::test_support::{branch, mark, plan_of, range};
 use pretty_assertions::assert_eq;
@@ -95,11 +95,13 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
 }
 
 /// The usages at the head of the range rank the card: the most left outside first, the change of more usages above the
-/// removal. A top-level Kotlin function is asked by its package and name
+/// removal. A change is asked at the line of its name at the head, a removal at the line of its name before the commit
+/// that removed it, at that commit's parent
 #[test]
 fn the_usages_at_the_head_rank_the_card() {
   let (repo, base, head) = api_repo();
-  let index = Counts::of(&[("a.removedCall", Ok(2)), ("a.changedCall", Ok(7)), ("a.narrowedCall", Ok(0))]);
+  let (removed, changed, narrowed) = (format!("{head}^:src/a/Api.kt:3"), format!("{head}:src/a/Api.kt:3"), format!("{head}:src/a/Api.kt:4"));
+  let index = Counts::of(&[(removed.as_str(), 2), (changed.as_str(), 7), (narrowed.as_str(), 0)]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   let ranked: Vec<(&str, Option<Usages>)> = plan.api.iter().map(|change| (change.name.as_str(), change.usages.clone())).collect();
   assert_eq!(
@@ -111,8 +113,10 @@ fn the_usages_at_the_head_rank_the_card() {
       ("AddedType", None)
     ]
   );
-  assert_eq!(index.queries(), ["a.changedCall", "a.narrowedCall", "a.removedCall"]);
-  assert_eq!(index.revisions(), [Some(head.clone()), Some(head.clone()), Some(head)]);
+  let mut places = vec![removed, changed, narrowed];
+  places.sort();
+  assert_eq!(index.places(), places);
+  assert_eq!(index.revisions(), [head]);
   assert_eq!(plan.index_note, None);
   // the usages of the change and of the removal
   assert_eq!(facts(&plan), [("src/a/Api.kt", 9, true)]);
@@ -303,10 +307,10 @@ fn a_removal_after_a_rename_names_the_path_its_line_is_of() {
 /// An entry: its name, its kind, and its usages inside and outside the change
 type Counted<'a> = (&'a str, ApiChangeKind, Option<(u32, u32)>);
 
-/// A member is asked by the type around it, through a Kotlin companion; an override is no entry, its supertype declares
+/// A member is asked by its place, a member of a Kotlin companion too; an override is no entry, its supertype declares
 /// the API. A use in a file the change touches is updated, and only the use left outside breaks
 #[test]
-fn a_member_is_asked_by_its_type_and_an_override_is_no_entry() {
+fn a_member_is_asked_by_its_place_and_an_override_is_no_entry() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files(
     "Add store",
@@ -328,9 +332,10 @@ fn a_member_is_asked_by_its_type_and_an_override_is_no_entry() {
       ("src/a/User.kt", "package a\n\nfun use(store: Store): Int = store.open(1, 2)\n"),
     ],
   );
-  let index = Counts::calls(&[("Store.open", vec![("src/a/User.kt", 3), ("lib/Other.kt", 1)]), ("Store.of", vec![("src/a/User.kt", 3)])]);
+  let (open, of) = (format!("{head}:src/a/Store.kt:4"), format!("{head}:src/a/Store.kt:6"));
+  let index = Counts::calls(&[(&open, vec![("src/a/User.kt", 3), ("lib/Other.kt", 1)]), (&of, vec![("src/a/User.kt", 3)])]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
-  assert_eq!(index.queries(), ["Store.of", "Store.open"]);
+  assert_eq!(index.places(), [open, of]);
   let entries: Vec<Counted<'_>> = plan
     .api
     .iter()
@@ -366,14 +371,14 @@ fn a_changed_override_in_kotlin_or_java_is_no_entry() {
     ],
   );
   let plan = plan_of(&repo, None, &range(&repo, &base, &head)).unwrap();
-  let entries: Vec<(&str, ApiChangeKind, &str)> = plan.api.iter().map(|change| (change.name.as_str(), change.kind, change.query.as_str())).collect();
-  assert_eq!(entries, [("draw", ApiChangeKind::Changed, "Shape.draw")]);
+  let entries: Vec<(&str, ApiChangeKind, String)> = plan.api.iter().map(|change| (change.name.as_str(), change.kind, change.at.argument())).collect();
+  assert_eq!(entries, [("draw", ApiChangeKind::Changed, format!("{head}:src/a/Shape.java:7"))]);
 }
 
-/// A Rust method of a name of the stop list is asked by its type (`Store.new`): only a line that names the type counts,
-/// so a `Cache::new` is no usage, and the count is a lower bound
+/// A Rust method is asked by its place, a name every type declares too (`Store::new`): a call only the name ties (a
+/// `Cache::new` accio cannot tell from it) is no usage, and keeps the API from reading as unbroken
 #[test]
-fn a_rust_constructor_is_asked_by_its_type() {
+fn a_rust_constructor_is_asked_by_its_place() {
   let repo = TestRepo::new();
   let base = repo.create_commit_with_files(
     "Add store",
@@ -392,16 +397,13 @@ fn a_rust_constructor_is_asked_by_its_type() {
       ("src/user.rs", "pub fn user() {\n  let _ = Store::new(1, 2);\n}\n"),
     ],
   );
-  let index = Counts::lines(&[(
-    "Store.new",
-    vec![
-      ("src/user.rs", 2, "call", "let _ = Store::new(1, 2);"),
-      ("lib/cache.rs", 1, "call", "let _ = Cache::new(1);"),
-      ("lib/other.rs", 1, "call", "let _ = Store::new(3);"),
-    ],
+  let place = format!("{head}:src/store.rs:4");
+  let index = Counts::hits([(
+    place.as_str(),
+    vec![typed("src/user.rs", 2, "call"), by_name("lib/cache.rs", 1, "call"), typed("lib/other.rs", 1, "call")],
   )]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
-  assert_eq!(index.queries(), ["Store.new"]);
+  assert_eq!(index.places(), [place]);
   let entries: Vec<(&str, ApiChangeKind, Option<Split>)> = plan
     .api
     .iter()
@@ -409,16 +411,16 @@ fn a_rust_constructor_is_asked_by_its_type() {
       (
         change.name.as_str(),
         change.kind,
-        change.usages.as_ref().map(|usages| (usages.inside, usages.outside, usages.complete)),
+        change.usages.as_ref().map(|usages| (usages.inside, usages.outside, usages.by_name, usages.unbroken)),
       )
     })
     .collect();
-  assert_eq!(entries, [("new", ApiChangeKind::Changed, Some((1, 1, false)))]);
+  assert_eq!(entries, [("new", ApiChangeKind::Changed, Some((1, 1, 1, false)))]);
   assert_eq!(facts_of(&plan, "src/store.rs").map(|(breaks, _)| breaks), Some(1));
 }
 
-/// The usages of an entry: inside, outside, complete
-type Split = (u32, u32, bool);
+/// The usages of an entry: inside, outside, by the name alone, unbroken
+type Split = (u32, u32, u32, bool);
 
 /// The facts of `path`: the usages of the API it removes or changes, and whether it is untested
 fn facts_of(plan: &ReviewPlan, path: &str) -> Option<(u32, bool)> {
@@ -432,7 +434,7 @@ fn facts_of(plan: &ReviewPlan, path: &str) -> Option<(u32, bool)> {
 fn the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path() {
   let without_removed = MOVED.replace("fun removedCall(x: Int): Int = x + 3\n", "");
   let with_changed = MOVED.replace("fun fourthCall(x: Int): Int", "fun fourthCall(x: Int, y: Int): Int");
-  let index = Counts::of(&[("a.removedCall", Ok(9)), ("a.fourthCall", Ok(4))]);
+  let index = |removed: &str, fourth: &str| Counts::of(&[(removed, 9), (fourth, 4)]);
   let fan_in = |usages: u32| Some(outside(usages));
   let entries =
     |plan: &ReviewPlan| -> Vec<(String, String, Option<Usages>)> { plan.api.iter().map(|change| (change.name.clone(), change.path.clone(), change.usages.clone())).collect() };
@@ -443,7 +445,7 @@ fn the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path() {
   let base = repo.create_commit("Add api", "src/a/Old.kt", MOVED);
   test_change(&repo, "package a\n");
   let head = move_file(&repo, &without_removed);
-  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  let plan = plan_of(&repo, Some(&index(&format!("{head}^:src/a/Old.kt:5"), "-")), &range(&repo, &base, &head)).unwrap();
   assert_eq!(entries(&plan), [("removedCall".to_string(), "src/a/Old.kt".to_string(), fan_in(9))]);
   assert_eq!(facts_of(&plan, "src/a/New.kt"), Some((9, false)));
   assert_eq!(facts_of(&plan, "src/a/Old.kt"), None);
@@ -451,10 +453,10 @@ fn the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path() {
   // a change, then a rename that changes no declaration: the change is at the new path
   let repo = TestRepo::new();
   let base = repo.create_commit("Add api", "src/a/Old.kt", MOVED);
-  repo.create_commit("Change a call", "src/a/Old.kt", &with_changed);
+  let changed = repo.create_commit("Change a call", "src/a/Old.kt", &with_changed);
   test_change(&repo, "package a\n");
   let head = move_file(&repo, &with_changed);
-  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  let plan = plan_of(&repo, Some(&index("-", &format!("{changed}:src/a/Old.kt:6"))), &range(&repo, &base, &head)).unwrap();
   assert_eq!(entries(&plan), [("fourthCall".to_string(), "src/a/New.kt".to_string(), fan_in(4))]);
   assert_eq!(facts_of(&plan, "src/a/New.kt"), Some((4, false)));
 
@@ -462,9 +464,14 @@ fn the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path() {
   let repo = TestRepo::new();
   let base = repo.create_commit("Add api", "src/a/Old.kt", MOVED);
   test_change(&repo, "package a\n");
-  move_file(&repo, &with_changed.replace("fun removedCall(x: Int): Int", "fun removedCall(x: Long): Int"));
+  let moved = move_file(&repo, &with_changed.replace("fun removedCall(x: Int): Int", "fun removedCall(x: Long): Int"));
   let head = repo.create_commit("Remove a call", "src/a/New.kt", &with_changed.replace("fun removedCall(x: Int): Int = x + 3\n", ""));
-  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  let plan = plan_of(
+    &repo,
+    Some(&index(&format!("{moved}^:src/a/Old.kt:5"), &format!("{moved}:src/a/New.kt:6"))),
+    &range(&repo, &base, &head),
+  )
+  .unwrap();
   assert_eq!(
     entries(&plan),
     [
@@ -677,7 +684,9 @@ fn unstable_api_is_no_new_api_but_its_change_is_listed() {
   let path = "src/a/Internal.kt";
   let base = repo.create_commit("Add internal api", path, UNSTABLE_BEFORE);
   let head = repo.create_commit("Change internal api", path, UNSTABLE_AFTER);
-  let index = Counts::of(&[("a.removedInternal", Ok(3)), ("a.changedInternal", Ok(5))]);
+  let removed = format!("{head}^:{path}:6");
+  let changed = format!("{head}:{path}:8");
+  let index = Counts::of(&[(removed.as_str(), 3), (changed.as_str(), 5)]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(
     counted(&plan),
@@ -686,7 +695,9 @@ fn unstable_api_is_no_new_api_but_its_change_is_listed() {
       ("removedInternal", ApiChangeKind::Removed, Some((0, 3))),
     ]
   );
-  assert_eq!(index.queries(), ["a.changedInternal", "a.removedInternal"]);
+  let mut places = vec![removed, changed];
+  places.sort();
+  assert_eq!(index.places(), places);
   assert_eq!(facts_of(&plan, path).map(|(breaks, _)| breaks), Some(8));
 }
 

@@ -65,7 +65,7 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
           ))}
         </div>
       )}
-      {breakage !== null && (breakage.entries.length > 0 || breakage.updated !== null) && (
+      {breakage !== null && (breakage.entries.length > 0 || breakage.unbroken !== null) && (
         <div className="flex flex-col gap-1" data-testid="review-plan-breakage">
           {breakage.entries.length > 0 && (
             <>
@@ -77,11 +77,11 @@ export function ReviewPlanCard({ state }: { state: ReviewPlanState }) {
               </ul>
             </>
           )}
-          {breakage.updated !== null && (
-            <Folded title={breakage.updated.label} testId="review-plan-updated">
-              <ul aria-label="API changes with every use updated" className="flex flex-col gap-0.5">
-                {breakage.updated.entries.map(entry => (
-                  <li key={entry.key} className="flex min-w-0 items-center gap-2" data-testid="review-plan-updated-entry" data-name={entry.name}>
+          {breakage.unbroken !== null && (
+            <Folded title={breakage.unbroken.label} testId="review-plan-unbroken">
+              <ul aria-label="API changes no use left outside breaks" className="flex flex-col gap-0.5">
+                {breakage.unbroken.entries.map(entry => (
+                  <li key={entry.key} className="flex min-w-0 items-center gap-2" data-testid="review-plan-unbroken-entry" data-name={entry.name}>
                     <Badge variant={entry.tone}>{entry.kind}</Badge>
                     <FileButton place={entry.place} title={entry.location}>
                       <code className="font-mono">{entry.name}</code>
@@ -205,7 +205,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
           {`+ ${entry.after}`}
         </code>
       )}
-      {(titles.length > 0 || entry.inside !== null) && (
+      {(titles.length > 0 || entry.inside !== null || entry.stillBound !== null || entry.byName !== null) && (
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 pl-3 text-xs text-muted-foreground" title={titles.join("\n")} data-testid="review-plan-sites">
           {[
             ...entry.sites.map(site => (
@@ -221,7 +221,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
                 {site.label}
               </button>
             )),
-            ...[entry.moreSites, entry.inside].filter(part => part !== null).map(part => <span key={part}>{part}</span>),
+            ...[entry.moreSites, entry.inside, entry.stillBound, entry.byName].filter(part => part !== null).map(part => <span key={part}>{part}</span>),
           ].map((part, index) => (
             // the parts apart as the line of a list: "src/Base.kt:1 · src/Uses.kt:4 · 1 use updated in this change"
             <span key={part.key} className="flex items-baseline gap-x-1.5">
