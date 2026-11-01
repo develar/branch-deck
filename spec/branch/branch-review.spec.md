@@ -174,20 +174,22 @@ session, a form of a row by the main window at that row; the footer holds the ke
   last.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should start the row of a review window after the traffic lights, its empty parts dragging the window`)
 - After "From Root", "Whole Stack" must go up to every branch of the stack of the chain's root while the stack has
-  branches outside the chain (`WholeStackScope` of the window state, `wholeStackScopeOf`): one option set "Scope" of
+  branches outside the chain (`WholeStackScope`, `wholeStackScopeOf`): one option set "Scope" of
   the two (the stock `ToggleGroup`, so they read as controls, not as two words of the title), one pressed at most; a
   press of the pressed one keeps it. Of a stack that forks it is the review of its stack branch, its hover "Every branch of the
   whole air stack, its side branches too, on origin/master: 7 branches · 14 commits, what its Safe Push lands" (what is
-  left of it, `StackLanding.rest`), disabled with the reason while the stack branch is not built; of a straight chain
-  it is the review of its last branch from the root ("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3
-  commits, what the Safe Push of perf-part-2 lands"), and its last branch has none: From Root is the whole stack. The
+  left of it, `StackLanding.rest`); of a straight chain it is the review of its last branch from the root
+  ("IJPL-257337 to perf-part-2 on origin/master: 2 branches · 3 commits, what the Safe Push of perf-part-2 lands"), and
+  its last branch has none: From Root is the whole stack. It is disabled with the reason Rust gives "Review Whole Stack"
+  (`review-whole-stack` of `stack:<root>`: the stack branch not built, the review of the last branch blocked). The
   window opens that review itself (`openWholeStackReviewWindow`), the chain as the way back.
-  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root`)
+  [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should move the review of a branch up to the whole stack, and down to a branch of it and to the branch of a commit`, `should offer the whole stack of a straight chain on a branch with branches built on it, as the last one from the root`, `should keep an unavailable Whole Stack in the scopes, announced as unavailable, its reason on hover, a press changing nothing`)
+  [@test] ../../crates/domain-policy/src/actions_test.rs (`the_whole_stack_starts_as_its_step_says_and_lands_in_pieces_while_its_stack_branch_is_not_built`)
 - The stack bar of the review of the whole stack must show the chain it came from (`from` of the window data; the
   main line from the island and the menus), each segment with its number of commits, none pressed, then "Whole
   Stack", pressed; a segment reviews its branch, which the window opens itself. Each commit of the column (with the plan,
   each commit row of the tree) names its branch, muted after its subject, matched across the copies by author, author
-  time and subject (`reviewCommitKey`: the stack branch has no mapping notes; `stackCommits` of the window state), and
+  time and subject (`reviewCommitKey`: the stack branch has no mapping notes; `stackCommits` of the table the window reads), and
   the heading of the shown commit ends with
   "Review side-fix", the review of its branch at the commit (`{ review: "commit" }`). With the plan a commit row of
   the tree of a part of several branches names its branch too, which the column heads by branch.

@@ -1,4 +1,4 @@
-import { getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
+import { actionsOf, getBranchContextMenuItems, getBranchReviewItems, getSafePushWithoutReviewItem } from "@/hooks/useBranchContextActions"
 import type { BranchActionItem } from "@/hooks/useBranchContextActions"
 import { getCommitMenuGroups } from "@/hooks/useCommitMoveList"
 import { getKeptBranchMenu } from "@/hooks/useKeptBranchMenu"
@@ -7,16 +7,16 @@ import { getRewordMenuItem } from "@/hooks/useRewordCommit"
 import { wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import { formatBranchesAndCommits, getSimpleBranchName } from "@/lib/branch"
-import { branchGoneReason, reviewBlockerOf } from "@/lib/branch-review"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 import { findMenuItem } from "@/lib/menu"
 import { keptSubject } from "@/lib/review-target"
-import { formatWholeStack } from "@/lib/whole-stack"
-import { formatReasonOrNull } from "@/presenters/reasons"
-import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
+import { formatWholeStack, stackReadinessKey } from "@/lib/whole-stack"
+import { actionBlocker } from "@/presenters/actions"
+import { branchSyncStore, getBranch, getStackBranch, getStackDescendants, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
+import { getOperationWords } from "@/stores/indicators"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getUnappliedBranch } from "@/stores/unapplied-branches"
 import type { KeptReview, WholeStackScope } from "@/types/sub-window"
@@ -120,7 +120,9 @@ export function getWholeStackReviewItems(root: string): BranchActionItem[] {
 /**
  * "Whole Stack" after "From Root" in the stack bar of `chain`: every branch of the stack of its root, while it has
  * branches outside the chain; for a stack that forks its stack branch, for a straight chain its last branch from the
- * root, which holds them all. Disabled with the reason while that review can't open.
+ * root, which holds them all. Disabled with the reason while that review can't open, as Rust decides "Review Whole
+ * Stack" (`review-whole-stack` of `stack:<root>`: its stack branch not built, of a straight chain the review of its
+ * last branch)
  */
 export function wholeStackScopeOf(chain: readonly string[], baselineBranch: string): WholeStackScope | null {
   const root = chain[0]
@@ -128,9 +130,8 @@ export function wholeStackScopeOf(chain: readonly string[], baselineBranch: stri
   if (root === undefined || last === undefined) {
     return null
   }
-  const stack = getStackBranch(root)
-  if (stack !== undefined && isForkingRoot(branchSyncStore.getState(), root)) {
-    const blocker = stack.tip === null ? (formatReasonOrNull(getStackNotBuilt(root)) ?? "The stack branch is not built yet: sync first") : null
+  const blocker = actionBlocker(actionsOf(stackReadinessKey(root)), "review-whole-stack", { ...getOperationWords(), subject: root }) ?? null
+  if (getStackBranch(root) !== undefined && isForkingRoot(branchSyncStore.getState(), root)) {
     if (blocker !== null) {
       return { root, disabled: true, description: blocker }
     }
@@ -148,8 +149,6 @@ export function wholeStackScopeOf(chain: readonly string[], baselineBranch: stri
   if (leaf === undefined || leaf === last) {
     return null
   }
-  const leafBranch = getBranch(leaf)
-  const blocker = leafBranch === undefined ? branchGoneReason(leaf) : reviewBlockerOf(leafBranch)
   const commits = mainLine.reduce((sum, name) => sum + (getBranch(name)?.commitCount ?? 0), 0)
   return {
     root,
