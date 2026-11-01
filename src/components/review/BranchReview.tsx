@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { CheckCheckIcon, GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
+import { ArchiveRestoreIcon, CheckCheckIcon, GitMergeIcon, GitPullRequestCreateIcon, GitPullRequestIcon, InfoIcon, ShieldCheckIcon, UploadIcon } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import type { BranchReviewAction, BranchReviewModel } from "@/hooks/useBranchReview"
 import { getReviewCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
-import { branchGoneReason, reviewCommitKey } from "@/lib/branch-review"
+import { branchGoneReason, formatKeptOrigin, keptGoneReason, reviewCommitKey } from "@/lib/branch-review"
 import type { MenuItemGroups } from "@/lib/menu"
 import { reviewOwnerMarks } from "@/lib/review-owners"
 import type { ReviewOwners } from "@/lib/review-owners"
@@ -48,9 +48,12 @@ export function BranchReviewBar({ model, moves }: { model: BranchReviewModel; mo
   if (loaded === null) {
     return null
   }
+  const kept = model.source.kept
+  const base = loaded.segments[0]?.base
   return (
     <BranchReviewStackBar
-      baselineBranch={model.source.baselineBranch}
+      // a kept branch is read on its own base, not on today's baseline
+      baselineBranch={kept === undefined ? model.source.baselineBranch : formatKeptOrigin(kept, base)}
       segments={loaded.segments}
       range={loaded.range}
       onRangeChange={model.setRange}
@@ -74,7 +77,7 @@ export function BranchReviewGone({ model }: { model: BranchReviewModel }) {
   return (
     <Alert variant="info" data-testid="branch-review-gone">
       <InfoIcon />
-      <AlertTitle>{model.gone.map(branchGoneReason).join("; ")}</AlertTitle>
+      <AlertTitle>{model.gone.map(name => (model.source.kept === undefined ? branchGoneReason(name) : keptGoneReason(model.source.kept, name))).join("; ")}</AlertTitle>
     </Alert>
   )
 }
@@ -173,6 +176,7 @@ const ACTION_ICONS: Readonly<Record<string, LucideIcon>> = {
   "create-stack-pull-request": GitPullRequestCreateIcon,
   "safe-push-whole-stack": ShieldCheckIcon,
   "push-with-children": UploadIcon,
+  reapply: ArchiveRestoreIcon,
 }
 
 /** The actions on the target branch in the title bar of the window: O or Create Pull Request…, S Safe Push, Push */

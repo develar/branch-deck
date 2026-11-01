@@ -3,6 +3,7 @@ import type { BranchReviewFocus } from "@/lib/branch-review"
 import type { MissingCommitOwners } from "@/lib/merge-conflict"
 import type { CompareFields } from "@/lib/pull-request"
 import type { CreatePullRequestContext, CreatePullRequestInput } from "@/lib/pull-request-dialog"
+import type { KeptKind } from "@/lib/review-target"
 import type { ToastMessage } from "@/lib/toast-message"
 
 /** `__INIT_DATA__` of the `conflicting-files` sub-window (opened from ConflictingFileListCard) */
@@ -69,6 +70,7 @@ export interface BranchReviewItem {
     | "create-stack-pull-request"
     | "safe-push-whole-stack"
     | "push-with-children"
+    | "reapply"
   readonly label: string
   readonly kbds?: string[]
   readonly disabled?: boolean
@@ -101,6 +103,16 @@ export interface WholeStackScope {
   readonly disabled?: boolean
   /** What it holds and lands, or why it can't open */
   readonly description: string
+}
+
+/**
+ * A branch kept outside HEAD the review shows (`ReviewTarget::Kept`): its full name and where it is kept; the chain of
+ * the review is the branch it was, one part of its own commits
+ */
+export interface KeptReview {
+  readonly kind: KeptKind
+  /** `{prefix}/unapplied/<name>`, `{prefix}/archived/<date>/<name>` */
+  readonly name: string
 }
 
 /** A branch of the chain a review of the whole stack came from, a segment of its stack bar that goes back to it */
@@ -138,7 +150,10 @@ export interface BranchReviewWindowState {
 }
 
 /** The actions of the title bar the review window asks the main window for: all but those it opens itself */
-export type BranchReviewRequestItem = Exclude<BranchReviewItem["id"], "open-pull-request" | "create-pull-request" | "open-stack-pull-request" | "create-stack-pull-request">
+export type BranchReviewRequestItem = Exclude<
+  BranchReviewItem["id"],
+  "open-pull-request" | "create-pull-request" | "open-stack-pull-request" | "create-stack-pull-request" | "reapply"
+>
 
 /**
  * A request of the review window: the main window runs the action on the branch as its row would (`itemId`), or what
@@ -151,6 +166,8 @@ export type BranchReviewRequest = {
   readonly branchName: string
   /** Of the whole stack of `branchName`, its root: the actions, the menu and the dialog of the whole stack */
   readonly wholeStack?: boolean
+  /** Of the kept branch the review shows (`branchName` the branch it was): its actions and its menu, by `menuItemId` */
+  readonly kept?: KeptReview
 } & (
   | { readonly itemId: BranchReviewRequestItem }
   | { readonly menuItemId: string }
@@ -186,6 +203,8 @@ export interface BranchReviewWindowData {
   groups: BranchReviewGroup[]
   /** The whole stack of the root `chain` names alone: its stack branch (`openWholeStackReviewWindow`) */
   wholeStack?: boolean
+  /** The kept branch `chain` names by the branch it was (`openKeptReviewWindow`) */
+  kept?: KeptReview
   /** The review of the whole stack: the chain it came from (the main line from the island), its way back */
   from?: ReviewedBranch[]
   /** Where the review starts: the part of the stack, the files, the commit, the file ("Review Changes" of the Safe Push popover) */

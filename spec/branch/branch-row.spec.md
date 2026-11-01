@@ -916,7 +916,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   dismissed.
   [@test] ../../src/stores/archived-branches.test.ts (`marks the branches archived in this session until cleared`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should lead the toast with what landed and keep the island until it is dismissed`)
-- The menu of an archived row must offer the copy items and "Delete Archived Branch…" in the `destructive` colour,
+- The menu of an archived row must offer Review Changes (D, [Review Window](../review/review-window.spec.md#kept-branches)),
+  the copy items and "Delete Archived Branch…" in the `destructive` colour,
   which asks for the branch name; its Delete button is `destructive` too. Rust offers them (`domain_policy::kept`, the
   subject `archived:<full name>` of the view). The Actions cell has "⋯" with the same menu;
   ⌘C on the focused row copies the full name, as "Copy Full Branch Name".

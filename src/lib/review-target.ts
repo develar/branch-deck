@@ -9,3 +9,11 @@ export function chainTarget(chain: readonly string[], wholeStack: boolean): Revi
 export function segmentsOf(review: TargetReview): ReviewSegment[] {
   return review.kind === "range" ? review.segments : []
 }
+
+/** Where a branch is kept outside HEAD: an unapply took it out (`{prefix}/unapplied/<name>`), a sync archived it */
+export type KeptKind = "unapplied" | "archived"
+
+/** The subject of the actions of a kept branch in the view (`unapplied:<full name>`, `archived:<full name>`) */
+export function keptSubject(kind: KeptKind, name: string): string {
+  return `${kind}:${name}`
+}

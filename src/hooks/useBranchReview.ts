@@ -24,7 +24,7 @@ import { formatMarkedReviewed } from "@/presenters/review-plan"
 import type { ReviewFacts } from "@/presenters/review-plan"
 import { dropFilesOf, useFilesOfCommit } from "@/stores/commit-files"
 import { dropFileDiffsOf } from "@/stores/file-diffs"
-import type { BranchReviewGroup } from "@/types/sub-window"
+import type { BranchReviewGroup, KeptReview } from "@/types/sub-window"
 
 /*
  * The review of a branch (spec/branch/branch-review.spec.md), in the dialog of the branch preview and in its window: its
@@ -47,6 +47,8 @@ export interface BranchReviewSource {
    * of the stack (the target `wholeStack`)
    */
   readonly wholeStack?: boolean
+  /** The kept branch the chain names by the branch it was (`ReviewTarget::Kept`): one part of its own commits */
+  readonly kept?: KeptReview
   /**
    * The review plan is on for the repository (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md): Mark
    * Reviewed, "Since Your Review", the Review Summary card, the badges of the files and their Mechanical group; off, the
@@ -59,6 +61,7 @@ export interface BranchReviewSource {
 export interface BranchReviewSync {
   /** The heads are known: the window's session has a table a sync grouped */
   readonly known: boolean
+  /** By branch; empty for an archived branch, which no sync moves: it is there, its tip not in the table */
   readonly tips: Readonly<Record<string, string>>
 }
 
@@ -162,32 +165,36 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   // a sync that moved a tip of the stack reads it again, once per set of heads (a branch that left keeps the last view)
   const tipsKey = JSON.stringify(sync.tips)
   const [readTips, setReadTips] = useState(tipsKey)
-  const moved = state.status === "loaded" && sync.known && gone.length === 0 && state.view.segments.some(segment => sync.tips[segment.name] !== segment.head)
+  const moved =
+    state.status === "loaded" && sync.known && gone.length === 0 && state.view.segments.some(segment => sync.tips[segment.name] !== "" && sync.tips[segment.name] !== segment.head)
   if (moved && readTips !== tipsKey) {
     setReadTips(tipsKey)
   }
 
   const { repositoryPath, baselineBranch, chain } = source
   const wholeStack = source.wholeStack === true
+  const keptName = source.kept?.name ?? null
   const chainKey = chain.join("\n")
   // the focus of the first read only: a later read keeps what the user chose
   const initialFocus = useRef(focus)
   useEffect(() => {
     let current = true
-    void readReview({ repositoryPath, baselineBranch, target: chainTarget(chainKey.split("\n"), wholeStack) }).then(result => {
-      if (!current) {
-        return
-      }
-      if (result.status === "error") {
-        setState({ status: "error", message: result.error.message })
-      } else {
-        setState(previous => ({ status: "loaded", view: nextView(previous.status === "loaded" ? previous.view : null, segmentsOf(result.data), initialFocus.current) }))
-      }
-    })
+    void readReview({ repositoryPath, baselineBranch, target: keptName === null ? chainTarget(chainKey.split("\n"), wholeStack) : { kind: "kept", name: keptName } }).then(
+      result => {
+        if (!current) {
+          return
+        }
+        if (result.status === "error") {
+          setState({ status: "error", message: result.error.message })
+        } else {
+          setState(previous => ({ status: "loaded", view: nextView(previous.status === "loaded" ? previous.view : null, segmentsOf(result.data), initialFocus.current) }))
+        }
+      },
+    )
     return () => {
       current = false
     }
-  }, [repositoryPath, baselineBranch, chainKey, wholeStack, readTips])
+  }, [repositoryPath, baselineBranch, chainKey, wholeStack, keptName, readTips])
 
   // a move to a commit of the chain: once the review is read, not under an open dialog; the owner chip stays, it hides
   // no file
@@ -208,7 +215,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   // its range; "Since Your Review" only of one branch, whose base is the one Mark Reviewed keeps
   const experimental = source.reviewExperimental === true
   const [planGeneration, setPlanGeneration] = useState(0)
-  const planPart = experimental && view !== null ? reviewPlanPart(view.segments, view.range, wholeStack) : null
+  const planPart = experimental && view !== null ? reviewPlanPart(view.segments, view.range, wholeStack || keptName !== null) : null
   const plan = useReviewPlan(
     planPart === null || rangeSubject?.kind !== "range"
       ? null
@@ -320,15 +327,16 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
 
 /**
  * What the plan of the part of the review is read of: the reviewed branch on the base of the part (its own branch only
- * when the part is that branch alone, the base Mark Reviewed keeps), the whole stack as its range, never marked
+ * when the part is that branch alone, the base Mark Reviewed keeps), the whole stack and a kept branch as their range,
+ * never marked
  */
-function reviewPlanPart(segments: readonly ReviewSegment[], range: SegmentRange, wholeStack: boolean): { subject: ReviewSubject; ownBranch: boolean; markable: boolean } | null {
+function reviewPlanPart(segments: readonly ReviewSegment[], range: SegmentRange, asRange: boolean): { subject: ReviewSubject; ownBranch: boolean; markable: boolean } | null {
   const first = segments[range.from]
   const last = segments[range.to]
   if (first === undefined || last === undefined) {
     return null
   }
-  if (wholeStack) {
+  if (asRange) {
     return { subject: { kind: "range", base: first.base, head: last.head }, ownBranch: false, markable: false }
   }
   return { subject: { kind: "branch", name: last.name, base: first.base }, ownBranch: range.from === range.to, markable: true }

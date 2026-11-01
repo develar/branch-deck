@@ -5,6 +5,7 @@ import { KeptBranchCommits } from "@/components/branch/KeptBranchCommits"
 import { CopyButton } from "@/components/shared/CopyButton"
 import { InlineCode } from "@/components/shared/InlineCode"
 import type { UpstreamCommit } from "@/lib/bindings"
+import { openKeptReviewWindow } from "@/lib/branch-review-window"
 import { formatShortHash } from "@/lib/hash"
 import { describeIntegrationCommit } from "@/lib/integration-commit"
 import type { ArchivedBranch } from "@/stores/archived-branches"
@@ -22,7 +23,12 @@ export function ArchivedBranchExpanded({ branch }: { branch: ArchivedBranch }) {
     // neutral rule under the folder icon; the subjects start at the branch name x
     <div className="ml-8 flex animate-in flex-col gap-2 border-l border-border pr-6 duration-150 fade-in-0">
       {branch.integrationCommit !== undefined && <IntegrationCommitLine commit={branch.integrationCommit} />}
-      <KeptBranchCommits isLoading={branch.isLoadingCommits} loadError={branch.loadError} commits={branch.commits} />
+      <KeptBranchCommits
+        isLoading={branch.isLoadingCommits}
+        loadError={branch.loadError}
+        commits={branch.commits}
+        reviewIn={(hash, path) => openKeptReviewWindow({ kind: "archived", name }, { commitId: hash, path })}
+      />
     </div>
   )
 }

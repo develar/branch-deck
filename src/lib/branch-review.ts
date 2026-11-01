@@ -1,13 +1,16 @@
 import type { ActionState, ReviewSegment } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
+import { formatShortHash } from "@/lib/hash"
 import { sameFields } from "@/lib/record"
 import type { ReviewFilter } from "@/lib/review-owners"
 import { getRowPart } from "@/model/store"
 import { actionBlocker } from "@/presenters/actions"
+import type { ArchivedBranchesState } from "@/stores/archived-branches"
 import { structureIn } from "@/stores/branch-sync"
 import type { Branch, BranchSyncState } from "@/stores/branch-sync"
 import { getOperationWords } from "@/stores/indicators"
-import type { BranchReviewGroup, BranchReviewWindowData } from "@/types/sub-window"
+import type { UnappliedBranchesState } from "@/stores/unapplied-branches"
+import type { BranchReviewGroup, BranchReviewWindowData, KeptReview } from "@/types/sub-window"
 
 /**
  * Where a review of a branch starts: the part of its stack (the branch itself, all of it down to the baseline, or the
@@ -223,9 +226,48 @@ export function settledReviewTable(state: BranchSyncState, chain: readonly strin
   return { tips, baselineBranch: state.baselineBranch, stackCommits }
 }
 
+/**
+ * The table of `state` as the review of the kept branch `kept` (the branch it was `branchName`) reads it, once the view
+ * settled: the tip of an unapplied branch, an archived one there with no tip (no sync moves it), nothing once it is gone
+ */
+export function settledKeptTable(
+  state: BranchSyncState,
+  kept: KeptReview,
+  branchName: string,
+  unapplied: UnappliedBranchesState,
+  archived: ArchivedBranchesState,
+): ReviewedTable | null {
+  if (state.isSyncing || state.baselineBranch === null) {
+    return null
+  }
+  const tip = kept.kind === "unapplied" ? unapplied.branches[kept.name]?.tip : archived.branches[kept.name] === undefined ? undefined : ""
+  return { tips: tip === undefined ? {} : { [branchName]: tip }, baselineBranch: state.baselineBranch, stackCommits: {} }
+}
+
 /** The same table for the review: a view that changed nothing it reads keeps the record, and the window renders nothing */
 export function sameReviewTable(a: ReviewedTable | null, b: ReviewedTable | null): boolean {
   return a === b || (a !== null && b !== null && a.baselineBranch === b.baselineBranch && sameFields(a.tips, b.tips) && sameFields(a.stackCommits, b.stackCommits))
+}
+
+/**
+ * How the open of the kept branch `kept` goes on from the window on screen: a plain open of the one it shows only brings
+ * it to the front, anything else starts it over
+ */
+export function planKeptReviewOpen(shown: ShownBranchReview | null, repositoryPath: string, kept: KeptReview, focus: BranchReviewFocus, now: number): BranchReviewOpen {
+  const same = shown !== null && shown.repositoryPath === repositoryPath && shown.kept?.name === kept.name
+  const plain = focus.commitId == null && focus.path == null
+  return same && plain ? { chain: shown.chain, startedAt: shown.startedAt, move: false } : { chain: [], startedAt: now, move: false }
+}
+
+/** "Unapplied on 1a2b3c4d": where the kept branch is kept and the commit its own commits start on */
+export function formatKeptOrigin(kept: KeptReview, base: string | undefined): string {
+  const where = kept.kind === "unapplied" ? "Unapplied" : "Archived"
+  return base === undefined ? where : `${where} on ${formatShortHash(base)}`
+}
+
+/** Why the review of a kept branch shows what it read last: it was reapplied or deleted */
+export function keptGoneReason(kept: KeptReview, branchName: string): string {
+  return kept.kind === "unapplied" ? `${branchName} is no longer unapplied: it was reapplied or deleted` : `The archived branch ${branchName} was deleted`
 }
 
 /**
@@ -242,6 +284,8 @@ export interface ShownBranchReview {
   readonly repositoryPath: string
   readonly chain: readonly string[]
   readonly wholeStack: boolean
+  /** The kept branch the review shows, the branch it was its chain */
+  readonly kept?: KeptReview
   /** The open that started the review: the key of the window (`branchReviewWindowKey`) */
   readonly startedAt: number
 }
@@ -272,7 +316,7 @@ export function planReviewOpen(
   request: { readonly repositoryPath: string; readonly branchName: string; readonly chain: readonly string[]; readonly focus: BranchReviewFocus },
   now: number,
 ): BranchReviewOpen {
-  if (shown !== null && !shown.wholeStack && shown.repositoryPath === request.repositoryPath) {
+  if (shown !== null && !shown.wholeStack && shown.kept === undefined && shown.repositoryPath === request.repositoryPath) {
     if (isCommitFocus(request.focus) && shown.chain.includes(request.branchName)) {
       return { chain: shown.chain, startedAt: shown.startedAt, move: true }
     }

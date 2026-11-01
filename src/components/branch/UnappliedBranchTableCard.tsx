@@ -12,6 +12,7 @@ import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { useKeptBranchMenu } from "@/hooks/useKeptBranchMenu"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { useRowBusy } from "@/hooks/useRowOperation"
+import { keptReviewOpener, openKeptReviewWindow } from "@/lib/branch-review-window"
 import { formatCommitCount } from "@/lib/commit"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -44,7 +45,11 @@ export function UnappliedBranchTableCard() {
       header={<SectionCardHeader title="Unapplied" count={order.length} itemSingular="branch" itemPlural="branches" />}
       help={<UnappliedBranchesHelpPopover />}
     >
-      <KeptBranchTable columns={UNAPPLIED_COLUMNS} menu={name => <UnappliedBranchMenuItems name={name} Items={ContextMenuItems} />}>
+      <KeptBranchTable
+        onReview={name => void openKeptReviewWindow({ kind: "unapplied", name })}
+        columns={UNAPPLIED_COLUMNS}
+        menu={name => <UnappliedBranchMenuItems name={name} Items={ContextMenuItems} />}
+      >
         {order.map(name => (
           <UnappliedBranchRow key={name} name={name} expanded={expandedKeys.has(name)} onToggleExpanded={toggleExpanded} />
         ))}
@@ -82,7 +87,7 @@ const UnappliedBranchRow = memo(function UnappliedBranchRow({ name, expanded, on
   const toggle = () => onToggleExpanded(name)
   return (
     <>
-      <BranchRowElement name={name} expanded={expanded} processing={working} className={cn(expanded && "bg-muted/50")} onToggle={toggle}>
+      <BranchRowElement name={name} rowId={name} expanded={expanded} processing={working} className={cn(expanded && "bg-muted/50")} onToggle={toggle}>
         <BranchNameCell name={branch.branch} summary={branch.subject} expanded={expanded} onToggleExpanded={toggle} />
         <td className="hidden w-px px-4 py-(--bd-cell-y) whitespace-nowrap text-muted-foreground sm:table-cell" data-testid="unapplied-branch-remote">
           {remoteText(branch)}
@@ -127,14 +132,19 @@ function UnappliedBranchExpanded({ branch }: { branch: UnappliedBranch }) {
   }, [name])
   return (
     <div className="ml-8 flex animate-in flex-col gap-2 border-l border-border pr-6 duration-150 fade-in-0">
-      <KeptBranchCommits isLoading={branch.isLoadingCommits} loadError={branch.loadError} commits={branch.commits} />
+      <KeptBranchCommits
+        isLoading={branch.isLoadingCommits}
+        loadError={branch.loadError}
+        commits={branch.commits}
+        reviewIn={(hash, path) => openKeptReviewWindow({ kind: "unapplied", name }, { commitId: hash, path })}
+      />
     </div>
   )
 }
 
 /** The menu of an unapplied row, the same under the right-click (`ContextMenuItems`) and under "⋯" (`DropdownMenuItems`) */
 function UnappliedBranchMenuItems({ name, Items }: { name: string; Items: ComponentType<{ groups: MenuItemGroups }> }) {
-  return <Items groups={useKeptBranchMenu("unapplied", name)} />
+  return <Items groups={useKeptBranchMenu("unapplied", name, keptReviewOpener("unapplied", name))} />
 }
 
 /** Deletes the unapplied branch (`deleteKeptBranch`); the session's patch removes its row, no sync follows */

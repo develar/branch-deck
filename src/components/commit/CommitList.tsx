@@ -45,6 +45,11 @@ export interface CommitListProps<T extends CommitUnion> {
   branchName?: string
   /** The name of the list in the title bar of its review window: the branch, or "Unassigned" */
   listLabel?: string
+  /**
+   * Reviews a commit of the list in the review of what owns it (a kept branch, at the commit), in place of the review
+   * window of the commit; resolves to whether the window opened
+   */
+  reviewIn?: (hash: string, path: string | null) => Promise<boolean>
   /** Show the file count a commit carries (`filesTouched` of a missing commit) until its files are loaded */
   showFileCount?: boolean
   showAuthor?: boolean
@@ -108,6 +113,7 @@ export function CommitList<T extends CommitUnion>({
   variant = "compact",
   branchName,
   listLabel,
+  reviewIn,
   showFileCount = false,
   showAuthor = false,
   highlightTipCommit = false,
@@ -208,7 +214,7 @@ export function CommitList<T extends CommitUnion>({
       return false
     }
     // a commit of a branch is reviewed with its branch: the stack, the actions, the commits beside it
-    const inBranch = branchName === undefined ? null : reviewBranchCommit(branchName, hash, path)
+    const inBranch = reviewIn?.(hash, path) ?? (branchName === undefined ? null : reviewBranchCommit(branchName, hash, path))
     return inBranch ?? openCommitReviewWindow(commits.map(toReviewCommit), listLabel ?? branchName ?? null, index, path)
   }
   const reviewRow = (commit: CommitUnion) => void review(getCommitHash(commit))

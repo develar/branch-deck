@@ -13,7 +13,7 @@ import { WindowPage } from "@/components/shared/WindowPage"
 import { hasCommitKeys, keyedAction, useBranchReview } from "@/hooks/useBranchReview"
 import { askMainWindow, useLinkedFeedback, useLinkedState } from "@/hooks/useMainWindowLink"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
-import { branchGoneReason, branchReviewWindowKey, sameReviewTable, settledReviewTable } from "@/lib/branch-review"
+import { branchGoneReason, branchReviewWindowKey, keptGoneReason, sameReviewTable, settledKeptTable, settledReviewTable } from "@/lib/branch-review"
 import type { ReviewedTable } from "@/lib/branch-review"
 import { notifyError } from "@/lib/errors"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -23,9 +23,18 @@ import { showToast } from "@/lib/toast-message"
 import { formatWholeStack } from "@/lib/whole-stack"
 import { BRANCH_REVIEW_WINDOW } from "@/lib/window-label"
 import { ensureSession, viewVersionKey } from "@/model/store"
+import { archivedBranchesStore } from "@/stores/archived-branches"
 import { branchSyncStore } from "@/stores/branch-sync"
-import type { BranchSyncState } from "@/stores/branch-sync"
-import type { BranchReviewFeedback, BranchReviewItem, BranchReviewMenuItem, BranchReviewRequest, BranchReviewRequestItem, BranchReviewWindowData } from "@/types/sub-window"
+import { unappliedBranchesStore } from "@/stores/unapplied-branches"
+import type {
+  BranchReviewFeedback,
+  BranchReviewItem,
+  BranchReviewMenuItem,
+  BranchReviewRequest,
+  BranchReviewRequestItem,
+  BranchReviewWindowData,
+  KeptReview,
+} from "@/types/sub-window"
 
 const WindowCreatePullRequestDialog = lazy(() => import("@/components/review/WindowCreatePullRequestDialog").then(it => ({ default: it.WindowCreatePullRequestDialog })))
 
@@ -58,21 +67,53 @@ export function BranchReviewPage() {
  * once per finished sync, whichever window asked for it, and never from a run that is rebuilding the copies; null
  * until a sync grouped the branches
  */
-function useReviewedTable(chain: readonly string[], wholeStack: boolean): ReviewedTable | null {
+function useReviewedTable(chain: readonly string[], wholeStack: boolean, kept: KeptReview | undefined): ReviewedTable | null {
   const chainKey = chain.join("\n")
-  const [table, setTable] = useState(() => settledReviewTable(branchSyncStore.getState(), chain, wholeStack))
+  const keptKind = kept?.kind
+  const keptName = kept?.name
+  const [table, setTable] = useState(() => settledTable(chain, wholeStack, kept))
   useEffect(() => {
     const names = chainKey.split("\n")
-    const take = (state: BranchSyncState) => {
-      const next = settledReviewTable(state, names, wholeStack)
+    const of = keptKind === undefined || keptName === undefined ? undefined : { kind: keptKind, name: keptName }
+    const take = () => {
+      const next = settledTable(names, wholeStack, of)
       if (next !== null) {
         setTable(previous => (sameReviewTable(previous, next) ? previous : next))
       }
     }
-    take(branchSyncStore.getState())
-    return branchSyncStore.subscribe(take)
-  }, [chainKey, wholeStack])
+    take()
+    // a kept branch is in the stores of its section: the unapply, the reapply and the delete of the session patch them
+    const unsubscribe = [branchSyncStore.subscribe(take), unappliedBranchesStore.subscribe(take), archivedBranchesStore.subscribe(take)]
+    return () => unsubscribe.forEach(it => it())
+  }, [chainKey, wholeStack, keptKind, keptName])
   return table
+}
+
+/** The table of the window's session as the review of `chain` reads it now (`settledReviewTable`, `settledKeptTable`) */
+function settledTable(chain: readonly string[], wholeStack: boolean, kept: KeptReview | undefined): ReviewedTable | null {
+  const state = branchSyncStore.getState()
+  return kept === undefined
+    ? settledReviewTable(state, chain, wholeStack)
+    : settledKeptTable(state, kept, chain[0] ?? "", unappliedBranchesStore.getState(), archivedBranchesStore.getState())
+}
+
+/**
+ * The review of a kept branch that was reapplied goes on as the review of the branch it is again, once a sync built it:
+ * the window asks the main window to open it, as the menu of the row would
+ */
+function useReappliedReview(data: BranchReviewWindowData, gone: boolean): void {
+  const kept = data.kept
+  const branchName = data.chain[0] ?? ""
+  const rebuilt = useStore(branchSyncStore, state => kept !== undefined && gone && state.branches[branchName] !== undefined)
+  const [asked, setAsked] = useState(false)
+  if (rebuilt && !asked) {
+    setAsked(true)
+  }
+  useEffect(() => {
+    if (asked) {
+      void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath: data.repositoryPath, branchName, review: "branch" })
+    }
+  }, [asked, data.repositoryPath, branchName])
 }
 
 function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
@@ -80,7 +121,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   const linked = useLinkedState(BRANCH_REVIEW_WINDOW, data.state)
   // the window's view of the session: the heads the last sync built, the baseline
   const wholeStack = data.wholeStack === true
-  const table = useReviewedTable(data.chain, wholeStack)
+  const table = useReviewedTable(data.chain, wholeStack, data.kept)
   const viewVersion = useStore(branchSyncStore, state => viewVersionKey(state.viewVersion))
   // the review plan, as the last sync of the window's session read `branchdeck.reviewExperimental`
   const reviewExperimental = useStore(branchSyncStore, state => state.reviewExperimental)
@@ -136,6 +177,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
   }
 
   const { loaded } = model
+  useReappliedReview(data, model.gone.length > 0)
   const target = loaded?.target ?? data.chain.at(-1) ?? ""
   // up to the whole stack and down to a branch of it: the main window opens the review as its menus would
   const moves: BranchReviewMoves = {
@@ -164,8 +206,9 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
           branchName: loaded.target,
           selected: linked.selected,
           gone: model.gone.includes(loaded.target),
+          kept: data.kept,
         }),
-    { openCreatePullRequest: openDialog, keysSuspended: dialog !== null, wholeStack },
+    { openCreatePullRequest: openDialog, keysSuspended: dialog !== null, wholeStack, kept: data.kept },
   )
   return (
     <WindowPage
@@ -189,6 +232,7 @@ function BranchReviewWindow({ data }: { data: BranchReviewWindowData }) {
                 selected={linked.selected}
                 gone={model.gone.includes(loaded.target)}
                 wholeStack={wholeStack}
+                kept={data.kept}
               />
             </div>
           </>
@@ -240,6 +284,7 @@ function BranchReviewMenu({
   selected,
   gone,
   wholeStack,
+  kept,
 }: {
   repositoryPath: string
   branchName: string
@@ -247,6 +292,7 @@ function BranchReviewMenu({
   selected: boolean
   gone: boolean
   wholeStack: boolean
+  kept: KeptReview | undefined
 }) {
   if (groups.length === 0) {
     return null
@@ -254,9 +300,16 @@ function BranchReviewMenu({
   const items: MenuItemGroups = groups.map(group =>
     group.map(item => ({
       ...item,
-      ...(gone && { disabled: true, description: branchGoneReason(branchName) }),
+      ...(gone && { disabled: true, description: goneReason(branchName, kept) }),
       ...(!gone && !selected && item.disabled !== true && { description: switchesRepository(repositoryPath) }),
-      onSelect: () => void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), menuItemId: item.id }),
+      onSelect: () =>
+        void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, {
+          repositoryPath,
+          branchName,
+          ...(wholeStack && { wholeStack }),
+          ...(kept !== undefined && { kept }),
+          menuItemId: item.id,
+        }),
     })),
   )
   return <MoreActionsMenu name={wholeStack ? formatWholeStack(branchName) : branchName} menu={<DropdownMenuItems groups={items} />} />
@@ -269,7 +322,7 @@ function BranchReviewMenu({
  */
 function shownItems(
   items: readonly BranchReviewItem[],
-  { repositoryPath, branchName, selected, gone }: { repositoryPath: string; branchName: string; selected: boolean; gone: boolean },
+  { repositoryPath, branchName, selected, gone, kept }: { repositoryPath: string; branchName: string; selected: boolean; gone: boolean; kept: KeptReview | undefined },
 ): readonly BranchReviewItem[] {
   if (selected && !gone) {
     return items
@@ -278,7 +331,7 @@ function shownItems(
     if (item.url !== undefined || item.id === "open-pull-request" || item.id === "open-stack-pull-request") {
       return item
     }
-    return gone ? { ...item, disabled: true, description: branchGoneReason(branchName) } : { ...item, description: switchesRepository(repositoryPath) }
+    return gone ? { ...item, disabled: true, description: goneReason(branchName, kept) } : { ...item, description: switchesRepository(repositoryPath) }
   })
 }
 
@@ -293,16 +346,24 @@ function useBranchReviewActions(
   repositoryPath: string,
   branchName: string,
   items: readonly BranchReviewItem[],
-  { openCreatePullRequest, keysSuspended, wholeStack }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean; wholeStack: boolean },
+  {
+    openCreatePullRequest,
+    keysSuspended,
+    wholeStack,
+    kept,
+  }: { openCreatePullRequest: (branchName: string) => void; keysSuspended: boolean; wholeStack: boolean; kept: KeptReview | undefined },
 ) {
   const ask = (itemId: BranchReviewRequestItem) =>
     void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, ...(wholeStack && { wholeStack }), itemId })
   const run = (item: BranchReviewItem) => {
-    if (item.url !== undefined) {
+    if (kept !== undefined) {
+      // the actions of a kept branch are items of its menu, which the main window runs
+      void askMainWindow<BranchReviewRequest>(BRANCH_REVIEW_WINDOW, { repositoryPath, branchName, kept, menuItemId: item.id })
+    } else if (item.url !== undefined) {
       openPullRequestUrl(item.url)
     } else if (item.id === "create-pull-request" || item.id === "create-stack-pull-request") {
       openCreatePullRequest(branchName)
-    } else if (item.id !== "open-pull-request" && item.id !== "open-stack-pull-request") {
+    } else if (item.id !== "open-pull-request" && item.id !== "open-stack-pull-request" && item.id !== "reapply") {
       ask(item.id)
     }
   }
@@ -327,6 +388,11 @@ function useBranchReviewActions(
     return () => window.removeEventListener("keydown", listener)
   }, [])
   return { items, run }
+}
+
+/** Why the actions of the review stay disabled: the branch left the table, a kept branch was reapplied or deleted */
+function goneReason(branchName: string, kept: KeptReview | undefined): string {
+  return kept === undefined ? branchGoneReason(branchName) : keptGoneReason(kept, branchName)
 }
 
 /** The hover of an action of the window while the main window shows another repository: the consequence of the click */

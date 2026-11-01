@@ -196,7 +196,8 @@ puts its commits back on top of the current branch, their files and their groupi
   "Pushed", "2 commits to push", "Remote differs"), and its commits below an expanded row; a help popover says what an
   unapplied branch is.
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should list an unapplied branch in its own card with its commits, out of the branch table`)
-- The menu of a row (right-click and "⋯") must offer Reapply, Push Branch (Force Push Branch when the remote has another history,
+- The menu of a row (right-click and "⋯") must offer Review Changes (D, its review: [Review
+  Window](../review/review-window.spec.md#kept-branches)), Reapply, Push Branch (Force Push Branch when the remote has another history,
   disabled when it has it as it is), Safe Push disabled with "Not in master: Reapply it to land it", Copy, and Delete
   Unapplied Branch…. Rust decides them (`domain_policy::kept`, the subject `unapplied:<full name>` of the view): a
   worktree that has the branch checked out disables Reapply and the delete ("A worktree has docs checked out"), the

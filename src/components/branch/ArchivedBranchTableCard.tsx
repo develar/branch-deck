@@ -17,6 +17,7 @@ import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
 import { useKeptBranchMenu } from "@/hooks/useKeptBranchMenu"
 import { useRowExpansion } from "@/hooks/useRowExpansion"
 import { getSimpleBranchName } from "@/lib/branch"
+import { keptReviewOpener, openKeptReviewWindow } from "@/lib/branch-review-window"
 import { deleteKeptBranch } from "@/lib/git/delete-kept-branch"
 import type { MenuItemGroups } from "@/lib/menu"
 import { useArchivedBranch, useArchivedBranchOrder, useIsNewlyArchived, useNotMergedArchivedCount } from "@/stores/archived-branches"
@@ -53,7 +54,11 @@ export function ArchivedBranchTableCard() {
       }
       help={<ArchivedBranchesHelpPopover />}
     >
-      <KeptBranchTable columns={ARCHIVED_COLUMNS} menu={name => <ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}>
+      <KeptBranchTable
+        onReview={name => void openKeptReviewWindow({ kind: "archived", name })}
+        columns={ARCHIVED_COLUMNS}
+        menu={name => <ArchivedBranchMenuItems name={name} Items={ContextMenuItems} />}
+      >
         {order.map(name => (
           <ArchivedBranchRow key={name} name={name} expanded={expandedKeys.has(name)} onToggleExpanded={toggleExpanded} />
         ))}
@@ -97,6 +102,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
     <>
       <BranchRowElement
         name={name}
+        rowId={name}
         expanded={expanded}
         processing={processing}
         // "Loading commits…" below the row is the progress of its expansion
@@ -143,7 +149,7 @@ const ArchivedBranchRow = memo(function ArchivedBranchRow({ name, expanded, onTo
 
 /** The menu of an archived row, the same under the right-click (`ContextMenuItems`) and under "⋯" (`DropdownMenuItems`) */
 function ArchivedBranchMenuItems({ name, Items }: { name: string; Items: ComponentType<{ groups: MenuItemGroups }> }) {
-  return <Items groups={useKeptBranchMenu("archived", name)} />
+  return <Items groups={useKeptBranchMenu("archived", name, keptReviewOpener("archived", name))} />
 }
 
 /** Deletes the archived branch (`deleteKeptBranch`); the session's patch removes its row, no sync follows */

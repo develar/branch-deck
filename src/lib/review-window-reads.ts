@@ -42,7 +42,8 @@ export function startReviewWindowReads(label: string): void {
   } else if (label === BRANCH_REVIEW_WINDOW) {
     const data = window.__INIT_DATA__ as BranchReviewWindowData | undefined
     if (data !== undefined) {
-      const params = { repositoryPath: data.repositoryPath, baselineBranch: data.baselineBranch, target: chainTarget(data.chain, data.wholeStack === true) }
+      const target = data.kept === undefined ? chainTarget(data.chain, data.wholeStack === true) : ({ kind: "kept", name: data.kept.name } as const)
+      const params = { repositoryPath: data.repositoryPath, baselineBranch: data.baselineBranch, target }
       startedReview = { key: reviewKey(params), read: commands.getReview(params) }
     }
   }

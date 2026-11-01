@@ -140,11 +140,11 @@ publisher: choose More info → Run anyway.
   outside the working tree. Branches that were merged, rebased or squashed upstream are detected and archived, and
   the header says which of your commits landed ([update](spec/repository/update-project.spec.md),
   [landed](spec/repository/landed-commits.spec.md), [detection](docs/design/integration-detection.md)).
-- **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit or a whole branch in a window
+- **Review**: the changed files of a commit as a tree with diffs; `D` reviews a commit, a whole branch or one set aside in a window
   of its own, one scrolling view (`J`/`K` files, `N`/`P` changes), coloured as IntelliJ colours the code, a ⌘-click
   on a name going to its declaration, ⌥F7 listing its usages. Your Turn lists the pull requests that wait for your
   review and opens them in the same window to approve or request changes; the Reviews view (⌘2) shows every pull
-  request you take part in, and one added by its link ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md),
+  request you take part in, and one added by its link ([commit](spec/commit/commit-review.spec.md), [branch](spec/branch/branch-review.spec.md), [set aside](spec/review/review-window.spec.md),
   [navigation](spec/commit/symbol-navigation.spec.md), [Your Turn](spec/repository/review-requests.spec.md), [Reviews](spec/repository/reviews.spec.md)).
 
   <picture>

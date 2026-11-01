@@ -65,8 +65,9 @@ The commit preview shows a commit, as Quick Look shows a file; the review reads 
 opens a file: D on a row, the item of its menu or D in the preview opens the review. A commit lands in master with its
 branch ([Landing](../../docs/design/landing.md)), so a commit of a branch is reviewed in the review window of its
 branch, at the commit, with the stack, the actions and the other commits of the branch beside it
-([Branch Review](../branch/branch-review.spec.md)); a commit no branch review shows (unassigned, archived, of a branch
-not built on its parents, of a conflict) opens the window `commit-review`. A sidebar with
+([Branch Review](../branch/branch-review.spec.md)), a commit of an unapplied or archived branch in the review of that
+branch ([Review Window](../review/review-window.spec.md#kept-branches)); a commit no branch review shows (unassigned, of
+a branch not built on its parents, of a conflict) opens the window `commit-review`. A sidebar with
 the directory tree of the files on the left, the diffs of all of them in one scrolling view on the right, a sticky
 header per file, as a code review in Space, GitHub or IntelliJ shows a change. The tree follows the diffs as they
 scroll, a file chosen in the tree scrolls the diffs to it, J and K step through the files and N and P through the

@@ -5,14 +5,15 @@ import { getBranchNextStep } from "@/hooks/useBranchNextStep"
 import type { BranchReviewSource } from "@/hooks/useBranchReview"
 import { getCommitMenuGroups } from "@/hooks/useCommitMoveList"
 import { getCreatePullRequestContext, getStackPullRequestContext } from "@/hooks/useCreatePullRequestContext"
+import { getKeptBranchMenu } from "@/hooks/useKeptBranchMenu"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { getRewordMenuItem } from "@/hooks/useRewordCommit"
 import { wholeStackRestOf } from "@/hooks/useStackNextStep"
 import { getWholeStackMenuItems } from "@/hooks/useWholeStackActions"
 import type { PatronusReviewRequirement, ReviewPart } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { formatBranchesAndCommits } from "@/lib/branch"
-import { branchGoneReason, reviewBlockerOf, planReviewOpen, requestAction, reviewCommitKey } from "@/lib/branch-review"
+import { formatBranchesAndCommits, getSimpleBranchName } from "@/lib/branch"
+import { branchGoneReason, keptGoneReason, planKeptReviewOpen, reviewBlockerOf, planReviewOpen, requestAction, reviewCommitKey } from "@/lib/branch-review"
 import type { BranchReviewFocus, ShownBranchReview } from "@/lib/branch-review"
 import { logError, notifyError, recordError } from "@/lib/errors"
 import { formatShortHash } from "@/lib/hash"
@@ -29,12 +30,14 @@ import { demandReviewReadiness, showReviewReadiness } from "@/model/demand"
 import { getRowPart } from "@/model/store"
 import { findAction } from "@/presenters/actions"
 import { formatReasonOrNull } from "@/presenters/reasons"
+import { archivedBranchesStore } from "@/stores/archived-branches"
 import { branchSyncStore, getBranch, getStackAncestors, getStackBranch, getStackDescendants, getStackNotBuilt, isForkingRoot, mainLineOf } from "@/stores/branch-sync"
 import type { Branch, SyncedCommit } from "@/stores/branch-sync"
 import { requestCommitForm, requestReveal } from "@/stores/commit-move"
 import type { CommitFormRequest, RevealRequest } from "@/stores/commit-move"
 import { getStackPullRequest } from "@/stores/pull-requests"
 import { getSelectedProject } from "@/stores/repository"
+import { getUnappliedBranch } from "@/stores/unapplied-branches"
 import type {
   BranchReviewFeedback,
   BranchReviewGroup,
@@ -43,6 +46,7 @@ import type {
   BranchReviewRequest,
   BranchReviewWindowData,
   BranchReviewWindowState,
+  KeptReview,
   ReviewedBranch,
   WholeStackScope,
 } from "@/types/sub-window"
@@ -97,7 +101,12 @@ function releaseChain(): void {
 /** The open review window: the repository and the chain it shows, or the whole stack of its root */
 const link = createWindowLink<ShownBranchReview, BranchReviewWindowState>({
   label: BRANCH_REVIEW_WINDOW,
-  buildState: shown => (shown.wholeStack ? buildStackState(shown.repositoryPath, shown.chain[0] ?? "") : buildState(shown.repositoryPath, shown.chain)),
+  buildState: shown =>
+    shown.kept !== undefined
+      ? buildKeptState(shown.repositoryPath, shown.kept, shown.chain[0] ?? "")
+      : shown.wholeStack
+        ? buildStackState(shown.repositoryPath, shown.chain[0] ?? "")
+        : buildState(shown.repositoryPath, shown.chain),
   onClose: () => {
     closeDialog()
     releaseChain()
@@ -199,8 +208,11 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
     move: open.move,
     state: link.takeState()!,
   }
-  const commitId = focus.commitId
-  const title = commitId == null ? `Review ${branchName}` : `Review ${branchName} · ${formatShortHash(commitId)}`
+  return openWindow(shown, reviewTitle(branchName, focus.commitId), data, branchName)
+}
+
+/** Opens the window on `data`; a failure is told, of `subject` */
+function openWindow(shown: ShownBranchReview, title: string, data: BranchReviewWindowData, subject: string): Promise<boolean> {
   return link.open(shown, { url: "/branch-review", title, data }).then(
     () => true,
     (error: unknown) => {
@@ -208,7 +220,7 @@ export async function openBranchReviewWindow(branchName: string, focus: BranchRe
       if (link.shown() === null) {
         releaseChain()
       }
-      notifyError(`Cannot open the review of ${branchName}`, error)
+      notifyError(`Cannot open the review of ${subject}`, error)
       return false
     },
   )
@@ -239,6 +251,81 @@ function tellDialogOpen(subject: string, dialogBranch: string): void {
     title: `Cannot review ${subject}`,
     description: `The review window has the pull request of ${dialogBranch} open: create it or close the dialog first`,
   })
+}
+
+/** The branch a kept branch was, as its row names it: `docs` of `jane/unapplied/docs` */
+function keptBranchName(kept: KeptReview): string {
+  return (kept.kind === "unapplied" ? getUnappliedBranch(kept.name)?.branch : undefined) ?? getSimpleBranchName(kept.name)
+}
+
+/**
+ * Reviews a branch kept outside HEAD (unapplied, archived) in the review window: its own commits from where they start
+ * (`ReviewTarget::Kept`), one part, at `focus` (a commit, a file); its title bar holds its actions (Reapply, Push Branch),
+ * its "⋯" its whole menu, which the main window runs. Resolves to whether the window opened; a failure is told.
+ */
+export async function openKeptReviewWindow(kept: KeptReview, focus: Pick<BranchReviewFocus, "commitId" | "path"> = {}): Promise<boolean> {
+  const repositoryPath = getSelectedProject()?.path
+  const baselineBranch = branchSyncStore.getState().baselineBranch
+  if (repositoryPath === undefined || baselineBranch === null) {
+    return false
+  }
+  const branchName = keptBranchName(kept)
+  const open = planKeptReviewOpen(link.shown(), repositoryPath, kept, focus, Date.now())
+  const restarts = open.startedAt !== link.shown()?.startedAt
+  if (restarts && dialog !== null) {
+    tellDialogOpen(branchName, dialog.branchName)
+    return false
+  }
+  const target = { kind: "kept", name: kept.name } as const
+  const key = [repositoryPath, kept.name, getUnappliedBranch(kept.name)?.tip ?? ""].join("\n")
+  if (!prefetched.has(key)) {
+    prefetched.add(key)
+    void commands.prefetchReview({ review: { repositoryPath, baselineBranch, target }, part: "own" }).then(result => {
+      if (result.status === "error") {
+        prefetched.delete(key)
+        logError("Cannot read the review of a kept branch ahead", result.error)
+      }
+    })
+  }
+  const chain = [branchName]
+  const shown: ShownBranchReview = { repositoryPath, chain, wholeStack: false, kept, startedAt: open.startedAt }
+  if (restarts) {
+    closeDialog()
+    releaseChain()
+  }
+  link.setShown(shown)
+  const data: BranchReviewWindowData = {
+    repositoryPath,
+    baselineBranch,
+    chain,
+    groups: [],
+    kept,
+    focus: { range: "own", filter: { kind: "all" }, commitId: focus.commitId ?? null, path: focus.path ?? null },
+    openedAt: Date.now(),
+    startedAt: open.startedAt,
+    move: false,
+    state: link.takeState()!,
+  }
+  return openWindow(shown, reviewTitle(branchName, focus.commitId), data, branchName)
+}
+
+/** "Review login", "Review login · 1a2b3c4d" at a commit: the title of the window */
+function reviewTitle(branchName: string, commitId: string | null | undefined): string {
+  return commitId == null ? `Review ${branchName}` : `Review ${branchName} · ${formatShortHash(commitId)}`
+}
+
+/** By kind and full name: the open of the review of a kept branch, one function per row for its menu (`useKeptBranchMenu`) */
+const keptOpeners = new Map<string, () => void>()
+
+/** The open of the review of the kept branch `name` (its full name), the same function for the same branch */
+export function keptReviewOpener(kind: KeptReview["kind"], name: string): () => void {
+  const key = `${kind}:${name}`
+  let open = keptOpeners.get(key)
+  if (open === undefined) {
+    open = () => void openKeptReviewWindow({ kind, name })
+    keptOpeners.set(key, open)
+  }
+  return open
 }
 
 /**
@@ -301,6 +388,37 @@ function buildStackState(repositoryPath: string, root: string): BranchReviewWind
     commitMenus: {},
     groups: null,
   }
+}
+
+/** The actions of the kept branch in the title bar of its review: Reapply and its push, without keys */
+const KEPT_REVIEW_ITEMS: readonly string[] = ["reapply", "push"]
+
+/** The actions of the kept branch `kept` (the branch it was `branchName`) while the main window shows its repository */
+function buildKeptState(repositoryPath: string, kept: KeptReview, branchName: string): BranchReviewWindowState {
+  const selected = getSelectedProject()?.path === repositoryPath
+  const menu = selected ? keptReviewMenu(kept) : []
+  return {
+    repositoryPath,
+    selected,
+    items: selected
+      ? {
+          [branchName]: menu
+            .flat()
+            .filter(item => KEPT_REVIEW_ITEMS.includes(item.id ?? ""))
+            .map(item => toReviewItem({ ...item, kbds: undefined })),
+        }
+      : {},
+    menus: selected ? { [branchName]: toMenuGroups(menu) } : {},
+    createPullRequest: null,
+    wholeStack: null,
+    commitMenus: {},
+    groups: null,
+  }
+}
+
+/** The menu of the kept branch for the "⋯" of its review: without its review, which the window is */
+function keptReviewMenu(kept: KeptReview): MenuItemGroups {
+  return getKeptBranchMenu(kept.kind, kept.name)
 }
 
 /** The whole menu of the whole stack for the "⋯" of its review: without its review, which the window is */
@@ -497,6 +615,9 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   if ("commitMenuItemId" in request) {
     return runCommitMenuItem(request, send)
   }
+  if (request.kept !== undefined) {
+    return runKeptRequest(request, request.kept, send)
+  }
   // the review of the whole stack asks for the actions of the whole stack of its root
   const wholeStack = request.wholeStack === true
   const subject = wholeStack ? formatWholeStack(branchName) : branchName
@@ -563,6 +684,25 @@ export const runBranchReviewRequest = link.serve<BranchReviewRequest, BranchRevi
   return runItem(item, { branchName, commitIds: [] }, refuse)
 })
 
+/** Runs an action of the kept branch the window asks for (its title bar, its "⋯"), as its row's menu would */
+async function runKeptRequest(request: BranchReviewRequest, kept: KeptReview, send: (feedback: BranchReviewFeedback) => void): Promise<boolean> {
+  const id = "menuItemId" in request ? request.menuItemId : null
+  const item = id === null ? undefined : findMenuItem(keptReviewMenu(kept), id)
+  const refuse = refuserOf(`Cannot ${requestAction({ menuLabel: item?.label ?? id ?? "act" }, request.branchName)}`, send)
+  const notShown = await showRepository(request.repositoryPath)
+  if (notShown !== null) {
+    return refuse(notShown)
+  }
+  const present = kept.kind === "unapplied" ? getUnappliedBranch(kept.name) !== undefined : archivedBranchesStore.getState().branches[kept.name] !== undefined
+  if (!present) {
+    return refuse(keptGoneReason(kept, request.branchName))
+  }
+  if (item === undefined) {
+    return refuse(`The menu of ${request.branchName} has no such action now`)
+  }
+  return runItem(item, null, refuse)
+}
+
 /** Refuses a request of the window with the reason (or what GitHub said), shown in the window and recorded in Activity */
 function refuserOf(title: string, send: (feedback: BranchReviewFeedback) => void): (reason: unknown) => false {
   return reason => {
@@ -576,7 +716,7 @@ function refuserOf(title: string, send: (feedback: BranchReviewFeedback) => void
  * intent runs in the session is that start already (a click of the main window and of the window at once run it once);
  * a disabled one is refused
  */
-function runItem(item: MenuItem, reveal: RevealRequest, refuse: (reason: unknown) => false): boolean {
+function runItem(item: MenuItem, reveal: RevealRequest | null, refuse: (reason: unknown) => false): boolean {
   if (item.running === true) {
     return true
   }
@@ -586,7 +726,9 @@ function runItem(item: MenuItem, reveal: RevealRequest, refuse: (reason: unknown
   getCurrentWindow()
     .setFocus()
     .catch((error: unknown) => logError("Cannot focus the main window", error))
-  requestReveal(reveal)
+  if (reveal !== null) {
+    requestReveal(reveal)
+  }
   item.onSelect(FROM_MENU)
   return true
 }

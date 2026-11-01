@@ -67,7 +67,8 @@ function isRowKeyTarget(target: EventTarget | null): boolean {
 
 /** What a preview table does with the keys that look at a row: Space previews it, D reviews it (in its window) */
 export interface PreviewHotkeys {
-  preview: (id: string) => void
+  /** None for a table whose rows have no preview: Space is not theirs */
+  preview?: (id: string) => void
   review?: (id: string) => void
 }
 

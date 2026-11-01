@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useRef } from "react"
 import type { ReactNode } from "react"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitList } from "@/components/commit/CommitList"
@@ -7,6 +7,7 @@ import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { RowActions } from "@/components/shared/RowActions"
 import { TableContextMenu, TableMenuBody } from "@/components/shared/TableContextMenu"
 import { TableHeader } from "@/components/shared/TableHeader"
+import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import type { Commit } from "@/lib/bindings"
 import { copyFocusedBranchRow } from "@/lib/clipboard"
 import type { ActiveInline, InlineActionType } from "@/stores/inline-row-action"
@@ -18,10 +19,24 @@ const InlineDeleteConfirmationInput = lazy(() => import("@/components/branch/Inl
  * The table of a card of kept branches (archived, unapplied): Branch Name, `columns` (hidden on a narrow window),
  * Actions; one menu for the right-click of its rows, `menu` the items of the row of a name
  */
-export function KeptBranchTable({ columns, menu, children }: { columns: readonly string[]; menu: (name: string) => ReactNode; children: ReactNode }) {
+export function KeptBranchTable({
+  columns,
+  menu,
+  onReview,
+  children,
+}: {
+  columns: readonly string[]
+  menu: (name: string) => ReactNode
+  /** D on the focused row: the review of the branch of that full name */
+  onReview: (name: string) => void
+  children: ReactNode
+}) {
+  // D on the focused row or the one under the pointer, as on a branch row; a commit of an expanded row is its list's
+  const tableRef = useRef<HTMLTableElement>(null)
+  usePreviewHotkeys(tableRef, () => null, { review: onReview })
   return (
     <TableContextMenu menu={menu}>
-      <table className="w-full" onKeyDown={copyFocusedBranchRow}>
+      <table ref={tableRef} className="w-full" onKeyDown={copyFocusedBranchRow}>
         <thead className="border-b border-border">
           <tr>
             <TableHeader>Branch Name</TableHeader>
@@ -102,10 +117,12 @@ interface KeptBranchCommitsProps {
   isLoading: boolean
   loadError: string | undefined
   commits: readonly Commit[] | undefined
+  /** D on a commit: the review of the kept branch at that commit */
+  reviewIn: (hash: string, path: string | null) => Promise<boolean>
 }
 
 /** The commits of a branch kept outside HEAD (archived, unapplied) below its expanded row: loading, an error, the list */
-export function KeptBranchCommits({ isLoading, loadError, commits }: KeptBranchCommitsProps) {
+export function KeptBranchCommits({ isLoading, loadError, commits, reviewIn }: KeptBranchCommitsProps) {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -118,7 +135,7 @@ export function KeptBranchCommits({ isLoading, loadError, commits }: KeptBranchC
     return <p className="text-sm text-destructive">{`Cannot load the commits: ${loadError}`}</p>
   }
   if (commits !== undefined && commits.length > 0) {
-    return <CommitList commits={commits} variant="compact" showFileCount={false} />
+    return <CommitList commits={commits} variant="compact" showFileCount={false} reviewIn={reviewIn} />
   }
   return <div className="text-sm text-muted-foreground">No commits found</div>
 }
