@@ -287,6 +287,11 @@ test.describe("Push button", () => {
     await row.focus()
     await page.keyboard.press("p")
     await expect(getPushButton(row)).toHaveAttribute("aria-busy", "true")
+    // the press says why: the push of the row runs, waiting for the sync; read, it is closed (its timer is no part of
+    // the push, and under load it outlasts the wait for the pushed toast)
+    const running = page.locator("[data-slot=toast]", { hasText: "Pushing branch JIRA-456 after the sync…" })
+    await expect(running).toBeVisible()
+    await closeToast(running)
 
     await issueLinksRepo.holdRemoteAnswers({ release: ["sync"] })
     await expectPushedToast(page, "JIRA-456")
