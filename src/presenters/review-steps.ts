@@ -308,6 +308,11 @@ export function presentBrief(plan: Pick<ReviewPlan, "steps" | "concerns" | "brie
   }
 }
 
+/** The divider above the first section of a step in the diffs: "Step 2 · The open keeps a stored layout" */
+export function formatStepDivider(chapter: Pick<Chapter, "number" | "label">): string {
+  return `Step ${chapter.number} · ${chapter.label}`
+}
+
 /** The bar above the diffs: the step of the section at the top, "Step 2 / 4" and its title */
 export function formatStepPosition(number: number, count: number): string {
   return `Step ${number} / ${count}`

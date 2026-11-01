@@ -14,9 +14,10 @@ export interface LayoutMetrics {
   headerHeight: number
   /**
    * Each file a card (the review windows, docs/design/diff-view.md "File cards"): the gap between two cards, the space
-   * above the first and below the last, and the bottom border of a card. Absent: the files follow each other
+   * above the first and below the last, the bottom border of a card, and the height of the divider above the card of a
+   * file that starts a step or a group (`LayoutFile.divider`). Absent: the files follow each other
    */
-  cards?: { gap: number; padding: number; borderBottom: number }
+  cards?: { gap: number; padding: number; borderBottom: number; divider: number }
 }
 
 export interface LayoutFile {
@@ -28,6 +29,11 @@ export interface LayoutFile {
   notice: boolean
   /** With soft wraps: the visual lines before each row, `rowCount + 1` entries; absent, one per row */
   visualLines?: Uint32Array
+  /**
+   * A line on the canvas above its card (cards only): the file starts a step of the review plan, or a group ("Same
+   * edit in 3 files"); absent, none
+   */
+  divider?: "step" | "group"
 }
 
 /** Where the view stands in a document: kept across a change of heights, restored after it */
@@ -42,7 +48,7 @@ export interface ScrollAnchor {
 export class DiffLayout {
   readonly files: readonly LayoutFile[]
   readonly metrics: LayoutMetrics
-  /** The top of each file, and the height of the document at the end */
+  /** The top of the card of each file (below its divider), and the height of the document at the end */
   readonly offsets: Float64Array
   private readonly byKey: Map<string, number>
 
@@ -52,10 +58,11 @@ export class DiffLayout {
     this.offsets = new Float64Array(files.length + 1)
     this.byKey = new Map()
     const gap = metrics.cards?.gap ?? 0
-    this.offsets[0] = metrics.cards?.padding ?? 0
+    // the divider of a file lies between the gap above its card and the card
+    this.offsets[0] = (metrics.cards?.padding ?? 0) + this.dividerHeight(0)
     files.forEach((file, index) => {
       this.byKey.set(file.key, index)
-      this.offsets[index + 1] = this.offsets[index]! + this.fileHeight(index) + gap
+      this.offsets[index + 1] = this.offsets[index]! + this.fileHeight(index) + gap + this.dividerHeight(index + 1)
     })
   }
 
@@ -70,6 +77,11 @@ export class DiffLayout {
 
   indexOf(key: string): number {
     return this.byKey.get(key) ?? -1
+  }
+
+  /** The divider above the card of a file; 0 without one, and past the last file */
+  dividerHeight(file: number): number {
+    return this.files[file]?.divider === undefined ? 0 : (this.metrics.cards?.divider ?? 0)
   }
 
   /** The header, the notice and the rows of a file, and the bottom border of its card */
@@ -109,9 +121,12 @@ export class DiffLayout {
     return this.metrics.cards?.padding ?? 0
   }
 
-  /** The `scrollTop` that shows a file at the top: its card in its place, the space above the cards over it */
+  /**
+   * The `scrollTop` that shows a file at the top: its card in its place, its divider and the space above the cards
+   * over it, so a step shown opens with its divider
+   */
   fileTop(file: number): number {
-    return Math.max(this.offsets[file]! - this.stickyTop, 0)
+    return Math.max(this.offsets[file]! - this.dividerHeight(file) - this.stickyTop, 0)
   }
 
   /** The file whose header is at the top of a view scrolled to `scrollTop`: the one under the middle of a stuck header */
@@ -119,13 +134,13 @@ export class DiffLayout {
     return this.fileAt(scrollTop + this.stickyTop + this.metrics.headerHeight / 2)
   }
 
-  /** The file at `y`: the last one whose top is at or above it */
+  /** The file at `y`: the last one whose top (its divider, else its card) is at or above it; a gap is the file above it */
   fileAt(y: number): number {
     let low = 0
     let high = Math.max(this.files.length - 1, 0)
     while (low < high) {
       const middle = (low + high + 1) >> 1
-      if (this.offsets[middle]! <= y) {
+      if (this.offsets[middle]! - this.dividerHeight(middle) <= y) {
         low = middle
       } else {
         high = middle - 1
@@ -158,7 +173,11 @@ export class DiffLayout {
     return low
   }
 
-  /** The anchor at `scrollTop`: the file there, and the line of its row at the top */
+  /**
+   * The anchor at `scrollTop`: the file there, and the line of its row at the top. Below the rows of a file (the bottom
+   * border of its card, the gap, the divider of the next) it is the place above the next card: a scroll to a file
+   * (`fileTop`) stays where it is when the file above it changes, and a row of the file above never holds it
+   */
   anchorAt(scrollTop: number): ScrollAnchor | null {
     if (this.files.length === 0) {
       return null
@@ -166,6 +185,9 @@ export class DiffLayout {
     const file = this.fileAt(scrollTop)
     const { key, rows } = this.files[file]!
     const rowsTop = this.offsets[file]! + this.rowsOffset(file)
+    if (file + 1 < this.files.length && scrollTop >= rowsTop + this.rowsHeight(file)) {
+      return { key: this.files[file + 1]!.key, offset: scrollTop - this.offsets[file + 1]! }
+    }
     if (rows === null || rows.rowCount === 0 || scrollTop < rowsTop) {
       return { key, offset: scrollTop - this.offsets[file]! }
     }

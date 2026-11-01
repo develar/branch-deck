@@ -148,7 +148,8 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../src/lib/file-tree.test.ts (`lists the concerns, each with its files by their path, a file of another concern also, its generated files folded; then Other changes and Mechanical`, `shows a file of what no evidence joined that is also in a concern in its place under Other changes`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 - The story must follow the concerns (`presentNarrative`): the parts of each concern together, in its order, its
-  first section under its name (`review-concern-heading`), `rest` under "Other changes"; a unit of several concerns in
+  first section under its name on the divider of its step ("Step 1 · ijproxy", `review-concern-heading`), `rest`
+  under "Other changes"; a unit of several concerns in
   each with the blocks it holds there, also a file of no language the story shows whole, the blocks of another
   concern one row "Shown in grep → accio"; a generated file of a concern collapsed at its end, saying why; the
   mechanical groups after the concerns. With no concern but `rest`, the order of the units.
@@ -190,8 +191,9 @@ The tree of the review window, the range of the `review_concerns` template (`rev
 › Mechanical (1)
 ```
 
-The first section of each concern shows its name first in its header, a `Badge` (`review-concern-heading`), before
-the heading of a group (`review-section-heading`).
+The first section of each concern opens with a divider on the canvas above its card: "Step 1 · ijproxy" in
+`text-sm font-semibold` (`review-concern-heading`), then the heading of a group it starts, muted
+(`review-section-heading`); the header of the file names the file alone.
 
 ## Open Questions / Risks
 

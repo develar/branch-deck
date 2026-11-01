@@ -164,8 +164,11 @@ where a dialog would cover it.
   header shows the status letter, the name semibold, where a rename came from and its directory muted, Expand All with
   its tooltip, its owner, its line counts, a copy button and the menu of the file
   ([Commit Files](commit-files.spec.md#the-actions-on-a-file)); the name of every file stands at one x, and the
-  directory gives way, from its start, before the name. The commit a range shows is above them.
-  [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`)
+  directory gives way, from its start, before the name. The commit a range shows is above them. With the review plan,
+  a section that starts a step or a group has a divider on the canvas between the gap above its card and the card
+  (the step, the group: [Review Tour](../branch/review-tour.spec.md#in-the-review-window)), never words in the header;
+  it scrolls with the card, and a scroll to the section shows it.
+  [@test] ../../src/lib/diff/layout.test.ts (`counts the gaps, the space around the cards and the bottom border of each card, so each offset stays exact`, `puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should show the tree beside the diffs of all files and follow J, K, N, P and the tree`)
 - A file chosen in the tree must scroll its header to the top. As the diffs scroll, the file whose header is at the
   top must become the selected file, its directories opened. A scroll the review made (a choice, J, K, N, P) changes
@@ -274,6 +277,9 @@ where a dialog would cover it.
   status letter in `font-mono text-xs` in the status colour, the name `text-sm font-semibold` in the status colour,
   struck through when deleted, the directory `text-muted-foreground` of the same size after it), the copy button on
   hover, then on the right the notice and the owner muted and the coloured counts in `text-xs`.
+- The divider of a step or a group is 32 px on the canvas at the inset of the cards, after the gap of 10 px, its words
+  at its bottom, 6 px above the card they head, not selectable: the step "Step 3 · <title>" in `text-sm font-semibold`,
+  a button underlined on hover, then the group in `text-xs text-muted-foreground` ("Same edit in 4 files").
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
 - The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows

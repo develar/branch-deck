@@ -1,7 +1,37 @@
 // @spec spec/branch/review-tour.spec.md
+import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+
+/** The card right below the divider of `heading`: the space between them and the file of the card */
+function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null }> {
+  return heading.evaluate(element => {
+    const divider = element.closest("[data-testid=diff-view-divider]")!
+    const card = divider.parentElement!.querySelector(`[data-testid=diff-view-file][data-section="${divider.getAttribute("data-section")}"]`)!
+    return { gap: Math.round(card.getBoundingClientRect().top - divider.getBoundingClientRect().bottom), path: card.getAttribute("data-path") }
+  })
+}
+
+/** The top of the divider of `heading` below the top of the diffs */
+function topOf(heading: Locator): Promise<number> {
+  return heading.evaluate(element => {
+    const view = element.closest("[data-testid=diff-view]")!
+    return Math.round(element.closest("[data-testid=diff-view-divider]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
+  })
+}
+
+/** The distinct left edges of the names in the headers of the diffs */
+function headerNameLefts(window: Page): Promise<number[]> {
+  return window.getByTestId("review-file-header").evaluateAll(headers => {
+    const lefts = headers.map(header => {
+      const path = header.getAttribute("data-path")!
+      const name = [...header.querySelectorAll("span")].find(span => span.childElementCount === 0 && span.textContent === path.slice(path.lastIndexOf("/") + 1))!
+      return Math.round(name.getBoundingClientRect().left)
+    })
+    return [...new Set(lefts)]
+  })
+}
 
 // the `review_tour` template: the branch `layout` of five commits with bodies, a refactor of the manager, the rule
 // `allowed` with its two uses and a test that names it, a change of the paint no test names, the restart story with a
@@ -67,16 +97,27 @@ test.describe("Review tour", () => {
         "spec/window.spec.md",
         "tests/restart.json",
       ])
-    await expect(window.getByTestId("review-concern-heading")).toHaveText([
-      "1 · The manager drops the hooks nothing sets",
-      "2 · The open keeps a stored layout",
-      "3 · The view paints with the first frame",
-      "4 · The restart story checks the layout",
+    // each step opens with a divider on the canvas right above the card of its first section; a header names its file
+    // alone, so the name of every file stands at one x (every card of the story on screen: the view renders the cards it
+    // shows)
+    const viewport = window.viewportSize()!
+    await window.setViewportSize({ width: 1280, height: 1200 })
+    const dividers = window.getByTestId("review-concern-heading")
+    await expect(dividers).toHaveText([
+      "Step 1 · The manager drops the hooks nothing sets",
+      "Step 2 · The open keeps a stored layout",
+      "Step 3 · The view paints with the first frame",
+      "Step 4 · The restart story checks the layout",
     ])
-    // the rule first in its step, its uses right after it, its test with them (the view renders the cards on screen)
+    await expect(window.getByTestId("review-file-header").getByTestId("review-concern-heading")).toHaveCount(0)
+    expect(await cardBelow(dividers.nth(1))).toEqual({ gap: 0, path: "src/a/Manager.kt" })
+    expect(await cardBelow(dividers.nth(3))).toEqual({ gap: 0, path: "spec/window.spec.md" })
+    await expect.poll(() => headerNameLefts(window)).toEqual([expect.any(Number)])
+    // the rule first in its step, its uses right after it, its test with them
     await expect
       .poll(async () => (await reviewedPaths(window)).slice(0, 7))
       .toEqual(["src/a/Manager.kt", "src/a/Manager.kt", "src/a/Frame.kt", "src/b/Welcome.kt", "test/a/ManagerTest.kt", "src/a/Frame.kt", "spec/window.spec.md"])
+    await window.setViewportSize(viewport)
 
     // a step of the brief opens its first section; the bar above the diffs names the step at the top as they scroll
     const bar = window.getByTestId("review-step-bar")
@@ -89,6 +130,12 @@ test.describe("Review tour", () => {
     // J goes on into the next step, the bar follows
     await window.keyboard.press("j")
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
+    // a click on the divider of a step shows the step as its bar does: the divider at the top, the bar and the tree follow
+    const second = window.getByRole("button", { name: "Step 2 · The open keeps a stored layout", exact: true })
+    await second.click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
+    await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => topOf(second)).toBe(10)
   })
 
   test("should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down", async ({

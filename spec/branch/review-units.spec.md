@@ -199,8 +199,9 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 ```
 
 The section of a run: `diff-unit-heading` before a change (the font of the code, bold, a top border), and a block of
-another section one `diff-unit-elsewhere` row in the tint of a fold. The header of the first file of a group shows the
-group first (`review-section-heading`): "Same edit in 4 files", "Imports only (2)".
+another section one `diff-unit-elsewhere` row in the tint of a fold. The first file of a group has the group on the
+divider above its card, in `text-xs text-muted-foreground` (`review-section-heading`), never in its header: "Same edit
+in 4 files", "Imports only (2)", "Left outside".
 
 ## Open Questions / Risks
 

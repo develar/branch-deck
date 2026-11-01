@@ -12,6 +12,7 @@ targets:
   - ../../src/components/review/ReviewBrief.tsx
   - ../../src/components/review/ReviewPlanCard.tsx
   - ../../src/components/commit/CommitReview.tsx
+  - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/review/RangeReview.tsx
   - ../../src/components/files/FileTree.tsx
   - ../../src/lib/file-tree.ts
@@ -151,9 +152,14 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by its concern and keeps its main rows ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The
-  story of the diffs must follow the steps: the first section of each under its heading (`review-concern-heading`).
+  story of the diffs must follow the steps: the first section of each opens with a divider on the canvas right above
+  its card, "Step 2 · The open keeps a stored layout" (`review-concern-heading`), a change of step being a wider break
+  than a change of file; a click on it must show the step as the bar of the step does, the divider at the top, the bar
+  and the tree following. The header of a file names the file alone (no step, no group), so the name of every file
+  stands at one x.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its brief, a step per commit with its why, its rounds and the tests that name its code`)
-  [@test] ../../src/presenters/review-steps.test.ts (`names a step of a concern by its concern and keeps its main rows`)
+  [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by its concern and keeps its main rows`)
+  [@test] ../../src/lib/diff/layout.test.ts (`puts the divider of a step or a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
   Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree, each group of
   a step its commit rows first, then its files: the commit that starts it, those that follow it up ("follows up"),

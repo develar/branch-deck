@@ -104,6 +104,18 @@
   box-shadow: 0 6px 6px -6px var(--diff-header-shadow);
 }
 
+/*
+ * The divider of a section that starts a step of the review plan or a group: a line on the canvas between the gap above
+ * the card and the card, at the inset of the cards, its words at its bottom near the card they head; it scrolls with
+ * the card and never sticks (the bar of the step above the diffs names the step at the top). Not selectable: a copy of
+ * the selection of the code never takes it
+ */
+.dv-divider {
+  position: absolute;
+  inset-inline: 12px;
+  user-select: none;
+}
+
 /* a collapsed file is its header alone: the bottom border of the card closes it under the header */
 .dv-card[data-collapsed] > .dv-header > * {
   border-bottom-width: 0;

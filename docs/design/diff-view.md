@@ -138,7 +138,8 @@ lines, so the old line numbers jump, as in IntelliJ. Split shows both sides plai
 **Sections.** The review with its plan shows the story of its units (spec/branch/review-units.spec.md), in the order
 of its concerns (spec/branch/review-concerns.spec.md): a file may be several sections, a run of its units, its parts
 of each concern and its slices of groups, each a `DiffViewFile` with a `section` (`DiffSection`: its key, the headings
-of its changes, the blocks other sections show and the key of each, the group and the concern its header names). `buildFileRows` with the
+of its changes, the blocks other sections show and the key of each, the group and the step the divider above its card
+names, "File cards" below). `buildFileRows` with the
 `SectionUnits` of a section puts a `note` row of the heading before each block it marks, and makes each block another
 section shows one `note` row that stands for its lines: no change, so N and P pass it, and a fold may hold it. The
 view keys everything by the section, not the path: the layout, the painter, the React key, the toggled files and the
@@ -234,8 +235,16 @@ review windows show their notices in the header and use no notice row), and the 
   against the line of what is above the view (the header of the commit in a review). The gap colour of the header
   reaches up over that space and hides the rows of its card there. A scroll to a file (`DiffLayout.fileTop`) and the
   file at the top (`fileAtTop`) count it.
-- The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` is the space above the cards, the heights of
-  the files before it and a gap after each. A file is `header + notice + rows + bottom border`. So every offset stays
+- A section of the story of a review that starts a step or a group (`DiffSection.step`, `heading`) has a divider of
+  32 px on the canvas between the gap above its card and the card (`renderDivider`, `LayoutFile.divider`): "Step 3 ·
+  <title>", which a click shows as the bar of the step does, then the group, muted. A change of step is a wider break
+  than a change of file, so it is a line of its own, and the header names the file alone: its order is always the
+  chevron, the letter, the name, the path, then the actions and the counts, so the name of every file stands at one x.
+  The divider scrolls with its card and never sticks: the bar of the step above the diffs names the step at the top.
+- The layout counts all of it (`LayoutMetrics.cards`): the top of file `i` (`offsets[i]`, the top of its card) is the
+  space above the cards, the heights of the files before it, a gap after each and the dividers. A file is `header +
+  notice + rows + bottom border`. A divider belongs to the file below it: `fileAt` in it is that file, and `fileTop`
+  counts it, so a scroll to a step shows its divider; a y in the gap is the file above. So every offset stays
   arithmetic, and the anchor, the rows in view and the scroll to a file need no measure.
 
 **The divider of Split.** The old side takes `splitRatio` of the row (`--dv-split`), the new side the rest less its
@@ -293,7 +302,10 @@ change makes the content jump, and each measure costs a layout.
 - the font finishes its load (wraps on).
 
 Before the change, the view keeps the anchor: the first row whose bottom is below the top of the viewport. The anchor
-is its file, its line on one side, its visual line and its pixel offset. After the change, the view sets `scrollTop`
+is its file, its line on one side, its visual line and its pixel offset. A top below the rows of a file (the bottom
+border of its card, the gap, the divider of the next) is anchored above the next card, not in the last row: a scroll
+to a file keeps its gap and its divider in view when the file above changes, and the clamp of an offset to its row
+(for a row that shows fewer visual lines) never moves it. After the change, the view sets `scrollTop`
 to the new offset of the same anchor, in the same task, before the paint. The browser's own anchoring is off
 (`overflow-anchor: none`). It chooses an anchor among the rows in the DOM, and those change with every frame. An
 expansion keeps the clicked separator at its place, so the new lines go below it. With wraps on, a resize first

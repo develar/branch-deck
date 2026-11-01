@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
-import { bodyParagraphs, formatCommitRole, formatStepTitle, placeCommits, presentBrief, presentChapters, presentOwnerMarks, WITHOUT_A_STORY } from "@/presenters/review-steps"
+import {
+  bodyParagraphs,
+  formatCommitRole,
+  formatStepDivider,
+  formatStepTitle,
+  placeCommits,
+  presentBrief,
+  presentChapters,
+  presentOwnerMarks,
+  WITHOUT_A_STORY,
+} from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 
 function commit(subject: string, body: string, role: StepCommit["role"] = "starts"): StepCommit {
@@ -39,6 +49,8 @@ describe("review steps", () => {
       [1, "The rule", "1 · The rule", "step 1", 1],
       [2, WITHOUT_A_STORY, `2 · ${WITHOUT_A_STORY}`, "step 2", 1],
     ])
+    // the divider above the first section of each in the diffs
+    expect(chapters.map(chapter => formatStepDivider(chapter))).toEqual(["Step 1 · The rule", `Step 2 · ${WITHOUT_A_STORY}`])
   })
 
   it("names a step of a concern by its concern and keeps its main rows", () => {
@@ -53,7 +65,13 @@ describe("review steps", () => {
     }
     const of = plan([{ ...step("c", [commit("one", "")], [["u:a", "a.json"]]), concern: "c" }], null, [concern])
     const [chapter] = presentChapters(of)
-    expect([chapter!.label, chapter!.heading, chapter!.hover, chapter!.elsewhere]).toEqual(["proxy", "proxy", "Joined by the identifier ij-proxy", ["a.json"]])
+    expect([chapter!.label, chapter!.heading, chapter!.hover, chapter!.elsewhere, formatStepDivider(chapter!)]).toEqual([
+      "proxy",
+      "proxy",
+      "Joined by the identifier ij-proxy",
+      ["a.json"],
+      "Step 1 · proxy",
+    ])
   })
 
   it("counts the files of the chosen owner each step shows, 0 for a step without one", () => {

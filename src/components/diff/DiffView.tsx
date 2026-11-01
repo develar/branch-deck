@@ -54,12 +54,14 @@ import "./diff-view.css"
 /*
  * The file cards of a view with headers (docs/design/diff-view.md, "File cards"), as IntelliJ's combined diff: a gap of
  * 10 px between two cards and around them, in the canvas colour, an inset of 12 px at the sides, a border of 1 px. The
- * header holds the top border of its card, a band of its own colour (diff-view.css).
+ * header holds the top border of its card, a band of its own colour (diff-view.css). A section that starts a step of the
+ * review plan or a group has a line on the canvas between the gap above its card and the card (`renderDivider`).
  */
 const CARD_HEADER_HEIGHT = 48
 const CARD_GAP = 10
 const CARD_INSET = 12
 const CARD_BORDER = 1
+const CARD_DIVIDER = 32
 /** The font of the rows, as `.dv-rows` of diff-view.css */
 const ROWS_FONT = `${DIFF_FONT_SIZE}px "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
 /** The files after the window whose texts are read ahead */
@@ -88,10 +90,13 @@ export interface DiffSection {
   readonly key: string
   readonly units: SectionUnits
   readonly targets: ReadonlyMap<number, string>
-  /** The words of the header: the group the section is of ("Same edit in 3 files") */
+  /** The group the section is of, on its first file ("Same edit in 3 files"): the divider above its card names it */
   readonly heading: string | null
-  /** The words of the header of the first section of a concern of a review: its name ("proxy") */
-  readonly concern: string | null
+  /**
+   * The step of the review plan the section starts, on its first section: its id, and the words of the divider above
+   * its card ("Step 2 · The open keeps a stored layout")
+   */
+  readonly step: { readonly id: string; readonly heading: string } | null
 }
 
 /** A conflicting file in three columns: left (ours), the middle (`DiffViewProps.middle`), right (theirs) */
@@ -110,10 +115,6 @@ export interface DiffHeaderProps {
   empty: boolean
   /** Why the file starts collapsed: the review folds it (`DiffViewFile.folded`), or the words of Rust's `collapse` */
   folded: string | null
-  /** The group of a section of a review (`DiffSection.heading`) */
-  heading: string | null
-  /** The concern the first section of a concern of a review starts (`DiffSection.concern`) */
-  concern: string | null
   collapsed: boolean
   onToggle: () => void
   /** Shows all the unchanged lines of the file; undefined when it folds none */
@@ -189,6 +190,11 @@ export interface DiffViewProps {
   plain?: boolean
   /** The sticky header of each file; without it the view shows its files open, a notice in a row under each */
   renderHeader?: (props: DiffHeaderProps) => ReactNode
+  /**
+   * The divider on the canvas above the card of a section that starts a step or a group (`DiffSection.step`,
+   * `heading`), with the headers only; without it no section has one
+   */
+  renderDivider?: (section: DiffSection) => ReactNode
   /** "own": the view scrolls itself (the review windows); "parent": it is a block of the scroller it lies in */
   scroll?: "own" | "parent"
   /** The files are the uncommitted changes: the new side is read by its path in the working tree */
@@ -377,6 +383,7 @@ export function DiffView({
   onVisibleSectionChange,
   onFirstScreen,
   renderHeader,
+  renderDivider,
   scroll = "own",
   worktree = false,
   onGoToDeclaration,
@@ -485,10 +492,11 @@ export function DiffView({
           rows: file.collapsed || file.rows === null || file.rows.rowCount === 0 ? null : file.rows,
           notice: notices[index] !== null,
           visualLines: visualLines[index],
+          divider: cards && renderDivider !== undefined ? dividerOf(file.section) : undefined,
         })),
-        { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER } : undefined },
+        { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, renderDivider],
   )
 
   // the hits of the find in the lines the rows show, from the texts read so far
@@ -1038,6 +1046,7 @@ export function DiffView({
         notice={noticeOf(file, texts)}
         noticeRow={layout.files[index]!.notice}
         top={layout.offsets[index]!}
+        dividerHeight={layout.dividerHeight(index)}
         height={layout.fileHeight(index)}
         rowsHeight={layout.rowsHeight(index)}
         card={cards}
@@ -1049,6 +1058,7 @@ export function DiffView({
         sideWidths={file.ids.map(widthOf).join(" ")}
         painter={painter}
         renderHeader={renderHeader}
+        renderDivider={renderDivider}
         onToggle={toggleFile}
         onExpandAll={expandAll}
       />
@@ -1162,6 +1172,8 @@ interface FileSectionProps {
   notice: string | null
   noticeRow: boolean
   top: number
+  /** The divider above the card, 0 for none: it ends at `top` */
+  dividerHeight: number
   height: number
   rowsHeight: number
   /** The file is a card: a border, rounded corners, its header the top of the card */
@@ -1179,11 +1191,15 @@ interface FileSectionProps {
   sideWidths: string
   painter: DiffPainter
   renderHeader: DiffViewProps["renderHeader"]
+  renderDivider: DiffViewProps["renderDivider"]
   onToggle: (path: string) => void
   onExpandAll: (file: PreparedFile) => void
 }
 
-/** The section of a file: as tall as the file, its header sticky, the rows element the painter fills */
+/**
+ * The section of a file: as tall as the file, its header sticky, the rows element the painter fills; the divider of a
+ * step or a group above it
+ */
 const FileSection = memo(function FileSection(props: FileSectionProps) {
   const {
     index,
@@ -1192,6 +1208,7 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     notice,
     noticeRow,
     top,
+    dividerHeight,
     height,
     rowsHeight,
     card,
@@ -1203,65 +1220,78 @@ const FileSection = memo(function FileSection(props: FileSectionProps) {
     sideWidths,
     painter,
     renderHeader,
+    renderDivider,
     onToggle,
     onExpandAll,
   } = props
+  const { section } = file
   return (
-    <section
-      className={card ? "dv-section dv-card" : "dv-section"}
-      aria-label={file.path}
-      data-testid="diff-view-file"
-      data-path={file.path}
-      data-section={file.section?.key}
-      // the colours a plugin of IntelliJ gives a role in its language only (diff-view.css)
-      data-language={languageOf(file.path)}
-      // a card with its header alone (diff-view.css): an attribute, as a `:has()` of the rows costs Chromium a style
-      // recalc of the card on each row the painter adds
-      data-collapsed={card && rows === null && !noticeRow ? "" : undefined}
-      style={{ top, height, "--dv-gutter": `${file.gutterColumns * columnWidth}px`, "--dv-row-height": `${rowHeight}px` } as CSSProperties}
-    >
-      {renderHeader !== undefined && (
-        <div className="dv-header">
-          {renderHeader({
-            file: file.file,
-            notice,
-            empty: file.pending || isEmptyNotice(file.diff, file.rows),
-            folded: file.folded,
-            heading: file.section?.heading ?? null,
-            concern: file.section?.concern ?? null,
-            collapsed: file.collapsed,
-            onToggle: () => onToggle(file.key),
-            onExpandAll: rows !== null && rows.segments.some(segment => segment.kind === "fold") ? () => onExpandAll(file) : undefined,
-          })}
+    <>
+      {dividerHeight > 0 && section !== null && renderDivider !== undefined && (
+        // on the canvas between the gap above the card and the card, scrolled with it (diff-view.css)
+        <div className="dv-divider" data-testid="diff-view-divider" data-section={section.key} style={{ top: top - dividerHeight, height: dividerHeight }}>
+          {renderDivider(section)}
         </div>
       )}
-      {noticeRow && (
-        <p className="dv-notice" data-testid={file.kind === "merge" ? "merge-notice" : rows === null ? "diff-notice" : "file-line-ends"}>
-          {notice}
-        </p>
-      )}
-      {rows !== null && (
-        <>
-          <div
-            className="dv-rows"
-            style={{ height: rowsHeight }}
-            ref={host => {
-              painter.attachRows(index, host)
-              return () => {
-                if (host !== null) {
-                  painter.detachRows(index, host)
+      <section
+        className={card ? "dv-section dv-card" : "dv-section"}
+        aria-label={file.path}
+        data-testid="diff-view-file"
+        data-path={file.path}
+        data-section={section?.key}
+        // the colours a plugin of IntelliJ gives a role in its language only (diff-view.css)
+        data-language={languageOf(file.path)}
+        // a card with its header alone (diff-view.css): an attribute, as a `:has()` of the rows costs Chromium a style
+        // recalc of the card on each row the painter adds
+        data-collapsed={card && rows === null && !noticeRow ? "" : undefined}
+        style={{ top, height, "--dv-gutter": `${file.gutterColumns * columnWidth}px`, "--dv-row-height": `${rowHeight}px` } as CSSProperties}
+      >
+        {renderHeader !== undefined && (
+          <div className="dv-header">
+            {renderHeader({
+              file: file.file,
+              notice,
+              empty: file.pending || isEmptyNotice(file.diff, file.rows),
+              folded: file.folded,
+              collapsed: file.collapsed,
+              onToggle: () => onToggle(file.key),
+              onExpandAll: rows !== null && rows.segments.some(segment => segment.kind === "fold") ? () => onExpandAll(file) : undefined,
+            })}
+          </div>
+        )}
+        {noticeRow && (
+          <p className="dv-notice" data-testid={file.kind === "merge" ? "merge-notice" : rows === null ? "diff-notice" : "file-line-ends"}>
+            {notice}
+          </p>
+        )}
+        {rows !== null && (
+          <>
+            <div
+              className="dv-rows"
+              style={{ height: rowsHeight }}
+              ref={host => {
+                painter.attachRows(index, host)
+                return () => {
+                  if (host !== null) {
+                    painter.detachRows(index, host)
+                  }
                 }
-              }
-            }}
-          />
-          {!softWraps && (
-            <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth, split)} />
-          )}
-        </>
-      )}
-    </section>
+              }}
+            />
+            {!softWraps && (
+              <HorizontalBars file={file} sideWidths={sideWidths.split(" ").map(Number)} columnWidth={columnWidth} codeWidths={codeWidthsOf(file, width, columnWidth, split)} />
+            )}
+          </>
+        )}
+      </section>
+    </>
   )
 })
+
+/** The divider above the card of a section (`LayoutFile.divider`): it starts a step, else a group; none for another */
+function dividerOf(section: DiffSection | null): "step" | "group" | undefined {
+  return section?.step != null ? "step" : section?.heading != null ? "group" : undefined
+}
 
 /** The sticky scrollbar of each column whose widest line is wider than it */
 function HorizontalBars({ file, sideWidths, columnWidth, codeWidths }: { file: PreparedFile; sideWidths: readonly number[]; columnWidth: number; codeWidths: readonly number[] }) {

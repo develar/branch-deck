@@ -676,7 +676,7 @@ test.describe("The review plan in the branch review", () => {
     await expect
       .poll(() => reviewedPaths(window))
       .toEqual([".codex/config.toml", "docs/guide.md", "tools/codex/config.toml", ".mcp.json", "docs/guide.md", "docs/tools.md", "AGENTS.md", "src/App.kt", "pnpm-lock.yaml"])
-    await expect(window.getByTestId("review-concern-heading")).toHaveText(["ijproxy", "grep → accio", "Other changes"])
+    await expect(window.getByTestId("review-concern-heading")).toHaveText(["Step 1 · ijproxy", "Step 2 · grep → accio", "Step 3 · Other changes"])
     const agents = window.locator('[data-testid="review-file-header"][data-path="AGENTS.md"]')
     await expect(agents.getByTestId("review-file-folded")).toHaveText("Generated from docs/guide.md by tools/render.mjs")
     await expect(agents.getByRole("button", { name: "Expand AGENTS.md" })).toHaveAttribute("aria-expanded", "false")
@@ -721,6 +721,7 @@ test.describe("The review plan in the branch review", () => {
     const section = (name: string, group: boolean) =>
       window.locator(`[data-testid="diff-view-file"][data-path="src/a/${name}.kt"]${group ? '[data-section^="group:"]' : `[data-section="file:src/a/${name}.kt"]`}`)
     const header = (name: string, group: boolean) => section(name, group).getByTestId("review-file-header")
+    const divider = (name: string) => window.locator(`[data-testid="diff-view-divider"][data-section^="group:"][data-section$=":src/a/${name}.kt"]`)
     await expect(
       window
         .getByRole("tree", { name: "Changed files" })
@@ -729,7 +730,12 @@ test.describe("The review plan in the branch review", () => {
     ).toHaveAttribute("aria-description", /same edit ×4/)
     // the story: the edit once, under its heading on Alpha; then the change of Delta's own
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Alpha.kt", "src/a/Beta.kt", "src/a/Delta.kt", "src/a/Gamma.kt", "src/a/Delta.kt"])
-    await expect(header("Alpha", true).getByTestId("review-section-heading")).toHaveText("Same edit in 4 files")
+    // the heading of the group on the canvas above the card of its first file, never in a header
+    await expect(divider("Alpha").getByTestId("review-section-heading")).toHaveText("Same edit in 4 files")
+    await expect(window.getByTestId("review-file-header").getByTestId("review-section-heading")).toHaveCount(0)
+    await expect(divider("Beta")).toHaveCount(0)
+    const [above, card] = await Promise.all([divider("Alpha").boundingBox(), section("Alpha", true).boundingBox()])
+    expect(Math.round(card!.y - (above!.y + above!.height))).toBe(0)
     await expect(header("Alpha", true).getByRole("button", { name: "Collapse Alpha.kt" })).toHaveAttribute("aria-expanded", "true")
     for (const name of ["Beta", "Gamma", "Delta"]) {
       await expect(header(name, true).getByTestId("review-file-folded")).toHaveText("Same edit as Alpha.kt")
@@ -812,7 +818,7 @@ test.describe("The review plan in the branch review", () => {
     await window.getByRole("treeitem", { name: "Store.kt" }).getByText("Store.kt", { exact: true }).click()
     await expect.poll(() => ghosts.evaluateAll(sections => sections.map(section => section.getAttribute("data-path")))).toEqual(["src/Base.kt"])
     const base = ghosts.first()
-    await expect(base.getByTestId("review-section-heading")).toHaveText("Left outside")
+    await expect(window.locator('[data-testid="diff-view-divider"][data-section^="ghost:"]').getByTestId("review-section-heading")).toHaveText("Left outside")
     await expect(base.getByTestId("diff-unit-heading")).toHaveText("helper — left outside: src/Base.kt:1")
     await expect(base).toContainText("helper(value)")
     // the tree keeps the selected file of the review, a use outside has no row there

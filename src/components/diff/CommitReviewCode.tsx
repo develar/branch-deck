@@ -2,13 +2,12 @@ import { useImperativeHandle, useRef, useState } from "react"
 import type { Ref } from "react"
 import { cn } from "cn"
 import { UnfoldVerticalIcon } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
 import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
 import { DiffView } from "@/components/diff/DiffView"
-import type { DeclarationPlace, DiffHeaderProps, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
+import type { DeclarationPlace, DiffHeaderProps, DiffSection, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
 import { SymbolChooser } from "@/components/diff/SymbolChooser"
 import { SymbolSearchStatus } from "@/components/diff/SymbolSearchStatus"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
@@ -46,13 +45,27 @@ export interface CommitReviewCodeProps {
   revisions: DiffRevisions
   /** The files an owner chip marks: the headers of the others are muted; none muted without */
   marked?: ReadonlySet<string> | null
+  /** A click on the divider of a step: its first section at the top, as the bar of the step above the diffs */
+  onShowStep?: (step: string) => void
 }
 
 /**
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
- * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed.
+ * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed;
+ * with the plan, a divider above the first section of each step and of each group.
  */
-export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisibleSectionChange, onFirstScreen, fileOwners, revisions, marked = null }: CommitReviewCodeProps) {
+export function CommitReviewCode({
+  ref,
+  files,
+  diffViewMode,
+  initialPath,
+  onVisibleSectionChange,
+  onFirstScreen,
+  fileOwners,
+  revisions,
+  marked = null,
+  onShowStep,
+}: CommitReviewCodeProps) {
   const softWraps = useDiffSoftWraps()
   const review = useRef<DiffViewHandle>(null)
   // the files outside the review a jump opened, each with the name it started from, the last one shown over the review;
@@ -118,6 +131,7 @@ export function CommitReviewCode({ ref, files, diffViewMode, initialPath, onVisi
         onGoToDeclaration={inReview.goToDeclaration}
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
+        renderDivider={section => <ReviewDivider section={section} onShowStep={onShowStep} />}
       />
       {shownFile !== undefined && (
         <DeclarationFileView
@@ -159,19 +173,7 @@ export function PendingFileHeaders({ files, fileOwners }: { files: readonly Comm
       {files.slice(0, PENDING_HEADERS).map(file => (
         <div key={file.path} className="dv-card">
           <div className="dv-header">
-            <ReviewFileHeader
-              file={file}
-              notice={null}
-              empty
-              folded={null}
-              heading={null}
-              concern={null}
-              collapsed={false}
-              onToggle={() => {}}
-              pending
-              owner={fileOwners?.get(file.path)}
-              muted={false}
-            />
+            <ReviewFileHeader file={file} notice={null} empty folded={null} collapsed={false} onToggle={() => {}} pending owner={fileOwners?.get(file.path)} muted={false} />
           </div>
         </div>
       ))}
@@ -188,11 +190,44 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
 }
 
 /**
- * The sticky header of a file, the top of its card: what the tree row says, the name bold and the path muted, Expand
- * All, its owner and counts, and the menu of the file. The insets are IntelliJ's: 12 px above and below, 10 px at the
- * sides
+ * The divider above the card of a section of the story (spec/branch/review-tour.spec.md, "In the Review Window"): the
+ * step it starts, "Step 3 · <title>", which a click shows as the bar of the step does, then the group it starts, muted
+ * ("Same edit in 4 files"); its words at the bottom, near the card they head
  */
-function ReviewFileHeader({ file, notice, empty, folded, heading, concern, pending = false, owner, muted, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
+function ReviewDivider({ section, onShowStep }: { section: DiffSection; onShowStep: ((step: string) => void) | undefined }) {
+  const { step, heading } = section
+  return (
+    // the words at the bottom, near the card they head, on one baseline
+    <div className="flex h-full min-w-0 items-end px-1 pb-1.5">
+      <div className="flex min-w-0 items-baseline gap-3">
+        {step !== null && (
+          <button
+            type="button"
+            data-testid="review-concern-heading"
+            data-step={step.id}
+            className="min-w-0 truncate rounded-sm text-sm font-semibold underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+            onClick={() => onShowStep?.(step.id)}
+          >
+            {step.heading}
+          </button>
+        )}
+        {heading !== null && (
+          <span data-testid="review-section-heading" className="shrink-0 text-xs text-muted-foreground">
+            {heading}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The sticky header of a file, the top of its card: the chevron, the status letter, the name bold and the path muted,
+ * as the tree row says, Expand All, its owner and counts, and the menu of the file; the step and the group of a section
+ * are on its divider, so the name of every file stands at one x. The insets are IntelliJ's: 12 px above and below, 10
+ * px at the sides
+ */
+function ReviewFileHeader({ file, notice, empty, folded, pending = false, owner, muted, collapsed, onToggle, onExpandAll }: ReviewFileHeaderProps) {
   const name = file.path.slice(file.path.lastIndexOf("/") + 1)
   return (
     <FileContextMenu
@@ -218,17 +253,6 @@ function ReviewFileHeader({ file, notice, empty, folded, heading, concern, pendi
       >
         <FileHeaderChevron open={!collapsed} />
       </Button>
-      {concern !== null && (
-        // the task of the range its sections show from here on
-        <Badge variant="secondary" data-testid="review-concern-heading" className="shrink-0">
-          {concern}
-        </Badge>
-      )}
-      {heading !== null && (
-        <span data-testid="review-section-heading" className="shrink-0 font-medium">
-          {heading}
-        </span>
-      )}
       <span className="flex min-w-0" title={formatCommitFilePath(file)}>
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} emphasis />
       </span>

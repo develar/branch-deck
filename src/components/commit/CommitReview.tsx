@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { CommitReviewCode, PendingFileHeaders } from "@/components/diff/CommitReviewCode"
 import type { CommitReviewCodeHandle } from "@/components/diff/CommitReviewCode"
-import type { DiffViewFile } from "@/components/diff/DiffView"
+import type { DiffSection, DiffViewFile } from "@/components/diff/DiffView"
 import { FileTree } from "@/components/files/FileTree"
 import type { FileTreeBadges, FileTreeCommitRows, FileTreeMarks } from "@/components/files/FileTree"
 import { Callout } from "@/components/shared/Callout"
@@ -46,9 +46,10 @@ import type { ReviewPosition } from "@/lib/review-position"
 import { markWindowContentReady, markSubWindowOpenPhase } from "@/lib/sub-window"
 import { presentDependencyBadge, presentFileBadges } from "@/presenters/review-plan"
 import type { DependencyBadge, ReviewFacts } from "@/presenters/review-plan"
-import { formatStepPosition, placeCommits, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
+import { formatStepDivider, formatStepPosition, placeCommits, presentBrief, presentChapters, presentOwnerMarks } from "@/presenters/review-steps"
 import type { BriefStep, Chapter } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
+import type { NarrativeSection } from "@/presenters/review-units"
 import { getFilesOfCommit, loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import { loadFileDiffs, useFileDiffs, whenFileDiffsEnded } from "@/stores/file-diffs"
 import { getDiffRepositoryPath } from "@/stores/repository"
@@ -478,6 +479,12 @@ const NO_ROWS = { rowOf: new Map<string, string>(), sectionOf: new Map<string, s
 /** A section of the story that shows its file whole */
 const NO_UNITS: SectionUnits = { marks: new Map(), elsewhere: new Map() }
 
+/** The step the first section of a step starts, for the divider above its card: its id, which a click shows, and its words */
+function stepOf(section: NarrativeSection, chapterOf: ReadonlyMap<string, Chapter>): DiffSection["step"] {
+  const chapter = section.concernHeading === null || section.concern === null ? undefined : chapterOf.get(section.concern)
+  return chapter === undefined ? null : { id: chapter.id, heading: formatStepDivider(chapter) }
+}
+
 /**
  * A use a change left outside (`ghost`), as a section of the story: its file at the head (`target`, unread while
  * undefined) around its line, the lines before and after it as context, a heading before the line; no change, so N
@@ -488,7 +495,7 @@ function ghostFile(key: string, path: string, ghost: { line: number; heading: st
   const lineCount = target?.outside?.lineCount ?? 0
   const at = ghost.line - 1
   const file: CommitFile = { path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: blobId, newId: blobId, submodule: false }
-  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside", concern: null }
+  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside", step: null }
   if (target === undefined || blobId === null) {
     return { file, diff: undefined, pending: true, section }
   }
@@ -663,6 +670,7 @@ function ReviewLayout({
       return counted.map(file => ({ file, diff: byPath.get(file.path), pending: !diffsComplete && !byPath.has(file.path) }))
     }
     const fileOf = new Map(counted.map(file => [file.path, file]))
+    const chapterOf = new Map(chapters.map(chapter => [chapter.id, chapter]))
     return narrative.flatMap((section): DiffViewFile[] => {
       if (section.ghost !== null) {
         const target = outside.get(section.key)
@@ -676,11 +684,11 @@ function ReviewLayout({
           pending: !diffsComplete && !byPath.has(section.path),
           quietImports: true,
           ...(section.folded !== null && { folded: section.folded }),
-          section: { key: section.key, units: section.units ?? NO_UNITS, targets: section.targets, heading: section.heading, concern: section.concernHeading },
+          section: { key: section.key, units: section.units ?? NO_UNITS, targets: section.targets, heading: section.heading, step: stepOf(section, chapterOf) },
         },
       ]
     })
-  }, [diffs, diffsComplete, files, narrative, outside])
+  }, [diffs, diffsComplete, files, narrative, outside, chapters])
   const showWindow = useCallback(() => {
     markSubWindowOpenPhase("painted")
     markWindowContentReady()
@@ -984,6 +992,7 @@ function ReviewLayout({
                   onFirstScreen={showWindow}
                   fileOwners={fileOwners}
                   marked={marked}
+                  onShowStep={showStep}
                 />
               </div>
             )}
