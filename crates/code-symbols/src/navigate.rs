@@ -178,9 +178,15 @@ pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<
 fn reference_of(node: Node<'_>, name: String, kind: ReferenceKind, qualifier: Option<String>, text: &str) -> ReferenceAt {
   let local = match kind {
     ReferenceKind::Declaration => None,
-    _ => binding_of(node, kind, &name, text).map(|it| position_of(text, it.start_byte())),
+    _ => binding_of(node, kind, &name, text).map(|it| it.start_byte()),
   };
-  let start = position_of(text, node.start_byte());
+  reference_answer(text, node.start_byte(), name, kind, qualifier, local)
+}
+
+/// The answer of `reference_at` of any parser: the name `name` that starts at byte `start` of `text`, what the syntax
+/// says it is, and the byte where its declaration in this file starts (`local`)
+pub(crate) fn reference_answer(text: &str, start: usize, name: String, kind: ReferenceKind, qualifier: Option<String>, local: Option<usize>) -> ReferenceAt {
+  let start = position_of(text, start);
   let end_column = start.column + utf16_length(&name);
   ReferenceAt {
     name,
@@ -188,7 +194,17 @@ fn reference_of(node: Node<'_>, name: String, kind: ReferenceKind, qualifier: Op
     kind,
     start,
     end_column,
-    local,
+    local: local.map(|it| position_of(text, it)),
+  }
+}
+
+/// A usage of any parser: the name `name` that starts at byte `start` of `text`, used as `access`
+pub(crate) fn usage_answer(text: &str, start: usize, name: &str, access: Access) -> Usage {
+  let start = position_of(text, start);
+  Usage {
+    start,
+    end_column: start.column + utf16_length(name),
+    access,
   }
 }
 
@@ -235,12 +251,7 @@ fn names_in<'tree>(root: Node<'tree>, text: &str, name: &str, keep: impl Fn(Opti
     if descend && NAMES.contains(&node.kind()) && text.get(node.byte_range()) == Some(name) {
       let (kind, _) = kind_of(node, text);
       if keep(binding_of(node, kind, name, text)) {
-        let start = position_of(text, node.start_byte());
-        usages.push(Usage {
-          start,
-          end_column: start.column + utf16_length(name),
-          access: access_of(node, kind),
-        });
+        usages.push(usage_answer(text, node.start_byte(), name, access_of(node, kind)));
       }
     }
     if descend && cursor.goto_first_child() {
@@ -510,8 +521,8 @@ fn pattern_names(node: Node<'_>) -> Vec<Node<'_>> {
   names
 }
 
-/// The byte offset of a line and UTF-16 column, with the lines as the view splits them
-fn byte_offset(text: &str, position: Position) -> Option<usize> {
+/// The byte offset of a line and UTF-16 column, with the lines as the view splits them; `None` past the last line
+pub(crate) fn byte_offset(text: &str, position: Position) -> Option<usize> {
   let bytes = text.as_bytes();
   let mut line = 0;
   let mut index = 0;
@@ -530,8 +541,8 @@ fn byte_offset(text: &str, position: Position) -> Option<usize> {
   Some(text.len())
 }
 
-/// The line and UTF-16 column of a byte offset
-fn position_of(text: &str, offset: usize) -> Position {
+/// The line and UTF-16 column of a byte offset, with the lines as the view splits them (`\n`, `\r\n`, a lone `\r`)
+pub(crate) fn position_of(text: &str, offset: usize) -> Position {
   let before = text.get(..offset).unwrap_or(text);
   let bytes = before.as_bytes();
   let mut line = 0u32;
@@ -552,7 +563,8 @@ fn position_of(text: &str, offset: usize) -> Position {
   }
 }
 
-fn utf16_length(text: &str) -> u32 {
+/// The length of a text in UTF-16 code units, as the view counts columns
+pub(crate) fn utf16_length(text: &str) -> u32 {
   u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }
 

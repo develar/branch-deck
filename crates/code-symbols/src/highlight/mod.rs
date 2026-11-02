@@ -14,10 +14,10 @@
 //! A pure function of the text, like the summary (`extract.rs`), but with its own parse: the summary is cached by blob,
 //! and TypeScript files are read by the TypeScript grammar here, not by TSX.
 
-mod lex;
+pub(crate) mod lex;
 pub mod lines;
-mod paint;
-mod scopes;
+pub(crate) mod paint;
+pub(crate) mod scopes;
 
 #[cfg(feature = "java")]
 mod java;

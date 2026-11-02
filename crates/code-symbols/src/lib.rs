@@ -19,6 +19,8 @@ pub mod navigate;
 pub mod summary;
 pub mod summary_text;
 
+mod summary_builder;
+
 #[cfg(feature = "java")]
 mod java;
 #[cfg(feature = "kotlin")]
@@ -38,6 +40,8 @@ mod kotlin_test;
 mod navigate_test;
 #[cfg(all(test, feature = "rust"))]
 mod rust_test;
+#[cfg(test)]
+mod summary_builder_test;
 #[cfg(test)]
 mod summary_test;
 #[cfg(test)]

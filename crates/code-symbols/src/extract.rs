@@ -32,7 +32,8 @@
 //!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
 
 use crate::language::Language;
-use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, ImportTarget, LineSpan, MemberKind, Reach, Reference, Role, Shape, Signature, TypeRef};
+use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, LineSpan, MemberKind, Reach, Role, Shape, Signature, TypeRef};
+use crate::summary_builder::{Bindings, SummaryBuilder, Typed, empty_summary, is_junit3_test};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::ControlFlow;
@@ -58,25 +59,11 @@ pub fn summarize(language: Language, source: &[u8]) -> FileSummary {
 }
 
 pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u32) -> FileSummary {
-  let lines = count_lines(source);
-  let mut summary = FileSummary {
-    language,
-    package: None,
-    jvm_name: None,
-    names: Vec::new(),
-    imports: Vec::new(),
-    import_lines: Vec::new(),
-    declarations: Vec::new(),
-    references: Vec::new(),
-    shapes: Vec::new(),
-    error_bytes: 0,
-    total_bytes: u32::try_from(source.len()).unwrap_or(u32::MAX),
-    lines,
-    truncated: true,
-  };
+  let mut summary = empty_summary(language, source);
   let Some(spec) = spec_of(language) else {
     return summary;
   };
+  let lines = summary.lines;
   if source.len() > MAX_BYTES || lines > MAX_LINES || summary.total_bytes > lines.saturating_mul(MAX_AVERAGE_LINE) {
     return summary;
   }
@@ -127,12 +114,6 @@ impl Fnv {
   const fn finish(&self) -> u32 {
     self.0
   }
-}
-
-fn count_lines(source: &[u8]) -> u32 {
-  let newlines = source.iter().fold(0, |count, it| count + usize::from(*it == b'\n'));
-  let partial = usize::from(source.last().is_some_and(|it| *it != b'\n'));
-  u32::try_from(newlines + partial).unwrap_or(u32::MAX)
 }
 
 pub(crate) fn spec_of(language: Language) -> Option<&'static Spec> {
@@ -277,19 +258,6 @@ pub(crate) struct JvmHooks {
   /// Whether an annotation of a declaration of any kind marks it as no stable API (`Walk::unstable_annotation`)
   pub(crate) unstable: for<'t> fn(&Walk<'t>, Node<'t>) -> bool,
 }
-
-/// The last names of the annotations of a JVM function a test framework runs (`Declaration::test`)
-pub(crate) const TEST_ANNOTATIONS: &[&str] = &["Test", "ParameterizedTest", "RepeatedTest", "TestFactory", "TestTemplate"];
-
-/// The last names of the annotations that mark a JVM declaration as no stable API whatever their qualifier
-/// (`Declaration::unstable`): `org.jetbrains.annotations`, Guava and `AndroidX` name them alike
-pub(crate) const UNSTABLE_ANNOTATIONS: &[&str] = &["VisibleForTesting", "TestOnly"];
-
-/// The annotations of `API_STATUS` that mark a declaration as no stable API (`Declaration::unstable`)
-const API_STATUS_UNSTABLE: &[&str] = &["Internal", "Experimental"];
-
-/// The class whose nested annotations say the status of an API in the code of `JetBrains`
-const API_STATUS: &[&str] = &["org", "jetbrains", "annotations", "ApiStatus"];
 
 /// What the modifiers of a member say about overriding
 #[derive(Debug, Clone, Copy, Default)]
@@ -654,35 +622,12 @@ struct Container {
   supertypes: usize,
 }
 
-struct Scope {
-  bound_start: usize,
-  body: bool,
-}
-
-/// A type of a value (`JvmHooks::value_type`): its path, and whether a constructor call of the initializer gave it
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Typed {
-  path: Vec<u32>,
-  constructed: bool,
-}
-
-/// A name bound in a scope, with the type it was declared with (`JvmHooks::value_type`)
-struct Binding {
-  name: u32,
-  type_path: Option<Typed>,
-  /// A parameter of a Kotlin primary constructor, which the initializers of the class see but not its functions and
-  /// accessors: the depth of `Walk::containers` it was bound at
-  initializers: Option<usize>,
-  /// Unique per binding of the walk, for the smart casts that drop its type
-  serial: u32,
-}
-
 /// A member reference whose receiver may have a type (`Reference::receiver_type`), decided when the walk is done
 enum TypedReceiver {
   /// A bound name of this type and binding
-  Bound { reference: usize, serial: u32, type_path: Typed },
+  Bound { serial: u32, type_path: Typed },
   /// A property or field `[m]` or `[this, m]`, not enclosed
-  Property { reference: usize },
+  Property,
 }
 
 /// The state of one walk; the language code reads and writes it through the methods below
@@ -690,30 +635,16 @@ pub(crate) struct Walk<'t> {
   spec: &'static Spec,
   table: &'static Table,
   source: &'t [u8],
-  name_ids: HashMap<&'t str, u32>,
-  names: Vec<&'t str>,
-  package: Option<String>,
-  jvm_name: Option<String>,
-  imports: Vec<Import>,
-  import_lines: Vec<LineSpan>,
-  declarations: Vec<Declaration>,
-  references: Vec<Reference>,
+  /// What the walk found, the same for every parser
+  out: SummaryBuilder<'t>,
   frames: Vec<Frame<'t>>,
   /// (node id, mark, index of the frame that set it)
   marks: Vec<(usize, Mark, usize)>,
-  scopes: Vec<Scope>,
-  bound: Vec<Binding>,
-  bound_counts: HashMap<u32, u32>,
-  serials: u32,
+  bindings: Bindings,
   /// Name node id -> the type its binding gets, set by the language code before the walk binds it
   binding_types: HashMap<usize, Typed>,
   /// Name node ids of the parameters of a Kotlin primary constructor (`Binding::initializers`)
   initializer_names: HashSet<usize>,
-  receivers: Vec<TypedReceiver>,
-  /// The bindings, and the (container, name) of properties, that a smart cast may give another type
-  cast_bindings: HashSet<u32>,
-  cast_names: HashSet<(Option<u32>, u32)>,
-  body_scopes: u32,
   /// (frame index, name, type): bindings that become visible when that frame is left
   pending: Vec<(usize, u32, Option<Typed>)>,
   containers: Vec<Container>,
@@ -722,9 +653,6 @@ pub(crate) struct Walk<'t> {
   supertypes: Vec<Vec<Vec<u32>>>,
   /// The coroutine contexts of the functions and lambdas around the current node (`Spec::coroutine`)
   coroutines: Vec<Context>,
-  shapes: Vec<Shape>,
-  shape_ids: HashMap<Shape, u32>,
-  error_bytes: u32,
   error_depth: u32,
   /// The leading line taken from the parent for the node being entered
   leading_now: Option<u32>,
@@ -733,8 +661,6 @@ pub(crate) struct Walk<'t> {
   /// The paths of the annotations of a Kotlin file (`@file:ApiStatus.Internal`), which come before its imports: an
   /// unstable one makes the top-level declarations `unstable`
   file_annotations: Vec<Vec<&'t str>>,
-  /// TypeScript `export { x }`: top-level names whose declarations become public
-  exported: Vec<u32>,
 }
 
 impl<'t> Walk<'t> {
@@ -743,38 +669,20 @@ impl<'t> Walk<'t> {
       spec,
       table,
       source,
-      name_ids: HashMap::new(),
-      names: Vec::new(),
-      package: None,
-      jvm_name: None,
-      imports: Vec::new(),
-      import_lines: Vec::new(),
-      declarations: Vec::new(),
-      references: Vec::new(),
+      out: SummaryBuilder::new(),
       frames: Vec::new(),
       marks: Vec::new(),
-      scopes: Vec::new(),
-      bound: Vec::new(),
-      bound_counts: HashMap::new(),
-      serials: 0,
+      bindings: Bindings::default(),
       binding_types: HashMap::new(),
       initializer_names: HashSet::new(),
-      receivers: Vec::new(),
-      cast_bindings: HashSet::new(),
-      cast_names: HashSet::new(),
-      body_scopes: 0,
       pending: Vec::new(),
       containers: Vec::new(),
       supertypes: Vec::new(),
       coroutines: Vec::new(),
-      shapes: Vec::new(),
-      shape_ids: HashMap::new(),
-      error_bytes: 0,
       error_depth: 0,
       leading_now: None,
       test_now: false,
       file_annotations: Vec::new(),
-      exported: Vec::new(),
     }
   }
 
@@ -805,14 +713,14 @@ impl<'t> Walk<'t> {
   /// An anonymous node; it has no frame and is never descended into
   fn token(&mut self, node: Node<'t>) -> bool {
     if node.is_missing() && self.error_depth == 0 {
-      self.error_bytes = self.error_bytes.saturating_add(1);
+      self.out.error_bytes = self.out.error_bytes.saturating_add(1);
     }
     if let Some(tokens) = self.frames.last_mut().and_then(|it| it.tokens.as_mut()) {
       match node.kind() {
         "::" | "." => tokens.after_colons = true,
         kind => {
           if let (Some(last), "!") = (tokens.last, kind) {
-            self.references[last].role = Role::Macro;
+            self.out.references[last].role = Role::Macro;
           }
           tokens.path.clear();
           tokens.after_colons = false;
@@ -852,7 +760,7 @@ impl<'t> Walk<'t> {
     if node.is_error() || node.is_missing() {
       if self.error_depth == 0 {
         let bytes = u32::try_from(node.byte_range().len()).unwrap_or(u32::MAX).max(u32::from(node.is_missing()));
-        self.error_bytes = self.error_bytes.saturating_add(bytes);
+        self.out.error_bytes = self.out.error_bytes.saturating_add(bytes);
       }
       self.error_depth += 1;
       frame.error = true;
@@ -995,10 +903,10 @@ impl<'t> Walk<'t> {
       _ => (role, None),
     };
     let qualifier = self.token_qualifier(text);
-    let before = self.references.len();
+    let before = self.out.references.len();
     self.reference(text, line_of(node), role, qualifier, shape);
     if let Some(tokens) = self.frames.len().checked_sub(2).and_then(|it| self.frames[it].tokens.as_mut()) {
-      tokens.last = (self.references.len() > before).then_some(before);
+      tokens.last = (self.out.references.len() > before).then_some(before);
     }
   }
 
@@ -1039,17 +947,13 @@ impl<'t> Walk<'t> {
     let receiver = object
       .filter(|_| matches!(role, Role::Call | Role::Value))
       .and_then(|object| self.typed_receiver(object, qualifier.as_deref()));
-    let before = self.references.len();
+    let before = self.out.references.len();
     self.reference(text, line_of(name_node), role, qualifier, shape);
-    if let Some(receiver) = receiver.filter(|_| self.references.len() > before) {
-      self.receivers.push(match receiver {
-        TypedReceiver::Bound { serial, type_path, .. } => TypedReceiver::Bound {
-          reference: before,
-          serial,
-          type_path,
-        },
-        TypedReceiver::Property { .. } => TypedReceiver::Property { reference: before },
-      });
+    if let Some(receiver) = receiver.filter(|_| self.out.references.len() > before) {
+      match receiver {
+        TypedReceiver::Bound { serial, type_path } => self.out.bound_receiver(before, serial, type_path),
+        TypedReceiver::Property => self.out.property_receiver(before),
+      }
     }
   }
 
@@ -1059,27 +963,26 @@ impl<'t> Walk<'t> {
     let hooks = self.spec.jvm.as_ref()?;
     let object = (hooks.receiver_node)(self, object);
     if self.is_name(object) {
-      let id = *self.name_ids.get(self.text(object)?)?;
+      let id = self.out.name_id(self.text(object)?)?;
       if self.is_bound(id) {
-        let binding = self.bound.iter().rev().find(|it| it.name == id)?;
+        let binding = self.bindings.binding(id)?;
         // a parameter of a primary constructor is no name in a function or an accessor: a property of its name is
         if binding.initializers.is_some_and(|depth| self.containers.iter().skip(depth).any(|it| it.code)) {
           return None;
         }
         return Some(TypedReceiver::Bound {
-          reference: 0,
           serial: binding.serial,
           type_path: binding.type_path.clone()?,
         });
       }
     }
-    let this = self.name_ids.get("this").copied();
+    let this = self.out.name_id("this");
     let property = match qualifier? {
       [_] => true,
       [first, _] => Some(*first) == this,
       _ => false,
     };
-    (property && !self.enclosed()).then_some(TypedReceiver::Property { reference: 0 })
+    (property && !self.enclosed()).then_some(TypedReceiver::Property)
   }
 
   /// The interned `Shape::Call` of the arguments of a call node, by the language's `Spec::call_shape`, `enclosed` by
@@ -1140,7 +1043,7 @@ impl<'t> Walk<'t> {
     let index = self.frames.len() - 1;
     let leading = self.leading_now;
     let mut fields = self.jvm_fields(node, rule);
-    if self.body_scopes > 0 {
+    if self.bindings.is_local() {
       // a local declaration binds its name in the scope around it, with its type
       let value_type = fields.value_type.take();
       match rule.pattern.and_then(|it| self.child(node, it)) {
@@ -1317,13 +1220,7 @@ impl<'t> Walk<'t> {
   }
 
   fn intern_shape(&mut self, shape: Shape) -> u32 {
-    if let Some(id) = self.shape_ids.get(&shape) {
-      return *id;
-    }
-    let id = u32::try_from(self.shapes.len()).unwrap_or(u32::MAX);
-    self.shapes.push(shape.clone());
-    self.shape_ids.insert(shape, id);
-    id
+    self.out.intern_shape(shape)
   }
 
   fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>, fields: JvmFields) -> u32 {
@@ -1359,8 +1256,7 @@ impl<'t> Walk<'t> {
       name_line: line_of(name_node),
       in_error: self.error_depth > 0,
     };
-    let id = u32::try_from(self.declarations.len()).unwrap_or(u32::MAX);
-    self.declarations.push(declaration);
+    let id = self.out.add_declaration(declaration);
     if let Some(parent) = self.frames.len().checked_sub(2) {
       self.frames[parent].last_decl = Some(id);
     }
@@ -1431,21 +1327,12 @@ impl<'t> Walk<'t> {
       return;
     }
     let container = self.container();
-    self.references.push(Reference {
-      name: id,
-      line,
-      role,
-      qualifier,
-      container,
-      shape,
-      receiver_type: None,
-      receiver_constructed: false,
-      coroutine: self.spec.coroutine.and_then(|_| match self.coroutines.last() {
-        Some(Context::Coroutine) => Some(true),
-        Some(Context::Plain) | None => Some(false),
-        Some(Context::Unknown) => None,
-      }),
+    let coroutine = self.spec.coroutine.and_then(|_| match self.coroutines.last() {
+      Some(Context::Coroutine) => Some(true),
+      Some(Context::Plain) | None => Some(false),
+      Some(Context::Unknown) => None,
     });
+    self.out.add_reference(id, line, role, qualifier, container, shape, coroutine);
   }
 
   /// The qualifier of a member of `object`: its path of names, or empty for an expression or a local
@@ -1495,13 +1382,7 @@ impl<'t> Walk<'t> {
   }
 
   fn push_scope(&mut self, body: bool) {
-    self.scopes.push(Scope {
-      bound_start: self.bound.len(),
-      body,
-    });
-    if body {
-      self.body_scopes += 1;
-    }
+    self.bindings.push(body);
     let spec = self.spec;
     if let (Some(hoist), Some(frame)) = (spec.hoist, self.frames.last()) {
       let node = frame.node;
@@ -1513,18 +1394,7 @@ impl<'t> Walk<'t> {
   }
 
   fn pop_scope(&mut self) {
-    let Some(scope) = self.scopes.pop() else { return };
-    if scope.body {
-      self.body_scopes -= 1;
-    }
-    for Binding { name, .. } in self.bound.drain(scope.bound_start..) {
-      if let Some(count) = self.bound_counts.get_mut(&name) {
-        *count -= 1;
-        if *count == 0 {
-          self.bound_counts.remove(&name);
-        }
-      }
-    }
+    self.bindings.pop();
   }
 
   fn bind_id(&mut self, name: u32) {
@@ -1532,27 +1402,17 @@ impl<'t> Walk<'t> {
   }
 
   fn bind_typed(&mut self, name: u32, type_path: Option<Typed>) {
-    if self.scopes.is_empty() {
-      return;
-    }
-    self.serials += 1;
-    self.bound.push(Binding {
-      name,
-      type_path,
-      initializers: None,
-      serial: self.serials,
-    });
-    *self.bound_counts.entry(name).or_insert(0) += 1;
+    self.bindings.bind(name, type_path);
   }
 
   fn is_bound(&self, name: u32) -> bool {
-    self.bound_counts.contains_key(&name)
+    self.bindings.is_bound(name)
   }
 
   /// Makes the declaration (`None` for a Rust `impl`) the container of what is below the current node
   pub(crate) fn enter_container(&mut self, decl: Option<u32>, holder: Holder, receiver: Option<u32>) {
     let supertypes = self.supertypes.len();
-    let code = decl.and_then(|it| self.declarations.get(it as usize)).is_some_and(|it| it.kind == DeclKind::Function);
+    let code = decl.and_then(|it| self.out.declarations.get(it as usize)).is_some_and(|it| it.kind == DeclKind::Function);
     self.containers.push(Container {
       decl,
       holder,
@@ -1640,167 +1500,9 @@ impl<'t> Walk<'t> {
       .is_some_and(|it| (it.starts_with("/**") && !it.starts_with("/**/")) || (it.starts_with("///") && !it.starts_with("////")))
   }
 
-  fn finish(mut self, summary: &mut FileSummary) {
-    self.resolve_impl_members();
-    self.publish_exported();
-    self.add_implicit_constructors();
-    self.receiver_types();
-    let mut order: Vec<u32> = (0..u32::try_from(self.names.len()).unwrap_or(u32::MAX)).collect();
-    order.sort_unstable_by_key(|it| self.names[*it as usize]);
-    let mut remap = vec![0u32; order.len()];
-    for (new, old) in order.iter().enumerate() {
-      remap[*old as usize] = u32::try_from(new).unwrap_or(u32::MAX);
-    }
-    let map = |id: &mut u32| *id = remap[*id as usize];
-    let map_type = |type_ref: &mut Option<TypeRef>| type_ref.iter_mut().flat_map(|it| &mut it.names).for_each(map);
-    for import in &mut self.imports {
-      import.path.iter_mut().for_each(map);
-      if let ImportTarget::Name(name) = &mut import.target {
-        map(name);
-      }
-      import.alias.iter_mut().for_each(map);
-    }
-    for declaration in &mut self.declarations {
-      map(&mut declaration.name);
-      declaration.receiver.iter_mut().for_each(map);
-      let constructors = declaration.constructors.iter_mut().flatten().map(|it| &mut it.signature);
-      for parameter in declaration.signature.iter_mut().chain(constructors).flat_map(|it| &mut it.parameters) {
-        map(&mut parameter.name);
-        map_type(&mut parameter.type_ref);
-      }
-      declaration.supertypes.iter_mut().flatten().for_each(map);
-      declaration.value_type.iter_mut().flatten().for_each(map);
-    }
-    for shape in &mut self.shapes {
-      match shape {
-        Shape::Override { receiver, parameters, .. } => {
-          receiver.iter_mut().for_each(map);
-          parameters.iter_mut().for_each(map_type);
-        }
-        Shape::Call { arguments, .. } => arguments.iter_mut().filter_map(|(name, _)| name.as_mut()).for_each(map),
-      }
-    }
-    for reference in &mut self.references {
-      map(&mut reference.name);
-      reference.qualifier.iter_mut().flatten().for_each(map);
-      reference.receiver_type.iter_mut().flatten().for_each(map);
-    }
-    self.references.sort_unstable();
-    self.references.dedup();
-    summary.names = order.iter().map(|it| self.names[*it as usize].to_string()).collect();
-    summary.package = self.package;
-    summary.jvm_name = self.jvm_name;
-    summary.imports = self.imports;
-    summary.import_lines = self.import_lines;
-    summary.declarations = self.declarations;
-    summary.references = self.references;
-    summary.shapes = self.shapes;
-    summary.error_bytes = self.error_bytes;
-  }
-
-  /// The types of the receivers of member references (`Reference::receiver_type`): a bound name's, unless a smart
-  /// cast may change it; a property's or a field's of the class around the reference that declares it, the innermost
-  /// first, not past a class with a supertype (whose `m` comes first), a nested class that isn't inner or a companion
-  /// (whose code sees no `m` of the class around it) or an extension function or property of another receiver (whose
-  /// members come first; `this` is that receiver), and for `this.m` only of the innermost class, with no extension
-  /// between
-  fn receiver_types(&mut self) {
-    let this = self.name_ids.get("this").copied();
-    // (class, name) -> the property or field of that name it declares
-    let properties: HashMap<(u32, u32), &Declaration> = self
-      .declarations
-      .iter()
-      .filter(|declaration| declaration.kind == DeclKind::Value)
-      .filter_map(|declaration| Some(((declaration.container?, declaration.name), declaration)))
-      .collect();
-    let mut types = Vec::new();
-    for receiver in &self.receivers {
-      types.push(match receiver {
-        TypedReceiver::Bound { reference, serial, type_path } => (*reference, (!self.cast_bindings.contains(serial)).then(|| type_path.clone())),
-        TypedReceiver::Property { reference } => (*reference, self.property_type(&self.references[*reference], this, &properties)),
-      });
-    }
-    for (index, type_path) in types {
-      let reference = &mut self.references[index];
-      reference.receiver_constructed = type_path.as_ref().is_some_and(|it| it.constructed);
-      reference.receiver_type = type_path.map(|it| it.path);
-    }
-  }
-
-  fn property_type(&self, reference: &Reference, this: Option<u32>, properties: &HashMap<(u32, u32), &Declaration>) -> Option<Typed> {
-    let (own, name) = match reference.qualifier.as_deref()? {
-      [name] => (false, *name),
-      [first, name] if Some(*first) == this => (true, *name),
-      _ => return None,
-    };
-    if self.cast_names.contains(&(reference.container, name)) {
-      return None;
-    }
-    let at = |index: u32| self.declarations.get(index as usize).map(|declaration| (index, declaration));
-    let around = std::iter::successors(reference.container.and_then(at), |(_, declaration)| declaration.container.and_then(at));
-    // the receiver of an extension function or property around the use, whose `this` and members come first
-    let mut extension = None;
-    for (index, declaration) in around {
-      if !matches!(declaration.kind, DeclKind::Type | DeclKind::EnumEntry) {
-        if let Some(receiver) = declaration.receiver.filter(|_| extension.is_none()) {
-          extension = Some(receiver);
-        }
-        continue;
-      }
-      if (own && extension.is_some()) || extension.is_some_and(|receiver| receiver != declaration.name) {
-        return None;
-      }
-      if let Some(property) = properties.get(&(index, name)) {
-        return property.value_type.clone().map(|path| Typed {
-          path,
-          constructed: property.value_constructed,
-        });
-      }
-      // an inherited `m` comes first; the code of a nested class, a companion or an enum entry sees no `m` around it
-      if own || declaration.kind == DeclKind::EnumEntry || !declaration.supertypes.is_empty() || (declaration.member == MemberKind::Static && declaration.container.is_some()) {
-        return None;
-      }
-    }
-    None
-  }
-
-  /// A member of a Rust `impl` belongs to the declaration of its type when this file has it
-  fn resolve_impl_members(&mut self) {
-    let types: HashMap<(u32, Option<u32>), u32> = self
-      .declarations
-      .iter()
-      .enumerate()
-      .filter(|(_, it)| it.kind == DeclKind::Type)
-      .filter_map(|(index, it)| Some(((it.name, it.container), u32::try_from(index).ok()?)))
-      .collect();
-    for declaration in &mut self.declarations {
-      if let (Some(receiver), true) = (declaration.receiver, self.spec.language == Language::Rust)
-        && let Some(owner) = types.get(&(receiver, declaration.container))
-      {
-        declaration.container = Some(*owner);
-      }
-    }
-  }
-
-  fn publish_exported(&mut self) {
-    for declaration in &mut self.declarations {
-      if declaration.container.is_none() && declaration.reach == Reach::File && self.exported.contains(&declaration.name) {
-        declaration.reach = Reach::Public;
-      }
-    }
-  }
-
-  /// A class that declares no constructor has the implicit `()`
-  fn add_implicit_constructors(&mut self) {
-    let Some(hooks) = &self.spec.jvm else { return };
-    for declaration in &mut self.declarations {
-      if let Some(constructors) = declaration.constructors.as_mut().filter(|it| it.is_empty()) {
-        constructors.push(Constructor {
-          signature: Signature { parameters: Vec::new() },
-          reach: (hooks.implicit_constructor)(declaration.reach),
-        });
-      }
-    }
+  fn finish(self, summary: &mut FileSummary) {
+    let implicit_constructor = self.spec.jvm.as_ref().map(|hooks| hooks.implicit_constructor);
+    self.out.finish(summary, implicit_constructor);
   }
 }
 
@@ -1811,13 +1513,7 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn intern(&mut self, name: &'t str) -> u32 {
-    if let Some(id) = self.name_ids.get(name) {
-      return *id;
-    }
-    let id = u32::try_from(self.names.len()).unwrap_or(u32::MAX);
-    self.names.push(name);
-    self.name_ids.insert(name, id);
-    id
+    self.out.intern(name)
   }
 
   pub(crate) fn child(&self, node: Node<'t>, child: Child) -> Option<Node<'t>> {
@@ -1885,7 +1581,7 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) const fn is_local(&self) -> bool {
-    self.body_scopes > 0
+    self.bindings.is_local()
   }
 
   pub(crate) fn claim(&mut self, node: Node<'t>) {
@@ -1938,7 +1634,7 @@ impl<'t> Walk<'t> {
       let type_path = self.binding_types.remove(&node.id());
       self.bind_typed(id, type_path);
       if self.initializer_names.remove(&node.id())
-        && let Some(binding) = self.bound.last_mut()
+        && let Some(binding) = self.bindings.last_mut()
       {
         binding.initializers = Some(self.containers.len());
       }
@@ -1970,7 +1666,7 @@ impl<'t> Walk<'t> {
 
   /// Whether `text` is a name bound around the current node: a local, a parameter, a type parameter
   pub(crate) fn is_bound_text(&self, text: &str) -> bool {
-    self.name_ids.get(text).is_some_and(|id| self.is_bound(*id))
+    self.out.name_id(text).is_some_and(|id| self.is_bound(id))
   }
 
   /// The operand of a Kotlin `is` or `as` or a Java `instanceof` or cast: a smart cast may give a name of it, a local
@@ -1981,15 +1677,15 @@ impl<'t> Walk<'t> {
       [name] | ["this", name] => *name,
       _ => return,
     };
-    let Some(&id) = self.name_ids.get(name) else { return };
+    let Some(id) = self.out.name_id(name) else { return };
     if path.len() == 1
-      && let Some(binding) = self.bound.iter().rev().find(|it| it.name == id)
+      && let Some(serial) = self.bindings.binding(id).map(|it| it.serial)
     {
-      self.cast_bindings.insert(binding.serial);
+      self.out.cast_binding(serial);
       return;
     }
     let container = self.container();
-    self.cast_names.insert((container, id));
+    self.out.cast_name(container, id);
   }
 
   pub(crate) fn emit(&mut self, node: Node<'t>, role: Role, qualifier: Option<Vec<u32>>) {
@@ -2018,12 +1714,12 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn set_package(&mut self, package: String) {
-    self.package = Some(package);
+    self.out.package = Some(package);
   }
 
   /// The reach of the setter of the property `decl` that an accessor of it narrows (`private set`)
   pub(crate) fn set_setter_reach(&mut self, decl: u32, reach: Reach) {
-    if let Some(declaration) = self.declarations.get_mut(decl as usize)
+    if let Some(declaration) = self.out.declarations.get_mut(decl as usize)
       && declaration.setter.is_some()
     {
       declaration.setter = Some(reach);
@@ -2031,7 +1727,7 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn set_jvm_name(&mut self, name: String) {
-    self.jvm_name = Some(name);
+    self.out.jvm_name = Some(name);
   }
 
   /// An annotation of a Kotlin file, its path as written: an unstable one (`unstable_annotation`, asked once the
@@ -2046,40 +1742,22 @@ impl<'t> Walk<'t> {
   /// `org.jetbrains.annotations.ApiStatus` (by its name, an alias of it, or `ApiStatus.*`), so that another `Internal`
   /// is none
   pub(crate) fn unstable_annotation(&self, path: &[&str]) -> bool {
-    let Some((last, qualifier)) = path.split_last() else { return false };
-    if UNSTABLE_ANNOTATIONS.contains(last) {
-      return true;
-    }
-    if !qualifier.is_empty() {
-      return API_STATUS_UNSTABLE.contains(last) && (qualifier == ["ApiStatus"] || qualifier == API_STATUS);
-    }
-    let name = |id: u32| self.names.get(id as usize).copied().unwrap_or_default();
-    self.imports.iter().any(|import| {
-      let from_api_status = import.path.len() == API_STATUS.len() && import.path.iter().zip(API_STATUS).all(|(id, segment)| name(*id) == *segment);
-      from_api_status
-        && match import.target {
-          ImportTarget::Name(target) => API_STATUS_UNSTABLE.contains(&name(target)) && name(import.alias.unwrap_or(target)) == *last,
-          ImportTarget::All => API_STATUS_UNSTABLE.contains(last),
-          ImportTarget::Default | ImportTarget::Namespace => false,
-        }
-    })
+    self.out.unstable_annotation(path)
   }
 
   /// Whether a parameter type is not nullable and of these last names and array dimensions (`[String]` and 1 of Java
   /// `String[]`)
   pub(crate) fn type_is(&self, type_ref: Option<&TypeRef>, names: &[&str], arrays: u8) -> bool {
-    type_ref.is_some_and(|it| {
-      !it.nullable && it.arrays == arrays && it.names.len() == names.len() && it.names.iter().zip(names).all(|(id, name)| self.names.get(*id as usize) == Some(name))
-    })
+    self.out.type_is(type_ref, names, arrays)
   }
 
   pub(crate) fn add_import(&mut self, import: Import) {
-    self.imports.push(import);
+    self.out.imports.push(import);
   }
 
   /// The lines of an import or package statement, `node`
   pub(crate) fn import_statement(&mut self, node: Node<'t>) {
-    self.import_lines.push(LineSpan {
+    self.out.import_lines.push(LineSpan {
       start: line_of(node),
       end: end_line_of(node),
     });
@@ -2087,31 +1765,14 @@ impl<'t> Walk<'t> {
 
   /// `import a.b.C as D`, `use a::b::C as D`: the `Import` of `name` under `path`, and the `Import` reference to it
   pub(crate) fn import_name(&mut self, path: &[&'t str], name: &'t str, alias: Option<&'t str>, exported: bool, line: u32, name_line: u32) {
+    self.out.add_import_name(path, name, alias, exported, line);
     let path_ids = self.ids(path);
-    let target = self.intern(name);
-    let alias = alias.map(|it| self.intern(it));
-    self.imports.push(Import {
-      path: path_ids.clone(),
-      target: ImportTarget::Name(target),
-      alias,
-      exported,
-      specifier: None,
-      line,
-    });
     self.reference(name, name_line, Role::Import, (!path.is_empty()).then_some(path_ids), None);
   }
 
   /// `import a.b.*`, `use a::b::*`
   pub(crate) fn import_all(&mut self, path: &[&'t str], exported: bool, line: u32) {
-    let path = self.ids(path);
-    self.imports.push(Import {
-      path,
-      target: ImportTarget::All,
-      alias: None,
-      exported,
-      specifier: None,
-      line,
-    });
+    self.out.add_import_all(path, exported, line);
   }
 
   /// A `Binding` declaration of a name an import brings in; a local import only binds it in its scope
@@ -2149,7 +1810,7 @@ impl<'t> Walk<'t> {
     let name = self.text(item.name)?;
     self.claim(item.name);
     let id = self.declare(item.name, item.name, name, traits, Some(line_of(item.first)), JvmFields::default());
-    let declaration = self.declarations.get_mut(id as usize)?;
+    let declaration = self.out.declarations.get_mut(id as usize)?;
     declaration.end_line = declaration.end_line.max(end_line_of(item.last));
     if container.is_some() {
       declaration.container = container;
@@ -2182,18 +1843,8 @@ impl<'t> Walk<'t> {
     if self.is_local() {
       return;
     }
-    let Some(constructors) = self
-      .containers
-      .last()
-      .and_then(|it| it.decl)
-      .and_then(|it| self.declarations.get_mut(it as usize))
-      .and_then(|it| it.constructors.as_mut())
-    else {
-      return;
-    };
-    match constructors.first_mut().filter(|_| canonical) {
-      Some(header) => *header = constructor,
-      None => constructors.push(constructor),
+    if let Some(decl) = self.containers.last().and_then(|it| it.decl) {
+      self.out.add_constructor(decl, constructor, canonical);
     }
   }
 
@@ -2257,7 +1908,7 @@ impl<'t> Walk<'t> {
         Some(Rule::Path | Rule::Name(Role::Type) | Rule::Member { .. }) => {
           let path = self.type_path(node)?;
           let (first, last) = (path.first()?, path.last()?);
-          if type_parameters.contains(first) || self.name_ids.get(first).is_some_and(|it| self.is_bound(*it)) {
+          if type_parameters.contains(first) || self.out.name_id(first).is_some_and(|it| self.is_bound(it)) {
             return None;
           }
           names.push(self.intern(last));
@@ -2307,7 +1958,7 @@ impl<'t> Walk<'t> {
     }
     let mut path = Vec::new();
     let mut current = self.container();
-    while let Some(declaration) = current.and_then(|it| self.declarations.get(it as usize)) {
+    while let Some(declaration) = current.and_then(|it| self.out.declarations.get(it as usize)) {
       path.push(declaration.name);
       current = declaration.container;
     }
@@ -2322,13 +1973,13 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn extend_declaration(&mut self, id: u32, node: Node<'t>) {
-    if let Some(declaration) = self.declarations.get_mut(id as usize) {
+    if let Some(declaration) = self.out.declarations.get_mut(id as usize) {
       declaration.end_line = declaration.end_line.max(end_line_of(node));
     }
   }
 
   pub(crate) fn declaration_kind(&self, id: u32) -> Option<DeclKind> {
-    self.declarations.get(id as usize).map(|it| it.kind)
+    self.out.declarations.get(id as usize).map(|it| it.kind)
   }
 
   /// Makes the current node extend the declaration below it, like a doc comment (a Rust attribute)
@@ -2353,26 +2004,9 @@ impl<'t> Walk<'t> {
   /// parameters, in a class named `…Test`, `…Tests` or `…TestCase` or that extends a `…TestCase`
   fn junit3_test(&self, name: Option<Node<'t>>, signature: Option<&Signature>) -> bool {
     let Some(text) = name.and_then(|it| self.text(it)) else { return false };
-    let named = text
-      .strip_prefix("test")
-      .and_then(|rest| rest.chars().next())
-      .is_some_and(|c| c.is_ascii_uppercase() || c == '_');
-    if !named || !signature.is_some_and(|it| it.parameters.is_empty()) || self.is_local() {
-      return false;
-    }
-    let class = self
-      .container()
-      .and_then(|id| self.declarations.get(id as usize))
-      .and_then(|it| self.names.get(it.name as usize))
-      .is_some_and(|it| it.ends_with("Test") || it.ends_with("Tests") || it.ends_with("TestCase"));
-    let extends = self.supertypes.last().is_some_and(|supertypes| {
-      supertypes
-        .iter()
-        .filter_map(|path| path.last())
-        .filter_map(|&name| self.names.get(name as usize))
-        .any(|it| it.ends_with("TestCase"))
-    });
-    class || extends
+    let class = self.container().and_then(|id| self.out.declarations.get(id as usize)).map(|it| self.out.name(it.name));
+    let supertypes = self.supertypes.last().into_iter().flatten().filter_map(|path| path.last()).map(|&name| self.out.name(name));
+    is_junit3_test(text, signature.is_some_and(|it| it.parameters.is_empty()), self.is_local(), class, supertypes)
   }
 
   /// Gives the leading line of the current node to its first child declaration
@@ -2390,8 +2024,7 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn export_name(&mut self, name: &'t str) {
-    let id = self.intern(name);
-    self.exported.push(id);
+    self.out.export_name(name);
   }
 }
 
