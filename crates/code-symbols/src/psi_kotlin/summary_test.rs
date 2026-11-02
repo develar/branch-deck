@@ -37,8 +37,55 @@ fn this_in_a_string_template_is_no_name() {
 fn a_context_parameter_is_a_local() {
   let summary = summary("context(scope: CoroutineScope)\nfun f() = scope.launch {}\n");
   assert_eq!(refs(&summary, "scope"), NONE);
-  assert_eq!(refs(&summary, "launch"), ["2 ?.launch(Lambda)"]);
+  // with its type, as a function's parameter
+  assert_eq!(refs(&summary, "launch"), ["2 <CoroutineScope>.launch(Lambda)"]);
   assert_eq!(refs(&summary, "CoroutineScope"), ["1 :CoroutineScope"]);
+}
+
+#[test]
+fn a_context_parameter_of_a_property_is_a_name_of_the_property_alone() {
+  let source = "class A {\n  context(c: Ctx)\n  val x: Int get() = c.foo\n  fun g() = c.bar()\n}\ncontext(d: Ctx)\nval y: Int get() = d.baz\n";
+  let summary = summary(source);
+  assert_eq!(refs(&summary, "foo"), ["3 <Ctx>.foo"]);
+  // not of the class: `c` of another member is the class's or the file's
+  assert_eq!(refs(&summary, "c"), ["4 c"]);
+  assert_eq!(refs(&summary, "bar"), ["4 c.bar()"]);
+  assert_eq!(refs(&summary, "d"), NONE);
+  assert_eq!(refs(&summary, "baz"), ["7 <Ctx>.baz"]);
+}
+
+#[test]
+fn the_type_parameters_of_a_property_are_its_names() {
+  let summary = summary("val <T> List<T>.head: T get() = first()\nvar a: Int?? = 1\n");
+  assert_eq!(refs(&summary, "T"), NONE);
+  assert_eq!(declaration(&summary, "head").value_type, None);
+  // a redundant `?` still names the type
+  assert!(declaration(&summary, "a").value_type.is_some());
+}
+
+#[test]
+fn a_not_null_assertion_names_its_receiver_as_a_safe_call_does() {
+  let source = "class A {\n  private var label: JLabel? = null\n  fun f() {\n    label!!.text = \"\"\n    label?.isVisible\n    label!!.repaint()\n  }\n}\n";
+  let summary = summary(source);
+  assert_eq!(refs(&summary, "text"), ["4 <JLabel>label.text"]);
+  assert_eq!(refs(&summary, "isVisible"), ["5 <JLabel>label.isVisible"]);
+  assert_eq!(refs(&summary, "repaint"), ["6 <JLabel>label.repaint()"]);
+}
+
+#[test]
+fn the_variable_of_a_for_is_no_name_of_its_range() {
+  let summary = summary("class A {\n  val node = Node()\n  fun f() {\n    for (node in node.children) node.visit()\n  }\n}\n");
+  assert_eq!(refs(&summary, "children"), ["4 <Node>node.children"]);
+  assert_eq!(refs(&summary, "visit"), ["4 ?.visit()"]);
+}
+
+#[test]
+fn the_blocks_of_a_try_and_a_finally_are_scopes_and_a_do_condition_sees_its_body() {
+  let source = "class A {\n  val x = Foo()\n  fun f() {\n    try { val x = 2 } finally { val y = 3 }\n    x.dec()\n    do { val z = next() } while (z.more())\n  }\n}\n";
+  let summary = summary(source);
+  assert_eq!(refs(&summary, "dec"), ["5 <Foo>x.dec()"]);
+  assert_eq!(refs(&summary, "z"), NONE);
+  assert_eq!(refs(&summary, "more"), ["6 ?.more()"]);
 }
 
 #[test]
@@ -125,9 +172,11 @@ fn a_modifier_keyword_as_a_name_stays_in_the_header() {
 
 #[test]
 fn a_type_constraint_names_a_type() {
-  let summary = summary("val <T> T.lifetime: Lifetime where T : Holder, T : Disposable by lazy { error(\"\") }\n");
-  assert_eq!(refs(&summary, "T"), ["1 :T"]);
-  assert_eq!(refs(&summary, "Holder"), ["1 :Holder"]);
+  // the subject is the type parameter, a name of the property; an unknown one is a type
+  let summary = summary("val <T> T.lifetime: Lifetime where T : Holder, T : Disposable by lazy { error(\"\") }\nfun f() where U : Holder {}\n");
+  assert_eq!(refs(&summary, "T"), NONE);
+  assert_eq!(refs(&summary, "U"), ["2 :U"]);
+  assert_eq!(refs(&summary, "Holder"), ["1 :Holder", "2 :Holder"]);
 }
 
 #[test]

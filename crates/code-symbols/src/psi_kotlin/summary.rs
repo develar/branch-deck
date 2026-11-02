@@ -9,8 +9,9 @@
 //!   are tokens of its `ERROR_ELEMENT`: no reference.
 //! - **Locals are dropped**: a parameter, a type parameter, a local and the implicit `it` and `field` are bound in the
 //!   scope of the function, lambda, class or block around them (`Bindings`); a declaration inside a body scope is a
-//!   local. A local `val` and the names of a lambda's parameters, a `for` variable and a `when` subject become visible
-//!   when their node is left; a function parameter at once (its default values see it).
+//!   local. A local `val` and the names of a lambda's parameters and a `when` subject become visible when their node is
+//!   left; a function parameter at once (its default values see it); a `for` variable in its body, not its range. A
+//!   property with context or type parameters is a scope of its own; a `do`'s body shares its scope with its condition.
 //! - **Overrides**, **calls**, **constructors**, **`enclosed`**: as `extract.rs` says. A class-like node pushes its
 //!   supertypes before its members are walked, a function, a lambda and an anonymous function an empty list. A call is
 //!   a `CALL_EXPRESSION`; `a.b(c)` is `DOT_QUALIFIED_EXPRESSION(a, CALL_EXPRESSION(b, (c)))`, so the qualified
@@ -464,6 +465,11 @@ impl<'t> Walk<'t> {
             ..rule(DeclKind::Value, Opens::Nothing)
           };
           self.declaration(id, &decl);
+          // `context(c: Ctx) val x get() = c.foo`, `val <T> T.x`: its context and type parameters are names of the
+          // property alone, as a function's are of the function
+          if self.child(id, N::TYPE_PARAMETER_LIST).is_some() || self.child(id, N::MODIFIER_LIST).is_some_and(|it| self.child(it, N::CONTEXT_PARAMETER_LIST).is_some()) {
+            self.push_scope(false);
+          }
         }
         true
       }
@@ -525,7 +531,24 @@ impl<'t> Walk<'t> {
         self.constructor_delegation(id);
         true
       }
-      N::CLASS_INITIALIZER | N::THEN | N::ELSE | N::BODY | N::WHEN_ENTRY | N::FOR | N::CATCH | N::WHEN => {
+      // the body of a `do`: its locals are the `do`'s, which its condition sees
+      N::BODY if self.parent_is(id, N::DO_WHILE) => true,
+      N::BODY => {
+        self.push_scope(true);
+        // the variable of a `for` is a name of its body, not of its range (`for (node in node.children)`)
+        if let Some(variable) = self.tree.parent(id).filter(|it| self.is(*it, N::FOR)).and_then(|it| self.child(it, N::VALUE_PARAMETER)) {
+          for name in self.parameter_names(variable) {
+            self.bind_token(name, None);
+          }
+        }
+        true
+      }
+      // the blocks of a `try` and a `finally` (that of a `catch` is in its `CATCH`)
+      N::BLOCK if self.parent_is(id, N::TRY) || self.parent_is(id, N::FINALLY) => {
+        self.push_scope(true);
+        true
+      }
+      N::CLASS_INITIALIZER | N::THEN | N::ELSE | N::WHEN_ENTRY | N::FOR | N::CATCH | N::WHEN | N::DO_WHILE => {
         self.push_scope(true);
         true
       }
@@ -849,6 +872,8 @@ impl<'t> Walk<'t> {
           reversed.push(self.identifier_text(selector)?);
           node = self.first_composite(node)?;
         }
+        // `m!!.foo` names `m` as `m?.foo` does
+        N::POSTFIX_EXPRESSION if self.is_not_null_assertion(node) => node = self.first_composite(node)?,
         _ => return None,
       }
     }
@@ -860,7 +885,7 @@ impl<'t> Walk<'t> {
   /// a property `[m]` or `[this, m]` of the qualifier
   fn typed_receiver(&self, receiver: NodeId, qualifier: &[u32]) -> Option<TypedReceiver> {
     // `m!!.foo()`
-    let receiver = if self.is(receiver, N::POSTFIX_EXPRESSION) && self.child(receiver, N::OPERATION_REFERENCE).is_some_and(|it| self.child_token(it, K::EXCLEXCL).is_some()) {
+    let receiver = if self.is_not_null_assertion(receiver) {
       self.first_composite(receiver).unwrap_or(receiver)
     } else {
       receiver
@@ -1429,7 +1454,9 @@ impl<'t> Walk<'t> {
     };
     if let Some(type_node) = declared {
       let path = self.type_path(self.simple_user_type(type_node)?)?;
-      return (!(path.len() == 1 && self.is_bound_text(path[0]))).then_some((path, false));
+      // a type parameter around it, or one of the property's own (`val <T> List<T>.head: T`), bound after this
+      let type_parameter = path.len() == 1 && (self.is_bound_text(path[0]) || self.type_parameter_names(id).contains(&path[0]));
+      return (!type_parameter).then_some((path, false));
     }
     if !self.is(id, N::PROPERTY) || self.child(id, N::PROPERTY_DELEGATE).is_some() {
       return None;
@@ -1528,21 +1555,22 @@ impl<'t> Walk<'t> {
     self.push_supertypes(supertypes);
   }
 
-  /// A parameter, by the list it is in: of a primary constructor (`class_parameter`), of a function or a constructor
-  /// (bound at once, with its type), of a setter, a `catch` or a context (bound at once), of a lambda (bound after the
-  /// list, with its type) or of a `for` (bound after itself), of a function type (nothing)
+  /// A parameter, by the list it is in: of a primary constructor (`class_parameter`), of a function, a constructor or
+  /// a context (bound at once, with its type: in the function's scope, or the property's), of a setter or a `catch`
+  /// (bound at once), of a lambda (bound after the list, with its type), of a function type (nothing); a `for`'s is
+  /// bound by its body
   fn parameter(&mut self, id: NodeId) {
     let Some(list) = self.tree.parent(id) else { return };
     let owner = self.tree.parent(list).and_then(|it| self.tree.node_kind(it));
     match (self.tree.node_kind(list), owner) {
       (Some(N::VALUE_PARAMETER_LIST), Some(N::PRIMARY_CONSTRUCTOR)) => self.class_parameter(id),
-      (Some(N::VALUE_PARAMETER_LIST), Some(N::FUN | N::SECONDARY_CONSTRUCTOR)) => {
+      (Some(N::VALUE_PARAMETER_LIST), Some(N::FUN | N::SECONDARY_CONSTRUCTOR)) | (Some(N::CONTEXT_PARAMETER_LIST), _) => {
         if let Some(name) = self.name_token(id) {
           let type_path = self.typed(id);
           self.bind_token(name, type_path);
         }
       }
-      (Some(N::VALUE_PARAMETER_LIST), Some(N::PROPERTY_ACCESSOR | N::CATCH)) | (Some(N::CONTEXT_PARAMETER_LIST), _) => {
+      (Some(N::VALUE_PARAMETER_LIST), Some(N::PROPERTY_ACCESSOR | N::CATCH)) => {
         if let Some(name) = self.name_token(id) {
           self.bind_token(name, None);
         }
@@ -1551,18 +1579,21 @@ impl<'t> Walk<'t> {
         let type_path = if self.name_token(id).is_some() { self.typed(id) } else { None };
         self.pend_names(id, self.frames.len() - 2, type_path.as_ref());
       }
-      (Some(N::FOR), _) => self.pend_names(id, self.frames.len() - 1, None),
       _ => {}
     }
   }
 
-  /// Binds the names of `id` (its name, or those of its destructuring declaration) when the frame at `at` is left
-  fn pend_names(&mut self, id: NodeId, at: usize, type_path: Option<&Typed>) {
-    let names: Vec<NodeId> = match self.child(id, N::DESTRUCTURING_DECLARATION) {
+  /// The name tokens of a parameter: its name, or those of its destructuring declaration
+  fn parameter_names(&self, id: NodeId) -> Vec<NodeId> {
+    match self.child(id, N::DESTRUCTURING_DECLARATION) {
       Some(pattern) => self.declared_names(pattern),
       None => self.name_token(id).into_iter().collect(),
-    };
-    for name in names {
+    }
+  }
+
+  /// Binds the names of the parameter `id` when the frame at `at` is left
+  fn pend_names(&mut self, id: NodeId, at: usize, type_path: Option<&Typed>) {
+    for name in self.parameter_names(id) {
       if let Some(text) = self.tree.utf8_text(name) {
         let name_id = self.out.intern(text);
         self.pending.push((at, name_id, type_path.cloned()));
@@ -1751,11 +1782,12 @@ impl<'t> Walk<'t> {
     self.type_names(user_type).last().and_then(|it| self.identifier_text(*it))
   }
 
-  /// The `USER_TYPE` a `TYPE_REFERENCE` holds, also inside a `NULLABLE_TYPE` (`a.Foo<T>?`); none for a function type
+  /// The `USER_TYPE` a `TYPE_REFERENCE` holds, also inside a `NULLABLE_TYPE` (`a.Foo<T>?`, `Foo??`, `(Foo?)?`); none
+  /// for a function type
   fn simple_user_type(&self, type_reference: NodeId) -> Option<NodeId> {
     let mut element = self.type_element(type_reference)?;
-    if self.is(element, N::NULLABLE_TYPE) {
-      element = self.child(element, N::USER_TYPE)?;
+    while self.is(element, N::NULLABLE_TYPE) {
+      element = self.first_composite(element)?;
     }
     self.is(element, N::USER_TYPE).then_some(element)
   }
@@ -1945,6 +1977,15 @@ impl<'t> Walk<'t> {
 
   fn is(&self, id: NodeId, kind: N) -> bool {
     self.tree.node_kind(id) == Some(kind)
+  }
+
+  fn parent_is(&self, id: NodeId, kind: N) -> bool {
+    self.tree.parent(id).is_some_and(|it| self.is(it, kind))
+  }
+
+  /// `m!!`
+  fn is_not_null_assertion(&self, id: NodeId) -> bool {
+    self.is(id, N::POSTFIX_EXPRESSION) && self.child(id, N::OPERATION_REFERENCE).is_some_and(|it| self.child_token(it, K::EXCLEXCL).is_some())
   }
 
   fn child(&self, id: NodeId, kind: N) -> Option<NodeId> {

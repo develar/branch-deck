@@ -620,7 +620,11 @@ flowchart TD
     rejects (test data and templates) recover otherwise. The walk takes a seventh of tree-sitter's time (5 000 files on
     one thread: 0.54 s against 3.98 s). No `.kts` of the corpus has an error, and no `.kt` with context receivers
     reads as a script. PSI's error elements hold the tokens the parser skipped, never a declaration: a Kotlin
-    declaration is never `in_error`.
+    declaration is never `in_error`. The scopes are the compiler's: a context parameter is a local of its function or
+    property alone, with its declared type as a function's parameter has, the type parameters of a property are its
+    names as a function's are, the variable of a `for` is a name of its body and not of its range, the blocks of a
+    `try` and a `finally` are scopes, and the condition of a `do … while` sees the locals of its body; `m!!.foo` names
+    `m` as `m?.foo` does, so a property `m` gives the receiver its type (570 more files moved on the corpus).
 
 ### Implementation Notes
 
