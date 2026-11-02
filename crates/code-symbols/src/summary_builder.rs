@@ -60,7 +60,6 @@ pub(crate) fn count_lines(source: &[u8]) -> u32 {
 /// The last line of a node of `source` that spans `start..end`, given the 1-based line of an offset: a node that ends
 /// right after a `\n`, on a later line than it starts, ends on the line before (as `extract.rs` reads tree-sitter's end
 /// position at column 0)
-#[cfg_attr(not(test), expect(dead_code, reason = "for the walks of psi_kotlin and psi_java, which delegate to tree-sitter yet"))]
 pub(crate) fn end_line(line_of: impl Fn(usize) -> u32, source: &[u8], start: usize, end: usize) -> u32 {
   let (first, last) = (line_of(start), line_of(end));
   if end > 0 && source.get(end - 1) == Some(&b'\n') && last > first {
@@ -72,7 +71,6 @@ pub(crate) fn end_line(line_of: impl Fn(usize) -> u32, source: &[u8], start: usi
 
 /// A declaration of `name` with every fact a walk may add left empty (no signature, no supertypes, nothing of
 /// overriding or the JVM), its lines and `in_error` too
-#[cfg_attr(not(test), expect(dead_code, reason = "for the walks of psi_kotlin and psi_java, which delegate to tree-sitter yet"))]
 pub(crate) const fn blank_declaration(name: u32, kind: DeclKind, reach: Reach, member: MemberKind, container: Option<u32>) -> Declaration {
   Declaration {
     name,

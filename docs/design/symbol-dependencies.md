@@ -21,7 +21,8 @@ proposed `bd move-hunk` would have broken a branch.
 
 ## Solution Overview
 
-`crates/code-symbols` summarizes one source file on tree-sitter (Kotlin, Java, Rust, TypeScript and JavaScript): its
+`crates/code-symbols` summarizes one source file (Kotlin, Java, Rust, TypeScript and JavaScript; Java on IntelliJ's own
+parser, decision 20, the others on tree-sitter): its
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
@@ -580,6 +581,25 @@ flowchart TD
     landing gate found no missing declaration. With the import an entry, the gate refuses such a start as it refuses any
     `MissingDeclaration`. A Java import and a Kotlin import without an alias bind no name in the summary, so a use of
     such an import of another commit in the same file is still no edge: a limit.
+
+20. **Decision**: a Java file is read by psi-syntax's `java-syntax`, a port of IntelliJ's own Java parser whose tree is
+    IntelliJ's PSI, at the highest language level, and summarized by a walk of that tree (`psi_java/summary.rs`) by the
+    rules of tree-sitter's walk, which stays the oracle: every fact that moved on the 68 263 Java files of
+    intellij-community (`examples/facts.rs`) is a construct tree-sitter-java 0.23.5 misread. A member of a call's
+    result (`Hosts.getInstance().known()`) has an empty qualifier, as any expression's, where tree-sitter's walk took
+    the callee's path (14 408 files) and, for `this.items().add()`, a field of the callee's name for the receiver's
+    type. 959 files with a parse error of tree-sitter's only read whole: 799 of them for an annotated vararg
+    (`Object @NotNull ... params`, which lost the parameter and the class its constructors), the others for flexible
+    constructor bodies, `_`, record patterns, string templates and `(x) = …`. And `default` of `case null, default`
+    is no name, a module import (`import module java.base;`) imports no package, a compact source file's field has a
+    field's header, the receiver parameter `@A T this` is no parameter, an annotated supertype (`extends @A List`) is
+    a supertype, a string literal is one token of a header, and only the doc comment right above a declaration (not
+    one above another comment) starts it. Files that IntelliJ parses with an error, at the highest level, are read as
+    its error recovery leaves them (592 test data files of intellij-community).
+    **Rationale**: tree-sitter's Java grammar lags the language (it has no annotated varargs, which every message bundle
+    of IntelliJ has) and reads a method of a compact source file, a guarded record pattern or `case X -> y -> …`
+    otherwise than javac; IntelliJ's parser is the reference of the code Branch Deck mostly reads, and its walk takes
+    30 to 40 % of the time (24.9 s to 9.9 s of the corpus on 18 threads, one thread 1.53 s to 0.46 s on 5 000 files).
 
 ### Implementation Notes
 
