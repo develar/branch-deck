@@ -11,6 +11,7 @@ import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions
 import { ReviewHeader, ReviewNavigation, ReviewToolbarActions } from "@/components/review/ReviewHeader"
 import { ReviewKeyHints } from "@/components/review/ReviewKeyHints"
 import { ReviewOwnerChips } from "@/components/review/ReviewOwnerChips"
+import { ReviewPrologue } from "@/components/review/ReviewPrologue"
 import { ReviewRail } from "@/components/review/ReviewRail"
 import { ReviewSidebarToggle } from "@/components/review/ReviewSidebarToggle"
 import { Callout } from "@/components/shared/Callout"
@@ -21,6 +22,8 @@ import { useFileOwners } from "@/hooks/useFileOwners"
 import { useOperationWords } from "@/hooks/useOperationWords"
 import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { useSubjectPlan } from "@/hooks/useReviewPlan"
+import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
+import type { ReviewNavigator } from "@/hooks/useSelectReviewFile"
 import type { ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -189,8 +192,8 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           : { kind: "commit", id: selectedKey }
   const reviewing = tab === "changes" && subject !== null
   // the plan of what the review shows (spec/branch/review-units.spec.md): its overview and the story of its diffs, unless the
-  // repository turns the plan off; "Since Your Review" stays GitHub's
-  const plan = useSubjectPlan(repositoryPath, reviewing ? subject : null)
+  // repository turns the plan off; the overview tab tells the plan of all changes as the same document
+  const plan = useSubjectPlan(repositoryPath, reviewing ? subject : range === null ? null : { kind: "range", base: range.base, head: range.head })
   // back in the overview, the keys go to its body again
   useEffect(() => {
     if (!reviewing) {
@@ -390,8 +393,19 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     </div>
   )
 
+  // what the author wrote: the lead of the document of the overview and of the changes
+  const description = request.bodyText.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.bodyText}`} />
+  // a link of the overview shows its place in the changes, of all changes
+  const overviewNavigator: ReviewNavigator = {
+    show: place => showTab("changes", { path: place.path, item: ALL_CHANGES }),
+    showOutside: place => showTab("changes", { path: place.path, item: ALL_CHANGES }),
+    showStep: step => showTab("changes", { path: plan.plan?.steps.steps.find(it => it.id === step)?.paths[0], item: ALL_CHANGES }),
+    showStory: () => showTab("changes", { item: ALL_CHANGES }),
+  }
+
   const overview = (
-    <div className="grid gap-x-10 gap-y-6 md:grid-cols-[minmax(0,1fr)_18rem]">
+    // the document as wide as its reading column, the rail right after it: no gap of the window between them
+    <div className="grid gap-x-10 gap-y-6 md:grid-cols-[minmax(0,52rem)_18rem]">
       <div className="flex min-w-0 flex-col gap-5">
         {host.withdrawn && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">
@@ -417,7 +431,14 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
         {range?.headState === "missing" && (
           <Callout tone="warning" data-testid="review-head-missing" title={`${sourceName(range)} has commits the pull request does not have yet; the review shows them.`} />
         )}
-        {request.bodyText.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.bodyText}`} />}
+        {plan.plan === null && !plan.loading ? (
+          description
+        ) : (
+          // the same document as the changes tell above their diffs: the body of the pull request as its lead, then the steps
+          <SelectReviewFileContext value={overviewNavigator}>
+            <ReviewPrologue state={plan} headline={false} lead={description} />
+          </SelectReviewFileContext>
+        )}
       </div>
       {fetch?.status !== "failed" && (
         <ReviewRail
@@ -450,6 +471,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           plan={plan.plan === null ? null : plan}
           reviewFacts={planFacts(plan)}
           planHeadline={false}
+          planLead={description}
         />
       ) : (
         overview

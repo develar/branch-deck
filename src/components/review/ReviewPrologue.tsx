@@ -35,12 +35,24 @@ export interface PrologueCommit {
  * The overview, the first block of the document of a review (spec/branch/review-tour.spec.md, "In the Review Window";
  * spec/branch/review-plan.spec.md): the headline (the title of the issue the commits name once YouTrack told it, else
  * the name Rust gives the review, the branch as the title bar names it; the issue key a chip beside it; none under the
- * title of a pull request, `headline` false; a commit shown alone its whole heading and body), the read of the plan, What Changes one header per file, the
+ * title of a pull request, `headline` false; a commit shown alone its whole heading and body), the body of a pull
+ * request as its lead (`lead`: the overview of the pull request and its changes are one document), the read of the plan, What Changes one header per file, the
  * contents of the steps (each its full title, the lead of its body, its facts and the Look closely of its author),
  * Possible Breakage with what breaks nothing and why the uses are unknown folded under it, and what changed since the
  * review. Rust decides and ranks; this words what it sent, in its order.
  */
-export function ReviewPrologue({ state, commit = null, headline = true }: { state: ReviewPlanState | null; commit?: PrologueCommit | null; headline?: boolean }) {
+export function ReviewPrologue({
+  state,
+  commit = null,
+  headline = true,
+  lead = null,
+}: {
+  state: ReviewPlanState | null
+  commit?: PrologueCommit | null
+  headline?: boolean
+  /** What the author of a pull request wrote, its body, the lead of the document before its sections */
+  lead?: ReactNode
+}) {
   const plan = state?.plan ?? null
   const view = plan === null ? null : presentPrologue(plan, state?.pending === true)
   // the story of the commit shown alone, told before the steps of its concerns: in its heading, in place of its message
@@ -50,6 +62,11 @@ export function ReviewPrologue({ state, commit = null, headline = true }: { stat
     // as wide as a reading column and its facts: the far end of a wide window is no place for the uses of an entry
     <section aria-label="Overview" data-testid="review-overview" className="flex max-w-208 min-w-0 flex-col gap-5 px-1 pt-3 pb-1 text-sm">
       {commit !== null ? <CommitPart commit={commit} story={untold?.story ?? null} /> : view !== null && headline && <Headline issue={view.issue} title={view.title} />}
+      {lead !== null && (
+        <div className="flex min-w-0 flex-col" data-testid="review-overview-lead">
+          {lead}
+        </div>
+      )}
       {(state?.loading === true || state?.pending === true) && (
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="review-overview-reading">
           <Spinner className="size-3" />

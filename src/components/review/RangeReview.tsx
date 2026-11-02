@@ -47,6 +47,8 @@ export interface RangeReviewProps {
   reviewFacts?: CommitReviewProps["reviewFacts"]
   /** The overview names what is reviewed; false where a title above names it already (the island of a pull request) */
   planHeadline?: boolean
+  /** The lead of the overview of a scope: the body of a pull request */
+  planLead?: ReactNode
 }
 
 /**
@@ -74,6 +76,7 @@ export function RangeReview({
   plan = null,
   reviewFacts,
   planHeadline = true,
+  planLead = null,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -135,7 +138,7 @@ export function RangeReview({
               }}
             />
           ) : plan === null ? undefined : (
-            <ReviewPrologue state={plan} headline={planHeadline} />
+            <ReviewPrologue state={plan} headline={planHeadline} lead={planLead} />
           )
         }
       />

@@ -379,14 +379,19 @@ Safe Push it allows.
   [@test] ../../tests/e2e/repository/title-bar.spec.ts (`should hold the decisions of a pull request review on its one line, and its diff view at the end of the tabs`)
 - Below them the tabs Overview and Changes (`D`, with the file count) on the left; while the changes show, the sidebar
   toggle and the Split/Unified/Inline toggle with Whitespace at the end of the tabs, in the header of the block they
-  switch. The overview, in an island of its own, has the description (as a commit body) beside a rail:
+  switch. The overview, in an island of its own, is the document the changes tell above their diffs
+  ([Review Tour](../branch/review-tour.spec.md#in-the-review-window), `ReviewPrologue`) once the repository turns the
+  plan on: the description (as a commit body) its lead, then What Changes, the steps and Possible Breakage of all
+  changes, no second headline under the title of the island (the changes open on the same lead); a link of it reviews
+  all changes at its place. It is as wide as its reading column (52rem), the rail right after it:
   "Files 4" with the muted sum of the line counts, then the files of the range (status letter, name, directory,
   `+a −d`; the name first, the directory giving way, as every list of changed files names a file; a click
   reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
-  and "Commits 4", newest first as in the list of commits of the changes (subject, author, the short time of the commit
-  "Today 2:32 PM", hash; a click reviews the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
+  and "Commits 4", newest first as in the list of commits of the changes, each the one commit row of a sidebar
+  ([Commit Row → Commit card](../commit/commit-row.spec.md#commit-card): its subject, its hash in the hover, the mark
+  of its card; a click and Enter review the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
   Previous/next, Esc Close; Space scrolls.
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title`)
 - The fetch is the window's: it starts when the window shows the request, as an operation of the session of its
   repository (the intent `fetchReview { number }` of `execute`, `operations::review_fetch`: the head and the base as the
   review requests of the session name them, its review refs held, a second fetch of the same pull request joining it):

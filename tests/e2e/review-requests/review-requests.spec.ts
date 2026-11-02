@@ -454,12 +454,7 @@ test.describe("Review window", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
-    // the flag of the repository, which the global config of the test machine turns off (`TEST_IDENTITY` of the server)
-    appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
-    await getReviewRow(page, 101).focus()
-    await page.keyboard.press("d")
-    const review = (await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))).getByTestId("review-window")
+    const { review } = await openPlanChanges(page, setupRepo, syncAndWaitForBranches)
     await expect(review.getByTestId("commit-review")).toBeVisible()
     // the plan of what the window shows: its overview at the top of the document, Rust's words
     await expect(review.getByTestId("review-overview")).toBeVisible()
@@ -474,6 +469,26 @@ test.describe("Review window", () => {
     await tree.getByRole("treeitem", { name: subject, exact: true }).press("Enter")
     await expect(review.getByTestId("range-review-commit-header")).toContainText(subject)
     await expect(column.filter({ hasText: subject })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const { reviewPage, review } = await openPlanChanges(page, setupRepo, syncAndWaitForBranches)
+    // the changes: the overview of the plan opens on the body of the pull request, its title is the island's alone
+    const changes = review.getByTestId("review-overview")
+    await expect(changes.getByTestId("review-overview-lead")).toContainText("The change of ABC-123.")
+    await expect(changes.getByTestId("review-overview-headline")).toHaveCount(0)
+    // the overview tab is the same document beside the rail of the files and the commits
+    await reviewPage.keyboard.press("Escape")
+    const overview = review.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-overview-lead")).toContainText("The change of ABC-123.")
+    await expect(overview.getByTestId("review-overview-headline")).toHaveCount(0)
+    await expect(review.getByTestId("review-overview-reading")).toHaveCount(0)
+    // the commits of the rail are commit rows, by their subjects
+    await expect(review.getByTestId("review-commits").getByTestId("review-commit-subject")).toHaveCount(4)
   })
 
   test("should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes", async ({
@@ -1288,3 +1303,14 @@ test.describe("On macOS", () => {
     await expect.poll(badges).toEqual([2, null])
   })
 })
+
+/** The changes of the request #101 by `D`, the review plan turned on in its repository */
+async function openPlanChanges(page: Page, setupRepo: SetupRepo, syncAndWaitForBranches: () => Promise<void>) {
+  const repo = await setupRequests(page, setupRepo, syncAndWaitForBranches, OLD, RECENT)
+  // the flag of the repository, which the global config of the test machine turns off (`TEST_IDENTITY` of the server)
+  appendFileSync(path.join(repo.path, ".git", "config"), "[branchdeck]\n\treviewExperimental = true\n")
+  await getReviewRow(page, 101).focus()
+  await page.keyboard.press("d")
+  const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
+  return { reviewPage, review: reviewPage.getByTestId("review-window") }
+}
