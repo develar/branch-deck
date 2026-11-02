@@ -56,11 +56,17 @@ pub mod feature {
   /// `Request::Upgrade`, and the commands `check` and `watchdog`: only on macOS, because only launchd starts the new
   /// binary
   pub const UPGRADE: &str = "upgrade";
+  /// `Request::Disk`: what the pools of the host hold on disk
+  pub const DISK: &str = "disk";
 }
 
-/// The features of an agent of this build on this platform: `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
-  if cfg!(target_os = "macos") { vec![feature::UPGRADE] } else { Vec::new() }
+  if cfg!(target_os = "macos") {
+    vec![feature::UPGRADE, feature::DISK]
+  } else {
+    vec![feature::DISK]
+  }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,6 +106,12 @@ pub enum Request {
   Runs,
   /// The lend table of each repository that the agent served. Reply: `Reply::Slots`
   Slots,
+  /// What the pools of the host hold on disk (`pool_disk`, as `bd lease disk` reports it), `fresh`: every slot walked
+  /// again. Replies: `Reply::Heartbeat` while the agent walks, then `Reply::Disk`. Feature `feature::DISK`
+  Disk {
+    #[serde(default, skip_serializing_if = "is_false")]
+    fresh: bool,
+  },
   /// Replaces the binary that the `LaunchAgent` names. The new binary follows as a byte stream of `size` bytes whose
   /// SHA-256 is `sha256` (64 lower-case hex digits). Replies: `Reply::Heartbeat` while the agent checks the binary, then
   /// `Reply::Upgraded`. Feature `feature::UPGRADE`.
@@ -234,6 +246,11 @@ pub enum Reply {
   /// The lend table of each repository that the agent served
   Slots {
     repositories: Vec<RepositorySlots>,
+  },
+  /// The disk report of the host as `pool_disk::report::DiskReport` writes it: this crate reaches no pool, so it stays
+  /// JSON here, and `bd-host disk` reads it with the type of `pool-disk`
+  Disk {
+    report: serde_json::Value,
   },
   Done {
     message: String,

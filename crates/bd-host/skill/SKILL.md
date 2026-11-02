@@ -18,7 +18,7 @@ and `design.md` (why, the slot model, the processes and the upgrade).
 
 | Command | Who |
 |---|---|
-| `bd-host run`, `follow`, `runs`, `slots`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
+| `bd-host run`, `follow`, `runs`, `slots`, `disk`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
 | `bd-host upgrade <host>` | An agent, only after the user agrees: it deploys a new agent to a machine that the user shares. |
 | `bd-host setup …`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
 
@@ -81,7 +81,7 @@ All the lines of `bd-host` and the stderr of the command go to stderr. stdout is
 | `stage`, `fetch` | host, here | The outputs and the fetched files are large. |
 | `total` | here | The whole call. |
 
-`bd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more. `bd-host slots <host>`
+`bd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more. `bd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `bd-host slots <host>`
 shows the lend table of the host: each slot, its state, its run and the queue.
 
 ## Exit codes

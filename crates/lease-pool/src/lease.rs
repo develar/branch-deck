@@ -2809,8 +2809,10 @@ pub(crate) fn stop_servers(servers: &[&ProcessInfo], bazel: Option<&OsStr>, time
   }
 }
 
-/// How `bd lease status` sees a slot, from the state alone
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How `bd lease status` sees a slot, from the state alone; its JSON is the snake case name (`free`, `ready`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
 pub enum SlotState {
   Free,
   Preparing,

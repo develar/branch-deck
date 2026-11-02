@@ -21,6 +21,7 @@ doc = false
 host-link = { path = "../host-link" }
 # the lend table, the refs and the git of the host, in process (`slots`, `repo`, `run_git`, `keeper`)
 lease-pool = { path = "../lease-pool" }
+pool-disk = { path = "../pool-disk" }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 # the wait of the repository lock of the pool

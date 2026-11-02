@@ -217,11 +217,16 @@ fn the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is
   assert_eq!(output["pools"][0]["checkout_bases"][0]["path"], trim.base("main").to_str().unwrap(), "{output}");
   assert_eq!(output["orphans"][0]["path"], trim.base("gone").to_str().unwrap(), "{output}");
   assert_eq!((&output["pools"][0]["max_slots"], &output["pools"][0]["past_limit"]), (&Value::from(10), &Value::from(0)));
-  // a repeat answers from `disk.json`; a get of the slot returned last makes its bytes stale
+  // a repeat answers from `disk.json`; a limit of 2 marks the slot a trim deletes next, the one returned first
+  git(&fixture.repo, &["config", "branchdeck.leaseMaxSlots", "2"]);
   let again = report(&[]);
+  assert_eq!((&again["pools"][0]["max_slots"], &again["pools"][0]["past_limit"]), (&Value::from(2), &Value::from(1)));
+  assert_eq!((&slot(&again, first)["trims_next"], slot(&again, second).get("trims_next")), (&Value::from(true), None));
+  // a get of the slot returned last makes its bytes stale
   assert_eq!(slot(&again, first)["cached"], true, "{again}");
   assert_eq!(slot(&again, first)["bytes"], walked["bytes"]);
   assert_eq!(path_of(&fixture.get(&["--holder", "later"])), *third);
+  git(&fixture.repo, &["config", "--unset", "branchdeck.leaseMaxSlots"]);
   let leased = report(&[]);
   assert_eq!(
     (&slot(&leased, third)["state"], &slot(&leased, third)["cached"]),

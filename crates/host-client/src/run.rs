@@ -44,7 +44,7 @@ use crate::record::{RunFiles, RunRecord};
 use crate::{Client, Timing, short};
 use git_ops::host_client::{FARTHEST, Scan};
 use host_link::channel::Closer;
-use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream};
+use host_link::proto::{PackTarget, Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
 use host_link::refusal::{Code, Exit, Reached, Refusal};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -610,6 +610,25 @@ impl Client<'_> {
   pub fn slots(&self, alias: &str) -> Result<Vec<host_link::proto::RepositorySlots>, Refusal> {
     self.ask(&mut self.host(alias)?, &Request::Slots, |reply| match reply {
       Reply::Slots { repositories } => Taken::Answer(repositories),
+      reply => Taken::Other(reply),
+    })
+  }
+
+  /// What the pools of the host hold on disk, as the JSON of `pool_disk::report::DiskReport` (`Request::Disk`); `fresh`
+  /// walks every slot again. An agent without the feature `disk` refuses with `agent_failed` and the upgrade to run,
+  /// before the request: it would close the connection on a request it does not know
+  pub fn disk(&self, alias: &str, fresh: bool) -> Result<serde_json::Value, Refusal> {
+    let mut host = self.host(alias)?;
+    let (channel, info) = host.connect()?;
+    channel.close();
+    if !info.features.iter().any(|known| known == feature::DISK) {
+      return Err(Refusal::new(
+        Code::AgentFailed,
+        format!("the agent on {alias} has no feature {}: `bd-host upgrade {alias}` sends it this build", feature::DISK),
+      ));
+    }
+    self.ask(&mut host, &Request::Disk { fresh }, |reply| match reply {
+      Reply::Disk { report } => Taken::Answer(report),
       reply => Taken::Other(reply),
     })
   }

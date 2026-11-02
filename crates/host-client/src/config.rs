@@ -60,6 +60,19 @@ impl Config {
     Identity::load_or_create(&self.dir).map_err(|error| Refusal::new(Code::Config, format!("cannot read or make the client identity in {}: {error}", self.dir.display())))
   }
 
+  /// The aliases of the host files (`hosts/<alias>.json`), sorted: every host that `setup` made ready
+  pub fn aliases(&self) -> Vec<String> {
+    let mut aliases: Vec<String> = std::fs::read_dir(self.dir.join("hosts"))
+      .into_iter()
+      .flatten()
+      .flatten()
+      .filter_map(|entry| entry.file_name().to_str()?.strip_suffix(".json").map(str::to_owned))
+      .filter(|alias| check_alias(alias).is_ok())
+      .collect();
+    aliases.sort();
+    aliases
+  }
+
   pub fn host_path(&self, alias: &str) -> PathBuf {
     self.dir.join("hosts").join(format!("{alias}.json"))
   }

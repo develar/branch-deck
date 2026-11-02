@@ -96,7 +96,7 @@ fn the_hello_is_the_golden_json_of_the_spec() {
     schema: 1,
     os: "macos".to_owned(),
     arch: "aarch64".to_owned(),
-    features: vec!["upgrade".to_owned()],
+    features: vec!["upgrade".to_owned(), "disk".to_owned()],
     build: Some(build.to_owned()),
     address: "192.168.1.20:7742".parse().unwrap(),
   };

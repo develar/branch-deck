@@ -658,7 +658,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   per slot its `state`, `holder`, `returned` and the bytes its builds wrote, the directories its clean rules name (the
   outermost of nested ones, `build`) and its Bazel output bases (`output_bases`), each with its bytes, their sum
   (`bytes`), `measured_at` and `cached`; per pool `max_slots`, `past_limit` (the free slots a trim would delete now),
-  `bytes`, `trash_bytes` and the output bases of its main worktree (`checkout_bases`), which no trim deletes; the
+  `bytes`, `trash_bytes` and the output bases of its main worktree (`checkout_bases`), which no trim deletes; each free
+  slot a trim deletes now is `trims_next`, by the order of the trim itself (`trim_order`); the
   `orphans`; the `free_bytes` of the volume and `min_free`. The tracked tree of a slot is an APFS clone and is never
   walked. A file with several hard links counts once, a link as itself; the walks of the call run side by side
   (`pool-disk`, 8 threads, the directories split until 256 of them).

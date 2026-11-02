@@ -20,6 +20,8 @@ host-link = { path = "../host-link" }
 host-client = { path = "../host-client" }
 # the agent: serve, supervise, setup --agent, the lend table of `slots --local`
 host-agent = { path = "../host-agent" }
+# the shape of the disk report of `disk` and its lines
+pool-disk = { path = "../pool-disk" }
 # the git of the client (`GitInfo::discover_for_cli`)
 git-executor = { path = "../git-executor" }
 # the renames and removals of the skill files

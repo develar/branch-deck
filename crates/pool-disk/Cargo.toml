@@ -7,11 +7,12 @@ description = "What the lease pools of this machine hold on disk (`bd lease disk
 publish = false
 
 [dependencies]
-lease-pool = { path = "../lease-pool" }
+lease-pool = { path = "../lease-pool", features = ["schemars"] }
 git-ops = { path = "../git-ops" }
 git-executor = { path = "../git-executor" }
 sync-utils = { path = "../sync-utils" }
 anyhow.workspace = true
+schemars.workspace = true
 serde.workspace = true
 tracing.workspace = true
 

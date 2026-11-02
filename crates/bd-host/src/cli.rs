@@ -87,6 +87,18 @@ enum Command {
   /// The lend table of the host slots: of each repository that the agent served, or with `--local` of a repository
   /// of this machine
   Slots(SlotsArgs),
+  /// What the lease pools of a host hold on disk, of every host without an alias: per slot the bytes its builds wrote,
+  /// as `bd lease disk` reports them there
+  Disk {
+    /// The alias of the host file; without it every host of the client
+    alias: Option<String>,
+    /// Walk every slot again, whatever the host keeps
+    #[arg(long)]
+    fresh: bool,
+    /// One JSON object on stdout
+    #[arg(long)]
+    json: bool,
+  },
   /// Makes a host ready: over ssh from this machine (`setup <alias>`), or on the host itself
   Setup(SetupArgs),
   /// Sends this binary to the agent of a macOS host over the link, without ssh. The agent swaps its binary and
@@ -429,6 +441,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     }
     Command::Hello { alias, json } => hello(&alias, json, out),
     Command::Slots(args) => slots(&args, out),
+    Command::Disk { alias, fresh, json } => disk(alias.as_deref(), fresh, json, out),
     Command::Setup(args) => setup(&args, out),
     Command::Upgrade { alias, binary, force } => {
       install_interrupt("Ctrl+C ends this process, and the upgrade goes on on the host");
@@ -544,6 +557,75 @@ fn slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
     }
   }
   Ok(0)
+}
+
+/// `bd-host disk`: the report of each host, the hosts asked one after the other; a host that does not answer or whose
+/// agent lacks the feature names its refusal and the others go on. Exit 0 when one answered, else the exit of the
+/// refusal
+fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, Refusal> {
+  let line_out = |line: &str| out.line(line);
+  let client = client(&line_out, &say)?;
+  let aliases = match alias {
+    Some(alias) => vec![alias.to_owned()],
+    None => host_client::config::Config::of_user()?.aliases(),
+  };
+  let hosts: Vec<HostDisk> = aliases
+    .into_iter()
+    .map(|alias| match client.disk(&alias, fresh) {
+      Ok(report) => HostDisk {
+        alias,
+        report: Some(report),
+        refusal: None,
+      },
+      Err(refusal) => HostDisk {
+        alias,
+        report: None,
+        refusal: Some(refusal),
+      },
+    })
+    .collect();
+  if json {
+    out.json(&DiskOutput {
+      schema: REPORT_SCHEMA,
+      hosts: &hosts,
+    });
+  } else if hosts.is_empty() {
+    out.line("no host: `bd-host setup <alias>` makes one ready");
+  } else {
+    for host in &hosts {
+      match (&host.report, &host.refusal) {
+        (Some(report), _) => match serde_json::from_value::<pool_disk::report::DiskReport>(report.clone()) {
+          Ok(report) => report.lines(&host.alias).iter().for_each(|line| out.line(line)),
+          Err(error) => out.line(&format!("{}: a report this build cannot read: {error}", host.alias)),
+        },
+        // a host that answers nothing is the error of the command when no other answered, said once
+        (None, Some(refusal)) if hosts.iter().any(|host| host.report.is_some()) => out.line(&format!("{}: {}", host.alias, refusal.message)),
+        (None, _) => {}
+      }
+    }
+  }
+  match hosts.iter().find_map(|host| host.refusal.as_ref()) {
+    Some(refusal) if hosts.iter().all(|host| host.report.is_none()) => Err(refusal.clone()),
+    _ => Ok(0),
+  }
+}
+
+/// The disk report of one host, or why it has none
+#[derive(Serialize)]
+struct HostDisk {
+  alias: String,
+  /// As `pool_disk::report::DiskReport` writes it
+  #[serde(skip_serializing_if = "Option::is_none")]
+  report: Option<serde_json::Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  refusal: Option<Refusal>,
+}
+
+/// `bd-host disk --json`
+#[derive(Serialize)]
+struct DiskOutput<'a> {
+  schema: u32,
+  hosts: &'a [HostDisk],
 }
 
 /// `bd-host slots --json`

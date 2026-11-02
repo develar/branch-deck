@@ -148,6 +148,7 @@ fn kind(request: &Request) -> &'static str {
     Request::Forget { .. } => "forget",
     Request::Runs => "runs",
     Request::Slots => "slots",
+    Request::Disk { .. } => "disk",
     Request::Upgrade { .. } => "upgrade",
   }
 }
@@ -983,11 +984,21 @@ fn the_outputs_of_the_commit_come_back_in_place_of_their_local_copies() {
   assert!(start_spec(&setup).outputs);
 }
 
+/// The disk report comes after the heartbeats of the agent, as the JSON it sent, and `fresh` reaches it
 #[test]
-fn runs_cancel_and_slots_answer_the_replies_of_the_agent() {
-  let setup = Setup::new(|request, channel| {
+fn runs_cancel_slots_and_disk_answer_the_replies_of_the_agent() {
+  let hello = Hello {
+    features: vec!["upgrade".to_owned(), "disk".to_owned()],
+    ..Hello::default()
+  };
+  let setup = Setup::with_hello(hello, |request, channel| {
     let _ = match request {
       Request::Runs => channel.send(&Reply::Runs { runs: Vec::new() }),
+      Request::Disk { fresh: true } => channel.send(&Reply::Heartbeat { elapsed_ms: 100 }).and_then(|()| {
+        channel.send(&Reply::Disk {
+          report: serde_json::json!({"bytes": 7}),
+        })
+      }),
       Request::Slots => channel.send(&Reply::Slots {
         repositories: vec![host_link::proto::RepositorySlots {
           repo: "~/projects/idea-1".to_owned(),
@@ -1002,6 +1013,22 @@ fn runs_cancel_and_slots_answer_the_replies_of_the_agent() {
   assert_eq!(client.runs(ALIAS).unwrap().len(), 0);
   assert_eq!(client.slots(ALIAS).unwrap()[0].repo, "~/projects/idea-1");
   assert_eq!(client.cancel(ALIAS, "r1").unwrap_err().code, Code::BadRequest);
+  assert_eq!(client.disk(ALIAS, true).unwrap(), serde_json::json!({"bytes": 7}));
+  assert_eq!(kinds(&setup).last(), Some(&"disk"));
+  assert_eq!(client.disk(ALIAS, false).unwrap_err().code, Code::BadRequest);
+}
+
+/// An agent without the feature `disk` gets no request: it would close the connection on one it does not know
+#[test]
+fn disk_of_an_agent_without_the_feature_sends_no_request() {
+  let older = Setup::new(|_, channel| {
+    let _ = channel.send(&Reply::refused(Code::BadRequest, "no"));
+  });
+  let processes = FakeProcesses::default();
+  let refused = older.client(&processes, &|_| {}, &calm).disk(ALIAS, false).unwrap_err();
+  assert_eq!(refused.code, Code::AgentFailed, "{}", refused.message);
+  assert!(refused.message.contains("bd-host upgrade studio"), "{}", refused.message);
+  assert_eq!(kinds(&older), Vec::<&str>::new());
 }
 
 /// `Reply::Phases` belongs to `Follow` only. Anywhere else it is a reply out of turn

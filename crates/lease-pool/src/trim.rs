@@ -12,7 +12,9 @@
 //! never waits for them.
 
 use crate::bazel_servers::child_dirs;
-use crate::lease::{Lease, LeaseState, Pool, ServerStop, SkipReason, SkippedSlot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers};
+use crate::lease::{
+  Lease, LeaseState, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
+};
 use crate::lease_clean::{Trash, remove_measured};
 use crate::output_bases::{OutputBase, orphans, output_bases, output_user_roots};
 use anyhow::{Result, anyhow};
@@ -212,7 +214,7 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
     let trash = Trash::new(&pool.trash_dir());
     let (max_slots, config_error) = max_slots(git_executor, params.max_slots, &machine_pool.git_common_dir);
     let store = pool.read()?;
-    let present: Vec<_> = store.slots.iter().filter(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir()).collect();
+    let (present, free) = trim_order(&store.slots);
     let mut report = TrimmedPool {
       git_common_dir: display_path(&machine_pool.git_common_dir),
       max_slots,
@@ -222,11 +224,6 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
       config_error,
     };
     let excess = present.len().saturating_sub(max_slots);
-    // the last a get would take first: the never returned ones in reverse order of joining, then the ones returned
-    // longest ago (`reserve` takes the one returned last first, the never returned ones last)
-    let mut free: Vec<_> = present.iter().filter(|slot| slot.lease.is_none() && Path::new(&slot.path).is_dir()).collect();
-    free.reverse();
-    free.sort_by_key(|slot| slot.returned);
     for slot in free {
       if report.removed.len() >= excess {
         break;
@@ -384,6 +381,18 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
     let _ = fs_retry::remove_dir(trash.dir());
   }
   Ok(trimmed)
+}
+
+/// The slots of a pool as a trim counts them (`present`: a lease, or a directory that is there) and its free slots in
+/// the order the trim deletes them: the last a get would take first, the never returned ones in reverse order of
+/// joining, then the ones returned longest ago (`reserve` takes the one returned last first, the never returned ones
+/// last). The disk report marks the first of them past the limit by it too (`pool_disk`)
+pub fn trim_order(slots: &[Slot]) -> (Vec<&Slot>, Vec<&Slot>) {
+  let present: Vec<&Slot> = slots.iter().filter(|slot| slot.lease.is_some() || Path::new(&slot.path).is_dir()).collect();
+  let mut free: Vec<&Slot> = present.iter().copied().filter(|slot| slot.lease.is_none() && Path::new(&slot.path).is_dir()).collect();
+  free.reverse();
+  free.sort_by_key(|slot| slot.returned);
+  (present, free)
 }
 
 /// The pools of this machine: the one of `params.repository`, then each repository whose slots live under

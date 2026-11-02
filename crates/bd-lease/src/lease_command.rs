@@ -993,7 +993,7 @@ pub struct SlotOutput {
   /// `free`, `preparing` (a get moves it), `ready` (leased), `templating` (a get clones it into a new slot),
   /// `returning` (its return runs), `cleaning` (`bd lease clean` cleans it), or `abandoned` (the get, the return or the
   /// clean died while it ran: the next get takes it as free)
-  pub state: SlotStateOutput,
+  pub state: SlotState,
   /// A get found local changes in the free slot: later gets try it last
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub dirty: bool,
@@ -1009,32 +1009,6 @@ pub struct SlotOutput {
   /// With --processes: the processes in the slot, without the session of bd, git's maintenance and `caffeinate`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub processes: Option<Vec<ProcessOutput>>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SlotStateOutput {
-  Free,
-  Preparing,
-  Ready,
-  Templating,
-  Returning,
-  Cleaning,
-  Abandoned,
-}
-
-impl SlotStateOutput {
-  pub const fn of(state: SlotState) -> Self {
-    match state {
-      SlotState::Free => Self::Free,
-      SlotState::Preparing => Self::Preparing,
-      SlotState::Ready => Self::Ready,
-      SlotState::Templating => Self::Templating,
-      SlotState::Returning => Self::Returning,
-      SlotState::Cleaning => Self::Cleaning,
-      SlotState::Abandoned => Self::Abandoned,
-    }
-  }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -1090,7 +1064,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
       .map(|status| SlotOutput {
         slot: status.slot.name.clone(),
         path: status.slot.path.clone(),
-        state: SlotStateOutput::of(status.state),
+        state: status.state,
         dirty: status.slot.dirty,
         missing: status.missing,
         lease: status.slot.lease.as_ref().map(|lease| LeaseOutput {
@@ -1481,7 +1455,7 @@ pub(crate) fn refusal_error(refusal: &LeaseRefusal) -> CliError {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
-pub(crate) const fn is_zero_bytes(bytes: &u64) -> bool {
+const fn is_zero_bytes(bytes: &u64) -> bool {
   *bytes == 0
 }
 

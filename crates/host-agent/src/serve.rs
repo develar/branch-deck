@@ -411,6 +411,11 @@ impl Agent {
       }
       Request::Runs => answer(channel, Ok(self.list_runs())),
       Request::Slots => answer(channel, Ok(self.slots())),
+      Request::Disk { fresh } => {
+        let home = self.home.clone();
+        let result = with_heartbeats(channel, &mut || {}, move || disk(&home, fresh))?;
+        answer(channel, result)
+      }
       Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))),
     }
   }
@@ -742,6 +747,19 @@ fn answer(channel: &mut Channel, result: Result<Reply, Refusal>) -> Result<(), L
     Ok(answer) => channel.send(&answer),
     Err(refusal) => channel.send(&Reply::of_refusal(&refusal)),
   }
+}
+
+/// The disk report of the host (`Repository::disk`), by the first repository of the repository list that opens: the
+/// report covers every pool of the home of the agent, whichever repository asks
+fn disk(home: &Home, fresh: bool) -> Result<Reply, Refusal> {
+  let mut last = Refusal::new(Code::RepoMissing, "the agent has served no repository yet");
+  for path in cleanup::repos(home) {
+    match Repository::open(home, path).and_then(|repo| repo.disk(fresh)) {
+      Ok(report) => return Ok(Reply::Disk { report }),
+      Err(refusal) => last = refusal,
+    }
+  }
+  Err(last)
 }
 
 /// Reads a byte stream to its end and drops it

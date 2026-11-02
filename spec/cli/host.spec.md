@@ -24,6 +24,7 @@ targets:
   - ../../scripts/build-bd-host.mjs
   - ../../crates/bd-host/src/report_fd.rs
   - ../../crates/lease-pool/src/host_brew.rs
+  - ../../crates/pool-disk/src/report.rs
 ---
 
 # bd-host
@@ -296,7 +297,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
     "schema": 1,
     "os": "macos",
     "arch": "aarch64",
-    "features": ["upgrade"]
+    "features": ["upgrade", "disk"]
   },
   "client": {
     "version": "0.37.0",
@@ -329,6 +330,27 @@ bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
   slot name.
   [@test] ../../crates/bd-host/tests/cli.rs (`slots_shows_the_lend_table_and_shrinks_it_without_the_agent`)
   [@test] ../../crates/host-agent/src/table_test.rs (`the_lines_of_a_table_name_the_limit_the_queue_and_each_slot`, `the_sizes_measure_the_directories_of_the_clean_rules_of_each_slot`)
+
+### disk
+
+```sh
+bd-host disk [<alias>] [--fresh] [--json]
+```
+
+- `bd-host disk <alias>` must ask the agent what the lease pools of its host hold on disk (`Request::Disk`, feature
+  `disk`, every agent of this build has it): the agent answers the report of `bd lease disk` for its home
+  (`pool_disk`, by the first repository of its list that opens), heartbeats while it walks, and the reply carries the
+  report as JSON (`pool_disk::report::DiskReport`), so the protocol keeps no second shape of it. `--fresh` walks every
+  slot again. Without an alias it asks every host of the client (`hosts/<alias>.json`), one after the other. A client
+  checks the feature in the hello first: an agent without it gets no request (it would close the connection on one it
+  does not know) and its host names `agent_failed` with `bd-host upgrade <alias>`.
+  [@test] ../../crates/host-link/src/proto_test.rs (`a_request_and_a_reply_have_a_tagged_json_shape`, `an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk`)
+  [@test] ../../crates/host-client/src/run_test.rs (`runs_cancel_slots_and_disk_answer_the_replies_of_the_agent`, `disk_of_an_agent_without_the_feature_sends_no_request`)
+- `--json` must print `{"schema", "hosts": [{"alias", "report"} or {"alias", "refusal": {"code", "message"}}]}`;
+  without it each host is its lines: the free space and the minimum, each pool with its bytes, its slots, its limit and
+  the free slots past it, the output bases of the main worktree and of gone slots. A host that answers nothing is named
+  and the others go on; the command fails with its refusal only when no host answered.
+  [@test] ../../crates/bd-host/tests/cli.rs (`disk_reports_the_pools_of_the_host`)
 
 ### setup
 

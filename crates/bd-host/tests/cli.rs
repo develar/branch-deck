@@ -296,6 +296,30 @@ fn slots_shows_the_lend_table_and_shrinks_it_without_the_agent() {
   assert_eq!(shrunk["table"]["limit"], json!(0));
 }
 
+/// `bd-host disk`: the agent answers what the pools of its host hold, as `bd lease disk` writes it; without an alias
+/// every host of the client
+#[test]
+fn disk_reports_the_pools_of_the_host() {
+  let world = World::new();
+  let agent = world.serve();
+  // the agent serves a repository from its first run on: its host slot is a slot of the pool
+  let ran = world.bd_host(&["run", ALIAS, "--head", "--", "true"]);
+  assert_eq!(ran.status.code(), Some(0), "{}", text(&ran.stderr));
+  let disk = world.bd_host(&["disk", ALIAS, "--fresh", "--json"]);
+  assert_eq!(disk.status.code(), Some(0), "{}", text(&disk.stderr));
+  let disk: Value = serde_json::from_slice(&disk.stdout).expect("JSON");
+  let report = &disk["hosts"][0]["report"];
+  assert_eq!(disk["hosts"][0]["alias"], ALIAS, "{disk}");
+  assert_eq!(report["pools"][0]["slots"][0]["holder"], "bd-host/1", "{disk}");
+  assert_eq!(report["pools"][0]["max_slots"], 10, "{disk}");
+  let every = world.bd_host(&["disk"]);
+  assert_eq!(every.status.code(), Some(0), "{}", text(&every.stderr));
+  let every = text(&every.stdout);
+  assert!(every.lines().next().is_some_and(|line| line.starts_with(&format!("{ALIAS}: "))), "{every}");
+  assert!(every.contains("in 1 slot(s), limit 10"), "{every}");
+  drop(agent);
+}
+
 #[test]
 fn schema_and_version_answer_one_json_object() {
   let world = World::new();
@@ -309,7 +333,8 @@ fn schema_and_version_answer_one_json_object() {
   assert_eq!(world.bd_host(&["run", ALIAS]).status.code(), Some(2), "a run without a command");
 }
 
-/// The features an agent of this build answers: the upgrade only on macOS, where launchd starts the new binary
+/// The features an agent of this build answers: the upgrade only on macOS, where launchd starts the new binary, and the
+/// disk report everywhere
 fn features_of_this_platform() -> Value {
-  if cfg!(target_os = "macos") { json!(["upgrade"]) } else { json!([]) }
+  if cfg!(target_os = "macos") { json!(["upgrade", "disk"]) } else { json!(["disk"]) }
 }

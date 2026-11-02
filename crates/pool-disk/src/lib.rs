@@ -11,11 +11,11 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
 use git_ops::revs::RepositoryDirs;
 use lease_pool::free_space::available_bytes;
-use lease_pool::lease::{Pool, SlotState, lease_status_core};
+use lease_pool::lease::{Pool, Slot, SlotState, lease_status_core};
 use lease_pool::lease_clean::{CleanRule, allocated, read_clean_rules};
 use lease_pool::output_bases::{OutputBase, orphans};
 use lease_pool::state_file::StateFile;
-use lease_pool::trim::{Machine, main_worktree, max_slots};
+use lease_pool::trim::{Machine, main_worktree, max_slots, trim_order};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -87,10 +87,9 @@ impl PoolUsage {
     self.slots.iter().map(SlotUsage::bytes).sum()
   }
 
-  /// The free slots a trim would delete now: past the limit, the ones a get takes last first, as `trim` picks them
+  /// The free slots a trim would delete now (`SlotUsage::trims_next`)
   pub fn past_limit(&self) -> usize {
-    let free = self.slots.iter().filter(|slot| slot.state == SlotState::Free).count();
-    self.slots.len().saturating_sub(self.max_slots).min(free)
+    self.slots.iter().filter(|slot| slot.trims_next).count()
   }
 }
 
@@ -111,6 +110,9 @@ pub struct SlotUsage {
   pub measured_at: u64,
   /// The bytes come from `disk.json`, not from a walk of this call
   pub cached: bool,
+  /// A free slot past the limit that a trim deletes now, by its order (`lease_pool::trim::trim_order`), unless a
+  /// process works in it then
+  pub trims_next: bool,
 }
 
 impl SlotUsage {
@@ -184,6 +186,12 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
   let mut files: Vec<(StateFile, DiskFile)> = Vec::new();
   for (pool_index, pool) in machine.pools.iter().enumerate() {
     let (statuses, _) = lease_status_core(&pool.git_common_dir, false)?;
+    let limit = max_slots(git_executor, None, &pool.git_common_dir).0;
+    let trims_next: HashSet<String> = {
+      let slots: Vec<Slot> = statuses.iter().map(|status| status.slot.clone()).collect();
+      let (present, free) = trim_order(&slots);
+      free.into_iter().take(present.len().saturating_sub(limit)).map(|slot| slot.path.clone()).collect()
+    };
     let file = disk_file(&pool.git_common_dir);
     let cached = if params.fresh {
       DiskFile::default()
@@ -194,7 +202,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
     let mut report = PoolUsage {
       git_common_dir: display_path(&pool.git_common_dir),
       repository: repository.as_deref().map(display_path),
-      max_slots: max_slots(git_executor, None, &pool.git_common_dir).0,
+      max_slots: limit,
       slots: Vec::new(),
       checkout_bases: Vec::new(),
       trash_bytes: Pool::new(&pool.git_common_dir).trash_bytes(),
@@ -244,6 +252,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
         output_bases,
         measured_at,
         cached: from_file,
+        trims_next: trims_next.contains(&slot.path),
       });
     }
     usage.pools.push(report);
@@ -441,6 +450,8 @@ fn file_id(metadata: &std::fs::Metadata) -> (u64, u64) {
 const fn file_id(_metadata: &std::fs::Metadata) -> (u64, u64) {
   (0, 0)
 }
+
+pub mod report;
 
 #[cfg(test)]
 mod disk_test;
