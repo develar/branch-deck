@@ -71,6 +71,9 @@ const JUNIT = `<testsuites>
 </testsuites>
 `
 
+/** The tests over the trace directories of a measure, which runs on macOS and Linux only (`test-git-runner.sh`) */
+const TRACES = { skip: process.platform === "win32" && "a trace directory is named by its test, with `::`, which Windows refuses; the measure runs on macOS and Linux" }
+
 /** An `out` of a measure: two tests of bd-remote, one with two git processes at once and one after them */
 function measured() {
   const out = mkdtempSync(path.join(tmpdir(), "test-processes-"))
@@ -87,7 +90,7 @@ function measured() {
   return out
 }
 
-test("a test's time is split into its time in git, while at least one ran, and beside git", t => {
+test("a test's time is split into its time in git, while at least one ran, and beside git", TRACES, t => {
   const out = measured()
   t.after(() => rmSync(out, { recursive: true, force: true }))
   const summary = summaryOf(out)
@@ -107,7 +110,7 @@ test("a test's time is split into its time in git, while at least one ran, and b
   assert.ok(Math.abs(sum.byBinary.bd_remote.beside - 2.8) < 1e-9)
 })
 
-test("summarize prints the time beside git by binary and the tests with the most of it, compare both runs", t => {
+test("summarize prints the time beside git by binary and the tests with the most of it, compare both runs", TRACES, t => {
   const out = measured()
   t.after(() => rmSync(out, { recursive: true, force: true }))
   const summary = summaryOf(out)
