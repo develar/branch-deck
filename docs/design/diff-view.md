@@ -501,9 +501,9 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 ### Syntax highlighting
 
 **Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree (Kotlin's
-PSI, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Tree-sitter highlighting"
-below); the other languages by Shiki in a
-worker. The two sides of a file always share an engine: a file the backend cannot colour goes to the worker whole.
+and Java's PSI, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Java from its PSI"
+and "Tree-sitter highlighting" below); the other languages by Shiki in a worker. The two sides of a file always share
+an engine: a file the backend cannot colour goes to the worker whole.
 
 **A worker per window, two in the main window.** The view pins a blob to one worker: the worker with the least pinned
 text when the view first asks for the blob. The worker keeps the text and the grammar states of its blobs, so a later
@@ -569,10 +569,22 @@ grammar is not loaded stays empty, so the front matter of Markdown would be a pa
 when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
-**Tree-sitter highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, Rust, TypeScript, TSX and JavaScript
+**Java from its PSI** (`crates/code-symbols/src/psi_java/highlight.rs`). Java has the roles below from IntelliJ's own
+tree (psi-syntax's `java-syntax`), painted leaf by leaf (`paint::paint_leaf`) in one pass over the nodes in preorder:
+- the tokens are the lexer's as the parser left them, so a keyword the parser reads in its context is one (`var`,
+  `record`, `yield`, `sealed`, `non-sealed`, `permits`, `when`) and a name elsewhere; a string, a text block and a
+  character literal have their escapes as Java reads them (an octal `\77`, a unicode `\uuu0041`, the line continuation
+  of a text block); a JavaDoc is lexed whole, a Markdown one (`///`) line by line from its slashes;
+- the scopes are those of the PSI: the fields of an anonymous class and of an enum constant's body are fields, a
+  pattern, loop, resource and vararg variable hides the field of its name, a field is static by its modifier or in an
+  interface, `Outer.this.size` is the instance's and `Base.super.run()` no static call, an annotation's element is a
+  method declaration and the name of an argument (`@Range(value = 1)`) no field, an annotated type parameter
+  (`<@A T>`) one.
+
+**Tree-sitter highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Rust, TypeScript, TSX and JavaScript
 are coloured as the IntelliJ editor colours them without resolving a name, from a tree-sitter tree (the grammars of
 `code-symbols`; `.ts` by the TypeScript grammar, the rest of the script files by TSX):
-- one preorder walk asks the rules of the grammar (`kotlin.rs`, `java.rs`, `rust_lang.rs`, `typescript.rs`) for the
+- one preorder walk asks the rules of the grammar (`kotlin.rs`, `rust_lang.rs`, `typescript.rs`) for the
   `Paint` of each node; a node with a style paints its text, an inner node paints over it (an escape in a string, the
   code of a template), a parent marks children before the walk reaches them (the name of a declaration, the callee of
   a call). The spans come out in the order of the text, with no sort;
