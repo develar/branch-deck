@@ -142,6 +142,35 @@ async fn a_follow_up_whose_leader_went_away_is_read_by_a_caller_that_waited() {
   assert_eq!(waiting.await, 3, "the waiting caller read the follow-up itself");
 }
 
+/// Of two callers that waited for the same read, the one polled later may come to the follow-up after the other led it
+/// and it ended (the order of `tokio::join!` rotates, a blocking read ends meanwhile): it takes that answer, which was
+/// read after it asked, and reads no third time
+#[tokio::test]
+async fn a_caller_that_comes_to_the_follow_up_after_it_ended_takes_its_answer() {
+  let flight = NextFlight::<usize>::default();
+  let (reads, gate) = (AtomicUsize::new(0), Semaphore::new(0));
+  let first = flight.run(|| one_permit_read(&reads, &gate));
+  let second = flight.run(|| one_permit_read(&reads, &gate));
+  let late = flight.run(|| one_permit_read(&reads, &gate));
+  tokio::pin!(first, second, late);
+  assert!(futures_poll(&mut first).await.is_none());
+  assert!(futures_poll(&mut second).await.is_none());
+  assert!(futures_poll(&mut late).await.is_none());
+  gate.add_permits(1);
+  assert_eq!(first.await, 1);
+  // the follow-up runs and ends before `late` is polled again
+  assert!(futures_poll(&mut second).await.is_none());
+  gate.add_permits(1);
+  assert_eq!(second.await, 2);
+  // at its first poll: a third read would wait for a permit
+  assert_eq!(futures_poll(&mut late).await, Some(2), "the answer of the follow-up, read after it asked");
+  assert_eq!(reads.load(Ordering::SeqCst), 2, "the read ran twice, never three times");
+
+  // a caller that asks after the follow-up ended reads again
+  gate.add_permits(1);
+  assert_eq!(flight.run(|| one_permit_read(&reads, &gate)).await, 3);
+}
+
 /// One poll of `future`: its answer, or None while it waits
 async fn futures_poll<F: Future + Unpin>(future: &mut F) -> Option<F::Output> {
   std::future::poll_fn(|cx| {

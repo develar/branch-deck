@@ -175,9 +175,9 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   [@test] ../../crates/remote-facts/src/sign_in_test.rs (`a_second_youtrack_sign_in_joins_the_browser_one_a_pasted_token_is_checked_and_the_cli_ends_the_apps_first`)
 - A read of the status asked while one runs runs once more after it: the one running may have started before the
   change. Rust decides it for every window (`sync_utils::single_flight::NextFlight`): the windows that ask while a read
-  runs share one read that starts once it ended.
+  runs share one read that starts once it ended, also a window that comes to it only after it ended.
   [@test] ../../crates/app-api/src/app/cli_tools_test.rs (`the_tools_are_found_while_the_releases_are_asked_and_windows_that_ask_meanwhile_share_the_read_after_it`)
-  [@test] ../../crates/sync-utils/src/single_flight_test.rs (`callers_that_ask_while_a_read_runs_share_the_read_after_it`, `a_follow_up_whose_leader_went_away_is_read_by_a_caller_that_waited`)
+  [@test] ../../crates/sync-utils/src/single_flight_test.rs (`callers_that_ask_while_a_read_runs_share_the_read_after_it`, `a_follow_up_whose_leader_went_away_is_read_by_a_caller_that_waited`, `a_caller_that_comes_to_the_follow_up_after_it_ended_takes_its_answer`)
 
 ### Where it is
 

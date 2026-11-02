@@ -196,7 +196,8 @@ loses none of it. A joiner waits for nothing it could show meanwhile: the statis
 fresh for the joiner, so its Refresh asks for none of it again. A read whose callers each want an answer read after
 they asked (the statuses of the CLIs: a window asks after an action ended or an install in a terminal) is a
 `sync_utils::single_flight::NextFlight`: a caller while none runs leads at once, and the callers that come while one
-runs share one follow-up that starts once it ended, the follow-up of the scheduler's reads
+runs share one follow-up that starts once it ended (one polled only after the follow-up ended takes the answer it
+kept, which was read after it asked), the follow-up of the scheduler's reads
 (`review_requests_follows_up`) for a read outside a session.
 Where joining must be one step with reading a state (the renewal of `youtrack::service`: a lookup reads the token and
 joins the renewal of its generation under the one lock of the state), the flight lives in that state. A `std` mutex is

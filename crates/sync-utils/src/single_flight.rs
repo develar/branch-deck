@@ -168,15 +168,17 @@ impl<V: Clone> Future for Join<V> {
 /// as they start, are flights of a `SingleFlight` by their number
 pub struct NextFlight<V> {
   flights: SingleFlight<u64, V>,
-  reads: Mutex<NextReads>,
+  reads: Mutex<NextReads<V>>,
 }
 
-#[derive(Default)]
-struct NextReads {
+struct NextReads<V> {
   /// The number of the last read that started
   started: u64,
   /// The number of the read that runs
   running: Option<u64>,
+  /// The newest read that answered, by its number: a caller that comes to its number after that read ended (another
+  /// caller that waited with it led and ended it first) takes its answer instead of reading once more
+  answered: Option<(u64, V)>,
 }
 
 /// The read of `number` running: its end, or its leader gone, leaves the place of the running read
@@ -189,13 +191,17 @@ impl<V> Default for NextFlight<V> {
   fn default() -> Self {
     Self {
       flights: SingleFlight::default(),
-      reads: Mutex::new(NextReads::default()),
+      reads: Mutex::new(NextReads {
+        started: 0,
+        running: None,
+        answered: None,
+      }),
     }
   }
 }
 
 impl<V> NextFlight<V> {
-  fn reads(&self) -> MutexGuard<'_, NextReads> {
+  fn reads(&self) -> MutexGuard<'_, NextReads<V>> {
     self.reads.lock().unwrap_or_else(PoisonError::into_inner)
   }
 }
@@ -227,7 +233,17 @@ impl<V: Clone + Send + Sync> NextFlight<V> {
     // a caller whose leader went away leads in its place
     let lead = loop {
       match self.flights.begin(number) {
-        Begin::Lead(lead) => break lead,
+        Begin::Lead(lead) => {
+          // the read of `number`, or a newer one, ended before this caller came to it: it started after this caller
+          // asked (a read of `number` starts only once the one running when it asked ended), so its answer will do.
+          // Its leader kept the answer before its flight left the map, so a caller that finds no flight finds it
+          if let Some(answer) = self.answered_since(number) {
+            // the flight it would lead ends without an answer: a caller that joined it meanwhile finds the answer too
+            drop(lead);
+            return answer;
+          }
+          break lead;
+        }
         Begin::Join(join) => {
           if let Some(answer) = join.await {
             return answer;
@@ -246,7 +262,19 @@ impl<V: Clone + Send + Sync> NextFlight<V> {
       Running { flight: self, number }
     };
     let answer = read().await;
+    {
+      let mut reads = self.reads();
+      if reads.answered.as_ref().is_none_or(|(answered, _)| *answered < number) {
+        reads.answered = Some((number, answer.clone()));
+      }
+    }
     lead.finish(answer.clone());
     answer
+  }
+
+  /// The answer of the newest read that ended, when its number is `number` or later
+  fn answered_since(&self, number: u64) -> Option<V> {
+    let reads = self.reads();
+    reads.answered.as_ref().filter(|(answered, _)| *answered >= number).map(|(_, answer)| answer.clone())
   }
 }
