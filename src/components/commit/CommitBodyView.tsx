@@ -4,12 +4,13 @@ import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { Callout } from "@/components/shared/Callout"
+import { CodeText } from "@/components/shared/CodeText"
 import { useBodyFold } from "@/hooks/useBodyFold"
 import type { BodyFold } from "@/hooks/useBodyFold"
 import { useCommitBody } from "@/hooks/useCommitBody"
 import type { CommitBody, CommitBodyBlock } from "@/lib/bindings"
 import type { BodyPart, BodyParts } from "@/presenters/commit-body"
-import { presentBodyParts } from "@/presenters/commit-body"
+import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 
 /**
  * The sizes of a body: the reading text of a preview (14/22, `reading`), the card of a row's mark one step smaller
@@ -22,17 +23,21 @@ export type BodyTextRenderer = (text: string, item: number) => ReactNode
 
 /** How a view of a body sets its words: the text of each block, and each block or head at its place */
 export interface BodyRendering {
-  /** The text of the lines of the block at `index` of `CommitBody.blocks`; prose with its code and issue links by default */
+  /** The text of the lines of the block at `index` of `CommitBody.blocks`; prose with its code (as Rust found it) and issue links by default */
   readonly text?: (index: number) => BodyTextRenderer
   /** A block, or the head of a part, at its place in the body; `revealed` the click that opened the fold it is in */
   readonly place?: (index: number, revealed: number | null, node: ReactNode) => ReactNode
 }
 
-const linkedText: BodyTextRenderer = text => <LinkedText text={text} detectCode />
-const linkedTextOf = () => linkedText
+/** The text of the lines of a block: prose with the spans of code Rust found in each line and its issue links */
+function codeTextOf(parts: BodyParts): NonNullable<BodyRendering["text"]> {
+  return index => (text, item) => <CodeText text={text} spans={codeOf(parts.code, index, item)} />
+}
+
+const plainText: BodyTextRenderer = text => <LinkedText text={text} />
 const inPlace = (_index: number, _revealed: number | null, node: ReactNode) => node
 
-const NO_PARTS: BodyParts = { lead: null, shown: [], folded: [] }
+const NO_PARTS: BodyParts = { lead: null, shown: [], folded: [], code: [] }
 
 /**
  * The body of a commit message as Rust reads it (`commit_body`, `sync_utils::commit_body`): the message, whose body
@@ -87,7 +92,7 @@ export interface BodyPartsViewProps {
  * not change the row selection; a line at `max-w-prose` (65ch, about 80 characters)
  */
 export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = [], empty, testId = "commit-message-body", commit }: BodyPartsViewProps) {
-  const text = rendering.text ?? linkedTextOf
+  const text = rendering.text ?? codeTextOf(parts)
   const place = rendering.place ?? inPlace
   const lead = parts.lead
   return (
@@ -200,10 +205,10 @@ export function NoDescription() {
 
 /**
  * A block of a body as `CommitBody` reads it: a paragraph its lines, a list its items, preformatted text, a rule; the
- * text of each line by `text` (`LinkedText` by default; the review links the code names of a story). A label and a
+ * text of each line by `text` (its code by `CodeText`; the review links the code names of a story). A label and a
  * heading head their section, never a block
  */
-export function CommitBodyBlockView({ block, text = linkedText }: { block: CommitBodyBlock; text?: BodyTextRenderer }) {
+export function CommitBodyBlockView({ block, text = plainText }: { block: CommitBodyBlock; text?: BodyTextRenderer }) {
   switch (block.type) {
     case "paragraph":
       // a line of its own (after a hard break, a quote line, a table row) breaks the paragraph there

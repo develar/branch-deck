@@ -1,4 +1,4 @@
-import type { CommitBody, CommitBodyBlock, LabelKind } from "@/lib/bindings"
+import type { CodeSpan, CommitBody, CommitBodyBlock, LabelKind, LineCode } from "@/lib/bindings"
 
 /*
  * The parts of a commit body as a reader shows them (spec/commit/commit-row.spec.md, "Message body"): Rust cuts the body
@@ -43,7 +43,16 @@ export interface BodyParts {
   readonly shown: readonly BodyPart[]
   /** The parts after the fold and every verification section, in the order of the body */
   readonly folded: readonly FoldedPart[]
+  /** The spans of code of the lines of the body, as Rust found them (`CommitBody.code`) */
+  readonly code: readonly LineCode[]
 }
+
+/** The spans of code of the line `item` of the block at `block` (`CommitBody.code`) */
+export function codeOf(code: readonly LineCode[], block: number, item: number): readonly CodeSpan[] {
+  return code.find(line => line.block === block && line.item === item)?.spans ?? NO_SPANS
+}
+
+const NO_SPANS: readonly CodeSpan[] = []
 
 /** The name of a folded part of no label */
 export const MORE = "More"
@@ -92,5 +101,5 @@ export function presentBodyParts(key: string, body: CommitBody, told: (index: nu
       }
     }
   }
-  return { lead: leadBlock, ...view }
+  return { lead: leadBlock, ...view, code: body.code }
 }

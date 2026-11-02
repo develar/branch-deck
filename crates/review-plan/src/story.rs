@@ -3,12 +3,13 @@
 //! the units and the files of the range, and the facts of each step a body does not tell. No git process and no query
 //! of the index: the plan holds the units, the stops and the links already.
 //!
-//! - **The candidates** of a block that is no preformatted text: every span in backticks that names code (`name_like`:
-//!   a path, a file name, or identifiers joined by `.`, `::` or `#`, a trailing `(…)` or `<…>` and a leading `@`
-//!   aside), and a bare word outside backticks that is a compound name (`concerns::compound`: `toolWindowId`,
-//!   `snake_case`, `v2`), an `Owner.member` with a capitalised owner, a path or a file name. A plain lowercase word is
-//!   never one, in backticks neither (`changes`), unless it is called (`open()`); a span with a space, its arguments
-//!   aside (`open(path, mode)`), is a command or an expression, no name.
+//! - **The candidates** of a line of a block that is no preformatted text are its spans of code, one grammar with the
+//!   page (`sync_utils::code_spans`): a span in backticks that names code (`name_like`: a path, a file name, or
+//!   identifiers joined by `.`, `::` or `#`, a trailing `(…)` or `<…>` and a leading `@` aside), and a token the grammar
+//!   finds (`toolWindowId`, `snake_case`, `Owner.member` with a capitalised owner, a path, a file name), so a name the
+//!   page sets as code is the name the story links. A plain lowercase word is never one, in backticks neither
+//!   (`changes`), unless it is called (`open()`); a span with a space, its arguments aside (`open(path, mode)`), is a
+//!   command or an expression, no name.
 //! - **A path** (`/` in it, or a file extension): the changed path itself, else the one path it ends on at a `/`, else
 //!   the one changed file of that name; a `:line` after it aside. Two files of that name resolve nothing.
 //! - **A declaration** by its segments (`.`, `::`, `#`; a leading `crate`, `self`, `super`, `Self` aside): the units of
@@ -46,7 +47,8 @@ use crate::units::{ReviewUnit, UnitKind};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use sync_utils::commit_body::commit_body;
+use sync_utils::code_spans::code_spans;
+use sync_utils::commit_body::{commit_body, prose_lines};
 use trial_check::symbol_dependencies::declaration_checks::spanned_declarations;
 
 /// A commit of the range whose body has a block, its story once
@@ -447,86 +449,40 @@ fn opening_of_last(text: &str, open: char, close: char) -> Option<usize> {
   None
 }
 
-/// Whether a bare word may name code: a compound name, an `Owner.member` with a capitalised owner, a path
-fn bare_candidate(word: &str) -> bool {
-  if path_like(word) {
-    return true;
-  }
-  segments(word).is_some_and(|parts| compound(word) || (parts.len() > 1 && parts[0].starts_with(|c: char| c.is_uppercase())))
-}
-
-/// A character of a bare word that may name code
-fn word_char(c: char) -> bool {
-  c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '#')
-}
-
-/// The UTF-16 length of `text`
-fn utf16(text: &str) -> u32 {
-  u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
-}
-
-/// The mentions of one line of a block (`block`, `item`): its spans in backticks, then its bare words outside them
+/// The mentions of one line of a block (`block`, `item`): its spans of code (`sync_utils::code_spans`), a span in
+/// backticks kept also when it resolves nothing, a span the grammar found only when it resolves. A found span of
+/// several tokens (`Frame.paint SplashScreen.hide`, `renames toolWindowId toolWindowKey`) that names nothing whole is
+/// a mention per token that resolves, each at its own range
 fn line_mentions(resolver: &Resolver<'_>, line: &str, (block, item): (u32, u32), own: &[u32], into: &mut Vec<Mention>) {
-  let mut found: Vec<Mention> = Vec::new();
-  let mut push = |start: usize, end: usize, text: &str, target: Option<MentionTarget>| {
-    found.push(Mention {
+  let units: Vec<u16> = line.encode_utf16().collect();
+  for span in code_spans(line) {
+    let text = String::from_utf16_lossy(&units[span.start as usize..span.end as usize]);
+    let mention = |(start, end): (u32, u32), text: &str, target: Option<MentionTarget>| Mention {
       block,
       item,
-      start: utf16(&line[..start]),
-      end: utf16(&line[..end]),
+      start,
+      end,
       text: text.to_string(),
       target,
-    });
-  };
-  let mut at = 0;
-  let mut outside: Vec<(usize, &str)> = Vec::new();
-  while at < line.len() {
-    let rest = &line[at..];
-    let Some(open) = rest.find('`') else {
-      outside.push((at, rest));
-      break;
     };
-    outside.push((at, &rest[..open]));
-    let after = &rest[open + 1..];
-    let Some(close) = after.find('`') else {
-      outside.push((at + open, &rest[open..]));
-      break;
-    };
-    let span = &after[..close];
-    let (start, end) = (at + open, at + open + close + 2);
-    if let Some(name) = name_like(span) {
-      push(start, end, name, resolver.resolve(name, own, true));
-    }
-    at = end;
-  }
-  for (offset, text) in outside {
-    let mut chars = text.char_indices().peekable();
-    while let Some((start, c)) = chars.next() {
-      if !word_char(c) || (start > 0 && text[..start].chars().next_back().is_some_and(word_char)) {
-        continue;
+    if span.explicit {
+      let inner = &text[1..text.len() - 1];
+      if let Some(name) = name_like(inner) {
+        into.push(mention((span.start, span.end), name, resolver.resolve(name, own, true)));
       }
-      let mut end = start + c.len_utf8();
-      while let Some(&(next, c)) = chars.peek() {
-        if !word_char(c) {
-          break;
+    } else if let Some(target) = resolver.resolve(&text, own, false) {
+      into.push(mention((span.start, span.end), &text, Some(target)));
+    } else if text.contains(' ') {
+      let mut start = span.start;
+      for token in text.split(' ') {
+        let end = start + u32::try_from(token.encode_utf16().count()).unwrap_or(0);
+        if let Some(target) = resolver.resolve(token, own, false) {
+          into.push(mention((start, end), token, Some(target)));
         }
-        end = next + c.len_utf8();
-        chars.next();
-      }
-      let word = &text[start..end];
-      let trimmed = word.trim_end_matches(['.', ':', '-', '/', '#']);
-      let lead = trimmed.len() - trimmed.trim_start_matches(['.', ':', '-', '/', '#']).len();
-      let word = &trimmed[lead..];
-      if word.is_empty() || !bare_candidate(word) {
-        continue;
-      }
-      if let Some(target) = resolver.resolve(word, own, false) {
-        push(offset + start + lead, offset + start + lead + word.len(), word, Some(target));
+        start = end + 1;
       }
     }
   }
-  found.sort_by_key(|mention| mention.start);
-  into.extend(found);
 }
 
 /// The mentions of `body`, `own` the steps of its commit
@@ -534,13 +490,7 @@ fn mentions_of(resolver: &Resolver<'_>, body: &CommitBody, own: &[u32]) -> Vec<M
   let mut mentions = Vec::new();
   for (place, block) in body.blocks.iter().enumerate() {
     let block_place = u32::try_from(place).unwrap_or(u32::MAX);
-    let lines: Vec<&str> = match block {
-      CommitBodyBlock::Paragraph { lines } => lines.iter().map(String::as_str).collect(),
-      CommitBodyBlock::List { items, .. } => items.iter().map(String::as_str).collect(),
-      CommitBodyBlock::Heading { text, .. } | CommitBodyBlock::Label { text, .. } => vec![text.as_str()],
-      CommitBodyBlock::Preformatted { .. } | CommitBodyBlock::Rule => Vec::new(),
-    };
-    for (item, line) in lines.into_iter().enumerate() {
+    for (item, line) in prose_lines(block).into_iter().enumerate() {
       line_mentions(resolver, line, (block_place, u32::try_from(item).unwrap_or(u32::MAX)), own, &mut mentions);
     }
   }

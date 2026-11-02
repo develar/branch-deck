@@ -257,7 +257,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **The state of a whole block is an `Alert`**: the repository path error, a branch that failed to sync or is blocked,
   the empty window. Its `destructive` variant is tinted like `success`, `warning` and `info`; call sites add no colour
   overrides.
-- **Code inside a sentence is an `InlineCode`** (`src/components/shared/InlineCode.tsx`, the chip of `LinkedText`), at
+- **Code inside a sentence is an `InlineCode`** (`src/components/shared/InlineCode.tsx`; in a body the spans Rust
+  found, `CodeText`): a name the grammar found only in the code font, a span in backticks or of tokens Rust joined (`CodeSpan.joined`) a chip of
+  `bg-muted` whose halo (`ring-2 ring-muted`) takes no width, so the punctuation around it keeps its place; at
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).

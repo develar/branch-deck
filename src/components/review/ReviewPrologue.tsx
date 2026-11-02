@@ -10,6 +10,7 @@ import { LinkedText } from "@/components/commit/LinkedText"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryLine } from "@/components/review/StoryBody"
 import { Callout } from "@/components/shared/Callout"
+import { CodeText } from "@/components/shared/CodeText"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewCommit } from "@/lib/bindings"
@@ -153,10 +154,14 @@ function PrologueSections({ view }: { view: PrologueView }) {
                       </span>
                     )}
                     {entry.paragraphs.map(paragraph => (
-                      <LinkedText key={paragraph} text={paragraph} detectCode className="max-w-prose" />
+                      <span key={paragraph.text} className="max-w-prose">
+                        <CodeText text={paragraph.text} spans={paragraph.code} />
+                      </span>
                     ))}
                     {entry.removed.map(paragraph => (
-                      <LinkedText key={paragraph} text={paragraph} detectCode className="max-w-prose text-muted-foreground line-through" />
+                      <span key={paragraph.text} className="max-w-prose text-muted-foreground line-through">
+                        <CodeText text={paragraph.text} spans={paragraph.code} />
+                      </span>
                     ))}
                   </div>
                 ))}

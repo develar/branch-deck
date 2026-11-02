@@ -7,11 +7,14 @@ import { useBodyFold } from "@/hooks/useBodyFold"
 import { useStoryHighlight } from "@/hooks/useStoryHighlight"
 import type { StoryHighlight } from "@/hooks/useStoryHighlight"
 import type { PlacedBlock } from "@/presenters/commit-body"
+import { codeOf } from "@/presenters/commit-body"
 import type { StoryView } from "@/presenters/review-story"
 
-/** The text of a line of a block of a story: its code names links, its code and its issue links */
+/** The text of a line of a block of a story: its code as Rust found it, the names that resolve links, its issue links */
 function storyText(story: StoryView, block: number): BodyTextRenderer {
-  return (text, item) => <StoryText text={text} mentions={story.mentions.filter(mention => mention.block === block && mention.item === item)} />
+  return (text, item) => (
+    <StoryText text={text} spans={codeOf(story.code, block, item)} mentions={story.mentions.filter(mention => mention.block === block && mention.item === item)} />
+  )
 }
 
 /** The one line of a label or a heading of a story, its code names links */

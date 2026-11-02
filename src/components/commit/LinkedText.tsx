@@ -1,8 +1,5 @@
-import { Fragment, useMemo } from "react"
+import { useMemo } from "react"
 import { cn } from "cn"
-import { InlineCode } from "@/components/shared/InlineCode"
-import { splitCodeAtBreaks, splitInlineCode } from "@/lib/inline-code"
-import type { InlineSegment } from "@/lib/inline-code"
 import { parseTextSegments, useIssuePatterns } from "@/lib/issue-links"
 import type { CompiledIssuePattern } from "@/lib/issue-links"
 import { youTrackKeyOf } from "@/lib/youtrack"
@@ -11,8 +8,6 @@ import { useYouTrackUrl } from "@/stores/auth"
 export interface LinkedTextProps {
   text: string
   className?: string
-  /** Render code tokens (backtick spans, identifiers, paths, flags) in the monospace font; see `splitInlineCode` */
-  detectCode?: boolean
   /** Colour of the issue links; muted by default, so prose links stay quiet */
   linkClassName?: string
 }
@@ -21,18 +16,10 @@ export interface LinkedTextProps {
  * Text with issue references (per the project's issue navigation config) rendered as external links. A link to an issue
  * of the YouTrack signed in to carries its key (`data-issue-key`): hovering it shows the issue (`IssueHoverHost`).
  */
-export function LinkedText({ text, className, detectCode = false, linkClassName = "text-muted-foreground" }: LinkedTextProps) {
+export function LinkedText({ text, className, linkClassName = "text-muted-foreground" }: LinkedTextProps) {
   const patterns = useIssuePatterns()
   const youTrackUrl = useYouTrackUrl()
-  const content = useMemo(() => {
-    if (!detectCode) {
-      return renderLinks(text, patterns, linkClassName, youTrackUrl)
-    }
-    // code first: a path or identifier that contains an issue key stays one code token
-    return splitInlineCode(text).map((segment, index) => (
-      <Fragment key={index}>{segment.type === "code" ? <CodeSegment segment={segment} /> : renderLinks(segment.content, patterns, linkClassName, youTrackUrl)}</Fragment>
-    ))
-  }, [text, patterns, detectCode, linkClassName, youTrackUrl])
+  const content = useMemo(() => renderLinks(text, patterns, linkClassName, youTrackUrl), [text, patterns, linkClassName, youTrackUrl])
 
   return <span className={className}>{content}</span>
 }
@@ -59,20 +46,5 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
     ) : (
       <span key={index}>{segment.content}</span>
     ),
-  )
-}
-
-/** A backtick span is a chip; a detected identifier or path only gets the monospace font */
-function CodeSegment({ segment }: { segment: InlineSegment }) {
-  const parts = splitCodeAtBreaks(segment.content)
-  return (
-    <InlineCode plain={!segment.explicit} data-explicit={segment.explicit ? "" : undefined}>
-      {parts.map((part, index) => (
-        <Fragment key={index}>
-          {index > 0 && <wbr />}
-          {part}
-        </Fragment>
-      ))}
-    </InlineCode>
   )
 }

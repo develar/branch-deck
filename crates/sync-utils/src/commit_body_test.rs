@@ -476,3 +476,19 @@ fn a_run_in_look_closely_heads_its_paragraph_alone() {
   let own = commit_body("Look closely:\n\nThe count.\n\nThe passes.");
   assert_eq!(parts(&own), [(0, 3, false)]);
 }
+
+/// A line of code of a body as a test reads it: its block, its item and its spans (start, end, explicit)
+type CodeLine = (u32, u32, Vec<(u32, u32, bool)>);
+
+/// The code of a body is found by the grammar of a line of prose (`code_spans`), line by line of its blocks: the page
+/// sets these spans, never a grammar of its own; a preformatted block holds no line of prose
+#[test]
+fn each_line_of_prose_carries_its_spans_of_code() {
+  let body = commit_body("Now `Splash.show` paints and SplashScreen.hide hides.\n\nThe cause:\n- the frame (`Frame.paint`)\n- nothing\n\n    code Frame.paint\n");
+  let lines: Vec<CodeLine> = body
+    .code
+    .iter()
+    .map(|line| (line.block, line.item, line.spans.iter().map(|span| (span.start, span.end, span.explicit)).collect()))
+    .collect();
+  assert_eq!(lines, [(0, 0, vec![(4, 17, true), (29, 46, false)]), (2, 0, vec![(11, 24, true)])]);
+}

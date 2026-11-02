@@ -23,7 +23,7 @@ type Part = readonly [start: number, end: number, folded: boolean]
  */
 function story(subject: string, blocks: CommitBodyBlock[], parts: readonly Part[] = [[0, blocks.length, false]], toldIn: (number | null)[] = []): StoryCommit {
   const lead = blocks[0]?.type === "paragraph"
-  return { id: subject, title: subject, body: { blocks, trailers: [], lead, parts: parts.map(([start, end, folded]) => ({ start, end, folded })) }, mentions: [], toldIn }
+  return { id: subject, title: subject, body: { blocks, trailers: [], lead, parts: parts.map(([start, end, folded]) => ({ start, end, folded })), code: [] }, mentions: [], toldIn }
 }
 
 function plan(steps: ReviewStep[], commits: StoryCommit[], more: Partial<ReviewPlan> = {}): ReviewPlan {
@@ -42,7 +42,20 @@ function textOf(view: StoryView): { lead: string | null; shown: string[][]; fold
 }
 
 function contract(path: string, heading: string, added: string[], provenBy: string[] = []): ContractEntry {
-  return { kind: "spec", unit: `other:${path}`, path, block: 0, heading, newSpec: null, deleted: false, added, removed: [], provenBy }
+  return {
+    kind: "spec",
+    unit: `other:${path}`,
+    path,
+    block: 0,
+    heading,
+    newSpec: null,
+    deleted: false,
+    added,
+    addedCode: added.map(() => []),
+    removed: [],
+    removedCode: [],
+    provenBy,
+  }
 }
 
 describe("the document of a review", () => {
@@ -107,7 +120,7 @@ describe("the document of a review", () => {
       false,
     )
     expect([view.issue, view.title, view.untold, view.source]).toEqual([null, "feature/layout", null, null])
-    expect(view.contract.map(file => [file.path, file.kind, file.entries.map(entry => [entry.heading, entry.paragraphs, entry.provenBy])])).toEqual([
+    expect(view.contract.map(file => [file.path, file.kind, file.entries.map(entry => [entry.heading, entry.paragraphs.map(it => it.text), entry.provenBy])])).toEqual([
       [
         "spec/a.spec.md",
         "Spec rule",

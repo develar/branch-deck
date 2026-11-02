@@ -19,7 +19,8 @@
 //! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code
 //! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, `toldIn`) in place
 //! of the `body` of each commit of a step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
-//! the `title` of each commit in place of its `subject` (without the issue key of the brief) and the `title` of the plan
+//! the `title` of each commit in place of its `subject` (without the issue key of the brief) and the `title` of the plan,
+//! the `code` of a body and the `addedCode` and `removedCode` of an entry of the brief (`sync_utils::code_spans`)
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;

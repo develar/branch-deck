@@ -40,7 +40,8 @@ function FactPlaces({ title, places, testId }: { title: string; places: readonly
           {index > 0 ? ", " : " "}
           <button
             type="button"
-            className="rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
+            // a declaration is code, as the story sets its names; a link between modules names its files
+            className="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
             disabled={navigator === null}
             data-testid={testId}
             data-path={fact.place.path}

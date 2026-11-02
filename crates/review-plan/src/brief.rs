@@ -5,8 +5,10 @@
 
 use crate::files::{ChangedFile, blob_lines, lines_in};
 use crate::units::{OtherReason, ReviewUnit, UnitKind};
+use domain_types::commit_body::CodeSpan;
 use serde::Serialize;
 use std::collections::HashMap;
+use sync_utils::code_spans::code_spans;
 use sync_utils::issue_pattern::find_issue_number;
 
 /// The brief of a review
@@ -58,8 +60,12 @@ pub struct ContractEntry {
   /// Its paragraphs after the commits that the block adds or changes, each its lines joined, without the markers of
   /// a list and the `[@test]` lines
   pub added: Vec<String>,
+  /// The spans of code of each paragraph of `added` (`sync_utils::code_spans`), the grammar the page sets code by
+  pub added_code: Vec<Vec<CodeSpan>>,
   /// Its paragraphs before the commits that the block removes or changes
   pub removed: Vec<String>,
+  /// The spans of code of each paragraph of `removed`
+  pub removed_code: Vec<Vec<CodeSpan>>,
   /// The tests the `[@test]` lines it adds name, by the path they give
   pub proven_by: Vec<String>,
 }
@@ -141,7 +147,9 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
         new_spec: None,
         deleted: false,
         added: Vec::new(),
+        added_code: Vec::new(),
         removed: Vec::new(),
+        removed_code: Vec::new(),
         proven_by: Vec::new(),
       };
       match unit.kind {
@@ -186,6 +194,10 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
   }
   // by rank; the order of the units, the story, within one
   contract.sort_by_key(|entry| entry.kind);
+  for entry in &mut contract {
+    entry.added_code = entry.added.iter().map(|paragraph| code_spans(paragraph)).collect();
+    entry.removed_code = entry.removed.iter().map(|paragraph| code_spans(paragraph)).collect();
+  }
   ReviewBrief {
     issue: shared_issue(messages),
     contract,

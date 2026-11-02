@@ -47,6 +47,8 @@ targets:
   - ../../crates/domain-types/src/commit_body.rs
   - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../src/lib/inline-code.ts
+- ../../crates/sync-utils/src/code_spans.rs
+- ../../src/components/shared/CodeText.tsx
   - ../../src/components/unassigned/UnassignedCommitListCard.tsx
   - ../../src/components/branch/ActiveBranchExpanded.tsx
   - ../../src/components/branch/StackLanes.tsx
@@ -395,20 +397,26 @@ for a message shown again, and only lays out what Rust read.
 
 ### Code tokens
 
-- Text in backticks must show as code, without the backticks.
-- The body must show detected paths, file names, dotted module and package names of three or more parts, flags, calls,
-  CONSTANT_CASE, snake_case and camelCase as code. A dotted name of two parts (`example.com`, `e.g.`) stays prose.
-- Names from the stoplist (`JavaScript`, `GitHub`, `macOS`) must stay prose.
+- The code of a body is Rust's (`CommitBody.code`, `sync_utils::code_spans`): each line of its prose carries its spans
+  of code, which the card, the preview and the story of a review set alike (`CodeText`); the page finds no code of its
+  own. Text in backticks shows as code without the backticks, a chip (`InlineCode`: `bg-muted` and a halo of the same
+  colour that takes no width, so "(Frame.paint)" never reads "( Frame.paint )").
+- Rust finds paths, file names, dotted module and package names of three or more parts, an `Owner.member` of a
+  capitalised owner (`Frame.paint`, `SplashScreen.hide`), flags, calls, `CONSTANT_CASE`, `snake_case`, `camelCase` and
+  `PascalCase` of two humps or more: only the code font, a chip only when Rust joined several tokens into one span
+  (`CodeSpan.joined`). A dotted name of
+  two parts led lowercase (`example.com`, `e.g.`), `GenUI`, `AssertJ`, a word with a hyphen (`follow-up`) and the names
+  of products (`JavaScript`, `GitHub`, `macOS`, `TeamCity`, `PhpStorm`, `WordPress`) and of libraries (`Node.js`,
+  `Vue.js`: a capitalised word before `.js`) stay prose, and so does a token in double quotes.
 - Preformatted blocks and trailers must not detect code.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../src/lib/inline-code.test.ts (`shows text in backticks as explicit code without the backticks`, `detects a %s as code`, `keeps %s as prose`)
-- A PascalCase name must be code only when it has three or more humps.
-- A token in double quotes must stay prose.
+  [@test] ../../crates/sync-utils/src/code_spans_test.rs (`a_span_in_backticks_is_explicit_code_its_backticks_included`, `the_grammar_finds_paths_names_flags_and_calls`, `a_word_of_prose_stays_prose`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`each_line_of_prose_carries_its_spans_of_code`)
 - Code tokens that only single spaces separate must form one span, such as `bt.cmd --lane` or
-  `--module intellij.air.tests --filter com.intellij.air`.
-- Punctuation around a token must stay prose.
-- An issue key inside a code token must stay part of the code.
-  [@test] ../../src/lib/inline-code.test.ts (`keeps %s as prose`, `keeps a token in double quotes as prose`, `joins code tokens separated by a single space into one span`, `joins a flag and its dotted value into one span`, `ends a code span at trailing punctuation`, `keeps the punctuation around a token as prose`, `keeps the punctuation after a call as prose`, `keeps an issue key inside a code token`)
+  `--module intellij.air.tests --filter com.intellij.air`. Punctuation around a token must stay prose, a possessive
+  (`SplashScreen's`) and the dash of a sentence (`Frame.paint—`) too. An issue key
+  inside a code token must stay part of the code. The offsets are UTF-16 code units, as the page counts.
+  [@test] ../../crates/sync-utils/src/code_spans_test.rs (`the_punctuation_around_a_token_stays_prose_and_tokens_one_space_apart_are_one_span`, `the_offsets_are_utf16_code_units`)
 - A long path must break before a `/` or a non-final `.`, never before a short final extension.
   [@test] ../../src/lib/inline-code.test.ts (`breaks a path before each slash`, `does not break before a short final extension`, `breaks before a dot that is not the final extension`, `does not break inside a leading ./`, `does not break inside // or ...`, `keeps a CONSTANT_CASE name whole`)
 - The subject must not detect code.

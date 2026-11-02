@@ -147,11 +147,15 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`, `a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
 - A code name of a block that is no preformatted text must resolve to a unit or a changed file of the range, with no
   git process and no query of the index: a span in backticks that names code (a path, a file name, identifiers joined
-  by `.`, `::` or `#`; a trailing `(…)` or `<…>` and a leading `@` aside), and a bare compound name (`toolWindowId`,
-  `snake_case`), `Owner.member` with a capitalised owner, a path or a file name outside backticks. A plain lowercase
+  by `.`, `::` or `#`; a trailing `(…)` or `<…>` and a leading `@` aside), and a token outside backticks the grammar of
+  code finds ([Commit Row → Code tokens](../commit/commit-row.spec.md#code-tokens): `toolWindowId`, `snake_case`,
+  `Owner.member` with a capitalised owner, a path, a file name), so a name the page sets as code is the name the story
+  links, a resolved one only adding its dotted underline. A plain lowercase
   word is no name, in backticks neither, unless its call (`open()`); a span with a space, its arguments aside
-  (`open(path, mode)`), is a command, no name.
-  [@test] ../../crates/review-plan/src/story_test.rs (`a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+  (`open(path, mode)`), is a command, no name. A run of found tokens one space apart (`Frame.paint SplashScreen.hide`)
+  that names nothing whole is a mention of each token that resolves, at its own range; a possessive or a dash after a
+  name (`SplashScreen.hide's`, `Frame.paint—`) is prose.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`, `a_name_before_a_possessive_or_a_dash_and_each_name_of_a_run_is_a_mention`)
 - A path must resolve to the changed path itself, else the one it ends on at a `/`, else the one changed file of that
   name (a `:171` after it aside); two files of that name resolve nothing. A declaration must resolve by its segments:
   the units of a declaration, and the declarations of a new or a deleted file by its summary (its unit is the file,

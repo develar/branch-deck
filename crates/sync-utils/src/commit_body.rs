@@ -17,12 +17,14 @@
 //!   block, a `Label:` line right before a list item, a `Label:` line that starts its block (or follows a list) right
 //!   before a line of prose or code, or the 1–3 words of a paragraph that starts `Label: text`; its kind is by its
 //!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`); a run-in `Look closely: text` heads its paragraph alone;
+//! - the code of each line of prose (`CommitBody::code`) by the grammar of `code_spans`;
 //! - the parts and the fold (`CommitBody::parts`): the lead alone, a labelled section whole, a run of other blocks; the
 //!   first part shows, then whole parts while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS`
 //!   characters), the rest folds; a verification section folds and a Look closely section shows wherever it is, and
 //!   neither costs a line.
 
-use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind};
+use crate::code_spans::code_spans;
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, LineCode};
 
 /// The lines a body shows before its fold
 const FOLD_LINES: u32 = 12;
@@ -72,12 +74,42 @@ pub fn commit_body(body: &str) -> CommitBody {
   let blocks = labelled(blocks);
   let lead = matches!(blocks.first(), Some(CommitBodyBlock::Paragraph { .. }));
   let parts = parts(&blocks, lead);
+  let code = code_of(&blocks);
   CommitBody {
     blocks,
     trailers: trailer_lines,
     lead,
     parts,
+    code,
   }
+}
+
+/// The lines of a block a reader reads as prose: a paragraph its lines, a list its items, a label or a heading its text
+pub fn prose_lines(block: &CommitBodyBlock) -> Vec<&str> {
+  match block {
+    CommitBodyBlock::Paragraph { lines } => lines.iter().map(String::as_str).collect(),
+    CommitBodyBlock::List { items, .. } => items.iter().map(String::as_str).collect(),
+    CommitBodyBlock::Heading { text, .. } | CommitBodyBlock::Label { text, .. } => vec![text.as_str()],
+    CommitBodyBlock::Preformatted { .. } | CommitBodyBlock::Rule => Vec::new(),
+  }
+}
+
+/// The code of each line of prose of `blocks` that holds some (`CommitBody::code`)
+fn code_of(blocks: &[CommitBodyBlock]) -> Vec<LineCode> {
+  let mut code = Vec::new();
+  for (block, of) in blocks.iter().enumerate() {
+    for (item, line) in prose_lines(of).into_iter().enumerate() {
+      let spans = code_spans(line);
+      if !spans.is_empty() {
+        code.push(LineCode {
+          block: index(block),
+          item: index(item),
+          spans,
+        });
+      }
+    }
+  }
+  code
 }
 
 /// `blocks` with their labels: a paragraph that is only `Label:` before a block of content, and the label of a

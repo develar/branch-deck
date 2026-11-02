@@ -1,8 +1,8 @@
-import type { CommitBodyBlock, ContractKind, Mention, MentionTarget, ReviewPlan, ReviewStep, StoryCommit } from "@/lib/bindings"
+import type { CodeSpan, CommitBodyBlock, ContractKind, Mention, MentionTarget, ReviewPlan, ReviewStep, StoryCommit } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
-import { presentBodyParts } from "@/presenters/commit-body"
+import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 import { formatConcernEvidence } from "@/presenters/review-concerns"
 import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
@@ -219,11 +219,18 @@ export interface ContractFile {
     readonly key: string
     /** The heading of its section of Markdown */
     readonly heading: string | null
-    readonly paragraphs: readonly string[]
-    readonly removed: readonly string[]
+    /** Its paragraphs, each with its spans of code as Rust found them */
+    readonly paragraphs: readonly ProseParagraph[]
+    readonly removed: readonly ProseParagraph[]
     /** "Proven by restart.json" */
     readonly provenBy: string | null
   }[]
+}
+
+/** A paragraph of prose with its spans of code as Rust found them (`sync_utils::code_spans`) */
+export interface ProseParagraph {
+  readonly text: string
+  readonly code: readonly CodeSpan[]
 }
 
 /** The overview at the top of the document, worded */
@@ -312,8 +319,13 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     const entryView = {
       key: `${entry.unit}:${entry.block ?? "file"}:${index}`,
       heading: entry.heading,
-      paragraphs: entry.newSpec !== null ? [entry.newSpec.description ?? `A new spec of ${entry.newSpec.rules} rules`] : entry.deleted ? ["Deleted"] : entry.added,
-      removed: entry.removed,
+      paragraphs:
+        entry.newSpec !== null
+          ? [{ text: entry.newSpec.description ?? `A new spec of ${entry.newSpec.rules} rules`, code: [] }]
+          : entry.deleted
+            ? [{ text: "Deleted", code: [] }]
+            : entry.added.map((text, index) => ({ text, code: entry.addedCode[index] ?? [] })),
+      removed: entry.removed.map((text, index) => ({ text, code: entry.removedCode[index] ?? [] })),
       provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}`,
     }
     const last = contract.at(-1)
@@ -461,6 +473,8 @@ export interface StoryMark {
   readonly code: boolean
   /** The text of the line of the block that names the section, its backticks kept */
   readonly preview: string
+  /** The spans of code of that line, as Rust found them */
+  readonly spans: readonly CodeSpan[]
   /** The code names of that line, worded (`mentionWords`): the quote of a mark links them as the story does */
   readonly mentions: readonly StoryMention[]
 }
@@ -537,6 +551,7 @@ export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "units"
             label: chapter?.label ?? null,
             code: chapter?.code ?? false,
             preview: lineOf(commit.body.blocks[mention.block], mention.item),
+            spans: codeOf(commit.body.code, mention.block, mention.item),
             mentions: worded.filter(it => it.block === mention.block && it.item === mention.item),
           })
           marks.set(section.key, list)

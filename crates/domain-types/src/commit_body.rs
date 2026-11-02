@@ -22,6 +22,36 @@ pub struct CommitBody {
   /// two where the fold cuts it. Each says whether a
   /// reader folds it, so Rust alone says where the fold is
   pub parts: Vec<CommitBodyPart>,
+  /// The code of each line of its blocks that holds some (`sync_utils::code_spans`): the page sets these spans in the
+  /// monospace font, so a card, a preview and the story of a review set one name alike
+  pub code: Vec<LineCode>,
+}
+
+/// The spans of code of one line of a block of a body: a line of a paragraph, an item of a list, a label or a heading
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LineCode {
+  /// Its block in `CommitBody::blocks`
+  pub block: u32,
+  /// The line of a paragraph, the item of a list; 0 for a heading or a label
+  pub item: u32,
+  pub spans: Vec<CodeSpan>,
+}
+
+/// A span of code in a line of prose (`sync_utils::code_spans`): UTF-16 offsets, the end excluded
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CodeSpan {
+  pub start: u32,
+  pub end: u32,
+  /// The author wrote it in backticks, which the span holds: a chip; else the grammar found it, only the code font
+  pub explicit: bool,
+  /// The grammar joined tokens one space apart into it (`bt.cmd --lane`): a chip too, the words read as one command
+  pub joined: bool,
 }
 
 /// A part of a commit body (`CommitBody::parts`): the blocks a reader shows or folds together

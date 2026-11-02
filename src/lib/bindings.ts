@@ -1467,6 +1467,16 @@ export type CliToolStatus = {
 	signInWith: string | null,
 };
 
+/**  A span of code in a line of prose (`sync_utils::code_spans`): UTF-16 offsets, the end excluded */
+export type CodeSpan = {
+	start: number,
+	end: number,
+	/**  The author wrote it in backticks, which the span holds: a chip; else the grammar found it, only the code font */
+	explicit: boolean,
+	/**  The grammar joined tokens one space apart into it (`bt.cmd --lane`): a chip too, the words read as one command */
+	joined: boolean,
+};
+
 /**  Why the views start a file collapsed: its header is enough to know it is there, its chevron expands it */
 export type Collapse = 
 /**  Its name is that of a generated file: a lock file, a minified file, a source map, a snapshot */
@@ -1514,6 +1524,11 @@ export type CommitBody = {
 	 *  reader folds it, so Rust alone says where the fold is
 	 */
 	parts: CommitBodyPart[],
+	/**
+	 *  The code of each line of its blocks that holds some (`sync_utils::code_spans`): the page sets these spans in the
+	 *  monospace font, so a card, a preview and the story of a review set one name alike
+	 */
+	code: LineCode[],
 };
 
 /**  A block of a commit body */
@@ -1883,8 +1898,12 @@ export type ContractEntry = {
 	 *  a list and the `[@test]` lines
 	 */
 	added: string[],
+	/**  The spans of code of each paragraph of `added` (`sync_utils::code_spans`), the grammar the page sets code by */
+	addedCode: CodeSpan[][],
 	/**  Its paragraphs before the commits that the block removes or changes */
 	removed: string[],
+	/**  The spans of code of each paragraph of `removed` */
+	removedCode: CodeSpan[][],
 	/**  The tests the `[@test]` lines it adds name, by the path they give */
 	provenBy: string[],
 };
@@ -4038,6 +4057,15 @@ export type LandingValue = {
 	merges_read: number,
 	/**  Merged robots of a whole stack (`{prefix}/stack/<root>`) */
 	whole_stack: number,
+};
+
+/**  The spans of code of one line of a block of a body: a line of a paragraph, an item of a list, a label or a heading */
+export type LineCode = {
+	/**  Its block in `CommitBody::blocks` */
+	block: number,
+	/**  The line of a paragraph, the item of a list; 0 for a heading or a label */
+	item: number,
+	spans: CodeSpan[],
 };
 
 /**  The line ends of a whole file */

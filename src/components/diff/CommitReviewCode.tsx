@@ -458,7 +458,7 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
             </span>
             {place.marks.map(mark => (
               <p key={mark.key} className="border-l-2 border-border pl-2.5 [font-feature-settings:'ss04'] text-sm">
-                <StoryText text={mark.preview} mentions={mark.mentions} />
+                <StoryText text={mark.preview} spans={mark.spans} mentions={mark.mentions} />
               </p>
             ))}
           </div>

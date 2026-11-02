@@ -108,6 +108,30 @@ fn a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path
   assert!(plan.steps.commits.iter().all(|commit| commit.told_in.is_empty()));
 }
 
+/// A possessive and the dash of a sentence are prose after a name, and a run of names one space apart that names
+/// nothing whole links each name that resolves at its own range
+#[test]
+fn a_name_before_a_possessive_or_a_dash_and_each_name_of_a_run_is_a_mention() {
+  let repo = TestRepo::new();
+  let splash = |body: &str| format!("package a\n\nclass SplashScreen {{\n  fun hide(): Int = {body}\n}}\n");
+  let frame = |body: &str| format!("package a\n\nclass Frame {{\n  fun paint(): Int = {body}\n}}\n");
+  let base = repo.create_commit_with_files("Add", &[("src/a/SplashScreen.kt", &splash("1")), ("src/a/Frame.kt", &frame("1"))]);
+  let head = repo.create_commit_with_files(
+    "The splash hides at once\n\nSplashScreen.hide's frame; Frame.paint— twice.\n\nThen Frame.paint SplashScreen.hide run.",
+    &[("src/a/SplashScreen.kt", &splash("2")), ("src/a/Frame.kt", &frame("2"))],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(
+    mentions(&plan, "The splash hides at once"),
+    [
+      words("SplashScreen.hide", (0, 17), "unit:a.SplashScreen.hide step Some(0)"),
+      words("Frame.paint", (27, 38), "unit:a.Frame.paint step Some(0)"),
+      words("Frame.paint", (5, 16), "unit:a.Frame.paint step Some(0)"),
+      words("SplashScreen.hide", (17, 34), "unit:a.SplashScreen.hide step Some(0)"),
+    ]
+  );
+}
+
 /// A name two declarations of the range share resolves to the one among the stops of the commit's own step, the one
 /// that lands of a removal and an addition; from a commit of neither step it resolves nothing, unless its owner tells
 /// them apart

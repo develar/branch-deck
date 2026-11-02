@@ -50,24 +50,30 @@
     </div>
     <div class="flex min-w-0 flex-col gap-2">
       <p>
+        <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+          createPool
+        </code>
         <span>
-          <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
-            createPool
-          </code>
           in
-          <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
-            db
-            <wbr />
-            /pool.js
-          </code>
+        </span>
+        <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+          db
+          <wbr />
+          /pool.js
+        </code>
+        <span>
           ignored
-          <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
-            POOL_RETRY_LIMIT
-          </code>
+        </span>
+        <code class="font-mono leading-none [overflow-wrap:anywhere]" data-slot="inline-code">
+          POOL_RETRY_LIMIT
+        </code>
+        <span>
           , so
-          <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-sm bg-muted px-1" data-explicit="" data-slot="inline-code">
-            retry
-          </code>
+        </span>
+        <code class="font-mono leading-none [overflow-wrap:anywhere] rounded-xs bg-muted ring-2 ring-muted" data-explicit="" data-slot="inline-code">
+          retry
+        </code>
+        <span>
           never ran, unlike the JavaScript client.
         </span>
       </p>
