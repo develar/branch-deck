@@ -22,7 +22,7 @@ Value x in Point Public Instance 42-42 @42 `int x`
 Value y in Point Public Instance 42-42 @42 `int y`
 Function origin in Point Module Static 46-46 @46 () `static Point origin`
 Type Marker in Declarations Public Static 49-51 @49
-Function value in Marker Public Instance 50-50 @50 () `String value ( ) " "`
+Function value in Marker Public Instance 50-50 @50 () `String value ( ) ""`
 Type Nested in Declarations Module Static 53-53 @53 Module new()
 Type Inner in Declarations Module Instance 54-54 @54 Module new()
 Type PackagePrivate in - Module TopLevel 57-57 @57 Module new()
