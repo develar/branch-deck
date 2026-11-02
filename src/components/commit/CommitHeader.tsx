@@ -11,13 +11,15 @@ import { CommitSubject } from "@/components/commit/CommitSubject"
  *   row of the tree of a review), the subject clamped to two lines, no meta line;
  * - `row`: a row of a list, the subject in `text-sm` clamped to two lines, the line counts muted;
  * - `card`: the card of a row's mark, the subject whole in `text-sm font-medium`;
- * - `heading`: a commit above what follows it (a commit of the preview of a branch, the commit a review shows alone),
- *   the subject whole in `text-md font-medium`;
+ * - `heading`: a commit above what follows it (a commit of the preview of a branch), the subject whole in
+ *   `text-md font-medium`;
+ * - `document`: the commit a review shows alone, the headline of its document, the subject whole in `text-lg
+ *   font-semibold`, the size of the headline of every overview;
  * - `title`: the title of the commit preview, the subject whole in `text-base font-medium`.
  *
  * Every one but the row colours the line counts (`success`, `destructive`)
  */
-export type CommitHeaderVariant = "compact" | "row" | "card" | "heading" | "title"
+export type CommitHeaderVariant = "compact" | "row" | "card" | "heading" | "document" | "title"
 
 export interface CommitHeaderProps extends Omit<CommitMetadataProps, "coloredLineCounts"> {
   subject: string
@@ -35,6 +37,7 @@ export interface CommitHeaderProps extends Omit<CommitMetadataProps, "coloredLin
 const SUBJECT_CLASS: Record<Exclude<CommitHeaderVariant, "row" | "compact">, string> = {
   card: "font-medium",
   heading: "text-md font-medium",
+  document: "text-lg font-semibold",
   title: "text-base font-medium",
 }
 

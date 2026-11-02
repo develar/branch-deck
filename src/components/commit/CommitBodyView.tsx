@@ -5,6 +5,7 @@ import { ChevronRightIcon } from "lucide-react"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { Callout } from "@/components/shared/Callout"
 import { CodeText } from "@/components/shared/CodeText"
+import { DisclosureChevron } from "@/components/shared/Disclosure"
 import { useBodyFold } from "@/hooks/useBodyFold"
 import type { BodyFold } from "@/hooks/useBodyFold"
 import { useCommitBody } from "@/hooks/useCommitBody"
@@ -14,9 +15,10 @@ import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 
 /**
  * The sizes of a body: the reading text of a preview (14/22, `reading`), the card of a row's mark one step smaller
- * (`card`), the opening of a step of a review (`story`: the card's size, its lead a step larger, no trailer)
+ * (`card`), the opening of a step of a review (`story`: the card's size, its lead a step larger, no trailer), a body
+ * inside a disclosure of an opening (`nested`: a story without its larger lead, never larger than its trigger)
  */
-export type BodySize = "reading" | "card" | "story"
+export type BodySize = "reading" | "card" | "story" | "nested"
 
 /** The text of a line of a block, by its item (the line of a paragraph, the item of a list): prose with its code and issue links */
 export type BodyTextRenderer = (text: string, item: number) => ReactNode
@@ -95,6 +97,7 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
   const text = rendering.text ?? codeTextOf(parts)
   const place = rendering.place ?? inPlace
   const lead = parts.lead
+  const closed = parts.folded.filter(({ part }) => !fold.opened.has(part.key))
   return (
     <div
       data-testid={testId}
@@ -104,10 +107,11 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
       className={cn(
         "flex max-w-prose min-w-0 cursor-text flex-col [font-feature-settings:'ss04'] text-foreground select-text",
         size === "reading" ? "gap-4 pb-1 text-md" : "gap-3 text-sm",
+        size === "nested" && "gap-2.5",
         size === "card" && "pb-1 [&_pre]:text-xs",
       )}
       // the opening of a step is no row
-      onClick={size === "story" ? undefined : event => event.stopPropagation()}
+      onClick={size === "story" || size === "nested" ? undefined : event => event.stopPropagation()}
     >
       {empty}
       {lead !== null && (
@@ -118,33 +122,39 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
       {parts.shown.map(part => (
         <BodyPartView key={part.key} part={part} text={text} place={place} revealed={null} />
       ))}
-      {parts.folded.length > 0 && (
-        <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 text-xs" data-testid="commit-body-folded">
-          {parts.folded.map(({ part, name }, index) => (
+      {closed.length > 0 && (
+        // one line of what is still folded, one chevron for it, each name its own toggle: "More: The cause, Tests"
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-1 text-muted-foreground" data-testid="commit-body-folded">
+          <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 self-center" />
+          <span>More:</span>
+          {closed.map(({ part, name }, index) => (
             <Fragment key={part.key}>
-              {index > 0 && (
-                <span aria-hidden className="text-muted-foreground">
-                  ·
-                </span>
-              )}
               <button
                 type="button"
-                aria-expanded={fold.opened.has(part.key)}
+                aria-expanded={false}
                 data-testid="commit-body-fold"
-                className="group flex items-center gap-0.5 rounded-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30 aria-expanded:text-foreground"
+                className="rounded-sm text-foreground underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
                 onClick={() => fold.toggle(part.key)}
               >
-                <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 transition-transform group-aria-expanded:rotate-90" />
                 {name}
               </button>
+              {index < closed.length - 1 && <span aria-hidden>,</span>}
             </Fragment>
           ))}
         </div>
       )}
+      {/* an open part in its place after the line, its label the toggle that folds it: its name once */}
       {parts.folded
         .filter(({ part }) => fold.opened.has(part.key))
-        .map(({ part }) => (
-          <BodyPartView key={part.key} part={part} text={text} place={place} revealed={fold.revealed?.key === part.key ? fold.revealed.serial : null} />
+        .map(({ part, name }) => (
+          <BodyPartView
+            key={part.key}
+            part={part}
+            text={text}
+            place={place}
+            revealed={fold.revealed?.key === part.key ? fold.revealed.serial : null}
+            unfolded={{ name, close: () => fold.toggle(part.key) }}
+          />
         ))}
       {trailers.length > 0 && (
         <div className="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
@@ -157,17 +167,23 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
   )
 }
 
-/** A part of a body: its label or heading above its blocks; a Look closely an info callout, its label the title */
-function BodyPartView({
+/**
+ * A part of a body: its label or heading above its blocks; a Look closely an info callout, its label the title. A
+ * folded part opened (`unfolded`) is headed by the toggle that folds it again, its name once: the label of a labelled
+ * part, "The rest" before blocks of no label
+ */
+export function BodyPartView({
   part,
-  text,
-  place,
-  revealed,
+  text = codeTextOf(NO_PARTS),
+  place = inPlace,
+  revealed = null,
+  unfolded,
 }: {
   part: BodyPart
-  text: NonNullable<BodyRendering["text"]>
-  place: NonNullable<BodyRendering["place"]>
-  revealed: number | null
+  text?: NonNullable<BodyRendering["text"]>
+  place?: NonNullable<BodyRendering["place"]>
+  revealed?: number | null
+  unfolded?: { name: string; close: () => void }
 }) {
   const blocks = part.blocks.map(placed => (
     <Fragment key={placed.index}>{place(placed.index, revealed, <CommitBodyBlockView block={placed.block} text={text(placed.index)} />)}</Fragment>
@@ -183,16 +199,29 @@ function BodyPartView({
       </Callout>,
     )
   }
+  const caption =
+    unfolded !== undefined ? (
+      <button
+        type="button"
+        aria-expanded
+        data-testid="commit-body-unfold"
+        data-slot={head?.block.type === "heading" ? "commit-body-heading" : "commit-body-label"}
+        className="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left font-semibold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+        onClick={unfolded.close}
+      >
+        <DisclosureChevron />
+        {unfolded.name}
+      </button>
+    ) : (
+      head !== null && (
+        <div data-slot={head.block.type === "label" ? "commit-body-label" : "commit-body-heading"} className="font-semibold">
+          {text(head.index)(head.block.text, 0)}
+        </div>
+      )
+    )
   return (
     <div className="flex min-w-0 flex-col gap-1" data-testid="commit-body-part" data-part={part.key}>
-      {head !== null &&
-        place(
-          head.index,
-          revealed,
-          <div data-slot={head.block.type === "label" ? "commit-body-label" : "commit-body-heading"} className="font-semibold">
-            {text(head.index)(head.block.text, 0)}
-          </div>,
-        )}
+      {caption !== false && caption !== null && place(head?.index ?? part.first, revealed, caption)}
       {blocks.length > 0 && <div className="flex min-w-0 flex-col gap-2">{blocks}</div>}
     </div>
   )

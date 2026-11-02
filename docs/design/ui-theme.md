@@ -263,6 +263,10 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
+- **A disclosure is a `Disclosure`** (`src/components/shared/Disclosure.tsx`): a chevron before its title at the size of
+  the text around it, the content opening below, so it grows downward; a folded part of a body, a commit that follows
+  a step up, what the overview folds. The folded parts of a body are one line, one chevron ("More: The cause, Tests"),
+  each name a toggle; an opened part is headed by its label as the toggle that folds it.
 - **Help of a section is a `HelpPopover` right after its title** (`src/components/shared/HelpPopover.tsx`), as the
   context help of IntelliJ: after the title, its count and note, never among the actions, where it reads as one more
   command and its popup hangs over the card edge:
@@ -306,11 +310,14 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - `text-base` (16/24px): dialog titles, also the subject in the commit preview header, the branch name in the
     branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
     preview); a commit as the heading of what follows it (`CommitHeader` `heading` in `CommitCard`: a commit of the
-    branch preview, the commit a review shows alone) is `text-md`, never smaller than its body. One header names a
-    commit everywhere, its size by its place (`CommitHeader`: `compact` the subject line alone of a row of a sidebar,
-  `CommitRow`; `row`, `card`, `heading`, `title`), the "⋯" of the commit at the end of its meta line. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
+    branch preview) is `text-md`, never smaller than its body. One header names a commit everywhere, its size by its
+    place (`CommitHeader`: `compact` the subject line alone of a row of a sidebar, `CommitRow`; `row`, `card`,
+    `heading`, `document`, `title`), the "⋯" of the commit at the end of its meta line. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
     `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
     never `text-lg`.
+  - `text-lg` (18/28px) only for the headline of the document of a review and the subject of the commit a review shows
+    alone (`CommitHeader` `document`): one step above the titles of its openings (`text-base font-semibold`), whose
+    open parts and labels are `text-sm font-semibold`, and the steps of its contents (`text-sm font-medium`).
   - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour
     and drops it next to `text-foreground` (`src/lib/type-scale.test.ts`). A size outside the scale is a `bd-` utility
     (`bd-window-control-glyph`, the 10px Windows caption glyph; `bd-avatar-initials`, the initials in a 20px avatar

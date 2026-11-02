@@ -38,32 +38,36 @@
       </div>
     </div>
   </div>
-  <div class="flex flex-col gap-1.5">
-    <div class="flex flex-col gap-2" data-open="" data-slot="collapsible" data-testid="review-opening-follow-up">
-      <button aria-controls="base-ui-[ID]" aria-expanded="true" class="group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30" data-panel-open="" data-slot="collapsible-trigger" tabindex="0" type="button">
-        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
-        <span class="shrink-0 text-muted-foreground">
-          Follows up:
-        </span>
-        <span class="min-w-0 font-medium" data-testid="review-opening-commit">
-          the rule names its flag again
-        </span>
-      </button>
-      <div class="pl-4.5" data-open="" data-slot="collapsible-content" id="base-ui-[ID]">
-        <div class="flex max-w-prose min-w-0 cursor-text flex-col [font-feature-settings:'ss04'] text-foreground select-text gap-3 text-sm" data-commit="8e529f17b51736d3545c06875f6fe78cd5dfc4b8" data-size="story" data-testid="review-story">
-          <div class="text-md" data-testid="commit-body-lead">
-            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight" data-story-block="8e529f17b51736d3545c06875f6fe78cd5dfc4b8:0">
-              <p>
-                <span>
-                  The review asked for the name of the flag to say what it holds.
-                </span>
-              </p>
+  <ul aria-label="The other commits of the step" class="flex flex-col gap-1.5 text-sm">
+    <li data-testid="review-opening-follow-up">
+      <div class="flex min-w-0 flex-col gap-1.5" data-open="" data-slot="collapsible">
+        <button aria-controls="base-ui-[ID]" aria-expanded="true" class="group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 text-foreground" data-panel-open="" data-slot="collapsible-trigger" tabindex="0" type="button">
+          <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
+          <span class="shrink-0 text-muted-foreground">
+            Follows up
+          </span>
+          <span class="min-w-0">
+            <span data-testid="review-opening-commit">
+              the rule names its flag again
+            </span>
+          </span>
+        </button>
+        <div class="pl-[1.125rem]" data-open="" data-slot="collapsible-content" id="base-ui-[ID]">
+          <div class="flex max-w-prose min-w-0 cursor-text flex-col [font-feature-settings:'ss04'] text-foreground select-text text-sm gap-2.5" data-commit="8e529f17b51736d3545c06875f6fe78cd5dfc4b8" data-size="nested" data-testid="review-story">
+            <div data-testid="commit-body-lead">
+              <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight" data-story-block="8e529f17b51736d3545c06875f6fe78cd5dfc4b8:0">
+                <p>
+                  <span>
+                    The review asked for the name of the flag to say what it holds.
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+    </li>
+  </ul>
   <span class="max-w-prose text-xs text-muted-foreground" data-testid="review-opening-facts">
     <span>
       Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show

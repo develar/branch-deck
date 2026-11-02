@@ -209,6 +209,9 @@ fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and
   // each step is titled by the label of the section it tells, as the author named its task
   let titles: Vec<Option<&str>> = plan.steps.steps.iter().map(|step| step.title.as_deref()).collect();
   assert_eq!(titles, [Some("The scope"), Some("The clock")]);
+  // the block of each label, which the opening names once as the title and the section tells without
+  let labels: Vec<Option<u32>> = plan.steps.steps.iter().map(|step| step.told_as_title).collect();
+  assert_eq!(labels, [Some(1), Some(3)]);
   // two tasks are a story told in steps
   assert!(plan.steps.told);
   // the body is told once, though both steps list its commit

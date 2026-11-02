@@ -155,6 +155,9 @@ pub struct ReviewStep {
   /// step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
   /// changes without a story and a concern no section names, which the page names by its evidence
   pub title: Option<String>,
+  /// The block of the body of the one commit whose label is `title` (`story::add_story_titles`): the opening of the
+  /// step names it once, as its title, and tells the section without it; `None` otherwise
+  pub told_as_title: Option<u32>,
   /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
   /// its id; `None` for a step that shows something
   pub taken_out_by: Option<String>,
@@ -177,6 +180,7 @@ impl ReviewStep {
       new_api: Vec::new(),
       module_links: Vec::new(),
       title: None,
+      told_as_title: None,
       taken_out_by: None,
       code: Vec::new(),
     }

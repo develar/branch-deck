@@ -1,6 +1,6 @@
 <section aria-label="Overview" class="flex max-w-208 min-w-0 flex-col gap-5 px-1 pt-3 pb-1 text-sm" data-testid="review-overview">
   <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-    <h2 class="min-w-0 text-base font-semibold [overflow-wrap:anywhere]" data-testid="review-overview-headline">
+    <h2 class="min-w-0 text-lg font-semibold [overflow-wrap:anywhere]" data-testid="review-overview-headline">
       layout
     </h2>
   </div>
@@ -41,18 +41,19 @@
     </ul>
   </div>
   <div class="flex flex-col gap-2" data-testid="review-contents">
-    <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-      <span class="truncate">
-        Steps
-      </span>
-      <span class="tabular-nums">
-        4
-      </span>
-      <span class="ml-auto font-normal" />
+    <div class="flex flex-col gap-0.5">
+      <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <span class="truncate">
+          Steps
+        </span>
+        <span class="tabular-nums">
+          4
+        </span>
+      </div>
     </div>
     <ol class="flex flex-col gap-3">
       <li class="flex min-w-0 flex-col gap-1" data-step="6c0d95a29fdde55819e751872e4b01b1265af773" data-testid="review-contents-step">
-        <span class="flex min-w-0 items-baseline gap-2">
+        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             1
           </span>
@@ -73,7 +74,7 @@
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="fd351daa52fd564d181e509c8346ea6a57596307" data-testid="review-contents-step">
-        <span class="flex min-w-0 items-baseline gap-2">
+        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             2
           </span>
@@ -112,7 +113,7 @@
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="0b97e3d5beb29847fabff4061daebd80fb553a97" data-testid="review-contents-step">
-        <span class="flex min-w-0 items-baseline gap-2">
+        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             3
           </span>
@@ -136,7 +137,7 @@
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="3d8f4bd0f6cefa4975361c1037d81e9b4853ac55" data-testid="review-contents-step">
-        <span class="flex min-w-0 items-baseline gap-2">
+        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             4
           </span>
@@ -159,23 +160,27 @@
               Proven by restart.json
             </span>
           </span>
-          <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-info/20 bg-info/10" data-slot="callout" data-testid="review-contents-step-look-closely" data-tone="info">
-            <span class="flex h-lh shrink-0 items-center">
-              <svg aria-hidden="true" class="lucide lucide-info size-4 text-info" />
-            </span>
-            <div class="flex min-w-0 flex-1 flex-col gap-1.5 text-muted-foreground">
-              <p class="font-medium text-info">
-                <span>
-                  Look closely
+          <div data-testid="review-contents-step-look-closely">
+            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+              <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-info/20 bg-info/10 text-foreground" data-slot="callout" data-testid="commit-body-look-closely" data-tone="info">
+                <span class="flex h-lh shrink-0 items-center">
+                  <svg aria-hidden="true" class="lucide lucide-info size-4 text-info" />
                 </span>
-              </p>
-              <div class="flex flex-col gap-1.5 text-foreground">
-                <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
-                  <p>
+                <div class="flex min-w-0 flex-1 flex-col gap-1.5 text-muted-foreground">
+                  <p class="font-medium text-info">
                     <span>
-                      the story restarts the window alone, never the whole IDE.
+                      Look closely
                     </span>
                   </p>
+                  <div class="flex flex-col gap-2 text-foreground">
+                    <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+                      <p>
+                        <span>
+                          the story restarts the window alone, never the whole IDE.
+                        </span>
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -185,10 +190,10 @@
     </ol>
   </div>
   <div class="flex flex-col gap-1.5" data-testid="review-plan-breakage">
-    <div class="flex flex-col gap-1" data-closed="" data-slot="collapsible" data-testid="review-plan-unbroken">
-      <button aria-expanded="false" class="group flex min-w-0 items-center gap-1 self-start rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30" data-slot="collapsible-trigger" tabindex="0" type="button">
-        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
-        <span class="truncate">
+    <div class="flex min-w-0 flex-col gap-1.5 text-xs font-medium" data-closed="" data-slot="collapsible" data-testid="review-plan-unbroken">
+      <button aria-expanded="false" class="group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
+        <span class="min-w-0">
           1 API change, no use left outside breaks
         </span>
       </button>

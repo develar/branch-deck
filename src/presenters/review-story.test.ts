@@ -277,9 +277,12 @@ describe("the document of a review", () => {
       ),
     )
     const rule = openings.get("a")!
-    expect([rule.number, rule.title, rule.evidence, textOf(rule.story!).lead]).toEqual(["Step 1", "the rule", null, "One rule decides."])
-    expect(rule.followUps.map(it => [it.title, it.story === null ? null : textOf(it.story).lead])).toEqual([["the rule again", "Renamed it."]])
-    expect(rule.withoutStory.map(it => [it.title, it.story])).toEqual([["wip", null]])
+    expect([rule.number, rule.title, rule.evidence, textOf(rule.story!).lead]).toEqual(["Step 1", "the rule", [], "One rule decides."])
+    // the other commits of the step, one form each: its role muted, its title, a story to open or none
+    expect(rule.commits.map(it => [it.role, it.title, it.story === null ? null : textOf(it.story).lead])).toEqual([
+      ["Follows up", "the rule again", "Renamed it."],
+      ["Without a story", "wip", null],
+    ])
     // a changed declaration is no new API
     expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleLinks.map(({ label, place }) => [label, place])]).toEqual([
       null,
@@ -288,10 +291,10 @@ describe("the document of a review", () => {
       [["Reader.kt → Cache.kt", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
     ])
     const untold = openings.get("no-story")!
-    expect([untold.title, untold.story, untold.withoutStory.map(it => it.title)]).toEqual(["Changes without a story", null, ["tidy"]])
+    expect([untold.title, untold.story, untold.commits.map(it => it.title)]).toEqual(["Changes without a story", null, ["tidy"]])
   })
 
-  it("tells the body of one commit in the openings of the concerns its sections name, its lead and the rest in the overview", () => {
+  it("tells the body of one commit in the openings of the concerns its sections name, the label a title once, its lead and the rest in the overview", () => {
     const concern = (id: string, detail: string): Concern => ({
       id,
       name: { source: "token", token: detail },
@@ -320,8 +323,9 @@ describe("the document of a review", () => {
       [null, null, 0, 0, 1, 1],
     )
     const concerns = [concern("c1", "allowed"), concern("c2", "paint")]
+    // the first task titled by its label, which its opening then tells no more
     const steps = [
-      { ...step("c1", [commit("the open keeps the layout")], [["u:allowed", "src/a/Rule.kt"]]), concern: "c1" },
+      { ...step("c1", [commit("the open keeps the layout")], [["u:allowed", "src/a/Rule.kt"]]), concern: "c1", title: "The rule", toldAsTitle: 2 },
       { ...step("c2", [commit("the open keeps the layout")], [["u:paint", "src/a/Frame.kt"]]), concern: "c2" },
     ]
     const whole = plan(steps, [one], {
@@ -330,9 +334,10 @@ describe("the document of a review", () => {
       steps: { source: { kind: "concerns", reason: "oneCommit" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
     })
     const openings = presentOpenings(whole)
-    expect(textOf(openings.get("c1")!.story!)).toEqual({ lead: null, shown: [["The rule:", "allowed decides."]], folded: [] })
+    expect([openings.get("c1")!.title, textOf(openings.get("c1")!.story!)]).toEqual(["The rule", { lead: null, shown: [["", "allowed decides."]], folded: [] }])
     expect(textOf(openings.get("c2")!.story!)).toEqual({ lead: null, shown: [["The paint:", "paint comes first."]], folded: [] })
-    expect(openings.get("c1")!.evidence).toBe("Joined by the identifier allowed")
+    // what joins the parts of a task, its names code in the line of the facts
+    expect(openings.get("c1")!.evidence).toEqual([{ words: "Joined by the identifier", names: ["allowed"] }])
     // each part told at one place: the lead and what names nothing in the overview
     const prologue = presentPrologue(whole, false)
     expect(prologue.source).toBe("One commit: the steps are its tasks")

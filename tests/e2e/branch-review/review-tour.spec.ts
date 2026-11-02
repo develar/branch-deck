@@ -144,7 +144,7 @@ test.describe("Review tour", () => {
       "Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show · New API: allowed",
     )
     const round = opening.getByTestId("review-opening-follow-up")
-    await expect(round).toContainText("Follows up:the rule names its flag again")
+    await expect(round).toContainText("Follows upthe rule names its flag again")
     await expect(round).not.toContainText("The review asked for the name of the flag")
     await round.getByRole("button", { name: /the rule names its flag again/ }).click()
     await expect(round).toContainText("The review asked for the name of the flag to say what it holds.")
@@ -248,19 +248,24 @@ test.describe("Review tour", () => {
     await expect(restart.getByTestId("commit-body-part").filter({ hasText: "Why not the whole IDE" })).toContainText("A restart of the IDE takes a minute")
     await expect(window.getByTestId("review-contents-step").nth(3).getByTestId("review-contents-step-look-closely")).toContainText("the story restarts the window alone")
     const tests = restart.getByTestId("commit-body-fold")
-    await expect(tests).toHaveText("Tests")
+    const folded = restart.getByTestId("commit-body-folded")
+    await expect(folded).toHaveText("More:Tests")
     await expect(tests).toHaveAttribute("aria-expanded", "false")
     await expect(restart).not.toContainText("restarts the window once")
-    // a name in a folded part marks its section too: a click opens the part, its block outlined
+    // a name in a folded part marks its section too: a click opens the part, its block outlined; the open part is
+    // headed by its label, the toggle that folds it, and leaves the line of what is still folded
     await tree.getByRole("treeitem", { name: "tests/restart.json", exact: true }).click()
     const restartMark = window.locator('[data-testid="diff-view-file"][data-path="tests/restart.json"]').getByTestId("review-story-mark")
     await window.mouse.move(0, 0)
     await restartMark.click()
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
-    await expect(tests).toHaveAttribute("aria-expanded", "true")
+    const unfold = restart.getByTestId("commit-body-unfold")
+    await expect(unfold).toHaveText("Tests")
+    await expect(unfold).toHaveAttribute("aria-expanded", "true")
+    await expect(folded).toHaveCount(0)
     await expect(restart.locator("[data-story-block][data-highlight]")).toHaveText("restart.json restarts the window once")
-    // the disclosure closes the part and opens it again, below the line of the folded parts
-    await tests.click()
+    // its label folds it again, back into the line, and the line opens it again below
+    await unfold.click()
     await expect(tests).toHaveAttribute("aria-expanded", "false")
     await expect(restart).not.toContainText("restarts the window once")
     await tests.click()

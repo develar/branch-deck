@@ -34,7 +34,8 @@
 //!   most of its resolved mentions, the earliest of equal ones; the lead and a part without one stay before the steps
 //!   (`None`). A story of several commits keeps the order of its author: no `told_in`.
 //! - **The title of a step** of those concerns (`add_story_titles`): the label of the first labelled section told in
-//!   it, a verification and a Look closely aside; the name of the concern stays its evidence.
+//!   it, a verification and a Look closely aside, that label's block `told_as_title` (the opening names it once); the
+//!   name of the concern stays its evidence.
 //! - **The facts of a step**: the public declarations it adds (`ReviewStep::new_api`, the keys of `ApiChange` of kind
 //!   `Added` its stops show, a new file's by its path) and the links between modules it adds (`module_links`, by the
 //!   stop that holds the first use), each in one step, the first that holds it.
@@ -583,6 +584,7 @@ pub(crate) fn add_story_titles(steps: &mut [ReviewStep], commits: &[StoryCommit]
     };
     if step.concern.is_some() && step.title.is_none() {
       step.title = Some(title.clone());
+      step.told_as_title = Some(part.start);
     }
   }
 }

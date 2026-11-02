@@ -311,14 +311,18 @@ test.describe("Commit message", () => {
     // the body shows up to its fold, the question of the author whole; the rest named on one line, verification too
     await expect(card.getByTestId("commit-body-look-closely")).toContainText("Decide whether a slower second is better than a blocked one")
     const folds = card.getByTestId("commit-body-fold")
+    await expect(card.getByTestId("commit-body-folded")).toHaveText("More:Why not a lock per key,Tests,Evidence")
     await expect(folds).toHaveText(["Why not a lock per key", "Tests", "Evidence"])
     await expect(card).not.toContainText("the swap test")
-    // a fold opens below the line, the card scrolls, and fades at its bottom while more is below
+    // a fold opens below the line, headed by its label, which leaves the line; the card scrolls, and fades at its
+    // bottom while more is below
     await folds.nth(1).click()
-    await expect(folds.nth(1)).toHaveAttribute("aria-expanded", "true")
+    await expect(card.getByTestId("commit-body-unfold")).toHaveText("Tests")
+    await expect(folds).toHaveText(["Why not a lock per key", "Evidence"])
     await expect(card.getByTestId("commit-body-part").filter({ hasText: "the swap test" })).toBeAttached()
     await folds.nth(0).click()
-    await folds.nth(2).click()
+    await folds.nth(0).click()
+    await expect(card.getByTestId("commit-body-folded")).toHaveCount(0)
     const fade = card.getByTestId("commit-card-fade")
     await expect(fade).toHaveAttribute("data-more", "")
     await card.evaluate(element => element.scrollTo({ top: element.scrollHeight }))

@@ -7,8 +7,11 @@ import type { CardCommit } from "@/lib/commit"
 
 export interface CommitCardProps {
   commit: CardCommit
-  /** The card of a row's mark (`card`, `text-sm`), or a commit above what follows it (`heading`, the reading text) */
-  variant: "card" | "heading"
+  /**
+   * The card of a row's mark (`card`, `text-sm`), a commit above what follows it (`heading`, the reading text), the
+   * commit a review shows alone, the headline of its document (`document`)
+   */
+  variant: "card" | "heading" | "document"
   /** After the subject: a badge ("Merge conflict"), the review button of a preview, the actions of the commit shown alone */
   addon?: ReactNode
   /** In place of the body of its message: the story a review tells of the commit */
@@ -40,7 +43,7 @@ export function CommitCard({ commit, variant, addon, body, menu }: CommitCardPro
       menu={menu}
     />
   )
-  if (variant === "heading") {
+  if (variant !== "card") {
     return (
       <div className="flex min-w-0 flex-col gap-2">
         {header}

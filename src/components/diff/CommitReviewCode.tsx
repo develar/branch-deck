@@ -263,10 +263,9 @@ function openingOf(section: DiffSection, openings: ReadonlyMap<string, OpeningVi
       number: step.number,
       title: step.title,
       code: false,
-      evidence: null,
+      evidence: [],
       story: null,
-      followUps: [],
-      withoutStory: [],
+      commits: [],
       facts: { line: null, newApi: [], moduleLinks: [], takenOutBy: null, unproven: null },
     }
   )

@@ -215,7 +215,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(overview.getByTestId("review-plan-unbroken")).toHaveCount(0)
     // why, folded under it
     const note = overview.getByTestId("review-plan-index-note")
-    const reason = note.getByText(/^No usages: /)
+    const reason = note.getByText(/^Uses unknown: /)
     await expect(reason).toBeHidden()
     await note.getByRole("button", { name: "Why the uses are unknown" }).click()
     await expect(reason).toBeVisible()

@@ -49,11 +49,18 @@ const EVIDENCE_WORDS: Readonly<Record<EvidenceKind, string>> = {
   rest: "the file or the subject of a change",
 }
 
+/** A kind of the evidence of a concern in words and the names it joined by: "Joined by the identifiers", `hide`, `show` */
+export interface EvidencePart {
+  readonly words: string
+  /** The identifiers, declarations or files, code */
+  readonly names: readonly string[]
+}
+
 /**
- * Why the parts of a concern are together, in the hover of its row: "Joined by the identifiers ij-mcp-proxy, ij-proxy ·
- * the uses of open"; each kind once, in the order Rust ranked its evidence (the most joins first)
+ * Why the parts of a concern are together, by kind (`EvidencePart`), each once in the order Rust ranked its evidence:
+ * the facts of the opening of a step set the names as code
  */
-export function formatConcernEvidence(evidence: readonly ConcernEvidence[]): string | null {
+export function presentConcernEvidence(evidence: readonly ConcernEvidence[]): EvidencePart[] {
   const details = new Map<EvidenceKind, string[]>()
   for (const entry of evidence) {
     const names = details.get(entry.kind) ?? []
@@ -62,12 +69,17 @@ export function formatConcernEvidence(evidence: readonly ConcernEvidence[]): str
     }
     details.set(entry.kind, names)
   }
-  if (details.size === 0) {
-    return null
-  }
-  const parts = [...details].map(([kind, names]) => {
+  return [...details].map(([kind, names], index) => {
     const words = kind === "token" && names.length > 1 ? "the identifiers" : EVIDENCE_WORDS[kind]
-    return names.length === 0 ? words : `${words} ${names.join(", ")}`
+    return { words: index === 0 ? `Joined by ${words}` : words, names }
   })
-  return `Joined by ${parts.join(" · ")}`
+}
+
+/**
+ * Why the parts of a concern are together, in the hover of its row: "Joined by the identifiers ij-mcp-proxy, ij-proxy ·
+ * the uses of open"; each kind once, in the order Rust ranked its evidence (the most joins first)
+ */
+export function formatConcernEvidence(evidence: readonly ConcernEvidence[]): string | null {
+  const parts = presentConcernEvidence(evidence).map(({ words, names }) => (names.length === 0 ? words : `${words} ${names.join(", ")}`))
+  return parts.length === 0 ? null : parts.join(" · ")
 }

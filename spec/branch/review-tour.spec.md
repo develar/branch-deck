@@ -230,9 +230,15 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
   calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
-  tells the rest. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
+  tells the rest. Steps of the concerns say why, a muted line right under the count of the steps ("One commit: the
+  steps are its tasks"); a muted note is never pushed to the far end of the column, only a sum is; a range whose
   only step is what no evidence joined, or one concern that covers it, lists no step, and its facts are the facts of the range. Then Possible
-  Breakage and Since your review ([Review Plan](review-plan.spec.md#requirements)). The count line of the old card,
+  Breakage (the uses left outside right after the name of an entry) and Since your review ([Review
+  Plan](review-plan.spec.md#requirements)); why the uses are unknown is folded under Possible Breakage when it lists an
+  entry, else one muted line ("Uses unknown: no index of this repository"). The title of a step wraps at the measure of
+  its lead. The type of the document is one scale: its headline (and the subject of a commit shown alone) `text-lg
+  font-semibold`, the title of an opening and of an open part `text-base`/`text-sm font-semibold`, a step of the
+  contents `text-sm font-medium` (docs/design/ui-theme.md). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
@@ -242,20 +248,25 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
   body](../commit/commit-row.spec.md)): its lead a step larger, its paragraphs, lists, labels as the captions of their
   blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no
-  muted text. A long body shows the parts Rust shows (`parts`), then one line that names the folded parts ("The
-  cause · The fix · Tests · Evidence", a part of no label "More"), each its own disclosure, which opens below the
-  line, so the text grows downward; a verification section (Tests, Evidence, Gates, Verified, Results, Proof, Left
-  out) is folded always, and the author's "Look closely:" shows always, in its place among the shown parts. Then
-  the commits that follow it up, each "Follows up: <subject>" a disclosure of its body, its subject wrapping at the
-  width of the prose, those without a story ("Without a story: …"), the facts of the step in one line and the warning of a step
-  no test reaches, and the group its section starts.
+  muted text. A long body shows the parts Rust shows (`parts`), then one line of what is still folded, one chevron
+  for it ("More: The cause, The fix, Tests, Evidence", a part of no label "The rest"), each name its own toggle; an
+  opened part stands below that line in the order of the body, its label the toggle that folds it again (a chevron
+  before it), so its name shows once and the text grows downward; the line names only what is still folded. A
+  verification section (Tests, Evidence, Gates, Verified, Results, Proof, Left out) is folded always, and the author's
+  "Look closely:" shows always, in its place among the shown parts. Then the other commits of the step, each one row
+  of one form at the size of the text: a muted "Follows up" or "Without a story", its title wrapping at the width of
+  the prose; a commit with a story a disclosure (`Disclosure`, one disclosure of the document: the folds of a body,
+  these rows and what the overview folds) whose body is set `nested`, never larger than its row; then the facts of the
+  step in one muted line (of a task what joins its parts, its names code) and the warning of a step no test reaches,
+  and the group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
-- A step of the concerns of one commit (`toldIn`) must open with what joins its parts ("Joined by the identifier
-  accio") and the parts of the body of that commit told in it; the lead and the parts told before the steps are in
+- A step of the concerns of one commit (`toldIn`) must open with the parts of the body of that commit told in it, the
+  label Rust made its title (`toldAsTitle`) not shown again, and say what joins its parts in the line of its facts
+  ("Joined by the identifier `accio`"); the lead and the parts told before the steps are in
   the overview (in the heading of the commit shown alone), so each part of the body is in one place. A story of
   several commits keeps the order of its author: each part in the opening of its commit's step.
-  [@test] ../../src/presenters/review-story.test.ts (`tells the body of one commit in the openings of the concerns its sections name, its lead and the rest in the overview`)
+  [@test] ../../src/presenters/review-story.test.ts (`tells the body of one commit in the openings of the concerns its sections name, the label a title once, its lead and the rest in the overview`)
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by the label of the first section of the body of its commit it tells (`title`, "The splash"; a verification

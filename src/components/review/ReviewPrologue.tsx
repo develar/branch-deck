@@ -1,16 +1,14 @@
 import { useEffect } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
-import { ChevronRightIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
-import { StoryBlock, StoryBody, StoryLine } from "@/components/review/StoryBody"
-import { Callout } from "@/components/shared/Callout"
+import { StoryBlock, StoryBody, StoryPart } from "@/components/review/StoryBody"
 import { CodeText } from "@/components/shared/CodeText"
+import { Disclosure } from "@/components/shared/Disclosure"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewCommit } from "@/lib/bindings"
@@ -106,7 +104,7 @@ function Headline({ issue, title }: { issue: string | null; title: string }) {
   const summary = key !== null && entry?.status === "found" ? entry.issue.summary : null
   return (
     <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
-      <h2 className="min-w-0 text-base font-semibold [overflow-wrap:anywhere]" data-testid="review-overview-headline">
+      <h2 className="min-w-0 text-lg font-semibold [overflow-wrap:anywhere]" data-testid="review-overview-headline">
         {summary ?? title}
       </h2>
       {issue !== null && (
@@ -122,7 +120,7 @@ function Headline({ issue, title }: { issue: string | null; title: string }) {
 function CommitPart({ commit: { commit, action, menu }, story }: { commit: PrologueCommit; story: StoryView | null }) {
   return (
     <div className="flex min-w-0 flex-col" data-testid="range-review-commit-header">
-      <CommitCard commit={toCardCommit(commit)} variant="heading" addon={action} menu={menu} body={story === null ? undefined : <StoryBody story={story} />} />
+      <CommitCard commit={toCardCommit(commit)} variant="document" addon={action} menu={menu} body={story === null ? undefined : <StoryBody story={story} />} />
     </div>
   )
 }
@@ -172,9 +170,15 @@ function PrologueSections({ view }: { view: PrologueView }) {
       )}
       {view.steps.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="review-contents">
-          <SectionLabel title="Steps" count={view.steps.length}>
-            {view.source !== null && <span className="text-xs text-muted-foreground">{view.source}</span>}
-          </SectionLabel>
+          <div className="flex flex-col gap-0.5">
+            <SectionLabel title="Steps" count={view.steps.length} />
+            {/* why the steps are tasks, right under their count, not at the far end of the column */}
+            {view.source !== null && (
+              <p className="text-xs text-muted-foreground" data-testid="review-contents-source">
+                {view.source}
+              </p>
+            )}
+          </div>
           <ol className="flex flex-col gap-3">
             {view.steps.map(step => (
               <ContentsItem key={step.id} step={step} onShow={navigator === null ? null : () => navigator.showStep(step.id)} />
@@ -183,7 +187,12 @@ function PrologueSections({ view }: { view: PrologueView }) {
         </div>
       )}
       {view.facts !== null && <StepFactsLine facts={view.facts} testId="review-overview-facts" />}
-      {(breakage.entries.length > 0 || breakage.unbroken !== null || view.indexNote !== null) && (
+      {view.indexNote !== null && !view.indexNote.underBreakage && (
+        <p className="text-xs text-muted-foreground" data-testid="review-plan-index-note">
+          {view.indexNote.text}
+        </p>
+      )}
+      {(breakage.entries.length > 0 || breakage.unbroken !== null || view.indexNote?.underBreakage === true) && (
         <div className="flex flex-col gap-1.5" data-testid="review-plan-breakage">
           {breakage.entries.length > 0 && (
             <>
@@ -196,7 +205,7 @@ function PrologueSections({ view }: { view: PrologueView }) {
             </>
           )}
           {breakage.unbroken !== null && (
-            <Folded title={breakage.unbroken.label} testId="review-plan-unbroken">
+            <Disclosure tone="muted" title={breakage.unbroken.label} testId="review-plan-unbroken" className="text-xs font-medium">
               <ul aria-label="API changes no use left outside breaks" className="flex flex-col gap-0.5">
                 {breakage.unbroken.entries.map(entry => (
                   <li key={entry.key} className="flex min-w-0 items-center gap-2" data-testid="review-plan-unbroken-entry" data-name={entry.name}>
@@ -208,12 +217,12 @@ function PrologueSections({ view }: { view: PrologueView }) {
                   </li>
                 ))}
               </ul>
-            </Folded>
+            </Disclosure>
           )}
-          {view.indexNote !== null && (
-            <Folded title="Why the uses are unknown" testId="review-plan-index-note">
-              <p className="text-xs text-muted-foreground">{view.indexNote}</p>
-            </Folded>
+          {view.indexNote?.underBreakage === true && (
+            <Disclosure tone="muted" title="Why the uses are unknown" testId="review-plan-index-note" className="text-xs font-medium">
+              <p className="font-normal text-muted-foreground">{view.indexNote.text}</p>
+            </Disclosure>
           )}
         </div>
       )}
@@ -231,11 +240,14 @@ function PrologueSections({ view }: { view: PrologueView }) {
   )
 }
 
-/** A step of the contents: its number and full title, which show its opening; the lead of its body; its facts; the Look closely of its author */
+/**
+ * A step of the contents: its number and full title, which show its opening, wrapping at the measure of its lead; the
+ * lead of its body; its facts; the Look closely of its author, the one view of that part of a body (`StoryPart`)
+ */
 function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => void) | null }) {
   return (
     <li className="flex min-w-0 flex-col gap-1" data-testid="review-contents-step" data-step={step.id}>
-      <span className="flex min-w-0 items-baseline gap-2">
+      <span className="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
         <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{step.number}</span>
         <button
           type="button"
@@ -263,18 +275,9 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
         )}
         <StepFactsLine facts={step.facts} testId="review-contents-step-facts" />
         {step.lookClosely.map(({ story, part }) => (
-          <Callout
-            key={part.key}
-            tone="info"
-            title={part.head?.block.type === "label" ? <StoryLine story={story} block={part.head.index} text={part.head.block.text} /> : undefined}
-            data-testid="review-contents-step-look-closely"
-          >
-            <div className="flex flex-col gap-1.5 text-foreground">
-              {part.blocks.map(placed => (
-                <StoryBlock key={placed.index} story={story} placed={placed} told={false} />
-              ))}
-            </div>
-          </Callout>
+          <div key={part.key} data-testid="review-contents-step-look-closely">
+            <StoryPart story={story} part={part} />
+          </div>
         ))}
       </div>
     </li>
@@ -297,7 +300,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
           <span className="text-xs text-muted-foreground">{entry.location}</span>
         </FileButton>
         {entry.changed !== null && <span className="shrink-0 text-xs text-muted-foreground">{entry.changed}</span>}
-        <span className="ml-auto shrink-0 text-xs text-warning tabular-nums" data-testid="review-plan-outside">
+        <span className="shrink-0 text-xs text-warning tabular-nums" data-testid="review-plan-outside">
           {entry.outside}
         </span>
       </div>
@@ -338,20 +341,6 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
         </span>
       )}
     </li>
-  )
-}
-
-/** A part of the overview that starts collapsed under a muted toggle with its title and count */
-function Folded({ title, count, testId, children }: { title: string; count?: number; testId: string; children: ReactNode }) {
-  return (
-    <Collapsible className="flex flex-col gap-1" data-testid={testId}>
-      <CollapsibleTrigger className="group flex min-w-0 items-center gap-1 self-start rounded-sm text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30">
-        <ChevronRightIcon className="size-3.5 shrink-0 transition-transform group-data-[panel-open]:rotate-90" />
-        <span className="truncate">{title}</span>
-        {count !== undefined && <span className="tabular-nums">{count}</span>}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="pl-4.5">{children}</CollapsibleContent>
-    </Collapsible>
   )
 }
 

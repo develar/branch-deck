@@ -6794,6 +6794,11 @@ export type ReviewStep = {
 	 */
 	title: string | null,
 	/**
+	 *  The block of the body of the one commit whose label is `title` (`story::add_story_titles`): the opening of the
+	 *  step names it once, as its title, and tells the section without it; `None` otherwise
+	 */
+	toldAsTitle: number | null,
+	/**
 	 *  Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
 	 *  its id; `None` for a step that shows something
 	 */

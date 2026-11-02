@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { BodyPartsView, CommitBodyBlockView } from "@/components/commit/CommitBodyView"
+import { BodyPartView, BodyPartsView, CommitBodyBlockView } from "@/components/commit/CommitBodyView"
 import type { BodyTextRenderer } from "@/components/commit/CommitBodyView"
 import { StoryText } from "@/components/review/StoryText"
 import { useBodyFold } from "@/hooks/useBodyFold"
 import { useStoryHighlight } from "@/hooks/useStoryHighlight"
 import type { StoryHighlight } from "@/hooks/useStoryHighlight"
-import type { PlacedBlock } from "@/presenters/commit-body"
+import type { BodyPart, PlacedBlock } from "@/presenters/commit-body"
 import { codeOf } from "@/presenters/commit-body"
 import type { StoryView } from "@/presenters/review-story"
 
@@ -69,6 +69,24 @@ function StoryAnchor({ story, index, told = true, revealed = null, children }: S
   )
 }
 
+/**
+ * A part of a story copied where it is not told (the Look closely of a step in the contents of the overview): the one
+ * view of a part of a body (`BodyPartView`, a Look closely its callout), its code names links, no place a mark shows
+ */
+export function StoryPart({ story, part }: { story: StoryView; part: BodyPart }) {
+  return (
+    <BodyPartView
+      part={part}
+      text={index => storyText(story, index)}
+      place={(index, _revealed, node) => (
+        <StoryAnchor story={story} index={index} told={false}>
+          {node}
+        </StoryAnchor>
+      )}
+    />
+  )
+}
+
 /** A block of a story at its place in the body (`StoryAnchor`) */
 export function StoryBlock({ placed, ...props }: StoryPlaceProps & { placed: PlacedBlock }) {
   return (
@@ -83,7 +101,7 @@ export function StoryBlock({ placed, ...props }: StoryPlaceProps & { placed: Pla
  * a body (`BodyPartsView`) at the size of a story, its lead a step larger, no trailer; its code names links, each block
  * at its place (`StoryAnchor`), a part a mark of a section of the diffs showed opened
  */
-export function StoryBody({ story }: { story: StoryView }) {
+export function StoryBody({ story, size = "story" }: { story: StoryView; size?: "story" | "nested" }) {
   const fold = useBodyFold()
   // a mark of a section of the diffs showed a block a fold holds: its part opens, its blocks outlined as they mount
   const highlight = useFreshHighlight()
@@ -98,7 +116,7 @@ export function StoryBody({ story }: { story: StoryView }) {
   return (
     <BodyPartsView
       parts={story}
-      size="story"
+      size={size}
       fold={fold}
       rendering={{
         text: index => storyText(story, index),
