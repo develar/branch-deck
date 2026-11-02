@@ -11,7 +11,8 @@
 //!   interface), of an enum constant, of a record component, of a type parameter (and its uses as a type).
 //! - **Uses**: a field after a qualifier (`this.count`, `Box.LIMIT`: static when the qualifier is a type name or the
 //!   name a constant's), a static call (`Math.max`), and an unqualified name that is a field of a class around it with
-//!   no local or parameter of that name in between (`highlight::scopes`).
+//!   no local or parameter of that name in between (`highlight::scopes`): the members of an anonymous class from its
+//!   `{` (`anonymous_body`), a pattern variable where Java sees it (`is_pattern_scope`).
 //!
 //! One pass over the nodes in preorder (their ids), with a stack of the open nodes that colour or scope their subtree:
 //! no recursion, whatever the nesting.
@@ -83,6 +84,15 @@ impl Painter<'_> {
         continue;
       }
       if tree.is_leaf(node) {
+        if let Some(class) = anonymous_body(tree, node) {
+          let members = self.members(class);
+          self.scopes.push_class(class.0 as usize, members);
+          open.push(Open {
+            end: tree.subtree_end(class).0,
+            node: class,
+            style: None,
+          });
+        }
         if !tree.range(node).is_empty() {
           self.leaf(out, node, around);
         }
@@ -113,12 +123,13 @@ impl Painter<'_> {
       NodeKind::ANNOTATION => Entered::Styled(Role::Annotation.style()),
       // the arguments of an annotation are code, the names of its elements too
       NodeKind::ANNOTATION_PARAMETER_LIST => Entered::Styled(Role::Foreground.style()),
-      kind if is_class(kind) => {
+      // the members of an anonymous class are seen from its `{`, not by its arguments (`anonymous_body`)
+      kind if is_class(kind) && kind != NodeKind::ANONYMOUS_CLASS => {
         let members = self.members(node);
         self.scopes.push_class(node.0 as usize, members);
         Entered::Scope
       }
-      kind if is_local_scope(kind) => {
+      kind if is_local_scope(kind) || is_pattern_scope(tree, node, kind) => {
         self.scopes.push_local(node.0 as usize);
         Entered::Scope
       }
@@ -306,6 +317,15 @@ pub(super) const fn is_class(kind: NodeKind) -> bool {
   )
 }
 
+/// The anonymous class whose body a leaf opens: its `{`, after its arguments (`new Base(name) { String name; }`), which
+/// are the code around it and see none of its members
+pub(super) fn anonymous_body(tree: &Tree, leaf: NodeId) -> Option<NodeId> {
+  if tree.token_kind(leaf) != Some(TokenKind::LBRACE) {
+    return None;
+  }
+  tree.parent(leaf).filter(|&it| tree.node_kind(it) == Some(NodeKind::ANONYMOUS_CLASS))
+}
+
 /// A node of code whose parameters and locals no name outside it sees: a method, a lambda, an initializer, a block, a
 /// `for`, a `catch`, a `try` with resources, a switch rule
 pub(super) const fn is_local_scope(kind: NodeKind) -> bool {
@@ -323,6 +343,146 @@ pub(super) const fn is_local_scope(kind: NodeKind) -> bool {
       | NodeKind::TRY_STATEMENT
       | NodeKind::SWITCH_LABELED_RULE
   )
+}
+
+/// A node whose pattern variables (`s` of `o instanceof String s`) no name after it sees (JLS 6.3.1): an `if`, a
+/// `while` or a `do` whose condition introduces none past the statement, a `? :`, an expression statement, a `return`,
+/// a `yield`, a `throw`, an `assert` and a field. A pattern variable seen past its statement
+/// (`if (!(o instanceof String s)) return;`) belongs to the block around, as a local declared there.
+pub(super) fn is_pattern_scope(tree: &Tree, node: NodeId, kind: NodeKind) -> bool {
+  match kind {
+    NodeKind::IF_STATEMENT | NodeKind::WHILE_STATEMENT | NodeKind::DO_WHILE_STATEMENT => !introduces_past(tree, node, kind),
+    NodeKind::CONDITIONAL_EXPRESSION
+    | NodeKind::EXPRESSION_STATEMENT
+    | NodeKind::RETURN_STATEMENT
+    | NodeKind::YIELD_STATEMENT
+    | NodeKind::THROW_STATEMENT
+    | NodeKind::ASSERT_STATEMENT
+    | NodeKind::FIELD => true,
+    _ => false,
+  }
+}
+
+/// Whether an `if`, a `while` or a `do` introduces a pattern variable of its condition to the statements after it
+/// (JLS 6.3.2): `if (e) S` when `e` introduces one when false and `S` cannot complete normally; `if (e) S else T` when
+/// `e` does when true and only `T` cannot complete normally, or when false and only `S` cannot; a loop when `e` does
+/// when false and its body has no `break` of its own
+fn introduces_past(tree: &Tree, statement: NodeId, kind: NodeKind) -> bool {
+  let Some(condition) = child_after(tree, statement, TokenKind::LPARENTH) else {
+    return false;
+  };
+  let (when_true, when_false) = (introduces(tree, condition, true), introduces(tree, condition, false));
+  if !when_true && !when_false {
+    return false;
+  }
+  if kind != NodeKind::IF_STATEMENT {
+    let body = if kind == NodeKind::DO_WHILE_STATEMENT {
+      child_after(tree, statement, TokenKind::DO_KEYWORD)
+    } else {
+      child_after(tree, statement, TokenKind::RPARENTH)
+    };
+    return when_false && !body.is_some_and(|it| breaks_out(tree, it));
+  }
+  let then = child_after(tree, statement, TokenKind::RPARENTH).is_none_or(|it| completes_normally(tree, it));
+  match child_after(tree, statement, TokenKind::ELSE_KEYWORD) {
+    None => when_false && !then,
+    Some(otherwise) => {
+      let otherwise = completes_normally(tree, otherwise);
+      (when_true && then && !otherwise) || (when_false && !then && otherwise)
+    }
+  }
+}
+
+/// Whether a condition introduces a pattern variable when it is `polarity` (JLS 6.3.1): an `instanceof` with a pattern
+/// when true, `!` swaps, `&&` when true and `||` when false by their operands, parentheses as their operand
+fn introduces(tree: &Tree, condition: NodeId, polarity: bool) -> bool {
+  let mut pending = vec![(condition, polarity)];
+  while let Some((node, polarity)) = pending.pop() {
+    let operands = tree.children(node).filter(|&it| !tree.is_leaf(it));
+    match tree.node_kind(node) {
+      Some(NodeKind::INSTANCE_OF_EXPRESSION) => {
+        let pattern = tree
+          .children(node)
+          .find(|&it| matches!(tree.node_kind(it), Some(NodeKind::TYPE_TEST_PATTERN | NodeKind::DECONSTRUCTION_PATTERN)));
+        if polarity
+          && pattern.is_some_and(|it| {
+            tree
+              .descendants(it)
+              .any(|it| matches!(tree.node_kind(it), Some(NodeKind::PATTERN_VARIABLE | NodeKind::DECONSTRUCTION_PATTERN_VARIABLE)))
+          })
+        {
+          return true;
+        }
+      }
+      Some(NodeKind::PARENTH_EXPRESSION) => pending.extend(operands.map(|it| (it, polarity))),
+      Some(NodeKind::PREFIX_EXPRESSION) if has_token(tree, node, TokenKind::EXCL) => pending.extend(operands.map(|it| (it, !polarity))),
+      Some(NodeKind::BINARY_EXPRESSION | NodeKind::POLYADIC_EXPRESSION)
+        if (polarity && has_token(tree, node, TokenKind::ANDAND)) || (!polarity && has_token(tree, node, TokenKind::OROR)) =>
+      {
+        pending.extend(operands.map(|it| (it, polarity)));
+      }
+      _ => {}
+    }
+  }
+  false
+}
+
+/// Whether a statement can complete normally, as far as its syntax tells: not a `return`, a `throw`, a `break`, a
+/// `continue` or a `yield`, a block whose last statement cannot, an `if` with an `else` neither of whose branches can
+fn completes_normally(tree: &Tree, statement: NodeId) -> bool {
+  let mut pending = vec![statement];
+  while let Some(statement) = pending.pop() {
+    match tree.node_kind(statement) {
+      Some(NodeKind::RETURN_STATEMENT | NodeKind::THROW_STATEMENT | NodeKind::BREAK_STATEMENT | NodeKind::CONTINUE_STATEMENT | NodeKind::YIELD_STATEMENT) => {}
+      Some(NodeKind::BLOCK_STATEMENT) => {
+        let last = tree
+          .first_child_of_kind(statement, NodeKind::CODE_BLOCK)
+          .and_then(|block| tree.children(block).filter(|&it| !tree.is_leaf(it)).last());
+        match last {
+          Some(last) => pending.push(last),
+          None => return true,
+        }
+      }
+      Some(NodeKind::IF_STATEMENT) => match (child_after(tree, statement, TokenKind::RPARENTH), child_after(tree, statement, TokenKind::ELSE_KEYWORD)) {
+        (Some(then), Some(otherwise)) => pending.extend([then, otherwise]),
+        _ => return true,
+      },
+      _ => return true,
+    }
+  }
+  false
+}
+
+/// Whether the body of a loop has a `break` that leaves it: one outside the loops, switches, lambdas and classes in it
+fn breaks_out(tree: &Tree, body: NodeId) -> bool {
+  tree
+    .descendants_pruned(body, |it| {
+      tree.node_kind(it).is_some_and(|kind| {
+        is_class(kind)
+          || matches!(
+            kind,
+            NodeKind::WHILE_STATEMENT
+              | NodeKind::DO_WHILE_STATEMENT
+              | NodeKind::FOR_STATEMENT
+              | NodeKind::FOREACH_STATEMENT
+              | NodeKind::FOREACH_PATTERN_STATEMENT
+              | NodeKind::SWITCH_STATEMENT
+              | NodeKind::SWITCH_EXPRESSION
+              | NodeKind::LAMBDA_EXPRESSION
+          )
+      })
+    })
+    .any(|it| tree.node_kind(it) == Some(NodeKind::BREAK_STATEMENT))
+}
+
+/// The first composite child of a node after its child token `token`: the condition after `(`, the branch after `)`
+/// or `else`
+fn child_after(tree: &Tree, node: NodeId, token: TokenKind) -> Option<NodeId> {
+  tree.children(node).skip_while(|&it| tree.token_kind(it) != Some(token)).find(|&it| !tree.is_leaf(it))
+}
+
+fn has_token(tree: &Tree, node: NodeId, token: TokenKind) -> bool {
+  tree.children(node).any(|it| tree.token_kind(it) == Some(token))
 }
 
 /// A Javadoc, a composite of the token `DOC_COMMENT` (`/** … */`) or `DOC_MARKDOWN_COMMENT` (`///` lines): a comment,

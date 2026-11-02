@@ -11,12 +11,13 @@
 //! - **Its declaration** by the scopes around it, in one walk of the tree that keeps only the declarations of that
 //!   name: a class sees its members, its record components and its type parameters wherever they are declared (the
 //!   last one before the name, else the first), a method its type parameters, and a method, a lambda, a block, a `for`,
-//!   a `catch`, a `try` and a switch rule the parameters and locals declared before the name. `break` and `continue`
-//!   go to their label. A member after a qualifier has none.
+//!   a `catch`, a `try` and a switch rule the parameters and locals declared before the name, a statement the pattern
+//!   variables of its condition (`highlight::is_pattern_scope`). `break` and `continue` go to their label. A member
+//!   after a qualifier has none.
 //! - **The usages** of a local (declared in a method, a lambda or an initializer) are the names bound to it; those of
 //!   any other name are its names that no local binds, each with how it uses the name (`access_of`).
 
-use super::highlight::{is_callee, is_class, is_doc_comment, is_local_scope, is_path_owner, name_leaf, qualifier, reference_owner, text_of};
+use super::highlight::{anonymous_body, is_callee, is_class, is_doc_comment, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
 use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 
@@ -220,6 +221,12 @@ fn resolve(tree: &Tree, name: &str, until: Option<NodeId>) -> Vec<Named> {
       continue;
     }
     if tree.is_leaf(node) {
+      if let Some(class) = anonymous_body(tree, node) {
+        frames.push(Frame {
+          end: tree.subtree_end(class).0,
+          declared: hoisted(tree, class, &is_named),
+        });
+      }
       if is_named(node) {
         let (kind, _) = kind_of(tree, node);
         let binding = match kind {
@@ -254,7 +261,8 @@ fn resolve(tree: &Tree, name: &str, until: Option<NodeId>) -> Vec<Named> {
       {
         labels.push((tree.subtree_end(node).0, label));
       }
-      if is_scope(kind) {
+      // an anonymous class opens its scope at its `{` (`anonymous_body`)
+      if (is_scope(kind) && kind != NodeKind::ANONYMOUS_CLASS) || is_pattern_scope(tree, node, kind) {
         frames.push(Frame {
           end: tree.subtree_end(node).0,
           declared: hoisted(tree, node, &is_named),

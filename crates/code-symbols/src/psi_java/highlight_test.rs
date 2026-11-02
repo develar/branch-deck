@@ -122,3 +122,19 @@ fn a_comment_inside_a_text_block_is_its_text() {
   let text = "class A {\n  String s = \"\"\"\n    \\t/* not a comment */\n    \"\"\";\n}\n";
   assert_eq!(style_at(text, "/*", 0), Role::String.style());
 }
+
+#[test]
+fn a_pattern_variable_hides_the_field_only_where_java_sees_it() {
+  let text = "class A {\n  String name;\n  void f(Object o) {\n    if (o instanceof String name) name.length();\n    name.trim();\n    if (!(o instanceof String name)) return;\n    name.strip();\n  }\n}\n";
+  assert_eq!(
+    (style_at(text, "name.length", 0), style_at(text, "name.trim", 0), style_at(text, "name.strip", 0)),
+    (0, FIELD, 0)
+  );
+}
+
+#[test]
+fn the_arguments_of_an_anonymous_class_see_no_member_of_it() {
+  let text = "class A {\n  void f(String name) {\n    new Base(name) {\n      String name;\n      void g() { use(name); }\n    };\n  }\n}\n";
+  // the parameter in the arguments, the field of the class in its body
+  assert_eq!((style_at(text, "name) {", 1), style_at(text, "name);", 0)), (0, FIELD));
+}
