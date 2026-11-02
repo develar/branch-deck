@@ -124,7 +124,7 @@ src/
 │   ├── shared/      # Shared app components (cards, inline forms, copy button, context menus, title bar)
 │   ├── repository/  # Header, repository selector, welcome card, Your Turn
 │   ├── branch/      # Branch tables, rows, inline actions, the Safe Push popover
-│   ├── commit/      # Commit list, commit info, floating selection bar
+│   ├── commit/      # Commit list, commit info, the selection bar above the commits
 │   ├── unassigned/  # Unassigned commits card and inline branch creator
 │   ├── conflict/    # Conflict and missing-commits views
 │   ├── diff/        # Diff views on the diff engine (lazy chunk)

@@ -3,6 +3,13 @@
     <div class="bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0 pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem)]" data-lane-end="" style="--bd-rail-lane: 0">
       <div class="flex flex-col gap-2 pr-6" data-testid="commit-rail">
         <div class="flex flex-col gap-2">
+          <div class="px-4 sm:px-6">
+            <div class="flex h-6 items-center justify-end gap-2" data-testid="commit-list-bar">
+              <span class="text-xs text-muted-foreground">
+                Select commits to move or squash them
+              </span>
+            </div>
+          </div>
           <div>
             <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="0">
               <tbody class="divide-y divide-border">

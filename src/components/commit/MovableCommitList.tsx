@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import type { ReactNode } from "react"
 import { cn } from "cn"
 import { CombineIcon, FolderInputIcon, UndoDotIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -90,6 +91,32 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
 }
 
 /**
+ * The line above the commits of an expanded branch: the selection's actions, "N selected" alone while its "Move to…" form
+ * is open, then `children` (the "Squash N Fixups…" of the branch); with nothing selected, the hint of what a selection
+ * does where the line holds nothing else (`hint`). It is one `xs` button high whatever it holds, so selecting or
+ * deselecting a commit never moves a row.
+ */
+export function CommitListBar<T extends Commit>({ moveList, hint, children }: { moveList: CommitMoveList<T>; hint: boolean; children?: ReactNode }) {
+  const { selection, isTargetOpen } = moveList
+  return (
+    <div className="flex h-6 items-center justify-end gap-2" data-testid="commit-list-bar">
+      {selection.selectedCount === 0 ? (
+        hint && <span className="text-xs text-muted-foreground">Select commits to move or squash them</span>
+      ) : isTargetOpen ? (
+        <SelectedCount count={selection.selectedCount} />
+      ) : (
+        <CommitSelectionActions moveList={moveList} />
+      )}
+      {children}
+    </div>
+  )
+}
+
+function SelectedCount({ count }: { count: number }) {
+  return <span className="text-xs text-muted-foreground">{`${count} selected`}</span>
+}
+
+/**
  * "N selected", "Move to…", "Squash" (for two commits or more) and "Move Back to ABC-1" (if a selected commit has a
  * prefix); nothing without a selection.
  */
@@ -100,7 +127,7 @@ export function CommitSelectionActions<T extends Commit>({ moveList, className }
   }
   return (
     <div className={cn("flex items-center gap-2", className)} data-testid="selection-actions">
-      <span className="text-xs text-muted-foreground">{`${selection.selectedCount} selected`}</span>
+      <SelectedCount count={selection.selectedCount} />
       <Button size="xs" variant="outline" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => moveList.openTarget()}>
         <FolderInputIcon data-icon="inline-start" />
         Move to…

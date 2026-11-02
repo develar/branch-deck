@@ -6,12 +6,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { FamilyGuide, LanesBelow } from "@/components/branch/StackLanes"
 import { StackProblemAlert } from "@/components/branch/StackProblemAlert"
-import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
+import { CommitListBar, MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { getBranchUnstackItem } from "@/hooks/useBranchContextActions"
-import { hasSelectionActions, useCommitMoveList } from "@/hooks/useCommitMoveList"
+import { useCommitMoveList } from "@/hooks/useCommitMoveList"
 import { useListFixups } from "@/hooks/useSquashFixups"
 import { getCommitHash } from "@/lib/commit"
 import { robotRailMarks } from "@/lib/robot-coverage"
@@ -161,7 +161,8 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
 }
 
 /**
- * The commits of the branch; select them to move them to another branch (or drag them onto one). On the lane of a stack
+ * The commits of the branch; select them to move them to another branch (or drag them onto one), their actions in the
+ * line above them that is always there (`CommitListBar`). On the lane of a stack
  * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child. A commit the
  * remote lacks has the push arrow of Push Up to Here (`pushUpToCommitsIn`), and the commits its hovered button sends are
  * tinted.
@@ -183,12 +184,11 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
   )
   return (
     <div className="flex flex-col gap-2">
-      {(hasSelectionActions(moveList) || fixupCount > 0) && (
-        <div className="flex items-center justify-end gap-2 px-4 sm:px-6">
-          <CommitSelectionActions moveList={moveList} />
+      <div className="px-4 sm:px-6">
+        <CommitListBar moveList={moveList} hint={fixupCount === 0}>
           <SquashFixupsButton branch={branch.name} />
-        </div>
-      )}
+        </CommitListBar>
+      </div>
       <MovableCommitList
         moveList={moveList}
         commits={commits}

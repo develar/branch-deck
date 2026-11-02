@@ -92,6 +92,14 @@ async function expectUndoTakenBack({ toast, entry }: UndoSurfaces): Promise<void
   await expect(entry.getByTestId("activity-undone")).toHaveCount(0)
 }
 
+/** How far the top of `element` is below the top of `anchor` */
+async function offsetBelow(element: Locator, anchor: Locator): Promise<number> {
+  const [elementBox, anchorBox] = [await element.boundingBox(), await anchor.boundingBox()]
+  expect(elementBox).not.toBeNull()
+  expect(anchorBox).not.toBeNull()
+  return elementBox!.y - anchorBox!.y
+}
+
 async function branchOrder(page: Page): Promise<string[]> {
   return page.getByTestId("branch-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-branch-name") ?? ""))
 }
@@ -129,6 +137,47 @@ test.describe("Move commits", () => {
     await expect(getBranchCommitRow(page, "lexer", "Add lexer")).toHaveAttribute("data-selected", "true")
     await expect(getBranchCommitRow(page, "lexer", "Add tokens")).toHaveAttribute("data-selected", "true")
     await expect(getBranchDetailsRow(page, "lexer").locator("[data-row-id]").filter({ hasText: "ABC-123" })).toHaveCount(0)
+  })
+
+  test("should keep the rows in place as commits are selected and deselected", async ({ page }) => {
+    // docs is above the issue branch
+    const docsRow = findBranchRow(page, "docs")
+    await expandBranch(page, docsRow)
+    const bar = getBranchDetailsRow(page, "docs").getByTestId("commit-list-bar")
+    await expect(bar).toHaveText("Select commits to move or squash them")
+    const docsCommit = getBranchCommitRow(page, "docs", "Update documentation")
+    const unassignedCard = page.getByTestId("unassigned-commits-section")
+    const unassignedCommit = getUnassignedCommitRow(page, "Refactor build script")
+    // from the row of the branch and the top of the card: a scroll moves them alike
+    const offsets = async () => [
+      await offsetBelow(docsCommit, docsRow),
+      await offsetBelow(findBranchRow(page, ISSUE), docsRow),
+      await offsetBelow(unassignedCommit, unassignedCard),
+    ]
+    const idle = await offsets()
+    expect(idle[1]).toBeGreaterThan(idle[0]!)
+
+    await selectCommit(docsCommit)
+    await expect(bar.getByTestId("selection-actions")).toContainText("1 selected")
+    expect(await offsets()).toEqual(idle)
+
+    // the open form takes the actions; the line keeps the count
+    await bar.getByRole("button", { name: "Move to…" }).click()
+    await inlineBranchCreator.waitForVisible(page)
+    await expect(bar).toHaveText("1 selected")
+    await inlineBranchCreator.getCancelButton(page).click()
+    await inlineBranchCreator.waitForHidden(page)
+    await expect(bar.getByTestId("selection-actions")).toContainText("1 selected")
+
+    await docsCommit.click({ modifiers: ["ControlOrMeta"] })
+    await expect(docsCommit).toHaveAttribute("data-selected", "false")
+    await expect(bar).toHaveText("Select commits to move or squash them")
+    expect(await offsets()).toEqual(idle)
+
+    // the selection's actions in the header of the unassigned card keep its height too
+    await selectCommit(unassignedCommit)
+    await expect(unassignedCard.getByTestId("selection-actions")).toContainText("1 selected")
+    expect(await offsets()).toEqual(idle)
   })
 
   test("should move a commit to an existing branch from the context menu and undo it", async ({ page }) => {

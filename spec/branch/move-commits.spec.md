@@ -195,6 +195,11 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../src/stores/commit-move.test.ts (`clears the selected branches and their form when a commit list takes the selection`)
 - A selection must show "N selected" and a "Move to…" button, above the branch commits or in the unassigned card header;
   selected branches "N branches selected", "Move to…" and a clear button above the branch table.
+- Selecting or deselecting a commit must not move a row: the line above the branch commits is there whether or not
+  commits are selected, and the header of the unassigned card keeps its height with the selection's actions in it. With
+  nothing selected the line says "Select commits to move or squash them" (where it holds no "Squash N Fixups…"); while
+  the "Move to…" form is open, "N selected".
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
 - A selection with a way back must also offer it: "Move Back to ABC-123" (the issue group of the key when it has
   one, see [Issue Groups](issue-groups.spec.md); the issue branch of the key for a commit an issue group holds), "Move
   to Unassigned", "Remove Prefix", or "Move Back" when they go back to several branches.
@@ -366,7 +371,10 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 ## User Experience
 
-- The selection actions sit right-aligned above the branch commits, in the card header for the unassigned commits.
+- The selection actions sit right-aligned above the branch commits, in a line one `xs` button high (`h-6`,
+  `CommitListBar`) that is always there, and in the card header for the unassigned commits, where they overhang its
+  20px line into the padding (`-my-0.5`), so the header stays 40px. The hint of the idle line is muted `text-xs`, as
+  "N selected" that takes its place.
 - "Move to…" is an outline `xs` button in the primary colour. The way back is a ghost `xs` button.
 - The branch selection bar sits right-aligned above the branch table header, with a ghost `icon-xs` clear button; a
   selected branch row is `bg-primary/15`, like a selected commit row.
