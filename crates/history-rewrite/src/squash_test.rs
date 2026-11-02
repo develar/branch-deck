@@ -1,5 +1,7 @@
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
+// only the lock-span test, which is unix only as `test_utils::lock_span`
+#[cfg(unix)]
 use crate::test_commit::write_mapping_notes;
 use domain_types::rewrite::SquashCommitsResult;
 use git_ops::rewrite_guard::HeadMoved;

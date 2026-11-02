@@ -81,18 +81,24 @@ fn clone_behind_its_remote() -> (TestRepo, TestRepo, String, String) {
   (upstream, clone, theirs, pushed)
 }
 
-/// The fetch moves the remote-tracking ref from the tip it read before: alone, to the remote's head; when a push of
-/// the branch set its own head meanwhile (here between the read and the fetch, as git's push writes the
-/// remote-tracking ref when it ends), that head stays, the fetched one does not write over it, and no temporary ref
-/// is left
-#[cfg(unix)]
+/// The fetch moves the remote-tracking ref from the tip it read before to the remote's head, and no temporary ref is
+/// left
 #[test]
-fn a_fetch_that_ends_after_a_push_of_its_ref_leaves_the_head_of_the_push() {
+fn a_fetch_moves_the_remote_tracking_ref_to_the_head_of_the_remote() {
   let tracking = format!("refs/remotes/origin/{BRANCH}");
   let (_upstream, clone, theirs, _) = clone_behind_its_remote();
   fetch_remote_branches(clone.git_executor(), clone.path_str(), "origin", &[BRANCH.to_string()]).unwrap();
   assert_eq!(clone.rev_parse(&tracking).unwrap(), theirs);
+  assert_eq!(clone.git(&["for-each-ref", "refs/branch-deck/tmp/"]), "");
+}
 
+/// When a push of the branch set its own head while the fetch ran (here between the fetch's read and its write, as
+/// git's push writes the remote-tracking ref when it ends), that head stays, the fetched one does not write over it,
+/// and no temporary ref is left. Unix only: the wrapper of git is a shell script
+#[cfg(unix)]
+#[test]
+fn a_fetch_that_ends_after_a_push_of_its_ref_leaves_the_head_of_the_push() {
+  let tracking = format!("refs/remotes/origin/{BRANCH}");
   let (_upstream, clone, theirs, pushed) = clone_behind_its_remote();
   let wrapped = test_utils::wrapped_git::WrappedGit::new(&format!("*\" fetch \"*) git update-ref {tracking} {pushed}; touch '{{dir}}/pushed';;"));
   fetch_remote_branches(wrapped.executor(), clone.path_str(), "origin", &[BRANCH.to_string()]).unwrap();

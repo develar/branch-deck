@@ -4,7 +4,10 @@ use crate::autosquash::{
 };
 use crate::commit_grouper::GroupingInputs;
 use crate::repository_lock::RewriteOptions;
-use crate::test_commit::{commit, write_mapping_notes};
+use crate::test_commit::commit;
+// only the lock-span test, which is unix only as `test_utils::lock_span`
+#[cfg(unix)]
+use crate::test_commit::write_mapping_notes;
 use domain_types::commit::Commit;
 use domain_types::rewrite::{AutosquashScope, OrphanFixup, SquashFixupsResult};
 use git_ops::rewrite_guard::HeadMoved;
