@@ -658,7 +658,8 @@ without the deleted parts of an Inline row) and selects a name once its row is p
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
 types in the view or selects elsewhere (`selectWord`); the view draws
 the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
-(`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`),
+(`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`; Java's from its PSI in one
+walk that keeps the declarations of the name, `psi_java/navigate.rs`),
 then the declarations of the review's files from the summaries of the `blob_summary` store and the texts the diffs
 read, so a jump starts no git process. A name the review does not declare is asked of the index of accio
 (`crates/file-diffs/src/accio.rs`, behind the `SymbolIndex` trait: the e2e server answers from a fixture of the test
