@@ -1,14 +1,16 @@
+import { useRef, useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
-import { Badge } from "@/components/ui/badge"
 import { CommitReview } from "@/components/commit/CommitReview"
 import type { CommitReviewProps } from "@/components/commit/CommitReview"
+import { CommitRow } from "@/components/commit/CommitRow"
 import { ReviewPrologue } from "@/components/review/ReviewPrologue"
-import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
+import type { RowCardState } from "@/components/shared/RowCard"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { ReviewCommit } from "@/lib/bindings"
+import { toCardCommit } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
@@ -128,12 +130,8 @@ export function RangeReview({
               state={plan}
               commit={{
                 commit: shown.commit,
-                action: (
-                  <>
-                    {commitAction?.(shown)}
-                    {commitMenu !== undefined && <CommitHeadingMenu commit={shown.commit} commitMenu={commitMenu} />}
-                  </>
-                ),
+                action: commitAction?.(shown),
+                menu: commitMenu === undefined ? undefined : <CommitMenu commit={shown.commit} commitMenu={commitMenu} />,
               }}
             />
           ) : plan === null ? undefined : (
@@ -160,8 +158,17 @@ function CommitColumn({
   const index = items.findIndex(item => item.key === selected)
   const shown = items[index]
   const commitCount = items.filter(item => item.kind === "commit").length
+  // the one open card of a commit of the column, by its key: by the hover of its mark or subject, or by `I`
+  const [card, setCard] = useState<{ key: string; byKey: boolean } | null>(null)
+  const listbox = useRef<HTMLDivElement>(null)
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // the physical key, in any keyboard layout: the card of the shown commit, the focus in it
+    if (event.code === "KeyI" && !event.altKey && !event.metaKey && !event.ctrlKey && shown?.kind === "commit" && shown.commit.hasBody) {
+      event.preventDefault()
+      setCard({ key: shown.key, byKey: true })
+      return
+    }
     if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) {
       return
     }
@@ -175,6 +182,7 @@ function CommitColumn({
   return (
     <>
       <div
+        ref={listbox}
         role="listbox"
         aria-label="Commits"
         tabIndex={0}
@@ -184,7 +192,20 @@ function CommitColumn({
         onKeyDown={handleKeyDown}
       >
         {items.map(item => (
-          <ColumnItem key={item.key} item={item} selected={item.key === selected} onSelect={onSelect} commitMenu={commitMenu} />
+          <ColumnItem
+            key={item.key}
+            item={item}
+            selected={item.key === selected}
+            onSelect={onSelect}
+            commitMenu={commitMenu}
+            card={{
+              open: card?.key === item.key,
+              openedByKey: card?.key === item.key && card.byKey,
+              onOpenChange: open =>
+                setCard(current => (open ? (current?.key === item.key ? current : { key: item.key, byKey: false }) : current?.key === item.key ? null : current)),
+              focusRow: () => listbox.current?.focus(),
+            }}
+          />
         ))}
       </div>
       <p aria-live="polite" className="sr-only">
@@ -199,21 +220,24 @@ function ColumnItem({
   selected,
   onSelect,
   commitMenu,
+  card,
 }: {
   item: RangeReviewItem
   selected: boolean
   onSelect: (key: string) => void
   commitMenu: RangeReviewProps["commitMenu"]
+  /** The card of a commit with a body: one open at a time in the column */
+  card: RowCardState
 }) {
-  const option = (children: ReactNode, title?: string) => (
+  const option = (children: ReactNode) => (
     <div
       id={optionId(item.key)}
       role="option"
       aria-selected={selected}
-      title={title}
       data-testid="range-review-commit"
       className={cn(
-        "group/commit flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 text-left hover:bg-muted",
+        // a subject wraps to a second line, as a commit row of the tree
+        "group/commit flex min-h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted",
         selected && "bg-primary/15 hover:bg-primary/15",
       )}
       // the column keeps the focus: a click chooses, the keys go on from there
@@ -252,24 +276,18 @@ function ColumnItem({
         item.commit,
         commitMenu,
         option(
-          <>
-            <span className="flex-1 truncate">{item.commit.subject}</span>
-            {item.since !== undefined && (
-              <Badge variant="info" data-testid="range-review-commit-since">
-                {item.since}
-              </Badge>
-            )}
-            {item.branch !== undefined && (
-              <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="range-review-commit-branch">
-                {item.branch}
-              </span>
-            )}
-            {/* the subject gets the width: the hash shows on hover, and the heading of the shown commit has it */}
-            <span className="hidden font-mono text-xs text-muted-foreground group-hover/commit:inline" data-testid="range-review-commit-hash">
-              {formatShortHash(item.commit.id)}
-            </span>
-          </>,
-          item.commit.subject,
+          <span className="flex min-w-0 flex-1 flex-col">
+            <CommitRow
+              subject={item.commit.subject}
+              hash={item.commit.id}
+              facts={{ since: item.since, branch: item.branch }}
+              card={
+                item.commit.hasBody
+                  ? { commit: toCardCommit(item.commit), state: card, menu: commitMenu === undefined ? undefined : <CommitMenu commit={item.commit} commitMenu={commitMenu} /> }
+                  : null
+              }
+            />
+          </span>,
         ),
       )}
     </>
@@ -284,9 +302,9 @@ function withCommitMenu(commit: ReviewCommit, commitMenu: RangeReviewProps["comm
   return <LazyContextMenu menu={() => commitMenu(commit)} render={option} />
 }
 
-/** "⋯" at the end of the heading of the shown commit: the menu its right-click opens in the column */
-function CommitHeadingMenu({ commit, commitMenu }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]> }) {
-  return <MoreActionsMenu name={formatShortHash(commit.id)} menu={<DropdownMenuItems groups={commitMenu(commit)} />} />
+/** "⋯" at the end of the meta line of the shown commit and of the card of a commit: the menu its right-click opens in the column */
+function CommitMenu({ commit, commitMenu }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]> }) {
+  return <MoreActionsMenu name={formatShortHash(commit.id)} menu={() => commitMenu(commit)} />
 }
 
 function optionId(key: string): string {

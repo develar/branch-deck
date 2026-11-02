@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { EllipsisIcon } from "lucide-react"
@@ -10,13 +10,17 @@ import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { useControlRef } from "@/hooks/useControlKey"
 import { useLazyRoot } from "@/hooks/useLazyRoot"
 import { focusBackFromMenu } from "@/lib/menu"
-import type { MenuItem } from "@/lib/menu"
+import type { MenuItem, MenuItemGroups } from "@/lib/menu"
 
 export interface MoreActionsMenuProps {
   /** The object of the actions, for the accessible name: "More actions for feature-auth" */
   name: string
-  /** The items (`DropdownMenuItems`), rendered only while the menu is open */
-  menu: ReactNode
+  /**
+   * The items (`DropdownMenuItems`), rendered only while the menu is open; or the builder of the menu of a row,
+   * called as it opens, from the selection at that moment, as its right-click builds it (`LazyContextMenu`), never in
+   * the render of the row, where React Compiler would keep the groups of an older selection
+   */
+  menu: ReactNode | (() => MenuItemGroups)
   /** An operation works on the row: no menu, as the right-click opens none */
   disabled?: boolean
   /**
@@ -46,6 +50,8 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
   const plainRef = useControlRef<HTMLButtonElement>(undefined, controlKey)
   // the popup of the menu, kept after it unmounts: its `finalFocus` asks as the popup goes whether the focus is in it
   const popup = useRef<HTMLDivElement | null>(null)
+  // the groups of a builder, built as the menu opens
+  const [built, setBuilt] = useState<MenuItemGroups>([])
   const running = busy !== null
   // a menu unless an action runs without Stop Waiting, or an operation works on the row
   const opensMenu = running ? stopWaiting !== null : !disabled
@@ -73,6 +79,10 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
       onOpenChange={(open, details) => {
         if (open && !opensMenu) {
           details.cancel()
+          return
+        }
+        if (open && typeof menu === "function") {
+          setBuilt(menu())
         }
       }}
     >
@@ -98,7 +108,7 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
           event.stopPropagation()
         }}
       >
-        {running ? stopWaiting !== null && <DropdownMenuItems groups={[[stopWaiting]]} /> : menu}
+        {running ? stopWaiting !== null && <DropdownMenuItems groups={[[stopWaiting]]} /> : typeof menu === "function" ? <DropdownMenuItems groups={built} /> : menu}
       </DropdownMenuContent>
     </DropdownMenu>
   )

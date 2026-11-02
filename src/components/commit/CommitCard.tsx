@@ -13,6 +13,8 @@ export interface CommitCardProps {
   addon?: ReactNode
   /** In place of the body of its message: the story a review tells of the commit */
   body?: ReactNode
+  /** The "⋯" of the commit at the end of its meta line (`CommitHeader.menu`) */
+  menu?: ReactNode
 }
 
 /**
@@ -22,7 +24,7 @@ export interface CommitCardProps {
  * preview of a branch and the commit a review shows alone; the commit preview shows the same header as its title and
  * the same body. The card of a mark scrolls under its header, which stays (its popover has no top padding of its own)
  */
-export function CommitCard({ commit, variant, addon, body }: CommitCardProps) {
+export function CommitCard({ commit, variant, addon, body, menu }: CommitCardProps) {
   const fileStats = useCommitFileStats(commit.id)
   const header = (
     <CommitHeader
@@ -35,6 +37,7 @@ export function CommitCard({ commit, variant, addon, body }: CommitCardProps) {
       committerTime={commit.committerTime}
       fileStats={fileStats}
       subjectAddon={addon}
+      menu={menu}
     />
   )
   if (variant === "heading") {

@@ -10,7 +10,6 @@ import { CommitBodyView, NoDescription } from "@/components/commit/CommitBodyVie
 import { CommitFilesSection } from "@/components/commit/CommitFilesSection"
 import { CommitHeader } from "@/components/commit/CommitHeader"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
-import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
 import { PRIMARY_KBD_CLASS_NAME } from "@/components/shared/MenuItemButton"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
@@ -211,14 +210,7 @@ export function CommitPreviewDialog({
     >
       {commit !== undefined && (
         <>
-          <PreviewDialogHeader
-            end={
-              // the menu of the row, before the close button; the footer keeps the keyed actions
-              menuGroups !== undefined && commit !== undefined ? (
-                <MoreActionsMenu name={formatShortHash(hash)} menu={<DropdownMenuItems groups={toPreviewMenu(menuGroups(commit), close, PREVIEW_KEYS)} />} />
-              ) : undefined
-            }
-          >
+          <PreviewDialogHeader>
             <CommitHeader
               variant="title"
               subject={subject}
@@ -229,6 +221,8 @@ export function CommitPreviewDialog({
               committerTime={commit.committerTime}
               fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
               fileStats={fileStats}
+              // the menu of the row at the end of the meta line, as every header of a commit has it; the footer keeps the keyed actions
+              menu={menuGroups === undefined ? undefined : <MoreActionsMenu name={formatShortHash(hash)} menu={() => toPreviewMenu(menuGroups(commit), close, PREVIEW_KEYS)} />}
             />
           </PreviewDialogHeader>
 

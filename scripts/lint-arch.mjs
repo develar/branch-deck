@@ -69,6 +69,7 @@ export const ALLOWLIST = [
   { file: "src/stores/activity.ts", rule: "poll-timer", reason: "the undo of an Activity entry is offered for UNDO_WINDOW_MS: no request" },
   { file: "src/hooks/useBranchSuggestions.ts", rule: "poll-timer", reason: "the names are suggested once typing rests: a debounce of the input" },
   { file: "src/hooks/useStackPathPointer.ts", rule: "poll-timer", reason: "the hover intent of a stack path: no request" },
+  { file: "src/hooks/useRowCardHover.ts", rule: "poll-timer", reason: "the hover intent of the subject of a row opens its card, its leave closes it: no request" },
   { file: "src/hooks/useReviewerSearch.ts", rule: "poll-timer", reason: "the reviewers are searched once typing rests: a debounce of the input" },
   { file: "src/hooks/useCopyToClipboard.ts", rule: "poll-timer", reason: "the Copied state for 2 s: no request" },
   { file: "src/hooks/useCommitDrag.ts", rule: "poll-timer", reason: "the drag image goes once the browser took it: no request" },

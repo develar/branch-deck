@@ -305,7 +305,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
     preview); a commit as the heading of what follows it (`CommitHeader` `heading` in `CommitCard`: a commit of the
     branch preview, the commit a review shows alone) is `text-md`, never smaller than its body. One header names a
-    commit everywhere, its size by its place (`CommitHeader`: `row`, `card`, `heading`, `title`). Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
+    commit everywhere, its size by its place (`CommitHeader`: `compact` the subject line alone of a row of a sidebar,
+  `CommitRow`; `row`, `card`, `heading`, `title`), the "⋯" of the commit at the end of its meta line. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
     `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
     never `text-lg`.
   - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour

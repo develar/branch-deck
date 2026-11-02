@@ -25,8 +25,10 @@ import { getYouTrackKeyOfIssue, loadIssue, useIssueEntry } from "@/stores/youtra
 /** The commit a review shows alone, at the top of its overview, with the actions of its heading */
 export interface PrologueCommit {
   readonly commit: ReviewCommit
-  /** At the end of its heading: "Review bazel" of a commit of the whole stack, its menu */
+  /** At the end of its subject: "Review bazel" of a commit of the whole stack */
   readonly action: ReactNode
+  /** The "⋯" of the commit at the end of its meta line */
+  readonly menu?: ReactNode
 }
 
 /**
@@ -99,13 +101,10 @@ function Headline({ issue, title }: { issue: string | null; title: string }) {
 }
 
 /** The commit shown alone: its card, its whole message (of the concerns of its plan, the story told before them), its actions */
-function CommitPart({ commit: { commit, action }, story }: { commit: PrologueCommit; story: StoryView | null }) {
+function CommitPart({ commit: { commit, action, menu }, story }: { commit: PrologueCommit; story: StoryView | null }) {
   return (
-    <div className="flex min-w-0 items-start gap-2" data-testid="range-review-commit-header">
-      <div className="min-w-0 flex-1">
-        <CommitCard commit={toCardCommit(commit)} variant="heading" body={story === null ? undefined : <StoryBody story={story} />} />
-      </div>
-      {action}
+    <div className="flex min-w-0 flex-col" data-testid="range-review-commit-header">
+      <CommitCard commit={toCardCommit(commit)} variant="heading" addon={action} menu={menu} body={story === null ? undefined : <StoryBody story={story} />} />
     </div>
   )
 }

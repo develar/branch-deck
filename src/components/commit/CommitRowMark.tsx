@@ -1,8 +1,10 @@
+import type { ReactNode } from "react"
 import { cn } from "cn"
 import { RectangleEllipsisIcon } from "lucide-react"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { RowCard } from "@/components/shared/RowCard"
 import type { RowCardState } from "@/components/shared/RowCard"
+import type { RowCardHover } from "@/hooks/useRowCardHover"
 import type { CardCommit } from "@/lib/commit"
 
 export interface CommitRowMarkProps extends RowCardState {
@@ -12,22 +14,27 @@ export interface CommitRowMarkProps extends RowCardState {
   onOpen?: () => void
   /** A row of a list (the 20px line of a subject) or of a tree (a 24px row, the size of the mark of a file) */
   size?: "list" | "tree"
+  /** The "⋯" of the commit at the end of the meta line of its card: the menu its row opens */
+  menu?: ReactNode
+  /** The handlers of the card for the hover of the subject of its row (`useRowCardHover`) */
+  popupHover?: RowCardHover["popup"]
 }
 
 /** The row of a mark: a row of a list of commits, the line of a row of the tree of a review (not the rows of its group) */
 function rowOfMark(mark: HTMLElement): Element | null {
   // a tree item holds the rows of its group after the line of its own row, its first child
-  return mark.closest("tr") ?? mark.closest("[role=treeitem]")?.firstElementChild ?? null
+  return mark.closest("tr") ?? mark.closest("[role=treeitem]")?.firstElementChild ?? mark.closest("[role=option], [data-commit-row]") ?? null
 }
 
 /**
  * The mark of a commit row whose message has a body (spec/commit/commit-row.spec.md, "Commit card"): its hover opens
  * the card of the commit (`CommitCard`), the header and the body folded as Rust says, under the whole row at its
  * start, and so does `I` on its row, the focus in the card; Escape gives the focus back to the row (`RowCard`). A click
- * opens the preview of the commit where its list has one. Not a tab stop: Space previews the row, `I` opens its card.
- * One mark for the rows of the main window and of the tree of a review
+ * opens the preview of the commit where its list has one. Not a tab stop: Space previews the row, `I` opens its card;
+ * the hover of the subject of the row opens it too (`useRowCardHover`). One mark for the rows of the main window and of
+ * the sidebar of a review (`CommitRow`)
  */
-export function CommitRowMark({ commit, onOpen, size = "list", ...card }: CommitRowMarkProps) {
+export function CommitRowMark({ commit, onOpen, size = "list", menu, popupHover, ...card }: CommitRowMarkProps) {
   // the card keeps the click from the row, which would select it
   const handleClick = () => {
     if (onOpen !== undefined) {
@@ -60,8 +67,9 @@ export function CommitRowMark({ commit, onOpen, size = "list", ...card }: Commit
       focus="card"
       // under the whole row, never over the meta line of the commit the reader was reading
       anchor={rowOfMark}
+      popupHover={popupHover}
     >
-      {() => <CommitCard commit={commit} variant="card" />}
+      {() => <CommitCard commit={commit} variant="card" menu={menu} />}
     </RowCard>
   )
 }

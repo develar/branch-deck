@@ -274,7 +274,7 @@ test.describe("The scopes of the stack", () => {
 
     // each commit of the whole stack names its branch, whose review its heading opens at the commit
     const fix = window.getByTestId("range-review-commit").filter({ hasText: "Fix the jar manifest, part 2" })
-    await expect(fix.getByTestId("range-review-commit-branch")).toHaveText("side-fix")
+    await expect(fix.getByTestId("review-commit-branch")).toHaveText("side-fix")
     await fix.click()
     await window.getByTestId("range-review-commit-header").getByRole("button", { name: "Review side-fix" }).click()
     const atCommit = await openedReview(window, 2)

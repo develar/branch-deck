@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
 import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { HoverDescription } from "@/components/shared/HoverDescription"
+import type { RowCardHover } from "@/hooks/useRowCardHover"
 
 /*
  * The card of a mark of a row: details on demand, one way in every list (the facts of a file of a review,
@@ -10,7 +11,9 @@ import { HoverDescription } from "@/components/shared/HoverDescription"
  * row opens it from the keyboard with the focus inside; Escape closes it and gives the focus back to the row, and so
  * does any other close that would drop the focus to the page (the hover of another mark, the pointer leaving, the row
  * going). One card is open at a time: its owner (the tree of a review; in the main window the `commit-card` store
- * across its lists) holds `open` and whether the key opened it.
+ * across its lists) holds `open` and whether the key opened it. The text of a row (the subject of a commit,
+ * `useRowCardHover`) opens its card too, after a longer rest of the pointer: the mark is the hint and the target of a
+ * click, not the only way in.
  */
 
 /** A click on the mark or in its card acts there only: the row under it does not select or toggle */
@@ -57,10 +60,26 @@ export interface RowCardProps extends RowCardState {
    * element at its start (a row whose lines below the mark the card must not cover)
    */
   anchor?: (mark: HTMLElement) => Element | null
+  /** The handlers of the card for the hover of the text of its row (`useRowCardHover`): the pointer may rest in it */
+  popupHover?: RowCardHover["popup"]
 }
 
 /** The mark of a row and the card its hover or `I` opens (the module's header) */
-export function RowCard({ open, openedByKey, onOpenChange, focusRow, label, mark, icon, className, "data-testid": testId, children, focus = "firstButton", anchor }: RowCardProps) {
+export function RowCard({
+  open,
+  openedByKey,
+  onOpenChange,
+  focusRow,
+  label,
+  mark,
+  icon,
+  className,
+  "data-testid": testId,
+  children,
+  focus = "firstButton",
+  anchor,
+  popupHover,
+}: RowCardProps) {
   // the trigger renders the mark, a `span` (`nativeButton` false): typed as the button of a trigger
   const markElement = useRef<HTMLButtonElement>(null)
   // the popup of the card opened by the key, kept as the ref lets it go (before the effect below asks where the focus
@@ -140,6 +159,8 @@ export function RowCard({ open, openedByKey, onOpenChange, focusRow, label, mark
         onClick={keepFromRow}
         onContextMenu={keepFromRow}
         onKeyDown={handleKeyDown}
+        onPointerEnter={popupHover?.onPointerEnter}
+        onPointerLeave={popupHover?.onPointerLeave}
       >
         {children(() => close(true))}
       </PopoverContent>

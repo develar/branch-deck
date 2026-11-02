@@ -1,15 +1,20 @@
 import { memo, useEffect, useRef, useState } from "react"
-import type { KeyboardEvent, ReactElement, ReactNode, RefObject } from "react"
+import type { ComponentProps, KeyboardEvent, ReactElement, ReactNode, RefObject } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon, GitCommitHorizontalIcon, LayersIcon, TargetIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { CommitRow, CommitRowBadges } from "@/components/commit/CommitRow"
+import type { CommitRowFacts } from "@/components/commit/CommitRow"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { FileRowMark } from "@/components/files/FileRowMark"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import type { RowCardState } from "@/components/shared/RowCard"
+import { useRowCardHover } from "@/hooks/useRowCardHover"
+import type { RowCardHover } from "@/hooks/useRowCardHover"
 import type { CommitFile } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import type { CardCommit } from "@/lib/commit"
@@ -441,6 +446,14 @@ const FileTreeRow = memo(function FileTreeRow({
     onOpenChange: open => onCardChange(node.key, open),
     focusRow: () => rowElements.current.get(node.key)?.focus(),
   }
+  // the hover of the title of a commit opens its card too
+  const hover = useRowCardHover(cardState)
+  // the "⋯" of a commit in its card: the menu of its row
+  const cardMenu =
+    cardCommit !== null && commitMenu !== undefined && isCommitRow(node) ? (
+      <MoreActionsMenu name={formatShortHash(cardCommit.id)} menu={() => commitMenu(commitOf(node))} />
+    ) : undefined
+  const commitCard = cardCommit === null ? null : { commit: cardCommit, state: cardState, menu: cardMenu }
   const counts = rowCounts(node)
   // the mark is no tab stop: the description says every fact of its card
   const described = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
@@ -520,18 +533,19 @@ const FileTreeRow = memo(function FileTreeRow({
           />
         )}
         {node.kind === "directory" ? (
-          <DirectoryRowContent node={node} isOpen={isOpen === true} ownerMark={ownerMark} />
+          <DirectoryRowContent node={node} isOpen={isOpen === true} ownerMark={ownerMark} titleHover={commitCard === null ? undefined : hover.text} />
         ) : node.kind === "also" ? (
           <AlsoRowContent node={node} owner={owner} />
         ) : node.kind === "commit" ? (
-          <CommitRowContent node={node} />
+          <CommitRowContent node={node} card={commitCard} />
         ) : (
           <FileRowContent node={node} owner={owner} />
         )}
         {facts !== null && onSelectPlace !== undefined ? (
           <FileRowMark facts={facts} onSelectPlace={onSelectPlace} {...cardState} />
         ) : (
-          cardCommit !== null && <CommitRowMark commit={cardCommit} size="tree" {...cardState} />
+          commitCard !== null &&
+          node.kind === "directory" && <CommitRowMark commit={commitCard.commit} size="tree" menu={commitCard.menu} popupHover={hover.popup} {...cardState} />
         )}
         {node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </RowMenu>
@@ -605,44 +619,25 @@ function RowMenu({
 }
 
 /**
- * A commit in the group of its step: its subject, which gets the width (its role, "follows up" or "no story", is its
- * indent under the step, and the description of the row says it), what it is since the user's review, the branch of a
- * commit of the whole stack; its hash in the title of the subject
+ * A commit in the group of its step: the one commit row of a sidebar (`CommitRow`), by the title the review gives it,
+ * which gets the width (its role, "follows up" or "no story", is its indent under the step, and the description of the
+ * row says it), what it is since the user's review, the branch of a commit of the whole stack, the mark of its card;
+ * its subject and hash in the hover of its title
  */
-function CommitRowContent({ node }: { node: FileTreeCommit }) {
-  const { commit } = node
+function CommitRowContent({ node, card }: { node: FileTreeCommit; card: ComponentProps<typeof CommitRow>["card"] }) {
   return (
     <>
       <GitCommitHorizontalIcon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
-      <span className="line-clamp-2 min-w-0 flex-1 [overflow-wrap:anywhere]" title={`${commit.subject}\n${formatShortHash(commit.id)}`} data-testid="review-commit-subject">
-        {node.name}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <CommitRow subject={node.commit.subject} title={node.name} hash={node.commit.id} facts={factsOf(node)} card={card} subjectTestId="review-commit-subject" />
       </span>
-      <CommitRowFacts node={node} />
     </>
   )
 }
 
-/** What a commit is since the user's review, the branch of a commit of the whole stack */
-function CommitRowFacts({ node: { commit } }: { node: FileTreeCommit }) {
-  return (
-    <>
-      {commit.item?.since !== undefined && (
-        <Badge variant="info" data-testid="review-commit-since">
-          {commit.item.since}
-        </Badge>
-      )}
-      {commit.item?.review !== undefined && (
-        <Badge variant="outline" data-testid="review-commit-review">
-          {commit.item.review}
-        </Badge>
-      )}
-      {commit.item?.branch !== undefined && (
-        <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground" data-testid="review-commit-branch">
-          {commit.item.branch}
-        </span>
-      )}
-    </>
-  )
+/** What a commit of the tree is since the user's review, its review, its branch */
+function factsOf({ commit: { item } }: FileTreeCommit): CommitRowFacts {
+  return { since: item?.since, review: item?.review, branch: item?.branch }
 }
 
 /** The hover of a group: the hover of a step (its evidence), the subject and the hash of the commit a step is, a directory's path */
@@ -654,7 +649,18 @@ function groupTitle(node: FileTreeDirectory): string {
   return node.title ?? (node.group === undefined ? node.key.slice(0, -1) : node.name)
 }
 
-function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirectory; isOpen: boolean; ownerMark: OwnerMark | null }) {
+function DirectoryRowContent({
+  node,
+  isOpen,
+  ownerMark,
+  titleHover,
+}: {
+  node: FileTreeDirectory
+  isOpen: boolean
+  ownerMark: OwnerMark | null
+  /** The hover of the title of the step of a commit: it opens the card of the commit (`useRowCardHover`) */
+  titleHover: RowCardHover["text"] | undefined
+}) {
   // a group of a review is no directory: its name is what it holds; a concern is a task of the range, the step of a
   // commit that commit
   const Icon =
@@ -671,6 +677,7 @@ function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirect
         )}
         title={groupTitle(node)}
         data-group={node.group}
+        {...titleHover}
       >
         {node.name}
       </span>
@@ -680,7 +687,7 @@ function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirect
           <span className="tabular-nums">{ownerMark.count}</span>
         </Badge>
       )}
-      {node.commit !== undefined && <CommitRowFacts node={node.commit} />}
+      {node.commit !== undefined && <CommitRowBadges facts={factsOf(node.commit)} />}
     </>
   )
 }

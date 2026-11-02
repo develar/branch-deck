@@ -12,15 +12,18 @@ import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { PushUpToMark } from "@/components/commit/PushUpToMark"
 import { RobotCommitMarker } from "@/components/commit/RobotCommitMarker"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
+import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import { beginCommitDrag } from "@/hooks/useCommitDrag"
 import { useCommitFileStats, useCommitFiles } from "@/hooks/useCommitFiles"
 import { getCommitReviewMenuItems, unreviewableSelection } from "@/hooks/useCommitReviewActions"
 import { usePreviewHotkeys } from "@/hooks/usePreviewHotkeys"
 import { getRewordMenuItem, REWORD_SURFACE, rewordCommit } from "@/hooks/useRewordCommit"
+import { useRowCardHover } from "@/hooks/useRowCardHover"
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getShownSubject, toCardCommit, toReviewCommit } from "@/lib/commit"
+import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
 import { resolvedNotice } from "@/lib/resolved-by-words"
 import { openCommitReviewWindow, reviewBranchCommit } from "@/lib/review-window"
@@ -507,6 +510,7 @@ function CommitRowWithContextMenu({ commit, rowProps, getMenuGroups, onOpenChang
 function CommitCellContent({
   commit,
   hash,
+  getMenuGroups,
   variant,
   branchName,
   showFileCount,
@@ -532,6 +536,9 @@ function CommitCellContent({
   const subject = (omitIssueKey !== null && parts.lead?.key === omitIssueKey ? parts.lead.text : "") || shownSubject
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
   const fileStats = useCommitFileStats(hash)
+  const cardState = { open: card !== null, openedByKey: card === "key", onOpenChange: (open: boolean) => onCardChange(hash, open), focusRow: focusList }
+  // the hover of the subject opens the card too, after a longer rest than on the mark
+  const hover = useRowCardHover(cardState)
 
   return (
     // gap-3: the header and the error or conflict below it (the header alone has no sibling)
@@ -546,16 +553,17 @@ function CommitCellContent({
         fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
         fileStats={fileStats}
         subjectPrefix={autosquash !== "" && <FixupMarker marker={autosquash.trim()} commitId={hash} />}
+        subjectProps={commit.hasBody ? hover.text : undefined}
         subjectAddon={
           <>
             {commit.hasBody && (
               <CommitRowMark
                 commit={{ ...toCardCommit(toReviewCommit(commit)), newHash: statusHash }}
-                open={card !== null}
-                openedByKey={card === "key"}
-                onOpenChange={open => onCardChange(hash, open)}
-                focusRow={focusList}
+                {...cardState}
                 onOpen={() => onOpenPreview(hash)}
+                popupHover={hover.popup}
+                // the menu of the row at the end of the meta line of its card
+                menu={getMenuGroups === undefined ? undefined : <MoreActionsMenu name={formatShortHash(hash)} menu={() => getMenuGroups(commit)} />}
               />
             )}
             {offersPushUpTo && branchName !== undefined && <PushUpToMark branchName={branchName} originalHash={hash} />}

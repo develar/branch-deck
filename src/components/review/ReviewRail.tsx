@@ -1,15 +1,14 @@
-import { cn } from "cn"
+import { useRef, useState } from "react"
 import { Spinner } from "@/components/ui/spinner"
 import { LineCounts } from "@/components/commit/CommitMetadata"
-import { CommitSubjectLine } from "@/components/commit/CommitSubject"
+import { CommitRow } from "@/components/commit/CommitRow"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles, ReviewCommit, ReviewRequest, TransferProgress } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
-import { formatShortHash } from "@/lib/hash"
-import { formatCompactTimestamp } from "@/lib/time"
+import { toCardCommit } from "@/lib/commit"
 
 export interface ReviewRailProps {
   request: ReviewRequest
@@ -111,8 +110,15 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (pa
   )
 }
 
-/** The commits of the pull request, newest first (the range lists them oldest first); a click reviews the commit */
+/**
+ * The commits of the pull request, newest first (the range lists them oldest first), each the one commit row of a
+ * sidebar (`CommitRow`): its subject, the mark of its card, which its hover, the hover of the subject and `I` on the row
+ * open; a click and Enter review the commit
+ */
 function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[]; onOpen: (id: string) => void }) {
+  // the one open card, by the commit: by the hover of its mark or subject, or by `I`
+  const [card, setCard] = useState<{ id: string; byKey: boolean } | null>(null)
+  const rows = useRef(new Map<string, HTMLElement>())
   if (commits.length === 0) {
     return <p className="px-2 text-sm text-muted-foreground">No commits</p>
   }
@@ -120,17 +126,52 @@ function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[]; onO
     <ol className="flex flex-col">
       {commits.toReversed().map(commit => (
         <li key={commit.id}>
-          <button type="button" data-testid="review-commit" className={cn(RAIL_ROW_CLASS, "flex-col items-stretch gap-0.5 py-1.5")} onClick={() => onOpen(commit.id)}>
-            <span className="flex min-w-0" data-testid="review-commit-subject">
-              <CommitSubjectLine subject={commit.subject} />
+          <div
+            ref={element => {
+              if (element === null) {
+                rows.current.delete(commit.id)
+              } else {
+                rows.current.set(commit.id, element)
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            data-testid="review-commit"
+            data-commit-row=""
+            className={RAIL_ROW_CLASS}
+            onClick={() => onOpen(commit.id)}
+            onKeyDown={event => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                onOpen(commit.id)
+              } else if (event.code === "KeyI" && commit.hasBody && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                event.preventDefault()
+                setCard({ id: commit.id, byKey: true })
+              }
+            }}
+          >
+            <span className="flex min-w-0 flex-1 flex-col">
+              <CommitRow
+                subject={commit.subject}
+                hash={commit.id}
+                subjectTestId="review-commit-subject"
+                card={
+                  commit.hasBody
+                    ? {
+                        commit: toCardCommit(commit),
+                        state: {
+                          open: card?.id === commit.id,
+                          openedByKey: card?.id === commit.id && card.byKey,
+                          onOpenChange: open =>
+                            setCard(current => (open ? (current?.id === commit.id ? current : { id: commit.id, byKey: false }) : current?.id === commit.id ? null : current)),
+                          focusRow: () => rows.current.get(commit.id)?.focus(),
+                        },
+                      }
+                    : null
+                }
+              />
             </span>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="min-w-0 truncate">{commit.author}</span>
-              <span aria-hidden>·</span>
-              <span className="tabular-nums">{formatCompactTimestamp(commit.authorTime)}</span>
-              <span className="ml-auto shrink-0 font-mono">{formatShortHash(commit.id)}</span>
-            </span>
-          </button>
+          </div>
         </li>
       ))}
     </ol>

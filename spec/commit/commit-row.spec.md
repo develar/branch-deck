@@ -178,17 +178,28 @@ place that shows a commit shows the same way.
   the meta line with its line counts, under the whole row so its meta line stays in view, then the body folded as the
   opening of a review folds it (the parts Rust shows,
   the author's "Look closely:" always, then one line that names the folded parts, verification among them, each its
-  own disclosure), its trailers last; the pointer leaving the mark closes it. While more of the card is below its
+  own disclosure), its trailers last; the pointer leaving the mark closes it. The hover of the subject of the row opens
+  it too, after a longer rest (600 ms, only after a move), and the pointer that leaves the subject without reaching the
+  card closes it: the mark is the visible hint and the target of a click, not the only way in. While more of the card is below its
   bottom edge, the bottom fades into the popover, so a body the height cuts never reads as the whole message.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark and by I, and give the focus back on Escape`, `should fold a long body in the card as the review folds it, open each folded part, keep the Look closely, and fade the card while more is below`)
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`, `should fold a long body in the card as the review folds it, open each folded part, keep the Look closely, and fade the card while more is below`)
 - I on the row Space would preview must open its card with the focus in it. Escape must close the card alone and give
   the focus back to the list, whose keys go on from that row; a card opened by I that goes otherwise gives it back too.
   The Escape of a card the hover opened closes it alone too: the selection of the list stays. The window keeps one card
   open: a card that opens in one list closes the card of another. The mark is no tab stop: Space previews the row, I
   opens its card.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark and by I, and give the focus back on Escape`)
-- A commit row of the tree of a review shows the same mark and card, `I` on the focused row
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`)
+- A commit on a row of a sidebar of a review is one row (`CommitRow`, the `compact` header): the commit column, the
+  commits of a pull request and a commit row of the tree; its subject clamped to two lines, its hash in the hover of
+  the subject, what it is since the review ("New", "Rewritten", "Your review") and its branch, and the same mark and
+  card as the main window, which the hover of the mark or of the subject and `I` on the focused row open
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
+- Every header of a commit with a meta line (`row` aside: the card, the heading of a commit shown alone, the title of
+  the preview) shows the "⋯" of the commit at the end of its meta line, the menu the right-click of its row opens: one
+  place, wherever the subject ends. Its items are built as it opens, of the selection then, as the right-click builds
+  them (a selected row acts on the whole selection); no row builds its menu as it renders.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`, `should act from the menu of the card on the selection as the right-click of its row does`)
 - The card is one for every place a commit is shown (`CommitCard`: `CommitHeader` and `CommitBodyView`): the card of a
   row's mark, the commits of the preview of a branch and of a kept branch, the commit a review shows alone; the commit
   preview shows the same header as its title and the same body, whole. There is one view of a body
@@ -620,8 +631,8 @@ for a message shown again, and only lays out what Rust read.
   most; its body scrolls under its
   header, which stays at the top of the card, and a 40px gradient of `popover` fades its bottom while more is below.
 - The header shows the whole subject in `text-sm font-medium` above the meta line, the line counts coloured
-  (`success`, `destructive`), as every header but a row's (`CommitHeader`: `row`, `card`, `heading` in `text-md`, `title`
-  in `text-base`).
+  (`success`, `destructive`), as every header but a row's (`CommitHeader`: `compact` and `row`, `card`, `heading` in
+  `text-md`, `title` in `text-base`), the "⋯" of the commit at the end of the meta line.
 - The body is `text-sm` (`card`), its sections 12px apart, preformatted text `text-xs`; the trailers below a rule as in
   the preview.
 

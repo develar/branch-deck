@@ -1,3 +1,4 @@
+import type { HTMLAttributes } from "react"
 import { cn } from "cn"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { splitSubjectPrefix } from "@/lib/commit"
@@ -26,9 +27,9 @@ function SubjectText({ subject, prefixClassName }: { subject: string; prefixClas
  * Regular weight: in a list the subject is content, and weight marks names and titles. A preview, where the subject is
  * the title, passes `font-medium` in `className`; the prefix stays regular.
  */
-export function CommitSubject({ subject, clamp = true, className }: { subject: string; clamp?: boolean; className?: string }) {
+export function CommitSubject({ subject, clamp = true, className, ...props }: { subject: string; clamp?: boolean; className?: string } & HTMLAttributes<HTMLSpanElement>) {
   return (
-    <span className={cn(clamp && "line-clamp-2", "text-sm text-pretty text-foreground", className)}>
+    <span {...props} className={cn(clamp && "line-clamp-2", "text-sm text-pretty text-foreground", className)}>
       <SubjectText subject={subject} prefixClassName="font-mono font-normal text-muted-foreground" />
     </span>
   )
