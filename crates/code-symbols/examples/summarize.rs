@@ -1,5 +1,7 @@
 //! Prints the summary of each file as JSON with the names resolved, or with `--stats` one line of numbers per file and
-//! a table per language, or with `--tree` the syntax tree (kinds, fields and lines) for writing rules.
+//! a table per language, or with `--tree` the syntax tree for writing rules: of Kotlin and Java the PSI dump of
+//! psi-syntax (`psi_to_string`, as IntelliJ's parser tests print it), of the others the tree-sitter tree (kinds, fields
+//! and lines).
 //!
 //! `cargo run --release -p code-symbols --example summarize -- [--stats | --tree] <files…>`
 
@@ -34,7 +36,7 @@ fn main() {
       }
     };
     if tree {
-      print_tree(language, &source);
+      print_tree(path, language, &source);
       continue;
     }
     let start = Instant::now();
@@ -194,7 +196,25 @@ fn resolved(path: &str, summary: &FileSummary) -> Value {
   })
 }
 
-fn print_tree(language: Language, source: &[u8]) {
+fn print_tree(path: &str, language: Language, source: &[u8]) {
+  let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+  match language {
+    #[cfg(feature = "kotlin")]
+    Language::Kotlin => {
+      let kind = kotlin_syntax::FileKind::from_file_name(file_name);
+      let tree = kotlin_syntax::Parser::new().parse(&*kotlin_syntax::document_text(source), kind);
+      println!("{}", kotlin_syntax::dump::psi_to_string(&tree, file_name));
+    }
+    #[cfg(feature = "java")]
+    Language::Java => {
+      let tree = java_syntax::Parser::new().parse(&*java_syntax::document_text(source), java_syntax::FileKind::default());
+      println!("{}", java_syntax::dump::psi_to_string(&tree, file_name));
+    }
+    _ => print_tree_sitter_tree(language, source),
+  }
+}
+
+fn print_tree_sitter_tree(language: Language, source: &[u8]) {
   let Some(grammar) = grammar(language) else { return };
   let mut parser = tree_sitter::Parser::new();
   if parser.set_language(&grammar).is_err() {

@@ -220,9 +220,6 @@ pub(crate) static SPEC: Spec = Spec {
   traits,
   binds: |name| !name.starts_with(|it: char| it.is_ascii_uppercase()),
   hoist: None,
-  jvm: None,
-  call_shape: None,
-  coroutine: None,
   header: Header {
     ends: &["block"],
     end_tokens: &["="],

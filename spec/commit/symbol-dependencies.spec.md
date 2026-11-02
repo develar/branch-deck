@@ -6,10 +6,12 @@ targets:
   - ../../crates/code-symbols/src/extract.rs
   - ../../crates/code-symbols/src/summary.rs
   - ../../crates/code-symbols/src/language.rs
-  - ../../crates/code-symbols/src/kotlin.rs
-  - ../../crates/code-symbols/src/psi_java/summary.rs
-  - ../../crates/code-symbols/src/psi_kotlin/summary.rs
+  - ../../crates/code-symbols/src/summary_builder.rs
+  - ../../crates/code-symbols/src/jvm.rs
+  - ../../crates/code-symbols/src/java/summary.rs
+  - ../../crates/code-symbols/src/kotlin/summary.rs
   - ../../crates/code-symbols/src/rust_lang.rs
+  - ../../crates/code-symbols/src/typescript.rs
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/sync-core/src/config_snapshot.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
@@ -31,11 +33,11 @@ Date: 2026-10-18
 
 A commit that calls a function another commit added in another file merges cleanly into a branch without that commit,
 and the branch fails only when it is compiled. The line dependencies don't see it. Branch Deck reads the source files
-the commits change with tree-sitter (Kotlin, Java, Rust, TypeScript and JavaScript), and a commit that uses a name
-another commit of the range adds, with evidence that the use means that declaration, depends on it by symbols. An
-override of a member another commit adds, a call of the overload its arguments select, and a use that only a new form of
-a member or a constructor accepts (a wider reach, `open`, a default, a new or renamed parameter) count as uses of that
-commit's declaration. Such an edge orders branches; it never joins them. See [Symbol
+the commits change (Kotlin and Java by ports of the Kotlin compiler's and IntelliJ's own parsers, Rust, TypeScript and
+JavaScript by tree-sitter), and a commit that uses a name another commit of the range adds, with evidence that the use
+means that declaration, depends on it by symbols. An override of a member another commit adds, a call of the overload
+its arguments select, and a use that only a new form of a member or a constructor accepts (a wider reach, `open`, a
+default, a new or renamed parameter) count as uses of that commit's declaration. Such an edge orders branches; it never joins them. See [Symbol
 Dependencies](../../docs/design/symbol-dependencies.md).
 
 ## Goals
@@ -65,7 +67,7 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   component of a record (a public field). A member of a call's result (`a.b().c()`) must have an empty qualifier, as of
   any expression, and so must a member of a chain of names longer than any path (64 segments), so that the
   qualifiers of a chain take linear space.
-  [@test] ../../crates/code-symbols/src/psi_java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`, `an_annotated_vararg_is_a_parameter`, `the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`, `a_module_import_imports_no_name`, `an_import_with_comments_inside`, `a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`, `a_vararg_record_component_is_a_public_field`, `a_long_chain_of_names_takes_linear_space`)
+  [@test] ../../crates/code-symbols/src/java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`, `an_annotated_vararg_is_a_parameter`, `the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`, `a_module_import_imports_no_name`, `an_import_with_comments_inside`, `a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`, `a_vararg_record_component_is_a_public_field`, `a_long_chain_of_names_takes_linear_space`)
 - The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type, `?`,
   a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any type),
   whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`,
@@ -114,9 +116,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   anonymous class and a name that its scope or function casts (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`,
   Java `instanceof` and casts; not `in`) must give none.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`, `an_extension_receiver_or_a_function_hides_the_type`)
-  [@test] ../../crates/code-symbols/src/psi_kotlin/summary_test.rs (`a_not_null_assertion_names_its_receiver_as_a_safe_call_does`, `a_context_parameter_of_a_property_is_a_name_of_the_property_alone`)
+  [@test] ../../crates/code-symbols/src/kotlin/summary_test.rs (`a_not_null_assertion_names_its_receiver_as_a_safe_call_does`, `a_context_parameter_of_a_property_is_a_name_of_the_property_alone`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`, `a_smart_cast_drops_the_type`, `an_anonymous_class_initializer_has_no_type`)
-  [@test] ../../crates/code-symbols/src/psi_java/summary_test.rs (`an_array_after_the_name_has_no_type`)
+  [@test] ../../crates/code-symbols/src/java/summary_test.rs (`an_array_after_the_name_has_no_type`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java call (not an infix call), Java's `new` and a Kotlin constructor invocation of a
   supertype included, must hold the shape of its arguments on the reference of its callee (the last name of the type of
@@ -184,15 +186,17 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`, `the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`)
   [@test] ../../crates/trial-check/src/declaration_checks_test.rs (`a_function_made_suspend_dangles_where_another_branch_removed_its_call`, `a_type_declared_again_in_the_same_package_is_a_duplicate`)
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_check_of_a_removed_rust_item`)
-- A rule must name only node kinds its grammar has.
+- A rule of a tree-sitter language (Rust, TypeScript) must name only node kinds its grammar has.
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_spec_kind_exists_in_its_grammar`)
 - The commits' changes must carry the full ids of the blobs before and after each file, from the same `log --raw`
   process (`--no-abbrev`); a side without a file, a symlink and a submodule have none.
   [@test] ../../crates/trial-check/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_gives_the_full_blob_ids`)
 - The summaries must be read through the object cache, keyed by the extractor version, the language and the blob id,
   with one `cat-file --batch` for the blobs the cache misses; a write of another extractor version must clear the
-  store once. A summary cut by the parse budget must not be cached.
+  store once. A summary cut by the parse budget must not be cached. The extractor version must change with the rules,
+  with the revision of psi-syntax that reads Kotlin and Java, and with a tree-sitter grammar of the others.
   [@test] ../../crates/trial-check/src/symbol_scan_test.rs (`reads_the_summaries_through_the_cache`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`, `the_psi_syntax_revision_is_the_one_cargo_builds`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`blob_summaries_are_read_by_the_extractor_version_that_wrote_them`)
 - The summary of a Rust file must declare the `pub` items at the top level of the body of a macro in item position (in
   a file, a module or an impl) by their tokens: an enum with its variants, a struct, a union, a trait, a type alias, a

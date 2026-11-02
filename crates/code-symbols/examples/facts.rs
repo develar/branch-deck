@@ -20,8 +20,9 @@
 //!   any parser: every start of an identifier-like word (a letter, `_` or `$` after no letter, digit, `_` or `$`),
 //!   at most `--probes` (8) of them per file, taken at the indices `i * count / K`. A file over `--nav-max-bytes`
 //!   (65 536) or with brackets (`(`, `[`, `{`, counted in the text alone) nested deeper than `--nav-max-depth` (128) has
-//!   none (`probes skipped: …`): tree-sitter's navigation takes minutes on such a file (`BigIf.java`, an `else if` chain
-//!   of 115 KB, `Parenth2.java`, parentheses 1000 deep), as its `Node::parent` climbs from the root.
+//!   none (`probes skipped: …`): the tree-sitter navigation of Kotlin and Java before psi-syntax, the baseline of the
+//!   move, took minutes on such a file (`BigIf.java`, an `else if` chain of 115 KB, `Parenth2.java`, parentheses 1000
+//!   deep), as its `Node::parent` climbs from the root; the defaults keep a run comparable with that baseline.
 //!
 //! The time of each family (the sum of its calls on every thread) and the wall time go to stderr, and every 30 s the
 //! files a worker has been on that long (`slow<TAB>path<TAB>N s`). `--compare` reads two

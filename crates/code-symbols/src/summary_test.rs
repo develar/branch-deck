@@ -1,12 +1,12 @@
-use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, RULES_VERSION, extractor_version, spec_of, summarize, summarize_with_budget};
+use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, PSI_SYNTAX_REVISION, RULES_VERSION, extractor_version, spec_of, summarize, summarize_with_budget};
 use crate::language::{Family, Language, language_of};
 use crate::summary::{DeclKind, FileSummary, Role};
 use crate::summary_text::render;
 use crate::test_support::{check_golden, declaration, fixture, summary_of};
 
-/// The value for the grammars and rules of this build. A change of `RULES_VERSION` or of a grammar version changes it:
-/// replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 2_937_280_679;
+/// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
+/// tree-sitter grammar changes it: replace it with the value the failure prints.
+const EXTRACTOR_VERSION: u32 = 539_422_904;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -61,11 +61,16 @@ fn every_fixture_matches_its_golden_file() {
 }
 
 #[test]
-fn no_kotlin_ng_in_the_lock_file() {
-  // tree-sitter-kotlin-ng exports the same C symbol as tree-sitter-kotlin: linking both picks one grammar at random
+fn the_psi_syntax_revision_is_the_one_cargo_builds() {
+  // `extractor_version` hashes the revision: a cached summary of another parser is made again
+  let manifest = include_str!("../Cargo.toml");
   let lock = include_str!("../../../Cargo.lock");
-  assert!(lock.contains("name = \"tree-sitter-kotlin\"\nversion = \"0.4.0\"\nsource = \"git+https://github.com/develar/tree-sitter-kotlin"));
-  assert!(!lock.contains("name = \"tree-sitter-kotlin-ng\""));
+  for name in ["java-syntax", "kotlin-syntax", "psi-builder"] {
+    let dependency = format!("{name} = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{PSI_SYNTAX_REVISION}\"");
+    assert!(manifest.contains(&dependency), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.toml");
+    let locked = format!("name = \"{name}\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/develar/psi-syntax?rev={PSI_SYNTAX_REVISION}#{PSI_SYNTAX_REVISION}\"");
+    assert!(lock.contains(&locked), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.lock");
+  }
 }
 
 #[test]

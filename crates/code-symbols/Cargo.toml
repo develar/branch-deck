@@ -14,8 +14,6 @@ kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "36222345
 psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "36222345d10cee7425d29da747b01fcbebc268e7", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
-tree-sitter-java = { version = "0.23.5", optional = true }
-tree-sitter-kotlin = { git = "https://github.com/develar/tree-sitter-kotlin", rev = "3dacb0e60705d494a737744ca86cfe63d16bb071", optional = true }
 tree-sitter-rust = { version = "0.24.2", optional = true }
 tree-sitter-typescript = { version = "0.23.2", optional = true }
 
@@ -25,8 +23,8 @@ serde_json.workspace = true
 
 [features]
 default = ["kotlin", "java", "rust", "typescript"]
-kotlin = ["dep:kotlin-syntax", "dep:psi-builder", "dep:tree-sitter-kotlin"]
-java = ["dep:java-syntax", "dep:psi-builder", "dep:tree-sitter-java"]
+kotlin = ["dep:kotlin-syntax", "dep:psi-builder"]
+java = ["dep:java-syntax", "dep:psi-builder"]
 rust = ["dep:tree-sitter-rust"]
 typescript = ["dep:tree-sitter-typescript"]
 

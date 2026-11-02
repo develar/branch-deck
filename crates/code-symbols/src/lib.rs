@@ -1,17 +1,19 @@
-//! The declarations, imports and references of one source file (Kotlin, Java, Rust, TypeScript and JavaScript), from a
-//! tree-sitter syntax tree, for relating the commits of a branch: which declarations a commit adds or removes, which
-//! commit's lines use a name another commit declares, and whether a word on a line is a real reference at all.
+//! The declarations, imports and references of one source file (Kotlin, Java, Rust, TypeScript and JavaScript), for
+//! relating the commits of a branch: which declarations a commit adds or removes, which commit's lines use a name
+//! another commit declares, and whether a word on a line is a real reference at all; and the highlighting
+//! (`highlight`) and the navigation (`navigate`: Go to Declaration, Find Usages) of a file of a diff.
 //!
 //! A pure function of the file's bytes (`extract::summarize`): no git, no cache. A reference is a name the syntax tree
 //! uses outside comments and strings (but inside interpolations), that is no declaration name, label or key, and is not
 //! bound in a local scope; resolving it to a declaration is the caller's job, by the imports, the package and the
-//! qualifier. Each grammar is a cargo feature, all on by default.
+//! qualifier. Each language is a cargo feature, all on by default.
 //!
-//! Kotlin and Java move to psi-syntax's parsers, whose trees are the compiler's and IntelliJ's PSI: the summary, the
-//! highlighting and the navigation of those languages go through `psi_kotlin` and `psi_java` (one module per consumer,
-//! on the parser-neutral `summary_builder`, `highlight::lines`, `highlight::paint::paint_leaf` and the answers of
-//! `navigate`), which delegate to the tree-sitter code until their walks land; `examples/facts.rs` is the oracle of
-//! the move.
+//! Two parsers: Kotlin and Java are read by psi-syntax's ports of the Kotlin compiler's and IntelliJ's own parsers, whose
+//! trees are their PSI (`kotlin`, `java`: a module per language with a walk per consumer, `summary`, `highlight` and
+//! `navigate`), Rust, TypeScript and JavaScript by tree-sitter (`extract.rs` with `rust_lang.rs` and `typescript.rs`,
+//! `highlight/`, `navigate.rs`). Both build their answers by the same parser-neutral code: `summary_builder`,
+//! `highlight::lines` and `highlight::paint`, the answers of `navigate`. `examples/facts.rs` prints every fact of the
+//! three consumers of a list of files, the oracle of a change of parser or rules.
 
 #![cfg_attr(
   not(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript")),
@@ -29,12 +31,10 @@ mod summary_builder;
 
 #[cfg(feature = "java")]
 mod java;
+#[cfg(any(feature = "kotlin", feature = "java"))]
+mod jvm;
 #[cfg(feature = "kotlin")]
 mod kotlin;
-#[cfg(feature = "java")]
-mod psi_java;
-#[cfg(feature = "kotlin")]
-mod psi_kotlin;
 #[cfg(feature = "rust")]
 mod rust_lang;
 #[cfg(feature = "typescript")]

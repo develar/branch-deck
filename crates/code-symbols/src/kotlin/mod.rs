@@ -2,8 +2,8 @@
 //! Kotlin's PSI (`FUN`, `CLASS`, `CALL_EXPRESSION`, `DOT_QUALIFIED_EXPRESSION`, …), read by walks of this module over its
 //! preorder ids by `kotlin_syntax::NodeKind` and `TokenKind`, never as tree-sitter nodes. `parse` is the one call into
 //! the parser; `summary` makes the `FileSummary`, `highlight` the `LineRuns`, `navigate` the answers of Go to
-//! Declaration and Find Usages, each by the parser-neutral builders (`summary_builder`, `highlight::lines` and
-//! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answer, byte_offset}`).
+//! Declaration and Find Usages, each by the parser-neutral builders (`summary_builder` and `jvm`, `highlight::lines` and
+//! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answers, byte_offset}`).
 //!
 //! - **The text** is the file as IntelliJ's document holds it (`kotlin_syntax::document_text`): a byte order mark as
 //!   spaces, the `\r` of a `\r\n` as a space and a lone `\r` as `\n`, at the file's offsets, so a range of the tree is a

@@ -16,8 +16,8 @@ targets:
   - ../../crates/review-plan/src/dependencies.rs
   - ../../crates/review-plan/src/order.rs
   - ../../crates/trial-check/src/declaration_checks.rs
-  - ../../crates/code-symbols/src/kotlin.rs
-  - ../../crates/code-symbols/src/java.rs
+  - ../../crates/code-symbols/src/kotlin/summary.rs
+  - ../../crates/code-symbols/src/java/summary.rs
   - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/trial-check/src/symbol_dependencies.rs
   - ../../crates/trial-check/src/symbol_scan.rs

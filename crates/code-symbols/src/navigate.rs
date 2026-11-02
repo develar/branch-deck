@@ -5,6 +5,11 @@
 //!
 //! The usages of a name for Find Usages are its names in the tree: those bound to the same declaration for a local
 //! (a parameter, a local of a function), else every name of that text that no local binds, each with how it uses it.
+//!
+//! Kotlin and Java answer from their PSI (`kotlin::navigate`, `java::navigate`: one pass over the leaves files each
+//! declaration under the scopes that see it, by the language's own scope rules), Rust, TypeScript and JavaScript from a
+//! tree-sitter tree by the kinds of their grammars below. Both give their answers through `reference_answer` and
+//! `usage_answers`, with the positions of the view.
 
 use crate::highlight::Grammar;
 use tree_sitter::Node;
@@ -46,11 +51,9 @@ pub struct ReferenceAt {
   pub local: Option<Position>,
 }
 
-/// The kinds of the names of each grammar
+/// The kinds of the names of each tree-sitter grammar
 const NAMES: &[&str] = &[
-  "simple_identifier",
   "type_identifier",
-  "interpolated_identifier",
   "identifier",
   "field_identifier",
   "shorthand_field_identifier",
@@ -61,31 +64,8 @@ const NAMES: &[&str] = &[
 
 /// The nodes that open a scope: a name declared inside is not visible outside
 const SCOPES: &[&str] = &[
-  // Kotlin
-  "function_declaration",
-  "lambda_literal",
-  "anonymous_function",
-  "class_declaration",
-  "object_declaration",
-  "companion_object",
-  "object_literal",
-  "secondary_constructor",
-  "getter",
-  "setter",
-  "for_statement",
-  "catch_block",
-  "statements",
-  // Java
-  "interface_declaration",
-  "enum_declaration",
-  "record_declaration",
-  "method_declaration",
-  "constructor_declaration",
-  "lambda_expression",
-  "block",
-  "enhanced_for_statement",
-  "catch_clause",
   // Rust
+  "block",
   "function_item",
   "closure_expression",
   "impl_item",
@@ -94,6 +74,12 @@ const SCOPES: &[&str] = &[
   "match_arm",
   "for_expression",
   // TypeScript
+  "function_declaration",
+  "class_declaration",
+  "interface_declaration",
+  "enum_declaration",
+  "for_statement",
+  "catch_clause",
   "method_definition",
   "arrow_function",
   "function_expression",
@@ -170,20 +156,20 @@ fn with_name_at<T>(grammar: Grammar, text: &str, position: Position, answer: imp
   Some(answer(node, name, kind, qualifier))
 }
 
-/// The name at `position` of `text` and what its syntax says; `None` where no name is. Kotlin and Java by psi-syntax's
-/// trees (`psi_kotlin`, `psi_java`), the others by tree-sitter's
+/// The name at `position` of `text` and what its syntax says; `None` where no name is or the grammar is not in this
+/// build. Kotlin and Java by psi-syntax's trees (`kotlin`, `java`), the others by tree-sitter's
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::navigate::reference_at(crate::psi_kotlin::file_kind(grammar), text, position),
+    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::reference_at(crate::kotlin::file_kind(grammar), text, position),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::psi_java::navigate::reference_at(text, position),
+    Grammar::Java => crate::java::navigate::reference_at(text, position),
     _ => reference_at_tree_sitter(grammar, text, position),
   }
 }
 
 /// `reference_at` by the tree-sitter tree
-pub(crate) fn reference_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
+fn reference_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   with_name_at(grammar, text, position, |node, name, kind, qualifier| reference_of(node, name, kind, qualifier, text))
 }
 
@@ -210,7 +196,9 @@ pub(crate) fn reference_answer(text: &str, start: usize, name: String, kind: Ref
   }
 }
 
-/// A usage of any parser: the name `name` that starts at byte `start` of `text`, used as `access`
+/// A usage of any parser: the name `name` that starts at byte `start` of `text`, used as `access`; `usage_answers`
+/// answers many in one pass
+#[cfg(test)]
 pub(crate) fn usage_answer(text: &str, start: usize, name: &str, access: Access) -> Usage {
   let start = position_of(text, start);
   Usage {
@@ -266,15 +254,15 @@ fn advance(from: Position, text: &str, after_cr: bool) -> Position {
 pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::navigate::usages_at(crate::psi_kotlin::file_kind(grammar), text, position),
+    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::usages_at(crate::kotlin::file_kind(grammar), text, position),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::psi_java::navigate::usages_at(text, position),
+    Grammar::Java => crate::java::navigate::usages_at(text, position),
     _ => usages_at_tree_sitter(grammar, text, position),
   }
 }
 
 /// `usages_at` by the tree-sitter tree
-pub(crate) fn usages_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
+fn usages_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
   with_name_at(grammar, text, position, |node, name, kind, _| usages_of_name(node, name, kind, text))
 }
 
@@ -300,15 +288,15 @@ fn usages_of_name(node: Node<'_>, name: String, kind: ReferenceKind, text: &str)
 pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::navigate::usages_of(crate::psi_kotlin::file_kind(grammar), text, name),
+    Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::usages_of(crate::kotlin::file_kind(grammar), text, name),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::psi_java::navigate::usages_of(text, name),
+    Grammar::Java => crate::java::navigate::usages_of(text, name),
     _ => usages_of_tree_sitter(grammar, text, name),
   }
 }
 
 /// `usages_of` by the tree-sitter tree
-pub(crate) fn usages_of_tree_sitter(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
+fn usages_of_tree_sitter(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
   // a cheap test first: most files of a review do not have the word
   if !text.contains(name) {
     return Vec::new();
@@ -316,7 +304,7 @@ pub(crate) fn usages_of_tree_sitter(grammar: Grammar, text: &str, name: &str) ->
   crate::highlight::parse_text(grammar, text).map_or_else(Vec::new, |tree| names_in(tree.root_node(), text, name, |binding| binding.is_none_or(|it| !is_local(it))))
 }
 
-/// The names `name` of the tree whose binding `keep` takes, with how each uses it
+/// The names `name` of the tree whose binding `keep` takes, with how each uses it, in the order of the text
 fn names_in<'tree>(root: Node<'tree>, text: &str, name: &str, keep: impl Fn(Option<Node<'tree>>) -> bool) -> Vec<Usage> {
   let mut usages = Vec::new();
   let mut cursor = root.walk();
@@ -326,7 +314,7 @@ fn names_in<'tree>(root: Node<'tree>, text: &str, name: &str, keep: impl Fn(Opti
     if descend && NAMES.contains(&node.kind()) && text.get(node.byte_range()) == Some(name) {
       let (kind, _) = kind_of(node, text);
       if keep(binding_of(node, kind, name, text)) {
-        usages.push(usage_answer(text, node.start_byte(), name, access_of(node, kind)));
+        usages.push((node.start_byte(), access_of(node, kind)));
       }
     }
     if descend && cursor.goto_first_child() {
@@ -341,20 +329,12 @@ fn names_in<'tree>(root: Node<'tree>, text: &str, name: &str, keep: impl Fn(Opti
     }
     descend = false;
   }
-  usages
+  usage_answers(text, name, usages)
 }
 
 /// The nodes of a function, whose names no other function sees
 const FUNCTIONS: &[&str] = &[
   "function_declaration",
-  "anonymous_function",
-  "lambda_literal",
-  "secondary_constructor",
-  "getter",
-  "setter",
-  "method_declaration",
-  "constructor_declaration",
-  "lambda_expression",
   "function_item",
   "closure_expression",
   "method_definition",
@@ -385,17 +365,16 @@ fn access_of(node: Node<'_>, kind: ReferenceKind) -> Access {
   let mut current = node.parent();
   while let Some(parent) = current {
     match parent.kind() {
-      "import_header" | "import_declaration" | "use_declaration" | "import_statement" => return Access::Import,
-      "assignment" | "assignment_expression" | "augmented_assignment_expression" | "compound_assignment_expr" => {
-        // Kotlin's left side is its first child, the others name it `left`
-        let left = parent.child_by_field_name("left").or_else(|| parent.named_child(0));
+      "use_declaration" | "import_statement" => return Access::Import,
+      "assignment_expression" | "augmented_assignment_expression" | "compound_assignment_expr" => {
+        let left = parent.child_by_field_name("left");
         return if left.is_some_and(|it| it.end_byte() == node.end_byte() && it.start_byte() <= node.start_byte()) {
           Access::Write
         } else {
           Access::Read
         };
       }
-      "update_expression" | "postfix_expression" | "prefix_expression" if parent.end_byte() >= node.end_byte() => {
+      "update_expression" if parent.end_byte() >= node.end_byte() => {
         let operator = parent
           .child(0)
           .filter(|it| !it.is_named())
@@ -417,32 +396,14 @@ fn kind_of(node: Node<'_>, text: &str) -> (ReferenceKind, Option<String>) {
   let Some(parent) = node.parent() else { return (ReferenceKind::Value, None) };
   let text_of = |it: Node<'_>| text.get(it.byte_range()).unwrap_or_default().to_string();
   let is_callee = |expression: Node<'_>| {
-    expression.parent().is_some_and(|call| {
-      // Kotlin's call has no fields: its callee is its first child; the receiver of a Java call is not its callee
-      call.kind() == "call_expression" && (call.child_by_field_name("function") == Some(expression) || call.named_child(0) == Some(expression))
-    })
+    expression
+      .parent()
+      .is_some_and(|call| call.kind() == "call_expression" && call.child_by_field_name("function") == Some(expression))
   };
   if declared_name(parent).is_some_and(|it| it == node) || is_pattern_name(node) {
     return (ReferenceKind::Declaration, None);
   }
   match parent.kind() {
-    // Kotlin `a.b`
-    "navigation_suffix" => {
-      let expression = parent.parent();
-      let qualifier = expression.and_then(|it| it.named_child(0)).map(text_of);
-      let kind = if expression.is_some_and(is_callee) {
-        ReferenceKind::MemberCall
-      } else {
-        ReferenceKind::Member
-      };
-      (kind, qualifier)
-    }
-    // Java `a.b()` and `a.b`
-    "method_invocation" if parent.child_by_field_name("name") == Some(node) => match parent.child_by_field_name("object") {
-      Some(object) => (ReferenceKind::MemberCall, Some(text_of(object))),
-      None => (ReferenceKind::Call, None),
-    },
-    "field_access" if parent.child_by_field_name("field") == Some(node) => (ReferenceKind::Member, parent.child_by_field_name("object").map(text_of)),
     // Rust `a.b` and TypeScript `a.b`
     "field_expression" | "member_expression" if parent.child_by_field_name("field").or_else(|| parent.child_by_field_name("property")) == Some(node) => {
       let object = parent.child_by_field_name("value").or_else(|| parent.child_by_field_name("object"));
@@ -529,19 +490,10 @@ fn parameters_of(scope: Node<'_>) -> Option<Node<'_>> {
 
 /// The name a declaration node declares
 fn declared_name(node: Node<'_>) -> Option<Node<'_>> {
-  let first_of = |kind: &str| {
-    let mut cursor = node.walk();
-    node.named_children(&mut cursor).find(|it| it.kind() == kind)
-  };
-  match node.kind() {
-    // Kotlin, whose grammar has few fields
-    "function_declaration" if first_of("simple_identifier").is_some() && node.child_by_field_name("name").is_none() => first_of("simple_identifier"),
-    "class_declaration" | "object_declaration" | "type_alias" | "type_parameter" if node.child_by_field_name("name").is_none() => first_of("type_identifier"),
-    "variable_declaration" | "class_parameter" | "parameter" | "enum_entry" | "parameter_with_optional_type" if node.child_by_field_name("name").is_none() => {
-      first_of("simple_identifier")
-    }
-    kind if is_declaration_kind(kind) => node.child_by_field_name("name").filter(|it| NAMES.contains(&it.kind())),
-    _ => None,
+  if is_declaration_kind(node.kind()) {
+    node.child_by_field_name("name").filter(|it| NAMES.contains(&it.kind()))
+  } else {
+    None
   }
 }
 
