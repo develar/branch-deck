@@ -470,7 +470,7 @@ fn a_label_line_that_starts_its_block_heads_the_paragraph_or_the_code_right_afte
 }
 
 #[test]
-fn a_run_in_look_closely_heads_its_paragraph_alone() {
+fn a_run_in_look_closely_heads_its_paragraph_and_the_list_or_code_right_under_it() {
   let body =
     commit_body("The lead.\n\nLook closely: decide the count.\n\nWhy not a setting:\nNo user knows a pass.\n\nMeasurements of five runs.\n\n    before 412 ms\n\nTests:\n- a test");
   assert_eq!(
@@ -495,6 +495,22 @@ fn a_run_in_look_closely_heads_its_paragraph_alone() {
   // a Look closely on a line of its own heads its blocks up to the next label
   let own = commit_body("Look closely:\n\nThe count.\n\nThe passes.");
   assert_eq!(parts(&own), [(0, 3, false)]);
+  // the list and the code written right under the question (no blank line) are the question's: what a blank line
+  // separates, and a label in the same lines, are not
+  let listed = commit_body(
+    "The lead.\n\nLook closely: the guards against a false merge.\n- A line that starts a link stops the join.\n- A link must reach the edge.\n\nThe frontend sends an update.",
+  );
+  assert_eq!(
+    listed.blocks[1..4],
+    [
+      run_in_labelled("Look closely", LabelKind::LookClosely),
+      paragraph(&["the guards against a false merge."]),
+      list(false, 1, &["A line that starts a link stops the join.", "A link must reach the edge."]),
+    ]
+  );
+  assert_eq!(parts(&listed), [(0, 1, false), (1, 4, false), (4, 5, false)]);
+  let coded = commit_body("Look closely: the count.\n    before 412 ms\nTests:\n- a test");
+  assert_eq!(parts(&coded), [(0, 3, false), (3, 5, true)]);
 }
 
 /// A line of code of a body as a test reads it: its block, its item and its spans (start, end, explicit)

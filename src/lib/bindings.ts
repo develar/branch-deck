@@ -1538,9 +1538,9 @@ export type CommitBody = {
 	lead: boolean,
 	/**
 	 *  The parts of the body in its order, each block in one: the lead alone; a labelled section (a label or a heading
-	 *  and its blocks up to the next one; a run-in `Look closely: text` its paragraph alone); a run of the other blocks,
-	 *  two where the fold cuts it. Each says whether a
-	 *  reader folds it, so Rust alone says where the fold is
+	 *  and its blocks up to the next one; a run-in `Look closely: text` its paragraph and what is written right under
+	 *  it); a run of the other blocks, two where the fold cuts it. Each says whether a reader folds it, so Rust alone says
+	 *  where the fold is
 	 */
 	parts: CommitBodyPart[],
 	/**
@@ -1572,10 +1572,10 @@ start: number; items: string[] } |
 /**  A Markdown heading (`## Text`): its level, one to six, and its text without the marks */
 { type: "heading"; level: number; text: string } | 
 /**
- *  The label of the blocks after it, up to the next label or heading (a run-in Look closely its paragraph alone): a
- *  paragraph that is only `Label:`, a `Label:` line right before a list, or right before a paragraph or code at the
- *  start of its block, or the 1–3 words that start a `Label: text` paragraph, whose text is then the paragraph after
- *  it. The text without its colon, as the author wrote it
+ *  The label of the blocks after it, up to the next label or heading (a run-in Look closely its paragraph and the
+ *  list or code right under it): a paragraph that is only `Label:`, a `Label:` line right before a list, or right
+ *  before a paragraph or code at the start of its block, or the 1–3 words that start a `Label: text` paragraph, whose
+ *  text is then the paragraph after it. The text without its colon, as the author wrote it
  */
 { type: "label"; text: string; kind: LabelKind; 
 /**
@@ -1614,7 +1614,10 @@ export type CommitBodyPart = {
 export type CommitBodyPartKind = 
 /**  The paragraph the body opens with, before any label or heading: its summary, alone */
 "lead" | 
-/**  A label or a heading (its first block) and its blocks up to the next one; a run-in Look closely its paragraph */
+/**
+ *  A label or a heading (its first block) and its blocks up to the next one; a run-in Look closely its paragraph and
+ *  the list or code right under it
+ */
 "section" | 
 /**  A run of other blocks */
 "run";

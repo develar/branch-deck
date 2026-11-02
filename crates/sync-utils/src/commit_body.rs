@@ -16,7 +16,8 @@
 //! - a label (`LEAD_IN_MAX`, `RUN_IN_MAX`) heads the blocks after it: a paragraph that is only `Label:` followed by a
 //!   block, a `Label:` line right before a list item, a `Label:` line that starts its block (or follows a list) right
 //!   before a line of prose or code, or the 1–3 words of a paragraph that starts `Label: text`; its kind is by its
-//!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`); a run-in `Look closely: text` heads its paragraph alone;
+//!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`); a run-in `Look closely: text` heads its paragraph and the list or
+//!   code right under it (no blank line between) alone;
 //! - the code of each line of prose (`CommitBody::code`) by the grammar of `code_spans`;
 //! - the parts and the fold (`CommitBody::parts`): the lead alone, a labelled section whole, a run of other blocks; the
 //!   first part shows, then whole parts while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS`
@@ -60,6 +61,8 @@ pub fn commit_body(body: &str) -> CommitBody {
   let body = body.replace("\r\n", "\n");
   let raw_blocks = raw_blocks(&body);
   let mut blocks = Vec::new();
+  // the raw block (a run of lines between blank lines) each block comes from
+  let mut raw_of = Vec::new();
   let mut trailer_lines = Vec::new();
   let last = raw_blocks.len().saturating_sub(1);
   for (index, raw) in raw_blocks.into_iter().enumerate() {
@@ -70,10 +73,11 @@ pub fn commit_body(body: &str) -> CommitBody {
         None => parse_block(&lines, &mut blocks),
       },
     }
+    raw_of.resize(blocks.len(), index);
   }
-  let blocks = labelled(blocks);
+  let (blocks, raw_of) = labelled(blocks, &raw_of);
   let lead = matches!(blocks.first(), Some(CommitBodyBlock::Paragraph { .. }));
-  let parts = parts(&blocks, lead);
+  let parts = parts(&blocks, &raw_of, lead);
   let code = code_of(&blocks);
   CommitBody {
     blocks,
@@ -113,34 +117,39 @@ pub fn code_of(blocks: &[CommitBodyBlock]) -> Vec<LineCode> {
 }
 
 /// `blocks` with their labels: a paragraph that is only `Label:` before a block of content, and the label of a
-/// paragraph that starts `Label: text` before the rest of it
-fn labelled(blocks: Vec<CommitBodyBlock>) -> Vec<CommitBodyBlock> {
+/// paragraph that starts `Label: text` before the rest of it; with the raw block of each (`raw_of` of `blocks`)
+fn labelled(blocks: Vec<CommitBodyBlock>, raw_of: &[usize]) -> (Vec<CommitBodyBlock>, Vec<usize>) {
   let mut labelled = Vec::with_capacity(blocks.len());
-  let mut blocks = blocks.into_iter().peekable();
-  while let Some(block) = blocks.next() {
+  let mut labelled_raw = Vec::with_capacity(blocks.len());
+  let mut blocks = blocks.into_iter().zip(raw_of.iter().copied()).peekable();
+  while let Some((block, raw)) = blocks.next() {
     let CommitBodyBlock::Paragraph { lines } = block else {
       labelled.push(block);
+      labelled_raw.push(raw);
       continue;
     };
     let content_follows = matches!(
       blocks.peek(),
-      Some(CommitBodyBlock::Paragraph { .. } | CommitBodyBlock::List { .. } | CommitBodyBlock::Preformatted { .. })
+      Some((CommitBodyBlock::Paragraph { .. } | CommitBodyBlock::List { .. } | CommitBodyBlock::Preformatted { .. }, _))
     );
     if let [only] = lines.as_slice()
       && let Some(text) = lead_in(only).filter(|_| content_follows)
     {
       labelled.push(label(text, false));
+      labelled_raw.push(raw);
     } else if let Some((text, rest)) = lines.first().and_then(|first| run_in(first)) {
       let rest = rest.to_string();
       labelled.push(label(text, true));
       labelled.push(CommitBodyBlock::Paragraph {
         lines: std::iter::once(rest).chain(lines.into_iter().skip(1)).collect(),
       });
+      labelled_raw.extend([raw, raw]);
     } else {
       labelled.push(CommitBodyBlock::Paragraph { lines });
+      labelled_raw.push(raw);
     }
   }
-  labelled
+  (labelled, labelled_raw)
 }
 
 fn label(text: &str, run_in: bool) -> CommitBodyBlock {
@@ -186,12 +195,12 @@ fn label_kind(text: &str) -> LabelKind {
   }
 }
 
-/// The parts of `blocks` and their fold (`CommitBody::parts`). The units of the fold in order: the lead, a labelled
-/// section whole, any other block alone; the first unit shows however long it is, so something shows before the fold,
-/// then each while the lines so far stay within `FOLD_LINES`, and every unit after the first that does not fit folds. A
-/// verification section folds and a Look closely section shows wherever it is, at no cost. A run of other blocks on one
-/// side of the fold is one part
-fn parts(blocks: &[CommitBodyBlock], lead: bool) -> Vec<CommitBodyPart> {
+/// The parts of `blocks` and their fold (`CommitBody::parts`), `raw_of` the raw block of each. The units of the fold in
+/// order: the lead, a labelled section whole, any other block alone; the first unit shows however long it is, so
+/// something shows before the fold, then each while the lines so far stay within `FOLD_LINES`, and every unit after the
+/// first that does not fit folds. A verification section folds and a Look closely section shows wherever it is, at no
+/// cost. A run of other blocks on one side of the fold is one part
+fn parts(blocks: &[CommitBodyBlock], raw_of: &[usize], lead: bool) -> Vec<CommitBodyPart> {
   let heads = |block: &CommitBodyBlock| matches!(block, CommitBodyBlock::Label { .. } | CommitBodyBlock::Heading { .. });
   let mut parts: Vec<CommitBodyPart> = Vec::new();
   let mut lines = 0;
@@ -200,12 +209,17 @@ fn parts(blocks: &[CommitBodyBlock], lead: bool) -> Vec<CommitBodyPart> {
   while start < blocks.len() {
     let headed = heads(&blocks[start]);
     let end = match blocks[start] {
-      // the author's question is the paragraph the label starts: what follows it is the story again
+      // the author's question is the paragraph the label starts, with a list or code written right under it (no blank
+      // line between): what follows a blank line is the story again
       CommitBodyBlock::Label {
         kind: LabelKind::LookClosely,
         run_in: true,
         ..
-      } => (start + 2).min(blocks.len()),
+      } => {
+        let question = (start + 2).min(blocks.len());
+        let raw = raw_of.get(start).copied();
+        question + blocks[question..].iter().zip(&raw_of[question..]).take_while(|(block, of)| !heads(block) && Some(**of) == raw).count()
+      }
       _ if headed => blocks[start + 1..].iter().position(heads).map_or(blocks.len(), |next| start + 1 + next),
       _ => start + 1,
     };
