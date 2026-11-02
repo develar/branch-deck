@@ -110,12 +110,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   `this.m` of a class around a reference that is not enclosed, not past a class with a supertype, a nested class that
   isn't inner, a companion or an extension of another receiver; a parameter of a primary constructor only in the
   initializers of the class; and whether a constructor call gave the type. A type parameter, a function type, a vararg,
-  a Java array after
-  the name (`Foo a[]`), a delegate, a destructuring declaration, an inferred expression, a Java anonymous class and a
-  name that its scope or
-  function casts (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`, Java `instanceof` and
-  casts; not `in`) must
-  give none.
+  a Java array after the name (`Foo a[]`), a delegate, a destructuring declaration, an inferred expression, a Java
+  anonymous class and a name that its scope or function casts (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`,
+  Java `instanceof` and casts; not `in`) must give none.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`, `an_extension_receiver_or_a_function_hides_the_type`)
   [@test] ../../crates/code-symbols/src/psi_kotlin/summary_test.rs (`a_not_null_assertion_names_its_receiver_as_a_safe_call_does`, `a_context_parameter_of_a_property_is_a_name_of_the_property_alone`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`, `a_smart_cast_drops_the_type`, `an_anonymous_class_initializer_has_no_type`)
