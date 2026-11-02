@@ -575,11 +575,12 @@ tree (psi-syntax's `java-syntax`), painted leaf by leaf (`paint::paint_leaf`) in
   `record`, `yield`, `sealed`, `non-sealed`, `permits`, `when`) and a name elsewhere; a string, a text block and a
   character literal have their escapes as Java reads them (an octal `\77`, a unicode `\uuu0041`, the line continuation
   of a text block); a JavaDoc is lexed whole, a Markdown one (`///`) line by line from its slashes;
-- the scopes are those of the PSI: the fields of an anonymous class and of an enum constant's body are fields, a
-  pattern, loop, resource and vararg variable hides the field of its name, a field is static by its modifier or in an
-  interface, `Outer.this.size` is the instance's and `Base.super.run()` no static call, an annotation's element is a
-  method declaration and the name of an argument (`@Range(value = 1)`) no field, an annotated type parameter
-  (`<@A T>`) one.
+- the scopes are those of the PSI: the fields of an anonymous class and of an enum constant's body are fields (in its
+  body, not in its arguments), a pattern, loop, resource and vararg variable hides the field of its name (a pattern
+  variable only where Java sees it: in its statement, after an `if (!(o instanceof String s)) return;` the rest of the
+  block), a field is static by its modifier or in an interface, `Outer.this.size` is the instance's and
+  `Base.super.run()` no static call, an annotation's element is a method declaration and the name of an argument
+  (`@Range(value = 1)`) no field, an annotated type parameter (`<@A T>`) one.
 
 **Tree-sitter highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Rust, TypeScript, TSX and JavaScript
 are coloured as the IntelliJ editor colours them without resolving a name, from a tree-sitter tree (the grammars of

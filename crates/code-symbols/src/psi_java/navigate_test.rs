@@ -151,3 +151,41 @@ fn a_write_is_the_left_side_of_an_assignment_and_the_operand_of_an_increment() {
   );
   assert_eq!(usages(text, "all", 1).1, [(2, Access::Declaration), (6, Access::Read)]);
 }
+
+#[test]
+fn a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere() {
+  let text = "class A {
+  String name;
+  void f(Object o) {
+    if (o instanceof String name && name.isEmpty()) name.length();
+    name.trim();
+    boolean b = o instanceof String name ? name.isEmpty() : name == null;
+    name.trim();
+    if (!(o instanceof String name)) return;
+    name.strip();
+    while (!(o instanceof String name)) o = next();
+    name.chars();
+  }
+}
+";
+  // inside its `if`, its `? :`: the pattern variable
+  assert_eq!(kind_and_local(text, "name.isEmpty", 0).1, Some((3, 28)));
+  assert_eq!(kind_and_local(text, "name.length", 0).1, Some((3, 28)));
+  assert_eq!(kind_and_local(text, "name.isEmpty", 1).1, Some((5, 36)));
+  // after them, and where the condition does not introduce it (`name == null` when false): the field
+  assert_eq!(kind_and_local(text, "name.trim", 0).1, Some((1, 9)));
+  assert_eq!(kind_and_local(text, "name == null", 0).1, Some((5, 36)));
+  assert_eq!(kind_and_local(text, "name.trim", 1).1, Some((1, 9)));
+  // after an `if` that returns when it does not match, after a loop until it matches: the pattern variable
+  assert_eq!(kind_and_local(text, "name.strip", 0).1, Some((7, 30)));
+  assert_eq!(kind_and_local(text, "name.chars", 0).1, Some((9, 33)));
+  // the field's usages are its own
+  assert_eq!(usages(text, "name", 0), (false, vec![(1, Access::Declaration), (4, Access::Read), (6, Access::Read)]));
+}
+
+#[test]
+fn the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members() {
+  let text = "class A {\n  String name;\n  Object o = new Base(name) {\n    String name;\n    void f() { use(name); }\n  };\n}\n";
+  assert_eq!(kind_and_local(text, "name)", 0).1, Some((1, 9)));
+  assert_eq!(kind_and_local(text, "name)", 1).1, Some((3, 11)));
+}
