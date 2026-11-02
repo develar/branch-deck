@@ -80,7 +80,6 @@ pub(crate) fn comment_paint(text: &str) -> Paint {
 /// Paints one leaf of a tree whose leaves tile the text (psi-syntax's `Tree::leaves`), the text `text` at byte `start`,
 /// as `paint` paints a leaf node: the gap before it and an `Inherit` or `Opaque` leaf in `around` (the style of the node
 /// around it), a `Style` or `Leaf` in its style, a `Lexed` one in the pieces its lexer finds
-#[cfg_attr(not(test), expect(dead_code, reason = "for the highlighting of psi_kotlin and psi_java, which delegate to tree-sitter yet"))]
 pub(crate) fn paint_leaf(out: &mut Builder<'_>, start: usize, text: &str, paint: Paint, around: u32) {
   out.push(start, around);
   let end = start + text.len();

@@ -46,11 +46,3 @@ pub(crate) fn parse(source: &[u8], kind: FileKind) -> Tree {
 pub(crate) fn file_kind(grammar: Grammar) -> FileKind {
   if grammar == Grammar::KotlinScript { FileKind::Kts } else { FileKind::Kt }
 }
-
-/// The grammar tree-sitter reads a file of this kind with, for the code that delegates to it yet
-pub(crate) const fn grammar_of_kind(kind: FileKind) -> Grammar {
-  match kind {
-    FileKind::Kt => Grammar::Kotlin,
-    FileKind::Kts => Grammar::KotlinScript,
-  }
-}

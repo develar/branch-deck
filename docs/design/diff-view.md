@@ -500,8 +500,9 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 
 ### Syntax highlighting
 
-**Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a tree-sitter tree, as
-IntelliJ colours them without resolving names ("Tree-sitter highlighting" below); the other languages by Shiki in a
+**Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree (Kotlin's
+PSI, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Tree-sitter highlighting"
+below); the other languages by Shiki in a
 worker. The two sides of a file always share an engine: a file the backend cannot colour goes to the worker whole.
 
 **A worker per window, two in the main window.** The view pins a blob to one worker: the worker with the least pinned
@@ -583,6 +584,14 @@ are coloured as the IntelliJ editor colours them without resolving a name, from 
 - what a leaf holds and the grammar does not split is lexed: the escapes of a Kotlin string, the tags of a doc comment
   (`@param` and its name, a KDoc `[link]`), the keyword and the `@` of `return@label`;
 - a leaf inside a parse error keeps what its kind tells (a keyword), the rest of the error stays plain;
+- Kotlin is coloured from its PSI, the tree of the compiler's own parser (psi-syntax's `kotlin-syntax`, read by
+  `psi_kotlin/highlight.rs`), by the same scopes and roles: one pass over the tree's ids in preorder with an explicit
+  stack of the open nodes, each leaf of the tree (its tokens tile the text) painted by `paint::paint_leaf`. Its
+  keywords are the parser's tokens (`as?`, `!in` and `!is` whole, a soft keyword only where the parser made it one,
+  the `constructor` of a primary constructor), a raw string has no escapes, the `@Outer` of `this@Outer` is a label,
+  the arguments of a file annotation are code, the name after a receiver and `::` is no field of the scopes and an
+  operand of an infix call is read by them as any other; a string, a number or a comment in a parse error keeps its
+  colour. A `.kts` is parsed as a script, whose top-level properties are static members;
 - the roles are IntelliJ's colours that the syntax shows (`--syntax-*` of `src/index.css`): a property and a field, a
   static one and a constant italic, a static Java method in the colour of a declaration and italic, a Rust call in the
   colour of its function (RustRover colours calls, IntelliJ does not), a type parameter, a Kotlin label (a Rust one is
