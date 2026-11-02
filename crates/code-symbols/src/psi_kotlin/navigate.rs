@@ -1,6 +1,6 @@
 //! Go to Declaration and Find Usages in a Kotlin file from its PSI (spec/commit/symbol-navigation.spec.md): the name
 //! at a place (`Tree::leaf_index`), its qualifier, the kind of the reference, its declaration in the file by the
-//! scopes, and the usages of a name, answered by `navigate::{reference_answer, usage_answer}`.
+//! scopes, and the usages of a name, answered by `navigate::{reference_answer, usage_answers}`.
 //!
 //! - **A name** is an `IDENTIFIER` leaf of the code: not one of a doc comment, not a label (but the `Outer` of
 //!   `this@Outer`, a type).
@@ -14,7 +14,7 @@
 //!   of a function type, which no other file sees: its usages are those bound to it; the usages of any other name are
 //!   those that no local binds. The parameter of a function type, `(event: Event) -> Unit`, no scope sees.
 
-use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answer};
+use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
 
@@ -285,16 +285,14 @@ impl Names<'_> {
     tree.first_child(reference).and_then(|it| tree.token_kind(it))
   }
 
-  /// The names `name` of the tree whose binding `keep` takes, with how each uses it
+  /// The names `name` of the tree whose binding `keep` takes, with how each uses it: in the order of the text, so their
+  /// places come in one pass over it (`navigate::usage_answers`)
   fn usages(&self, declarations: &Declarations, name: &str, keep: impl Fn(Option<NodeId>) -> bool) -> Vec<Usage> {
-    let mut usages = Vec::new();
-    for &leaf in &declarations.names {
+    let used = declarations.names.iter().filter_map(|&leaf| {
       let (kind, _) = self.kind_of(leaf);
-      if keep(declarations.binding_of(self, leaf, kind)) {
-        usages.push(usage_answer(self.text, self.tree.range(leaf).start, name, self.access_of(leaf, kind)));
-      }
-    }
-    usages
+      keep(declarations.binding_of(self, leaf, kind)).then(|| (self.tree.range(leaf).start, self.access_of(leaf, kind)))
+    });
+    usage_answers(self.text, name, used)
   }
 }
 

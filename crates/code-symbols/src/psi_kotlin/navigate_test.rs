@@ -144,3 +144,14 @@ fn a_parameter_of_a_function_type_declares_nothing_the_code_sees() {
   assert_eq!(places(&found), [(1, 17, Access::Declaration)]);
   assert_eq!(places(&usages(text, "event", 0)), [(0, 12, Access::Declaration), (2, 36, Access::Read)]);
 }
+
+#[test]
+fn the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text() {
+  // the places come from one pass over the text (`navigate::usage_answers`): lines by `\r\n`, columns in UTF-16
+  let text = "val n = 1\r\nfun f() {\r\n  val s = \"𝔘\" + n\r\n  n.inc(); g(n)\r\n}\r\n";
+  let found = usages_of(Grammar::Kotlin, text, "n");
+  let expected: Vec<Position> = text.match_indices('n').map(|(offset, _)| position_of(text, offset)).collect();
+  let expected = [expected[0], expected[2], expected[3], expected[5]];
+  assert_eq!(found.iter().map(|it| it.start).collect::<Vec<_>>(), expected);
+  assert_eq!(found[1].start, Position { line: 2, column: 17 });
+}
