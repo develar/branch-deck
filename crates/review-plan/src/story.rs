@@ -42,12 +42,18 @@
 //!   it is told: a resolved mention marks the stops of the path of its target in the step of its target (of every step
 //!   without one), of a declaration only those that show its unit (their own or joined) when one does; a story of
 //!   several commits marks only from the commit that starts a step, its follow-ups folded under it.
+//! - **What changed in a body since the review** (`StoryCommit::change`, `StoryPart::hunks`): the change of its message
+//!   from the interdiff (`interdiff::message_change`): each part marks the added blocks it holds, and the removed blocks
+//!   of a hunk show in one part, that of its first added block, else of the block they followed (the first block when
+//!   they were at the start), before the block `start` when that part holds it, else at its end. A part that shows a
+//!   change is not folded, a verification section neither: what changed is what the reader came back for.
 //! - **The facts of a step**: the public declarations it adds (`ReviewStep::new_api`, the keys of `ApiChange` of kind
 //!   `Added` its stops show, a new file's by its path) and the links between modules it adds (`module_links`, by the
 //!   stop that holds the first use), each in one step, the first that holds it.
 
 use crate::api::ApiChangeKind;
 use crate::concerns::compound;
+use crate::interdiff::MessageChange;
 use crate::links::FileLink;
 use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, commit_title, split_message};
 use crate::units::{ReviewUnit, UnitKind};
@@ -74,11 +80,13 @@ pub struct StoryCommit {
   /// The parts of `body` (`CommitBody::parts`) as the document tells them, each at one place: of the concerns of one
   /// commit, a run of blocks of no label cut where the step that tells its blocks changes
   pub parts: Vec<StoryPart>,
+  /// How its message changed since the review (`PairedCommit::message_change`), whose hunks its parts show
+  pub change: Option<MessageChange>,
 }
 
 /// A part of the body of a story (`StoryCommit::parts`): a part of the grammar of a body, or of the concerns of one
 /// commit a piece of a run whose blocks one place tells
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
@@ -90,13 +98,27 @@ pub struct StoryPart {
   pub kind: CommitBodyPartKind,
   /// The kind of the label of a section (`CommitBodyPart::tone`)
   pub tone: LabelKind,
-  /// Whether a reader folds it (`CommitBodyPart::folded`)
+  /// Whether a reader folds it (`CommitBodyPart::folded`); never a part that shows a change of `StoryCommit::change`
   pub folded: bool,
   /// Where the document tells it
   pub told: StoryPlace,
   /// Its label is the title of the step that tells it (`ReviewStep::title`): the opening names it once, as its title,
   /// and tells the section without it
   pub titled: bool,
+  /// The hunks of `StoryCommit::change` whose removed blocks it shows, each at its place
+  pub removals: Vec<StoryRemoval>,
+}
+
+/// The removed blocks of a hunk of `StoryCommit::change` in the part that shows them (`StoryPart::removals`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct StoryRemoval {
+  /// The hunk, by its place in `MessageChange::hunks`
+  pub hunk: u32,
+  /// The block of the part they stand right before; `None` at its end
+  pub before: Option<u32>,
 }
 
 /// Where the document tells a part of a story (`StoryPart::told`)
@@ -629,6 +651,7 @@ fn story_parts(body: &CommitBody, told_in: Option<&[Option<u32>]>) -> Vec<StoryP
       folded: part.folded,
       told: place(start as usize),
       titled: false,
+      removals: Vec::new(),
     };
     if part.kind != CommitBodyPartKind::Run {
       parts.push(piece(part.start, part.end));
@@ -644,6 +667,29 @@ fn story_parts(body: &CommitBody, told_in: Option<&[Option<u32>]>) -> Vec<StoryP
     parts.push(piece(start, part.end));
   }
   parts
+}
+
+/// The removed blocks of each hunk of `change` on the part that shows them, and every part with a change unfolded (the
+/// module's header)
+fn place_hunks(parts: &mut [StoryPart], change: &MessageChange) {
+  for (index, hunk) in change.hunks.iter().enumerate() {
+    let added = hunk.start..hunk.start + u32::try_from(hunk.added.blocks.len()).unwrap_or(u32::MAX);
+    // the block whose part shows the removed ones: the first added block, else the block they followed
+    let anchor = if added.is_empty() { hunk.start.saturating_sub(1) } else { hunk.start };
+    for part in parts.iter_mut() {
+      let range = part.start..part.end;
+      if !hunk.removed.blocks.is_empty() && range.contains(&anchor) {
+        part.removals.push(StoryRemoval {
+          hunk: u32::try_from(index).unwrap_or(u32::MAX),
+          before: range.contains(&hunk.start).then_some(hunk.start),
+        });
+        part.folded = false;
+      }
+      if added.clone().any(|block| range.contains(&block)) {
+        part.folded = false;
+      }
+    }
+  }
 }
 
 /// The story of each commit of `input` whose body has a block, oldest first; `one_commit` when the steps are the
@@ -672,13 +718,18 @@ pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_co
         (true, false) => Some(vec![None; body.blocks.len()]),
         (false, _) => None,
       };
-      let parts = story_parts(&body, told_in.as_deref());
+      let mut parts = story_parts(&body, told_in.as_deref());
+      let change = input.message_changes.get(id).cloned();
+      if let Some(change) = &change {
+        place_hunks(&mut parts, change);
+      }
       Some(StoryCommit {
         id: id.clone(),
         title: commit_title(subject, input.issue),
         body,
         mentions,
         parts,
+        change,
       })
     })
     .collect()

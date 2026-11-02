@@ -10,7 +10,7 @@ import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { isTypingTarget } from "@/lib/preview-keys"
-import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, segmentItems, shownInterdiff } from "@/lib/range-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, reviewedCommitOf, segmentItems, shownInterdiff } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { reviewFilterChips } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
@@ -233,9 +233,17 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
   // a commit of the column has its own plan, read beside the plan of the part (a slot of its own in Rust): its card and
   // the story of its diffs
   const freshCommitId = fresh?.commitId ?? null
+  // with the reviewed commit of a commit whose message changed since the review: its story marks how
+  const freshReviewed = freshCommitId === null ? null : reviewedCommitOf(fresh?.interdiff ?? null, freshCommitId)
   const commitPlan = useReviewPlan(
     experimental && freshCommitId !== null
-      ? { repositoryPath, subject: { kind: "commit", id: freshCommitId }, sinceReviewed: false, head: freshCommitId, generation: planGeneration }
+      ? {
+          repositoryPath,
+          subject: { kind: "commit", id: freshCommitId, ...(freshReviewed === null ? {} : { reviewed: freshReviewed }) },
+          sinceReviewed: false,
+          head: freshCommitId,
+          generation: planGeneration,
+        }
       : null,
   )
 

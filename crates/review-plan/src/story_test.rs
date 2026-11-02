@@ -411,3 +411,74 @@ fn a_line_of_a_told_body_marks_the_stops_it_names_where_it_is_told() {
     ]
   );
 }
+
+/// A part of a story as a test reads it: its blocks, whether folded, and the removed blocks it shows (hunk, the block
+/// before which, `None` at its end)
+type ChangedPart = ((u32, u32), bool, Vec<(u32, Option<u32>)>);
+
+/// The parts of the story of `subject` (`ChangedPart`)
+fn changed_parts(plan: &ReviewPlan, subject: &str) -> Vec<ChangedPart> {
+  story(plan, subject)
+    .parts
+    .iter()
+    .map(|part| {
+      let removals = part.removals.iter().map(|removal| (removal.hunk, removal.before)).collect();
+      ((part.start, part.end), part.folded, removals)
+    })
+    .collect()
+}
+
+/// A body rewritten since the review marks it where its story shows it: a part that holds an added block or shows
+/// removed ones is not folded, a verification section neither; the removed blocks stand in one part, before the block
+/// they stood before, or at the end of the part of the block they followed. A commit shown alone with its reviewed one
+/// tells the same, and a body that did not change marks nothing
+#[test]
+fn a_changed_part_of_a_body_is_marked_and_unfolded_a_verification_too() {
+  let repo = TestRepo::new();
+  repo.create_commit_with_timestamp("Add readme", "README.md", "readme\n", Some(1_700_000_000));
+  repo.git(&["switch", "-q", "-c", "jane/virtual/auth"]);
+  let reviewed_body = "(auth) Add logout\n\nThe logout clears the session of the user and every token it holds.\n\nWhy: the token outlives the tab, so a shared machine keeps a session open.\n\nTests: the logout test passes.\n\nEvidence: the old session is gone after a restart.";
+  let reviewed = repo.create_commit_with_timestamp(reviewed_body, "logout.rs", "fn logout() {}\n", Some(1_700_000_100));
+  crate::test_support::mark(&repo);
+  let now = "(auth) Add logout\n\nThe logout clears the session of the user and every token it holds.\n\nWhy: the token outlives the tab, so a shared machine keeps a session open.\n\nTests: the logout test and the restart test pass.";
+  let reworded = repo.commit_with(&["--amend", "-m", now], &[("GIT_COMMITTER_DATE", "1700000300 +0000")]);
+
+  let plan = crate::test_support::plan_of(&repo, None, &crate::test_support::branch(&repo, false)).unwrap();
+  let title = "Add logout";
+  // the blocks now: the lead, Why and its paragraph, Tests and its paragraph
+  assert_eq!(
+    changed_parts(&plan, title),
+    [((0, 1), false, vec![]), ((1, 3), false, vec![]), ((3, 5), false, vec![(0, Some(4))])]
+  );
+  let change = story(&plan, title).change.as_ref().unwrap();
+  assert_eq!(
+    change
+      .hunks
+      .iter()
+      .map(|hunk| (hunk.start, hunk.added.blocks.len(), hunk.removed.blocks.len()))
+      .collect::<Vec<_>>(),
+    [(4, 1, 3)]
+  );
+
+  let alone = crate::ReviewPlanParams {
+    subject: crate::ReviewSubject::Commit {
+      id: reworded,
+      reviewed: Some(reviewed[..12].to_string()),
+    },
+    ..crate::test_support::branch(&repo, false)
+  };
+  let alone = crate::test_support::plan_of(&repo, None, &alone).unwrap();
+  assert_eq!(story(&alone, title).change.as_ref(), Some(change));
+  assert_eq!(changed_parts(&alone, title), changed_parts(&plan, title));
+
+  // without its reviewed commit, and of a commit git does not have, the story marks nothing and folds as its grammar
+  for reviewed in [None, Some("0123456789ab".to_string())] {
+    let params = crate::ReviewPlanParams {
+      subject: crate::ReviewSubject::Commit { id: repo.head(), reviewed },
+      ..crate::test_support::branch(&repo, false)
+    };
+    let plain = crate::test_support::plan_of(&repo, None, &params).unwrap();
+    assert_eq!(story(&plain, title).change, None);
+    assert_eq!(changed_parts(&plain, title), [((0, 1), false, vec![]), ((1, 3), false, vec![]), ((3, 5), true, vec![])]);
+  }
+}

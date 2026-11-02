@@ -38,6 +38,8 @@ struct PlanKey {
   head: String,
   /// The reviewed pair of the branch, which its interdiff compares with
   reviewed: Option<(String, String)>,
+  /// The reviewed commit a commit is read with, whose message its story compares with
+  reviewed_commit: Option<String>,
   since_reviewed: bool,
 }
 
@@ -53,6 +55,7 @@ impl PlanKey {
         .interdiff
         .as_ref()
         .map(|interdiff| (interdiff.reviewed_base.clone(), interdiff.reviewed_tip.clone())),
+      reviewed_commit: subject.reviewed_commit.clone(),
       since_reviewed: params.since_reviewed,
     }
   }

@@ -635,6 +635,52 @@ fn plan_since_the_review(repo: &TestRepo) -> (RepoContext, Vec<String>, bool) {
   (context, states, interdiff.scope.is_some_and(|scope| scope.carried))
 }
 
+/// The plan of a commit shown alone, as the app reads it, with its reviewed commit (`ReviewSubject::Commit::reviewed`):
+/// one `rev-list` of both messages more than without it, and its story marks how its message changed
+#[test]
+fn a_review_plan_of_a_commit_with_its_reviewed_one() {
+  let repo = repo_with_branches();
+  let reviewed = git(&repo, &["rev-parse", "HEAD"]);
+  repo.commit_with(
+    &["--amend", "-m", "(auth) Add c\n\nThe body of c says more now."],
+    &[("GIT_COMMITTER_DATE", "1700000300 +0000")],
+  );
+  let head = git(&repo, &["rev-parse", "HEAD"]);
+  let plan_of = |reviewed: Option<&str>| {
+    let context = context(&repo);
+    let params = review_plan::ReviewPlanParams {
+      repository_path: repo.path_str().to_string(),
+      subject: review_plan::ReviewSubject::Commit {
+        id: head.clone(),
+        reviewed: reviewed.map(str::to_string),
+      },
+      since_reviewed: false,
+      concern_edges: review_plan::concerns::ConcernEdges::default(),
+    };
+    let cache = object_cache::cache::ObjectCache::disabled();
+    let sources = review_plan::PlanSources {
+      cache: &cache,
+      file_diffs: context.file_diffs(),
+      index: None,
+    };
+    let plan = review_plan::review_plan_core(&context.git, sources, &context.prefix, &params).unwrap();
+    let counted: Vec<(&'static str, u32)> = context
+      .git
+      .process_stats()
+      .unwrap()
+      .by_command()
+      .into_iter()
+      .map(|(subcommand, stats)| (&*subcommand.leak(), stats.count))
+      .collect();
+    (counted, plan.steps.commits.first().is_some_and(|commit| commit.change.is_some()))
+  };
+  let (alone, marked) = plan_of(None);
+  assert!(!marked);
+  let (with_reviewed, marked) = plan_of(Some(&reviewed));
+  assert!(marked);
+  assert_eq!(with_reviewed, with_more(&alone, &[("rev-list", 1)]));
+}
+
 /// The review of the commits of the branch above the baseline, `origin/master..HEAD`
 fn range_to_head() -> ReviewPlanArgs {
   ReviewPlanArgs {

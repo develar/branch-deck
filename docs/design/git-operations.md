@@ -3254,7 +3254,8 @@ whose text is translated:
 |------|---------|------|
 | 1. Commits | `rev-list --no-commit-header --format=… --reverse --no-merges --end-of-options <tip> ^<base> --`, once for the reviewed pair, once for the branch now | `walk_commits_with_messages`: each commit with its `CommitKey` (author email, author time, subject without the `(prefix)`) and its raw message (`%B`), which the steps of the story tell |
 | 2. Pairing | none | one to one, oldest first: the same commit on both sides is `unchanged`; then the same `CommitKey` (a rebase, a sync's copy, an amend keep it) |
-| 3. Changed lines | `diff-tree --stdin -p -U0 --no-renames` piped into `patch-id --verbatim` (`change_ids`) | only for the commits that are not the same on both sides, none without them: a pair by identity is `unchanged` when both change the same lines, else `rewritten`; the commits left pair by the same changed lines (a reword), `unchanged`; the rest are `added` and `dropped` |
+| 3. Changed lines | `diff-tree --stdin -p -U0 --no-renames` piped into `patch-id --verbatim` (`change_ids`) | only for the commits that are not the same on both sides, none without them: a pair by identity is `unchanged` when both change the same lines, else `rewritten`; the commits left pair by the same changed lines (a reword); the rest are `added` and `dropped`. A pair of the same lines whose messages differ is `reworded` |
+| — Messages | none | the messages of step 1 compared (`interdiff::message_change`): the subject without its `(prefix)` and the blocks of the bodies by the grammar of a body (`commit_body`), an LCS of whole blocks (`text_diff::lcs::diff::build_changes`), so a hard wrap and the trailers change nothing; the `message_change` of a `reworded` commit and of a `rewritten` one whose message changed too: the subject before, the hunks of blocks added at their place and removed before it |
 | 4. Interdiff | `diff-tree --stdin -p -U0 --full-index` (`interdiffs`) | only for the `rewritten` pairs, none without them: the lines each version changes and the other does not, per path |
 | 5. Carry | `merge-tree --write-tree --stdin -z` with `<reviewed base> -- <base> <reviewed tip>`, then `fast-import` (`git_ops::carried_review`, through `CommitChain`) | only without a plain scope (below), and none when the base did not move: the reviewed tip is then the carry. The merged tree in a commit on no ref whose parent is the base, in the name and at the author time of the reviewed tip, so the same carry writes the same commit; a conflict carries nothing |
 
@@ -3266,7 +3267,14 @@ whose text is translated:
   when the carry conflicts.
 - **A baseline move** copies every commit with the same identity and the same changed lines: all `unchanged`, the
   scope empty. A copy whose conflict was resolved differently is `rewritten`.
-- **`--since-reviewed`** keeps the `added` and the `rewritten` commits. A branch never marked, and a range, have no
+- **A reworded commit** changes the lines the reviewer read: the scope treats it as `unchanged` (a reword below the
+  commits added on top keeps their plain range), and the plan reads no diff of it. Its story, when the plan tells it
+  (All Changes), marks what its body added and shows what it removed where it stood (`StoryCommit::change`,
+  `StoryPart::removals`), a part that shows a change unfolded; the overview words the change from the interdiff.
+- **A commit shown alone** with its reviewed commit (`ReviewSubject::Commit::reviewed`, the window's pair of the
+  commit): one `rev-list --no-walk --ignore-missing` of both messages more, whose change its story marks; a reviewed
+  commit git no longer has marks nothing.
+- **`--since-reviewed`** keeps the `added`, the `rewritten` and the `reworded` commits. A branch never marked, and a range, have no
   interdiff; a range resolves its two revs by `rev-parse --verify` (`UnknownRevision`), and `--since-reviewed` of a
   range is `SinceReviewedOfRange`, both `invalid_arguments` in `bd`.
 
@@ -3294,7 +3302,7 @@ and the `rewritten` ones, each against its own parent:
 | 17. Steps and brief | none | the lines of each changed file carried through the hunks of every commit of step 1 (`steps.rs`, [Review Tour](../../spec/branch/review-tour.spec.md)): each unit of step 15 in the step of the commit of most of its lines, the rounds glued, the declarations of its code at the head; the story of each commit of step 1 with a body once (`story.rs`), its code names resolved to the units of step 15 and the changed files, and the new API of step 8 and the new links between modules of step 11 of each step; the brief from the messages of step 1 and the hunk text of step 12 |
 | 18. Tests | `accio tests --no-build --format json --limit 60 --depth 3 --resolved --ref <head> --at <place>…` of the code of every step, no git, at once with step 9 | the tests among the callers of each declaration by calls a type or an import ties (`add_tests`); a test the range adds or changes by its unit (the test of step 15 whose lines hold the line accio gives), one the change did not touch apart; no test with `within: 3` when accio stopped at the depth with callers left; without an answer the steps know no test, and `index_note` says why |
 
-`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 14` (`REVIEW_PLAN_SCHEMA_VERSION`),
+`bd` passes `AccioCli::discover()` with no cancel, and prints the plan with `"schema": 15` (`REVIEW_PLAN_SCHEMA_VERSION`),
 the other outputs of `bd` with 2. The app reads the plan with `get_review_plan`, a `window` read
 (`crates/app-api/src/reads/review_plan.rs`): the index is that of its host (`SymbolIndexes`: accio in the app, the
 fixture `.git/branch-deck-accio.json` in the e2e server), canceled once the window asks a newer plan or closes

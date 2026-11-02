@@ -1,0 +1,49 @@
+<div class="flex flex-col gap-0.5" data-testid="review-plan-since">
+  <span>
+    Since your review: 1 reworded
+  </span>
+  <div class="flex min-w-0 flex-col gap-1.5 text-xs" data-open="" data-slot="collapsible" data-testid="review-plan-since-commit">
+    <button aria-controls="base-ui-[ID]" aria-expanded="true" class="group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground hover:text-foreground" data-panel-open="" data-slot="collapsible-trigger" tabindex="0" type="button">
+      <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
+      <span class="min-w-0">
+        Reworded scale the helper: message changed
+      </span>
+    </button>
+    <div class="pl-[1.125rem]" data-open="" data-slot="collapsible-content" id="base-ui-[ID]" style="--collapsible-panel-height: auto;  --collapsible-panel-width: auto">
+      <div class="flex max-w-prose min-w-0 flex-col gap-2 text-sm text-foreground" data-testid="review-plan-since-message">
+        <div class="-ml-3 flex min-w-0 flex-col gap-2 border-l-2 border-destructive/70 pl-2.5 text-muted-foreground line-through decoration-muted-foreground/70" data-testid="commit-body-removed">
+          <span class="sr-only">
+            Removed since your review:
+          </span>
+          <div class="font-semibold">
+            <span>
+              Why
+            </span>
+          </div>
+          <p>
+            <span>
+              the store kept one scale for all of them.
+            </span>
+          </p>
+        </div>
+        <div class="-ml-3 flex min-w-0 flex-col border-l-2 border-success pl-2.5" data-testid="commit-body-added">
+          <span class="sr-only">
+            Added since your review:
+          </span>
+          <div class="flex min-w-0 flex-col gap-2">
+            <div class="font-semibold">
+              <span>
+                Look closely
+              </span>
+            </div>
+            <p>
+              <span>
+                a scale of zero empties the store.
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

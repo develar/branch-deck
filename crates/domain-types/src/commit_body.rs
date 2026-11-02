@@ -89,7 +89,7 @@ pub enum CommitBodyPartKind {
 }
 
 /// A block of a commit body
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -128,7 +128,7 @@ pub enum CommitBodyBlock {
 
 /// What a label says its section is, by its words: a leading "The", the case and what follows a comma aside, so "The
 /// fix", "Fix" and "Fix, in two places" are one
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]

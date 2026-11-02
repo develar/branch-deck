@@ -1,4 +1,4 @@
-import type { CodeSpan, CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, LineCode } from "@/lib/bindings"
+import type { CodeSpan, CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, LineCode, MessageChange, StoryRemoval } from "@/lib/bindings"
 
 /*
  * The parts of a commit body as a reader shows them (spec/commit/commit-row.spec.md, "Message body"): Rust cuts the body
@@ -11,6 +11,19 @@ import type { CodeSpan, CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, 
 export interface PlacedBlock {
   readonly index: number
   readonly block: Exclude<CommitBodyBlock, { type: "label" | "heading" }>
+  /** The reviewed body lacked it (`MessageChange`): marked as added since the review */
+  readonly added?: true
+}
+
+/** Blocks of the reviewed body that the body lacks now, where a part shows them (`StoryRemoval`) */
+export interface RemovedBlocks {
+  /** Unique in its part */
+  readonly key: string
+  /** The block of the part they stand right before; null at its end */
+  readonly before: number | null
+  readonly blocks: readonly CommitBodyBlock[]
+  /** The code of their lines, `block` by their place in `blocks` */
+  readonly code: readonly LineCode[]
 }
 
 /**
@@ -27,6 +40,10 @@ export interface BodyPart {
   /** The kind of its label: a Look closely is a callout */
   readonly tone: LabelKind
   readonly blocks: readonly PlacedBlock[]
+  /** Its label or heading is new since the review: the whole section is */
+  readonly added?: true
+  /** The blocks of the reviewed body it shows as removed since the review, each where they stood */
+  readonly removed?: readonly RemovedBlocks[]
 }
 
 /** A part Rust folds: its own disclosure, named in the outline of the folded parts */
@@ -40,6 +57,8 @@ export interface FoldedPart {
 export interface BodyParts {
   /** The summary the body opens with; null when it opens with a label or is told elsewhere */
   readonly lead: PlacedBlock | null
+  /** The blocks of the reviewed body the part of the lead shows as removed since the review */
+  readonly leadRemoved?: readonly RemovedBlocks[]
   /** The parts before the fold and every Look closely, in the order of the body */
   readonly shown: readonly BodyPart[]
   /** The parts after the fold and every verification section, in the order of the body */
@@ -62,40 +81,65 @@ export const MORE = "The rest"
  * A part of a body as Rust cut and placed it: a part of its grammar (`CommitBody.parts`), or of a story a part told at
  * one place (`StoryPart`), whose label may be the title of its step (`titled`), which its part shows no more
  */
-export type PlacedPart = Pick<CommitBodyPart, "start" | "end" | "kind" | "tone" | "folded"> & { readonly titled?: boolean }
+export type PlacedPart = Pick<CommitBodyPart, "start" | "end" | "kind" | "tone" | "folded"> & {
+  readonly titled?: boolean
+  /** Of a story whose message changed since the review: the removed blocks the part shows (`StoryPart.removals`) */
+  readonly removals?: readonly StoryRemoval[]
+}
 
 /**
  * The parts of `body` (`BodyParts`), each keyed by `key` and its first block: of `parts` (all of the body by default),
- * the lead, then each part, the folded ones named; `fold` false shows every part in place
+ * the lead, then each part, the folded ones named; `fold` false shows every part in place. With `change`, how the
+ * message changed since the review: its added blocks marked, the removed ones where Rust placed them (`removals`)
  */
-export function presentBodyParts(key: string, body: CommitBody, parts: readonly PlacedPart[] = body.parts, fold = true): BodyParts {
+export function presentBodyParts(key: string, body: CommitBody, parts: readonly PlacedPart[] = body.parts, fold = true, change: MessageChange | null = null): BodyParts {
   const { blocks } = body
+  const added = new Set(change?.hunks.flatMap(hunk => hunk.added.blocks.map((_, at) => hunk.start + at)) ?? [])
+  const removedOf = (removals: readonly StoryRemoval[] | undefined): readonly RemovedBlocks[] | undefined => {
+    const runs = (removals ?? []).flatMap(({ hunk, before }) => {
+      const removed = change?.hunks[hunk]?.removed
+      return removed === undefined || removed.blocks.length === 0 ? [] : [{ key: `${key}:removed:${hunk}`, before, blocks: removed.blocks, code: removed.code }]
+    })
+    return runs.length === 0 ? undefined : runs
+  }
   let lead: PlacedBlock | null = null
+  let leadRemoved: readonly RemovedBlocks[] | undefined
   const view: { shown: BodyPart[]; folded: FoldedPart[] } = { shown: [], folded: [] }
-  for (const { start, end, kind, tone, folded, titled = false } of parts) {
+  for (const { start, end, kind, tone, folded, titled = false, removals } of parts) {
     const first = blocks[start]
     const headBlock = kind === "section" && first !== undefined && (first.type === "label" || first.type === "heading") ? first : null
     const placed: PlacedBlock[] = []
     for (let index = headBlock === null ? start : start + 1; index < end; index++) {
       const block = blocks[index]!
       if (block.type !== "label" && block.type !== "heading") {
-        placed.push({ index, block })
+        placed.push(added.has(index) ? { index, block, added: true } : { index, block })
       }
     }
+    const removed = removedOf(removals)
     if (kind === "lead") {
       lead = placed[0] ?? null
+      leadRemoved = removed
       continue
     }
     const head = headBlock !== null && !titled ? { index: start, block: headBlock } : null
-    if (placed.length === 0 && head === null) {
+    if (placed.length === 0 && head === null && removed === undefined) {
       continue
     }
-    const part: BodyPart = { key: `${key}:${head?.index ?? placed[0]!.index}`, first: head?.index ?? placed[0]!.index, head, tone, blocks: placed }
+    const firstIndex = head?.index ?? placed[0]?.index ?? start
+    const part: BodyPart = {
+      key: `${key}:${firstIndex}`,
+      first: firstIndex,
+      head,
+      tone,
+      blocks: placed,
+      ...(headBlock !== null && added.has(start) ? { added: true as const } : {}),
+      ...(removed === undefined ? {} : { removed }),
+    }
     if (folded && fold) {
       view.folded.push({ part, name: head === null ? MORE : head.block.text })
     } else {
       view.shown.push(part)
     }
   }
-  return { lead, ...view, code: body.code }
+  return { lead, ...(leadRemoved === undefined ? {} : { leadRemoved }), ...view, code: body.code }
 }

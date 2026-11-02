@@ -23,7 +23,7 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["title"], &output["base"], &output["head"]),
-    (&json!(14), &json!("test-user/virtual/auth"), &json!("auth"), &json!(base), &json!(tip))
+    (&json!(15), &json!("test-user/virtual/auth"), &json!("auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -59,6 +59,38 @@ fn prints_the_commits_since_the_review() {
   );
   let files: Vec<&str> = output["files"].as_array().unwrap().iter().map(|file| file["path"].as_str().unwrap()).collect();
   assert_eq!(files, ["logout.txt"]);
+
+  // a body written since the third mark, the lines kept: `reworded`, with the blocks its body added, and no file read
+  assert_eq!(run_in(&repo, &["mark-reviewed", "auth"]).0, 0);
+  repo.commit_with(
+    &["--amend", "-m", "(auth) Add logout\n\nThe logout clears the session of the user."],
+    &[("GIT_COMMITTER_DATE", "1700000400 +0000")],
+  );
+  assert_eq!(run_in(&repo, &["sync"]).0, 0);
+  let reworded = git(&repo, &["rev-parse", "refs/heads/test-user/virtual/auth"]);
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "review-plan", "auth", "--since-reviewed"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    (&output["interdiff"]["commits"], &output["interdiff"]["scope"], &output["files"]),
+    (
+      &json!([{
+        "id": reworded,
+        "reviewed_id": amended,
+        "subject": "Add logout",
+        "state": "reworded",
+        "message_change": {
+          "subjectBefore": null,
+          "hunks": [{
+            "start": 0,
+            "added": { "blocks": [{ "type": "paragraph", "lines": ["The logout clears the session of the user."] }], "code": [] },
+            "removed": { "blocks": [], "code": [] },
+          }],
+        },
+      }]),
+      &json!({ "base": reworded, "head": reworded, "carried": false }),
+      &json!([]),
+    )
+  );
 }
 
 /// A branch never marked and a range have no interdiff; `--since-reviewed` or `--base` of a range, and a range rev that

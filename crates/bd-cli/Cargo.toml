@@ -68,6 +68,8 @@ repository-model = { path = "../repository-model" }
 remote-facts = { path = "../remote-facts" }
 patronus = { path = "../patronus", features = ["fake"] }
 github = { path = "../github", features = ["fake"] }
+# the plan of a commit shown alone, which the app reads and `bd` does not (`process_budget_test`)
+review-plan = { path = "../review-plan" }
 test-utils = { path = "../test-utils" }
 pretty_assertions.workspace = true
 tempfile.workspace = true

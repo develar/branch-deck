@@ -1,14 +1,20 @@
 //! The interdiff of a local branch since its review (spec/branch/review-plan.spec.md, "Since Your Review"): the commits
-//! of `reviewed base..reviewed tip` paired with those of `base..tip` now, each `unchanged`, `rewritten`, `added` or
-//! `dropped`, and the plain range of the commits added on top when nothing else changed.
+//! of `reviewed base..reviewed tip` paired with those of `base..tip` now, each `unchanged`, `reworded`, `rewritten`,
+//! `added` or `dropped`, and the plain range of the commits added on top when nothing else changed.
 //!
 //! The pairing, one to one, oldest first (docs/design/git-operations.md, "Review plan"):
 //! 1. the same commit on both sides: `unchanged`;
 //! 2. the same identity (`CommitKey`: author email, author time, subject without the `(prefix)`), which a rebase, a
-//!    sync's copy and an amend keep: `unchanged` when both change the same lines (`change_ids`), else `rewritten`, with
-//!    the lines each side changes and the other does not (`interdiffs`);
-//! 3. the rest by the same changed lines, a reworded commit: `unchanged`;
+//!    sync's copy and an amend keep: when both change the same lines (`change_ids`) `unchanged`, `reworded` when their
+//!    messages differ; else `rewritten`, with the lines each side changes and the other does not (`interdiffs`);
+//! 3. the rest by the same changed lines, a reworded subject: `reworded`, `unchanged` when the messages are the same
+//!    (only the author time moved);
 //! 4. what is left: `added` on the side of the tip, `dropped` on the side of the reviewed tip.
+//!
+//! The message of a `reworded` or a `rewritten` commit is compared with its reviewed one (`message_change`): the
+//! subject without its `(prefix)`, and the blocks of the bodies by the one grammar of a body (`commit_body`), an LCS
+//! of whole blocks, so a hard wrap moved or a trailer added changes nothing. The messages come with the `rev-list` of
+//! each side: no process more.
 //!
 //! The scope is the plain range of the commits added on top when nothing else changed; else the reviewed change carried
 //! onto the base (`git_ops::carried_review`), whose diff to the tip is what changed since the review, also after a
@@ -18,13 +24,18 @@
 //! sides, one `diff-tree --stdin -p` for the rewritten pairs; none of the last three without such commits; one
 //! `merge-tree` and one `fast-import` for a carry onto a moved base. No `git range-diff`: no translated text is read.
 
+use crate::steps::split_message;
 use anyhow::Result;
+use domain_types::commit_body::{CommitBodyBlock, LineCode};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::carried_review::{CarryIdentity, carry_reviewed};
 use git_ops::landed_pairing::{CommitKey, PathLines, WalkedCommit, change_ids, interdiffs, walk_commits_with_messages};
 use git_ops::reviewed_refs::ReviewedPair;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
+use sync_utils::commit_body::{code_of, commit_body};
+use sync_utils::commit_subject::stripped_subject;
+use text_diff::lcs::diff::{Change, build_changes};
 use tracing::debug;
 
 /// How a commit of the branch compares with the reviewed one
@@ -33,8 +44,10 @@ use tracing::debug;
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub enum PairState {
-  /// The reviewed commit, or a copy of it that changes the same lines (a rebase, a sync, a reword)
+  /// The reviewed commit, or a copy of it with the same lines and the same message (a rebase, a sync)
   Unchanged,
+  /// A copy of a reviewed commit that changes the same lines, its message changed (`PairedCommit::message_change`)
+  Reworded,
   /// A reviewed commit changed: the same identity, other changed lines (an amend, a fixup folded in)
   Rewritten,
   /// A commit the reviewed tip lacks
@@ -69,10 +82,92 @@ pub struct PairedCommit {
   pub state: PairState,
   /// `Some` only when `rewritten`
   pub changes: Option<CommitChanges>,
+  /// How its message differs from the reviewed one: `Some` when `reworded`, of a `rewritten` one when its message
+  /// changed too
+  pub message_change: Option<MessageChange>,
   /// Its raw message, of the reviewed one when `dropped`: what the steps of the review tell (`steps`)
   #[serde(skip)]
   #[cfg_attr(feature = "specta", specta(skip))]
   pub message: String,
+}
+
+/// How the message of a commit differs from its reviewed version: its subject, and its body by the blocks of its grammar
+/// (`CommitBody::blocks`); the trailers and the line breaks of a paragraph aside
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct MessageChange {
+  /// The subject of the reviewed version without its `(prefix)`, when that differs: only of a reword by the lines, a
+  /// commit of the same identity has the same subject
+  pub subject_before: Option<String>,
+  /// What changed in the body, in its order
+  pub hunks: Vec<BodyHunk>,
+}
+
+/// A change of the body of a commit since its review: blocks it has now, reviewed blocks it lacks, or both in one place
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct BodyHunk {
+  /// Its place in the body now (`CommitBody::blocks` as its story reads it): its first added block, else the block the
+  /// removed ones stood before (the count of the blocks after the last)
+  pub start: u32,
+  /// The blocks the body has now that the reviewed one lacked: `start..start + added.blocks.len()`
+  pub added: BodyBlocks,
+  /// The reviewed blocks the body lacks now, which stood right before `start`
+  pub removed: BodyBlocks,
+}
+
+/// Blocks of a body with the code of their lines, as `CommitBody` holds them (`LineCode::block` counts these blocks)
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct BodyBlocks {
+  pub blocks: Vec<CommitBodyBlock>,
+  pub code: Vec<LineCode>,
+}
+
+impl BodyBlocks {
+  fn of(blocks: &[CommitBodyBlock]) -> Self {
+    Self {
+      blocks: blocks.to_vec(),
+      code: code_of(blocks),
+    }
+  }
+}
+
+/// How the message `now` differs from `reviewed` (`MessageChange`); `None` when it says the same: the same subject
+/// without its `(prefix)` and the same blocks of the body, so a trailer added or a paragraph wrapped anew changes
+/// nothing
+pub fn message_change(reviewed: &str, now: &str) -> Option<MessageChange> {
+  let (reviewed_subject, reviewed_body) = split_message(reviewed);
+  let (subject, body) = split_message(now);
+  let reviewed_subject = stripped_subject(reviewed_subject);
+  let subject_before = (reviewed_subject.trim() != stripped_subject(subject).trim()).then(|| reviewed_subject.trim().to_string());
+  let before = commit_body(reviewed_body).blocks;
+  let after = commit_body(body).blocks;
+  // a body too different for an exact answer in time is one change whole
+  let changes = build_changes(&before, &after).unwrap_or_else(|_| {
+    vec![Change {
+      line0: 0,
+      line1: 0,
+      deleted: before.len(),
+      inserted: after.len(),
+    }]
+  });
+  let hunks: Vec<BodyHunk> = changes
+    .into_iter()
+    .filter(|change| change.deleted > 0 || change.inserted > 0)
+    .map(|change| BodyHunk {
+      start: u32::try_from(change.line1).unwrap_or(u32::MAX),
+      added: BodyBlocks::of(&after[change.line1..change.line1 + change.inserted]),
+      removed: BodyBlocks::of(&before[change.line0..change.line0 + change.deleted]),
+    })
+    .collect();
+  (subject_before.is_some() || !hunks.is_empty()).then_some(MessageChange { subject_before, hunks })
 }
 
 /// What changed since the review, as the diff of `base..head`
@@ -105,9 +200,21 @@ pub struct Interdiff {
 }
 
 impl Interdiff {
-  /// Only the commits the reviewer has not read: `added` and `rewritten`
+  /// Only the commits the reviewer has not read: `added`, `rewritten` and `reworded`
   pub fn retain_unreviewed(&mut self) {
-    self.commits.retain(|commit| matches!(commit.state, PairState::Added | PairState::Rewritten));
+    self.commits.retain(|commit| commit.state.unreviewed());
+  }
+}
+
+impl PairState {
+  /// The reviewer has not read it as it is: `added`, `rewritten`, or `reworded`, whose message is new
+  pub const fn unreviewed(self) -> bool {
+    matches!(self, Self::Added | Self::Rewritten | Self::Reworded)
+  }
+
+  /// Its code is as reviewed: `unchanged` or `reworded`
+  pub const fn same_code(self) -> bool {
+    matches!(self, Self::Unchanged | Self::Reworded)
   }
 }
 
@@ -192,12 +299,20 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
     .zip(&matched)
     .zip(new_messages)
     .map(|((commit, matched), message)| {
-      let (reviewed_id, state) = match matched {
-        None => (None, PairState::Added),
-        Some((reviewed, how)) => {
-          let reviewed = &old[*reviewed];
-          let same = *how != Match::Identity || change_of.get(&commit.id) == change_of.get(&reviewed.id);
-          (Some(reviewed.id.clone()), if same { PairState::Unchanged } else { PairState::Rewritten })
+      let (reviewed_id, state, message_change) = match matched {
+        None => (None, PairState::Added, None),
+        // the same commit, the same message
+        Some((reviewed, Match::Same)) => (Some(old[*reviewed].id.clone()), PairState::Unchanged, None),
+        Some((reviewed_index, how)) => {
+          let reviewed = &old[*reviewed_index];
+          let same = *how == Match::Changes || change_of.get(&commit.id) == change_of.get(&reviewed.id);
+          let message_change = message_change(&old_messages[*reviewed_index], &message);
+          let state = match (same, &message_change) {
+            (false, _) => PairState::Rewritten,
+            (true, Some(_)) => PairState::Reworded,
+            (true, None) => PairState::Unchanged,
+          };
+          (Some(reviewed.id.clone()), state, message_change)
         }
       };
       PairedCommit {
@@ -206,6 +321,7 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
         subject: commit.subject.clone(),
         state,
         changes: None,
+        message_change,
         message,
       }
     })
@@ -226,6 +342,7 @@ pub fn interdiff(git: &GitCommandExecutor, repository_path: &str, reviewed: &Rev
         subject: commit.subject.clone(),
         state: PairState::Dropped,
         changes: None,
+        message_change: None,
         message,
       }),
   );
@@ -246,7 +363,8 @@ fn scope_of(commits: &[PairedCommit], none_dropped: bool, base: &str, tip: &str)
   if !none_dropped {
     return None;
   }
-  let first = commits.iter().position(|commit| commit.state != PairState::Unchanged).unwrap_or(commits.len());
+  // a reworded commit changes the same lines: the range around it is still the one the reviewer read
+  let first = commits.iter().position(|commit| !commit.state.same_code()).unwrap_or(commits.len());
   if commits[first..].iter().any(|commit| commit.state != PairState::Added) {
     return None;
   }

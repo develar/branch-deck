@@ -49,6 +49,7 @@ targets:
   - ../../src/lib/review-place.ts
   - ../../src/presenters/review-plan.ts
   - ../../src/components/review/ReviewPrologue.tsx
+  - ../../src/components/review/MessageChangeView.tsx
   - ../../src/presenters/review-story.ts
   - ../../src/components/review/BranchReview.tsx
   - ../../src/components/commit/CommitReview.tsx
@@ -72,8 +73,8 @@ tests, and the files in the order of their dependencies. It is computed in Rust,
 windows show it behind a flag.
 
 Its first parts are Mark Reviewed, the base and the tip of a local branch kept when the user says they reviewed it,
-and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, rewritten, added or
-dropped, and what changed since the review as one diff (`bd review-plan`): the plain range of the commits added on
+and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, reworded, rewritten, added or
+dropped, how the message of a reworded or rewritten one changed, and what changed since the review as one diff (`bd review-plan`): the plain range of the commits added on
 top, else the diff from the reviewed change carried onto the base of the branch to its tip, whatever the branch went
 through. Then the API surface: the public
 declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
@@ -155,9 +156,21 @@ group at the end. The overview at the top of the document of the review, before 
 - Each commit of the branch (`<base>..<tip>`, the base as a mark finds it) must be paired one to one, oldest first,
   with a commit of the reviewed pair: the same commit, else the same identity (author email, author time, subject
   without the `(prefix)`), else the same changed lines (`patch-id --verbatim` of the diff without context). A pair
-  is `unchanged` when both change the same lines, else `rewritten`; a commit left is `added`, a reviewed one left is
-  `dropped`, listed after the commits of the branch.
+  is `unchanged` when both change the same lines and have the same message, `reworded` when they change the same
+  lines and the messages differ, else `rewritten`; a commit left is `added`, a reviewed one left is `dropped`, listed
+  after the commits of the branch.
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`commits_added_after_the_mark_are_the_range_on_top`, `a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
+- A `reworded` commit, and a `rewritten` one whose message changed too, must have its `message_change`: the subject of
+  its reviewed version without the `(prefix)` when that differs (`subjectBefore`, only of a reword by the lines), and
+  the `hunks` of its body by the blocks of the grammar of a body ([Commit Row → Message
+  body](../commit/commit-row.spec.md)), an LCS of whole blocks: each hunk the blocks `added` at `start` of the body now
+  and the reviewed blocks `removed` right before it, with the code of their lines. A trailer added, a paragraph wrapped
+  anew and a `(prefix)` changed say the same: no `message_change`, and a pair `unchanged`. The messages are those of
+  the `rev-list` of each side: no process more.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`the_body_of_a_message_changes_by_its_blocks`, `a_new_trailer_or_a_rewrap_changes_no_message`, `a_commit_amended_with_a_new_body_is_rewritten_with_its_added_and_removed_blocks`)
+- A `reworded` commit changes the lines the reviewer read: the scope must treat it as `unchanged` (a reword below the
+  commits added on top keeps their plain range), and the plan must read none of its lines.
+  [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_body_rewritten_alone_is_reworded_its_code_unread_and_the_scope_on_top`)
 - A commit amended since the review must be `rewritten` with the lines it changes that its reviewed version did not,
   and the reverse, per path.
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`an_amended_commit_is_rewritten_with_its_lines`)
@@ -174,24 +187,27 @@ group at the end. The overview at the top of the document of the review, before 
   the review: after a rebase with an amend, the amend alone. A merge that conflicts must give no scope.
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`an_amended_commit_is_rewritten_with_its_lines`, `after_a_rebase_with_an_amend_the_scope_holds_the_amend_alone`, `a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed`)
   [@test] ../../crates/git-ops/src/carried_review_test.rs (`the_reviewed_tip_is_its_own_carry_on_the_same_base`, `the_reviewed_change_is_merged_onto_a_moved_base_as_a_commit_of_it`, `a_reviewed_change_that_conflicts_with_the_base_carries_nothing`)
-- `--since-reviewed` must list only the `added` and the `rewritten` commits; of a range, or with `--base` of a range,
+- `--since-reviewed` must list only the `added`, the `rewritten` and the `reworded` commits; of a range, or with `--base` of a range,
   or a range rev that names no commit, it is `invalid_arguments` (exit 2).
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_range_has_no_interdiff`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`, `a_branch_never_marked_and_a_range_have_no_interdiff`)
 - `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
-  `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, and `scope` with `base`, `head`
-  and `carried`), with
-  `"schema": 14`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope`
+  with `base`, `head` and `carried`), with
+  `"schema": 15`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step; the other outputs of `bd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts; the other outputs of `bd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
   the base of a mark, one `rev-list` per side, one `diff-tree` with one `patch-id` for the commits that are not the
   same on both sides, one `diff-tree` for the rewritten ones, one `merge-tree` and one `fast-import` for a carry onto
-  a base that moved; never `git range-diff`, never a process per commit.
-  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`, `a_review_plan_since_the_review_on_a_moved_baseline`)
+  a base that moved; never `git range-diff`, never a process per commit. The plan of a commit shown alone with its
+  reviewed commit (`ReviewSubject` `commit` with `reviewed`) must run one `rev-list` of both messages more than
+  without it, and a reviewed commit git no longer has marks nothing.
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_since_the_review`, `a_review_plan_since_the_review_on_a_moved_baseline`, `a_review_plan_of_a_commit_with_its_reviewed_one`)
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_changed_part_of_a_body_is_marked_and_unfolded_a_verification_too`)
 
 ### API Surface
 
@@ -586,14 +602,16 @@ group at the end. The overview at the top of the document of the review, before 
   whole stack has no Mark Reviewed.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
 - "Since Your Review" must follow "All Changes" in the commit column only while the part is one branch, marked, with
-  a commit added or rewritten since; each such commit says "New" or "Rewritten", on its row in the steps of the tree
+  a commit added, rewritten or reworded since (a message changed alone too); each such commit says "New",
+  "Rewritten" or "Reworded", on its row in the steps of the tree
   ([Review Tour](review-tour.spec.md#in-the-review-window)) and in the column of a commit shown alone. Chosen, the
   tree lists only the added and the rewritten commits, adjacent or not, and the diffs show the scope: the commits
   added on top, or the diff from the carried commit, a rewrite against its reviewed version and new commits apart together; without a
   scope (the carry conflicted) the newest of them. "All Changes", another part or a mark leaves it.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
-  [@test] ../../src/lib/range-review.test.ts (`offers no scope for a branch never marked, nor when nothing was added or rewritten`, `marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope`, `keeps the plain range of the commits added on top, and the column of one new commit`)
+  [@test] ../../src/lib/range-review.test.ts (`offers no scope for a branch never marked, nor when nothing was added or rewritten`, `marks the added and the rewritten commits, and lists only them, adjacent or not, under the scope`, `keeps the plain range of the commits added on top, and the column of one new commit`, `offers Since Your Review for a commit whose message alone changed, Reworded, and reads its plan with its reviewed commit`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit whose message alone changed as Reworded, what its body added and removed in its opening, the overview and its heading alone`)
 - The overview must head the document of a scope, and of a commit shown alone below its heading (a rewritten commit
   shows its whole diff, the overview what it changes against its reviewed version); a commit shown alone is told by
   its own plan, its steps, its story and its facts, under "Since Your Review" with what changed since of the part. It
@@ -604,8 +622,28 @@ group at the end. The overview at the top of the document of the review, before 
   the usages are missing, then "Since your review" as before (a rewritten commit with the lines per path it changes against its reviewed version).
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
+- "Since your review" must list each rewritten and each reworded commit with what changed: "Rewritten scale the
+  helper: src/Store.kt +1 −1", then " · message changed" when Rust says its message changed (`message_change`),
+  "Reworded scale the helper: message changed", a rewritten commit whose lines per path are the same "the same lines
+  in another order"; a commit whose message did not change says nothing of it. A line with a change of the message
+  must be a disclosure that opens to it, as Rust compared it: the subject it had ("Was …", struck through), then each
+  hunk of its body in its order, its removed blocks muted and struck through with a bar in the tone of a removal, then
+  its added blocks with a bar in the tone of an addition. This is where Since Your Review as one diff, which tells no
+  opening, shows the message.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit whose message alone changed as Reworded, what its body added and removed in its opening, the overview and its heading alone`, `should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
+  [@test] ../../src/presenters/review-plan.test.ts (`says per path what a rewritten commit changes that its reviewed version did not, and the reverse, and that its message changed only when Rust says so`)
+  [@test] ../../src/presenters/review-story.test.ts (`says in the overview how the message of a rewritten or a reworded commit changed, the blocks Rust compared under its line`)
+- Where the document tells the story of a commit whose message changed since the review (the openings of All
+  Changes of a marked branch, the heading of a commit shown alone with its reviewed commit, Since Your Review whose
+  carry conflicted), the story must mark it as Rust placed it ([Review Tour](review-tour.spec.md#the-story-of-a-commit)):
+  an added block with the bar of an addition and "Added since your review" for a screen reader, a section whose label
+  is new marked once whole; the removed blocks muted, struck through, with the bar of a removal and "Removed since your
+  review", where they stood; the subject it had below its title ("Was …"). The bars stand in the gutter, so the text
+  of a marked block stays at the edge of the others. A story whose message did not change marks nothing.
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit whose message alone changed as Reworded, what its body added and removed in its opening, the overview and its heading alone`)
+  [@test] ../../src/presenters/review-story.test.ts (`marks what changed in a body since the review where Rust placed it: the added blocks, the removed ones before the block they stood before or at the end of their part, the subject it had`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it`)
-  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse`)
+  [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse, and that its message changed only when Rust says so`)
 - "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless no use left outside
   breaks: its kind, its name, `path:line`, the parts that changed, the form before and the form after on lines of
   their own, the uses left outside that can break ("3 uses left outside") with the first sites as `path:line`, the
@@ -733,6 +771,9 @@ group at the end. The overview at the top of the document of the review, before 
   "tip": …, "previous": null, "changed": true, "pruned": 0}`.
 - `bd mark-reviewed auth --base nope` → `{"error": {"code": "invalid_arguments", "message": "No branch or commit \"nope\"
   to review the branch on"}}`, exit 2.
+- `bd review-plan auth --since-reviewed` after a body written anew → `"state": "reworded", "message_change":
+  {"subjectBefore": null, "hunks": [{"start": 0, "added": {"blocks": [{"type": "paragraph", "lines": ["The logout
+  clears the session of the user."]}], "code": []}, "removed": {"blocks": [], "code": []}}]}`.
 - `bd review-plan auth --since-reviewed` after one commit on top → `{"branch": "jane/virtual/auth", "base": …, "head":
   …, "interdiff": {"reviewed_base": …, "reviewed_tip": …, "commits": [{"id": …, "reviewed_id": null, "subject": "Add
   logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>, "carried": false}}}`; after an amend
@@ -753,7 +794,9 @@ group at the end. The overview at the top of the document of the review, before 
   marked reviewed at this commit" when nothing moved); the column: "All Changes 3 commits", "Since Your Review 1
   commit"; the tree ends with "Commits": "read the cache twice  New", "add the cache", "scale the helper".
 - The **overview** at the top of the document: "Since your review: 1 new · 1 rewritten", under it "Rewritten scale the
-  helper: src/Store.kt +1 −1"; under Possible Breakage `Changed helper src/Store.kt:36
+  helper: src/Store.kt +1 −1"; after a body rewritten alone "Since your review: 1 reworded" and the disclosure
+  "Reworded scale the helper: message changed", opened: "Why" and "the store kept one scale for all of them." struck
+  through, "Look closely" and "a scale of zero empties the store." with the bar of an addition; under Possible Breakage `Changed helper src/Store.kt:36
   parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and
   "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9 · 1 use by name only, unknown"; without an index "The uses are
   unknown"; "1 API change, no use left outside breaks"; "No usages: no index of this repository"; among the facts
@@ -779,8 +822,13 @@ group at the end. The overview at the top of the document of the review, before 
 - Without `--base`, `bd` takes the baseline of the checked out branch for the merge base, so a stacked branch is
   marked with the commits of its parents; the app passes the base of the review's segment as `subject.base` and as
   the `base` of `mark_branch_reviewed`.
-- A commit both reworded and amended has neither its identity nor its changed lines: it shows as `added`, and its
-  reviewed version as `dropped`, which errs toward showing too much.
+- A commit whose subject was reworded and whose lines were amended has neither its identity nor its changed lines: it
+  shows as `added`, and its reviewed version as `dropped`, which errs toward showing too much. A body rewritten with
+  an amend keeps the identity: `rewritten` with its `message_change`.
+- A paragraph of a body edited is one hunk of the paragraph removed and the paragraph added: the change is by whole
+  blocks, not by words.
+- Since Your Review of a commit reworded alone is the overview with its message change: the scope is empty (no line
+  changed), so no opening tells the commit there; All Changes and the commit shown alone tell it with its marks.
 - Two commits of one author with the same subject in the same second share an identity; they pair in order.
 - A carry that conflicts with the moved base (the baseline changed the lines the reviewed change changes) gives no
   scope: the commits are then read one at a time, a rewritten one against its own parent, so a declaration it adds

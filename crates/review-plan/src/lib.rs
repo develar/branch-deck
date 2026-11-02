@@ -46,7 +46,7 @@ use crate::concerns::{Concern, ConcernEdges, review_concerns};
 use crate::dependencies::{Dependencies, DependencyChange, dependency_changes, manifest_blobs};
 use crate::fan_in::add_usages;
 use crate::files::{FileFacts, RepeatedEditGroup, changed_files, file_facts, file_kinds, generated_by_name, generated_of, header_blobs, hunk_blobs};
-use crate::interdiff::{Interdiff, PairState, commits_of, interdiff};
+use crate::interdiff::{Interdiff, MessageChange, PairState, commits_of, interdiff, message_change};
 use crate::links::{FileLink, link_files};
 use crate::mark_reviewed::{BranchOnBase, branch_on_base};
 use crate::order::{ReviewOrder, review_order};
@@ -60,11 +60,12 @@ use file_diffs::service::FileDiffs;
 use generated_files::attributes::attribute_generated_paths;
 use generated_files::generated_by::GeneratedBy;
 use git_executor::git_command_executor::GitCommandExecutor;
+use git_ops::landed_pairing::walk_commits_with_messages;
 use git_ops::reviewed_refs::read_reviewed_refs;
 use git_ops::revs::resolve_commit;
 use object_cache::cache::ObjectCache;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use sync_utils::span::in_current_span;
 use tracing::instrument;
 use trial_check::diff_scan::{read_commit_diffs_cached, read_pair_diff};
@@ -108,8 +109,16 @@ pub enum ReviewSubject {
   },
   /// The commits of `base..head`; no reviewed pair
   Range { base: String, head: String },
-  /// One commit against its first parent, as the diffs of a commit show it; no reviewed pair
-  Commit { id: String },
+  /// One commit against its first parent, as the diffs of a commit show it; no reviewed pair, only the reviewed commit
+  /// its message is compared with
+  Commit {
+    id: String,
+    /// The reviewed commit it pairs with in the interdiff of its branch (`PairedCommit::reviewed_id`): its story then
+    /// marks how its message changed since (`StoryCommit::change`)
+    #[serde(default)]
+    #[cfg_attr(feature = "specta", specta(optional))]
+    reviewed: Option<String>,
+  },
 }
 
 /// The plan of a review
@@ -223,11 +232,16 @@ pub struct ResolvedSubject {
   pub base: String,
   pub head: String,
   pub interdiff: Option<Interdiff>,
+  /// How the message of each commit differs from its reviewed version, by its id: of the interdiff of a branch, of a
+  /// commit read with its reviewed one
+  pub message_changes: HashMap<String, MessageChange>,
+  /// The reviewed commit a commit was read with (`ReviewSubject::Commit::reviewed`), by its full id
+  pub reviewed_commit: Option<String>,
 }
 
 /// The subject of `params` resolved (`review_plan_core`): for a branch one `for-each-ref` of the reviewed refs with
 /// the branches, its base, then its interdiff when it was marked; for a range one `rev-parse --verify` per rev, for a
-/// commit one for it and one for its first parent
+/// commit one for it and one for its first parent, and with its reviewed commit one `rev-list` of both messages
 pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &ReviewPlanParams) -> Result<ResolvedSubject> {
   let repository_path = params.repository_path.as_str();
   match &params.subject {
@@ -235,12 +249,19 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
       let refs = read_reviewed_refs(git, repository_path)?;
       let BranchOnBase { branch, tip, base } = branch_on_base(git, repository_path, &refs.branches, branch_prefix, name, (base.as_deref(), baseline_branch.as_deref()))?;
       let interdiff = refs.reviewed(&branch).map(|reviewed| interdiff(git, repository_path, &reviewed, &base, &tip)).transpose()?;
+      let message_changes = interdiff
+        .iter()
+        .flat_map(|found| &found.commits)
+        .filter_map(|commit| Some((commit.id.clone()?, commit.message_change.clone()?)))
+        .collect();
       Ok(ResolvedSubject {
         title: branch_title(&branch, branch_prefix),
         branch: Some(branch),
         base,
         head: tip,
         interdiff,
+        message_changes,
+        reviewed_commit: None,
       })
     }
     ReviewSubject::Range { base, head } => {
@@ -254,23 +275,49 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
         base,
         head,
         interdiff: None,
+        message_changes: HashMap::new(),
+        reviewed_commit: None,
       })
     }
-    ReviewSubject::Commit { id } => {
+    ReviewSubject::Commit { id, reviewed } => {
       if params.since_reviewed {
         return Err(SinceReviewedOfRange(id.clone()).into());
       }
       // a root commit has no parent to read it against: `UnknownRevision` of `<id>^`
       let head = resolved(git, repository_path, id)?;
+      let base = resolved(git, repository_path, &format!("{id}^"))?;
+      let (reviewed_commit, message_changes) = match reviewed {
+        Some(reviewed) => reviewed_message_change(git, repository_path, &head, reviewed)?,
+        None => (None, HashMap::new()),
+      };
       Ok(ResolvedSubject {
         branch: None,
         title: short_id(&head).to_string(),
-        base: resolved(git, repository_path, &format!("{id}^"))?,
+        base,
         head,
         interdiff: None,
+        message_changes,
+        reviewed_commit,
       })
     }
   }
+}
+
+/// The reviewed commit of `head` by its full id and how the message of `head` differs from its message: one `rev-list`
+/// of both. A reviewed commit git no longer has (a `git gc` after its pair was replaced) is none, and so is its change
+fn reviewed_message_change(git: &GitCommandExecutor, repository_path: &str, head: &str, reviewed: &str) -> Result<(Option<String>, HashMap<String, MessageChange>)> {
+  let read = walk_commits_with_messages(git, repository_path, &["--no-walk", "--ignore-missing"], &[head, reviewed])?;
+  let message_of = |found: &dyn Fn(&str) -> bool| {
+    read
+      .iter()
+      .find(|(commit, _)| found(&commit.id))
+      .map(|(commit, message)| (commit.id.as_str(), message.as_str()))
+  };
+  let (Some((_, now)), Some((reviewed_id, before))) = (message_of(&|id| id == head), message_of(&|id| id != head && id.starts_with(reviewed))) else {
+    return Ok((None, HashMap::new()));
+  };
+  let changes = message_change(before, now).map(|change| (head.to_string(), change)).into_iter().collect();
+  Ok((Some(reviewed_id.to_string()), changes))
 }
 
 /// The name of a reviewed branch (`ReviewPlan::title`): a virtual branch of the prefix by its name, a kept one by the
@@ -303,6 +350,8 @@ pub fn review_plan_of(
     base,
     head,
     interdiff,
+    message_changes,
+    reviewed_commit: _,
   } = subject;
   let carried = interdiff
     .as_ref()
@@ -371,6 +420,7 @@ pub fn review_plan_of(
   let brief = review_brief(reviewed.iter().map(|(_, message)| message.as_str()), &units, &changed, &texts);
   let steps = review_steps(&StepsInput {
     commits: &reviewed,
+    message_changes: &message_changes,
     diffs: &diffs,
     changed: &changed,
     pairs: &pairs,
@@ -449,6 +499,7 @@ fn reviewed_commits(git: &GitCommandExecutor, repository_path: &str, base: &str,
       interdiff
         .commits
         .iter()
+        // a reworded commit is unread for its message alone: its code is the code the reviewer read
         .filter(|commit| !since_reviewed || matches!(commit.state, PairState::Added | PairState::Rewritten))
         .filter_map(|commit| Some((commit.id.clone()?, commit.message.clone())))
         .collect(),

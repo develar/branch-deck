@@ -1,8 +1,9 @@
-use crate::interdiff::{CommitChanges, PairState, RangeScope};
+use crate::interdiff::{CommitChanges, MessageChange, PairState, RangeScope, message_change};
 use crate::test_support::{mark, plan_of};
 use crate::{ReviewPlan, ReviewPlanParams, ReviewSubject, SinceReviewedOfRange, UnknownRevision};
 use git_ops::landed_pairing::PathLines;
 use pretty_assertions::assert_eq;
+use sync_utils::commit_body::prose_lines;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -206,7 +207,8 @@ fn a_baseline_move_alone_leaves_every_commit_unchanged() {
   assert_eq!(commits(&plan(&repo, true)), []);
 }
 
-/// A reword changes the identity but not the lines: paired by its lines, `unchanged`. A commit taken out of the branch
+/// A reword changes the identity but not the lines: paired by its lines, `reworded`, its subject before kept. A commit
+/// taken out of the branch
 /// is `dropped`, listed after the commits of the branch, and a commit added in its place leaves no plain range: the
 /// scope is the diff from the reviewed tip, which removes the dropped file and adds the new one
 #[test]
@@ -216,7 +218,14 @@ fn a_reworded_commit_pairs_by_its_lines_and_a_dropped_one_is_listed() {
   let reworded = repo.commit_with(&["--amend", "-m", "(auth) Add sign out"], &[]);
   assert_eq!(
     commits(&plan(&repo, false))[1],
-    (Some(reworded.as_str()), Some(logout.as_str()), "(auth) Add sign out", PairState::Unchanged)
+    (Some(reworded.as_str()), Some(logout.as_str()), "(auth) Add sign out", PairState::Reworded)
+  );
+  assert_eq!(
+    plan(&repo, false).interdiff.unwrap().commits[1].message_change,
+    Some(MessageChange {
+      subject_before: Some("Add logout".to_string()),
+      hunks: Vec::new(),
+    })
   );
 
   repo.git(&["reset", "-q", "--hard", &login]);
@@ -254,4 +263,119 @@ fn a_range_has_no_interdiff() {
   assert!(error.downcast_ref::<SinceReviewedOfRange>().is_some(), "{error:?}");
   let error = plan_of(&repo, None, &params("--all", false)).unwrap_err();
   assert_eq!(error.downcast_ref::<UnknownRevision>(), Some(&UnknownRevision("--all".to_string())));
+}
+
+/// What `change` says of a body: per hunk its place, the lines of the blocks it adds and of those it removes
+fn hunk_words(change: &MessageChange) -> Vec<(u32, Vec<String>, Vec<String>)> {
+  let words = |blocks: &[domain_types::commit_body::CommitBodyBlock]| -> Vec<String> { blocks.iter().map(|block| prose_lines(block).join(" ")).collect() };
+  change
+    .hunks
+    .iter()
+    .map(|hunk| (hunk.start, words(&hunk.added.blocks), words(&hunk.removed.blocks)))
+    .collect()
+}
+
+const REVIEWED_BODY: &str = "(auth) Add logout\n\nThe logout clears the session.\n\nWhy: the token outlives the tab.\n\nTests: `logout_test` passes.";
+
+/// The body is compared by its blocks: a lead rewritten is one hunk of a removed and an added paragraph in its place, a
+/// new Look closely an added label and its paragraph where it stands, a removed section the blocks that stood before
+/// the block it left; each run with the code of its lines
+#[test]
+fn the_body_of_a_message_changes_by_its_blocks() {
+  let now = "(auth) Add logout\n\nThe logout clears the session and the `Cache`.\n\nLook closely: the cache is cleared first.\n\nTests: `logout_test` passes.";
+  let change = message_change(REVIEWED_BODY, now).unwrap();
+  assert_eq!(change.subject_before, None);
+  assert_eq!(
+    hunk_words(&change),
+    [(
+      0,
+      vec![
+        "The logout clears the session and the `Cache`.".to_string(),
+        "Look closely".to_string(),
+        "the cache is cleared first.".to_string()
+      ],
+      vec!["The logout clears the session.".to_string(), "Why".to_string(), "the token outlives the tab.".to_string()],
+    ),]
+  );
+  // the code of the lines of each run, by its own blocks
+  assert_eq!(change.hunks[0].added.code.iter().map(|line| line.block).collect::<Vec<_>>(), [0]);
+
+  let shorter = "(auth) Add logout\n\nThe logout clears the session.\n\nWhy: the token outlives the tab.";
+  assert_eq!(
+    hunk_words(&message_change(REVIEWED_BODY, shorter).unwrap()),
+    [(3, vec![], vec!["Tests".to_string(), "`logout_test` passes.".to_string()])]
+  );
+}
+
+/// A trailer added, a paragraph wrapped anew, a blank line more and a prefix changed say the same: no change
+#[test]
+fn a_new_trailer_or_a_rewrap_changes_no_message() {
+  let now =
+    "(login) Add logout\n\nThe logout clears\nthe session.\n\n\nWhy: the token outlives the tab.\n\nTests: `logout_test` passes.\n\nCo-Authored-By: Jane <jane@example.com>";
+  assert_eq!(message_change(REVIEWED_BODY, now), None);
+}
+
+/// An amend of the code and of the body: `rewritten`, with its lines and with the blocks of its body that changed
+#[test]
+fn a_commit_amended_with_a_new_body_is_rewritten_with_its_added_and_removed_blocks() {
+  let (repo, _, [_, logout]) = repo();
+  repo.git(&["commit", "-q", "--amend", "-m", REVIEWED_BODY]);
+  let reviewed = repo.head();
+  mark(&repo);
+  std::fs::write(repo.path().join("logout.rs"), "fn logout() { clear(); }\n").unwrap();
+  let now = "(auth) Add logout\n\nThe logout clears the session.\n\nLook closely: the cache is cleared first.\n\nWhy: the token outlives the tab.";
+  let amended = repo.commit_with(&["--amend", "-a", "-m", now], &[("GIT_COMMITTER_DATE", "1700000400 +0000")]);
+  assert_ne!(reviewed, logout);
+
+  let whole = plan(&repo, false);
+  let commit = &whole.interdiff.as_ref().unwrap().commits[1];
+  assert_eq!((commit.id.as_deref(), commit.state), (Some(amended.as_str()), PairState::Rewritten));
+  assert_eq!(
+    hunk_words(commit.message_change.as_ref().unwrap()),
+    [
+      (1, vec!["Look closely".to_string(), "the cache is cleared first.".to_string()], vec![]),
+      (5, vec![], vec!["Tests".to_string(), "`logout_test` passes.".to_string()]),
+    ]
+  );
+}
+
+/// A body rewritten alone keeps the lines of the commit: `reworded`, which Since Your Review lists, but its code is the
+/// code the reviewer read, so the commits added on top stay the plain range and the plan reads no file of it
+#[test]
+fn a_body_rewritten_alone_is_reworded_its_code_unread_and_the_scope_on_top() {
+  let (repo, _, [login, logout]) = repo();
+  mark(&repo);
+  repo.git(&["reset", "-q", "--hard", &login]);
+  let reworded = repo.commit_with(
+    &["--amend", "-m", "(auth) Add login\n\nThe login keeps the token."],
+    &[("GIT_COMMITTER_DATE", "1700000500 +0000")],
+  );
+  repo.git(&["cherry-pick", &logout]);
+  let copy = repo.head();
+  let session = commit_session(&repo);
+
+  let whole = plan(&repo, false);
+  assert_eq!(
+    commits(&whole),
+    [
+      (Some(reworded.as_str()), Some(login.as_str()), "(auth) Add login", PairState::Reworded),
+      (Some(copy.as_str()), Some(logout.as_str()), "(auth) Add logout", PairState::Unchanged),
+      added(&session, SESSION),
+    ]
+  );
+  assert_eq!(
+    hunk_words(whole.interdiff.as_ref().unwrap().commits[0].message_change.as_ref().unwrap()),
+    [(0, vec!["The login keeps the token.".to_string()], vec![])]
+  );
+  assert_eq!(scope(&whole), Some((copy.as_str(), session.as_str(), false)));
+
+  let since = plan(&repo, true);
+  assert_eq!(
+    commits(&since),
+    [
+      (Some(reworded.as_str()), Some(login.as_str()), "(auth) Add login", PairState::Reworded),
+      added(&session, SESSION),
+    ]
+  );
+  assert_eq!(paths(&since), ["session.rs"]);
 }

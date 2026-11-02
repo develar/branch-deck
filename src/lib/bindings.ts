@@ -987,6 +987,25 @@ export type BlockReason =
 /**  The parent is blocked itself */
 "Blocked";
 
+/**  Blocks of a body with the code of their lines, as `CommitBody` holds them (`LineCode::block` counts these blocks) */
+export type BodyBlocks = {
+	blocks: CommitBodyBlock[],
+	code: LineCode[],
+};
+
+/**  A change of the body of a commit since its review: blocks it has now, reviewed blocks it lacks, or both in one place */
+export type BodyHunk = {
+	/**
+	 *  Its place in the body now (`CommitBody::blocks` as its story reads it): its first added block, else the block the
+	 *  removed ones stood before (the count of the blocks after the last)
+	 */
+	start: number,
+	/**  The blocks the body has now that the reviewed one lacked: `start..start + added.blocks.len()` */
+	added: BodyBlocks,
+	/**  The reviewed blocks the body lacks now, which stood right before `start` */
+	removed: BodyBlocks,
+};
+
 /**  The parts of one branch that changed */
 export type BranchChange = {
 	head?: BranchHead | null,
@@ -4374,6 +4393,20 @@ export type MergeStateStatus =
 /**  GitHub has not computed it yet: asked again, it answers */
 "unknown";
 
+/**
+ *  How the message of a commit differs from its reviewed version: its subject, and its body by the blocks of its grammar
+ *  (`CommitBody::blocks`); the trailers and the line breaks of a paragraph aside
+ */
+export type MessageChange = {
+	/**
+	 *  The subject of the reviewed version without its `(prefix)`, when that differs: only of a reword by the lines, a
+	 *  commit of the same identity has the same subject
+	 */
+	subjectBefore: string | null,
+	/**  What changed in the body, in its order */
+	hunks: BodyHunk[],
+};
+
 /**  Why the approvals are missing */
 export type MissingApprovalsReason = 
 /**  The code owners haven't approved yet */
@@ -4937,8 +4970,10 @@ export type PageEntry = {
 
 /**  How a commit of the branch compares with the reviewed one */
 export type PairState = 
-/**  The reviewed commit, or a copy of it that changes the same lines (a rebase, a sync, a reword) */
+/**  The reviewed commit, or a copy of it with the same lines and the same message (a rebase, a sync) */
 "unchanged" | 
+/**  A copy of a reviewed commit that changes the same lines, its message changed (`PairedCommit::message_change`) */
+"reworded" | 
 /**  A reviewed commit changed: the same identity, other changed lines (an amend, a fixup folded in) */
 "rewritten" | 
 /**  A commit the reviewed tip lacks */
@@ -4957,6 +4992,11 @@ export type PairedCommit = {
 	state: PairState,
 	/**  `Some` only when `rewritten` */
 	changes: CommitChanges | null,
+	/**
+	 *  How its message differs from the reviewed one: `Some` when `reworded`, of a `rewritten` one when its message
+	 *  changed too
+	 */
+	messageChange: MessageChange | null,
 };
 
 /**  Where the declared parent of a branch comes from */
@@ -6870,8 +6910,16 @@ base?: string | null;
 baselineBranch?: string | null } | 
 /**  The commits of `base..head`; no reviewed pair */
 { kind: "range"; base: string; head: string } | 
-/**  One commit against its first parent, as the diffs of a commit show it; no reviewed pair */
-{ kind: "commit"; id: string };
+/**
+ *  One commit against its first parent, as the diffs of a commit show it; no reviewed pair, only the reviewed commit
+ *  its message is compared with
+ */
+{ kind: "commit"; id: string; 
+/**
+ *  The reviewed commit it pairs with in the interdiff of its branch (`PairedCommit::reviewed_id`): its story then
+ *  marks how its message changed since (`StoryCommit::change`)
+ */
+reviewed?: string | null };
 
 /**  An object with changes the review reads by its refs or ids */
 export type ReviewTarget = 
@@ -8238,6 +8286,8 @@ export type StoryCommit = {
 	 *  commit, a run of blocks of no label cut where the step that tells its blocks changes
 	 */
 	parts: StoryPart[],
+	/**  How its message changed since the review (`PairedCommit::message_change`), whose hunks its parts show */
+	change: MessageChange | null,
 };
 
 /**
@@ -8252,7 +8302,7 @@ export type StoryPart = {
 	kind: CommitBodyPartKind,
 	/**  The kind of the label of a section (`CommitBodyPart::tone`) */
 	tone: LabelKind,
-	/**  Whether a reader folds it (`CommitBodyPart::folded`) */
+	/**  Whether a reader folds it (`CommitBodyPart::folded`); never a part that shows a change of `StoryCommit::change` */
 	folded: boolean,
 	/**  Where the document tells it */
 	told: StoryPlace,
@@ -8261,6 +8311,8 @@ export type StoryPart = {
 	 *  and tells the section without it
 	 */
 	titled: boolean,
+	/**  The hunks of `StoryCommit::change` whose removed blocks it shows, each at its place */
+	removals: StoryRemoval[],
 };
 
 /**  Where the document tells a part of a story (`StoryPart::told`) */
@@ -8285,6 +8337,14 @@ export type StoryRef = {
 	item: number,
 	/**  The step whose opening tells the block, by its place in `ReviewSteps::steps`; `None` for the overview */
 	step: number | null,
+};
+
+/**  The removed blocks of a hunk of `StoryCommit::change` in the part that shows them (`StoryPart::removals`) */
+export type StoryRemoval = {
+	/**  The hunk, by its place in `MessageChange::hunks` */
+	hunk: number,
+	/**  The block of the part they stand right before; `None` at its end */
+	before: number | null,
 };
 
 /**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */

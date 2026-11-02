@@ -21,8 +21,10 @@ object-cache = { path = "../object-cache" }
 file-diffs = { path = "../file-diffs" }
 # the generated files: by their name, the attributes of the head, the header a tool wrote (`files::generated_of`)
 generated-files = { path = "../generated-files" }
-# the span of the fan-in's threads (`in_current_span`)
+# the span of the fan-in's threads (`in_current_span`), the grammar of a body and the subject without its prefix
 sync-utils = { path = "../sync-utils" }
+# the blocks of a body that changed since the review (`lcs::diff::build_changes`)
+text-diff = { path = "../text-diff" }
 # the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
 quick-xml = "0.42"
 toml = "1.1"

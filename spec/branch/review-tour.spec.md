@@ -14,6 +14,7 @@ targets:
   - ../../src/components/review/ReviewPrologue.tsx
   - ../../src/components/review/ChapterOpening.tsx
   - ../../src/components/review/StoryBody.tsx
+  - ../../src/presenters/commit-body.ts
   - ../../src/components/review/StepFactsLine.tsx
   - ../../src/components/review/StoryText.tsx
   - ../../src/hooks/useStoryHighlight.ts
@@ -194,6 +195,14 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   joined, when one does; once per block. A story of several commits marks only from the commit that starts a step;
   a follow-up, folded under its step, marks nothing.
   [@test] ../../crates/review-plan/src/story_test.rs (`a_line_of_a_told_body_marks_the_stops_it_names_where_it_is_told`, `the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`)
+- The story of a commit whose message changed since the review (`message_change` of its pair in the interdiff of
+  its branch, [Review Plan](review-plan.spec.md#since-your-review); of a commit shown alone, read with its reviewed
+  commit) must carry that change (`change`) and place it: each part marks the added blocks it holds, and the removed
+  blocks of a hunk stand in one part (`removals`), that of its first added block, else of the block they followed (the
+  first block when they were at the start), before the block `start` when that part holds it (`before`), else at its
+  end. A part that shows a change must not be folded, a verification section neither: what changed is what the reader
+  came back for. A story whose message did not change has no `change`, its parts as the grammar folds them.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_changed_part_of_a_body_is_marked_and_unfolded_a_verification_too`)
 - A step must list the public declarations it adds (`newApi`, the keys of the `added` entries of `api` whose
   declaration or new file its stops show) and the links it adds between two modules (`moduleLinks`, by their place in
   `links`, in the step whose stop shows the first use of the link, else the first step whose stops show the file that
@@ -226,7 +235,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`, `the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose`)
 
 ### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 14`), the ids of the commits of the steps and of the
+- `bd review-plan` must print `steps` and `brief` (`"schema": 15`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -267,7 +276,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
   body](../commit/commit-row.spec.md)): its lead a step larger, its paragraphs, lists, labels as the captions of their
   blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no
-  muted text. A long body shows the parts Rust shows (`parts`), then one line of what is still folded, one chevron
+  muted text but what its body removed since the review, struck through where Rust placed it, beside the blocks it
+  added, marked ([Review Plan](review-plan.spec.md#in-the-review-window)), and the subject its commit had below its
+  title. A long body shows the
+  parts Rust shows (`parts`), then one line of what is still folded, one chevron
   for it ("More: The cause, The fix, Tests, Evidence", a part of no label "The rest"), each name its own toggle; an
   opened part stands below that line in the order of the body, its label the toggle that folds it again (a chevron
   before it), so its name shows once and the text grows downward; the line names only what is still folded. A

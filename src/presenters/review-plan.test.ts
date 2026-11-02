@@ -16,7 +16,7 @@ import {
 } from "@/presenters/review-plan"
 
 function paired(state: PairedCommit["state"], id: string): PairedCommit {
-  return { id: state === "dropped" ? null : id, reviewedId: state === "added" ? null : `r${id}`, subject: `subject ${id}`, state, changes: null }
+  return { id: state === "dropped" ? null : id, reviewedId: state === "added" ? null : `r${id}`, subject: `subject ${id}`, state, changes: null, messageChange: null }
 }
 
 function change(patch: Partial<ApiChange>): ApiChange {
@@ -47,32 +47,39 @@ function facts(patch: Partial<FileFacts>): FileFacts {
 }
 
 describe("the words of the commits since the review", () => {
-  it("says New and Rewritten in the column, nothing of an unchanged or a dropped commit", () => {
+  it("says New, Rewritten and Reworded in the column, nothing of an unchanged or a dropped commit", () => {
     expect(formatPairState("added")).toBe("New")
     expect(formatPairState("rewritten")).toBe("Rewritten")
+    expect(formatPairState("reworded")).toBe("Reworded")
     expect(formatPairState("unchanged")).toBeNull()
     expect(formatPairState("dropped")).toBeNull()
   })
 
   it("counts what changed since the review, and nothing when only the baseline moved", () => {
     const interdiff = (commits: PairedCommit[]): Interdiff => ({ reviewedBase: "b", reviewedTip: "t", commits, scope: null })
-    expect(formatSinceReview(interdiff([paired("unchanged", "1"), paired("rewritten", "2"), paired("added", "3"), paired("added", "4"), paired("dropped", "5")]))).toBe(
-      "2 new · 1 rewritten · 1 dropped",
-    )
+    expect(
+      formatSinceReview(
+        interdiff([paired("unchanged", "1"), paired("rewritten", "2"), paired("added", "3"), paired("added", "4"), paired("reworded", "6"), paired("dropped", "5")]),
+      ),
+    ).toBe("2 new · 1 rewritten · 1 reworded · 1 dropped")
     expect(formatSinceReview(interdiff([paired("unchanged", "1")]))).toBeNull()
   })
 
-  it("says per path what a rewritten commit changes that its reviewed version did not, and the reverse", () => {
-    expect(
-      formatRewrittenChanges({
-        newOnly: [{ path: "src/Store.kt", lines: ["+fun helper(value: Int, scale: Int)", "+  = value * scale"] }],
-        reviewedOnly: [
-          { path: "src/Store.kt", lines: ["-fun helper(value: Int) = value"] },
-          { path: "README.md", lines: ["-old"] },
-        ],
-      }),
-    ).toBe("src/Store.kt +2 −1, README.md +0 −1")
-    expect(formatRewrittenChanges({ newOnly: [], reviewedOnly: [] })).toBe("Only its message changed")
+  it("says per path what a rewritten commit changes that its reviewed version did not, and the reverse, and that its message changed only when Rust says so", () => {
+    const changes = {
+      newOnly: [{ path: "src/Store.kt", lines: ["+fun helper(value: Int, scale: Int)", "+  = value * scale"] }],
+      reviewedOnly: [
+        { path: "src/Store.kt", lines: ["-fun helper(value: Int) = value"] },
+        { path: "README.md", lines: ["-old"] },
+      ],
+    }
+    const message = { subjectBefore: null, hunks: [{ start: 0, added: { blocks: [{ type: "rule" as const }], code: [] }, removed: { blocks: [], code: [] } }] }
+    expect(formatRewrittenChanges({ changes, messageChange: null })).toBe("src/Store.kt +2 −1, README.md +0 −1")
+    expect(formatRewrittenChanges({ changes, messageChange: message })).toBe("src/Store.kt +2 −1, README.md +0 −1 · message changed")
+    // other lines to patch-id, the same lines of each path: they moved, and the message is not said to have changed
+    expect(formatRewrittenChanges({ changes: { newOnly: [], reviewedOnly: [] }, messageChange: null })).toBe("the same lines in another order")
+    // a reworded commit: its lines as reviewed
+    expect(formatRewrittenChanges({ changes: null, messageChange: message })).toBe("message changed")
   })
 })
 

@@ -12,6 +12,7 @@ import type {
   Interdiff,
   LinkState,
   MechanicalKind,
+  PairedCommit,
   PairState,
   RepeatedEditGroup,
   ReviewPlan,
@@ -27,33 +28,47 @@ import { fileTop } from "@/lib/review-place"
 import { capitalize } from "@/lib/text"
 import { GENERATED_NAME_WORDS } from "@/presenters/collapse"
 
-/** What the commit column says of a commit since the review: "New", "Rewritten"; nothing of the others */
+/** What the commit column says of a commit since the review: "New", "Rewritten", "Reworded"; nothing of the others */
 export function formatPairState(state: PairState): string | null {
   switch (state) {
     case "added":
       return "New"
     case "rewritten":
       return "Rewritten"
+    case "reworded":
+      return "Reworded"
     case "unchanged":
     case "dropped":
       return null
   }
 }
 
-/** "2 new · 1 rewritten · 1 dropped": what changed in the branch since its review; null when nothing did */
+/** "2 new · 1 rewritten · 1 reworded · 1 dropped": what changed in the branch since its review; null when nothing did */
 export function formatSinceReview(interdiff: Interdiff): string | null {
   const count = (state: PairState) => interdiff.commits.filter(commit => commit.state === state).length
   const parts = [
     [count("added"), "new"],
     [count("rewritten"), "rewritten"],
+    [count("reworded"), "reworded"],
     [count("dropped"), "dropped"],
   ] as const
   const words = parts.filter(([n]) => n > 0).map(([n, word]) => `${n} ${word}`)
   return words.length === 0 ? null : words.join(" · ")
 }
 
+/**
+ * What a rewritten or reworded commit changes against its reviewed version: "src/Store.kt +2 −1" per path, the lines it
+ * changes that its reviewed version did not and the reverse, then "message changed" when Rust says its message did
+ * (`PairedCommit.messageChange`); a rewritten commit whose lines per path are the same moved them ("the same lines in
+ * another order")
+ */
+export function formatRewrittenChanges({ changes, messageChange }: Pick<PairedCommit, "changes" | "messageChange">): string {
+  const parts = [...(changes === null ? [] : [formatChangedLines(changes)]), ...(messageChange === null ? [] : ["message changed"])]
+  return parts.join(" · ")
+}
+
 /** "src/Store.kt +2 −1" per path: what a rewritten commit changes that its reviewed version did not, and the reverse */
-export function formatRewrittenChanges(changes: CommitChanges): string {
+function formatChangedLines(changes: CommitChanges): string {
   const byPath = new Map<string, { added: number; removed: number }>()
   for (const [side, list] of [
     ["new", changes.newOnly],
@@ -69,8 +84,9 @@ export function formatRewrittenChanges(changes: CommitChanges): string {
       byPath.set(path, entry)
     }
   }
+  // patch-id saw other lines, the lines of each path are the same: they moved
   if (byPath.size === 0) {
-    return "Only its message changed"
+    return "the same lines in another order"
   }
   return [...byPath].map(([path, { added, removed }]) => `${path} +${added} −${removed}`).join(", ")
 }

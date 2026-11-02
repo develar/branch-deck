@@ -95,7 +95,7 @@ pub fn prose_lines(block: &CommitBodyBlock) -> Vec<&str> {
 }
 
 /// The code of each line of prose of `blocks` that holds some (`CommitBody::code`)
-fn code_of(blocks: &[CommitBodyBlock]) -> Vec<LineCode> {
+pub fn code_of(blocks: &[CommitBodyBlock]) -> Vec<LineCode> {
   let mut code = Vec::new();
   for (block, of) in blocks.iter().enumerate() {
     for (item, line) in prose_lines(of).into_iter().enumerate() {

@@ -105,7 +105,17 @@ export function shownInterdiff(plan: ReviewPlan | null, ownBranch: boolean, head
   return ownBranch && plan !== null && plan.head === head ? plan.interdiff : null
 }
 
-/** "Since Your Review" of the interdiff of the plan: null for a branch never marked, and when nothing was added or rewritten */
+/**
+ * The reviewed commit the plan of the commit `id` shown alone reads its message with (`ReviewSubject` `reviewed`): of a
+ * commit whose message Rust says changed since the review (`PairedCommit.messageChange`), so its story marks how; null
+ * otherwise. The plan names a commit as the range does, in full or short: they match by prefix
+ */
+export function reviewedCommitOf(interdiff: Interdiff | null, id: string): string | null {
+  const paired = interdiff?.commits.find(commit => commit.id !== null && (id.startsWith(commit.id) || commit.id.startsWith(id)))
+  return paired?.messageChange == null ? null : paired.reviewedId
+}
+
+/** "Since Your Review" of the interdiff of the plan: null for a branch never marked, and when nothing was added, rewritten or reworded */
 export function localSinceReview(interdiff: Interdiff | null): LocalSinceReview | null {
   if (interdiff === null) {
     return null

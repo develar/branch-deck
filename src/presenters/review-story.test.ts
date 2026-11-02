@@ -40,7 +40,8 @@ function story(
     title: subject,
     body: { blocks, trailers: [], lead, parts: bodyParts, code: [] },
     mentions: [],
-    parts: bodyParts.map((part, index) => ({ ...part, told: told[index] ?? { kind: "commit" }, titled: index === titled })),
+    parts: bodyParts.map((part, index) => ({ ...part, told: told[index] ?? { kind: "commit" }, titled: index === titled, removals: [] })),
+    change: null,
   }
 }
 
@@ -306,6 +307,80 @@ describe("the document of a review", () => {
         ),
       ),
     ).toEqual({ lead: "Lead.", shown: [["Look closely:", "Is it enough?"]], folded: ["The cause", "Tests"] })
+  })
+
+  it("marks what changed in a body since the review where Rust placed it: the added blocks, the removed ones before the block they stood before or at the end of their part, the subject it had", () => {
+    const body = [
+      paragraph("The open keeps the stored layout."),
+      label("Look closely", "lookClosely"),
+      paragraph("Is it enough?"),
+      label("Tests", "verification"),
+      list("FrameTest"),
+    ]
+    const commit = story("the open", body, [
+      [0, 1, false],
+      [1, 3, false],
+      [3, 5, false],
+    ])
+    const removed = (text: string) => ({ blocks: [paragraph(text)], code: [] })
+    const none = { blocks: [], code: [] }
+    const change = {
+      subjectBefore: "the open asks",
+      hunks: [
+        // the lead rewritten: the old one before the new one
+        { start: 0, added: { blocks: [body[0]!], code: [] }, removed: removed("The open asks the layout.") },
+        // a new Look closely section
+        { start: 1, added: { blocks: [body[1]!, body[2]!], code: [] }, removed: none },
+        // a paragraph removed from the end of Tests
+        { start: 5, added: none, removed: removed("All green.") },
+      ],
+    }
+    const view = presentStory({
+      ...commit,
+      change,
+      parts: commit.parts.map((part, index) => ({ ...part, removals: index === 0 ? [{ hunk: 0, before: 0 }] : index === 2 ? [{ hunk: 2, before: null }] : [] })),
+    })
+    expect(view.subjectBefore).toBe("the open asks")
+    expect(view.lead).toEqual({ index: 0, block: body[0], added: true })
+    expect(view.leadRemoved).toEqual([{ key: "the open:removed:0", before: 0, blocks: [paragraph("The open asks the layout.")], code: [] }])
+    const [asks, tests] = view.shown
+    // a section whose label is new is new whole, its blocks marked too
+    expect([asks!.added, asks!.blocks.map(it => it.added), asks!.removed]).toEqual([true, [true], undefined])
+    expect([tests!.added, tests!.blocks.map(it => it.added), tests!.removed?.map(run => run.before)]).toEqual([undefined, [undefined], [null]])
+    // a story whose message did not change marks nothing
+    const plain = presentStory(commit)
+    expect([plain.subjectBefore, plain.lead?.added, plain.leadRemoved, plain.shown.map(part => part.removed)]).toEqual([undefined, undefined, undefined, [undefined, undefined]])
+  })
+
+  it("says in the overview how the message of a rewritten or a reworded commit changed, the blocks Rust compared under its line", () => {
+    const messageChange = { subjectBefore: null, hunks: [{ start: 0, added: { blocks: [paragraph("The token outlives the tab.")], code: [] }, removed: { blocks: [], code: [] } }] }
+    const commits = [
+      {
+        id: "c1",
+        reviewedId: "r1",
+        subject: "Add the token",
+        state: "rewritten" as const,
+        changes: { newOnly: [{ path: "src/Token.kt", lines: ["+a"] }], reviewedOnly: [] },
+        messageChange,
+      },
+      { id: "c2", reviewedId: "r2", subject: "Style", state: "reworded" as const, changes: null, messageChange },
+      {
+        id: "c3",
+        reviewedId: "r3",
+        subject: "Log out",
+        state: "rewritten" as const,
+        changes: { newOnly: [], reviewedOnly: [{ path: "src/Out.kt", lines: ["+b"] }] },
+        messageChange: null,
+      },
+      { id: "c4", reviewedId: "r4", subject: "Tidy", state: "unchanged" as const, changes: null, messageChange: null },
+    ]
+    const since = presentPrologue(plan([], [], { interdiff: { reviewedBase: "b", reviewedTip: "r4", commits, scope: null } }), false).since!
+    expect(since.summary).toBe("Since your review: 2 rewritten · 1 reworded")
+    expect(since.rewritten.map(commit => [commit.text, commit.message === null ? null : commit.message.hunks.length])).toEqual([
+      ["Rewritten Add the token: src/Token.kt +1 −0 · message changed", 1],
+      ["Reworded Style: message changed", 1],
+      ["Rewritten Log out: src/Out.kt +0 −1", null],
+    ])
   })
 
   it("opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places", () => {

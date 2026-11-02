@@ -1,7 +1,7 @@
 import { Fragment } from "react"
 import { cn } from "cn"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
-import { StoryBody } from "@/components/review/StoryBody"
+import { StoryBody, SubjectBefore } from "@/components/review/StoryBody"
 import { Disclosure } from "@/components/shared/Disclosure"
 import type { OpeningView } from "@/presenters/review-story"
 
@@ -34,6 +34,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           {opening.title}
         </span>
       </button>
+      {opening.subjectBefore !== null && <SubjectBefore subject={opening.subjectBefore} />}
       {opening.story !== null && <StoryBody story={opening.story} />}
       {opening.commits.length > 0 && (
         <ul className="flex flex-col gap-1.5 text-sm" aria-label="The other commits of the step">

@@ -10,7 +10,7 @@ import { useBodyFold } from "@/hooks/useBodyFold"
 import type { BodyFold } from "@/hooks/useBodyFold"
 import { useCommitBody } from "@/hooks/useCommitBody"
 import type { CommitBody, CommitBodyBlock } from "@/lib/bindings"
-import type { BodyPart, BodyParts } from "@/presenters/commit-body"
+import type { BodyPart, BodyParts, PlacedBlock, RemovedBlocks } from "@/presenters/commit-body"
 import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 
 /**
@@ -90,7 +90,8 @@ export interface BodyPartsViewProps {
  * then one line that names the folded parts ("The cause · Tests · Evidence"), each its own disclosure, an open one
  * below the line, so a disclosure grows downward; the trailers last. Rust says which part folds (`CommitBody.parts`):
  * a verification section always, the author's Look closely never. The text is the foreground's: no part of the
- * author's words is muted. Code tokens are set in the monospace font; the text is selectable, and a click in it does
+ * author's words is muted, but what a story's body removed since the review, struck through where Rust placed it
+ * beside the blocks it added (`PlacedBlock.added`, `BodyPart.removed`). Code tokens are set in the monospace font; the text is selectable, and a click in it does
  * not change the row selection; a line at `max-w-prose` (65ch, about 80 characters)
  */
 export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = [], empty, testId = "commit-message-body", commit }: BodyPartsViewProps) {
@@ -115,8 +116,11 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
     >
       {empty}
       {lead !== null && (
-        <div data-testid="commit-body-lead" className={size === "story" ? "text-md" : undefined}>
-          {place(lead.index, null, <CommitBodyBlockView block={lead.block} text={text(lead.index)} />)}
+        // a removed lead stands with the lead that replaced it: a column only then, so a body as it was stays as it was
+        <div data-testid="commit-body-lead" className={cn(parts.leadRemoved !== undefined && "flex min-w-0 flex-col gap-2", size === "story" && "text-md") || undefined}>
+          {removedAt(parts.leadRemoved, lead.index)}
+          {place(lead.index, null, <PlacedBlockView placed={lead} text={text(lead.index)} />)}
+          {removedAt(parts.leadRemoved, null)}
         </div>
       )}
       {parts.shown.map(part => (
@@ -186,18 +190,39 @@ export function BodyPartView({
   revealed?: number | null
   unfolded?: { name: string; close: () => void }
 }) {
-  const blocks = part.blocks.map(placed => (
-    <Fragment key={placed.index}>{place(placed.index, revealed, <CommitBodyBlockView block={placed.block} text={text(placed.index)} />)}</Fragment>
-  ))
   const head = part.head
+  // removed blocks that stood before a block the part does not show (the label its step is titled by) stand first
+  const shownAt = new Set([...(head === null ? [] : [head.index]), ...part.blocks.map(placed => placed.index)])
+  const removed = (part.removed ?? []).map(run => (run.before === null || shownAt.has(run.before) ? run : { ...run, before: part.blocks[0]?.index ?? null }))
+  // a section new whole is marked once, not each of its blocks again
+  const whole = part.added === true
+  const blocks = [
+    ...part.blocks.map(placed => (
+      <Fragment key={placed.index}>
+        {removedAt(removed, placed.index)}
+        {place(placed.index, revealed, <PlacedBlockView placed={whole ? { index: placed.index, block: placed.block } : placed} text={text(placed.index)} />)}
+      </Fragment>
+    )),
+    <Fragment key="removed-at-end">{removedAt(removed, null)}</Fragment>,
+  ]
+  // what stood before its label was removed before the section: outside the mark of a new one
+  const removedBefore = head === null ? null : removedAt(removed, head.index)
   if (part.tone === "lookClosely" && head !== null) {
-    return place(
-      head.index,
-      revealed,
-      <Callout tone="info" title={text(head.index)(head.block.text, 0)} data-testid="commit-body-look-closely" className="text-foreground">
-        {/* the details of a callout are muted: the author's words are not */}
-        <div className="flex flex-col gap-2 text-foreground">{blocks}</div>
-      </Callout>,
+    return (
+      <>
+        {removedBefore}
+        {addedMark(
+          whole,
+          place(
+            head.index,
+            revealed,
+            <Callout tone="info" title={text(head.index)(head.block.text, 0)} data-testid="commit-body-look-closely" className="text-foreground">
+              {/* the details of a callout are muted: the author's words are not */}
+              <div className="flex flex-col gap-2 text-foreground">{blocks}</div>
+            </Callout>,
+          ),
+        )}
+      </>
     )
   }
   const caption =
@@ -221,10 +246,83 @@ export function BodyPartView({
       )
     )
   return (
-    <div className="flex min-w-0 flex-col gap-1" data-testid="commit-body-part" data-part={part.key}>
-      {caption !== false && caption !== null && place(head?.index ?? part.first, revealed, caption)}
-      {blocks.length > 0 && <div className="flex min-w-0 flex-col gap-2">{blocks}</div>}
+    <>
+      {removedBefore}
+      {addedMark(
+        whole,
+        <div className="flex min-w-0 flex-col gap-1" data-testid="commit-body-part" data-part={part.key}>
+          {caption !== false && caption !== null && place(head?.index ?? part.first, revealed, caption)}
+          {(part.blocks.length > 0 || removed.some(run => head === null || run.before !== head.index)) && <div className="flex min-w-0 flex-col gap-2">{blocks}</div>}
+        </div>,
+      )}
+    </>
+  )
+}
+
+/** A block at its place, with the bar of an addition when the reviewed body lacked it (`PlacedBlock.added`) */
+function PlacedBlockView({ placed, text }: { placed: PlacedBlock; text: BodyTextRenderer }) {
+  return addedMark(placed.added === true, <CommitBodyBlockView block={placed.block} text={text} />)
+}
+
+/**
+ * What the reviewed body had and the body lacks now, where it stood (spec/branch/review-tour.spec.md, "In the Review
+ * Window"): the runs of `removed` that stand before the block `before` (at the end of their part for `null`)
+ */
+function removedAt(removed: readonly RemovedBlocks[] | undefined, before: number | null): ReactNode {
+  return (removed ?? []).filter(run => run.before === before).map(run => <RemovedBlocksView key={run.key} removed={run} />)
+}
+
+/**
+ * Blocks of the reviewed body removed since the review: muted and struck through, a bar in the tone of a removal in the
+ * gutter, so their text stays at the edge of the others; a label or a heading as the caption it was
+ */
+export function RemovedBlocksView({ removed }: { removed: Pick<RemovedBlocks, "blocks" | "code"> }) {
+  return (
+    <div
+      data-testid="commit-body-removed"
+      className="-ml-3 flex min-w-0 flex-col gap-2 border-l-2 border-destructive/70 pl-2.5 text-muted-foreground line-through decoration-muted-foreground/70"
+    >
+      <span className="sr-only">Removed since your review:</span>
+      {removed.blocks.map((block, index) =>
+        block.type === "label" || block.type === "heading" ? (
+          <div key={index} className="font-semibold">
+            <CodeText text={block.text} spans={codeOf(removed.code, index, 0)} />
+          </div>
+        ) : (
+          <CommitBodyBlockView key={index} block={block} text={(line, item) => <CodeText text={line} spans={codeOf(removed.code, index, item)} />} />
+        ),
+      )}
     </div>
+  )
+}
+
+/** Blocks added since the review, apart from their body (the overview of what changed): the bar of an addition, each block */
+export function AddedBlocksView({ added }: { added: Pick<RemovedBlocks, "blocks" | "code"> }) {
+  return addedMark(
+    true,
+    <div className="flex min-w-0 flex-col gap-2">
+      {added.blocks.map((block, index) =>
+        block.type === "label" || block.type === "heading" ? (
+          <div key={index} className="font-semibold">
+            <CodeText text={block.text} spans={codeOf(added.code, index, 0)} />
+          </div>
+        ) : (
+          <CommitBodyBlockView key={index} block={block} text={(line, item) => <CodeText text={line} spans={codeOf(added.code, index, item)} />} />
+        ),
+      )}
+    </div>,
+  )
+}
+
+/** `node` with the bar of an addition since the review in the gutter, when `added`: its text stays at the edge of the others */
+function addedMark(added: boolean, node: ReactNode): ReactNode {
+  return added ? (
+    <div data-testid="commit-body-added" className="-ml-3 flex min-w-0 flex-col border-l-2 border-success pl-2.5">
+      <span className="sr-only">Added since your review:</span>
+      {node}
+    </div>
+  ) : (
+    node
   )
 }
 

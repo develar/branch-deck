@@ -1038,7 +1038,54 @@ test.describe("The review plan in the branch review", () => {
     await expect(code).toContainText("value * scale * 2")
     await expect(code).not.toContainText("helper(value: Int)")
     await expect(since).toContainText("Rewritten scale the helper: src/Store.kt +1 −1")
+    // the fixup kept the message: nothing of it is said
+    await expect(since).not.toContainText("message changed")
     await captureHtmlSnapshot(window.getByTestId("review-plan-since"), "review-plan-since-rewritten")
+  })
+
+  test("should show a reviewed commit whose message alone changed as Reworded, what its body added and removed in its opening, the overview and its heading alone", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("symbol_navigation")
+    await setupPlan(repo, { experimental: true })
+    const lead = "The helper takes a scale for every caller of the store, so the values grow together."
+    await repo.reword(await repo.revision("HEAD~1"), `(plan) scale the helper\n\n${lead}\n\nWhy: the store kept one scale for all of them.`)
+    const window = await openPlanWindow(page, syncAndWaitForBranches)
+    await markReviewed(window)
+
+    // an agent rewrites the body: the reason gone, a question for the reviewer in its place; the lines as reviewed
+    await repo.reword(await repo.revision("HEAD~1"), `(plan) scale the helper\n\n${lead}\n\nLook closely: a scale of zero empties the store.`)
+    await syncAndWaitForBranches()
+    await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits", "Since Your Review1 commit"])
+
+    // All Changes: the opening of its step marks the new section and shows the removed one where it stood
+    const opening = window.getByTestId("review-opening").filter({ hasText: "scale the helper" })
+    await expect(opening.getByTestId("commit-body-added")).toContainText("a scale of zero empties the store.")
+    await expect(opening.getByTestId("commit-body-removed")).toContainText("the store kept one scale for all of them.")
+    await expect(opening.getByTestId("commit-body-removed")).toContainText("Removed since your review")
+    // the lead it kept is no change
+    await expect(opening.getByTestId("commit-body-lead")).not.toContainText("since your review")
+
+    // Since Your Review: no line of code changed, the overview says how the message did, its line opens to the blocks
+    await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
+    const since = window.getByTestId("review-plan-since")
+    await expect(since).toContainText("Since your review: 1 reworded")
+    const line = since.getByRole("button", { name: "Reworded scale the helper: message changed" })
+    await expect(since.getByTestId("review-plan-since-message")).toHaveCount(0)
+    await line.click()
+    const message = since.getByTestId("review-plan-since-message")
+    await expect(message.getByTestId("commit-body-removed")).toContainText("Why")
+    await expect(message.getByTestId("commit-body-added")).toContainText("Look closely")
+    await expect(message.getByTestId("commit-body-added")).toContainText("a scale of zero empties the store.")
+    await captureHtmlSnapshot(since, "review-plan-since-reworded")
+
+    // the commit shown alone under Since Your Review: its heading tells its body with the same marks
+    await window.getByTestId("range-review-commit").filter({ hasText: "scale the helper" }).click()
+    const heading = window.getByTestId("range-review-commit-header")
+    await expect(heading.getByTestId("commit-body-added")).toContainText("a scale of zero empties the store.")
+    await expect(heading.getByTestId("commit-body-removed")).toContainText("the store kept one scale for all of them.")
   })
 
   test("should look as it does without the review plan while the flag is off", async ({ page, setupRepo, syncAndWaitForBranches }) => {

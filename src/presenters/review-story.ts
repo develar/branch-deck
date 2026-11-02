@@ -6,6 +6,7 @@ import type {
   ContractKind,
   Mention,
   MentionTarget,
+  MessageChange,
   ReviewPlan,
   ReviewStep,
   ReviewUnit,
@@ -66,6 +67,8 @@ export interface StoryView extends BodyParts {
   readonly commit: string
   /** The code names of the whole body: a line finds its own by its block and its item */
   readonly mentions: readonly StoryMention[]
+  /** The subject its reviewed version had, when a reword since the review changed it (`MessageChange.subjectBefore`) */
+  readonly subjectBefore?: string
 }
 
 /**
@@ -73,7 +76,13 @@ export interface StoryView extends BodyParts {
  * and folded it (`StoryCommit.parts`, `presentBodyParts`), its code names worded
  */
 export function presentStory(commit: StoryCommit, told: (part: StoryPart) => boolean = () => true, words: MentionWords = plainWords): StoryView {
-  return { commit: commit.id, mentions: wordMentions(commit, words), ...presentBodyParts(commit.id, commit.body, commit.parts.filter(told)) }
+  const subjectBefore = commit.change?.subjectBefore ?? null
+  return {
+    commit: commit.id,
+    mentions: wordMentions(commit, words),
+    ...presentBodyParts(commit.id, commit.body, commit.parts.filter(told), true, commit.change),
+    ...(subjectBefore === null ? {} : { subjectBefore }),
+  }
 }
 
 /** The mentions of code of the body of `commit`, each worded by `words` (`StoryMention`) */
@@ -338,6 +347,17 @@ export interface ProseParagraph {
   readonly code: readonly CodeSpan[]
 }
 
+/** A commit the overview says was rewritten or reworded since the review */
+export interface SinceCommit {
+  readonly key: string
+  /** "Rewritten scale the helper: src/Store.kt +1 −1 · message changed" */
+  readonly text: string
+  /** Its subject whole, in the native hover */
+  readonly title: string
+  /** How its message changed (`PairedCommit.messageChange`), the blocks the line opens to; null when it did not */
+  readonly message: MessageChange | null
+}
+
 /** The overview at the top of the document, worded */
 export interface PrologueView {
   /** The issue key the commits name, a chip beside the headline; null without one */
@@ -357,8 +377,11 @@ export interface PrologueView {
   /** Without a step in the contents, the facts of the range: the new API, the new links between modules; null with steps */
   readonly facts: StepFacts | null
   readonly breakage: Breakage
-  /** "Since your review: 1 new · 1 rewritten" and the lines of each rewritten commit; null without a change since */
-  readonly since: { readonly summary: string; readonly rewritten: readonly { readonly key: string; readonly text: string; readonly title: string }[] } | null
+  /**
+   * "Since your review: 1 new · 1 rewritten" and the line of each rewritten or reworded commit, with how its message
+   * changed when it did, which the line opens; null without a change since
+   */
+  readonly since: { readonly summary: string; readonly rewritten: readonly SinceCommit[] } | null
   /**
    * Why the uses are unknown ("no index of this repository"): folded under Possible Breakage when it lists an entry,
    * else one muted line of its own ("Uses unknown: no index of this repository")
@@ -460,11 +483,12 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
         : {
             summary: `Since your review: ${since}`,
             rewritten: plan.interdiff.commits
-              .filter(commit => commit.state === "rewritten" && commit.changes !== null)
+              .filter(commit => (commit.state === "rewritten" && commit.changes !== null) || (commit.state === "reworded" && commit.messageChange !== null))
               .map((commit, index) => ({
                 key: `${commit.id ?? index}`,
-                text: `${formatPairState(commit.state)} ${commit.subject}: ${formatRewrittenChanges(commit.changes!)}`,
+                text: `${formatPairState(commit.state)} ${commit.subject}: ${formatRewrittenChanges(commit)}`,
                 title: commit.subject,
+                message: commit.messageChange,
               })),
           },
     // folded under Possible Breakage where the overview lists an entry of it, the uses it tells of
@@ -507,6 +531,8 @@ export interface OpeningView {
   readonly title: string
   /** Its title is an identifier: set as code */
   readonly code: boolean
+  /** Of a step of the commits: the subject the commit that starts it had at the review, when a reword changed it */
+  readonly subjectBefore: string | null
   /** Of a step of a concern: what joins its parts ("Joined by the identifiers" `hide`, `show`), in the line of its facts */
   readonly evidence: readonly EvidencePart[]
   /** The story it tells: the body of the commit that starts it, of a concern of one commit the blocks told in it */
@@ -549,6 +575,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
           number: formatStepNumber(chapter.number),
           title: chapter.label,
           code: chapter.code,
+          subjectBefore: concern === undefined ? (story?.subjectBefore ?? null) : null,
           evidence: concern === undefined ? [] : presentConcernEvidence(concern.evidence),
           story: story === null || (story.lead === null && story.shown.length === 0 && story.folded.length === 0) ? null : story,
           commits: [...rest.filter(commit => commit.role === "followsUp"), ...rest.filter(commit => commit.role === "noStory")].map(commit =>

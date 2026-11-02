@@ -6,8 +6,9 @@ import { Spinner } from "@/components/ui/spinner"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
+import { MessageChangeView } from "@/components/review/MessageChangeView"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
-import { StoryBlock, StoryBody, StoryPart } from "@/components/review/StoryBody"
+import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
 import { CodeText } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
 import type { RowCardState } from "@/components/shared/RowCard"
@@ -176,7 +177,14 @@ function CommitPart({ commit: { commit, action, menu }, story }: { commit: Prolo
         }
         subjectProps={commit.hasBody ? hover.text : undefined}
         menu={menu}
-        body={story === null ? undefined : <StoryBody story={story} />}
+        body={
+          story === null ? undefined : (
+            <>
+              {story.subjectBefore !== undefined && <SubjectBefore subject={story.subjectBefore} />}
+              <StoryBody story={story} />
+            </>
+          )
+        }
       />
     </div>
   )
@@ -287,11 +295,18 @@ function PrologueSections({ view }: { view: PrologueView }) {
       {since !== null && (
         <div className="flex flex-col gap-0.5" data-testid="review-plan-since">
           <span>{since.summary}</span>
-          {since.rewritten.map(commit => (
-            <span key={commit.key} className="text-xs text-muted-foreground" title={commit.title}>
-              {commit.text}
-            </span>
-          ))}
+          {since.rewritten.map(commit =>
+            commit.message === null ? (
+              <span key={commit.key} className="text-xs text-muted-foreground" title={commit.title}>
+                {commit.text}
+              </span>
+            ) : (
+              // the line opens to what changed in the message: no opening tells a commit of Since Your Review as one diff
+              <Disclosure key={commit.key} tone="muted" title={commit.text} testId="review-plan-since-commit" className="text-xs">
+                <MessageChangeView change={commit.message} />
+              </Disclosure>
+            ),
+          )}
         </div>
       )}
     </>

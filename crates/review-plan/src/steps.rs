@@ -34,6 +34,7 @@ use crate::brief::ContractEntry;
 use crate::concerns::{Concern, ConcernName, EvidenceKind, names_word};
 use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
+use crate::interdiff::MessageChange;
 use crate::links::FileLink;
 use crate::pair::{PairBlocks, block_of};
 use crate::story::{StoryCommit, StoryRef, add_step_facts, add_story_marks, add_story_titles, story_commits};
@@ -370,6 +371,8 @@ pub struct StepCoverage {
 pub(crate) struct StepsInput<'a> {
   /// The reviewed commits, oldest first: id and message
   pub commits: &'a [(String, String)],
+  /// How the message of a commit differs from its reviewed version, by its id (`StoryCommit::change`)
+  pub message_changes: &'a HashMap<String, MessageChange>,
   pub diffs: &'a [CommitDiff],
   pub changed: &'a [ChangedFile<'a>],
   /// By the place of each file of `changed`

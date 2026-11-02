@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 14` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 15` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -17,13 +17,17 @@
 //! and `test` of a unit in place of its `public`, version 12 the `still_bound` and `by_name` usages, and `unbroken` in
 //! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
 //! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code
-//! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, its `parts`, each
-//! with its `kind`, `tone`, where it is `told` and whether it is `titled`) in place of the `body` of each commit of a
-//! step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
+//! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, `toldIn`) in place
+//! of the `body` of each commit of a step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
 //! the `title` of each commit in place of its `subject` (without the issue key of the brief) and the `title` of the plan,
 //! the `code` of a body and the `addedCode` and `removedCode` of an entry of the brief (`sync_utils::code_spans`), the
-//! `kind` and `tone` of each part of a body, the `joined` units of a stop (a declaration without a block of its own,
-//! with its step), its `marks` (the lines of the told bodies that name it) and the `shownElsewhere` units of a step
+//! `toldAsTitle` of a step;
+//! version 15 (after 0.43.0) the `parts` of each story, each with its `kind`, `tone`, where it is `told` and whether
+//! it is `titled`, in place of its `toldIn` and the `toldAsTitle` of a step, the `kind` and `tone` of each part of a
+//! body, the `joined` units of a stop (a declaration without a block of its own, with its step), its `marks` (the lines
+//! of the told bodies that name it), the `shownElsewhere` units of a step, the state `reworded` of a commit whose lines
+//! are as reviewed and whose message is not, the `message_change` of a reworded or rewritten commit, the `change` of a
+//! story and the `removals` of its parts
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -38,7 +42,7 @@ use review_plan::brief::ReviewBrief;
 use review_plan::concerns::{Concern, ConcernEdges};
 use review_plan::dependencies::DependencyChange;
 use review_plan::files::{FileFacts, MechanicalKind, RepeatedEditGroup};
-use review_plan::interdiff::{Interdiff, PairState};
+use review_plan::interdiff::{Interdiff, MessageChange, PairState};
 use review_plan::links::{FileLink, LinkState, LinkedSymbol};
 use review_plan::steps::ReviewSteps;
 use review_plan::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
@@ -48,7 +52,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 14;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 15;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
@@ -371,8 +375,8 @@ pub struct InterdiffOutput {
   /// The pair `bd mark-reviewed` kept
   pub reviewed_base: String,
   pub reviewed_tip: String,
-  /// The commits of the branch, oldest first, then the dropped ones; with `--since-reviewed`, only the added and the
-  /// rewritten ones
+  /// The commits of the branch, oldest first, then the dropped ones; with `--since-reviewed`, only the added, the
+  /// rewritten and the reworded ones
   pub commits: Vec<PairedCommitOutput>,
   /// What changed since the review as one diff, `base..head`: the commits added on top as a plain range when nothing
   /// else changed (`head..head`, empty, when nothing changed); after a rewrite, a drop or a commit added below a
@@ -385,7 +389,7 @@ pub struct PairedCommitOutput {
   /// The commit of the branch; `null` when dropped
   pub id: Option<String>,
   /// The reviewed commit it pairs with: the same commit, a copy with the same identity (author, author time, subject),
-  /// or a reworded one with the same changed lines; `null` when added
+  /// or one reworded with the same changed lines; `null` when added
   pub reviewed_id: Option<String>,
   pub subject: String,
   pub state: PairState,
@@ -396,6 +400,11 @@ pub struct PairedCommitOutput {
   /// Of a rewritten commit: the lines its reviewed version changed and it does not
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reviewed_only: Vec<PathLines>,
+  /// Of a reworded commit, and of a rewritten one whose message changed too: its subject before (without the
+  /// `(prefix)`) when it differs, and the `hunks` of its body by blocks, each the blocks added at `start` and the
+  /// reviewed blocks removed before it
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub message_change: Option<MessageChange>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -626,6 +635,7 @@ fn interdiff_output(interdiff: &Interdiff, short: &ShortIds) -> InterdiffOutput 
           state: commit.state,
           new_only: changes.new_only,
           reviewed_only: changes.reviewed_only,
+          message_change: commit.message_change.clone(),
         }
       })
       .collect(),

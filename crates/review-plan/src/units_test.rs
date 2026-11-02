@@ -344,7 +344,10 @@ fn a_commit_is_read_against_its_first_parent() {
   let root = repo.create_commit("Add open", "src/a/Open.kt", "package a\n\nfun open(x: Int): Int {\n  return x\n}\n");
   let head = repo.create_commit("Change open", "src/a/Open.kt", "package a\n\nfun open(x: Int): Int {\n  return x + 1\n}\n");
   let commit = |id: &str| crate::ReviewPlanParams {
-    subject: crate::ReviewSubject::Commit { id: id.to_string() },
+    subject: crate::ReviewSubject::Commit {
+      id: id.to_string(),
+      reviewed: None,
+    },
     ..range(&repo, &root, &head)
   };
   let of_commit = plan_of(&repo, None, &commit(&head)).unwrap();

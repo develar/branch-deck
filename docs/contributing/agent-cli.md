@@ -665,12 +665,16 @@ lock ("Review plan" in [Git Operations](../design/git-operations.md#review-plan)
 The plan of a review, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)); moves no ref. The branch is
 named as for `bd mark-reviewed`, on the same base (`--base <parent>` for a stacked branch); `base..head` is a range.
 For a branch marked reviewed, `interdiff` pairs each commit of `base..head` with a reviewed one: `unchanged` (the same
-commit, or a copy with the same identity and the same changed lines, or a reword), `rewritten` (the same identity,
-other lines: `new_only` and `reviewed_only` per path), `added` or `dropped` (listed last). `scope` is what changed
+commit, or a copy with the same identity, the same changed lines and the same message), `reworded` (the same changed
+lines, another message), `rewritten` (the same identity, other lines: `new_only` and `reviewed_only` per path),
+`added` or `dropped` (listed last). A `reworded` commit, and a `rewritten` one whose message changed too, has its
+`message_change`: `subjectBefore` when the subject without its `(prefix)` changed, and the `hunks` of its body by
+blocks, each the blocks `added` at `start` and those `removed` before it; a trailer or a hard wrap changes nothing. `scope` is what changed
 since the review as one diff, `git diff <base> <head>`: the plain range of the commits added on top when nothing else
 changed; else (`carried: true`) from the reviewed change carried onto the base, a commit on no ref, so an amend shows
 against its reviewed version and a rebase adds nothing; `null` when that carry conflicts. `--since-reviewed` lists
-only the added and the rewritten commits, and reads the API and the files from the diff of the scope. A branch never marked and a range have `"interdiff": null` ("Review plan" in
+only the added, the rewritten and the reworded commits, and reads the API and the files from the diff of the scope
+(a reworded commit adds none of its lines). A branch never marked and a range have `"interdiff": null` ("Review plan" in
 [Git Operations](../design/git-operations.md#review-plan)).
 
 `api` lists the public declarations the reviewed commits add, remove or change in form (`kind`, `changes`, the form
@@ -697,10 +701,10 @@ a `Cargo.toml` and the dependencies of a `package.json` (`manifest`, `module`, `
 `removed` or `changed`, `version_before`, `version_after`, `scope`, `scope_before`), a new or deleted build file as one
 `newModule` entry; a build file that changed only in these entries is `buildModel`. `repeated_edits` lists the groups
 of 3 or more files that get the same edit. The reviewed commits are those of `base..head`, with
-`--since-reviewed` only the added and rewritten ones. Without accio or its index, `usages` is `null` and `index_note`
+`--since-reviewed` only the added and rewritten ones (a reworded one changes no line). Without accio or its index, `usages` is `null` and `index_note`
 says why; a failing accio never fails the plan. `order` lists every changed path once (a deleted one too) in
 dependency order: a file that declares what another imports or uses before it, a test right after its subject, the
-tree order inside a cycle and between files with no edge (`"schema": 14` since the story of each commit once, `steps.commits` with its body by blocks and its code names resolved to the units (`target: null` for a name in backticks that resolves nothing), and the `newApi` and `moduleLinks` of a step, 13 the `reached` and `unreached` tests of a step from accio, 12 `still_bound`, `by_name` and `unbroken` in place of `updated` of the usages, 11 the `api` and `test` of a unit in place of its `public`, 10 the `steps` of the story and
+tree order inside a cycle and between files with no edge (`"schema": 15` since the `parts` of a story where they are told, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded` and the `message_change` of a commit, the `change` of a story and the `removals` of its parts, 14 the story of each commit once, `steps.commits` with its body by blocks and its code names resolved to the units (`target: null` for a name in backticks that resolves nothing), and the `newApi` and `moduleLinks` of a step, 13 the `reached` and `unreached` tests of a step from accio, 12 `still_bound`, `by_name` and `unbroken` in place of `updated` of the usages, 11 the `api` and `test` of a unit in place of its `public`, 10 the `steps` of the story and
 the `brief` ([Review Tour](../../spec/branch/review-tour.spec.md)), 9 the name `file` of a concern, 8 the
 main row of a file of several concerns, 7 the concerns, 6 a deletion as real
 work, 5 the generated files). `units` (since `"schema": 4`) cuts the diff of the review

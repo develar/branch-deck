@@ -126,3 +126,13 @@ export function StoryBody({ story, size = "story" }: { story: StoryView; size?: 
     />
   )
 }
+
+/** The subject a commit had at the review, which a reword changed since: muted and struck through, below the subject it has now */
+export function SubjectBefore({ subject }: { subject: string }) {
+  return (
+    <p className="max-w-prose text-sm text-muted-foreground" data-testid="review-subject-before">
+      {"Was "}
+      <span className="line-through">{subject}</span>
+    </p>
+  )
+}

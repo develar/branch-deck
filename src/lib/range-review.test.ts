@@ -8,6 +8,7 @@ import {
   keepCommit,
   localSinceReview,
   pullRequestItems,
+  reviewedCommitOf,
   rangePosition,
   segmentItems,
   shownInterdiff,
@@ -47,10 +48,10 @@ describe("the local Since Your Review", () => {
     reviewedBase: "base",
     reviewedTip: "r3",
     commits: [
-      { id: "c1", reviewedId: "r1", subject: "Add the token", state: "rewritten", changes: { newOnly: [], reviewedOnly: [] } },
-      { id: "c2", reviewedId: "r2", subject: "Style", state: "unchanged", changes: null },
-      { id: "c4", reviewedId: null, subject: "Log out", state: "added", changes: null },
-      { id: null, reviewedId: "r3", subject: "Typo", state: "dropped", changes: null },
+      { id: "c1", reviewedId: "r1", subject: "Add the token", state: "rewritten", changes: { newOnly: [], reviewedOnly: [] }, messageChange: null },
+      { id: "c2", reviewedId: "r2", subject: "Style", state: "unchanged", changes: null, messageChange: null },
+      { id: "c4", reviewedId: null, subject: "Log out", state: "added", changes: null, messageChange: null },
+      { id: null, reviewedId: "r3", subject: "Typo", state: "dropped", changes: null, messageChange: null },
     ],
     scope: null,
   }
@@ -79,6 +80,27 @@ describe("the local Since Your Review", () => {
     expect(since.scope).toBeNull()
     expect(words(segmentItems(branch, since))).toEqual(["All Changes 3 commits", "Since Your Review 2 commits", "Log out (New)", "Style", "Add the token (Rewritten)"])
     expect(words(segmentItems(branch, since, true))).toEqual(["All Changes 3 commits", "Since Your Review 2 commits", "Log out (New)", "Add the token (Rewritten)"])
+  })
+
+  it("offers Since Your Review for a commit whose message alone changed, Reworded, and reads its plan with its reviewed commit", () => {
+    const messageChange = { subjectBefore: null, hunks: [] }
+    const reworded: Interdiff = {
+      ...interdiff,
+      commits: [{ ...interdiff.commits[1]!, state: "reworded", messageChange }, interdiff.commits[2]!],
+      scope: { base: "c2", head: "c4", carried: false },
+    }
+    const since = localSinceReview(reworded)!
+    expect([...since.changed]).toEqual([
+      ["c2", "Reworded"],
+      ["c4", "New"],
+    ])
+    expect(reviewedCommitOf(reworded, "c2")).toBe("r2")
+    // the plan names a commit short, the range in full
+    expect(reviewedCommitOf(reworded, "c2abcdef")).toBe("r2")
+    // a commit whose message did not change, and one added, read no reviewed commit
+    expect(reviewedCommitOf(interdiff, "c2")).toBeNull()
+    expect(reviewedCommitOf(reworded, "c4")).toBeNull()
+    expect(reviewedCommitOf(null, "c2")).toBeNull()
   })
 
   it("keeps the plain range of the commits added on top, and the column of one new commit", () => {

@@ -320,6 +320,7 @@ function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap
       number: step.number,
       title: step.title,
       code: false,
+      subjectBefore: null,
       evidence: [],
       story: null,
       commits: [],
