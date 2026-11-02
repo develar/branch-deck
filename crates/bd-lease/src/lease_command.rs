@@ -63,6 +63,18 @@ pub enum LeaseCommand {
   /// Return the idle leases of the pool whose work landed: the holder process gone for an hour, every commit in the home
   /// branch, a clean tree. One with work is kept and named; --dry-run only reports
   Reclaim(LeaseReclaimArgs),
+  /// Delete the free slots past `branchdeck.leaseMaxSlots` (default 10) of every pool of this machine, the ones returned
+  /// longest ago first, with their Bazel output bases, and the output bases of gone workspaces of a pool
+  ///
+  /// A get does it itself once the free space is below `branchdeck.leaseMinFree`. A slot with a process in it stays;
+  /// --plan only says what would go
+  Trim(crate::trim_command::LeaseTrimArgs),
+  /// What the pools of this machine hold on disk: per slot the bytes its builds wrote (the directories of its clean
+  /// rules, its Bazel output bases), the output bases of the main worktrees and of gone slots, the free space
+  ///
+  /// The bytes of a free slot are kept in `disk.json` until it is leased again, so a repeat takes a moment; --fresh
+  /// walks every slot again
+  Disk(crate::disk_command::LeaseDiskArgs),
 }
 
 #[derive(Debug, Default, clap::Args)]
@@ -279,6 +291,10 @@ pub struct LeaseGetOutput {
   /// none
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waited_for_clone_ms: Option<u64>,
+  /// The free space was below the minimum: the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine
+  /// and the Bazel output bases that the get deleted first (`bd lease trim`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub trimmed: Option<crate::trim_command::TrimmedOutput>,
 }
 
 /// Where the commits of a lease land
@@ -590,7 +606,7 @@ pub enum SkippedReason {
   IdleWithWork,
 }
 
-fn processes_output(processes: &[BusyProcess]) -> Vec<ProcessOutput> {
+pub(crate) fn processes_output(processes: &[BusyProcess]) -> Vec<ProcessOutput> {
   processes
     .iter()
     .map(|process| ProcessOutput {
@@ -710,6 +726,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     idle_leases: idle_output(&got.idle),
     processes_checked: got.process_scan,
     waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
+    trimmed: got.trimmed.as_ref().map(crate::trim_command::TrimmedOutput::of),
   })
 }
 
@@ -1006,6 +1023,20 @@ pub enum SlotStateOutput {
   Abandoned,
 }
 
+impl SlotStateOutput {
+  pub const fn of(state: SlotState) -> Self {
+    match state {
+      SlotState::Free => Self::Free,
+      SlotState::Preparing => Self::Preparing,
+      SlotState::Ready => Self::Ready,
+      SlotState::Templating => Self::Templating,
+      SlotState::Returning => Self::Returning,
+      SlotState::Cleaning => Self::Cleaning,
+      SlotState::Abandoned => Self::Abandoned,
+    }
+  }
+}
+
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseOutput {
   pub lease_id: String,
@@ -1059,15 +1090,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
       .map(|status| SlotOutput {
         slot: status.slot.name.clone(),
         path: status.slot.path.clone(),
-        state: match status.state {
-          SlotState::Free => SlotStateOutput::Free,
-          SlotState::Preparing => SlotStateOutput::Preparing,
-          SlotState::Ready => SlotStateOutput::Ready,
-          SlotState::Templating => SlotStateOutput::Templating,
-          SlotState::Returning => SlotStateOutput::Returning,
-          SlotState::Cleaning => SlotStateOutput::Cleaning,
-          SlotState::Abandoned => SlotStateOutput::Abandoned,
-        },
+        state: SlotStateOutput::of(status.state),
         dirty: status.slot.dirty,
         missing: status.missing,
         lease: status.slot.lease.as_ref().map(|lease| LeaseOutput {
@@ -1458,7 +1481,7 @@ pub(crate) fn refusal_error(refusal: &LeaseRefusal) -> CliError {
 }
 
 #[expect(clippy::trivially_copy_pass_by_ref, reason = "the signature of `skip_serializing_if`")]
-const fn is_zero_bytes(bytes: &u64) -> bool {
+pub(crate) const fn is_zero_bytes(bytes: &u64) -> bool {
   *bytes == 0
 }
 

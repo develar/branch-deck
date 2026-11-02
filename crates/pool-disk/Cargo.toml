@@ -1,0 +1,22 @@
+[package]
+name = "pool-disk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "What the lease pools of this machine hold on disk (`bd lease disk`, the Disk window): the bytes the builds of each slot wrote"
+publish = false
+
+[dependencies]
+lease-pool = { path = "../lease-pool" }
+git-ops = { path = "../git-ops" }
+git-executor = { path = "../git-executor" }
+sync-utils = { path = "../sync-utils" }
+anyhow.workspace = true
+serde.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

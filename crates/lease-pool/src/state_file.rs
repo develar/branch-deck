@@ -15,7 +15,7 @@ use tracing::debug;
 /// The directory of the state files in `$GIT_COMMON_DIR`
 pub(crate) const STATE_DIR: &str = "branch-deck";
 
-pub(crate) struct StateFile {
+pub struct StateFile {
   dir: PathBuf,
   file: &'static str,
   lock: &'static str,
@@ -25,7 +25,7 @@ pub(crate) struct StateFile {
 
 impl StateFile {
   /// The file `file` with the lock `lock` in `branch-deck/` of `git_common_dir`
-  pub(crate) fn new(git_common_dir: &Path, file: &'static str, lock: &'static str, what: &'static str) -> Self {
+  pub fn new(git_common_dir: &Path, file: &'static str, lock: &'static str, what: &'static str) -> Self {
     Self {
       dir: git_common_dir.join(STATE_DIR),
       file,
@@ -40,7 +40,7 @@ impl StateFile {
   }
 
   /// The state, without the lock; a missing file is the default state
-  pub(crate) fn read<T: DeserializeOwned + Default>(&self) -> Result<T> {
+  pub fn read<T: DeserializeOwned + Default>(&self) -> Result<T> {
     let path = self.dir.join(self.file);
     match std::fs::read(&path) {
       Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| format!("Cannot read {} {}", self.what, path.display())),
@@ -50,7 +50,7 @@ impl StateFile {
   }
 
   /// Run `change` on the state under the lock and write the state it leaves; the lock is released at once
-  pub(crate) fn update<T, R>(&self, timeout: Duration, change: impl FnOnce(&mut T) -> Result<R>) -> Result<R>
+  pub fn update<T, R>(&self, timeout: Duration, change: impl FnOnce(&mut T) -> Result<R>) -> Result<R>
   where
     T: DeserializeOwned + Serialize + Default + Clone + PartialEq,
   {

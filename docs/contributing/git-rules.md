@@ -68,7 +68,9 @@ the unapply and the reapply of a virtual branch (`unapply.rs`, `reapply.rs`) and
 counts its `-u` argument lists and the files that call the moves (`MOVE_CALLERS`). Don't add another caller, another
 argument list, or a public way to build a move. A slot of the lease pool is not the user's working
 tree: its `checkout --force`, `reset --hard` and `clean -fd` live in `crates/git-ops/src/lease_slot.rs` only, each
-counted by the scan ([Lease](../design/git-operations.md#lease)).
+counted by the scan ([Lease](../design/git-operations.md#lease)). The trim of the pool deletes a free slot by a rename
+into the trash; its `worktree remove --force` (`forget_slot`) runs only once the directory is gone and refuses a path
+that exists, so git never deletes the files of a worktree.
 
 ## The user's index
 

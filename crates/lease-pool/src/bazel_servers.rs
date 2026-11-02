@@ -34,20 +34,9 @@ const PID_FILE_SLACK: Duration = Duration::from_secs(2);
 /// `--workspace_directory=` and `--output_base=` a scan would read from its argv, once per output base
 pub(crate) fn servers_by_output_base(slot: &Path) -> Vec<ProcessInfo> {
   let Ok(slot) = std::fs::canonicalize(slot) else { return Vec::new() };
-  // a link of the slot leads out of it: only real directories are its workspaces
-  let children: Vec<PathBuf> = std::fs::read_dir(&slot)
-    .into_iter()
-    .flatten()
-    .flatten()
-    .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_dir()))
-    .map(|entry| entry.path())
-    .collect();
   let mut servers: Vec<ProcessInfo> = Vec::new();
-  for workspace in std::iter::once(slot).chain(children) {
-    if !WORKSPACE_FILES.iter().any(|file| workspace.join(file).is_file()) {
-      continue;
-    }
-    for link in [workspace.join("bazel-out"), workspace.join("out").join("bazel-out")] {
+  for (workspace, links) in workspace_links(&slot) {
+    for link in links {
       let Some(output_base) = output_base(&link) else { continue };
       let text = display_path(&output_base);
       if servers.iter().any(|server| server.output_base() == Some(text.as_str())) {
@@ -61,9 +50,36 @@ pub(crate) fn servers_by_output_base(slot: &Path) -> Vec<ProcessInfo> {
   servers
 }
 
+/// The workspaces of `checkout`, each with the paths its `bazel-out` link may have: the checkout and each directory right
+/// in it (`community/`) with `MODULE.bazel`, `WORKSPACE.bazel` or `WORKSPACE`, the link `bazel-out` or `out/bazel-out`
+/// (`--symlink_prefix=out/bazel-`). A link in the checkout leads out of it: only real directories are its workspaces
+pub(crate) fn workspace_links(checkout: &Path) -> Vec<(PathBuf, [PathBuf; 2])> {
+  std::iter::once(checkout.to_path_buf())
+    .chain(child_dirs(checkout))
+    .filter(|workspace| WORKSPACE_FILES.iter().any(|file| workspace.join(file).is_file()))
+    .map(|workspace| {
+      let links = [workspace.join("bazel-out"), workspace.join("out").join("bazel-out")];
+      (workspace, links)
+    })
+    .collect()
+}
+
+/// The directories right in `dir` (not the links to one), sorted; none when it can't be read
+pub(crate) fn child_dirs(dir: &Path) -> Vec<PathBuf> {
+  let mut dirs: Vec<PathBuf> = std::fs::read_dir(dir)
+    .into_iter()
+    .flatten()
+    .flatten()
+    .filter(|entry| entry.file_type().is_ok_and(|file_type| file_type.is_dir()))
+    .map(|entry| entry.path())
+    .collect();
+  dirs.sort();
+  dirs
+}
+
 /// The output base that the `bazel-out` link `link` leads to, canonical: the link (a symlink, a junction on Windows;
 /// never a directory of that name) names `<output_base>/execroot/<name>/bazel-out`
-fn output_base(link: &Path) -> Option<PathBuf> {
+pub(crate) fn output_base(link: &Path) -> Option<PathBuf> {
   if !std::fs::symlink_metadata(link).ok()?.file_type().is_symlink() {
     return None;
   }
@@ -80,7 +96,7 @@ fn output_base(link: &Path) -> Option<PathBuf> {
 /// The server of `output_base`, of the workspace `workspace`, while it runs: the pid of its `server/server.pid.txt` is a
 /// process that started before the server wrote the file. A pid file a killed server left names a pid that is gone, or
 /// one the system gave to a later process
-fn server(workspace: &Path, output_base: &Path) -> Option<ProcessInfo> {
+pub(crate) fn server(workspace: &Path, output_base: &Path) -> Option<ProcessInfo> {
   let pid_file = output_base.join("server").join("server.pid.txt");
   let pid = std::fs::read_to_string(&pid_file).ok()?.trim().parse::<u32>().ok().filter(|&pid| pid != 0)?;
   let started = process_started(pid)?;

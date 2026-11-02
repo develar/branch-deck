@@ -300,6 +300,19 @@ pub fn move_slot(git_executor: &GitCommandExecutor, repository: &str, from: &str
   Ok(())
 }
 
+/// Drop the linked worktree of the slot whose directory was at `path` from the repository of `git_common_dir`: one
+/// `worktree remove --force`, which deletes its admin directory. Only after the directory moved away (the trim of the
+/// pool moves it into the trash first, a rename): git would delete the files of a directory that is still there, so a
+/// `path` that exists is refused. It reads every admin directory, so it runs alone too (`register_slot`)
+pub fn forget_slot(git_executor: &GitCommandExecutor, git_common_dir: &str, path: &Path) -> Result<()> {
+  if path.symlink_metadata().is_ok() {
+    bail!("{} still exists: a slot is forgotten only once its directory moved away", path.display());
+  }
+  let path = path.to_str().ok_or_else(|| anyhow!("The slot path is not UTF-8: {}", path.display()))?;
+  git_executor.execute_command(&["worktree", "remove", "--force", path], git_common_dir)?;
+  Ok(())
+}
+
 /// The paths of `paths` (relative, `/`-separated) under which git tracks a file in `slot`, as the file it tracks: one
 /// `ls-files -z` of all of them, literal pathspecs
 pub fn tracked_under(git_executor: &GitCommandExecutor, slot: &str, paths: &[&str]) -> Result<Vec<String>> {
@@ -436,6 +449,9 @@ pub struct LeaseConfig {
   /// (`start_deferred_maintenance`), for a repository whose `maintenance.auto` is false, where no commit or fetch in a
   /// slot starts it
   pub return_maintenance: bool,
+  /// `branchdeck.leaseMaxSlots`, as written: how many slots the pool keeps once the volume has less free space than
+  /// `min_free`; the free slots past it are deleted then, the ones returned longest ago first (`lease_pool::trim`)
+  pub max_slots: Option<String>,
   /// `branchdeck.hostSlots`, as written: how many slots of the pool `bd-host` keeps for its runs (`host_slots`)
   pub host_slots: Option<String>,
   /// `branchdeck.hostSlotMaxSize`, as written (`60G`): what the clean rules may free in an idle host slot before it is
@@ -448,7 +464,7 @@ pub struct LeaseConfig {
 }
 
 /// `branchdeck.leasePool`, whether `checkout.workers` is set, `status.showUntrackedFiles`, `branchdeck.leaseMinFree`,
-/// `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`, `core.fileMode` and
+/// `branchdeck.leaseMaxSlots`, `branchdeck.leaseMaintenance`, `branchdeck.hostSlots`, `branchdeck.hostSlotMaxSize`, `core.fileMode` and
 /// `core.symlinks`: one `config --type=path --get-regexp`, which exits with 1 when no key is set
 pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Result<LeaseConfig> {
   let output = git_executor
@@ -457,7 +473,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
         "config",
         "--type=path",
         "--get-regexp",
-        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks)$",
+        r"^(branchdeck\.leasepool|branchdeck\.leaseminfree|branchdeck\.leasemaxslots|branchdeck\.leasemaintenance|branchdeck\.hostslots|branchdeck\.hostslotmaxsize|checkout\.workers|status\.showuntrackedfiles|core\.filemode|core\.symlinks)$",
       ],
       repository,
     )
@@ -469,6 +485,7 @@ pub fn lease_config(git_executor: &GitCommandExecutor, repository: &str) -> Resu
     match key {
       "branchdeck.leasepool" if !value.is_empty() => config.pool = Some(value.to_string()),
       "branchdeck.leaseminfree" if !value.is_empty() => config.min_free = Some(value.to_string()),
+      "branchdeck.leasemaxslots" if !value.is_empty() => config.max_slots = Some(value.to_string()),
       "branchdeck.hostslots" if !value.is_empty() => config.host_slots = Some(value.to_string()),
       "branchdeck.hostslotmaxsize" if !value.is_empty() => config.host_slot_max_size = Some(value.to_string()),
       // the last value wins; a key without a value is true

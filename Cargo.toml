@@ -13,6 +13,7 @@ members = [
   "crates/trial-check",
   "crates/review-plan",
   "crates/lease-pool",
+  "crates/pool-disk",
   "crates/remote-facts",
   "crates/repository-model",
   "crates/operations",

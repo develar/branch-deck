@@ -652,6 +652,7 @@ dependencies = [
  "git-ops",
  "history-rewrite",
  "lease-pool",
+ "pool-disk",
  "pretty_assertions",
  "schemars 1.2.3",
  "serde",
@@ -4805,6 +4806,20 @@ dependencies = [
  "pin-project-lite",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "pool-disk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "git-executor",
+ "git-ops",
+ "lease-pool",
+ "serde",
+ "sync-utils",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of bd-host drives in process.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space, disk reports what the pools hold on disk; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of bd-host drives in process.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
@@ -28,6 +28,11 @@ targets:
   - ../../crates/lease-pool/src/clone_dir.rs
   - ../../crates/lease-pool/src/free_space.rs
   - ../../crates/lease-pool/src/bazel_servers.rs
+  - ../../crates/lease-pool/src/output_bases.rs
+  - ../../crates/lease-pool/src/trim.rs
+  - ../../crates/bd-lease/src/trim_command.rs
+  - ../../crates/bd-lease/src/disk_command.rs
+  - ../../crates/pool-disk/src/lib.rs
   - ../../crates/bd-core/src/error.rs
   - ../../.branchdeck.toml
   - ../../crates/sync-utils/src/process_scan.rs
@@ -71,6 +76,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   the Bazel servers of the slot, which the return stops itself.
 - A get never starts on a volume that the builds of the slot would fill (`branchdeck.leaseMinFree`), and a new slot
   never carries the build output of the checkout it was cloned from.
+- A pool gives its space back: it grows while sessions need slots, and below the minimum free space it shrinks to
+  `branchdeck.leaseMaxSlots` by itself, with the Bazel output bases outside its slots. On 2026-11-02 the pools of this
+  machine held 12 slots of idea-1, 11 of branch-deck and 6 of accio, all free; the output bases of the idea-1 slots
+  took 380 GB and the `target/` dirs of the branch-deck slots 410 GB, and nothing ever deleted a slot.
 - A session that died costs the pool no clone: its lease goes to the next get once every commit of it is on its home
   branch, and never while it holds work that branch lacks. On 2026-10-29 a get cloned a 16 GB slot of idea-1 (its
   checkout alone took more than 15 minutes) while six slots had a lease of a dead holder, four of them with nothing
@@ -168,6 +177,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   gone`) and takes its turn again; it deletes the trash once per wait for the lock.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_get_below_the_minimum_free_space_deletes_the_trash_of_gone_runs_first`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
+- A get whose volume is still below the minimum free space after the trash must trim the pools of the machine once
+  (`deleting the free slots past branchdeck.leaseMaxSlots …`, "Trim" below), never under the clones lock, and measure
+  again; its answer names what went (`trimmed`, the output of `bd lease trim`), and a `low_disk_space` after it names
+  how many slots it deleted and the bytes it freed.
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty; later gets must try a dirty slot
   after the clean ones. With no free slot left, the get must add a new slot (`reused: false`). The verdict is
@@ -602,6 +616,60 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_reclaim`)
 
+### Trim
+
+- `bd lease trim [--max <n>] [--plan]` must trim every pool of this machine: the pool of `-C`, wherever it lives, and
+  each pool under `~/.branch-deck/pool` whose slots name their repository (the `.git` file of a slot). A pool keeps
+  `--max`, else `branchdeck.leaseMaxSlots` of its repository's git config (a whole number, the machine's, so never
+  `.branchdeck.toml`), else 10 slots; a value that does not parse is the default, named as `config_error`. Past the
+  limit, its free slots go one by one, the ones a get would take last first: the never returned ones in reverse order
+  of joining, then the ones returned longest ago. A leased slot, a host slot and a slot with a lease of any state count
+  and stay.
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_trim_deletes_the_free_slots_past_the_limit_returned_longest_ago_first_with_their_output_bases`)
+  [@test] ../../crates/lease-pool/src/trim_test.rs (`the_limit_is_a_whole_number_of_slots`)
+- A slot must go only under the `cleaning` marker, set under the pool lock while it is free, so no get reserves it:
+  its Bazel servers stopped as a get stops them; a slot with another process in it, or whose server does not exit,
+  stays free and is named (`busy`, with the processes) and the next one goes instead. Then its directory moves into the
+  trash of its pool (`<pool>/<n>` when the slot is its only directory, a log left beside it included; else the slot),
+  `git worktree remove --force` drops its admin directory (`forget_slot`, refused while the directory is there), and
+  its entry leaves the state.
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_free_slot_with_a_process_in_it_stays_and_the_next_one_goes`)
+  [@test] ../../crates/lease-pool/src/trim_test.rs (`the_number_directory_of_a_slot_goes_with_it_when_the_slot_is_its_only_directory`)
+- The Bazel output bases of a slot that goes must go with it: the output user roots are found by the `bazel-out` link
+  (or `out/bazel-out`) of the workspaces of the source checkouts and of every slot (the checkout and each directory
+  right in it with a workspace file), and each output base of a root names its workspace in `DO_NOT_BUILD_HERE`;
+  every one whose workspace is in the slot goes (`output_bases`). An output base whose slot is gone (its workspace in a
+  pool directory, `<pool>/<n>/<name>` missing) goes too (`orphans`), unless its server runs; one of a slot that is
+  there stays, also when the commit of the slot lacks its workspace.
+  [@test] ../../crates/lease-pool/src/output_bases_test.rs (`the_roots_are_found_by_the_bazel_out_links_of_the_workspaces_of_a_checkout`, `the_output_bases_of_a_root_name_their_workspace_and_the_gone_ones_of_a_pool_are_orphans`)
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_pool_within_its_limit_is_not_trimmed_but_the_output_bases_of_gone_workspaces_go`)
+- The deletes must run once every pool is done, side by side (8 threads over the entries of what the trash holds):
+  each slot names the bytes its directory and its output bases freed (`freed_bytes`), the output the sum and the
+  volume what it gained (`volume_freed_bytes`, `statfs` before and after) and has free now (`free_bytes`). `--plan`
+  must name the same slots and output bases and write and measure nothing. The output is `lease_trim` of `bd
+  schema`, exit 0.
+  [@test] ../../crates/lease-pool/src/trim_test.rs (`every_path_is_deleted_side_by_side_and_its_bytes_counted`)
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_trim_plan_names_what_would_go_and_deletes_nothing`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_trim`)
+
+### Disk
+
+- `bd lease disk [--fresh]` must report every pool of this machine (as the trim finds them) without a `du` of a slot:
+  per slot its `state`, `holder`, `returned` and the bytes its builds wrote, the directories its clean rules name (the
+  outermost of nested ones, `build`) and its Bazel output bases (`output_bases`), each with its bytes, their sum
+  (`bytes`), `measured_at` and `cached`; per pool `max_slots`, `past_limit` (the free slots a trim would delete now),
+  `bytes`, `trash_bytes` and the output bases of its main worktree (`checkout_bases`), which no trim deletes; the
+  `orphans`; the `free_bytes` of the volume and `min_free`. The tracked tree of a slot is an APFS clone and is never
+  walked. A file with several hard links counts once, a link as itself; the walks of the call run side by side
+  (`pool-disk`, 8 threads, the directories split until 256 of them).
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is_leased`)
+  [@test] ../../crates/pool-disk/src/disk_test.rs (`the_build_dirs_of_a_slot_are_the_outermost_dirs_its_clean_rules_name`, `a_walk_counts_each_root_side_by_side_and_a_hard_linked_file_once`)
+- The bytes of a slot must be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned` and whether it was
+  leased: those of a free slot hold until its `returned` or its lease changes, those of a leased slot and of the output
+  bases of the main worktree for 15 minutes; a slot that left the pool leaves the file. `--fresh` walks everything
+  again. On the user's Mac a report from the file takes half a second, a walk of every slot (1.2 TB) a minute. It
+  writes nothing else, and counts as a read (`bd help`).
+
 ### Reclaimed
 
 - A command of bd in a slot whose lease a get or a reclaim took over must be refused as `lease_reclaimed` (exit 4),
@@ -894,7 +962,7 @@ and one `write-tree`. Both give the same commit for the same tree.
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
 | 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`, `lease_reclaimed`; `bd lease pick`: `home_branch_switched`, `no_home_branch`, `unchecked_tree` and the refusals of `bd pick` |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`, `lease_reclaim`).
+- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`, `lease_reclaim`, `lease_trim`, `lease_disk`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_get_takes_over_an_idle_lease_whose_commits_landed`, `reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
@@ -942,6 +1010,10 @@ and one `write-tree`. Both give the same commit for the same tree.
   idle lease back from its own copy, but a get that dies meanwhile beside such a bd leaves the slot free.
 - The trash of a takeover stays until the next return or clean, or a get below the minimum free space; `bd lease
   status` names it (`trash_bytes`).
+- The trim finds an output user root only through a `bazel-out` link that some checkout still has: a return deletes
+  the links of a slot (`out/` of the clean rules), so with no source checkout or leased slot that built, the output
+  bases of the free slots stay. A get below the minimum trims the pools of every volume, not only its own.
+- A slot the trim deletes takes its warm build state with it; the next get past the limit clones a new one, cold.
 - A resumed session that commits between the commit point of a takeover and its move loses the commit from HEAD; the
   reflog of the slot keeps it, and its next command is refused.
 

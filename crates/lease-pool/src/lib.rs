@@ -16,7 +16,8 @@
 //!   when a pack last moved each, which the give-back of a run and `reclaim` read to delete them
 //! - `host_runs`: the steps of the agent of `bd-host`: the queue line of a waiting lend and the reclaim of the slots
 //!   and the refs of a tick of the keeper
-//! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool and of the lend table
+//! - `state_file`: a JSON state file of `branch-deck/` with a lock of its own, of the pool, of the lend table and of the
+//!   bytes of the slots (`pool-disk`)
 //! - `landed_work`: whether the work of a lease landed in its home branch, by the proofs of `bd update` and the
 //!   mapping notes of a sync: the one rule of the return, the takeover and `bd lease reclaim`
 //! - `lease_clean`: the clean rules of `.branchdeck.toml` that a return and `bd lease clean` apply to a slot, and its
@@ -27,6 +28,10 @@
 //! - `free_space`: the free space of the volume of the pool, which a get checks
 //! - `bazel_servers`: the Bazel servers of a slot where no process scan tells them (Windows), by the pid file of the
 //!   output base its `bazel-out` link leads to, and their stop with `bazel shutdown`
+//! - `output_bases`: the Bazel output bases of the workspaces of the pool, outside the slots, by the `bazel-out` links
+//!   of the checkouts and the `DO_NOT_BUILD_HERE` of each output base
+//! - `trim`: the delete of the free slots past `branchdeck.leaseMaxSlots` of each pool of the machine, with their output
+//!   bases, and of the output bases of gone workspaces, once the free space is low (a get) or on demand (`bd lease trim`)
 
 pub mod agent_workspace;
 mod bazel_servers;
@@ -41,7 +46,9 @@ pub mod host_slots;
 pub mod landed_work;
 pub mod lease;
 pub mod lease_clean;
-mod state_file;
+pub mod output_bases;
+pub mod state_file;
+pub mod trim;
 
 #[cfg(test)]
 mod agent_workspace_test;

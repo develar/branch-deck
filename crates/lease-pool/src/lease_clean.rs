@@ -583,9 +583,14 @@ impl Trash {
     self.adopted.lock().unwrap_or_else(PoisonError::into_inner).extend(moved);
   }
 
+  /// The directory of this run in the trash, made on the first move
+  pub(crate) fn dir(&self) -> &Path {
+    &self.dir
+  }
+
   /// Move `path` into the trash, under a number of its own (`fs_retry::rename`: a holder that lets go soon is waited
   /// for)
-  fn move_in(&self, path: &Path) -> std::io::Result<PathBuf> {
+  pub(crate) fn move_in(&self, path: &Path) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&self.dir)?;
     let target = self.dir.join(self.next.fetch_add(1, Ordering::Relaxed).to_string());
     fs_retry::rename(path, &target)?;
@@ -803,14 +808,15 @@ pub fn disk_size(path: &Path) -> u64 {
   own + std::fs::read_dir(path).map_or(0, |entries| entries.flatten().map(|entry| disk_size(&entry.path())).sum())
 }
 
+/// The bytes on disk of the entry of `metadata`: its blocks, where the system tells them, else its length
 #[cfg(unix)]
-fn allocated(metadata: &std::fs::Metadata) -> u64 {
+pub fn allocated(metadata: &std::fs::Metadata) -> u64 {
   use std::os::unix::fs::MetadataExt;
   metadata.blocks() * 512
 }
 
 #[cfg(not(unix))]
-fn allocated(metadata: &std::fs::Metadata) -> u64 {
+pub fn allocated(metadata: &std::fs::Metadata) -> u64 {
   metadata.len()
 }
 

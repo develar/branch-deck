@@ -1923,7 +1923,19 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    slot checks again under the clones lock (above). The builds of a slot
    write tens of gigabytes: in idea-1 a Bazel output base of 13 to 46 GB per slot (two with `community/`), next to
    `out/`. The minimum is the machine's, so it is git config (the global one on the user's Mac: `200G`), not
-   `.branchdeck.toml`, which every developer of the repository shares; without it nothing is checked.
+   `.branchdeck.toml`, which every developer of the repository shares; without it nothing is checked. Below it the
+   get first deletes the trash of gone runs, then trims the pools of the machine once (`lease_pool::trim`, `bd lease
+   trim`), and measures again. A pool only grows, and a free slot keeps its build outputs, `target/` inside it and its
+   Bazel output bases outside it (`<output_user_root>/<md5 of the workspace>`, one per workspace, which no clean rule
+   reaches): on 2026-11-02 they held 380 GB for 12 slots of idea-1. The trim keeps `branchdeck.leaseMaxSlots` (10)
+   slots of each pool and deletes the free ones past it, the ones a get would take last first, each under the
+   `cleaning` marker: its Bazel servers stopped, its `<pool>/<n>` directory renamed into the trash, its admin directory
+   dropped by `git worktree remove --force` once the directory is gone (`lease_slot::forget_slot`: with the directory
+   there git would delete the files itself), its entry dropped, its output bases renamed into the trash. A return
+   deletes the `bazel-*` links of a slot, so the output user roots come from the links of the source checkouts and of
+   the slots that still have one, and each output base names its workspace in `DO_NOT_BUILD_HERE`; an output base whose
+   slot is gone goes too. The deletes run after every pool, eight threads over the entries of the trash, so no get
+   waits on the pool lock meanwhile.
 1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots

@@ -43,7 +43,7 @@ const OPERATIONS: &str = "operations";
 const POLICY: &str = "domain-policy";
 /// The crates of git, which find what the rules read: neither they nor their tests reach the rules (`POLICY`), so a
 /// change of a rule builds none of them again, their test binaries neither
-const GIT_CRATES: &[&str] = &["git-ops", "history-rewrite", "sync-core", "trial-check", "update-core", "lease-pool"];
+const GIT_CRATES: &[&str] = &["git-ops", "history-rewrite", "sync-core", "trial-check", "update-core", "lease-pool", "pool-disk"];
 /// Why `GIT_CRATES` never reach `POLICY`
 const RULES_ABOVE_GIT: &str =
   "the crates of git and their tests decide no rule of the domain (the model, the facts and the engine read the rules), so a change of a rule builds none of them again";
@@ -141,6 +141,22 @@ const UNREACHABLE: &[Unreachable] = &[
       "host-agent",
     ],
     why: "the lease pool moves worktrees and reads their git, never a remote service, a trial check, a diff or a remote run",
+  },
+  Unreachable {
+    from: "pool-disk",
+    forbidden: &[
+      "github",
+      "patronus",
+      "youtrack",
+      "trial-check",
+      "update-core",
+      OPERATIONS,
+      "host-link",
+      "host-client",
+      "host-agent",
+      TAURI,
+    ],
+    why: "what the pools hold on disk is a walk of their directories: no remote service, no check, no operation, no remote run, no Tauri",
   },
   Unreachable {
     from: "remote-facts",

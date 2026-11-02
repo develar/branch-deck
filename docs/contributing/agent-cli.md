@@ -1021,8 +1021,11 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
 
 - `bd lease get` first checks the free space of the volume of the pool against `--min-free <size>`, else
   `git config branchdeck.leaseMinFree <size>` (`200G`, binary units as `df -h`; `0` or no setting checks nothing):
-  less is `low_disk_space` (exit 4), the message naming both sizes, the free slots and the leases whose holder
-  process is gone. It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
+  less first trims the pools of the machine (`trimmed`, as `bd lease trim` prints it: the free slots past
+  `branchdeck.leaseMaxSlots`, default 10, with their Bazel output bases), and still less is `low_disk_space` (exit
+  4), the message naming both sizes, what the trim deleted, the free slots and the leases whose holder process is
+  gone. `bd lease trim [--max <n>] [--plan]` trims on demand; `bd lease disk [--fresh]` reports what the pools hold
+  (per slot the bytes of its build directories and its Bazel output bases, kept in `disk.json` while they hold). It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
   there): one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with
   local changes is skipped and marked dirty, one with a process of another session in it is skipped as busy
   (`skipped`, `processes`); the Bazel servers of a free slot are stopped with SIGTERM (`bazel shutdown` on Windows;

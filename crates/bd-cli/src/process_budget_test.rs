@@ -15,6 +15,7 @@ use bd_core::sync_command::sync;
 use clap::Parser;
 // jscpd:ignore-start: the budgets run the commands that lib.rs dispatches, so they import the same ones
 use bd_lease::lease_command::{LeaseContext, LeaseGetArgs, LeaseReclaimArgs, LeaseReturnArgs, lease_get, lease_get_reporting, lease_reclaim, lease_return};
+use bd_lease::trim_command::{LeaseTrimArgs, lease_trim};
 use bd_lease::workspace_command::workspace_with;
 use bd_remote::land_command::{LandArgs, LandOutput, land};
 use bd_remote::push_command::{PushArgs, push};
@@ -1094,6 +1095,33 @@ fn a_lease_reclaim() {
   .unwrap();
   assert_eq!(reclaimed.reclaimed.len(), 1, "{reclaimed:?}");
   assert_git_processes(&context.git, &idle_lease_processes(&[("rev-parse", 5)]));
+}
+
+/// `bd lease trim --max 1` of a pool of two free slots: the `rev-parse` of its context and one `worktree remove` of the
+/// slot that goes once its directory is in the trash; with `--max` no config of the pool, and no `status`, no `worktree
+/// list`, nothing per kept slot
+#[test]
+fn a_lease_trim() {
+  let repo = repo_with_branches();
+  let (_home, environment) = lease_environment(&repo);
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let slots: Vec<String> = (0..2).map(|_| lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap().path).collect();
+  for slot in &slots {
+    let context = LeaseContext::resolve(&environment, Some(std::path::Path::new(slot))).unwrap();
+    lease_return(&context, &LeaseReturnArgs::default()).unwrap();
+  }
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  let trimmed = lease_trim(
+    &context,
+    &environment,
+    &LeaseTrimArgs {
+      max: Some(1),
+      ..LeaseTrimArgs::default()
+    },
+  )
+  .unwrap();
+  assert_eq!(trimmed.trimmed.pools[0].removed.len(), 1, "{trimmed:?}");
+  assert_git_processes(&context.git, &[("rev-parse", 1), ("worktree", 1)]);
 }
 
 /// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto

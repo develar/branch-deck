@@ -19,6 +19,7 @@ use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
 use crate::state_file::StateFile;
+use crate::trim::{TrimParams, Trimmed, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{
@@ -379,7 +380,7 @@ pub enum LeaseState {
 impl Lease {
   /// A lease of this process that only keeps the gets off a slot while a command acts on it (`<kind>-<uuid>`): the
   /// `cleaning` marker of a clean, the `preparing` entry of the path an adopt moves a worktree to
-  fn marker(kind: &str, holder: &str, state: LeaseState) -> Self {
+  pub(crate) fn marker(kind: &str, holder: &str, state: LeaseState) -> Self {
     let pid = std::process::id();
     Self {
       id: format!("{kind}-{}", uuid::Uuid::new_v4()),
@@ -435,7 +436,7 @@ fn is_quiet(slot: &Slot, lease: &Lease, now: u64) -> bool {
 /// A lease that is not `ready` and whose process is gone: the idle lease it was taking over comes back, else the slot
 /// is free. The one rule of every reader that acts on such a lease: the reserve of a get, the mark of a clean, the
 /// return, the status
-fn settle_abandoned(slot: &mut Slot) {
+pub(crate) fn settle_abandoned(slot: &mut Slot) {
   if let Some(lease) = slot.lease.as_mut().filter(|lease| lease.is_abandoned()) {
     warn!(slot = %slot.path, "freeing a lease whose process is gone");
     slot.lease = lease.taking_over.take().map(|old| *old);
@@ -477,7 +478,7 @@ impl BusyProcess {
   }
 }
 
-fn busy_processes(processes: &[&ProcessInfo]) -> Vec<BusyProcess> {
+pub(crate) fn busy_processes(processes: &[&ProcessInfo]) -> Vec<BusyProcess> {
   processes.iter().map(|process| BusyProcess::of(process)).collect()
 }
 
@@ -525,9 +526,10 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle` and the Bazel output bases of slots no longer used free space); never pass `--min-free 0` on your own",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `bd lease trim` free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
+    describe_trimmed(*.trimmed_slots, *.trimmed_bytes),
     describe_idle(.idle),
     describe_trash(*.trash)
   )]
@@ -539,6 +541,10 @@ pub enum LeaseRefusal {
     idle: Vec<IdleLease>,
     /// The trash a process still running keeps
     trash: u64,
+    /// The free slots past `branchdeck.leaseMaxSlots` that the get deleted first, in every pool of the machine
+    trimmed_slots: usize,
+    /// The bytes on disk that trim freed
+    trimmed_bytes: u64,
   },
   #[error("{key} {value:?}: {reason}")]
   InvalidSize { key: String, value: String, reason: String },
@@ -647,6 +653,17 @@ fn describe_idle(idle: &[IdleLease]) -> String {
     })
     .collect();
   format!("; leases whose holder process is gone: {}", leases.join(", "))
+}
+
+fn describe_trimmed(slots: usize, bytes: u64) -> String {
+  if slots == 0 && bytes == 0 {
+    String::new()
+  } else {
+    format!(
+      "; the get deleted {slots} free slot(s) past `branchdeck.leaseMaxSlots` and the Bazel output bases of gone slots first, {}",
+      describe_size(bytes)
+    )
+  }
 }
 
 fn describe_trash(trash: u64) -> String {
@@ -806,6 +823,9 @@ pub enum GetStep {
   WaitForSlot { slot: String, pid: u32, clean: bool },
   /// Below the minimum free space: the trash of the runs that are gone is deleted, without the clones lock
   DeleteTrash,
+  /// Below the minimum free space, after the trash: the free slots past `branchdeck.leaseMaxSlots` of every pool of the
+  /// machine are deleted with their Bazel output bases (`trim`), without the clones lock
+  Trim,
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -840,6 +860,9 @@ impl fmt::Display for GetStep {
         if *clean { "clean" } else { "return" }
       ),
       Self::DeleteTrash => f.write_str("deleting the trash of runs that are gone: the free space is below the minimum"),
+      Self::Trim => {
+        f.write_str("deleting the free slots past `branchdeck.leaseMaxSlots` of the pools of this machine with their Bazel output bases: the free space is below the minimum")
+      }
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
       Self::Clone { template, slot } => write!(f, "cloning {template} into {slot}"),
@@ -923,6 +946,8 @@ pub struct LeaseGot {
   /// How long the get waited for the clones lock, which other gets held while they added slots; `None` when it waited
   /// for none
   pub waited_for_clone: Option<Duration>,
+  /// Below the minimum free space: the free slots and the output bases that the trim of the pools of the machine deleted
+  pub trimmed: Option<Trimmed>,
 }
 
 /// The slot a get reserved under the pool lock
@@ -1013,13 +1038,16 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
   let mut min_free = required_free(params, &config)?;
   // whether the get deleted the trash since its last wait for the clones lock
   let mut swept = false;
+  // the trim of the pools of the machine, once per get
+  let mut trimmed: Option<Trimmed> = None;
   let mut free_bytes = loop {
-    match free_space(&pool, &pool_dir, min_free, swept)? {
+    match free_space(&pool, &pool_dir, min_free, swept, trimmed.as_ref())? {
       FreeSpace::Enough(available) => break available,
       FreeSpace::Trash => {
         delete_trash(&pool, &report);
         swept = true;
       }
+      FreeSpace::Trim => trimmed = Some(trim_for_get(git_executor, params, &report)),
     }
   };
   let seeds = seed_paths(git_executor, source)?;
@@ -1095,7 +1123,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             swept = false;
           }
           // a queue of gets never adds slots past the minimum: each measures what the ones before it left
-          match free_space(&pool, &pool_dir, min_free, swept)? {
+          match free_space(&pool, &pool_dir, min_free, swept, trimmed.as_ref())? {
             FreeSpace::Enough(available) => {
               free_bytes = available;
               clones_lock = Some(lock);
@@ -1106,6 +1134,11 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
               drop(lock);
               delete_trash(&pool, &report);
               swept = true;
+            }
+            FreeSpace::Trim => {
+              // the deletes take minutes too, and the trim marks the slots of this pool under its lock
+              drop(lock);
+              trimmed = Some(trim_for_get(git_executor, params, &report));
             }
           }
           continue;
@@ -1279,6 +1312,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       took_over,
       process_scan: scan.is_available(),
       waited_for_clone,
+      trimmed,
     });
   }
 }
@@ -1353,12 +1387,17 @@ enum FreeSpace {
   /// there, which only a later return or clean deletes): the get deletes it (`delete_trash`), never under the clones
   /// lock, and measures again
   Trash,
+  /// Below the minimum after the trash, and the get trimmed no pool yet: the free slots past `branchdeck.leaseMaxSlots`
+  /// of every pool of the machine go with their output bases (`trim_for_get`), never under the clones lock, and the get
+  /// measures again
+  Trim,
 }
 
 /// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs`, and below the minimum
-/// the names in the trash. Below it with no trash of a gone run, or one the get deleted since its last wait (`swept`):
-/// `LowDiskSpace`, naming what the trash keeps
-fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool) -> Result<FreeSpace> {
+/// the names in the trash. Below it with no trash of a gone run, or one the get deleted since its last wait (`swept`),
+/// the trim of the pools, once (`trimmed`). Below it after both: `LowDiskSpace`, naming what the trim deleted and what
+/// the trash keeps
+fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool, trimmed: Option<&Trimmed>) -> Result<FreeSpace> {
   let available = available_bytes(pool_dir);
   let Some(available) = available.filter(|&available| available < min_free) else {
     return Ok(FreeSpace::Enough(available));
@@ -1366,6 +1405,9 @@ fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool) -> Resul
   if !swept && holds_gone_runs(&pool.trash_dir()) {
     return Ok(FreeSpace::Trash);
   }
+  let Some(trimmed) = trimmed else {
+    return Ok(FreeSpace::Trim);
+  };
   let store = pool.read()?;
   bail!(LeaseRefusal::LowDiskSpace {
     pool: display_path(pool_dir),
@@ -1374,7 +1416,28 @@ fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool) -> Resul
     free_slots: store.slots.iter().filter(|slot| slot.lease.is_none()).count(),
     idle: idle_leases(&store),
     trash: pool.trash_bytes(),
+    trimmed_slots: trimmed.removed_slots(),
+    trimmed_bytes: trimmed.freed_bytes(),
   });
+}
+
+/// The trim of the pools of the machine below the minimum free space (`trim::trim_core`), told as a step; a trim that
+/// fails deletes nothing more, and the get measures again
+fn trim_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, report: &dyn Fn(GetStep)) -> Trimmed {
+  report(GetStep::Trim);
+  let trim = TrimParams {
+    repository: params.source,
+    home: params.home,
+    max_slots: None,
+    apply: true,
+    server_timeout: params.server_timeout,
+    bazel: params.bazel,
+    lock_timeout: params.lock_timeout,
+  };
+  trim_core(git_executor, &trim).unwrap_or_else(|error| {
+    warn!(error = %format!("{error:#}"), "cannot trim the pools of the machine");
+    Trimmed::default()
+  })
 }
 
 /// Delete the trash of the runs that are gone (`Trash::sweep`), told as a step
@@ -1795,7 +1858,7 @@ fn mark_template(store: &mut LeaseStore, git_common_dir: &Path, scan: &ProcessSc
 }
 
 /// Free the template `path` of its marker `marker_id`, best effort: an abandoned marker is freed by the next get
-fn release_marker(pool: &Pool, timeout: Duration, path: &str, marker_id: &str) {
+pub(crate) fn release_marker(pool: &Pool, timeout: Duration, path: &str, marker_id: &str) {
   let released = pool.update(timeout, |store| {
     if let Some(slot) = leased_slot(store, path, marker_id) {
       slot.lease = None;

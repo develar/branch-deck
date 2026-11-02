@@ -3,7 +3,9 @@
 //! `lease_pool::agent_workspace`; bd-cli parses the arguments and prints the outputs of `lease_command` and
 //! `workspace_command`. The tests run bd through the whole Cli, with the fixtures of bd-cli
 
+pub mod disk_command;
 pub mod lease_command;
+pub mod trim_command;
 pub mod workspace_command;
 
 #[cfg(test)]
@@ -22,5 +24,7 @@ mod lease_pick_test;
 mod lease_test;
 #[cfg(test)]
 mod takeover_test;
+#[cfg(test)]
+mod trim_test;
 #[cfg(test)]
 mod workspace_test;

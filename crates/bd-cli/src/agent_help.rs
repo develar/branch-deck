@@ -356,7 +356,8 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    succeeds); notes that must outlive the return go outside the paths of the rules:
    `bd lease return --no-clean` applies none, and `bd lease return --keep <n> --age <duration>` changes every cargo
    rule for this call. `bd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
-   --keep, --age as for the return). The rules are the user's choice: pass `bd lease return --no-clean` only when
+   --keep, --age as for the return). `bd lease trim` deletes the free slots past `branchdeck.leaseMaxSlots` (10; --max <n> for this call) of every pool of the
+   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` does it itself (`trimmed`); `bd lease disk` (--fresh) says what each slot holds. The rules are the user's choice: pass `bd lease return --no-clean` only when
    the user asks. `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
    `other_volume`).

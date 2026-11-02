@@ -590,6 +590,16 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
       .and_then(|context| lease_reclaim(&context, args))
       .and_then(|output| printed(out, &output)),
     Command::Lease(LeaseArgs {
+      command: LeaseCommand::Disk(args),
+    }) => lease_context(None)
+      .and_then(|context| bd_lease::disk_command::lease_disk(&context, environment, args))
+      .and_then(|output| printed(out, &output)),
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Trim(args),
+    }) => lease_context(None)
+      .and_then(|context| bd_lease::trim_command::lease_trim(&context, environment, args))
+      .and_then(|output| printed(out, &output)),
+    Command::Lease(LeaseArgs {
       command: LeaseCommand::Adopt(args),
     }) => print_summary(
       out,
@@ -671,7 +681,9 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Workspace
     | Command::Install(_)
     | Command::Help { .. }
-    | Command::Lease(LeaseArgs { command: LeaseCommand::Status(_) }) => true,
+    | Command::Lease(LeaseArgs {
+      command: LeaseCommand::Status(_) | LeaseCommand::Disk(_),
+    }) => true,
     Command::Describe(args) => args.title.is_none() && args.body.is_none() && args.body_file.is_none() && !args.clear,
     Command::Update(args) => args.dry_run || (args.status && !args.materialize),
     Command::Group(GroupArgs { rewrite, .. })
@@ -692,6 +704,9 @@ const fn reads_only(command: &Command) -> bool {
     Command::Lease(LeaseArgs {
       command: LeaseCommand::Reclaim(args),
     }) => args.dry_run,
+    Command::Lease(LeaseArgs {
+      command: LeaseCommand::Trim(args),
+    }) => args.plan,
     _ => false,
   }
 }
