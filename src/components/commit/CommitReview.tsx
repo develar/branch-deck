@@ -587,7 +587,7 @@ function ReviewLayout({
   // the commits of a range shown whole, each in the step it tells or follows up
   const commitItems = commitRows?.items
   const commitPlaces = useMemo(
-    () => (reviewFacts === null || commitItems === undefined ? undefined : placeCommits(reviewFacts.steps.steps, commitItems)),
+    () => (reviewFacts === null || commitItems === undefined ? undefined : placeCommits(reviewFacts.steps.steps, commitItems, reviewFacts.brief.issue)),
     [reviewFacts, commitItems],
   )
   const filterText = search?.text ?? ""
@@ -848,8 +848,8 @@ function ReviewLayout({
   )
   const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep, showStory }), [selectChangedFile, showOutside, showStep, showStory])
 
-  // a commit row: selected, its step's opening at the top of the diffs, as a step of the overview; Enter and Show Commit
-  // Alone the commit alone
+  // a commit row, and the row of a step of the commits (the commit that starts it): selected, its step's opening at the
+  // top of the diffs, as a step of the overview; Enter and Show Commit Alone the commit alone
   const selectCommit = useCallback(
     (node: FileTreeCommit) => {
       const section = node.chapter === null ? undefined : narrative?.find(it => it.concern === node.chapter && it.ghost === null)

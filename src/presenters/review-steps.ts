@@ -98,7 +98,10 @@ export function presentOwnerMarks(chapters: readonly Chapter[], paths: ReadonlyS
 export interface PlacedCommit<T> {
   /** The id of the commit: its item's, else the step's */
   readonly id: string
+  /** Its whole subject, in the hover of its row */
   readonly subject: string
+  /** Its name on its row: in a step of the commits its subject without the issue key the brief names, else its subject */
+  readonly title: string
   /** Its role in its step; null in Other commits */
   readonly role: CommitRole | null
   /** The commit of the range it is (`RangeReviewItem`); none when the range lists no such commit */
@@ -107,8 +110,12 @@ export interface PlacedCommit<T> {
   readonly order: number
 }
 
-/** Where each commit of the range is listed: the commits of each step by its id, then those no step lists */
+/**
+ * Where each commit of the range is listed: the commit that starts each step of the commits, which the row of its step
+ * is; the other commits of each step by its id; then those no step lists
+ */
 export interface CommitPlaces<T> {
+  readonly heads: ReadonlyMap<string, PlacedCommit<T>>
   readonly steps: ReadonlyMap<string, readonly PlacedCommit<T>[]>
   readonly other: readonly PlacedCommit<T>[]
 }
@@ -119,15 +126,17 @@ function sameCommit(a: string, b: string): boolean {
 }
 
 /**
- * The commits of the range in the steps of the story (spec/branch/review-tour.spec.md, "In the Review Window"): each step
- * lists its commits in its order (the one that starts it, those that follow it up, those of no story; of a concern the
- * most lines first). A commit several steps list (the concerns) is listed once, in the step that lists it first (its
- * most lines there), the first of equal ones; a commit of the range no step lists goes into Other commits, in the order
- * of `items`
+ * The commits of the range in the steps of the story (spec/branch/review-tour.spec.md, "In the Review Window"): a step
+ * of the commits is the commit that starts it (`heads`) and lists the others, those that follow it up and those of no
+ * story, by their subject without the issue key the brief names (`issue`); a step of the concerns lists its commits, the
+ * most lines first. A commit several steps list (the concerns) is listed once, in the step that lists it first (its most
+ * lines there), the first of equal ones; a commit of the range no step lists goes into Other commits, in the order of
+ * `items`
  */
 export function placeCommits<T extends { readonly commit: { readonly id: string; readonly subject: string } }>(
-  steps: readonly Pick<ReviewStep, "id" | "commits">[],
+  steps: readonly Pick<ReviewStep, "id" | "commits" | "concern">[],
   items: readonly T[],
+  issue: string | null,
 ): CommitPlaces<T> {
   const itemOf = (commit: StepCommit) => items.find(item => sameCommit(item.commit.id, commit.id))
   const orderOf = (item: T | undefined) => (item === undefined ? items.length : items.indexOf(item))
@@ -142,24 +151,34 @@ export function placeCommits<T extends { readonly commit: { readonly id: string;
       }
     })
   }
+  const heads = new Map<string, PlacedCommit<T>>()
   const placed = new Map<string, PlacedCommit<T>[]>()
   const listed = new Set<string>()
   for (const step of steps) {
+    const ofCommits = step.concern === null
     const commits: PlacedCommit<T>[] = []
     for (const commit of step.commits) {
       const item = itemOf(commit)
       const id = item?.commit.id ?? commit.id
       if (home.get(id)?.step === step.id && !listed.has(id)) {
         listed.add(id)
-        commits.push({ id, subject: item?.commit.subject ?? commit.subject, role: commit.role, item, order: orderOf(item) })
+        const subject = item?.commit.subject ?? commit.subject
+        const it = { id, subject, title: ofCommits ? formatStepTitle(commit.subject, issue) : subject, role: commit.role, item, order: orderOf(item) }
+        if (ofCommits && commit.role === "starts" && !heads.has(step.id)) {
+          heads.set(step.id, it)
+        } else {
+          commits.push(it)
+        }
       }
     }
     if (commits.length > 0) {
       placed.set(step.id, commits)
     }
   }
-  const other = items.filter(item => !listed.has(item.commit.id)).map(item => ({ id: item.commit.id, subject: item.commit.subject, role: null, item, order: orderOf(item) }))
-  return { steps: placed, other }
+  const other = items
+    .filter(item => !listed.has(item.commit.id))
+    .map(item => ({ id: item.commit.id, subject: item.commit.subject, title: item.commit.subject, role: null, item, order: orderOf(item) }))
+  return { heads, steps: placed, other }
 }
 
 /** The role of a commit on its row in its step: "follows up", "no story"; nothing for the one that starts it */

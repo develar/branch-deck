@@ -90,7 +90,7 @@ describe("review steps", () => {
     expect([...presentOwnerMarks(chapters, new Set())].map(([, count]) => count)).toEqual([0, 0, 0])
   })
 
-  it("places each commit of the range in the step it tells or follows up, a commit of the concerns once, the rest in Other commits", () => {
+  it("places each commit of the range in the step it tells or follows up, the one that starts a step of the commits as its step, a commit of the concerns once, the rest in Other commits", () => {
     // the range lists full ids, newest first; the plan names them as its input did, maybe short
     const item = (id: string, subject: string) => ({ key: `key-${id}`, commit: { id, subject } })
     const items = [item("e5e5e5e5", "unrelated"), item("d4d4d4d4", "wip"), item("c3c3c3c3", "the rule again"), item("b2b2b2b2", "the paint"), item("a1a1a1a1", "the rule")]
@@ -98,19 +98,44 @@ describe("review steps", () => {
     const told = placeCommits(
       [step("a1a1", [short("a1a1a1a1", "starts"), short("c3c3c3c3", "followsUp"), short("d4d4d4d4", "noStory")], []), step("b2b2", [short("b2b2b2b2", "starts")], [])],
       items,
+      null,
     )
+    // a step of the commits is the commit that starts it; it lists the others, each by its title
+    expect([...told.heads].map(([id, it]) => [id, it.id, it.subject, it.item?.key])).toEqual([
+      ["a1a1", "a1a1a1a1", "the rule", "key-a1a1a1a1"],
+      ["b2b2", "b2b2b2b2", "the paint", "key-b2b2b2b2"],
+    ])
     expect([...told.steps].map(([id, commits]) => [id, commits.map(it => [it.id, it.subject, formatCommitRole(it.role), it.item?.key])])).toEqual([
       [
         "a1a1",
         [
-          ["a1a1a1a1", "the rule", null, "key-a1a1a1a1"],
           ["c3c3c3c3", "the rule again", "follows up", "key-c3c3c3c3"],
           ["d4d4d4d4", "wip", "no story", "key-d4d4d4d4"],
         ],
       ],
-      ["b2b2", [["b2b2b2b2", "the paint", null, "key-b2b2b2b2"]]],
     ])
     expect(told.other.map(it => [it.id, it.role])).toEqual([["e5e5e5e5", null]])
+    // the title of a commit of a step of the commits has no issue key the brief names; of a concern and of Other commits
+    // it is the subject
+    const keyed = placeCommits(
+      [
+        step(
+          "a1a1",
+          [
+            { id: "a1a1", subject: "IJAI-1 the rule", role: "starts" },
+            { id: "c3c3", subject: "IJAI-1: the rule again", role: "followsUp" },
+          ],
+          [],
+        ),
+      ],
+      [item("c3c3c3c3", "IJAI-1: the rule again"), item("a1a1a1a1", "IJAI-1 the rule"), item("e5e5e5e5", "IJAI-1 unrelated")],
+      "IJAI-1",
+    )
+    expect([keyed.heads.get("a1a1")?.title, keyed.steps.get("a1a1")?.map(it => [it.title, it.subject]), keyed.other.map(it => it.title)]).toEqual([
+      "The rule",
+      [["The rule again", "IJAI-1: the rule again"]],
+      ["IJAI-1 unrelated"],
+    ])
     // the concerns list a commit in each concern of its lines, the most lines first: it is listed in the one that lists it
     // first, the first of equal ones; a commit of the step no item names keeps the step's id and subject
     const concerns = placeCommits(
@@ -119,8 +144,9 @@ describe("review steps", () => {
         step("grep", [short("a1a1a1a1", "starts"), short("b2b2b2b2", "starts")], []),
         step("tools", [short("c3c3c3c3", "starts"), short("f6f6f6f6", "noStory")], []),
         step("look", [short("c3c3c3c3", "starts")], []),
-      ],
+      ].map(it => ({ ...it, concern: it.id })),
       items,
+      "IJAI-1",
     )
     expect([...concerns.steps].map(([id, commits]) => [id, commits.map(it => [it.id, it.item === undefined])])).toEqual([
       ["proxy", [["b2b2b2b2", false]]],
@@ -134,6 +160,8 @@ describe("review steps", () => {
       ],
     ])
     expect(concerns.other.map(it => it.id)).toEqual(["e5e5e5e5", "d4d4d4d4"])
+    // a step of the concerns is no commit: each lists its commits, by their subject
+    expect([concerns.heads.size, concerns.steps.get("proxy")?.[0]?.title]).toEqual([0, "the paint"])
   })
 
   it("lays a declaration without a block of its own out in its step as the row of the block another step shows", () => {

@@ -4,6 +4,7 @@ import path from "node:path"
 import type { Locator, Page } from "@playwright/test"
 import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
+import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
 import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
@@ -99,28 +100,24 @@ test.describe("Review tour", () => {
     await expect(step(4).getByTestId("review-contents-step-facts")).toHaveText("Proven by restart.json")
     await captureHtmlSnapshot(overview, "review-overview")
 
-    // the tree lists the steps, each with its commits, then its files, a file of two steps with its row in the step of its
-    // most lines and a row "also in" the other; the diffs tell the story by them
+    // the tree lists the steps, each the commit that starts it, its round under it, then its files, a file of two steps
+    // with its row in the step of its most lines and a row "also in" the other; the diffs tell the story by them
     const tree = window.getByRole("tree", { name: "Changed files" })
     const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))
     await expect
       .poll(rows)
       .toEqual([
         "1 · The manager drops the hooks nothing sets",
-        "the manager drops the hooks nothing sets",
         "src/a/Manager.kt, also in 1 · The manager drops the hooks nothing sets",
         "2 · The open keeps a stored layout",
-        "the open keeps a stored layout",
-        "the rule names its flag again",
+        "The rule names its flag again",
         "src/a/Manager.kt",
         "src/a/Frame.kt",
         "src/b/Welcome.kt",
         "test/a/ManagerTest.kt",
         "3 · The view paints with the first frame",
-        "the view paints with the first frame",
         "src/a/Frame.kt, also in 3 · The view paints with the first frame",
         "4 · The restart story checks the layout",
-        "the restart story checks the layout",
         "spec/window.spec.md",
         "tests/restart.json",
       ])
@@ -264,8 +261,8 @@ test.describe("Review tour", () => {
     // the outline plays once: the commit shown alone, then the whole story again, mount their stories with no block
     // outlined and no fold opened by the click before
     const { commitRow, column } = reviewSidebar(window)
-    await commitRow("the restart story checks the layout").click()
-    await commitRow("the restart story checks the layout").press("Enter")
+    await commitRow("4 · The restart story checks the layout").click()
+    await commitRow("4 · The restart story checks the layout").press("Enter")
     const header = window.getByTestId("range-review-commit-header")
     await expect(header.getByTestId("review-story-fold")).toHaveAttribute("aria-expanded", "false")
     await expect(window.locator("[data-highlight]")).toHaveCount(0)
@@ -326,42 +323,75 @@ test.describe("Review tour", () => {
     await expect(window.locator("[data-story-block][data-highlight]")).toHaveText("Frame.paint asks Manager.passes for its count.")
   })
 
-  test("should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down", async ({
+  test("should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New", async ({
     page,
     setupRepo,
     syncAndWaitForBranches,
   }) => {
-    turnOnReviewPlan(await setupRepo("review_tour"))
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
     const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
-    const { commitRow, column } = reviewSidebar(window)
+    const { tree, commitRow, column } = reviewSidebar(window)
     const header = window.getByTestId("range-review-commit-header")
     const bar = window.getByTestId("review-step-bar")
+    const paint = commitRow("3 · The view paints with the first frame")
 
-    // the column keeps the scopes; the commits are in the steps of the tree, the round of a step says so
-    await expect(commitRow("the rule names its flag again")).toBeVisible()
+    // the column keeps the scopes; the commits are in the steps of the tree: the row of a step is the commit that starts
+    // it, its round a row of it without the issue key, which says so
+    await expect(commitRow("The rule names its flag again")).toBeVisible()
     await expect(column).toHaveText([/^All Changes5 commits$/])
-    await expect(commitRow("the rule names its flag again").getByTestId("review-commit-role")).toHaveText("follows up")
-    await expect(commitRow("the open keeps a stored layout").getByTestId("review-commit-role")).toHaveCount(0)
-    await expect(commitRow("the open keeps a stored layout")).toHaveAttribute("aria-description", /^commit [0-9a-f]{7,}$/)
+    await expect(commitRow("The rule names its flag again").getByTestId("review-commit-role")).toHaveText("follows up")
+    await expect(commitRow("the open keeps a stored layout")).toHaveCount(0)
+    await expect(commitRow("2 · The open keeps a stored layout")).toHaveAttribute("aria-description", /^4 files, \+\d+ −\d+, commit [0-9a-f]{7,}$/)
+    await expect(commitRow("2 · The open keeps a stored layout").getByTestId("review-commit-role")).toHaveCount(0)
+    await captureHtmlSnapshot(commitRow("2 · The open keeps a stored layout"), "review-tree-step-commit")
 
-    // a click selects the commit and puts the opening of its step at the top, the commit stays in the story
+    // a click selects the step and puts its opening at the top; the commit stays in the story
     await expect(bar.getByTestId("review-step-position")).toHaveText("Overview")
-    await commitRow("the view paints with the first frame").click()
-    await expect(commitRow("the view paints with the first frame")).toHaveAttribute("aria-selected", "true")
+    await paint.click()
+    await expect(paint).toHaveAttribute("aria-selected", "true")
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
     await expect(header).toHaveCount(0)
+    // the click folds nothing: Space and the chevron do, a click on the folded row opens it again and shows its step
+    await expect(paint).toHaveAttribute("aria-expanded", "true")
+    await paint.press("Space")
+    await expect(paint).toHaveAttribute("aria-expanded", "false")
+    await paint.getByTestId("tree-row-chevron").click()
+    await expect(paint).toHaveAttribute("aria-expanded", "true")
+    await paint.getByTestId("tree-row-chevron").click()
+    await expect(paint).toHaveAttribute("aria-expanded", "false")
+    // → opens the focused step and ← folds it again, its opening stays at the top
+    await paint.press("ArrowRight")
+    await expect(paint).toHaveAttribute("aria-expanded", "true")
+    await paint.press("ArrowLeft")
+    await expect(paint).toHaveAttribute("aria-expanded", "false")
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
+    await commitRow("1 · The manager drops the hooks nothing sets").click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 1 / 4")
+    await paint.click()
+    await expect(paint).toHaveAttribute("aria-expanded", "true")
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
+    // ↓ moves the selection to the row below, ↑ back to the step, its opening at the top again
+    await paint.press("ArrowDown")
+    await expect(commitRow("src/a/Frame.kt, also in 3 · The view paints with the first frame")).toHaveAttribute("aria-selected", "true")
+    await commitRow("src/a/Frame.kt, also in 3 · The view paints with the first frame").press("ArrowUp")
+    await expect(paint).toHaveAttribute("aria-selected", "true")
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
+    // the copy key on the row copies the hash of its commit, whole: the one its hover shows short
+    const hash = await paint.getByTestId("review-commit-hash").textContent()
+    await pressCopyKey(window)
+    await expect.poll(() => readClipboard(window)).toMatch(new RegExp(`^${hash}[0-9a-f]{32,}$`))
 
     // Enter shows the commit alone: its header, the column lists every commit again; All Changes goes back to the story
-    await commitRow("the view paints with the first frame").press("Enter")
+    await paint.press("Enter")
     await expect(header).toContainText("the view paints with the first frame")
     await expect(column).toHaveCount(6)
-    await expect(commitRow("the view paints with the first frame")).toHaveCount(0)
     await column.filter({ hasText: "All Changes" }).click()
     await expect(header).toHaveCount(0)
     await expect(column).toHaveCount(1)
 
     // Show Commit Alone of its right-click menu does the same
-    await commitRow("the manager drops the hooks nothing sets").click({ button: "right" })
+    await commitRow("1 · The manager drops the hooks nothing sets").click({ button: "right" })
     await window.getByRole("menuitem", { name: "Show Commit Alone" }).click()
     await expect(header).toContainText("the manager drops the hooks nothing sets")
     await column.filter({ hasText: "All Changes" }).click()
@@ -371,6 +401,23 @@ test.describe("Review tour", () => {
     await window.getByTestId("commit-review-code").locator("[tabindex='0']").first().focus()
     await window.keyboard.press("Alt+ArrowDown")
     await expect(header).toContainText("the rule names its flag again")
+
+    // after Mark Reviewed a commit on top with a story: the row of its step says it is new since the review, the steps
+    // reviewed before say nothing
+    await column.filter({ hasText: "All Changes" }).click()
+    await expect(header).toHaveCount(0)
+    await runAndWaitForAnswer(window, "mark_branch_reviewed", () => window.getByTestId("branch-review-mark-reviewed").click())
+    await expect(window.getByText("Marked layout reviewed")).toBeVisible()
+    await repo.commit(
+      "(layout) the splash shows before the frame\n\nA splash shows while the frame registers its tool windows.",
+      { "src/b/Splash.kt": "package b\n\nclass Splash {\n  fun show(): Int = 2\n}\n" },
+      1704124800,
+    )
+    await syncAndWaitForBranches()
+    const splash = tree.getByRole("treeitem", { name: /^\d · The splash shows before the frame$/ })
+    await expect(splash.getByTestId("review-commit-since")).toHaveText("New")
+    await expect(splash).toHaveAttribute("aria-description", /, New, commit [0-9a-f]{7,}$/)
+    await expect(paint.getByTestId("review-commit-since")).toHaveCount(0)
   })
 
   test("should mark the steps and the files of an owner chip in the whole story, and move N and J through its sections only", async ({
@@ -398,22 +445,22 @@ test.describe("Review tour", () => {
       "4 · The restart story checks the layout",
     ]
     const frameAlso = row("src/a/Frame.kt, also in 3 · The view paints with the first frame")
-    // the steps, their files and their five commits
-    await expect(tree.getByRole("treeitem")).toHaveCount(17)
+    // the steps, each its commit, their files and the round of step 2
+    await expect(tree.getByRole("treeitem")).toHaveCount(13)
 
     await window.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()
     await expect(window.getByTestId("branch-review-owner").filter({ hasText: "Design" })).toHaveAttribute("aria-pressed", "true")
     // a chip hides nothing: every step and file stays, the steps with its files count them, the others are muted, their
     // commits with them
-    await expect(tree.getByRole("treeitem")).toHaveCount(17)
+    await expect(tree.getByRole("treeitem")).toHaveCount(13)
     await expect(row(steps[1]!).getByTestId("review-owner-mark")).toHaveText("Design2")
     await expect(row(steps[1]!)).toHaveAttribute("aria-description", /, 2 files of Design$/)
     await expect(row(steps[2]!).getByTestId("review-owner-mark")).toHaveText("Design1")
     await expect(row(steps[1]!)).not.toHaveAttribute("data-muted")
-    for (const muted of [steps[0]!, steps[3]!, "src/a/Manager.kt", "test/a/ManagerTest.kt", "the manager drops the hooks nothing sets"]) {
+    for (const muted of [steps[0]!, steps[3]!, "src/a/Manager.kt", "test/a/ManagerTest.kt"]) {
       await expect(row(muted)).toHaveAttribute("data-muted", "")
     }
-    await expect(row("the open keeps a stored layout")).not.toHaveAttribute("data-muted")
+    await expect(row("The rule names its flag again")).not.toHaveAttribute("data-muted")
     await expect(row(steps[0]!).getByTestId("review-owner-mark")).toHaveCount(0)
     await expect(row("src/b/Welcome.kt")).not.toHaveAttribute("data-muted")
     await expect(window.locator('[data-testid="review-file-header"][data-path="src/a/Manager.kt"]').first()).toHaveAttribute("data-muted", "")

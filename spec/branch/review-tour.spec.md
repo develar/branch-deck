@@ -242,25 +242,28 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by its concern and keeps its main rows`)
   [@test] ../../src/lib/diff/layout.test.ts (`puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
-  Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree, each group of
-  a step its commit rows first, then its files: the commit that starts it, those that follow it up ("follows up"),
-  those without a story ("no story"), the commits of a concern the most lines first. A commit several concerns list
-  is listed once, in the one that lists it first, the first of equal ones; a step that lands nothing keeps its group
-  for its commits; the commits no group lists (of no step, of what no evidence joined) close the tree in "Other
-  commits" ("Commits" when the tree has no step), as the range lists them. The plan names a commit short, the range in
-  full: they match by prefix. A scope lists only its own commits: "Since Your Review" of a pull request the commits
-  after the reviewed one, not those the user saw. A commit row shows its subject, its role, "New"/"Rewritten" since
-  the review, "Your review" on the reviewed commit of a pull request (the boundary of the column: the commits after it
-  are those of Since Your Review), its branch (of the whole stack, and of a part of several branches, which the
-  column heads by branch) and its hash on hover; it is no file (no position, no count, no owner mark of its own: it is
-  muted with its step). The column above the tree then lists only the scopes; without the plan, for a range of one
-  commit and for a commit shown alone the column lists every commit as before.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down`)
+  Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree. The group
+  row of a step of the commits is the commit that starts it ("2 · The open keeps a stored layout": no row of its own
+  repeats the title); under it the rows of the commits that follow it up ("follows up") and of those without a story
+  ("no story"), each by its subject without the issue key the brief names, then its files. A group of a step of the
+  concerns lists its commit rows as they are, the most lines first. A commit several concerns list is listed once, in
+  the one that lists it first, the first of equal ones; a step that lands nothing keeps its group for its commits; the
+  commits no group lists (of no step, of what no evidence joined) close the tree in "Other commits" ("Commits" when the
+  tree has no step), by their subjects, as the range lists them. The plan names a commit short, the range in full:
+  they match by prefix. A scope lists only its own commits: "Since Your Review" of a pull request the commits after
+  the reviewed one, not those the user saw. A commit row, and the row of a step of the commits, shows what it is
+  since the review ("New"/"Rewritten"), "Your review" on the reviewed commit of a pull request (the boundary of the
+  column: the commits after it are those of Since Your Review), its branch (of the whole stack, and of a part of
+  several branches, which the column heads by branch) and its hash on hover, a commit row also its role; a commit row
+  is no file (no position, no count, no owner mark of its own: it is muted with its step). The column above the tree
+  then lists only the scopes; without the plan, for a range of one commit and for a commit shown alone the column
+  lists every commit as before.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`, `should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`, `should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes`)
-  [@test] ../../src/presenters/review-steps.test.ts (`places each commit of the range in the step it tells or follows up, a commit of the concerns once, the rest in Other commits`)
-  [@test] ../../src/lib/file-tree.test.ts (`lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them`, `keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step`)
+  [@test] ../../src/presenters/review-steps.test.ts (`places each commit of the range in the step it tells or follows up, the one that starts a step of the commits as its step, a commit of the concerns once, the rest in Other commits`)
+  [@test] ../../src/lib/file-tree.test.ts (`lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them`, `keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step`, `makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key`, `keeps the group of a step that lands nothing as its commit, lists a step under a search only with a file it found, and its commit in Commits without a step`)
   [@test] ../../src/lib/range-review.test.ts (`lists in the story of Since Your Review only the commits after the review, in All Changes every commit, the reviewed one marked`, `lists all changes, then the commits of the reviewed branch first, each branch headed by its name`)
 - While the search of the files has text, the tree is what it found: only a group with a file it kept lists its
   commits, and no "Other commits". While the tree lists no commit (the search kept none of their groups or no file,
@@ -268,12 +271,16 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   still be chosen.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
   [@test] ../../src/lib/file-tree.test.ts (`lists under a search only the commits of the steps whose files it found, no Other commits, and says when it lists none`)
-- A click on a commit row (and the focus, as ↑/↓ move it) must select it and show the opening of its step at the top
-  of the diffs, as the title of the step in the overview; Enter on it, its menu item Show Commit Alone and ⌥↑/⌥↓
+- A click on a commit row or on the row of a step of the commits (and the focus, as ↑/↓ move it) must select it and
+  show the opening of its step at the top of the diffs, as the title of the step in the overview; a click on the row
+  of a folded step opens it too. The row of a step of the commits folds by its chevron, Space, → and ←, never by a
+  click on the row; a step of its commit alone that lands nothing in the scope holds no row and folds nothing (no
+  chevron, no line counts); the group of a step of the concerns, a directory, Mechanical and Other changes fold by a click as
+  before. Enter on a commit row or on the row of a step of the commits, its menu item Show Commit Alone and ⌥↑/⌥↓
   must show the commit alone (its heading, its own plan), and "All Changes" of the column goes back. Its right-click
   menu is Show Commit Alone, then the menu of the commit of the column; ⌘C copies its hash. The heading of a commit of
   the whole stack shown alone keeps "Review <branch>".
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should list the commits in their steps as one list, show the step of a commit on a click, and the commit alone on Enter, Show Commit Alone and Option+Down`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its overview and the story of its diffs @webkit`, `should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
 - A declaration of a step whose block another step shows must be one row in the section of its step, "hooks —

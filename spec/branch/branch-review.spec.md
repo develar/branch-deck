@@ -431,7 +431,8 @@ session, a form of a row by the main window at that row; the footer holds the ke
   (`range-review-commit-hash`); a commit row of the tree the same after its `GitCommitHorizontalIcon`, its role in
   `text-xs text-muted-foreground` (`review-commit-role`), its "New"/"Rewritten" an `info` `Badge`
   (`review-commit-since`), "Your review" of a pull request an `outline` `Badge` (`review-commit-review`), its branch
-  muted (`review-commit-branch`), its hash on hover (`review-commit-hash`). A
+  muted (`review-commit-branch`), its hash on hover (`review-commit-hash`); the row of a step of the commits, its
+  commit, the same after its title. A
   group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push popover the groups are a list below the review line, a group per line in the foreground colour,

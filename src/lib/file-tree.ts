@@ -63,20 +63,26 @@ export interface FileTreeDirectory {
   commitCount?: number
   /** Its hover: why the files of a concern are together */
   title?: string
+  /**
+   * The commit that starts a step of the commits, which the row of its step is: its menu, its hash, Enter shows it alone;
+   * its key is the key of the group
+   */
+  commit?: FileTreeCommit
 }
 
 /** A commit of the range of a review that holds the commits, the commit of a range review */
 export type ReviewCommitItem = Extract<RangeReviewItem, { kind: "commit" }>
 
 /**
- * A commit of the range in the group of the step it tells or follows up, above its files, or in Other commits: it
- * selects the step, Enter shows the commit alone; no file of the tree, so it counts in no group and no position
+ * A commit of the range in the group of the step it follows up or has no story in, above its files, in the group of a
+ * concern, or in Other commits: it selects the step, Enter shows the commit alone; no file of the tree, so it counts in
+ * no group and no position
  */
 export interface FileTreeCommit {
   kind: "commit"
-  /** `commitRowKey` of its group and its commit */
+  /** `commitRowKey` of its group and its commit; the key of the group of the step it is (`FileTreeDirectory.commit`) */
   key: string
-  /** Its subject */
+  /** Its title (`PlacedCommit.title`) */
   name: string
   depth: number
   parentKey: string | undefined
@@ -212,10 +218,11 @@ export function alsoRowKey(concern: string, path: string): string {
  * `buildFileTree` groups them, under Other changes; then the Mechanical group with a group per kind (`mechanical`, the
  * kind Rust gave each path, the kinds in its order: `mechanicalKindsOf`), each file named by its path. Without a chapter
  * but the rest, the files of real work as `buildFileTree` groups them, then the Mechanical group. The diffs and J and K
- * follow this order, so the mechanical files come last. With `commits` (a range of several commits shown whole), each
- * group of a step lists its commits first, then its files, a step that lands nothing its commits alone; the commits no
- * group lists (of no step, of what no evidence joined) close the tree in Other commits. While a search narrows `files`
- * (`searched`), the tree is what it found: only a group with a file it kept lists its commits, and no Other commits
+ * follow this order, so the mechanical files come last. With `commits` (a range of several commits shown whole), the
+ * group of a step of the commits is the commit that starts it (`FileTreeDirectory.commit`); each group lists its other
+ * commits first, then its files, a step that lands nothing its commits alone; the commits no group lists (of no step,
+ * of what no evidence joined) close the tree in Other commits. While a search narrows `files` (`searched`), the tree is
+ * what it found: only a group with a file it kept is its commit and lists its commits, and no Other commits
  */
 export function buildReviewTree(
   files: readonly CommitFile[],
@@ -285,10 +292,13 @@ export function buildReviewTree(
       }
     }
     children.push(...kindGroups(folded, mechanical, key, 1))
-    const commitRows = searched && children.length === 0 ? [] : commitNodes(commits?.steps.get(chapter.id) ?? [], key, chapter.id)
-    if (children.length > 0 || commitRows.length > 0) {
+    const listed = !searched || children.length > 0
+    const head = listed ? commits?.heads.get(chapter.id) : undefined
+    const commitRows = listed ? commitNodes(commits?.steps.get(chapter.id) ?? [], key, chapter.id) : []
+    if (children.length > 0 || commitRows.length > 0 || head !== undefined) {
       grouped.add(chapter.id)
-      nodes.push(groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined))
+      const group = groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined)
+      nodes.push(head === undefined ? group : { ...group, commit: { kind: "commit", key, name: head.title, depth: 0, parentKey: undefined, commit: head, chapter: chapter.id } })
     }
   }
   const rest = chapters.find(chapter => chapter.rest)
@@ -303,7 +313,7 @@ export function buildReviewTree(
 
 /** The rows of `commits` in the group `parentKey` of the step `chapter` (null: Other commits) */
 function commitNodes(commits: readonly PlacedCommit<ReviewCommitItem>[], parentKey: string, chapter: string | null): FileTreeCommit[] {
-  return commits.map(commit => ({ kind: "commit", key: commitRowKey(parentKey, commit.id), name: commit.subject, depth: 1, parentKey, commit, chapter }))
+  return commits.map(commit => ({ kind: "commit", key: commitRowKey(parentKey, commit.id), name: commit.title, depth: 1, parentKey, commit, chapter }))
 }
 
 /**
@@ -315,8 +325,9 @@ function withOtherCommits(nodes: FileTreeNode[], commits: CommitPlaces<ReviewCom
   if (commits === undefined) {
     return nodes
   }
-  const listed = [...commits.steps].flatMap(([step, list]) => (grouped.has(step) ? [] : list))
-  const rest = [...listed, ...commits.other].map(commit => ({ ...commit, role: null })).toSorted((a, b) => a.order - b.order)
+  const ungrouped = (step: string) => !grouped.has(step)
+  const listed = [...[...commits.heads].filter(([step]) => ungrouped(step)).map(([, head]) => head), ...[...commits.steps].flatMap(([step, list]) => (ungrouped(step) ? list : []))]
+  const rest = [...listed, ...commits.other].map(commit => ({ ...commit, title: commit.subject, role: null })).toSorted((a, b) => a.order - b.order)
   if (rest.length === 0) {
     return nodes
   }
@@ -511,7 +522,10 @@ export function foldedGroups(nodes: readonly FileTreeNode[]): string[] {
 
 /** The tree lists commits (`buildReviewTree` with commits): a range shown whole with its plan */
 export function listsCommits(nodes: readonly FileTreeNode[]): boolean {
-  return nodes.some(node => node.kind === "commit" || (node.kind === "directory" && node.group !== undefined && node.children.some(child => child.kind === "commit")))
+  return nodes.some(
+    node =>
+      node.kind === "commit" || (node.kind === "directory" && node.group !== undefined && (node.commit !== undefined || node.children.some(child => child.kind === "commit"))),
+  )
 }
 
 /** The tree is that of a review with its groups: the concerns, Other changes, the Mechanical group */

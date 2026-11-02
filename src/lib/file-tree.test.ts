@@ -23,7 +23,8 @@ import {
   sectionRows,
 } from "@/lib/file-tree"
 import type { FileTreeAlso, FileTreeCommit, FileTreeDirectory, FileTreeNode, ReviewCommitItem } from "@/lib/file-tree"
-import { concernChapters, placeCommits } from "@/presenters/review-steps"
+import { concernChapters, placeCommits, presentChapters } from "@/presenters/review-steps"
+import { reviewStep } from "@/test-support/review-step"
 
 function file(path: string, additions = 1, deletions = 0, status: FileStatus = "modified", oldPath: string | null = null): CommitFile {
   return { path, status, oldPath, additions, deletions, binary: false, oldId: null, newId: null, submodule: false }
@@ -352,13 +353,13 @@ describe("the concerns in the tree of a review", () => {
   const items = [item("d4d4d4d4", "bump the lock"), item("c3c3c3c3", "tidy App"), item("b2b2b2b2", "drop grep"), item("a1a1a1a1", "drop the proxy")]
   const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, role })
   const steps = [
-    { id: "p", commits: [commitOf("a1a1a1a1", "starts"), commitOf("b2b2b2b2", "noStory")] },
-    { id: "g", commits: [commitOf("b2b2b2b2", "starts")] },
-    { id: "r", commits: [commitOf("c3c3c3c3", "noStory")] },
+    { id: "p", concern: "p", commits: [commitOf("a1a1a1a1", "starts"), commitOf("b2b2b2b2", "noStory")] },
+    { id: "g", concern: "g", commits: [commitOf("b2b2b2b2", "starts")] },
+    { id: "r", concern: "r", commits: [commitOf("c3c3c3c3", "noStory")] },
   ]
 
   it("lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them", () => {
-    const tree = buildReviewTree(files, mechanical, concernChapters(concerns), placeCommits(steps, items))
+    const tree = buildReviewTree(files, mechanical, concernChapters(concerns), placeCommits(steps, items, null))
     expect(outline(tree)).toEqual([
       "ijproxy/",
       "  @ drop the proxy",
@@ -396,7 +397,7 @@ describe("the concerns in the tree of a review", () => {
 
   it("keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step", () => {
     const filtered = files.filter(it => it.path.startsWith("docs/tools"))
-    expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items)))).toEqual([
+    expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items, null)))).toEqual([
       "ijproxy/",
       "  @ drop the proxy",
       "grep → accio/",
@@ -406,7 +407,7 @@ describe("the concerns in the tree of a review", () => {
       "  @ bump the lock",
       "  @ tidy App",
     ])
-    expect(outline(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items)))).toEqual([
+    expect(outline(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items, null)))).toEqual([
       "docs/",
       "  tools.md",
       "Commits/",
@@ -419,7 +420,7 @@ describe("the concerns in the tree of a review", () => {
 
   it("lists under a search only the commits of the steps whose files it found, no Other commits, and says when it lists none", () => {
     const filtered = files.filter(it => it.path.startsWith("docs/tools"))
-    const tree = buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items), true)
+    const tree = buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items, null), true)
     expect(outline(tree)).toEqual(["grep → accio/", "  @ drop grep", "  docs/tools.md"])
     expect(listsCommits(tree)).toBe(true)
     // a search that finds files of no step: no commit row, the column lists the commits
@@ -427,12 +428,12 @@ describe("the concerns in the tree of a review", () => {
       files.filter(it => it.path === "src/App.kt"),
       mechanical,
       concernChapters(concerns),
-      placeCommits(steps, items),
+      placeCommits(steps, items, null),
       true,
     )
     expect(outline(unlisted)).toEqual(["Other changes/", "  src/", "    App.kt"])
     expect(listsCommits(unlisted)).toBe(false)
-    expect(listsCommits(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items), true))).toBe(false)
+    expect(listsCommits(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items, null), true))).toBe(false)
     expect(listsCommits(buildReviewTree(files, mechanical, concernChapters(concerns)))).toBe(false)
   })
 
@@ -459,5 +460,97 @@ describe("the concerns in the tree of a review", () => {
     expect(sectionOf.get("docs/guide.md")).toBe("file:docs/guide.md")
     expect(sectionOf.get(alsoRowKey("p", "docs/guide.md"))).toBe("file:docs/guide.md#1")
     expect(sectionOf.get("AGENTS.md")).toBe("group:mechanical:generated:AGENTS.md")
+  })
+})
+
+describe("the steps of the commits in the tree of a review", () => {
+  // a branch of IJAI-1: the rule, a round of it and a commit without a body in its step, the paint, a commit of no step;
+  // the range lists full ids, newest first, the plan names them short
+  const files = [file("src/Rule.kt", 3, 1), file("src/Paint.kt", 2, 0)]
+  const item = (id: string, subject: string): ReviewCommitItem => ({ kind: "commit", key: id, commit: { id, subject } as ReviewCommit })
+  const items = [
+    item("e5e5e5e5", "IJAI-1 tidy"),
+    item("d4d4d4d4", "IJAI-1 wip"),
+    item("c3c3c3c3", "IJAI-1 the rule names its flag"),
+    item("b2b2b2b2", "IJAI-1 the paint"),
+    item("a1a1a1a1", "IJAI-1 the rule"),
+  ]
+  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: items.find(it => it.key === id)!.commit.subject, role })
+  const steps = [
+    reviewStep("a1a1", [commitOf("a1a1a1a1", "starts"), commitOf("c3c3c3c3", "followsUp"), commitOf("d4d4d4d4", "noStory")], [["u:rule", "src/Rule.kt"]]),
+    reviewStep("b2b2", [commitOf("b2b2b2b2", "starts")], [["u:paint", "src/Paint.kt"]]),
+  ]
+  const chapters = presentChapters({
+    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
+    concerns: [],
+    brief: { issue: "IJAI-1", contract: [] },
+  })
+  const places = placeCommits(steps, items, "IJAI-1")
+
+  it("makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key", () => {
+    const tree = buildReviewTree(files, new Map(), chapters, places)
+    expect(outline(tree)).toEqual([
+      "1 · The rule/",
+      "  @ The rule names its flag",
+      "  @ Wip",
+      "  src/Rule.kt",
+      "2 · The paint/",
+      "  src/Paint.kt",
+      "Other commits/",
+      "  @ IJAI-1 tidy",
+    ])
+    const rule = tree[0] as FileTreeDirectory
+    // the row of the step is its commit: by the key of the group, its subject whole in its hover
+    expect([rule.commit?.key, rule.commit?.chapter, rule.commit?.commit.role, rule.commit?.commit.item?.key, rule.commit?.commit.subject]).toEqual([
+      concernRowKey("a1a1"),
+      "a1a1",
+      "starts",
+      "a1a1a1a1",
+      "IJAI-1 the rule",
+    ])
+    expect(rule.children.map(child => (child.kind === "commit" ? [child.commit.role, child.commit.subject] : child.key))).toEqual([
+      ["followsUp", "IJAI-1 the rule names its flag"],
+      ["noStory", "IJAI-1 wip"],
+      "src/Rule.kt",
+    ])
+    expect(listsCommits(tree)).toBe(true)
+  })
+
+  it("keeps the group of a step that lands nothing as its commit, lists a step under a search only with a file it found, and its commit in Commits without a step", () => {
+    // a step of its commit alone that lands nothing in the scope: the group is its commit, and holds no row
+    const alone = buildReviewTree(
+      files.filter(it => it.path === "src/Rule.kt"),
+      new Map(),
+      chapters,
+      places,
+    )
+    expect(outline(alone)).toEqual(["1 · The rule/", "  @ The rule names its flag", "  @ Wip", "  src/Rule.kt", "2 · The paint/", "Other commits/", "  @ IJAI-1 tidy"])
+    const paintStep = alone[1] as FileTreeDirectory
+    expect([paintStep.commit?.commit.subject, paintStep.children, paintStep.fileCount]).toEqual(["IJAI-1 the paint", [], 0])
+    const paint = files.filter(it => it.path === "src/Paint.kt")
+    expect(outline(buildReviewTree(paint, new Map(), chapters, places))).toEqual([
+      "1 · The rule/",
+      "  @ The rule names its flag",
+      "  @ Wip",
+      "2 · The paint/",
+      "  src/Paint.kt",
+      "Other commits/",
+      "  @ IJAI-1 tidy",
+    ])
+    const searched = buildReviewTree(paint, new Map(), chapters, places, true)
+    expect(outline(searched)).toEqual(["2 · The paint/", "  src/Paint.kt"])
+    // the step alone is its commit: the tree lists a commit
+    expect(listsCommits(searched)).toBe(true)
+    expect(outline(buildReviewTree(files, new Map(), [], places))).toEqual([
+      "src/",
+      "  Paint.kt",
+      "  Rule.kt",
+      "Commits/",
+      "  @ IJAI-1 tidy",
+      "  @ IJAI-1 wip",
+      "  @ IJAI-1 the rule names its flag",
+      "  @ IJAI-1 the paint",
+      "  @ IJAI-1 the rule",
+    ])
   })
 })

@@ -102,7 +102,9 @@ const CHEVRON_MIDDLE = "7px"
  * and ← closes or goes to the parent, Space and Enter toggle. The keys the tree handles are `preventDefault`ed, so the
  * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it. A row's name comes first: the
  * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C. `I` opens the card of
- * the row's mark (`FileRowMark`).
+ * the row's mark (`FileRowMark`). The group of a step of the commits is the commit that starts it
+ * (`FileTreeDirectory.commit`): a click selects it as a commit row, its chevron, Space, → and ← fold it, Enter, ⌘C and
+ * its menu are the commit's.
  */
 export function FileTree(props: FileTreeProps) {
   const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, commitRows = null } = props
@@ -136,8 +138,8 @@ export function FileTree(props: FileTreeProps) {
     setFocusedKey(node.key)
     rowElements.current.get(node.key)?.focus()
     // the selection follows the focus
-    if (node.kind === "commit") {
-      commitRows?.onSelect(node)
+    if (isCommitRow(node)) {
+      commitRows?.onSelect(commitOf(node))
     } else if (node.kind !== "directory") {
       onSelectFile?.(node.file, node.key)
     }
@@ -147,13 +149,33 @@ export function FileTree(props: FileTreeProps) {
   const toggle = (node: FileTreeNode) => {
     setFocusedKey(node.key)
     if (node.kind === "directory") {
-      onToggleDirectory(node.key)
+      // a step of its commit alone folds nothing: it selects its commit
+      if (isLeafGroup(node)) {
+        commitRows?.onSelect(node.commit)
+      } else {
+        onToggleDirectory(node.key)
+      }
     } else if (node.kind === "commit") {
       commitRows?.onSelect(node)
     } else if (onSelectFile !== undefined) {
       onSelectFile(node.file, node.key)
     } else if (node.kind === "file") {
       onToggleFile?.(node.key)
+    }
+  }
+
+  // memoized by the compiler: the rows are memoized; a click on a row: the group of a step of the commits shows its step
+  // as its commit does, opened, another row toggles
+  const activate = (node: FileTreeNode, open: boolean | undefined) => {
+    if (node.kind === "directory" && node.commit !== undefined) {
+      // a folded step opens; a step of its commit alone folds nothing (`isRowOpen` undefined)
+      setFocusedKey(node.key)
+      if (open === false) {
+        onToggleDirectory(node.key)
+      }
+      commitRows?.onSelect(node.commit)
+    } else {
+      toggle(node)
     }
   }
 
@@ -165,7 +187,7 @@ export function FileTree(props: FileTreeProps) {
       const node = rows.find(row => row.key === key)
       if (node !== undefined) {
         event.preventDefault()
-        void copyText(node.kind === "commit" ? node.commit.id : copiedText(fileActionTarget(node)))
+        void copyText(isCommitRow(node) ? commitOf(node).commit.id : copiedText(fileActionTarget(node)))
       }
       return
     }
@@ -223,8 +245,8 @@ export function FileTree(props: FileTreeProps) {
       case "Enter":
         if (node.kind === "file" && onOpenFile !== undefined) {
           onOpenFile(node.file)
-        } else if (node.kind === "commit") {
-          commitRows?.onOpen(node)
+        } else if (isCommitRow(node)) {
+          commitRows?.onOpen(commitOf(node))
         } else {
           toggle(node)
         }
@@ -251,6 +273,7 @@ export function FileTree(props: FileTreeProps) {
           inTabOrder={node.key === tabKey}
           rowElements={rowElements}
           onToggle={toggle}
+          onActivate={activate}
           onFocusRow={setFocusedKey}
           owner={node.kind === "directory" || node.kind === "commit" ? undefined : fileOwners?.get(node.file.path)}
           fileBadges={node.kind === "file" ? badges?.files.get(node.key) : undefined}
@@ -260,12 +283,30 @@ export function FileTree(props: FileTreeProps) {
           onCardChange={changeCard}
           muted={marks !== null && isMuted(node, marks)}
           ownerMark={marks === null ? null : ownerMarkOf(node, marks)}
-          commitMenu={node.kind === "commit" ? commitRows?.menu : undefined}
+          commitMenu={isCommitRow(node) ? commitRows?.menu : undefined}
           content={props.mode === "inline" && node.kind === "file" && props.expandedFiles.has(node.key) ? props.renderFileContent(node.file) : null}
         />
       ))}
     </div>
   )
+}
+
+/** The group of a step of the commits that lands nothing and has no other commit: its commit alone */
+function isLeafGroup(node: FileTreeDirectory): node is StepCommitGroup {
+  return node.commit !== undefined && node.children.length === 0
+}
+
+/** The group of a step of the commits: the commit that starts it */
+type StepCommitGroup = FileTreeDirectory & { commit: FileTreeCommit }
+
+/** A row that is a commit: a commit row, the group of a step of the commits */
+function isCommitRow(node: FileTreeNode): node is FileTreeCommit | StepCommitGroup {
+  return node.kind === "commit" || (node.kind === "directory" && node.commit !== undefined)
+}
+
+/** The commit a row is */
+function commitOf(row: FileTreeCommit | StepCommitGroup): FileTreeCommit {
+  return row.kind === "commit" ? row : row.commit
 }
 
 /** The open card of a row's mark: its row, and whether `I` opened it (the focus is in it) */
@@ -312,10 +353,13 @@ interface OwnerMark {
   count: number
 }
 
-/** A directory is open unless collapsed; a file is open while its diff shows, `undefined` where it has none to show */
+/**
+ * A directory is open unless collapsed; a file is open while its diff shows, `undefined` where it has none to show, as
+ * the group of a step of the commits that holds no row: its commit alone, it folds nothing
+ */
 function isRowOpen(node: FileTreeNode, collapsed: ReadonlySet<string>, expandedFiles: ReadonlySet<string> | null): boolean | undefined {
   if (node.kind === "directory") {
-    return !collapsed.has(node.key)
+    return isLeafGroup(node) ? undefined : !collapsed.has(node.key)
   }
   if (node.kind === "also" || node.kind === "commit") {
     return undefined
@@ -330,7 +374,10 @@ interface FileTreeRowProps {
   isSelected: boolean | undefined
   inTabOrder: boolean
   rowElements: RefObject<Map<string, HTMLElement>>
+  /** Its chevron; must keep its identity */
   onToggle: (node: FileTreeNode) => void
+  /** A click on it; must keep its identity */
+  onActivate: (node: FileTreeNode, open: boolean | undefined) => void
   onFocusRow: (key: string) => void
   /** The code owner of a file */
   owner: string | undefined
@@ -346,7 +393,7 @@ interface FileTreeRowProps {
   muted: boolean
   /** The files of the chosen owner a step row shows: "Design 2" */
   ownerMark: OwnerMark | null
-  /** The right-click menu of a commit row */
+  /** The right-click menu of a commit row and of the group of a step of the commits */
   commitMenu: FileTreeCommitRows["menu"] | undefined
   /** The diff under an expanded file */
   content: ReactNode
@@ -359,6 +406,7 @@ const FileTreeRow = memo(function FileTreeRow({
   inTabOrder,
   rowElements,
   onToggle,
+  onActivate,
   onFocusRow,
   owner,
   fileBadges,
@@ -419,7 +467,7 @@ const FileTreeRow = memo(function FileTreeRow({
               muted && "*:opacity-60",
             )}
             style={{ paddingLeft: `calc(${indent} + ${ROW_START})` }}
-            onClick={() => onToggle(node)}
+            onClick={() => onActivate(node, isOpen)}
           />
         }
       >
@@ -440,7 +488,15 @@ const FileTreeRow = memo(function FileTreeRow({
           // a file of a navigation tree opens nothing: the space keeps the names aligned
           <span className="size-3.5 shrink-0" />
         ) : (
-          <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />
+          // the chevron folds the row, also where a click on the row selects it (the group of a step of the commits)
+          <ChevronRightIcon
+            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")}
+            data-testid="tree-row-chevron"
+            onClick={event => {
+              event.stopPropagation()
+              onToggle(node)
+            }}
+          />
         )}
         {node.kind === "directory" ? (
           <DirectoryRowContent node={node} isOpen={isOpen === true} ownerMark={ownerMark} />
@@ -461,7 +517,7 @@ const FileTreeRow = memo(function FileTreeRow({
             focusRow={() => rowElements.current.get(node.key)?.focus()}
           />
         )}
-        {node.kind === "directory" ? node.group !== "commits" && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
+        {node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </RowMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -472,19 +528,38 @@ const FileTreeRow = memo(function FileTreeRow({
   )
 })
 
-/** What a row says after its name to a screen reader: the status and the lines of a file, the files of a group, the role of a commit */
+/**
+ * What a row says after its name to a screen reader: the status and the lines of a file, the files of a group, the role
+ * of a commit; the group of a step of the commits its files, then its commit
+ */
 function rowCounts(node: FileTreeNode): string {
   if (node.kind === "commit") {
-    const { role, item } = node.commit
-    return [formatCommitRole(role), item?.since, item?.review, item?.branch, `commit ${formatShortHash(node.commit.id)}`].filter(part => part != null).join(", ")
+    return commitFacts(node)
   }
   if (node.kind === "directory") {
-    return node.group === "commits" ? formatCommitCount(node.commitCount ?? 0) : `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}`
+    if (node.group === "commits") {
+      return formatCommitCount(node.commitCount ?? 0)
+    }
+    // a group that lands nothing: its commits say what it is
+    const parts = [
+      node.fileCount > 0 ? `${formatFileCount(node.fileCount)}, +${node.additions} −${node.deletions}` : null,
+      node.commit === undefined ? null : commitFacts(node.commit),
+    ]
+    return parts.filter(part => part !== null).join(", ")
   }
   return `${formatFileStatus(node.file.status)}, +${node.file.additions} −${node.file.deletions}`
 }
 
-/** The right-click menu of a row: the actions of its file or directory, of a commit its menu (`FileTreeCommitRows.menu`) */
+/** The role of a commit, what it is since the user's review, its branch, its hash */
+function commitFacts(node: FileTreeCommit): string {
+  const { role, item } = node.commit
+  return [formatCommitRole(role), item?.since, item?.review, item?.branch, `commit ${formatShortHash(node.commit.id)}`].filter(part => part != null).join(", ")
+}
+
+/**
+ * The right-click menu of a row: the actions of its file or directory, of a commit and of the group of a step of the
+ * commits the menu of the commit (`FileTreeCommitRows.menu`)
+ */
 function RowMenu({
   node,
   commitMenu,
@@ -498,9 +573,10 @@ function RowMenu({
   render: ReactElement
   children: ReactNode
 }) {
-  if (node.kind === "commit") {
+  if (isCommitRow(node)) {
+    const commit = commitOf(node)
     return (
-      <LazyContextMenu menu={() => commitMenu?.(node) ?? []} onOpen={onOpen} render={render}>
+      <LazyContextMenu menu={() => commitMenu?.(commit) ?? []} onOpen={onOpen} render={render}>
         {children}
       </LazyContextMenu>
     )
@@ -523,13 +599,22 @@ function CommitRowContent({ node }: { node: FileTreeCommit }) {
     <>
       <GitCommitHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 truncate" title={commit.subject} data-testid="review-commit-subject">
-        {commit.subject}
+        {node.name}
       </span>
       {role !== null && (
         <span className="shrink-0 text-xs text-muted-foreground" data-testid="review-commit-role">
           {role}
         </span>
       )}
+      <CommitRowFacts node={node} />
+    </>
+  )
+}
+
+/** What a commit is since the user's review, the branch of a commit of the whole stack; the hash on hover */
+function CommitRowFacts({ node: { commit } }: { node: FileTreeCommit }) {
+  return (
+    <>
       {commit.item?.since !== undefined && (
         <Badge variant="info" data-testid="review-commit-since">
           {commit.item.since}
@@ -554,8 +639,10 @@ function CommitRowContent({ node }: { node: FileTreeCommit }) {
 }
 
 function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirectory; isOpen: boolean; ownerMark: OwnerMark | null }) {
-  // a group of a review is no directory: its name is what it holds; a concern is a task of the range
-  const Icon = node.group === "concern" ? TargetIcon : node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
+  // a group of a review is no directory: its name is what it holds; a concern is a task of the range, the step of a
+  // commit that commit
+  const Icon =
+    node.commit !== undefined ? GitCommitHorizontalIcon : node.group === "concern" ? TargetIcon : node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
   return (
     <>
       <Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -572,6 +659,7 @@ function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirect
           <span className="tabular-nums">{ownerMark.count}</span>
         </Badge>
       )}
+      {node.commit !== undefined && <CommitRowFacts node={node.commit} />}
     </>
   )
 }
