@@ -449,6 +449,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           filesHeader={count => <ReviewOwnerChips of={owners} filter={ownerFilter} onFilterChange={setOwnerFilter} count={count} />}
           plan={plan.plan === null ? null : plan}
           reviewFacts={planFacts(plan)}
+          planHeadline={false}
         />
       ) : (
         overview

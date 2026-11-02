@@ -150,8 +150,10 @@ pub struct ReviewStep {
   /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
   /// step whose stop shows the first use, each in one step
   pub module_links: Vec<u32>,
-  /// Of a step of the concerns of one commit: the label of the first labelled section of its body the step tells
-  /// (`story::add_story_titles`), its title; the name of its concern stays the evidence that joined it. `None` otherwise
+  /// Its title wherever the review names it: of a step of the commits, the title of the commit that starts it
+  /// (`commit_title`); of a step of the concerns of one commit, the label of the first labelled section of its body the
+  /// step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
+  /// changes without a story and a concern no section names, which the page names by its evidence
   pub title: Option<String>,
   /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
   /// its id; `None` for a step that shows something
@@ -188,8 +190,9 @@ impl ReviewStep {
 #[serde(rename_all = "camelCase")]
 pub struct StepCommit {
   pub id: String,
-  /// Its subject without the `(prefix)` that groups it
-  pub subject: String,
+  /// Its title (`commit_title`): its subject without the `(prefix)` that groups it and the issue key the brief names,
+  /// in the case its author wrote it
+  pub title: String,
   pub role: CommitRole,
 }
 
@@ -320,6 +323,8 @@ pub(crate) struct StepsInput<'a> {
   pub contract: &'a [ContractEntry],
   /// The API of the plan, before its usages: the new API of each step (`story::add_step_facts`)
   pub api: &'a [ApiChange],
+  /// The issue key the brief names (`ReviewBrief::issue`): the title of a commit leaves it out (`commit_title`)
+  pub issue: Option<&'a str>,
 }
 
 /// Whether a commit message tells a step: a body of `MIN_BODY_WORDS` words or more after its subject, its trailers
@@ -355,6 +360,22 @@ fn body_words(body: &str) -> usize {
       CommitBodyBlock::Rule => 0,
     })
     .sum()
+}
+
+/// The title of a commit wherever the review names it (the row of its step, the opening, the contents, a card): its
+/// subject without the `(prefix)` that groups it and, before what is left, the issue key the brief names already, with
+/// a `:`, `,` or dash after it; in the case its author wrote it, never capitalised. A subject of the key alone keeps it
+pub(crate) fn commit_title(subject: &str, issue: Option<&str>) -> String {
+  let stripped = stripped_subject(subject);
+  let subject = stripped.trim();
+  let rest = issue
+    .and_then(|issue| subject.strip_prefix(issue))
+    .filter(|rest| rest.is_empty() || rest.starts_with([' ', ':', ',', '-', '\u{2013}', '\u{2014}']))
+    .map(|rest| rest.trim_start_matches([' ', ':', ',', '-', '\u{2013}', '\u{2014}']));
+  match rest {
+    Some(rest) if !rest.is_empty() => rest.to_string(),
+    _ => subject.to_string(),
+  }
 }
 
 /// The subject of a message and its body, trimmed
@@ -547,6 +568,9 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
   let coverage = coverage(input, &steps);
   let commits = story_commits(input, &steps, source == Some(ConcernsReason::OneCommit));
   add_story_titles(&mut steps, &commits);
+  for step in steps.iter_mut().filter(|step| step.concern.is_none()) {
+    step.title = step.commits.iter().find(|commit| commit.role == CommitRole::Starts).map(|commit| commit.title.clone());
+  }
   ReviewSteps {
     source: source.map_or(StepSource::Commits, |reason| StepSource::Concerns { reason }),
     told: source.is_none() || input.concerns.len() > 1,
@@ -774,7 +798,7 @@ fn step_commit(input: &StepsInput<'_>, commit: usize, role: CommitRole) -> StepC
   let (subject, _) = split_message(message);
   StepCommit {
     id: id.clone(),
-    subject: stripped_subject(subject).trim().to_string(),
+    title: commit_title(subject, input.issue),
     role,
   }
 }

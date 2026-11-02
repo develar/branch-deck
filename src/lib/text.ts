@@ -27,3 +27,8 @@ export function joinNames(names: readonly string[]): string {
   }
   return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`
 }
+
+/** The text with a capital first letter: a sentence the page builds from words Rust or a template gives (a toast description, the mark of a review, the title of a section of a row) */
+export function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}

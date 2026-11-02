@@ -41,13 +41,12 @@
 use crate::api::ApiChangeKind;
 use crate::concerns::compound;
 use crate::links::FileLink;
-use crate::steps::{ReviewStep, StepStop, StepsInput, split_message};
+use crate::steps::{ReviewStep, StepStop, StepsInput, commit_title, split_message};
 use crate::units::{ReviewUnit, UnitKind};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_utils::commit_body::commit_body;
-use sync_utils::commit_subject::stripped_subject;
 use trial_check::symbol_dependencies::declaration_checks::spanned_declarations;
 
 /// A commit of the range whose body has a block, its story once
@@ -57,8 +56,9 @@ use trial_check::symbol_dependencies::declaration_checks::spanned_declarations;
 #[serde(rename_all = "camelCase")]
 pub struct StoryCommit {
   pub id: String,
-  /// Its subject without the `(prefix)` that groups it
-  pub subject: String,
+  /// Its title (`steps::commit_title`): its subject without the `(prefix)` and the issue key the brief names, as its
+  /// author wrote it
+  pub title: String,
   pub body: CommitBody,
   /// The code names of its blocks, in the order of the body
   pub mentions: Vec<Mention>,
@@ -603,7 +603,7 @@ pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_co
       let told_in = if one_commit { told_in(&resolver, &body, &mentions) } else { Vec::new() };
       Some(StoryCommit {
         id: id.clone(),
-        subject: stripped_subject(subject).trim().to_string(),
+        title: commit_title(subject, input.issue),
         body,
         mentions,
         told_in,

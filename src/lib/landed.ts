@@ -1,7 +1,7 @@
 import type { AppliedUpdate, LandedBranch, UpdateCheck } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
-import { capitalize } from "@/lib/move-summary"
 import { updateResolvedWords } from "@/lib/resolved-by-words"
+import { capitalize } from "@/lib/text"
 import { joinNames } from "@/lib/text"
 
 /*

@@ -588,7 +588,7 @@ function ReviewLayout({
   // the commits of a range shown whole, each in the step it tells or follows up
   const commitItems = commitRows?.items
   const commitPlaces = useMemo(
-    () => (reviewFacts === null || commitItems === undefined ? undefined : placeCommits(reviewFacts.steps.steps, commitItems, reviewFacts.brief.issue)),
+    () => (reviewFacts === null || commitItems === undefined ? undefined : placeCommits(reviewFacts.steps.steps, commitItems)),
     [reviewFacts, commitItems],
   )
   const filterText = search?.text ?? ""

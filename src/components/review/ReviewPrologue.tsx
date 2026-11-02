@@ -31,13 +31,14 @@ export interface PrologueCommit {
 
 /**
  * The overview, the first block of the document of a review (spec/branch/review-tour.spec.md, "In the Review Window";
- * spec/branch/review-plan.spec.md): the headline (the issue the commits name with its title, else the branch or the
- * range; a commit shown alone its whole heading and body), the read of the plan, What Changes one header per file, the
+ * spec/branch/review-plan.spec.md): the headline (the title of the issue the commits name once YouTrack told it, else
+ * the name Rust gives the review, the branch as the title bar names it; the issue key a chip beside it; none under the
+ * title of a pull request, `headline` false; a commit shown alone its whole heading and body), the read of the plan, What Changes one header per file, the
  * contents of the steps (each its full title, the lead of its body, its facts and the Look closely of its author),
  * Possible Breakage with what breaks nothing and why the uses are unknown folded under it, and what changed since the
  * review. Rust decides and ranks; this words what it sent, in its order.
  */
-export function ReviewPrologue({ state, commit = null }: { state: ReviewPlanState | null; commit?: PrologueCommit | null }) {
+export function ReviewPrologue({ state, commit = null, headline = true }: { state: ReviewPlanState | null; commit?: PrologueCommit | null; headline?: boolean }) {
   const plan = state?.plan ?? null
   const view = plan === null ? null : presentPrologue(plan, state?.pending === true)
   // the story of the commit shown alone, told before the steps of its concerns: in its heading, in place of its message
@@ -46,7 +47,7 @@ export function ReviewPrologue({ state, commit = null }: { state: ReviewPlanStat
   return (
     // as wide as a reading column and its facts: the far end of a wide window is no place for the uses of an entry
     <section aria-label="Overview" data-testid="review-overview" className="flex max-w-208 min-w-0 flex-col gap-5 px-1 pt-3 pb-1 text-sm">
-      {commit !== null ? <CommitPart commit={commit} story={untold?.story ?? null} /> : view !== null && <Headline issue={view.issue} name={view.name} />}
+      {commit !== null ? <CommitPart commit={commit} story={untold?.story ?? null} /> : view !== null && headline && <Headline issue={view.issue} title={view.title} />}
       {(state?.loading === true || state?.pending === true) && (
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="review-overview-reading">
           <Spinner className="size-3" />
@@ -70,32 +71,30 @@ export function ReviewPrologue({ state, commit = null }: { state: ReviewPlanStat
   )
 }
 
-/** The issue key, a link with the popover of its issue, and its title once YouTrack told it; else the branch or the range */
-function Headline({ issue, name }: { issue: string | null; name: string }) {
-  if (issue === null) {
-    return (
-      <h2 className="text-base font-semibold break-all" data-testid="review-overview-headline">
-        {name}
-      </h2>
-    )
-  }
-  return <IssueHeadline issue={issue} />
-}
-
-function IssueHeadline({ issue }: { issue: string }) {
-  const key = getYouTrackKeyOfIssue(issue)
+/**
+ * The title of the issue the commits name once YouTrack told it, else the name Rust gives the review (the branch as the
+ * title bar names it, the range); the issue key a chip after it, a link with the popover of its issue
+ */
+function Headline({ issue, title }: { issue: string | null; title: string }) {
+  const key = issue === null ? null : getYouTrackKeyOfIssue(issue)
   const entry = useIssueEntry(key ?? "")
   useEffect(() => {
     if (key !== null) {
       void loadIssue(key)
     }
   }, [key])
-  const title = key !== null && entry?.status === "found" ? entry.issue.summary : null
+  const summary = key !== null && entry?.status === "found" ? entry.issue.summary : null
   return (
-    <h2 className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-base font-semibold" data-testid="review-overview-headline">
-      <LinkedText text={issue} linkClassName="text-foreground underline-offset-2 hover:underline" />
-      {title !== null && <span className="min-w-0">{title}</span>}
-    </h2>
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+      <h2 className="min-w-0 text-base font-semibold [overflow-wrap:anywhere]" data-testid="review-overview-headline">
+        {summary ?? title}
+      </h2>
+      {issue !== null && (
+        <Badge variant="secondary" className="font-mono" data-testid="review-overview-issue">
+          <LinkedText text={issue} linkClassName="text-foreground underline-offset-2 hover:underline" />
+        </Badge>
+      )}
+    </div>
   )
 }
 

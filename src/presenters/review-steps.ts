@@ -45,19 +45,13 @@ export interface Chapter {
   readonly elsewhere: readonly string[]
 }
 
-/** The subject of a commit without the issue key the brief names already: "IJAI-1 the open asks" → "The open asks" */
-export function formatStepTitle(subject: string, issue: string | null): string {
-  const rest = issue !== null && subject.startsWith(issue) ? subject.slice(issue.length).replace(/^\s*[:,\-–—]?\s*/, "") : subject
-  return rest.length === 0 ? subject : rest[0]!.toUpperCase() + rest.slice(1)
-}
-
 /** The commit whose body tells a step: the one that starts it, else its first */
 export function headOf(step: ReviewStep): StepCommit | undefined {
   return step.commits.find(commit => commit.role === "starts") ?? step.commits[0]
 }
 
 /** The chapters of the story of `plan`, from its steps in their order (`Chapter`) */
-export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief">): Chapter[] {
+export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): Chapter[] {
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   return plan.steps.steps.map((step, index) => {
     const number = index + 1
@@ -82,7 +76,8 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
         elsewhere: concern.elsewhere,
       }
     }
-    const label = step.id === NO_STORY ? WITHOUT_A_STORY : formatStepTitle(headOf(step)?.subject ?? "", plan.brief.issue)
+    // Rust titles a step by the commit that starts it, as its author wrote it
+    const label = step.id === NO_STORY ? WITHOUT_A_STORY : (step.title ?? headOf(step)?.title ?? "")
     return {
       id: step.id,
       number,
@@ -114,7 +109,7 @@ export interface PlacedCommit<T> {
   readonly id: string
   /** Its whole subject, in the hover of its row */
   readonly subject: string
-  /** Its name on its row: in a step of the commits its subject without the issue key the brief names, else its subject */
+  /** Its name on its row: the title Rust gives it (its subject without the issue key the brief names), else its subject */
   readonly title: string
   /** Its role in its step; null in Other commits */
   readonly role: CommitRole | null
@@ -142,7 +137,7 @@ function sameCommit(a: string, b: string): boolean {
 /**
  * The commits of the range in the steps of the story (spec/branch/review-tour.spec.md, "In the Review Window"): a step
  * of the commits is the commit that starts it (`heads`) and lists the others, those that follow it up and those of no
- * story, by their subject without the issue key the brief names (`issue`); a step of the concerns lists its commits, the
+ * story; each by the title Rust gives it, its subject without the issue key the brief names; a step of the concerns lists its commits, the
  * most lines first. A commit several steps list (the concerns) is listed once, in the step that lists it first (its most
  * lines there), the first of equal ones; a commit of the range no step lists goes into Other commits, in the order of
  * `items`
@@ -150,7 +145,6 @@ function sameCommit(a: string, b: string): boolean {
 export function placeCommits<T extends { readonly commit: { readonly id: string; readonly subject: string } }>(
   steps: readonly Pick<ReviewStep, "id" | "commits" | "concern">[],
   items: readonly T[],
-  issue: string | null,
 ): CommitPlaces<T> {
   const itemOf = (commit: StepCommit) => items.find(item => sameCommit(item.commit.id, commit.id))
   const orderOf = (item: T | undefined) => (item === undefined ? items.length : items.indexOf(item))
@@ -176,8 +170,7 @@ export function placeCommits<T extends { readonly commit: { readonly id: string;
       const id = item?.commit.id ?? commit.id
       if (home.get(id)?.step === step.id && !listed.has(id)) {
         listed.add(id)
-        const subject = item?.commit.subject ?? commit.subject
-        const it = { id, subject, title: ofCommits ? formatStepTitle(commit.subject, issue) : subject, role: commit.role, item, order: orderOf(item) }
+        const it = { id, subject: item?.commit.subject ?? commit.title, title: commit.title, role: commit.role, item, order: orderOf(item) }
         if (ofCommits && commit.role === "starts" && !heads.has(step.id)) {
           heads.set(step.id, it)
         } else {

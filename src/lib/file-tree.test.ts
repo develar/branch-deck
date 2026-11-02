@@ -360,7 +360,7 @@ describe("the concerns in the tree of a review", () => {
   // the commits of the range, newest first, with full ids; the plan names them short
   const item = (id: string, subject: string): ReviewCommitItem => ({ kind: "commit", key: id, commit: { id, subject } as ReviewCommit })
   const items = [item("d4d4d4d4", "bump the lock"), item("c3c3c3c3", "tidy App"), item("b2b2b2b2", "drop grep"), item("a1a1a1a1", "drop the proxy")]
-  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, role })
+  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), title: items.find(it => it.key === id)!.commit.subject, role })
   const steps = [
     { id: "p", concern: "p", commits: [commitOf("a1a1a1a1", "starts"), commitOf("b2b2b2b2", "noStory")] },
     { id: "g", concern: "g", commits: [commitOf("b2b2b2b2", "starts")] },
@@ -368,7 +368,7 @@ describe("the concerns in the tree of a review", () => {
   ]
 
   it("lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them", () => {
-    const tree = buildReviewTree(files, mechanical, concernChapters(concerns), placeCommits(steps, items, null))
+    const tree = buildReviewTree(files, mechanical, concernChapters(concerns), placeCommits(steps, items))
     expect(outline(tree)).toEqual([
       "ijproxy/",
       "  @ drop the proxy",
@@ -406,7 +406,7 @@ describe("the concerns in the tree of a review", () => {
 
   it("keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step", () => {
     const filtered = files.filter(it => it.path.startsWith("docs/tools"))
-    expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items, null)))).toEqual([
+    expect(outline(buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items)))).toEqual([
       "ijproxy/",
       "  @ drop the proxy",
       "grep → accio/",
@@ -416,7 +416,7 @@ describe("the concerns in the tree of a review", () => {
       "  @ bump the lock",
       "  @ tidy App",
     ])
-    expect(outline(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items, null)))).toEqual([
+    expect(outline(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items)))).toEqual([
       "docs/",
       "  tools.md",
       "Commits/",
@@ -429,7 +429,7 @@ describe("the concerns in the tree of a review", () => {
 
   it("lists under a search only the commits of the steps whose files it found, no Other commits, and says when it lists none", () => {
     const filtered = files.filter(it => it.path.startsWith("docs/tools"))
-    const tree = buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items, null), true)
+    const tree = buildReviewTree(filtered, mechanical, concernChapters(concerns), placeCommits(steps, items), true)
     expect(outline(tree)).toEqual(["grep → accio/", "  @ drop grep", "  docs/tools.md"])
     expect(listsCommits(tree)).toBe(true)
     // a search that finds files of no step: no commit row, the column lists the commits
@@ -437,12 +437,12 @@ describe("the concerns in the tree of a review", () => {
       files.filter(it => it.path === "src/App.kt"),
       mechanical,
       concernChapters(concerns),
-      placeCommits(steps, items, null),
+      placeCommits(steps, items),
       true,
     )
     expect(outline(unlisted)).toEqual(["Other changes/", "  src/", "    App.kt"])
     expect(listsCommits(unlisted)).toBe(false)
-    expect(listsCommits(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items, null), true))).toBe(false)
+    expect(listsCommits(buildReviewTree(filtered, mechanical, [], placeCommits(steps, items), true))).toBe(false)
     expect(listsCommits(buildReviewTree(files, mechanical, concernChapters(concerns)))).toBe(false)
   })
 
@@ -484,26 +484,36 @@ describe("the steps of the commits in the tree of a review", () => {
     item("b2b2b2b2", "IJAI-1 the paint"),
     item("a1a1a1a1", "IJAI-1 the rule"),
   ]
-  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: items.find(it => it.key === id)!.commit.subject, role })
+  // Rust titles a commit of a step by its subject without the issue key of the brief, in its author's case
+  const commitOf = (id: string, role: StepCommit["role"]): StepCommit => ({
+    id: id.slice(0, 4),
+    title: items.find(it => it.key === id)!.commit.subject.replace("IJAI-1 ", ""),
+    role,
+  })
   const steps = [
-    reviewStep("a1a1", [commitOf("a1a1a1a1", "starts"), commitOf("c3c3c3c3", "followsUp"), commitOf("d4d4d4d4", "noStory")], [["u:rule", "src/Rule.kt"]]),
-    reviewStep("b2b2", [commitOf("b2b2b2b2", "starts")], [["u:paint", "src/Paint.kt"]]),
+    reviewStep(
+      "a1a1",
+      [commitOf("a1a1a1a1", "starts"), commitOf("c3c3c3c3", "followsUp"), commitOf("d4d4d4d4", "noStory")],
+      [["u:rule", "src/Rule.kt"]],
+      {},
+      { title: "the rule" },
+    ),
+    reviewStep("b2b2", [commitOf("b2b2b2b2", "starts")], [["u:paint", "src/Paint.kt"]], {}, { title: "the paint" }),
   ]
   const chapters = presentChapters({
     steps: { source: { kind: "commits" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     concerns: [],
-    brief: { issue: "IJAI-1", contract: [] },
   })
-  const places = placeCommits(steps, items, "IJAI-1")
+  const places = placeCommits(steps, items)
 
-  it("makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key", () => {
+  it("makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key, in the case its author wrote it", () => {
     const tree = buildReviewTree(files, new Map(), chapters, places)
     expect(outline(tree)).toEqual([
-      "1 · The rule/",
-      "  @ The rule names its flag",
-      "  @ Wip",
+      "1 · the rule/",
+      "  @ the rule names its flag",
+      "  @ wip",
       "  src/Rule.kt",
-      "2 · The paint/",
+      "2 · the paint/",
       "  src/Paint.kt",
       "Other commits/",
       "  @ IJAI-1 tidy",
@@ -533,33 +543,34 @@ describe("the steps of the commits in the tree of a review", () => {
       chapters,
       places,
     )
-    expect(outline(alone)).toEqual(["1 · The rule/", "  @ The rule names its flag", "  @ Wip", "  src/Rule.kt", "2 · The paint/", "Other commits/", "  @ IJAI-1 tidy"])
+    expect(outline(alone)).toEqual(["1 · the rule/", "  @ the rule names its flag", "  @ wip", "  src/Rule.kt", "2 · the paint/", "Other commits/", "  @ IJAI-1 tidy"])
     const paintStep = alone[1] as FileTreeDirectory
     expect([paintStep.commit?.commit.subject, paintStep.children, paintStep.fileCount]).toEqual(["IJAI-1 the paint", [], 0])
     const paint = files.filter(it => it.path === "src/Paint.kt")
     expect(outline(buildReviewTree(paint, new Map(), chapters, places))).toEqual([
-      "1 · The rule/",
-      "  @ The rule names its flag",
-      "  @ Wip",
-      "2 · The paint/",
+      "1 · the rule/",
+      "  @ the rule names its flag",
+      "  @ wip",
+      "2 · the paint/",
       "  src/Paint.kt",
       "Other commits/",
       "  @ IJAI-1 tidy",
     ])
     const searched = buildReviewTree(paint, new Map(), chapters, places, true)
-    expect(outline(searched)).toEqual(["2 · The paint/", "  src/Paint.kt"])
+    expect(outline(searched)).toEqual(["2 · the paint/", "  src/Paint.kt"])
     // the step alone is its commit: the tree lists a commit
     expect(listsCommits(searched)).toBe(true)
     expect(outline(buildReviewTree(files, new Map(), [], places))).toEqual([
       "src/",
       "  Paint.kt",
       "  Rule.kt",
+      // the commits of the steps by the titles Rust gives them, a commit no step lists by its subject
       "Commits/",
       "  @ IJAI-1 tidy",
-      "  @ IJAI-1 wip",
-      "  @ IJAI-1 the rule names its flag",
-      "  @ IJAI-1 the paint",
-      "  @ IJAI-1 the rule",
+      "  @ wip",
+      "  @ the rule names its flag",
+      "  @ the paint",
+      "  @ the rule",
     ])
   })
 })

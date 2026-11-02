@@ -6,7 +6,7 @@ import { presentBodyParts } from "@/presenters/commit-body"
 import { formatConcernEvidence } from "@/presenters/review-concerns"
 import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
-import { formatStepNumber, formatStepTitle, headOf, presentChapters } from "@/presenters/review-steps"
+import { formatStepNumber, headOf, presentChapters } from "@/presenters/review-steps"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { formatUnitHeading } from "@/presenters/review-units"
 
@@ -109,11 +109,11 @@ export interface StepFacts {
   /** The links it adds between two modules ("New link between modules:"), each at its first use */
   readonly moduleLinks: readonly FactPlace[]
   /**
-   * Of a step none of whose code lands, the later commit that took it out ("Nothing of it lands: <title> took it
-   * out"): its subject and the step it is in, which a click shows; null otherwise, and for a step that lands nothing
-   * with no such commit known the line says "a later commit"
+   * Of a step none of whose code lands, the step of the later commit that took it out ("Nothing of it lands: step 5
+   * took it out"): its words, the title of that commit in their hover, and the id of the step, which a click shows; null
+   * otherwise, and for a step that lands nothing with no such commit known the line says "a later commit"
    */
-  readonly takenOutBy: { readonly title: string; readonly step: string | null } | null
+  readonly takenOutBy: { readonly words: string; readonly title: string; readonly step: string | null } | null
   /**
    * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
    * reaches paint within 3 calls" when the walk stopped with callers left
@@ -137,7 +137,7 @@ function fileName(path: string): string {
  * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
  * the links it adds between modules, and that nothing of it lands
  */
-export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "brief">): StepFacts {
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps">): StepFacts {
   const { answered, reached, unreached, scenarios } = step.tests
   const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
   const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
@@ -173,15 +173,22 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   }
 }
 
-/** The commit that took out the code of `step` (`ReviewStep.takenOutBy`) by its subject, and the step it is in */
-function takenOutOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps" | "brief">): StepFacts["takenOutBy"] {
+/**
+ * The commit that took out the code of `step` (`ReviewStep.takenOutBy`) by the step it is in ("step 5"), its title for
+ * the hover: a subject of a hundred characters inside a sentence does not read
+ */
+function takenOutOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps">): StepFacts["takenOutBy"] {
   const id = step.stops.length === 0 ? step.takenOutBy : null
   if (id === null) {
     return null
   }
-  const holder = plan.steps.steps.find(it => it.commits.some(commit => commit.id === id))
-  const subject = holder?.commits.find(commit => commit.id === id)?.subject ?? plan.steps.commits.find(commit => commit.id === id)?.subject
-  return subject === undefined ? null : { title: formatStepTitle(subject, plan.brief.issue), step: holder?.id ?? null }
+  const place = plan.steps.steps.findIndex(it => it.commits.some(commit => commit.id === id))
+  const holder = plan.steps.steps[place]
+  const title = holder?.commits.find(commit => commit.id === id)?.title ?? plan.steps.commits.find(commit => commit.id === id)?.title
+  if (title === undefined) {
+    return null
+  }
+  return { words: holder === undefined ? "a later commit" : `step ${place + 1}`, title, step: holder?.id ?? null }
 }
 
 /** A step in the contents of the overview */
@@ -221,10 +228,10 @@ export interface ContractFile {
 
 /** The overview at the top of the document, worded */
 export interface PrologueView {
-  /** The issue key the commits name, the headline of the review; null without one */
+  /** The issue key the commits name, a chip beside the headline; null without one */
   readonly issue: string | null
-  /** The headline without an issue: the branch, else the range */
-  readonly name: string
+  /** The headline Rust names (`ReviewPlan.title`): the branch as the title bar names it, else the range */
+  readonly title: string
   /**
    * Of the steps of the concerns of one commit, its story told before the steps: the lead and what names nothing of a
    * step; null otherwise
@@ -249,11 +256,6 @@ const CONTRACT_WORDS: Readonly<Record<ContractKind, string>> = {
   decision: "Decision",
   guide: "Agent guide",
   doc: "Doc",
-}
-
-/** The short form of a commit id in the headline of a range */
-function short(id: string): string {
-  return id.slice(0, 8)
 }
 
 /**
@@ -323,10 +325,9 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   })
   return {
     issue: plan.brief.issue,
-    name: plan.branch ?? `${short(plan.base)}..${short(plan.head)}`,
+    title: plan.title,
     // without a step of a task the diffs have no opening: the whole story is told here
-    untold:
-      one === null ? null : { subject: formatStepTitle(one.subject, plan.brief.issue), story: presentStory(one, block => !told || (one.toldIn[block] ?? null) === null, words) },
+    untold: one === null ? null : { subject: one.title, story: presentStory(one, block => !told || (one.toldIn[block] ?? null) === null, words) },
     contract,
     steps,
     source:
@@ -371,7 +372,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
 /** A commit of a step after the one that starts it, in its opening */
 export interface OpeningCommit {
   readonly id: string
-  /** Its subject without the issue key */
+  /** Its title, as Rust gives it: its subject without the issue key */
   readonly title: string
   /** Its story, which its disclosure opens; null for a commit of no story */
   readonly story: StoryView | null
@@ -398,14 +399,14 @@ export interface OpeningView {
 }
 
 /** The opening of each step of `plan` by its id (`OpeningView`) */
-export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief" | "api" | "links" | "units">): Map<string, OpeningView> {
+export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "units">): Map<string, OpeningView> {
   const words = mentionWords(plan)
   const chapters = presentChapters(plan)
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   const one = storyOfOneCommit(plan)
-  const commitOf = (id: string, subject: string, withStory: boolean): OpeningCommit => {
+  const commitOf = (id: string, title: string, withStory: boolean): OpeningCommit => {
     const story = withStory ? storyOf(plan, id) : undefined
-    return { id, title: formatStepTitle(subject, plan.brief.issue), story: story === undefined ? null : presentStory(story, undefined, words) }
+    return { id, title, story: story === undefined ? null : presentStory(story, undefined, words) }
   }
   return new Map(
     plan.steps.steps.map((step, index): [string, OpeningView] => {
@@ -420,7 +421,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
             : presentStory(one, block => one.toldIn[block] === index, words)
           : starts === undefined
             ? null
-            : commitOf(starts.id, starts.subject, true).story
+            : commitOf(starts.id, starts.title, true).story
       const rest = concern === undefined ? step.commits.filter(commit => commit !== starts) : []
       return [
         step.id,
@@ -431,8 +432,8 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
           code: chapter.code,
           evidence: concern === undefined ? null : formatConcernEvidence(concern.evidence),
           story: story === null || (story.lead === null && story.shown.length === 0 && story.folded.length === 0) ? null : story,
-          followUps: rest.filter(commit => commit.role === "followsUp").map(commit => commitOf(commit.id, commit.subject, true)),
-          withoutStory: rest.filter(commit => commit.role === "noStory").map(commit => commitOf(commit.id, commit.subject, false)),
+          followUps: rest.filter(commit => commit.role === "followsUp").map(commit => commitOf(commit.id, commit.title, true)),
+          withoutStory: rest.filter(commit => commit.role === "noStory").map(commit => commitOf(commit.id, commit.title, false)),
           facts: presentStepFacts(step, plan),
         },
       ]
@@ -486,7 +487,7 @@ function lineOf(block: CommitBodyBlock | undefined, item: number): string {
  * opening, the concerns of one commit where `toldIn` says, the rest in the overview; a follow-up is folded under its
  * step and marks nothing
  */
-export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief" | "units">, sections: readonly NarrativeSection[]): Map<string, StoryMark[]> {
+export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "units">, sections: readonly NarrativeSection[]): Map<string, StoryMark[]> {
   const chapters = presentChapters(plan)
   const words = mentionWords(plan)
   const steps = plan.steps.steps

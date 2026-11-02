@@ -500,7 +500,7 @@ test.describe("Review window", () => {
     // All Changes: every commit in the tree, the one of the review says so, as the boundary of the column did
     await expect(column).toHaveText(["All Changes4 commits", "Since Your Review2 commits"])
     await expect(commitSubjects).toHaveCount(4)
-    const reviewedRow = tree.getByRole("treeitem", { name: "ABC-123 Add password hashing utility", exact: true })
+    const reviewedRow = tree.getByRole("treeitem", { name: "Add password hashing utility", exact: true })
     await expect(reviewedRow.getByTestId("review-commit-review")).toHaveText("Your review")
     await expect(reviewedRow).toHaveAttribute("aria-description", /Your review/)
     await expect(tree.getByTestId("review-commit-review")).toHaveCount(1)
@@ -508,7 +508,7 @@ test.describe("Review window", () => {
     // Since Your Review: its own plan, only the two commits after the review in its tree, none the user saw
     await column.filter({ hasText: "Since Your Review" }).click()
     await expect(column.nth(1)).toHaveAttribute("aria-selected", "true")
-    await expect.poll(async () => (await commitSubjects.allTextContents()).toSorted()).toEqual(["ABC-123 Add authentication tests", "ABC-123 Add session management"])
+    await expect.poll(async () => (await commitSubjects.allTextContents()).toSorted()).toEqual(["Add authentication tests", "Add session management"])
     await expect(column).toHaveText(["All Changes4 commits", "Since Your Review2 commits"])
     await expect(tree.getByTestId("review-commit-review")).toHaveCount(0)
   })

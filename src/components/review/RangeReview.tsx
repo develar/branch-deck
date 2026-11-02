@@ -43,6 +43,8 @@ export interface RangeReviewProps {
   plan?: ReviewPlanState | null
   /** The facts of the review plan of the scope: the badges of the files, the Mechanical group */
   reviewFacts?: CommitReviewProps["reviewFacts"]
+  /** The overview names what is reviewed; false where a title above names it already (the island of a pull request) */
+  planHeadline?: boolean
 }
 
 /**
@@ -69,6 +71,7 @@ export function RangeReview({
   commitMenu,
   plan = null,
   reviewFacts,
+  planHeadline = true,
 }: RangeReviewProps) {
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
@@ -134,7 +137,7 @@ export function RangeReview({
               }}
             />
           ) : plan === null ? undefined : (
-            <ReviewPrologue state={plan} />
+            <ReviewPrologue state={plan} headline={planHeadline} />
           )
         }
       />

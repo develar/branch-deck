@@ -18,7 +18,8 @@
 //! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
 //! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code
 //! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, `toldIn`) in place
-//! of the `body` of each commit of a step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, and `told`
+//! of the `body` of each commit of a step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
+//! the `title` of each commit in place of its `subject` (without the issue key of the brief) and the `title` of the plan
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -110,6 +111,9 @@ pub struct ReviewPlanOutput {
   pub repository: String,
   /// The full name of the branch (`{prefix}/virtual/<name>` for a virtual branch); `null` for a range
   pub branch: Option<String>,
+  /// The name of what is reviewed: a branch of the prefix by its name (`layout` of `jane/virtual/layout`), a range by
+  /// its short ids
+  pub title: String,
   /// The reviewed commits are `base..head`: for a branch the merge base of its tip and `--base` (else the baseline),
   /// and its tip
   pub base: String,
@@ -462,6 +466,7 @@ pub fn review_plan(context: &RepoContext, args: &ReviewPlanArgs) -> Result<Revie
     head: short.get(&plan.head).to_string(),
     interdiff: plan.interdiff.as_ref().map(|interdiff| interdiff_output(interdiff, &short)),
     branch: plan.branch,
+    title: plan.title,
     api: plan.api.into_iter().map(api_output).collect(),
     files: plan.files.into_iter().map(file_output).collect(),
     links: plan.links.into_iter().map(link_output).collect(),

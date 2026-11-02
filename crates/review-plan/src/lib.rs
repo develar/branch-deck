@@ -54,6 +54,7 @@ use crate::pair::{ChangedLines, pair_blocks};
 use crate::steps::{ReviewSteps, StepsInput, add_tests, review_steps};
 use crate::units::{ReviewUnit, review_units};
 use anyhow::Result;
+use domain_types::branch_names::{BranchKind, kept_branch_name, strip_branch_namespace};
 use file_diffs::accio::SymbolIndex;
 use file_diffs::service::FileDiffs;
 use generated_files::attributes::attribute_generated_paths;
@@ -118,6 +119,11 @@ pub enum ReviewSubject {
 pub struct ReviewPlan {
   /// The full name of the reviewed branch, `None` for a range
   pub branch: Option<String>,
+  /// The name of what is reviewed, the headline of its overview: a branch of the prefix by its name as the title bar
+  /// shows it (`layout` of `jane/virtual/layout`, `docs` of `jane/unapplied/docs`), another branch by its full name, a
+  /// range by its short ids (`795c45d5..ccf33d6d`), a commit by its short id. The page shows the title of the issue the
+  /// brief names in its place once YouTrack told it, and none under the title of a pull request
+  pub title: String,
   /// The commits reviewed are `base..head`: for a branch the merge base of its tip and its base, and its tip
   pub base: String,
   pub head: String,
@@ -212,6 +218,8 @@ pub fn review_plan_core(git: &GitCommandExecutor, sources: PlanSources<'_>, bran
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedSubject {
   pub branch: Option<String>,
+  /// `ReviewPlan::title`
+  pub title: String,
   pub base: String,
   pub head: String,
   pub interdiff: Option<Interdiff>,
@@ -228,6 +236,7 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
       let BranchOnBase { branch, tip, base } = branch_on_base(git, repository_path, &refs.branches, branch_prefix, name, (base.as_deref(), baseline_branch.as_deref()))?;
       let interdiff = refs.reviewed(&branch).map(|reviewed| interdiff(git, repository_path, &reviewed, &base, &tip)).transpose()?;
       Ok(ResolvedSubject {
+        title: branch_title(&branch, branch_prefix),
         branch: Some(branch),
         base,
         head: tip,
@@ -238,10 +247,12 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
       if params.since_reviewed {
         return Err(SinceReviewedOfRange(format!("{base}..{head}")).into());
       }
+      let (base, head) = (resolved(git, repository_path, base)?, resolved(git, repository_path, head)?);
       Ok(ResolvedSubject {
         branch: None,
-        base: resolved(git, repository_path, base)?,
-        head: resolved(git, repository_path, head)?,
+        title: format!("{}..{}", short_id(&base), short_id(&head)),
+        base,
+        head,
         interdiff: None,
       })
     }
@@ -250,14 +261,30 @@ pub fn resolve_subject(git: &GitCommandExecutor, branch_prefix: &str, params: &R
         return Err(SinceReviewedOfRange(id.clone()).into());
       }
       // a root commit has no parent to read it against: `UnknownRevision` of `<id>^`
+      let head = resolved(git, repository_path, id)?;
       Ok(ResolvedSubject {
         branch: None,
+        title: short_id(&head).to_string(),
         base: resolved(git, repository_path, &format!("{id}^"))?,
-        head: resolved(git, repository_path, id)?,
+        head,
         interdiff: None,
       })
     }
   }
+}
+
+/// The name of a reviewed branch (`ReviewPlan::title`): a virtual branch of the prefix by its name, a kept one by the
+/// branch it was, another by its full name
+fn branch_title(branch: &str, branch_prefix: &str) -> String {
+  strip_branch_namespace(branch, branch_prefix, BranchKind::Virtual)
+    .or_else(|| kept_branch_name(branch, branch_prefix))
+    .unwrap_or(branch)
+    .to_string()
+}
+
+/// The short form of a commit id in the title of a range
+fn short_id(id: &str) -> &str {
+  id.get(..8).unwrap_or(id)
 }
 
 /// The plan of `subject` (`resolve_subject` of `params`): `pending` gets it once without the usages of the API and the
@@ -270,7 +297,13 @@ pub fn review_plan_of(
   pending: impl FnOnce(&ReviewPlan),
 ) -> Result<ReviewPlan> {
   let repository_path = params.repository_path.as_str();
-  let ResolvedSubject { branch, base, head, interdiff } = subject;
+  let ResolvedSubject {
+    branch,
+    title,
+    base,
+    head,
+    interdiff,
+  } = subject;
   let carried = interdiff
     .as_ref()
     .and_then(|found| found.scope.as_ref())
@@ -348,6 +381,7 @@ pub fn review_plan_of(
     links: &links,
     contract: &brief.contract,
     api: &api,
+    issue: brief.issue.as_deref(),
   });
   let interdiff = interdiff.map(|mut found| {
     if params.since_reviewed {
@@ -357,6 +391,7 @@ pub fn review_plan_of(
   });
   let mut plan = ReviewPlan {
     branch,
+    title,
     base,
     head,
     interdiff,

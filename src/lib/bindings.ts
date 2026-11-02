@@ -6444,6 +6444,13 @@ export type ReviewPathsSource =
 export type ReviewPlan = {
 	/**  The full name of the reviewed branch, `None` for a range */
 	branch: string | null,
+	/**
+	 *  The name of what is reviewed, the headline of its overview: a branch of the prefix by its name as the title bar
+	 *  shows it (`layout` of `jane/virtual/layout`, `docs` of `jane/unapplied/docs`), another branch by its full name, a
+	 *  range by its short ids (`795c45d5..ccf33d6d`), a commit by its short id. The page shows the title of the issue the
+	 *  brief names in its place once YouTrack told it, and none under the title of a pull request
+	 */
+	title: string,
 	/**  The commits reviewed are `base..head`: for a branch the merge base of its tip and its base, and its tip */
 	base: string,
 	head: string,
@@ -6752,8 +6759,10 @@ export type ReviewStep = {
 	 */
 	moduleLinks: number[],
 	/**
-	 *  Of a step of the concerns of one commit: the label of the first labelled section of its body the step tells
-	 *  (`story::add_story_titles`), its title; the name of its concern stays the evidence that joined it. `None` otherwise
+	 *  Its title wherever the review names it: of a step of the commits, the title of the commit that starts it
+	 *  (`commit_title`); of a step of the concerns of one commit, the label of the first labelled section of its body the
+	 *  step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
+	 *  changes without a story and a concern no section names, which the page names by its evidence
 	 */
 	title: string | null,
 	/**
@@ -7892,8 +7901,11 @@ export type StepBlocker =
 /**  A commit of a step; its body is its `StoryCommit` of `ReviewSteps::commits` */
 export type StepCommit = {
 	id: string,
-	/**  Its subject without the `(prefix)` that groups it */
-	subject: string,
+	/**
+	 *  Its title (`commit_title`): its subject without the `(prefix)` that groups it and the issue key the brief names,
+	 *  in the case its author wrote it
+	 */
+	title: string,
 	role: CommitRole,
 };
 
@@ -8132,8 +8144,11 @@ export type StoreTips = {
 /**  A commit of the range whose body has a block, its story once */
 export type StoryCommit = {
 	id: string,
-	/**  Its subject without the `(prefix)` that groups it */
-	subject: string,
+	/**
+	 *  Its title (`steps::commit_title`): its subject without the `(prefix)` and the issue key the brief names, as its
+	 *  author wrote it
+	 */
+	title: string,
 	body: CommitBody,
 	/**  The code names of its blocks, in the order of the body */
 	mentions: Mention[],

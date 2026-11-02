@@ -22,8 +22,8 @@ fn prints_the_commits_since_the_review() {
   let (exit_code, output) = run_in(&repo, &["--full-ids", "review-plan", "auth", "--since-reviewed"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
-    (&output["schema"], &output["branch"], &output["base"], &output["head"]),
-    (&json!(14), &json!("test-user/virtual/auth"), &json!(base), &json!(tip))
+    (&output["schema"], &output["branch"], &output["title"], &output["base"], &output["head"]),
+    (&json!(14), &json!("test-user/virtual/auth"), &json!("auth"), &json!(base), &json!(tip))
   );
   assert_eq!(
     output["interdiff"],
@@ -163,7 +163,7 @@ fn prints_the_api_and_the_files_of_a_range() {
   // one it does not (`target: null`); its blocks before the steps, which name them in no section
   let story = &output["steps"]["commits"];
   assert_eq!(
-    (&story[0]["id"], &story[0]["subject"], &story[0]["body"]["trailers"], &story[0]["toldIn"]),
+    (&story[0]["id"], &story[0]["title"], &story[0]["body"]["trailers"], &story[0]["toldIn"]),
     (&output["head"], &json!("Change api"), &json!(["Co-Authored-By: Jane <jane@example.com>"]), &json!([null])),
     "{output}"
   );

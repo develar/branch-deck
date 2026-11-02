@@ -84,7 +84,8 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   section such as `Tests:` or `Evidence:` is no labelled part and its lines do not count, nor is a Look closely a
   labelled part) must start its step however much of an earlier step's code it rewrites: its story, its Look closely included, is never folded
   under another step. A step none of whose code lands must name the later commit that took out the most of what it
-  wrote (`takenOutBy`): "Nothing of it lands: <subject> took it out", the subject showing that commit's step.
+  wrote (`takenOutBy`): "Nothing of it lands: step 5 took it out", "step 5" showing that commit's step, its title in the
+  hover; a subject inside the sentence does not read.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`, `a_commit_rewritten_whole_follows_the_step_of_the_commit_that_rewrote_it`, `a_commit_with_a_story_of_its_own_starts_a_step_though_it_rewrites_the_code_of_another`)
   [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should start a step at a commit with a story of its own though it rewrites the code of others, and name it in a step it took the code of, which shows its step`)
@@ -92,7 +93,15 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   units only such commits wrote are the step `no-story`, last.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
 - The commits of a step must be the one that starts it, then those that follow it up, then those of no story, each
-  with its subject; its body is told once, in the story of the commits ([The Story of a Commit](#the-story-of-a-commit)).
+  with its title; its body is told once, in the story of the commits ([The Story of a Commit](#the-story-of-a-commit)).
+  Rust titles every commit it names (`StepCommit.title`, `StoryCommit.title`) and a step of the commits by the commit
+  that starts it (`ReviewStep.title`): its subject without the `(prefix)` and the issue key the brief names, with a
+  `:`, `,` or dash after it, in the case its author wrote it, never capitalised, so the tree, the contents, the
+  opening, the bar and the card of one commit write it alike. The plan names what is reviewed (`ReviewPlan.title`): a
+  branch of the prefix as the title bar does (`layout`), another branch by its full name, a range by its short ids.
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_case_of_its_author`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`since_the_review_the_api_is_that_of_the_diff_from_the_reviewed_change`)
+  [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 - A mechanical part must follow the step of the commit that wrote it, at its end: the imports a step needs, the
   generated files of its sources.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_mechanical_change_follows_the_step_that_wrote_it`)
@@ -202,13 +211,15 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 
 ### In the Review Window
 - With the review plan, the right column must be one document that scrolls: the overview first (`ReviewPrologue`),
-  then the story of the diffs. The overview must open on its headline: the issue key, a link with the popover of its
-  issue, and the title YouTrack gives it, else the branch, else the range of the commits; a commit shown alone its
+  then the story of the diffs. The overview must open on its headline: the title YouTrack gives the issue the commits
+  name once it is known, else the name the plan gives (`ReviewPlan.title`: the branch as the title bar names it, the
+  range of the commits), the issue key a chip after it, a link with the popover of its issue; none under the title of
+  a pull request, which names it already; a commit shown alone its
   whole heading and message instead (`range-review-commit-header`: its subject, meta line, action and menu, its body
   whole, of the concerns of its own plan the parts of it told before the steps). Then What Changes, one header per
   file ("Spec rule", "Decision", "Agent guide", "Doc" and its path, which open the file), under it each changed block:
   the heading of its section, "Proven by restart.json", its paragraphs; then the Steps, each its number and its full
-  title (the subject of the commit that starts it, without the issue key and the `(prefix)`; a step of the concerns
+  title (the title Rust gives the commit that starts it; a step of the concerns
   its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one line ("Tests of
   this change reach allowed", "1 test it did not touch reaches focus", "Proven by …", "No test reaches show", "New API:
   Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place); a step accio answered for
@@ -254,7 +265,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the bar of the step does, the opening at the top, the bar and the tree following. The header of a file names the
   file alone (no step, no group), so the name of every file stands at one x.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
-  [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by the label of the section of the body it tells, else by its concern as code, keeps its main rows, and tells no step of a story Rust tells in none`)
+  [@test] ../../src/presenters/review-steps.test.ts (`names a step by the title Rust gives it, in the case its author wrote it, a step of no story by what it is`, `names a step of a concern by the label of the section of the body it tells, else by its concern as code, keeps its main rows, and tells no step of a story Rust tells in none`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should title each task of one commit by the label of the section of its body it tells`, `should tell no step of the one concern that covers the range: no Steps, no opening, no place in the bar`)
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_concerns_are_the_steps_when_the_commits_tell_no_story`)
   [@test] ../../src/lib/diff/layout.test.ts (`puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
@@ -262,13 +273,13 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree. The group
   row of a step of the commits is the commit that starts it ("2 · The open keeps a stored layout": no row of its own
   repeats the title); under it the rows of the commits that follow it up and of those without a story, each by its
-  subject without the issue key the brief names, which gets the width of the row: the indent says what it is, the
+  title, which gets the width of the row: the indent says what it is, the
   description of the row says it in words ("follows up", "no story"), no word on the row; then its files, a file
   of a group its directory after its name whole or not at all, never cut to its last letters. A group of a step of the
   concerns lists its commit rows as they are, the most lines first. A commit several concerns list is listed once, in
   the one that lists it first, the first of equal ones; a step that lands nothing keeps its group for its commits; the
   commits no group lists (of no step, of what no evidence joined) close the tree in "Other commits" ("Commits" when the
-  tree has no step), by their subjects, as the range lists them. The plan names a commit short, the range in full:
+  tree has no step), by their titles (a commit no step lists by its subject), as the range lists them. The plan names a commit short, the range in full:
   they match by prefix. A scope lists only its own commits: "Since Your Review" of a pull request the commits after
   the reviewed one, not those the user saw. A commit row, and the row of a step of the commits, shows what it is
   since the review ("New"/"Rewritten"), "Your review" on the reviewed commit of a pull request (the boundary of the
@@ -285,7 +296,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`, `should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes`)
   [@test] ../../src/presenters/review-steps.test.ts (`places each commit of the range in the step it tells or follows up, the one that starts a step of the commits as its step, a commit of the concerns once, the rest in Other commits`)
-  [@test] ../../src/lib/file-tree.test.ts (`lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them`, `keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step`, `makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key`, `keeps the group of a step that lands nothing as its commit, lists a step under a search only with a file it found, and its commit in Commits without a step`)
+  [@test] ../../src/lib/file-tree.test.ts (`lists the commits of each step above its files, and those of no group (what no evidence joined, no step) last in Other commits, as the range lists them`, `keeps the group of a step that lands nothing for its commits, and lists every commit under Commits without a step`, `makes the group of a step the commit that starts it, and lists its rounds and the commits of no story without the issue key, in the case its author wrote it`, `keeps the group of a step that lands nothing as its commit, lists a step under a search only with a file it found, and its commit in Commits without a step`)
   [@test] ../../src/lib/range-review.test.ts (`lists in the story of Since Your Review only the commits after the review, in All Changes every commit, the reviewed one marked`, `lists all changes, then the commits of the reviewed branch first, each branch headed by its name`)
 - While the search of the files has text, the tree is what it found: only a group with a file it kept lists its
   commits, and no "Other commits". While the tree lists no commit (the search kept none of their groups or no file,
@@ -352,7 +363,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   "source": {"kind": "commits"},
   "steps": [
     {"id": "8fd70458",
-     "commits": [{"id": "8fd70458", "subject": "IJAI-4673 the project open shows the Project view only when …",
+     "commits": [{"id": "8fd70458", "title": "the project open shows the Project view only when …",
                   "role": "starts"}],
      "concern": null,
      "stops": [
@@ -369,10 +380,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
                                        "name": "the first-run policy activates the project view", "depth": 2,
                                        "via": ["keepingStoredLayout"]}]}],
                "unreached": [{"name": "openProjectViewIfNeeded", "within": 3}], "scenarios": []},
-     "newApi": [], "moduleLinks": []}],
+     "newApi": [], "moduleLinks": [], "title": "the project open shows the Project view only when …", "takenOutBy": null}],
   "coverage": {"blocks": 76, "inStops": 76, "mechanical": 0, "missing": 0, "twice": 0},
   "commits": [
-    {"id": "8fd70458", "subject": "IJAI-4673 the project open shows the Project view only when …",
+    {"id": "8fd70458", "title": "the project open shows the Project view only when …",
      "body": {"blocks": [{"type": "paragraph", "lines": ["Three startup steps showed the Project view at each open: …"]},
                          {"type": "label", "text": "Tests", "kind": "verification", "runIn": false},
                          {"type": "list", "ordered": false, "start": 1, "items": ["DeferredToolWindowRegistrationTest …"]}],

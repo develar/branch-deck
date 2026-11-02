@@ -1,47 +1,34 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
-import {
-  formatCommitRole,
-  formatStepDivider,
-  formatStepNumber,
-  formatStepTitle,
-  placeCommits,
-  presentChapters,
-  presentOwnerMarks,
-  WITHOUT_A_STORY,
-} from "@/presenters/review-steps"
+import { formatCommitRole, formatStepDivider, formatStepNumber, placeCommits, presentChapters, presentOwnerMarks, WITHOUT_A_STORY } from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 import { reviewStep, stepCommit } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
 
-function plan(steps: ReviewStep[], issue: string | null = null, concerns: Concern[] = []): Pick<ReviewPlan, "steps" | "concerns" | "brief"> {
+function plan(steps: ReviewStep[], concerns: Concern[] = []): Pick<ReviewPlan, "steps" | "concerns"> {
   return {
     steps: { source: { kind: "commits" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     concerns,
-    brief: { issue, contract: [] },
   }
 }
 
 describe("review steps", () => {
-  it("names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is", () => {
-    expect(formatStepTitle("IJAI-1 the open asks the layout", "IJAI-1")).toBe("The open asks the layout")
-    expect(formatStepTitle("IJAI-1: the open asks", "IJAI-1")).toBe("The open asks")
-    expect(formatStepTitle("the open asks", null)).toBe("The open asks")
+  it("names a step by the title Rust gives it, in the case its author wrote it, a step of no story by what it is", () => {
     const chapters = presentChapters(
-      plan([step("a", [commit("IJAI-1 the rule")], [["u:rule", "src/Rule.kt"]]), step("no-story", [commit("wip", "noStory")], [["u:wip", "src/Wip.kt"]])], "IJAI-1"),
+      plan([step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], {}, { title: "the rule" }), step("no-story", [commit("wip", "noStory")], [["u:wip", "src/Wip.kt"]])]),
     )
     expect(chapters.map(chapter => [chapter.number, chapter.label, chapter.heading, chapter.reference, chapter.parts.length])).toEqual([
-      [1, "The rule", "1 · The rule", "step 1", 1],
+      [1, "the rule", "1 · the rule", "step 1", 1],
       [2, WITHOUT_A_STORY, `2 · ${WITHOUT_A_STORY}`, "step 2", 1],
     ])
     // the divider above the first section of each in the diffs: its number muted, then its title; the hover of the map
     expect(chapters.map(chapter => [formatStepNumber(chapter.number), chapter.label])).toEqual([
-      ["Step 1", "The rule"],
+      ["Step 1", "the rule"],
       ["Step 2", WITHOUT_A_STORY],
     ])
-    expect(chapters.map(chapter => formatStepDivider(chapter))).toEqual(["Step 1 · The rule", `Step 2 · ${WITHOUT_A_STORY}`])
+    expect(chapters.map(chapter => formatStepDivider(chapter))).toEqual(["Step 1 · the rule", `Step 2 · ${WITHOUT_A_STORY}`])
   })
 
   it("names a step of a concern by the label of the section of the body it tells, else by its concern as code, keeps its main rows, and tells no step of a story Rust tells in none", () => {
@@ -54,7 +41,7 @@ describe("review steps", () => {
       evidence: [{ kind: "token", detail: "ij-proxy", joins: 2 }],
       fingerprint: "f",
     }
-    const of = plan([{ ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c" }], null, [concern])
+    const of = plan([{ ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c" }], [concern])
     const [chapter] = presentChapters(of)
     expect([chapter!.label, chapter!.heading, chapter!.hover, chapter!.elsewhere, formatStepDivider(chapter!)]).toEqual([
       "proxy",
@@ -77,7 +64,6 @@ describe("review steps", () => {
           { ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c", title: "The proxy" },
           { ...step("t", [commit("one")], [["u:b", "b.json"]]), concern: "t" },
         ],
-        null,
         [concern, theme],
       ),
     )
@@ -116,11 +102,11 @@ describe("review steps", () => {
     // the range lists full ids, newest first; the plan names them as its input did, maybe short
     const item = (id: string, subject: string) => ({ key: `key-${id}`, commit: { id, subject } })
     const items = [item("e5e5e5e5", "unrelated"), item("d4d4d4d4", "wip"), item("c3c3c3c3", "the rule again"), item("b2b2b2b2", "the paint"), item("a1a1a1a1", "the rule")]
-    const short = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), subject: id, role })
+    // Rust names a commit of a step by its title
+    const short = (id: string, role: StepCommit["role"]): StepCommit => ({ id: id.slice(0, 4), title: items.find(it => it.commit.id === id)?.commit.subject ?? id, role })
     const told = placeCommits(
       [step("a1a1", [short("a1a1a1a1", "starts"), short("c3c3c3c3", "followsUp"), short("d4d4d4d4", "noStory")], []), step("b2b2", [short("b2b2b2b2", "starts")], [])],
       items,
-      null,
     )
     // a step of the commits is the commit that starts it; it lists the others, each by its title
     expect([...told.heads].map(([id, it]) => [id, it.id, it.subject, it.item?.key])).toEqual([
@@ -137,25 +123,23 @@ describe("review steps", () => {
       ],
     ])
     expect(told.other.map(it => [it.id, it.role])).toEqual([["e5e5e5e5", null]])
-    // the title of a commit of a step of the commits has no issue key the brief names; of a concern and of Other commits
-    // it is the subject
+    // a commit of a step by the title Rust gives it, its whole subject in its hover; a commit of no step by its subject
     const keyed = placeCommits(
       [
         step(
           "a1a1",
           [
-            { id: "a1a1", subject: "IJAI-1 the rule", role: "starts" },
-            { id: "c3c3", subject: "IJAI-1: the rule again", role: "followsUp" },
+            { id: "a1a1", title: "the rule", role: "starts" },
+            { id: "c3c3", title: "the rule again", role: "followsUp" },
           ],
           [],
         ),
       ],
       [item("c3c3c3c3", "IJAI-1: the rule again"), item("a1a1a1a1", "IJAI-1 the rule"), item("e5e5e5e5", "IJAI-1 unrelated")],
-      "IJAI-1",
     )
     expect([keyed.heads.get("a1a1")?.title, keyed.steps.get("a1a1")?.map(it => [it.title, it.subject]), keyed.other.map(it => it.title)]).toEqual([
-      "The rule",
-      [["The rule again", "IJAI-1: the rule again"]],
+      "the rule",
+      [["the rule again", "IJAI-1: the rule again"]],
       ["IJAI-1 unrelated"],
     ])
     // the concerns list a commit in each concern of its lines, the most lines first: it is listed in the one that lists it
@@ -168,7 +152,6 @@ describe("review steps", () => {
         step("look", [short("c3c3c3c3", "starts")], []),
       ].map(it => ({ ...it, concern: it.id })),
       items,
-      "IJAI-1",
     )
     expect([...concerns.steps].map(([id, commits]) => [id, commits.map(it => [it.id, it.item === undefined])])).toEqual([
       ["proxy", [["b2b2b2b2", false]]],
@@ -182,7 +165,7 @@ describe("review steps", () => {
       ],
     ])
     expect(concerns.other.map(it => it.id)).toEqual(["e5e5e5e5", "d4d4d4d4"])
-    // a step of the concerns is no commit: each lists its commits, by their subject
+    // a step of the concerns is no commit: each lists its commits, by their titles
     expect([concerns.heads.size, concerns.steps.get("proxy")?.[0]?.title]).toEqual([0, "the paint"])
   })
 
@@ -206,8 +189,8 @@ describe("review steps", () => {
     )
     const sections = presentNarrative(units, [{ path: "src/Manager.kt", blocks: [block] }], [], [], chapters)
     expect(sections.map(section => [section.key, section.concernHeading, [...(section.units?.marks ?? [])], [...(section.units?.elsewhere ?? [])]])).toEqual([
-      ["file:src/Manager.kt", "1 · Drop the hooks", [], [[0, "hooks — removed · shown in step 2"]]],
-      ["file:src/Manager.kt#1", "2 · The rule", [[0, "allowed — new · hooks — removed"]], []],
+      ["file:src/Manager.kt", "1 · drop the hooks", [], [[0, "hooks — removed · shown in step 2"]]],
+      ["file:src/Manager.kt#1", "2 · the rule", [[0, "allowed — new · hooks — removed"]], []],
     ])
   })
 })

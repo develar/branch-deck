@@ -30,7 +30,7 @@ fn mentions(plan: &ReviewPlan, subject: &str) -> Vec<MentionWords> {
 }
 
 fn story<'a>(plan: &'a ReviewPlan, subject: &str) -> &'a StoryCommit {
-  plan.steps.commits.iter().find(|commit| commit.subject == subject).unwrap()
+  plan.steps.commits.iter().find(|commit| commit.title == subject).unwrap()
 }
 
 /// The facts of a step as a test reads them: its new API by key, its new links between modules by their files

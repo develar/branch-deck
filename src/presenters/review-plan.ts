@@ -24,6 +24,7 @@ import type {
 // only word them in the order Rust sent.
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
+import { capitalize } from "@/lib/text"
 import { GENERATED_NAME_WORDS } from "@/presenters/collapse"
 
 /** What the commit column says of a commit since the review: "New", "Rewritten"; nothing of the others */
@@ -440,10 +441,6 @@ export interface RowFacts {
   readonly sections: readonly RowFactsSection[]
 }
 
-function capitalized(text: string): string {
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`
-}
-
 /** The mark of a row from the badges of its file and the dependency changes it carries; null when it has neither */
 export function presentRowFacts(file?: FileBadges, dependency?: DependencyBadge): RowFacts | null {
   if (file === undefined && dependency === undefined) {
@@ -454,14 +451,14 @@ export function presentRowFacts(file?: FileBadges, dependency?: DependencyBadge)
     sections.push({ kind: "breaks", title: "Breaks", label: file.breaks.label, why: file.breaks.title, tone: file.breaks.tone })
   }
   if (file !== undefined && file.usesLinks.length > 0) {
-    const title = [capitalized(file.uses ?? "uses"), file.newLinks].filter(part => part !== null).join(" · ")
+    const title = [capitalize(file.uses ?? "uses"), file.newLinks].filter(part => part !== null).join(" · ")
     sections.push({ kind: "uses", title, links: file.usesLinks })
   }
   if (file !== undefined && file.usedByLinks.length > 0) {
-    sections.push({ kind: "usedBy", title: capitalized(file.usedBy ?? "used by"), links: file.usedByLinks })
+    sections.push({ kind: "usedBy", title: capitalize(file.usedBy ?? "used by"), links: file.usedByLinks })
   }
   if (file?.sameEdit != null) {
-    sections.push({ kind: "sameEdit", title: capitalized(file.sameEdit.label), edit: file.sameEdit.edit, files: file.sameEdit.files })
+    sections.push({ kind: "sameEdit", title: capitalize(file.sameEdit.label), edit: file.sameEdit.edit, files: file.sameEdit.files })
   }
   if (dependency !== undefined) {
     sections.push({ kind: "dependencies", title: `Dependencies · ${dependency.label}`, lines: dependency.lines })

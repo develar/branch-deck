@@ -1,5 +1,6 @@
 import type { MoveChange, MoveCommitsResult } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
+import { capitalize } from "@/lib/text"
 
 /** The commits a move changes: those not already where they go */
 export function countMoved(result: MoveCommitsResult): number {
@@ -63,9 +64,4 @@ export function describeDoneMove(result: MoveCommitsResult, target: string | nul
   const title = target !== null ? `Moved ${commits} to ${target}` : onlyPrefixes ? `Removed the prefix of ${commits}` : `Moved ${commits} back`
   const description = describeMove(result, target, true, onlyPrefixes ? "PrefixRemoved" : null)
   return { title, description: description === undefined ? undefined : capitalize(description) }
-}
-
-/** The text with a capital first letter, as a toast description starts */
-export function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }

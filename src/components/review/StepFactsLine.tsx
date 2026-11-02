@@ -55,8 +55,8 @@ function FactPlaces({ title, places, testId }: { title: string; places: readonly
 }
 
 /**
- * "Nothing of it lands: <subject> took it out", the subject showing the step of that commit: a button of the text, not
- * a `button` element, which would be a box of its own and break the line around a long subject
+ * "Nothing of it lands: step 5 took it out", "step 5" showing that step, the title of the commit that took the code out
+ * in its hover: a button of the text, as the other names of the line
  */
 function TakenOutBy({ commit }: { commit: NonNullable<StepFacts["takenOutBy"]> }) {
   const navigator = useSelectReviewFile()
@@ -70,22 +70,16 @@ function TakenOutBy({ commit }: { commit: NonNullable<StepFacts["takenOutBy"]> }
   return (
     <span>
       {"Nothing of it lands: "}
-      <span
-        role="button"
-        tabIndex={enabled ? 0 : -1}
-        aria-disabled={!enabled}
-        className="rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 aria-disabled:no-underline"
+      <button
+        type="button"
+        disabled={!enabled}
+        title={commit.title}
+        className="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30 disabled:text-muted-foreground disabled:no-underline"
         data-testid="review-step-taken-out-by"
         onClick={show}
-        onKeyDown={event => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault()
-            show()
-          }
-        }}
       >
-        {commit.title}
-      </span>
+        {commit.words}
+      </button>
       {" took it out"}
     </span>
   )

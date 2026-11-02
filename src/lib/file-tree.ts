@@ -329,7 +329,8 @@ function withOtherCommits(nodes: FileTreeNode[], commits: CommitPlaces<ReviewCom
   }
   const ungrouped = (step: string) => !grouped.has(step)
   const listed = [...[...commits.heads].filter(([step]) => ungrouped(step)).map(([, head]) => head), ...[...commits.steps].flatMap(([step, list]) => (ungrouped(step) ? list : []))]
-  const rest = [...listed, ...commits.other].map(commit => ({ ...commit, title: commit.subject, role: null })).toSorted((a, b) => a.order - b.order)
+  // without the role of a step, each by the title Rust gives it (its subject without the issue key of the brief)
+  const rest = [...listed, ...commits.other].map(commit => ({ ...commit, role: null })).toSorted((a, b) => a.order - b.order)
   if (rest.length === 0) {
     return nodes
   }

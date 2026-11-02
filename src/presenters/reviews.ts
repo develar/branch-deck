@@ -8,7 +8,7 @@ import { formatShortHash } from "@/lib/hash"
 import type { ReturnedPullRequest } from "@/lib/outgoing-attention"
 import { formatReturnedMeta } from "@/lib/outgoing-attention"
 import { VISIBLE_ROW_CAP, formatDuration, formatRequestMeta, pickVisibleRequests, reviewRequestKey, withSearchText } from "@/lib/review-requests"
-import { joinNames } from "@/lib/text"
+import { capitalize, joinNames } from "@/lib/text"
 import { formatRelativeTime } from "@/lib/time"
 
 /** The title of each section after the requests by name */
@@ -161,10 +161,6 @@ function moveWords({ request, involvement }: ReviewEntry): string {
     case "team":
       return "Your move"
   }
-}
-
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 /**

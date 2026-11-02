@@ -2,7 +2,7 @@ use crate::ReviewPlan;
 use crate::brief::{ContractKind, contract_kind, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
-use crate::steps::{CommitRole, ConcernsReason, StepSource, TEST_DEPTH, tells_a_story};
+use crate::steps::{CommitRole, ConcernsReason, StepSource, TEST_DEPTH, commit_title, tells_a_story};
 use crate::test_support::{plan_of, plan_of_range, range};
 use domain_types::commit_body::CommitBodyBlock;
 use file_diffs::accio::{ReachingTest, TestReach, TestStep, WalkCut};
@@ -20,7 +20,7 @@ fn steps(plan: &ReviewPlan) -> Vec<StepWords> {
     .steps
     .iter()
     .map(|step| {
-      let commits = step.commits.iter().map(|commit| (commit.subject.clone(), commit.role)).collect();
+      let commits = step.commits.iter().map(|commit| (commit.title.clone(), commit.role)).collect();
       let stops = step
         .stops
         .iter()
@@ -76,7 +76,7 @@ fn the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote()
     ]
   );
   // the body of each commit once, in the story of the commits
-  let bodies: Vec<(&str, &[CommitBodyBlock])> = plan.steps.commits.iter().map(|commit| (commit.subject.as_str(), commit.body.blocks.as_slice())).collect();
+  let bodies: Vec<(&str, &[CommitBodyBlock])> = plan.steps.commits.iter().map(|commit| (commit.title.as_str(), commit.body.blocks.as_slice())).collect();
   assert_eq!(
     bodies,
     [
@@ -96,6 +96,43 @@ fn the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote()
   );
   let coverage = plan.steps.coverage;
   assert_eq!((coverage.missing, coverage.twice, coverage.in_stops), (0, 0, 2), "{coverage:?}");
+}
+
+/// The review names a commit by its subject without its `(prefix)` and the issue key the brief names, with a `:`, `,` or
+/// dash after it, in the case its author wrote it: the row of its step, its opening, its card and the contents agree;
+/// the step of a commit takes its title, the plan the short ids of a range
+#[test]
+fn a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_case_of_its_author() {
+  assert_eq!(commit_title("IJAI-1 the open asks the layout", Some("IJAI-1")), "the open asks the layout");
+  assert_eq!(commit_title("IJAI-1: The open asks", Some("IJAI-1")), "The open asks");
+  assert_eq!(commit_title("(layout) IJAI-1 — a splash shows", Some("IJAI-1")), "a splash shows");
+  assert_eq!(commit_title("IJAI-12 another issue", Some("IJAI-1")), "IJAI-12 another issue");
+  assert_eq!(commit_title("IJAI-1", Some("IJAI-1")), "IJAI-1");
+  assert_eq!(commit_title("the open asks", None), "the open asks");
+
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("src/a/Api.kt", API), ("src/c/Other.kt", "package c\n\nfun other() = 1\n")]);
+  repo.create_commit_with_files(
+    "IJAI-1 open takes a mode\n\nThe open of a file names how it opens, so a caller can ask for a read alone.",
+    &[(
+      "src/a/Api.kt",
+      &API.replace("fun open(path: String): Int = 1", "fun open(path: String, mode: Int): Int = mode"),
+    )],
+  );
+  let head = repo.create_commit_with_files(
+    "IJAI-1: other counts twice\n\nThe other file counts every item twice, as the report expects.",
+    &[("src/c/Other.kt", "package c\n\nfun other() = 2\n")],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(plan.brief.issue.as_deref(), Some("IJAI-1"));
+  let titles: Vec<(Option<&str>, &str)> = plan.steps.steps.iter().map(|step| (step.title.as_deref(), step.commits[0].title.as_str())).collect();
+  assert_eq!(
+    titles,
+    [(Some("open takes a mode"), "open takes a mode"), (Some("other counts twice"), "other counts twice")]
+  );
+  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.title.as_str()).collect();
+  assert_eq!(told, ["open takes a mode", "other counts twice"]);
+  assert_eq!(plan.title, format!("{}..{}", &base[..8], &head[..8]));
 }
 
 /// A commit that rewrites the code an earlier step wrote follows that step up, its lead and how it was checked
@@ -130,7 +167,7 @@ fn a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines
   );
   assert_eq!(plan.steps.steps[1].id, "no-story");
   // a commit without a body has no story
-  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.subject.as_str()).collect();
+  let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.title.as_str()).collect();
   assert_eq!(told, ["Open takes a mode", "Open names its flags again"]);
 }
 

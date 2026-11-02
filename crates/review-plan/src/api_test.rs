@@ -181,6 +181,8 @@ fn since_the_review_the_api_is_that_of_the_diff_from_the_reviewed_change() {
     names(&whole),
     [("login", ApiChangeKind::Added), ("logout", ApiChangeKind::Added), ("session", ApiChangeKind::Added)]
   );
+  // the plan names a virtual branch as the title bar does
+  assert_eq!((whole.branch.as_deref(), whole.title.as_str()), (Some("jane/virtual/auth"), "auth"));
 }
 
 /// With `since_reviewed`, an unchanged commit between a rewritten and an added one adds nothing to the API, also when all
