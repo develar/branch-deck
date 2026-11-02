@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.44.0](https://github.com/develar/branch-deck/compare/v0.43.0...v0.44.0) (2026-11-02)
+
+
+### Features
+
+* **review:** a commit alone is told by the paragraphs of its message that name its code ([fcff565](https://github.com/develar/branch-deck/commit/fcff565a1e0ca2354e935d30b0b12365f1bf34ca))
+* **review:** a declaration without a block joins the stop of its block, marked with its step, and a step of no card keeps its opening ([11c2771](https://github.com/develar/branch-deck/commit/11c277181faf2f68987e84c7eaf9937ca9a71f10))
+* **review:** Since Your Review shows how the message of a rewritten commit changed, and a commit reworded alone is unread ([fc56f60](https://github.com/develar/branch-deck/commit/fc56f604e7643308647e2da38d434abef4fcfb8b)), closes [#171](https://github.com/develar/branch-deck/issues/171)
+* **review:** the heading of a commit reviewed alone carries the mark of its card, as its row would ([a47e969](https://github.com/develar/branch-deck/commit/a47e96934c9885bdb92c25a0f02ea61bd677d33f))
+
+
+### Bug Fixes
+
+* **branch-table:** the selection bar takes the place of the column heads, so selecting a branch moves no row ([d94997c](https://github.com/develar/branch-deck/commit/d94997cacb1040205f44b6f926a131e0bcdb9713))
+* **commit-list:** the line of the selection's actions is always there, so selecting a commit moves no row ([bfb1523](https://github.com/develar/branch-deck/commit/bfb152359581e52a5969ff21702d8da8c7cd295a))
+* **commit-list:** the selection's actions sit on the meta line of the lead commit and its form opens below it, so no line above the commits holds a hint ([346899c](https://github.com/develar/branch-deck/commit/346899c25313be702cf7dd2e5121e19a8c99fb15))
+* **commit:** a run-in Look closely keeps the list or code written right under its question ([4889d82](https://github.com/develar/branch-deck/commit/4889d82e8d8e297e4d149ae67ab32649635ae1ef))
+* **review:** a step of the contents counts the declarations tests reach, and its opening names them ([f5ef78a](https://github.com/develar/branch-deck/commit/f5ef78a3b3d315eb3488535bf99e1a052c6a98c2))
+* **review:** the overview and each opening are cards on one canvas of the diffs, so the message never lies on the gap ([29aaf91](https://github.com/develar/branch-deck/commit/29aaf91d5dfbcd193301416f29d8b26beadc5a76))
+
 ## [0.43.0](https://github.com/develar/branch-deck/compare/v0.42.0...v0.43.0) (2026-11-02)
 
 
