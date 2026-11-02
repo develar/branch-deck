@@ -3,11 +3,11 @@
 //!
 //! ```text
 //! cargo run --release -p code-symbols --example facts -- [--families summary,highlight,navigation] [--threads N]
-//!     [--probes K] (--list FILE --root DIR | <files…>) > facts.txt 2> timing.txt
+//!     [--probes K] [--nav-max-bytes B] [--nav-max-depth D] (--list FILE --root DIR | <files…>) > facts.txt 2> timing.txt
 //! cargo run --release -p code-symbols --example facts -- --compare before.txt after.txt [--show N] [--family F]
 //! ```
 //!
-//! A line is `path<TAB>family<TAB>fact`, the files in the order of the list (a line of the list may be `PATH<TAB>LEVEL`,
+//! A line is `path<TAB>family<TAB>fact` (a line break, a tab or a backslash in a fact escaped as in Rust), the files in the order of the list (a line of the list may be `PATH<TAB>LEVEL`,
 //! as the Java corpus has them: the path is taken), every family of a file at least one line, so two runs over the
 //! same list compare group by group:
 //!
@@ -18,7 +18,10 @@
 //! - `navigation`: `probes N`, then per probe `L:C word => <reference_at> | <usages_at>`, and `usages_of name => …` of
 //!   the first and the middle probed word. The probes are words of the text, not of a tree, so they are the same for
 //!   any parser: every start of an identifier-like word (a letter, `_` or `$` after no letter, digit, `_` or `$`),
-//!   at most `--probes` (8) of them per file, taken at the indices `i * count / K`.
+//!   at most `--probes` (8) of them per file, taken at the indices `i * count / K`. A file over `--nav-max-bytes`
+//!   (65 536) or with brackets (`(`, `[`, `{`, counted in the text alone) nested deeper than `--nav-max-depth` (128) has
+//!   none (`probes skipped: …`): tree-sitter's navigation takes minutes on such a file (`BigIf.java`, an `else if` chain
+//!   of 115 KB, `Parenth2.java`, parentheses 1000 deep), as its `Node::parent` climbs from the root.
 //!
 //! The time of each family (the sum of its calls on every thread) and the wall time go to stderr, and every 30 s the
 //! files a worker has been on that long (`slow<TAB>path<TAB>N s`). `--compare` reads two
@@ -63,14 +66,23 @@ fn main() {
     let text = std::fs::read_to_string(&list).unwrap_or_else(|error| panic!("{list}: {error}"));
     paths.extend(text.lines().filter(|it| !it.is_empty()).map(|it| it.split('\t').next().unwrap_or(it).to_string()));
   }
+  let nav_max_bytes = take_value(&mut args, "--nav-max-bytes").map_or(1 << 16, |it| it.parse().unwrap_or(1 << 16));
+  let nav_max_depth = take_value(&mut args, "--nav-max-depth").map_or(128, |it| it.parse().unwrap_or(128));
   paths.extend(args);
-  let options = Options { families, probes };
+  let options = Options {
+    families,
+    probes,
+    nav_max_bytes,
+    nav_max_depth,
+  };
   run(&paths, root.as_deref(), threads, &options);
 }
 
 struct Options {
   families: Vec<String>,
   probes: usize,
+  nav_max_bytes: usize,
+  nav_max_depth: usize,
 }
 
 /// Whether `flag` is among the arguments, taken out of them
@@ -200,7 +212,10 @@ fn facts_of(path: &str, full: &Path, options: &Options, times: &mut Times) -> St
       }
     }
   }
-  if wants("navigation") {
+  let depth = bracket_depth(text);
+  if wants("navigation") && (text.len() > options.nav_max_bytes || depth > options.nav_max_depth) {
+    push(&mut out, path, "navigation", &format!("probes skipped: {} bytes, brackets {depth} deep", text.len()));
+  } else if wants("navigation") {
     let words = probes(text, options.probes);
     push(&mut out, path, "navigation", &format!("probes {}", words.len()));
     let start = Instant::now();
@@ -232,8 +247,20 @@ fn facts_of(path: &str, full: &Path, options: &Options, times: &mut Times) -> St
   out
 }
 
+/// One line of facts; a line break or a tab inside the fact (the qualifier `a⏎.b` of a member, a header with a text
+/// block) as `\n`, `\r`, `\t`, so that every line starts with its path and family
 fn push(out: &mut String, path: &str, family: &str, fact: &str) {
-  let _ = writeln!(out, "{path}\t{family}\t{fact}");
+  let _ = write!(out, "{path}\t{family}\t");
+  for character in fact.chars() {
+    match character {
+      '\n' => out.push_str("\\n"),
+      '\r' => out.push_str("\\r"),
+      '\t' => out.push_str("\\t"),
+      '\\' => out.push_str("\\\\"),
+      _ => out.push(character),
+    }
+  }
+  out.push('\n');
 }
 
 /// A file whose facts take longer is named on stderr, every `SLOW` while it lasts
@@ -273,6 +300,22 @@ fn style_text(style: u32) -> String {
     }
   }
   text
+}
+
+/// How deep the brackets of the text nest, strings and comments included: a bound of the nesting of any tree of it
+fn bracket_depth(text: &str) -> usize {
+  let (mut depth, mut deepest) = (0usize, 0usize);
+  for byte in text.bytes() {
+    match byte {
+      b'(' | b'[' | b'{' => {
+        depth += 1;
+        deepest = deepest.max(depth);
+      }
+      b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+      _ => {}
+    }
+  }
+  deepest
 }
 
 /// The words of the text to ask about, by the text alone: at most `limit`, spread over it
