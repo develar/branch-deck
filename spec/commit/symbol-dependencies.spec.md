@@ -8,6 +8,7 @@ targets:
   - ../../crates/code-symbols/src/language.rs
   - ../../crates/code-symbols/src/kotlin.rs
   - ../../crates/code-symbols/src/psi_java/summary.rs
+  - ../../crates/code-symbols/src/psi_kotlin/summary.rs
   - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/trial-check/src/symbol_scan.rs
   - ../../crates/sync-core/src/config_snapshot.rs
@@ -464,7 +465,7 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   type then loses the constructors the range gave it, which might miss what the commit gave them, and takes any call,
   also from its first commit; a constructor that a later commit on clean sides finds must be as old as the type, which
   it needs.
-  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_before_side_in_error_changes_no_state`, `an_entry_is_its_parameter_types_with_their_arrays`, `constructors_the_summary_cannot_tell_apart_are_no_form`, `a_type_whose_sides_a_commit_cannot_match_takes_any_call`, `a_constructor_that_comes_while_its_type_takes_any_call_is_as_old_as_the_type`)
+  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_misread_before_side_changes_no_state`, `an_entry_is_its_parameter_types_with_their_arrays`, `constructors_the_summary_cannot_tell_apart_are_no_form`, `a_type_whose_sides_a_commit_cannot_match_takes_any_call`, `a_constructor_that_comes_while_its_type_takes_any_call_is_as_old_as_the_type`)
 - A commit that removes a declaration must depend on the older commits that removed its uses, an override of it
   included.
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_removal_needs_the_commit_that_removed_the_uses`, `a_removal_needs_the_commit_that_removed_its_override`)

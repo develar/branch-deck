@@ -21,8 +21,8 @@ proposed `bd move-hunk` would have broken a branch.
 
 ## Solution Overview
 
-`crates/code-symbols` summarizes one source file (Kotlin, Java, Rust, TypeScript and JavaScript; Java on IntelliJ's own
-parser, decision 20, the others on tree-sitter): its
+`crates/code-symbols` summarizes one source file (Kotlin, Java, Rust, TypeScript and JavaScript; Kotlin on the
+compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, the others on tree-sitter): its
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
@@ -600,6 +600,23 @@ flowchart TD
     of IntelliJ has) and reads a method of a compact source file, a guarded record pattern or `case X -> y -> …`
     otherwise than javac; IntelliJ's parser is the reference of the code Branch Deck mostly reads, and its walk takes
     30 to 40 % of the time (24.9 s to 9.9 s of the corpus on 18 threads, one thread 1.53 s to 0.46 s on 5 000 files).
+
+21. **Decision**: the summary of a Kotlin file is a walk of its PSI (`psi_kotlin/summary.rs`), the tree of psi-syntax's
+    `kotlin-syntax`, a port of the Kotlin compiler's parser, by the rules of the walk of `extract.rs`; never a
+    tree-sitter view of it. A summary is asked by language alone, without the file's name, so the file is parsed as a
+    `.kt` and, when that has an error element at its top level (a statement, which only a script has), as a `.kts`
+    script too, and the parse with fewer error bytes is kept; a script's statements are its top level.
+    **Rationale**: the tree is the one the compiler reads. On the 55 501 Kotlin files of intellij-community (3caa0bf)
+    the summary moved in 2 848, each line by a reading tree-sitter got wrong: the target of an assignment `a.b.c = x`
+    is the member `c` of `a.b` (not a bare `c`, nor `rows.value` of `rows[i].value`), a call with type arguments
+    (`emptyList<T>()`) is a call, a context parameter is a local, `$this` names nothing, `A::b.name` is a member of
+    the reference, `Foo::class` and `String::length` name a type, the variable of a `for` without braces is bound in
+    the statement below, a type after `is` and `as` is a type, a lambda on the line after a call is its argument, an
+    `enum class` without a body is an enum, a backquoted name with spaces is one name; and 617 files the compiler
+    rejects (test data and templates) recover otherwise. The walk takes a seventh of tree-sitter's time (5 000 files on
+    one thread: 0.54 s against 3.98 s). No `.kts` of the corpus has an error, and no `.kt` with context receivers
+    reads as a script. PSI's error elements hold the tokens the parser skipped, never a declaration: a Kotlin
+    declaration is never `in_error`.
 
 ### Implementation Notes
 
