@@ -24,7 +24,7 @@
 //!   neither costs a line.
 
 use crate::code_spans::code_spans;
-use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, LineCode};
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPart, CommitBodyPartKind, LabelKind, LineCode};
 
 /// The lines a body shows before its fold
 const FOLD_LINES: u32 = 12;
@@ -228,6 +228,12 @@ fn parts(blocks: &[CommitBodyBlock], lead: bool) -> Vec<CommitBodyPart> {
     let part = CommitBodyPart {
       start: index(start),
       end: index(end),
+      kind: match () {
+        () if headed => CommitBodyPartKind::Section,
+        () if lead && start == 0 => CommitBodyPartKind::Lead,
+        () => CommitBodyPartKind::Run,
+      },
+      tone: kind,
       folded,
     };
     match parts.last_mut() {

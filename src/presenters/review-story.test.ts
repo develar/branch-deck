@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitBodyBlock, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
+import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, StoryPlace, TestRef } from "@/lib/bindings"
 import { MORE } from "@/presenters/commit-body"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
@@ -18,12 +18,30 @@ type Part = readonly [start: number, end: number, folded: boolean]
 
 /**
  * The story of the commit of `subject`: its blocks, the lead when it opens with prose, and its `parts` written out as
- * Rust cuts that body (the TS tests never encode the grammar); one part of every block by default, a body of one block
- * or of one section
+ * Rust cuts that body, each what its first block makes it (the TS tests never encode the grammar); one part of every
+ * block by default, a body of one block or of one section. `told`: where Rust tells each part, with its commit by
+ * default; `titled` the part whose label is the title of its step
  */
-function story(subject: string, blocks: CommitBodyBlock[], parts: readonly Part[] = [[0, blocks.length, false]], toldIn: (number | null)[] = []): StoryCommit {
+function story(
+  subject: string,
+  blocks: CommitBodyBlock[],
+  parts: readonly Part[] = [[0, blocks.length, false]],
+  told: readonly StoryPlace[] = [],
+  titled: number | null = null,
+): StoryCommit {
   const lead = blocks[0]?.type === "paragraph"
-  return { id: subject, title: subject, body: { blocks, trailers: [], lead, parts: parts.map(([start, end, folded]) => ({ start, end, folded })), code: [] }, mentions: [], toldIn }
+  const bodyParts = parts.map(([start, end, folded]): CommitBodyPart => {
+    const first = blocks[start]
+    const kind = first?.type === "label" || first?.type === "heading" ? "section" : lead && start === 0 && end === 1 ? "lead" : "run"
+    return { start, end, kind, tone: first?.type === "label" ? first.kind : "plain", folded }
+  })
+  return {
+    id: subject,
+    title: subject,
+    body: { blocks, trailers: [], lead, parts: bodyParts, code: [] },
+    mentions: [],
+    parts: bodyParts.map((part, index) => ({ ...part, told: told[index] ?? { kind: "commit" }, titled: index === titled })),
+  }
 }
 
 function plan(steps: ReviewStep[], commits: StoryCommit[], more: Partial<ReviewPlan> = {}): ReviewPlan {
@@ -332,7 +350,7 @@ describe("the document of a review", () => {
     expect([untold.title, untold.story, untold.commits.map(it => it.title)]).toEqual(["Changes without a story", null, ["tidy"]])
   })
 
-  it("tells the body of one commit in the openings of the concerns its sections name, the label a title once, its lead and the rest in the overview", () => {
+  it("tells each part of the body of one commit where Rust places it, the label of the title of a step not again, the lead and the rest in the overview", () => {
     const concern = (id: string, detail: string): Concern => ({
       id,
       name: { source: "token", token: detail },
@@ -358,12 +376,13 @@ describe("the document of a review", () => {
         [2, 4, false],
         [4, 6, false],
       ],
-      [null, null, 0, 0, 1, 1],
+      [{ kind: "overview" }, { kind: "overview" }, { kind: "step", step: 0 }, { kind: "step", step: 1 }],
+      2,
     )
     const concerns = [concern("c1", "allowed"), concern("c2", "paint")]
     // the first task titled by its label, which its opening then tells no more
     const steps = [
-      { ...step("c1", [commit("the open keeps the layout")], [["u:allowed", "src/a/Rule.kt"]]), concern: "c1", title: "The rule", toldAsTitle: 2 },
+      { ...step("c1", [commit("the open keeps the layout")], [["u:allowed", "src/a/Rule.kt"]]), concern: "c1", title: "The rule" },
       { ...step("c2", [commit("the open keeps the layout")], [["u:paint", "src/a/Frame.kt"]]), concern: "c2" },
     ]
     const whole = plan(steps, [one], {
@@ -446,29 +465,33 @@ describe("the document of a review", () => {
         .step,
     ).toBeNull()
 
-    // the section of the path in the step of the target, the one that holds the unit, not another of the same heading;
-    // a file in any step
-    const section = (key: string, path: string, concern: string, marks: [number, string][] = [], unitIds: string[] = []): NarrativeSection => ({
+    // the lines Rust found naming the stops of each section, worded where they are told, one per block
+    const section = (key: string, story: NarrativeSection["story"]): NarrativeSection => ({
       key,
-      path,
-      units: { marks: new Map(marks), elsewhere: new Map() },
-      unitIds: new Set(unitIds),
+      path: "src/a/Manager.kt",
+      units: { marks: new Map(), elsewhere: new Map() },
+      unitIds: new Set(),
+      story,
       targets: new Map(),
       heading: null,
-      concern,
+      concern: "b",
       concernHeading: null,
       folded: null,
       ghost: null,
     })
     const marks = storyMarks(whole, [
-      section("file:src/a/Manager.kt", "src/a/Manager.kt", "a", [[0, "hooks — removed"]], ["u:hooks"]),
-      section("file:src/a/Manager.kt#1", "src/a/Manager.kt", "b", [[0, "allowed — new"]], [unit.id]),
-      section("file:src/a/Manager.kt#2", "src/a/Manager.kt", "b", [[1, "allowed — new"]], [`${unit.id}:id:String`]),
-      section("file:src/a/Frame.kt", "src/a/Frame.kt", "b"),
+      section("file:src/a/Manager.kt", []),
+      section("file:src/a/Manager.kt#1", [
+        { commit: "the rule", block: 0, item: 0, step: 1 },
+        { commit: "the rule", block: 0, item: 0, step: 1 },
+      ]),
+      section("file:src/a/Frame.kt", [{ commit: "the rule", block: 2, item: 1, step: 1 }]),
+      section("file:src/a/Old.kt", [{ commit: "the hooks", block: 0, item: 0, step: null }]),
     ])
     expect([...marks].map(([key, list]) => [key, list.map(mark => [mark.commit, mark.block, mark.step, mark.title, mark.preview])])).toEqual([
       ["file:src/a/Manager.kt#1", [["the rule", 0, "b", "Step 2 · the rule", "One rule decides now: `Manager.allowed` answers, by `Layout`."]]],
       ["file:src/a/Frame.kt", [["the rule", 2, "b", "Step 2 · the rule", "- `Frame.kt` asks it"]]],
+      ["file:src/a/Old.kt", [["the hooks", 0, null, "Overview", "No hooks."]]],
     ])
     // the heading of its card: the place, then the label of the step, an identifier set as code
     expect(marks.get("file:src/a/Frame.kt")!.map(mark => [mark.place, mark.label, mark.code])).toEqual([["Step 2", "the rule", false]])

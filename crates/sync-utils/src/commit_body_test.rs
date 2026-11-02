@@ -1,5 +1,5 @@
 use crate::commit_body::{commit_body, has_body, message_body};
-use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
 use pretty_assertions::assert_eq;
 
 fn blocks(body: &str) -> Vec<CommitBodyBlock> {
@@ -348,6 +348,26 @@ fn the_lead_is_a_paragraph_before_any_label_or_heading() {
   assert!(!commit_body("## Summary\n\nThe text.").lead);
   assert!(!commit_body("- an item").lead);
   assert!(!commit_body("").lead);
+}
+
+/// Each part says what it is, so a reader places it without the grammar: the lead, a section with the kind of its label
+/// (a heading plain), a run of the other blocks
+#[test]
+fn each_part_says_whether_it_is_the_lead_a_section_with_the_kind_of_its_label_or_a_run() {
+  let body = commit_body("The summary.\n\nMore prose.\n\nLook closely: is it enough?\n\nTests:\n- one\n\n## Notes\n\nA note.");
+  let kinds: Vec<(u32, u32, CommitBodyPartKind, LabelKind)> = body.parts.iter().map(|part| (part.start, part.end, part.kind, part.tone)).collect();
+  assert_eq!(
+    kinds,
+    [
+      (0, 1, CommitBodyPartKind::Lead, LabelKind::Plain),
+      (1, 2, CommitBodyPartKind::Run, LabelKind::Plain),
+      (2, 4, CommitBodyPartKind::Section, LabelKind::LookClosely),
+      (4, 6, CommitBodyPartKind::Section, LabelKind::Verification),
+      (6, 8, CommitBodyPartKind::Section, LabelKind::Plain),
+    ]
+  );
+  // a body that opens with a label has no lead
+  assert_eq!(commit_body("Why: the summary.").parts[0].kind, CommitBodyPartKind::Section);
 }
 
 #[test]

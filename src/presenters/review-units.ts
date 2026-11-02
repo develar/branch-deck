@@ -1,6 +1,7 @@
-import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewUnit, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
 import type { SectionUnits } from "@/lib/diff/rows"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
+import { formatStepNumber } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
 
 /*
@@ -25,8 +26,10 @@ export interface NarrativeSection {
   readonly path: string
   /** The headings of its changes and the blocks other sections show; null for a file shown whole */
   readonly units: SectionUnits | null
-  /** `ReviewUnit.id` of each unit it shows: a mention of a declaration marks its section by it */
+  /** `ReviewUnit.id` of each unit it shows */
   readonly unitIds: ReadonlySet<string>
+  /** The lines of the told bodies that name a stop it shows (`StepStop.marks`): its header marks them */
+  readonly story: readonly StoryRef[]
   /** The section that shows each block of `units.elsewhere` */
   readonly targets: ReadonlyMap<number, string>
   /** The group it is of, on its first file: "Same edit in 3 files", "Imports only (2)" */
@@ -126,6 +129,8 @@ interface Draft {
   marks: Map<number, string>
   /** The units it shows */
   unitIds?: Set<string>
+  /** The lines of the told bodies that name what it shows */
+  story?: StoryRef[]
   heading: string | null
   folded: string | null
   /** The uses left outside of its changes, shown after it */
@@ -142,18 +147,23 @@ interface Step {
   readonly concern: Chapter | null
   /** The units without a block of their own that its blocks show (`StepStop.joined`), by the path of the slice */
   readonly joined: ReadonlyMap<string, readonly JoinedUnit[]>
+  /** The lines of the told bodies that name its stops (`StepStop.marks`), by the path of the slice */
+  readonly marks: ReadonlyMap<string, readonly StoryRef[]>
 }
 
 const NO_JOINED: ReadonlyMap<string, readonly JoinedUnit[]> = new Map()
+const NO_JOINED_UNITS: readonly JoinedUnit[] = []
+const NO_MARKS: ReadonlyMap<string, readonly StoryRef[]> = new Map()
+const NO_STORY: readonly StoryRef[] = []
 
 /**
  * The units in the order of the story: with a concern beside the rest, the parts of each concern in its order (a unit
  * of several concerns in each, with the slices and the blocks it holds there), then what no concern holds (the
- * mechanical groups) in the order of the units; else the units as Rust ordered them
+ * mechanical groups) in the order of the units; else the units as Rust ordered them (`untoldSteps`)
  */
 function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]): Step[] {
   if (!concerns.some(concern => concern.told)) {
-    return units.map(unit => ({ unit, concern: null, joined: NO_JOINED }))
+    return untoldSteps(units, concerns)
   }
   const byId = new Map(units.map(unit => [unit.id, unit]))
   const held = new Set<string>()
@@ -176,19 +186,57 @@ function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]):
       const cut = blocks === null ? slice : { ...slice, whole: false, blocks: slice.blocks.filter(block => blocks.includes(block.index)) }
       const last = steps.at(-1)
       if (last !== undefined && last.concern === concern && last.unit.id === unit.id) {
-        steps[steps.length - 1] = { concern, unit: { ...last.unit, slices: [...last.unit.slices, cut] }, joined: new Map([...last.joined, [slice.path, part.joined]]) }
+        steps[steps.length - 1] = {
+          concern,
+          unit: { ...last.unit, slices: [...last.unit.slices, cut] },
+          joined: new Map([...last.joined, [slice.path, part.joined]]),
+          marks: new Map([...last.marks, [slice.path, part.marks]]),
+        }
       } else {
-        steps.push({ concern, unit: { ...unit, slices: [cut] }, joined: new Map([[slice.path, part.joined]]) })
+        steps.push({ concern, unit: { ...unit, slices: [cut] }, joined: new Map([[slice.path, part.joined]]), marks: new Map([[slice.path, part.marks]]) })
       }
     }
   }
   for (const unit of units) {
     const left = unit.slices.filter(slice => !held.has(`${unit.id}\n${slice.path}`))
     if (left.length > 0) {
-      steps.push({ concern: null, unit: { ...unit, slices: left }, joined: NO_JOINED })
+      steps.push({ concern: null, unit: { ...unit, slices: left }, joined: NO_JOINED, marks: NO_MARKS })
     }
   }
   return steps
+}
+
+/**
+ * The units as Rust ordered them, of a story whose steps are not told: no concern, but what Rust placed in the stops of
+ * its steps still holds, by the unit and the path of a stop (the units it shows beside its own, `StepStop.joined`, and
+ * the lines of the told bodies that name it, `StepStop.marks`); a unit Rust joined to a stop is no step of its own there
+ */
+function untoldSteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]): Step[] {
+  const joinedOf = new Map<string, JoinedUnit[]>()
+  const marksOf = new Map<string, StoryRef[]>()
+  const held = new Set<string>()
+  for (const part of concerns.flatMap(concern => concern.parts)) {
+    const key = `${part.unit}\n${part.path}`
+    joinedOf.set(key, [...(joinedOf.get(key) ?? []), ...part.joined])
+    marksOf.set(key, [...(marksOf.get(key) ?? []), ...part.marks])
+    for (const joined of part.joined) {
+      held.add(`${joined.unit}\n${part.path}`)
+    }
+  }
+  return units.flatMap(unit => {
+    const slices = unit.slices.filter(slice => !held.has(`${unit.id}\n${slice.path}`))
+    if (slices.length === 0) {
+      return []
+    }
+    return [
+      {
+        unit: slices.length === unit.slices.length ? unit : { ...unit, slices },
+        concern: null,
+        joined: new Map(slices.map(slice => [slice.path, joinedOf.get(`${unit.id}\n${slice.path}`) ?? NO_JOINED_UNITS])),
+        marks: new Map(slices.map(slice => [slice.path, marksOf.get(`${unit.id}\n${slice.path}`) ?? NO_STORY])),
+      },
+    ]
+  })
 }
 
 /**
@@ -239,6 +287,14 @@ export function presentNarrative(
     draft.unitIds ??= new Set()
     draft.unitIds.add(unit)
   }
+  // the lines of the told bodies that name the stop of `step` in `path`, which the section of it shows
+  const tell = (draft: Draft | undefined, step: Step, path: string) => {
+    const refs = step.marks.get(path) ?? []
+    if (draft !== undefined && refs.length > 0) {
+      draft.story ??= []
+      draft.story.push(...refs)
+    }
+  }
   const push = (draft: Omit<Draft, "concern" | "concernName" | "concernHeading">) => {
     const full = { ...draft, concern: concern?.id ?? null, concernName: concern?.reference ?? null, concernHeading }
     concernHeading = null
@@ -256,6 +312,7 @@ export function presentNarrative(
     if (draft !== undefined && unit !== undefined) {
       own(draft, unit)
     }
+    return draft
   }
   let last = null as { draft: Draft; unit: string } | null
   for (const step of steps) {
@@ -271,7 +328,7 @@ export function presentNarrative(
       const shown = unit.slices.filter(slice => byPath.has(slice.path))
       shown.forEach((slice, index) => {
         if (whole.has(slice.path)) {
-          placeWhole(slice.path, unit.id)
+          tell(placeWhole(slice.path, unit.id), step, slice.path)
           return
         }
         placed.add(slice.path)
@@ -288,6 +345,7 @@ export function presentNarrative(
           ghosts: [],
         })
         own(draft, unit.id)
+        tell(draft, step, slice.path)
       })
       continue
     }
@@ -298,7 +356,7 @@ export function presentNarrative(
     const joined = step.joined.get(slice.path) ?? []
     if (whole.has(slice.path) || slice.whole) {
       last = null
-      placeWhole(slice.path, unit.id)
+      tell(placeWhole(slice.path, unit.id), step, slice.path)
       for (const it of joined) {
         placeWhole(slice.path, it.unit)
       }
@@ -311,10 +369,11 @@ export function presentNarrative(
     if (draft === undefined) {
       draft = push({ key: nextKey("file", slice.path), path: slice.path, blocks: new Set(), marks: new Map(), heading: null, folded: null, ghosts: [] })
     }
+    tell(draft, step, slice.path)
     const first = slice.blocks[0]
     if (first === undefined) {
-      // a declaration without a block whose line no stop shows (Rust joins the others to the stop of their block): its
-      // words join the heading before it
+      // a declaration without a block that Rust left a stop of its own, as no stop but a group's shows its line (Rust
+      // joins the others to the stop of their block): no block to name it at, so its words join the heading before it
       const before = [...draft.marks.keys()].at(-1)
       if (before !== undefined && heading !== null) {
         draft.marks.set(before, `${draft.marks.get(before)} · ${heading}`)
@@ -336,8 +395,12 @@ export function presentNarrative(
           continue
         }
         own(draft, other.id)
+        // another told step by its number, what no evidence joined by its name; in a story of no told step, none
         const of = concerns[it.step]
-        const words = of === undefined || of === step.concern ? formatUnitHeading(other) : `${formatUnitHeading(other)} in ${of.reference}`
+        const words =
+          of === undefined || of === step.concern || step.concern === null
+            ? formatUnitHeading(other)
+            : `${formatUnitHeading(other)} in ${of.told ? formatStepNumber(of.number).toLowerCase() : of.reference}`
         const mark = draft.marks.get(it.block)
         draft.marks.set(it.block, mark === undefined ? words : `${mark} · ${words}`)
       }
@@ -378,6 +441,7 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     path: site.path,
     units: null,
     unitIds: new Set(),
+    story: NO_STORY,
     targets: new Map(),
     heading: null,
     concern: null,
@@ -397,6 +461,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
         path: draft.path,
         units: null,
         unitIds: draft.unitIds ?? new Set(),
+        story: draft.story ?? NO_STORY,
         targets: new Map(),
         heading: draft.heading,
         concern,
@@ -423,6 +488,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
       path: draft.path,
       units: { marks: draft.marks, elsewhere },
       unitIds: draft.unitIds ?? new Set(),
+      story: draft.story ?? NO_STORY,
       targets,
       heading: draft.heading,
       concern,

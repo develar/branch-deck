@@ -17,12 +17,13 @@
 //! and `test` of a unit in place of its `public`, version 12 the `still_bound` and `by_name` usages, and `unbroken` in
 //! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
 //! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code
-//! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, `toldIn`) in place
-//! of the `body` of each commit of a step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
+//! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, its `parts`, each
+//! with its `kind`, `tone`, where it is `told` and whether it is `titled`) in place of the `body` of each commit of a
+//! step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
 //! the `title` of each commit in place of its `subject` (without the issue key of the brief) and the `title` of the plan,
 //! the `code` of a body and the `addedCode` and `removedCode` of an entry of the brief (`sync_utils::code_spans`), the
-//! `toldAsTitle` of a step, the `joined` units of a stop (a declaration without a block of its own, with its step) and
-//! the `shownElsewhere` units of a step
+//! `kind` and `tone` of each part of a body, the `joined` units of a stop (a declaration without a block of its own,
+//! with its step), its `marks` (the lines of the told bodies that name it) and the `shownElsewhere` units of a step
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -169,7 +170,9 @@ pub struct ReviewPlanOutput {
   /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and its `parts` (a labelled
   /// section, a run of other blocks), each `folded` or not; its `mentions` of code, each with its block, its line or item, its UTF-16 range and its `target` (a `unit`
   /// with its path, side, line and step, or a `file` with its step), `null` for a name in backticks that resolves
-  /// nothing; `toldIn`, of the concerns of one commit, the step that tells each block (`null` before the steps)
+  /// nothing; its `parts` as the document tells them, each where it is `told` (`overview`, a `step` of the concerns of
+  /// one commit, else with its `commit`) and `titled` when its label titles that step; each stop its `marks`, the lines
+  /// of the told bodies that name it
   pub steps: ReviewSteps,
   /// The issue key the commits name (`issue`) and the prose the change adds, removes or changes (`contract`): the rules
   /// of the specs with the tests their `[@test]` lines name (`provenBy`), the records of decisions, the guides of

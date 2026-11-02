@@ -1,9 +1,10 @@
-import type { CodeSpan, CommitBody, CommitBodyBlock, LabelKind, LineCode } from "@/lib/bindings"
+import type { CodeSpan, CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind, LineCode } from "@/lib/bindings"
 
 /*
  * The parts of a commit body as a reader shows them (spec/commit/commit-row.spec.md, "Message body"): Rust cuts the body
- * into its parts and says which fold (`CommitBody.parts`); this only places them, for every view of a body (the card of
- * a commit, its preview, the opening of a step of a review).
+ * into its parts, says what each is and which fold (`CommitBody.parts`), and of a story where each is told
+ * (`StoryCommit.parts`); this only places them, for every view of a body (the card of a commit, its preview, the opening
+ * of a step of a review).
  */
 
 /** A block of a body at its place in `CommitBody.blocks`: the mentions of a line name it by that place */
@@ -58,56 +59,43 @@ const NO_SPANS: readonly CodeSpan[] = []
 export const MORE = "The rest"
 
 /**
- * The parts of `body` (`BodyParts`), each keyed by `key` and its first block: of the blocks `told` keeps (all by
- * default), the lead, then the parts as Rust cut them, the folded ones named; `fold` false shows every part in place.
- * `titled`: the label Rust made the title of the step that tells it (`ReviewStep.toldAsTitle`), which its part shows
- * no more: the opening names it already
+ * A part of a body as Rust cut and placed it: a part of its grammar (`CommitBody.parts`), or of a story a part told at
+ * one place (`StoryPart`), whose label may be the title of its step (`titled`), which its part shows no more
  */
-export function presentBodyParts(key: string, body: CommitBody, told: (index: number) => boolean = () => true, fold = true, titled: number | null = null): BodyParts {
-  const { blocks, parts, lead } = body
-  let leadBlock: PlacedBlock | null = null
+export type PlacedPart = Pick<CommitBodyPart, "start" | "end" | "kind" | "tone" | "folded"> & { readonly titled?: boolean }
+
+/**
+ * The parts of `body` (`BodyParts`), each keyed by `key` and its first block: of `parts` (all of the body by default),
+ * the lead, then each part, the folded ones named; `fold` false shows every part in place
+ */
+export function presentBodyParts(key: string, body: CommitBody, parts: readonly PlacedPart[] = body.parts, fold = true): BodyParts {
+  const { blocks } = body
+  let lead: PlacedBlock | null = null
   const view: { shown: BodyPart[]; folded: FoldedPart[] } = { shown: [], folded: [] }
-  for (const { start, end, folded } of parts) {
+  for (const { start, end, kind, tone, folded, titled = false } of parts) {
     const first = blocks[start]
-    const headBlock = first !== undefined && (first.type === "label" || first.type === "heading") ? first : null
-    const headed = headBlock !== null
-    const head = headBlock !== null && start !== titled ? { index: start, block: headBlock } : null
-    // Rust tells a labelled section whole, at one place; of a run of blocks of no label, a block told apart from the
-    // one before it starts a part
-    const runs: PlacedBlock[][] = []
-    for (let index = headed ? start + 1 : start; index < end; index++) {
+    const headBlock = kind === "section" && first !== undefined && (first.type === "label" || first.type === "heading") ? first : null
+    const placed: PlacedBlock[] = []
+    for (let index = headBlock === null ? start : start + 1; index < end; index++) {
       const block = blocks[index]!
-      if (!told(index) || block.type === "label" || block.type === "heading") {
-        continue
-      }
-      if (index === 0 && lead && block.type === "paragraph") {
-        leadBlock = { index, block }
-        continue
-      }
-      const run = runs.at(-1)
-      if (run === undefined || run.at(-1)!.index !== index - 1) {
-        runs.push([{ index, block }])
-      } else {
-        run.push({ index, block })
+      if (block.type !== "label" && block.type !== "heading") {
+        placed.push({ index, block })
       }
     }
-    if (headed && !told(start)) {
+    if (kind === "lead") {
+      lead = placed[0] ?? null
       continue
     }
-    const tone = head?.block.type === "label" ? head.block.kind : "plain"
-    // a labelled section is one part, its label the title of its step or not
-    for (const placed of headed ? [runs.flat()] : runs) {
-      if (placed.length === 0 && head === null) {
-        continue
-      }
-      const firstIndex = head?.index ?? placed[0]!.index
-      const part: BodyPart = { key: `${key}:${firstIndex}`, first: firstIndex, head, tone, blocks: placed }
-      if (folded && fold) {
-        view.folded.push({ part, name: head === null ? MORE : head.block.text })
-      } else {
-        view.shown.push(part)
-      }
+    const head = headBlock !== null && !titled ? { index: start, block: headBlock } : null
+    if (placed.length === 0 && head === null) {
+      continue
+    }
+    const part: BodyPart = { key: `${key}:${head?.index ?? placed[0]!.index}`, first: head?.index ?? placed[0]!.index, head, tone, blocks: placed }
+    if (folded && fold) {
+      view.folded.push({ part, name: head === null ? MORE : head.block.text })
+    } else {
+      view.shown.push(part)
     }
   }
-  return { lead: leadBlock, ...view, code: body.code }
+  return { lead, ...view, code: body.code }
 }

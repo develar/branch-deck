@@ -17,6 +17,25 @@ import { reviewStep, stepCommit } from "@/test-support/review-step"
 const commit = stepCommit
 const step = reviewStep
 
+/** A block of `src/Manager.kt`, which the units of the joins share */
+const block = { index: 0, oldStart: 4, oldEnd: 6, newStart: 4, newEnd: 9 }
+
+/** A declaration of `src/Manager.kt` whose name is on line 5, with `blocks` of its own */
+function unit(id: string, kind: ReviewUnit["kind"], name: string, blocks: (typeof block)[]): ReviewUnit {
+  return {
+    id,
+    kind,
+    name,
+    key: `a.Manager.${name}`,
+    signature: "",
+    api: true,
+    test: false,
+    line: 5,
+    slices: [{ path: "src/Manager.kt", oldPath: null, whole: false, blocks, fingerprint: id }],
+    fingerprint: id,
+  }
+}
+
 function plan(steps: ReviewStep[], concerns: Concern[] = []): Pick<ReviewPlan, "steps" | "concerns"> {
   return {
     steps: { source: { kind: "commits" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
@@ -180,19 +199,6 @@ describe("review steps", () => {
   })
 
   it("joins a declaration without a block of its own to the heading of the block Rust names, marked with its step where it is another's", () => {
-    const block = { index: 0, oldStart: 4, oldEnd: 6, newStart: 4, newEnd: 9 }
-    const unit = (id: string, kind: ReviewUnit["kind"], name: string, blocks: (typeof block)[]): ReviewUnit => ({
-      id,
-      kind,
-      name,
-      key: `a.Manager.${name}`,
-      signature: "",
-      api: true,
-      test: false,
-      line: 5,
-      slices: [{ path: "src/Manager.kt", oldPath: null, whole: false, blocks, fingerprint: id }],
-      fingerprint: id,
-    })
     const units = [unit("u:hooks", { kind: "removed" }, "hooks", []), unit("u:allowed", { kind: "added" }, "allowed", [block]), unit("u:passes", { kind: "added" }, "passes", [])]
     // the step that dropped the hooks has no stop: the stop of `allowed` shows them, and `passes` its own step wrote
     const allowed = step("b", [commit("the rule")], [["u:allowed", "src/Manager.kt"]])
@@ -215,6 +221,53 @@ describe("review steps", () => {
     expect(sections.map(section => [section.key, section.concernHeading, [...(section.units?.marks ?? [])], [...(section.units?.elsewhere ?? [])], [...section.unitIds]])).toEqual([
       ["file:src/Manager.kt", "2 · the rule", [[0, "allowed — new · hooks — removed in step 1 · passes — new"]], [], ["u:allowed", "u:hooks", "u:passes"]],
     ])
+  })
+})
+
+describe("the units Rust joined in the steps of the concerns", () => {
+  // the removed hooks come first in the story, their line in the block of `allowed`
+  const units = [unit("u:hooks", { kind: "removed" }, "hooks", []), unit("u:allowed", { kind: "added" }, "allowed", [block])]
+  const concern = (id: string, token: string): Concern => ({
+    id,
+    name: { source: "token", token },
+    parts: [],
+    paths: ["src/Manager.kt"],
+    elsewhere: [],
+    evidence: [{ kind: "token", detail: token, joins: 2 }],
+    fingerprint: id,
+  })
+  const mark = { commit: "c1", block: 0, item: 0, step: null }
+  const stop = (unit: string, joined: ReviewStep["stops"][number]["joined"], marks: ReviewStep["stops"][number]["marks"] = []) => ({
+    unit,
+    path: "src/Manager.kt",
+    blocks: null,
+    uses: null,
+    also: [],
+    concern: null,
+    joined,
+    marks,
+  })
+  const sectionsOf = (told: boolean, steps: ReviewStep[], concerns: Concern[]) => {
+    const of = plan(steps, concerns)
+    const chapters = presentChapters({ ...of, steps: { ...of.steps, source: { kind: "concerns", reason: "oneCommit" }, told } })
+    return presentNarrative(units, [{ path: "src/Manager.kt", blocks: [block] }], [], [], chapters).map(section => [
+      [...(section.units?.marks ?? [])],
+      [...section.unitIds],
+      section.story,
+    ])
+  }
+
+  it("words a joined unit after the heading of its block and keeps the marks of the stop in a story whose steps are not told", () => {
+    const steps = [{ ...step("c", [commit("one")], []), concern: "c", stops: [stop("u:allowed", [{ unit: "u:hooks", block: 0, step: 0 }], [mark])] }]
+    expect(sectionsOf(false, steps, [concern("c", "layout")])).toEqual([[[[0, "allowed — new · hooks — removed"]], ["u:allowed", "u:hooks"], [mark]]])
+  })
+
+  it("marks a joined unit of another told step of a concern by the number of that step", () => {
+    const steps = [
+      { ...step("h", [commit("one")], [], {}, { shownElsewhere: [{ unit: "u:hooks", step: 1 }] }), concern: "h" },
+      { ...step("l", [commit("one")], []), concern: "l", stops: [stop("u:allowed", [{ unit: "u:hooks", block: 0, step: 0 }])] },
+    ]
+    expect(sectionsOf(true, steps, [concern("h", "hooks"), concern("l", "layout")])).toEqual([[[[0, "allowed — new · hooks — removed in step 1"]], ["u:allowed", "u:hooks"], []]])
   })
 })
 

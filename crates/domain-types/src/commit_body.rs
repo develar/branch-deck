@@ -64,10 +64,28 @@ pub struct CommitBodyPart {
   pub start: u32,
   /// The block after its last one
   pub end: u32,
+  /// What it is: the lead, a section its first block heads, or a run of other blocks
+  pub kind: CommitBodyPartKind,
+  /// The kind of the label that heads a section: a Look closely is a callout; `Plain` for a heading, the lead and a run
+  pub tone: LabelKind,
   /// Whether a reader folds it: a part past the fold, which comes after the first part and the whole parts that read in
   /// about 12 lines with it, and a verification section wherever it is; never a Look closely section, wherever it is.
   /// Neither of the two costs a line
   pub folded: bool,
+}
+
+/// What a part of a commit body is (`CommitBodyPart::kind`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum CommitBodyPartKind {
+  /// The paragraph the body opens with, before any label or heading: its summary, alone
+  Lead,
+  /// A label or a heading (its first block) and its blocks up to the next one; a run-in Look closely its paragraph
+  Section,
+  /// A run of other blocks
+  Run,
 }
 
 /// A block of a commit body

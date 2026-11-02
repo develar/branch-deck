@@ -1,4 +1,4 @@
-import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ReviewPlan, ReviewStep, StepCommit, StoryRef } from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
@@ -14,9 +14,13 @@ const NO_STORY = "no-story"
 /** Its heading: the changes only commits without a body wrote */
 export const WITHOUT_A_STORY = "Changes without a story"
 
-/** A part of a chapter: a part of a unit it shows, with the units without a block of their own its blocks show (`StepStop.joined`) */
+/**
+ * A part of a chapter: a part of a unit it shows, with the units without a block of their own its blocks show
+ * (`StepStop.joined`) and the lines of the told bodies that name it (`StepStop.marks`)
+ */
 export interface ChapterPart extends ConcernPart {
   readonly joined: readonly JoinedUnit[]
+  readonly marks: readonly StoryRef[]
 }
 
 /**
@@ -60,7 +64,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   return plan.steps.steps.map((step, index) => {
     const number = index + 1
-    const parts = step.stops.map(stop => ({ unit: stop.unit, path: stop.path, blocks: stop.blocks, joined: stop.joined }))
+    const parts = step.stops.map(stop => ({ unit: stop.unit, path: stop.path, blocks: stop.blocks, joined: stop.joined, marks: stop.marks }))
     const concern = step.concern === null ? undefined : concerns.get(step.concern)
     if (concern !== undefined) {
       // the author's name of the task, the label of the section of the body told in it, else the name of its evidence
@@ -244,7 +248,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       rest,
       told: !rest,
       code: isCodeName(concern.name),
-      parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED })),
+      parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS })),
       paths: concern.paths,
       elsewhere: concern.elsewhere,
     }
@@ -252,6 +256,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
 }
 
 const NOT_JOINED: readonly JoinedUnit[] = []
+const NO_MARKS: readonly StoryRef[] = []
 
 /** Whether the name of a concern is an identifier the code spells: a token, a declaration, a replacement, a file or a directory */
 function isCodeName(name: ConcernName): boolean {

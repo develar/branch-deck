@@ -163,8 +163,13 @@ fn prints_the_api_and_the_files_of_a_range() {
   // one it does not (`target: null`); its blocks before the steps, which name them in no section
   let story = &output["steps"]["commits"];
   assert_eq!(
-    (&story[0]["id"], &story[0]["title"], &story[0]["body"]["trailers"], &story[0]["toldIn"]),
-    (&output["head"], &json!("Change api"), &json!(["Co-Authored-By: Jane <jane@example.com>"]), &json!([null])),
+    (&story[0]["id"], &story[0]["title"], &story[0]["body"]["trailers"], &story[0]["parts"][0]["told"]),
+    (
+      &output["head"],
+      &json!("Change api"),
+      &json!(["Co-Authored-By: Jane <jane@example.com>"]),
+      &json!({ "kind": "overview" })
+    ),
     "{output}"
   );
   let mentions: Vec<(&Value, &Value, &Value)> = story[0]["mentions"]

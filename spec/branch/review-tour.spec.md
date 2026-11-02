@@ -142,9 +142,11 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 How to write a body this story reads well: [The Commit Body a Review Reads](../../docs/guide/commit-bodies.md).
 - Every commit of the range whose body has a block must have its story once (`commits`, oldest first), also when
   several steps list it: its id, its subject without the `(prefix)`, its body by the grammar of a body
-  ([Commit Row → Message body](../commit/commit-row.spec.md)), its code names (`mentions`) and, of the concerns of one
-  commit, where each block is told (`toldIn`), and the title of each step that tells a labelled section (`title`:
-  the label of the first one, a verification and a Look closely aside). A commit of a step names no body of its own.
+  ([Commit Row → Message body](../commit/commit-row.spec.md)), its code names (`mentions`), its parts as the
+  document tells them (`parts`: each part of the body, its `kind` and `tone`, `folded`, where it is `told` and
+  whether its label is the title of its step, `titled`), and the title of each step of the concerns of one commit that
+  tells a labelled section (`title`: the label of the first one, a verification and a Look closely aside). A commit of
+  a step names no body of its own.
   [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`)
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`, `a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
 - A code name of a block that is no preformatted text must resolve to a unit or a changed file of the range, with no
@@ -180,9 +182,18 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 - Of the concerns of one commit, each labelled section (a label or a heading and its blocks up to the next one), else
   each block, must be told in the step that holds the targets of most of its resolved mentions, the earliest of equal
-  ones (`toldIn`, by the place of the step); the lead and a part that names nothing are told before the steps
-  (`null`). A story of several commits keeps the order of its author: `toldIn` is empty.
+  ones (`told`: `{"kind": "step", "step": 1}`); a run of blocks of no label is cut into a part per place where the
+  place changes; the lead and a part that names nothing are told in the overview (`overview`), and every part while
+  the steps are not told. A story of several commits keeps the order of its author: each part is told with its
+  commit (`commit`), in the opening of the step it starts or the disclosure of its round. The page shows the parts a
+  place tells and decides none of it.
   [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+- Each stop must list the lines of the told bodies that name it (`marks`: the commit, the block, the line and where
+  the block is told, `step`, `null` for the overview): a resolved mention marks the stops of the path of its target in
+  the step of its target (in every step without one), of a declaration only the stops that show its unit, its own or
+  joined, when one does; once per block. A story of several commits marks only from the commit that starts a step;
+  a follow-up, folded under its step, marks nothing.
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_line_of_a_told_body_marks_the_stops_it_names_where_it_is_told`, `the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`)
 - A step must list the public declarations it adds (`newApi`, the keys of the `added` entries of `api` whose
   declaration or new file its stops show) and the links it adds between two modules (`moduleLinks`, by their place in
   `links`, in the step whose stop shows the first use of the link, else the first step whose stops show the file that
@@ -269,12 +280,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   and the group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
-- A step of the concerns of one commit (`toldIn`) must open with the parts of the body of that commit told in it, the
-  label Rust made its title (`toldAsTitle`) not shown again, and say what joins its parts in the line of its facts
+- A step of the concerns of one commit must open with the parts of the body of that commit told in it (`told`), the
+  label Rust made its title (`titled`) not shown again, and say what joins its parts in the line of its facts
   ("Joined by the identifier `accio`"); the lead and the parts told before the steps are in
   the overview (in the heading of the commit shown alone), so each part of the body is in one place. A story of
   several commits keeps the order of its author: each part in the opening of its commit's step.
-  [@test] ../../src/presenters/review-story.test.ts (`tells the body of one commit in the openings of the concerns its sections name, the label a title once, its lead and the rest in the overview`)
+  [@test] ../../src/presenters/review-story.test.ts (`tells each part of the body of one commit where Rust places it, the label of the title of a step not again, the lead and the rest in the overview`)
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by the label of the first section of the body of its commit it tells (`title`, "The splash"; a verification
@@ -402,9 +413,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   overview for a part told before the steps), its part opened when a fold held it, the block tinted for a moment (the
   warning colour fading, never a ring like the focus; a label or a heading too). The tint plays once: a story that shows later (the commit shown alone, the whole
   story again, the files a search hid) outlines nothing and opens no fold.
-  A body is told where the document shows it: the commit that starts a step in its opening, the concerns of one
-  commit where `toldIn` says; a follow-up, folded under its step, marks nothing, and a copy of a lead in the contents
-  is no place a mark shows. A commit shown alone is told by its own plan, so its marks show its own story.
+  A body is told where the document shows it, as Rust marks the stops (`marks`): the commit that starts a step in its
+  opening, the concerns of one commit where `told` says; a follow-up, folded under its step, marks nothing, and a copy
+  of a lead in the contents is no place a mark shows; a section shows the marks of the stops it holds. A commit shown alone is told by its own plan, so its marks show its own story.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it`)
   [@test] ../../src/presenters/review-story.test.ts (`links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it`)
 
@@ -440,12 +451,15 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
                          {"type": "label", "text": "Tests", "kind": "verification", "runIn": false},
                          {"type": "list", "ordered": false, "start": 1, "items": ["DeferredToolWindowRegistrationTest …"]}],
               "trailers": ["Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"], "lead": true,
-              "parts": [{"start": 0, "end": 1, "folded": false}, {"start": 1, "end": 3, "folded": true}]},
+              "parts": [{"start": 0, "end": 1, "kind": "lead", "tone": "plain", "folded": false},
+                        {"start": 1, "end": 3, "kind": "section", "tone": "verification", "folded": true}]},
      "mentions": [{"block": 0, "item": 0, "start": 41, "end": 66, "text": "isShownOnStartupAllowed",
                    "target": {"kind": "unit", "unit": "declaration:…/ToolWindowManagerImpl.kt:…isShownOnStartupAllowed:id:String",
                               "path": "…/ToolWindowManagerImpl.kt", "side": "new", "line": 171, "step": 0}},
                   {"block": 0, "item": 0, "start": 80, "end": 94, "text": "LayoutPolicy", "target": null}],
-     "toldIn": []}]},
+     "parts": [{"start": 0, "end": 1, "kind": "lead", "tone": "plain", "folded": false, "told": {"kind": "commit"}, "titled": false},
+               {"start": 1, "end": 3, "kind": "section", "tone": "verification", "folded": true, "told": {"kind": "commit"},
+                "titled": false}]}]},
 "brief": {
   "issue": "IJAI-4673",
   "contract": [{"kind": "spec", "unit": "other:plugins/air/spec/frame/agent-sessions-window.spec.md", "path": "…",

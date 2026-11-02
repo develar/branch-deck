@@ -1,4 +1,17 @@
-import type { CodeSpan, CommitBodyBlock, CommitRole, ContractKind, Mention, MentionTarget, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit } from "@/lib/bindings"
+import type {
+  CodeSpan,
+  CommitBodyBlock,
+  CommitRole,
+  ConcernsReason,
+  ContractKind,
+  Mention,
+  MentionTarget,
+  ReviewPlan,
+  ReviewStep,
+  ReviewUnit,
+  StoryCommit,
+  StoryPart,
+} from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
@@ -14,7 +27,7 @@ import type { NarrativeSection } from "@/presenters/review-units"
  * The words of the review as one document (spec/branch/review-tour.spec.md, "In the Review Window"): the overview at
  * its top (`presentPrologue`), then the opening of each step above the card of its first section (`presentOpenings`).
  * Rust tells the steps, the story of each commit by the grammar of its body, its code names, where the fold of a body
- * is and, of the concerns of one commit, where each block is told; this only words and places them.
+ * is, where each part is told and the sections each line of a story names; this only words and places them.
  */
 
 /**
@@ -56,11 +69,11 @@ export interface StoryView extends BodyParts {
 }
 
 /**
- * The story of `commit` as the document shows it: of the blocks `told` keeps (all by default), its parts as Rust cut
- * and folded them (`presentBodyParts`), its code names worded; `titled` the label Rust made the title of its step
+ * The story of `commit` as the document shows it: of its parts `told` keeps (all by default), each as Rust cut, placed
+ * and folded it (`StoryCommit.parts`, `presentBodyParts`), its code names worded
  */
-export function presentStory(commit: StoryCommit, told: (index: number) => boolean = () => true, words: MentionWords = plainWords, titled: number | null = null): StoryView {
-  return { commit: commit.id, mentions: wordMentions(commit, words), ...presentBodyParts(commit.id, commit.body, told, true, titled) }
+export function presentStory(commit: StoryCommit, told: (part: StoryPart) => boolean = () => true, words: MentionWords = plainWords): StoryView {
+  return { commit: commit.id, mentions: wordMentions(commit, words), ...presentBodyParts(commit.id, commit.body, commit.parts.filter(told)) }
 }
 
 /** The mentions of code of the body of `commit`, each worded by `words` (`StoryMention`) */
@@ -125,10 +138,20 @@ export function mentionWords(plan: Pick<ReviewPlan, "units">, current: number | 
   }
 }
 
-/** A story of the steps of the concerns of one commit: the blocks told before the steps, and those of each step */
-function storyOfOneCommit(plan: Pick<ReviewPlan, "steps">): StoryCommit | null {
-  const { source, commits } = plan.steps
-  return source.kind === "concerns" && source.reason === "oneCommit" && commits.length === 1 ? commits[0]! : null
+/** The story Rust tells by its parts, each at its place (the concerns of one commit): its parts in the overview and in steps */
+function storyByParts(plan: Pick<ReviewPlan, "steps">): StoryCommit | null {
+  return plan.steps.commits.find(commit => commit.parts.some(part => part.told.kind !== "commit")) ?? null
+}
+
+/** Whether Rust tells `part` in the opening of the step at `index` */
+function toldInStep(part: StoryPart, index: number): boolean {
+  return part.told.kind === "step" && part.told.step === index
+}
+
+/** Why the tasks of the range are its steps, under the label of the steps */
+const SOURCE_WORDS: Readonly<Record<ConcernsReason, string>> = {
+  oneCommit: "One commit: the steps are its tasks",
+  noStory: "The commits tell no story: the steps are the tasks of the range",
 }
 
 /** A name of a fact of a step that shows its place: a new declaration, a new link between modules at its first use */
@@ -380,13 +403,13 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   const chapters = presentChapters(plan)
   const words = mentionWords(plan)
   const told = chapters.some(chapter => chapter.told)
-  const one = storyOfOneCommit(plan)
+  const one = storyByParts(plan)
   const steps = (told ? plan.steps.steps : []).map((step, index): ContentsStep => {
     const chapter = chapters[index]!
     const head = headOf(step)
     const story = step.concern !== null ? undefined : head?.role === "noStory" ? undefined : storyOf(plan, head?.id)
     const view = story === undefined ? null : presentStory(story, undefined, words)
-    const toldHere = one === null || step.concern === null ? null : presentStory(one, block => one.toldIn[block] === index, words, step.toldAsTitle)
+    const toldHere = one === null || step.concern === null ? null : presentStory(one, part => toldInStep(part, index), words)
     return {
       id: step.id,
       number: chapter.number,
@@ -425,15 +448,10 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     issue: plan.brief.issue,
     title: plan.title,
     // without a step of a task the diffs have no opening: the whole story is told here
-    untold: one === null ? null : { subject: one.title, story: presentStory(one, block => !told || (one.toldIn[block] ?? null) === null, words) },
+    untold: one === null ? null : { subject: one.title, story: presentStory(one, part => part.told.kind === "overview", words) },
     contract,
     steps,
-    source:
-      !told || plan.steps.source.kind === "commits"
-        ? null
-        : plan.steps.source.reason === "oneCommit"
-          ? "One commit: the steps are its tasks"
-          : "The commits tell no story: the steps are the tasks of the range",
+    source: !told || plan.steps.source.kind === "commits" ? null : SOURCE_WORDS[plan.steps.source.reason],
     facts: told ? null : rangeFacts(plan),
     breakage,
     since:
@@ -502,7 +520,7 @@ export interface OpeningView {
 export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "units">): Map<string, OpeningView> {
   const chapters = presentChapters(plan)
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
-  const one = storyOfOneCommit(plan)
+  const one = storyByParts(plan)
   return new Map(
     plan.steps.steps.map((step, index): [string, OpeningView] => {
       // the names of a story told in this step: their step is said only when it is another
@@ -519,7 +537,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
         concern !== undefined
           ? one === null
             ? null
-            : presentStory(one, block => one.toldIn[block] === index, words, step.toldAsTitle)
+            : presentStory(one, part => toldInStep(part, index), words)
           : starts === undefined
             ? null
             : commitOf(starts.id, starts.title, "starts").story
@@ -585,67 +603,45 @@ function lineOf(block: CommitBodyBlock | undefined, item: number): string {
 }
 
 /**
- * The marks of each section of the story by its key: a section a resolved mention of a told body names (the section
- * of its path in the step of its target; of a declaration, the section that holds its unit when one does),
- * one mark per block that names it. A body is told where the document shows it: the commit that starts a step in its
- * opening, the concerns of one commit where `toldIn` says, the rest in the overview; a follow-up is folded under its
- * step and marks nothing
+ * The marks of each section of the story by its key, worded: the lines of the told bodies that name a stop of the
+ * section, as Rust found them (`StepStop.marks`, `NarrativeSection.story`), one per block that names it, each where it
+ * is told (the opening of a step, else the overview)
  */
 export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "units">, sections: readonly NarrativeSection[]): Map<string, StoryMark[]> {
   const chapters = presentChapters(plan)
   const words = mentionWords(plan)
   const steps = plan.steps.steps
-  const told = chapters.some(chapter => chapter.told)
-  const one = storyOfOneCommit(plan)
-  // where each told commit is told: its step, or per block for the concerns of one commit
-  const toldAt = new Map<string, (block: number) => number | null>()
-  if (one !== null) {
-    toldAt.set(one.id, block => (told ? (one.toldIn[block] ?? null) : null))
-  } else {
-    steps.forEach((step, index) => {
-      const head = headOf(step)
-      if (step.concern === null && head?.role === "starts") {
-        toldAt.set(head.id, () => index)
-      }
-    })
-  }
+  // worded once per commit: a mark quotes the worded mentions of its line
+  const worded = new Map<string, StoryMention[]>()
   const marks = new Map<string, StoryMark[]>()
-  for (const commit of plan.steps.commits) {
-    const at = toldAt.get(commit.id)
-    if (at === undefined) {
-      continue
-    }
-    // worded once per commit: a mark quotes the worded mentions of its line
-    const worded = wordMentions(commit, words)
-    for (const mention of commit.mentions) {
-      const target = mention.target
-      if (target === null) {
+  for (const section of sections) {
+    for (const ref of section.story) {
+      const commit = plan.steps.commits.find(it => it.id === ref.commit)
+      if (commit === undefined) {
         continue
       }
-      const stepId = target.step === null ? null : (steps[target.step]?.id ?? null)
-      const candidates = sections.filter(section => section.ghost === null && section.path === target.path && (stepId === null || section.concern === stepId))
-      const named = target.kind === "unit" ? candidates.filter(section => section.unitIds.has(target.unit)) : []
-      const toldIndex = at(mention.block)
-      const where = toldIndex === null ? null : (steps[toldIndex] ?? null)
-      const chapter = toldIndex === null ? undefined : chapters[toldIndex]
-      for (const section of named.length > 0 ? named : candidates) {
-        const list = marks.get(section.key) ?? []
-        if (!list.some(mark => mark.commit === commit.id && mark.block === mention.block)) {
-          list.push({
-            key: `${commit.id}:${mention.block}`,
-            commit: commit.id,
-            block: mention.block,
-            step: where?.id ?? null,
-            title: chapter === undefined ? "Overview" : `${formatStepNumber(chapter.number)} · ${chapter.label}`,
-            place: chapter === undefined ? "Overview" : formatStepNumber(chapter.number),
-            label: chapter?.label ?? null,
-            code: chapter?.code ?? false,
-            preview: lineOf(commit.body.blocks[mention.block], mention.item),
-            spans: codeOf(commit.body.code, mention.block, mention.item),
-            mentions: worded.filter(it => it.block === mention.block && it.item === mention.item),
-          })
-          marks.set(section.key, list)
-        }
+      let mentions = worded.get(commit.id)
+      if (mentions === undefined) {
+        mentions = wordMentions(commit, words)
+        worded.set(commit.id, mentions)
+      }
+      const chapter = ref.step === null ? undefined : chapters[ref.step]
+      const list = marks.get(section.key) ?? []
+      if (!list.some(mark => mark.commit === ref.commit && mark.block === ref.block)) {
+        list.push({
+          key: `${ref.commit}:${ref.block}`,
+          commit: ref.commit,
+          block: ref.block,
+          step: ref.step === null ? null : (steps[ref.step]?.id ?? null),
+          title: chapter === undefined ? "Overview" : `${formatStepNumber(chapter.number)} · ${chapter.label}`,
+          place: chapter === undefined ? "Overview" : formatStepNumber(chapter.number),
+          label: chapter?.label ?? null,
+          code: chapter?.code ?? false,
+          preview: lineOf(commit.body.blocks[ref.block], ref.item),
+          spans: codeOf(commit.body.code, ref.block, ref.item),
+          mentions: mentions.filter(it => it.block === ref.block && it.item === ref.item),
+        })
+        marks.set(section.key, list)
       }
     }
   }

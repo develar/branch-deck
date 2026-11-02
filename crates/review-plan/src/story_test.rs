@@ -1,7 +1,8 @@
 use crate::ReviewPlan;
 use crate::steps::{ConcernsReason, StepSource};
-use crate::story::{MentionSide, MentionTarget, StoryCommit};
+use crate::story::{MentionSide, MentionTarget, StoryCommit, StoryPlace};
 use crate::test_support::plan_of_range;
+use domain_types::commit_body::CommitBodyPartKind;
 use pretty_assertions::assert_eq;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -104,8 +105,8 @@ fn a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path
   };
   assert_eq!((side, *line, path.as_str(), name.as_str()), (&MentionSide::New, Some(4), "src/a/Manager.kt", "open"));
   assert_eq!(mentions(&plan, "Report counts twice"), [words("count", (39, 48), "unit:b.count step Some(1)")]);
-  // a story of several commits keeps the order of its author
-  assert!(plan.steps.commits.iter().all(|commit| commit.told_in.is_empty()));
+  // a story of several commits keeps the order of its author: each part is told with its commit
+  assert!(plan.steps.commits.iter().flat_map(|commit| &commit.parts).all(|part| part.told == StoryPlace::Commit));
 }
 
 /// A possessive and the dash of a sentence are prose after a name, and a run of names one space apart that names
@@ -188,7 +189,7 @@ fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and
     ],
   );
   let head = repo.create_commit_with_files(
-    "A load names its scope\n\nA load of the store names the scope it reads, so a reader can ask for one alone.\n\nThe scope:\n- `load()` of src/store/Store.kt takes it\n- `read()` passes 2\n\nThe clock:\n- `tick()` gives 2\n\nTests:\n- none, by hand",
+    "A load names its scope\n\nA load of the store names the scope it reads, so a reader can ask for one alone.\n\nThe `tick()` of the clock gives 2.\n\nNothing else changes.\n\nThe scope:\n- `load()` of src/store/Store.kt takes it\n- `read()` passes 2\n\nThe clock:\n- `tick()` gives 2\n\nTests:\n- none, by hand",
     &[
       (store, "package store\n\nfun load(key: String, scope: Int): Int = scope\n"),
       (reader, "package read\n\nimport store.load\n\nfun read() = load(\"k\", 2)\n"),
@@ -204,15 +205,33 @@ fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and
   );
   let concerns: Vec<&str> = plan.steps.steps.iter().map(|step| step.paths[0].as_str()).collect();
   assert_eq!(concerns, [store, "src/time/Clock.kt"]);
-  // the lead, the label and the list of the scope, of the clock, of the tests
+  // the lead in the overview; the run of no label cut where its place changes: the paragraph that names the clock in
+  // its step, the one that names nothing in the overview; the sections of the scope and of the clock in their steps,
+  // each the title of its step; the tests in the overview
   let story = story(&plan, "A load names its scope");
-  assert_eq!(story.told_in, [None, Some(0), Some(0), Some(1), Some(1), None, None]);
+  let parts: Vec<(u32, u32, CommitBodyPartKind, StoryPlace, bool)> = story.parts.iter().map(|part| (part.start, part.end, part.kind, part.told, part.titled)).collect();
+  let (overview, scope, clock) = (StoryPlace::Overview, StoryPlace::Step { step: 0 }, StoryPlace::Step { step: 1 });
+  assert_eq!(
+    parts,
+    [
+      (0, 1, CommitBodyPartKind::Lead, overview, false),
+      (1, 2, CommitBodyPartKind::Run, clock, false),
+      (2, 3, CommitBodyPartKind::Run, overview, false),
+      (3, 5, CommitBodyPartKind::Section, scope, true),
+      (5, 7, CommitBodyPartKind::Section, clock, true),
+      (7, 9, CommitBodyPartKind::Section, overview, false),
+    ]
+  );
   // each step is titled by the label of the section it tells, as the author named its task
   let titles: Vec<Option<&str>> = plan.steps.steps.iter().map(|step| step.title.as_deref()).collect();
   assert_eq!(titles, [Some("The scope"), Some("The clock")]);
-  // the block of each label, which the opening names once as the title and the section tells without
-  let labels: Vec<Option<u32>> = plan.steps.steps.iter().map(|step| step.told_as_title).collect();
-  assert_eq!(labels, [Some(1), Some(3)]);
+  // a line marks the stops it names where it is told: the clock by the paragraph and the item of its step
+  let marks: Vec<Vec<(u32, Option<u32>)>> = plan.steps.steps[1]
+    .stops
+    .iter()
+    .map(|stop| stop.marks.iter().map(|mark| (mark.block, mark.step)).collect())
+    .collect();
+  assert_eq!(marks, [[(1, Some(1)), (6, Some(1))]]);
   // two tasks are a story told in steps
   assert!(plan.steps.told);
   // the body is told once, though both steps list its commit
@@ -352,6 +371,43 @@ fn a_name_resolves_by_the_separators_of_its_language() {
       pair("Store.load", "unit:web/src/store.ts.Store.load step Some(2)"),
       // a type whose member changed: its file, though not named for it
       pair("Store", "file:web/src/store.ts step Some(2)"),
+    ]
+  );
+}
+
+/// A mark of a stop as a test reads it: its commit, its block and the step that tells it
+type MarkWords<'a> = (&'a str, u32, Option<u32>);
+
+/// A line of a told body marks the stops it names, each where it is told: a declaration the stop of its unit, a file
+/// every stop of its path in the step of its target, once per block; a follow-up, folded under its step, marks nothing
+#[test]
+fn a_line_of_a_told_body_marks_the_stops_it_names_where_it_is_told() {
+  let repo = TestRepo::new();
+  let manager = |open: &str, close: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = {open}\n\n  fun close(): Int = {close}\n}}\n");
+  let frame = |paint: &str| format!("package a\n\nclass Frame {{\n  fun paint(): Int = {paint}\n}}\n");
+  let base = repo.create_commit_with_files("Add", &[("src/a/Manager.kt", &manager("1", "0")), ("src/a/Frame.kt", &frame("1"))]);
+  repo.create_commit_with_files(
+    "Manager opens twice\n\nThe `Manager.open` returns 2, and src/a/Frame.kt paints twice; the close gives 5.",
+    &[("src/a/Manager.kt", &manager("2", "5")), ("src/a/Frame.kt", &frame("2"))],
+  );
+  let head = repo.create_commit_with_files("Manager opens thrice\n\nThe `Manager.open` returns 3 now.", &[("src/a/Manager.kt", &manager("3", "5"))]);
+  let plan = plan_of_range(&repo, &base, &head);
+  let [step] = plan.steps.steps.as_slice() else { panic!("{:?}", plan.steps.steps) };
+  let first = story(&plan, "Manager opens twice").id.clone();
+  let name_of = |id: &str| plan.units.iter().find(|unit| unit.id == id).and_then(|unit| unit.name.clone()).unwrap();
+  let mut marks: Vec<(String, Vec<MarkWords<'_>>)> = step
+    .stops
+    .iter()
+    .map(|stop| (name_of(&stop.unit), stop.marks.iter().map(|mark| (mark.commit.as_str(), mark.block, mark.step)).collect()))
+    .collect();
+  marks.sort();
+  // `close`, in the file of `Manager.open`, is not what the line names
+  assert_eq!(
+    marks,
+    [
+      ("close".to_string(), vec![]),
+      ("open".to_string(), vec![(first.as_str(), 0, Some(0))]),
+      ("paint".to_string(), vec![(first.as_str(), 0, Some(0))])
     ]
   );
 }

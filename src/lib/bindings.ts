@@ -1579,6 +1579,10 @@ export type CommitBodyPart = {
 	start: number,
 	/**  The block after its last one */
 	end: number,
+	/**  What it is: the lead, a section its first block heads, or a run of other blocks */
+	kind: CommitBodyPartKind,
+	/**  The kind of the label that heads a section: a Look closely is a callout; `Plain` for a heading, the lead and a run */
+	tone: LabelKind,
 	/**
 	 *  Whether a reader folds it: a part past the fold, which comes after the first part and the whole parts that read in
 	 *  about 12 lines with it, and a verification section wherever it is; never a Look closely section, wherever it is.
@@ -1586,6 +1590,15 @@ export type CommitBodyPart = {
 	 */
 	folded: boolean,
 };
+
+/**  What a part of a commit body is (`CommitBodyPart::kind`) */
+export type CommitBodyPartKind = 
+/**  The paragraph the body opens with, before any label or heading: its summary, alone */
+"lead" | 
+/**  A label or a heading (its first block) and its blocks up to the next one; a run-in Look closely its paragraph */
+"section" | 
+/**  A run of other blocks */
+"run";
 
 /**
  *  The lines a rewritten commit and its reviewed version change differently: per side, per path, `+<line>` added and
@@ -6814,11 +6827,6 @@ export type ReviewStep = {
 	 */
 	title: string | null,
 	/**
-	 *  The block of the body of the one commit whose label is `title` (`story::add_story_titles`): the opening of the
-	 *  step names it once, as its title, and tells the section without it; `None` otherwise
-	 */
-	toldAsTitle: number | null,
-	/**
 	 *  Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
 	 *  its id; `None` for a step that shows something
 	 */
@@ -8179,6 +8187,8 @@ export type StepStop = {
 	 *  it shows, with the step it is of, another step's too (its heading says so where the stop shows it)
 	 */
 	joined: JoinedUnit[],
+	/**  The lines of the told bodies that name it (`story::add_story_marks`): the header of its section marks it */
+	marks: StoryRef[],
 };
 
 /**  The tests that reach the code of a step */
@@ -8224,10 +8234,57 @@ export type StoryCommit = {
 	/**  The code names of its blocks, in the order of the body */
 	mentions: Mention[],
 	/**
-	 *  Of the steps of the concerns of one commit only, per block of `body`: the step (by its place in
-	 *  `ReviewSteps::steps`) whose opening tells it; `None` before the steps. Empty for a story of several commits
+	 *  The parts of `body` (`CommitBody::parts`) as the document tells them, each at one place: of the concerns of one
+	 *  commit, a run of blocks of no label cut where the step that tells its blocks changes
 	 */
-	toldIn: (number | null)[],
+	parts: StoryPart[],
+};
+
+/**
+ *  A part of the body of a story (`StoryCommit::parts`): a part of the grammar of a body, or of the concerns of one
+ *  commit a piece of a run whose blocks one place tells
+ */
+export type StoryPart = {
+	/**  Its first block in `CommitBody::blocks`, its label or heading of a section */
+	start: number,
+	/**  The block after its last one */
+	end: number,
+	kind: CommitBodyPartKind,
+	/**  The kind of the label of a section (`CommitBodyPart::tone`) */
+	tone: LabelKind,
+	/**  Whether a reader folds it (`CommitBodyPart::folded`) */
+	folded: boolean,
+	/**  Where the document tells it */
+	told: StoryPlace,
+	/**
+	 *  Its label is the title of the step that tells it (`ReviewStep::title`): the opening names it once, as its title,
+	 *  and tells the section without it
+	 */
+	titled: boolean,
+};
+
+/**  Where the document tells a part of a story (`StoryPart::told`) */
+export type StoryPlace = 
+/**
+ *  The overview, before the steps: of the concerns of one commit its lead and what names no step, all of it when
+ *  the steps are not told
+ */
+{ kind: "overview" } | 
+/**  The opening of a step of the concerns of one commit, by its place in `ReviewSteps::steps` */
+{ kind: "step"; step: number } | 
+/**  With its commit, wherever the document shows it: the opening of the step it starts, its disclosure as a follow-up */
+{ kind: "commit" };
+
+/**  A line of a told body that names a stop (`StepStop::marks`): the header of the section of the stop marks it */
+export type StoryRef = {
+	/**  The id of its commit (`StoryCommit::id`) */
+	commit: string,
+	/**  The block of the body that names the stop */
+	block: number,
+	/**  The line of that block (`Mention::item`), of the first mention that names the stop */
+	item: number,
+	/**  The step whose opening tells the block, by its place in `ReviewSteps::steps`; `None` for the overview */
+	step: number | null,
 };
 
 /**  What the page of a sub-window gets when it loaded (`sub_window_loaded`) */

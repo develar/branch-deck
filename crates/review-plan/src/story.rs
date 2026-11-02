@@ -29,13 +29,19 @@
 //!   it resolves, a span in backticks also when it resolves nothing (`target: None`), so `bd review-plan` shows what
 //!   did not bind. Offsets are UTF-16 code units in the line of a paragraph or the item of a list, the backticks
 //!   included.
-//! - **Where a body is told** (`told_in`), only when the steps are the concerns of one commit: a labelled section (a
-//!   label or a heading and its blocks up to the next one), else a block, goes to the step that holds the targets of
-//!   most of its resolved mentions, the earliest of equal ones; the lead and a part without one stay before the steps
-//!   (`None`). A story of several commits keeps the order of its author: no `told_in`.
+//! - **Where a body is told** (`StoryCommit::parts`, each part's `told`): the parts of the body by its grammar, of
+//!   the concerns of one commit each where the document tells it: a labelled section (a label or a heading and its
+//!   blocks up to the next one), else a block, goes to the step that holds the targets of most of its resolved
+//!   mentions, the earliest of equal ones, and a run of blocks of no label is cut where the place changes; the lead and
+//!   a part without one stay in the overview, and all of it when the steps are not told. A story of several commits is
+//!   told with its commit, in the order of its author (`Commit`).
 //! - **The title of a step** of those concerns (`add_story_titles`): the label of the first labelled section told in
-//!   it, a verification and a Look closely aside, that label's block `told_as_title` (the opening names it once); the
-//!   name of the concern stays its evidence.
+//!   it, a verification and a Look closely aside, that part `titled` (the opening names it once); the name of the
+//!   concern stays its evidence.
+//! - **The marks of a stop** (`StepStop::marks`, `add_story_marks`): the lines of a told body that name it, each where
+//!   it is told: a resolved mention marks the stops of the path of its target in the step of its target (of every step
+//!   without one), of a declaration only those that show its unit (their own or joined) when one does; a story of
+//!   several commits marks only from the commit that starts a step, its follow-ups folded under it.
 //! - **The facts of a step**: the public declarations it adds (`ReviewStep::new_api`, the keys of `ApiChange` of kind
 //!   `Added` its stops show, a new file's by its path) and the links between modules it adds (`module_links`, by the
 //!   stop that holds the first use), each in one step, the first that holds it.
@@ -43,9 +49,9 @@
 use crate::api::ApiChangeKind;
 use crate::concerns::compound;
 use crate::links::FileLink;
-use crate::steps::{ReviewStep, StepStop, StepsInput, commit_title, split_message};
+use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, commit_title, split_message};
 use crate::units::{ReviewUnit, UnitKind};
-use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_utils::code_spans::code_spans;
@@ -65,9 +71,63 @@ pub struct StoryCommit {
   pub body: CommitBody,
   /// The code names of its blocks, in the order of the body
   pub mentions: Vec<Mention>,
-  /// Of the steps of the concerns of one commit only, per block of `body`: the step (by its place in
-  /// `ReviewSteps::steps`) whose opening tells it; `None` before the steps. Empty for a story of several commits
-  pub told_in: Vec<Option<u32>>,
+  /// The parts of `body` (`CommitBody::parts`) as the document tells them, each at one place: of the concerns of one
+  /// commit, a run of blocks of no label cut where the step that tells its blocks changes
+  pub parts: Vec<StoryPart>,
+}
+
+/// A part of the body of a story (`StoryCommit::parts`): a part of the grammar of a body, or of the concerns of one
+/// commit a piece of a run whose blocks one place tells
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct StoryPart {
+  /// Its first block in `CommitBody::blocks`, its label or heading of a section
+  pub start: u32,
+  /// The block after its last one
+  pub end: u32,
+  pub kind: CommitBodyPartKind,
+  /// The kind of the label of a section (`CommitBodyPart::tone`)
+  pub tone: LabelKind,
+  /// Whether a reader folds it (`CommitBodyPart::folded`)
+  pub folded: bool,
+  /// Where the document tells it
+  pub told: StoryPlace,
+  /// Its label is the title of the step that tells it (`ReviewStep::title`): the opening names it once, as its title,
+  /// and tells the section without it
+  pub titled: bool,
+}
+
+/// Where the document tells a part of a story (`StoryPart::told`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum StoryPlace {
+  /// The overview, before the steps: of the concerns of one commit its lead and what names no step, all of it when
+  /// the steps are not told
+  Overview,
+  /// The opening of a step of the concerns of one commit, by its place in `ReviewSteps::steps`
+  Step { step: u32 },
+  /// With its commit, wherever the document shows it: the opening of the step it starts, its disclosure as a follow-up
+  Commit,
+}
+
+/// A line of a told body that names a stop (`StepStop::marks`): the header of the section of the stop marks it
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct StoryRef {
+  /// The id of its commit (`StoryCommit::id`)
+  pub commit: String,
+  /// The block of the body that names the stop
+  pub block: u32,
+  /// The line of that block (`Mention::item`), of the first mention that names the stop
+  pub item: u32,
+  /// The step whose opening tells the block, by its place in `ReviewSteps::steps`; `None` for the overview
+  pub step: Option<u32>,
 }
 
 /// A code name in a block of a body
@@ -518,7 +578,7 @@ fn mentions_of(resolver: &Resolver<'_>, body: &CommitBody, own: &[u32]) -> Vec<M
   mentions
 }
 
-/// The step that tells each block of a body of one commit told by its concerns (`StoryCommit::told_in`)
+/// The step that tells each block of a body of one commit told by its concerns (`StoryPart::told`)
 fn told_in(resolver: &Resolver<'_>, body: &CommitBody, mentions: &[Mention]) -> Vec<Option<u32>> {
   // the parts a step tells whole: a labelled section of the grammar (`CommitBody::parts`), else a block; the lead alone
   let mut parts: Vec<Vec<usize>> = Vec::new();
@@ -551,9 +611,45 @@ fn told_in(resolver: &Resolver<'_>, body: &CommitBody, mentions: &[Mention]) -> 
   told
 }
 
+/// The parts of `body` as the document tells them (`StoryCommit::parts`): `told_in` the step of each block of the
+/// concerns of one commit, `None` the overview (a run of no label cut where it changes); without it, of a story of
+/// several commits, each part with its commit
+fn story_parts(body: &CommitBody, told_in: Option<&[Option<u32>]>) -> Vec<StoryPart> {
+  let place = |block: usize| match told_in {
+    None => StoryPlace::Commit,
+    Some(told) => told.get(block).copied().flatten().map_or(StoryPlace::Overview, |step| StoryPlace::Step { step }),
+  };
+  let mut parts = Vec::new();
+  for part in &body.parts {
+    let piece = |start: u32, end: u32| StoryPart {
+      start,
+      end,
+      kind: part.kind,
+      tone: part.tone,
+      folded: part.folded,
+      told: place(start as usize),
+      titled: false,
+    };
+    if part.kind != CommitBodyPartKind::Run {
+      parts.push(piece(part.start, part.end));
+      continue;
+    }
+    let mut start = part.start;
+    for block in part.start + 1..part.end {
+      if place(block as usize) != place(start as usize) {
+        parts.push(piece(start, block));
+        start = block;
+      }
+    }
+    parts.push(piece(start, part.end));
+  }
+  parts
+}
+
 /// The story of each commit of `input` whose body has a block, oldest first; `one_commit` when the steps are the
-/// concerns of one commit, whose blocks then go to the steps that tell them
-pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_commit: bool) -> Vec<StoryCommit> {
+/// concerns of one commit, whose parts then go to the steps that tell them while the steps are `told`, else to the
+/// overview
+pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_commit: bool, told: bool) -> Vec<StoryCommit> {
   let resolver = Resolver::new(input, steps);
   input
     .commits
@@ -571,13 +667,18 @@ pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_co
         .filter_map(|(place, _)| u32::try_from(place).ok())
         .collect();
       let mentions = mentions_of(&resolver, &body, &own);
-      let told_in = if one_commit { told_in(&resolver, &body, &mentions) } else { Vec::new() };
+      let told_in = match (one_commit, told) {
+        (true, true) => Some(told_in(&resolver, &body, &mentions)),
+        (true, false) => Some(vec![None; body.blocks.len()]),
+        (false, _) => None,
+      };
+      let parts = story_parts(&body, told_in.as_deref());
       Some(StoryCommit {
         id: id.clone(),
         title: commit_title(subject, input.issue),
         body,
         mentions,
-        told_in,
+        parts,
       })
     })
     .collect()
@@ -586,26 +687,91 @@ pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_co
 /// The title of each step of the concerns of one commit that tells a labelled section of its body (`ReviewStep::title`):
 /// the label (or the heading) of the first one it tells, a section of verification or a Look closely aside, so a step
 /// reads as the author named its task ("The splash") and its identifier stays the evidence that joined it
-pub(crate) fn add_story_titles(steps: &mut [ReviewStep], commits: &[StoryCommit]) {
+pub(crate) fn add_story_titles(steps: &mut [ReviewStep], commits: &mut [StoryCommit]) {
   let [commit] = commits else { return };
-  for part in &commit.body.parts {
-    let start = part.start as usize;
+  for part in &mut commit.parts {
     let (CommitBodyBlock::Label {
       text: title,
       kind: LabelKind::Plain,
       ..
     }
-    | CommitBodyBlock::Heading { text: title, .. }) = &commit.body.blocks[start]
+    | CommitBodyBlock::Heading { text: title, .. }) = &commit.body.blocks[part.start as usize]
     else {
       continue;
     };
-    let Some(step) = commit.told_in.get(start).copied().flatten().and_then(|step| steps.get_mut(step as usize)) else {
-      continue;
-    };
+    let StoryPlace::Step { step } = part.told else { continue };
+    let Some(step) = steps.get_mut(step as usize) else { continue };
     if step.concern.is_some() && step.title.is_none() {
       step.title = Some(title.clone());
-      step.told_as_title = Some(part.start);
+      part.titled = true;
     }
+  }
+}
+
+/// The marks of each stop (`StepStop::marks`): the lines of the told bodies that name it, each where it is told (the
+/// module's header)
+pub(crate) fn add_story_marks(steps: &mut [ReviewStep], commits: &[StoryCommit]) {
+  let index = |place: usize| u32::try_from(place).unwrap_or(u32::MAX);
+  // the step a story of several commits is told in: the step its commit starts
+  let started: HashMap<&str, u32> = steps
+    .iter()
+    .enumerate()
+    .filter(|(_, step)| step.concern.is_none())
+    .filter_map(|(place, step)| {
+      step
+        .commits
+        .iter()
+        .find(|commit| commit.role == CommitRole::Starts)
+        .map(|commit| (commit.id.as_str(), index(place)))
+    })
+    .collect();
+  let mut marks: Vec<((usize, usize), StoryRef)> = Vec::new();
+  for commit in commits {
+    // where a block is told: `None` where no opening and no overview tells it (a follow-up is folded under its step)
+    let told_at = |block: u32| -> Option<Option<u32>> {
+      let part = commit.parts.iter().find(|part| (part.start..part.end).contains(&block))?;
+      match part.told {
+        StoryPlace::Overview => Some(None),
+        StoryPlace::Step { step } => Some(Some(step)),
+        StoryPlace::Commit => started.get(commit.id.as_str()).map(|&step| Some(step)),
+      }
+    };
+    for mention in &commit.mentions {
+      let (Some(target), Some(told)) = (&mention.target, told_at(mention.block)) else {
+        continue;
+      };
+      let (path, step, unit) = match target {
+        MentionTarget::Unit { unit, path, step, .. } => (path, *step, Some(unit.as_str())),
+        MentionTarget::File { path, step } => (path, *step, None),
+      };
+      let candidates: Vec<(usize, usize)> = steps
+        .iter()
+        .enumerate()
+        .filter(|(place, _)| step.is_none_or(|step| index(*place) == step))
+        .flat_map(|(place, of)| of.stops.iter().enumerate().filter(|(_, stop)| stop.path == *path).map(move |(at, _)| (place, at)))
+        .collect();
+      let shows = |&(place, at): &(usize, usize)| {
+        let stop = &steps[place].stops[at];
+        unit.is_some_and(|unit| stop.unit == unit || stop.joined.iter().any(|joined| joined.unit == unit))
+      };
+      let named: Vec<(usize, usize)> = candidates.iter().copied().filter(shows).collect();
+      for at in if named.is_empty() { candidates } else { named } {
+        if !marks.iter().any(|(of, mark)| *of == at && mark.commit == commit.id && mark.block == mention.block) {
+          marks.push((
+            at,
+            StoryRef {
+              commit: commit.id.clone(),
+              block: mention.block,
+              item: mention.item,
+              step: told,
+            },
+          ));
+        }
+      }
+    }
+  }
+  for ((place, at), mark) in marks {
+    steps[place].stops[at].marks.push(mark);
   }
 }
 
