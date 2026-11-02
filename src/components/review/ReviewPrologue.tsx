@@ -1,15 +1,19 @@
-import { useEffect } from "react"
-import type { ReactNode } from "react"
+import { useEffect, useRef } from "react"
+import type { KeyboardEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { CommitCard } from "@/components/commit/CommitCard"
+import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart } from "@/components/review/StoryBody"
 import { CodeText } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
+import type { RowCardState } from "@/components/shared/RowCard"
 import { SectionLabel } from "@/components/shared/SectionLabel"
+import { useHeadingCard } from "@/hooks/useHeadingCard"
+import { useRowCardHover } from "@/hooks/useRowCardHover"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewCommit } from "@/lib/bindings"
 import { toCardCommit } from "@/lib/commit"
@@ -116,11 +120,64 @@ function Headline({ issue, title }: { issue: string | null; title: string }) {
   )
 }
 
-/** The commit shown alone: its card, its whole message (of the concerns of its plan, the story told before them), its actions */
+/**
+ * The commit shown alone: its heading, its whole message (of the concerns of its plan, the story told before them),
+ * its actions; a commit with a body has the mark of its card after its subject, as its row has anywhere else: its
+ * hover, the hover of the subject and `I` on the focused heading open the card (`CommitRowMark`), Escape gives the
+ * focus back to the heading. A review of one commit lists it in no row, so its heading is its row
+ */
 function CommitPart({ commit: { commit, action, menu }, story }: { commit: PrologueCommit; story: StoryView | null }) {
+  const heading = useRef<HTMLDivElement>(null)
+  // kept across a move of the overview into the diffs as they load (`HeadingCardContext`), with the focus it held
+  const [card, setCard] = useHeadingCard(commit.id, heading)
+  const state: RowCardState = {
+    open: card.open,
+    openedByKey: card.open && card.byKey,
+    onOpenChange: open => {
+      if (open !== card.open) {
+        setCard(open, false)
+      }
+    },
+    focusRow: () => heading.current?.focus(),
+  }
+  const hover = useRowCardHover(state)
+  const cardCommit = toCardCommit(commit)
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // the physical key, in any keyboard layout: the card of the commit, the focus in it
+    if (event.target === event.currentTarget && event.code === "KeyI" && commit.hasBody && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault()
+      setCard(true, true)
+    }
+  }
   return (
-    <div className="flex min-w-0 flex-col" data-testid="range-review-commit-header">
-      <CommitCard commit={toCardCommit(commit)} variant="document" addon={action} menu={menu} body={story === null ? undefined : <StoryBody story={story} />} />
+    <div
+      ref={heading}
+      role="group"
+      aria-label={commit.subject}
+      tabIndex={commit.hasBody ? 0 : undefined}
+      // the ring of the focus a little off the text
+      className="-m-1.5 flex min-w-0 flex-col rounded-md p-1.5 outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+      data-testid="range-review-commit-header"
+      onKeyDown={handleKeyDown}
+    >
+      <CommitCard
+        commit={cardCommit}
+        variant="document"
+        addon={
+          <>
+            {commit.hasBody && (
+              // on the middle of the first line of the subject, which is taller than a row's
+              <span className="flex shrink-0 pt-1">
+                <CommitRowMark commit={cardCommit} menu={menu} popupHover={hover.popup} {...state} />
+              </span>
+            )}
+            {action}
+          </>
+        }
+        subjectProps={commit.hasBody ? hover.text : undefined}
+        menu={menu}
+        body={story === null ? undefined : <StoryBody story={story} />}
+      />
     </div>
   )
 }

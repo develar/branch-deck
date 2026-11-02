@@ -9,7 +9,7 @@ import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
-import { turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { THEME_ITEM, commitTwoTasks, expectHeadingCard, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import {
   NOW,
   availableReviewRequests,
@@ -471,6 +471,26 @@ test.describe("Review window", () => {
     await tree.getByRole("treeitem", { name: subject, exact: true }).press("Enter")
     await expect(review.getByTestId("range-review-commit-header")).toContainText(subject)
     await expect(column.filter({ hasText: subject })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should give the heading of the commit of a pull request of one commit the mark of its card, which the hover and I open, Escape giving the focus back", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour", { reviewRequests: availableReviewRequests([reviewRequest("story", 103, 30)]) })
+    turnOnReviewPlan(repo)
+    await commitTwoTasks(repo)
+    await syncAndWaitForBranches()
+    // D on the row reviews the changes: one commit, no column, its heading above the tasks of its tree
+    await getReviewRow(page, 103).focus()
+    await page.keyboard.press("d")
+    const reviewPage = await openLinkedSubWindow(page, await openedReview<PullRequestReviewWindowData>(page, 1))
+    const review = reviewPage.getByTestId("review-window")
+    await expect(review.getByTestId("range-review-commits")).toHaveCount(0)
+    const header = review.getByTestId("range-review-commit-header")
+    await expect(header).toContainText("the cold start paints a splash in the accent of the theme")
+    await expectHeadingCard(reviewPage, header, THEME_ITEM.replaceAll("`", ""))
   })
 
   test("should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title", async ({

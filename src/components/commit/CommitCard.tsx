@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { CommitBodyView } from "@/components/commit/CommitBodyView"
 import { CommitHeader } from "@/components/commit/CommitHeader"
+import type { CommitHeaderProps } from "@/components/commit/CommitHeader"
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import type { CardCommit } from "@/lib/commit"
 
@@ -18,6 +19,8 @@ export interface CommitCardProps {
   body?: ReactNode
   /** The "⋯" of the commit at the end of its meta line (`CommitHeader.menu`) */
   menu?: ReactNode
+  /** The props of its subject (`CommitHeader.subjectProps`): the hover of the subject of a heading opens its card */
+  subjectProps?: CommitHeaderProps["subjectProps"]
 }
 
 /**
@@ -27,7 +30,7 @@ export interface CommitCardProps {
  * preview of a branch and the commit a review shows alone; the commit preview shows the same header as its title and
  * the same body. The card of a mark scrolls under its header, which stays (its popover has no top padding of its own)
  */
-export function CommitCard({ commit, variant, addon, body, menu }: CommitCardProps) {
+export function CommitCard({ commit, variant, addon, body, menu, subjectProps }: CommitCardProps) {
   const fileStats = useCommitFileStats(commit.id)
   const header = (
     <CommitHeader
@@ -40,13 +43,15 @@ export function CommitCard({ commit, variant, addon, body, menu }: CommitCardPro
       committerTime={commit.committerTime}
       fileStats={fileStats}
       subjectAddon={addon}
+      subjectProps={subjectProps}
       menu={menu}
     />
   )
   if (variant !== "card") {
     return (
       <div className="flex min-w-0 flex-col gap-2">
-        {header}
+        {/* the row of the mark of a heading (`CommitRowMark`): its card opens under the subject and the meta line */}
+        {variant === "document" ? <div data-commit-row="">{header}</div> : header}
         {body ?? <CommitBodyView body={commit.body} />}
       </div>
     )

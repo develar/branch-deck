@@ -13,6 +13,7 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
+import { HeadingCardContext, useHeadingCardState } from "@/hooks/useHeadingCard"
 import { SelectReviewFileContext, followLink } from "@/hooks/useSelectReviewFile"
 import type { ReviewLink, ReviewNavigator } from "@/hooks/useSelectReviewFile"
 import { StoryHighlightContext } from "@/hooks/useStoryHighlight"
@@ -829,6 +830,8 @@ function ReviewLayout({
   const [topOpening, setTopOpening] = useState<string | null>(null)
   // the overview at the top, where the review opens: the bar says so
   const [overviewShown, setOverviewShown] = useState(true)
+  // the card of the heading of a commit reviewed alone, across the places its overview mounts in
+  const headingCard = useHeadingCardState()
   const showVisibleSection = useCallback(
     (key: string, path: string, part: LayoutPart = "card", step?: string) => {
       if (part === "opening") {
@@ -1194,44 +1197,47 @@ function ReviewLayout({
             {loaded !== null && topStep !== null && <StepBar chapter={topStep.chapter} count={topStep.count} overview={overviewShown && hasPrologue} onShow={showStep} />}
             {/* a search that hides every file keeps the overview: a click reveals the file */}
             <SelectReviewFileContext value={loaded === null && !filesRead ? null : navigator}>
-              <StoryHighlightContext value={highlight}>
-                {loaded === null ? (
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    <PlainPrologue prologue={prologue} />
-                    {message}
-                  </div>
-                ) : viewFiles === null ? (
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    <PlainPrologue prologue={prologue} />
-                    <PendingFileHeaders files={files} fileOwners={fileOwners} />
-                    <LoadingLine key={loaded.key} className="p-6">
-                      Loading changes…
-                    </LoadingLine>
-                  </div>
-                ) : (
-                  <div data-testid="commit-review-code" className="min-h-0 flex-1">
-                    <CommitReviewCode
-                      key={loaded.key}
-                      revisions={loaded.revisions}
-                      ref={code}
-                      files={viewFiles}
-                      diffViewMode={diffViewMode}
-                      initialPath={selection.initialPath}
-                      onVisibleSectionChange={showVisibleSection}
-                      onFirstScreen={showWindow}
-                      fileOwners={fileOwners}
-                      marked={marked}
-                      onShowStep={showStep}
-                      prologue={prologue}
-                      openings={openings}
-                      after={withoutCard.after}
-                      nextSection={nextSection}
-                      onShowSection={showSection}
-                      ownerLabel={ownerLabel}
-                    />
-                  </div>
-                )}
-              </StoryHighlightContext>
+              {/* the overview mounts in one place after another as the diffs load: its heading keeps its card there */}
+              <HeadingCardContext value={headingCard}>
+                <StoryHighlightContext value={highlight}>
+                  {loaded === null ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      <PlainPrologue prologue={prologue} />
+                      {message}
+                    </div>
+                  ) : viewFiles === null ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                      <PlainPrologue prologue={prologue} />
+                      <PendingFileHeaders files={files} fileOwners={fileOwners} />
+                      <LoadingLine key={loaded.key} className="p-6">
+                        Loading changes…
+                      </LoadingLine>
+                    </div>
+                  ) : (
+                    <div data-testid="commit-review-code" className="min-h-0 flex-1">
+                      <CommitReviewCode
+                        key={loaded.key}
+                        revisions={loaded.revisions}
+                        ref={code}
+                        files={viewFiles}
+                        diffViewMode={diffViewMode}
+                        initialPath={selection.initialPath}
+                        onVisibleSectionChange={showVisibleSection}
+                        onFirstScreen={showWindow}
+                        fileOwners={fileOwners}
+                        marked={marked}
+                        onShowStep={showStep}
+                        prologue={prologue}
+                        openings={openings}
+                        after={withoutCard.after}
+                        nextSection={nextSection}
+                        onShowSection={showSection}
+                        ownerLabel={ownerLabel}
+                      />
+                    </div>
+                  )}
+                </StoryHighlightContext>
+              </HeadingCardContext>
             </SelectReviewFileContext>
           </div>
         </ResizablePanel>

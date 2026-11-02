@@ -15,6 +15,8 @@ targets:
   - ../../src/presenters/commit-body.ts
   - ../../src/components/commit/CommitCard.tsx
   - ../../src/components/commit/CommitRowMark.tsx
+  - ../../src/components/review/ReviewPrologue.tsx
+  - ../../src/hooks/useHeadingCard.ts
   - ../../src/components/shared/RowCard.tsx
   - ../../src/stores/commit-card.ts
   - ../../src/components/preview/CommitsPreviewBody.tsx
@@ -198,6 +200,15 @@ place that shows a commit shows the same way.
   card as the main window, which the hover of the mark or of the subject and `I` on the focused row open
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
+- A review of one commit lists it in no row (a range of one commit, a pull request of one commit; its tree lists its
+  tasks, or its files for a commit of one task, whose heading tells its whole body): the heading of the commit at the
+  top of its overview must then carry the same mark and card as its row anywhere else (`CommitRowMark`), after its
+  subject: the hover of the mark or of the subject opens the card under the subject and the meta line, I on the
+  focused heading (a tab stop) opens it with the focus in it, and Escape closes it and gives the focus back to the
+  heading. The card and the focus stay as the overview moves into the diffs while they load. A commit without a body
+  has no mark there and is no tab stop.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should give the heading of a range of one commit the mark of its card, which the hover and I open, Escape giving the focus back`, `should tell the whole body of a range of one commit of one task in its heading, whose mark opens its card, name a removed declaration after the heading of its block, and give a commit without a body no mark and no tab stop`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should give the heading of the commit of a pull request of one commit the mark of its card, which the hover and I open, Escape giving the focus back`)
 - Every header of a commit with a meta line (`row` aside: the card, the heading of a commit shown alone, the title of
   the preview) shows the "⋯" of the commit at the end of its meta line, the menu the right-click of its row opens: one
   place, wherever the subject ends. Its items are built as it opens, of the selection then, as the right-click builds

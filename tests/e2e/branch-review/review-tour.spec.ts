@@ -6,7 +6,7 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { captureHtmlSnapshot } from "../helpers/aria-snapshot-helpers"
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { mapPointOf } from "../helpers/file-map-helpers"
-import { openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { THEME_ITEM, commitTwoTasks, expectHeadingCard, openPlanWindow, reviewSidebar, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import { selectedInDiffs } from "../helpers/selection-helpers"
 import { runAndWaitForAnswer } from "../helpers/sync-helpers"
 
@@ -317,6 +317,64 @@ test.describe("Review tour", () => {
     await end.click()
     await expect(position).toHaveText("Step 2 / 2")
     await expect(stepRow).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should give the heading of a range of one commit the mark of its card, which the hover and I open, Escape giving the focus back", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    await commitTwoTasks(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "story")
+    // the tree lists the tasks of the commit, no row of it; its heading tells what is told before the tasks
+    await expect(window.getByRole("tree", { name: "Changed files" }).getByTestId("commit-row-mark")).toHaveCount(0)
+    const header = window.getByTestId("range-review-commit-header")
+    await expect(header).toContainText("The cold start paints a splash at once")
+    await expect(header).not.toContainText(THEME_ITEM.replaceAll("`", ""))
+    // the card of the mark of its heading shows the whole message
+    await expectHeadingCard(window, header, THEME_ITEM.replaceAll("`", ""))
+  })
+
+  test("should tell the whole body of a range of one commit of one task in its heading, whose mark opens its card, name a removed declaration after the heading of its block, and give a commit without a body no mark and no tab stop", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // one commit of one task: the test it adds holds the line of the test it removes, in one block
+    await repo.commit(
+      "(welcome) the welcome test checks a stored layout\n\nThe welcome test checks that the welcome keeps the stored layout of its project.\n\nThe check of the layout covers the focus too, so the check of the focus goes: `WelcomeTest.kt` keeps one test.\n",
+      {
+        "test/b/WelcomeTest.kt":
+          "package b\n\nimport a.Manager\nimport org.junit.Test\n\nclass WelcomeTest {\n\n  @Test fun `the welcome keeps the stored layout`() {\n    val welcome = Welcome(Manager())\n    val focused = welcome.focus()\n    check(focused >= 0)\n  }\n}\n",
+      },
+      1704121200,
+    )
+    await repo.commit("(bare) the screen hides the splash twice", { "src/e/Twice.kt": "package e\n\nfun twice(): Int = 2\n" }, 1704124800)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "welcome")
+    // no step is told: the heading tells the whole body, and the card of the file names the removed test after the
+    // heading of the block that holds its line, with no step
+    const header = window.getByTestId("range-review-commit-header")
+    await expect(header).toContainText("The welcome test checks that the welcome keeps the stored layout of its project.")
+    await expect(header).toContainText("The check of the layout covers the focus too, so the check of the focus goes: WelcomeTest.kt keeps one test.")
+    await expect(window.getByTestId("review-step-bar")).toHaveCount(0)
+    // the line of the body that names the file marks its card
+    await expect(window.locator('[data-testid="diff-view-file"][data-path="test/b/WelcomeTest.kt"]').getByTestId("review-story-mark")).toHaveCount(1)
+    const heading = window.getByTestId("diff-unit-heading").first()
+    await expect(heading).toContainText(/the welcome keeps the stored layout.* — new · .*the welcome focuses its project.* — removed$/)
+    await expect(window.getByTestId("diff-unit-heading")).toHaveCount(1)
+    await expectHeadingCard(window, header, "The check of the layout covers the focus too")
+    await window.close()
+
+    // a commit without a body: its heading has no mark and is no tab stop
+    const bare = await openPlanWindow(page, syncAndWaitForBranches, "bare")
+    const bareHeader = bare.getByTestId("range-review-commit-header")
+    await expect(bareHeader).toContainText("the screen hides the splash twice")
+    await expect(bareHeader.getByTestId("commit-row-mark")).toHaveCount(0)
+    await expect(bareHeader).not.toHaveAttribute("tabindex")
   })
 
   test("should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it", async ({
