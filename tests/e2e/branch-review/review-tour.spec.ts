@@ -23,7 +23,8 @@ function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null
 function topOf(heading: Locator): Promise<number> {
   return heading.evaluate(element => {
     const view = element.closest("[data-testid=diff-view]")!
-    return Math.round(element.closest("[data-testid=review-opening]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
+    // the card of the opening: its element of the layer of openings
+    return Math.round(element.closest("[data-opening-step]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
   })
 }
 

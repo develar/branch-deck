@@ -105,7 +105,7 @@
 
 /*
  * The prologue before the first section and the opening of each step of the review plan above the card of its first
- * section: blocks on the canvas at the inset of the cards, as tall as their content, which `DiffView` measures in place
+ * section: blocks at the inset of the cards, as tall as their content, which `DiffView` measures in place
  * (`useMeasuredHeights`), so they are never virtualized; they scroll with the cards and never stick (the bar of the
  * step above the diffs names the step at the top). Each block is placed at its start in the document, among the
  * sections in the order of the document
@@ -113,6 +113,34 @@
 .dv-opening {
   position: absolute;
   inset-inline: 12px;
+}
+
+/*
+ * The words of a review are islands on the canvas as its code is (docs/design/ui-theme.md, "Islands"): the overview
+ * (`dv-prologue`) and the opening of each step (`dv-step-opening`) are cards of prose, the colour, the ring and the
+ * radius of a file card, so the text of the author never lies on the gap between the cards and a chip or a callout in
+ * it has a surface. The openings of a layer stand a gap apart and a gap above the card of their section; the border
+ * and the padding are inside the measured block
+ */
+.dv-prose {
+  background: var(--card);
+  border: 1px solid var(--diff-card-border);
+  border-radius: var(--radius-4xl);
+}
+
+.dv-prologue {
+  padding: 4px 15px 15px;
+}
+
+.dv-openings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 10px;
+}
+
+.dv-step-opening {
+  padding: 12px 15px;
 }
 
 /*

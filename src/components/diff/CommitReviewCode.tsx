@@ -279,14 +279,10 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
 
 /**
  * The openings above the card of a section: of the steps of no card told before its own (`DiffSection.before`), each
- * its element of the layer (`data-opening-step`), then of its own step with the group the section starts
+ * its element of the layer (`data-opening-step`), then of its own step with the group the section starts; each a card
  */
 function SectionOpenings({ section, openings, onShowStep }: { section: DiffSection; openings: ReadonlyMap<string, OpeningView> | undefined; onShowStep?: (step: string) => void }) {
-  const before = section.before ?? []
-  if (before.length === 0) {
-    return <ChapterOpening opening={openingOf(section.step!, openings)} group={section.heading} onShowStep={onShowStep} />
-  }
-  return <LayerOfOpenings steps={[...before, section.step!]} openings={openings} group={section.heading} onShowStep={onShowStep} />
+  return <LayerOfOpenings steps={[...(section.before ?? []), section.step!]} openings={openings} group={section.heading} onShowStep={onShowStep} />
 }
 
 /** The openings of several steps in one layer, each its element (`data-opening-step`), the last with `group` */
@@ -302,13 +298,14 @@ function LayerOfOpenings({
   onShowStep?: (step: string) => void
 }) {
   return (
-    <>
+    // each opening a card of prose, a gap above the card of the section (diff-view.css)
+    <div className="dv-openings">
       {steps.map((step, index) => (
-        <div key={step.id} data-opening-step={step.id}>
+        <div key={step.id} data-opening-step={step.id} className="dv-prose dv-step-opening">
           <ChapterOpening opening={openingOf(step, openings)} group={index === steps.length - 1 ? group : null} onShowStep={onShowStep} />
         </div>
       ))}
-    </>
+    </div>
   )
 }
 

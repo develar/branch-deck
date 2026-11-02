@@ -1200,13 +1200,14 @@ function ReviewLayout({
               {/* the overview mounts in one place after another as the diffs load: its heading keeps its card there */}
               <HeadingCardContext value={headingCard}>
                 <StoryHighlightContext value={highlight}>
+                  {/* the canvas of the diffs from the start: the overview keeps its card and its place as they mount */}
                   {loaded === null ? (
-                    <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="dv-cards min-h-0 flex-1 overflow-y-auto">
                       <PlainPrologue prologue={prologue} />
                       {message}
                     </div>
                   ) : viewFiles === null ? (
-                    <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="dv-cards min-h-0 flex-1 overflow-y-auto">
                       <PlainPrologue prologue={prologue} />
                       <PendingFileHeaders files={files} fileOwners={fileOwners} />
                       <LoadingLine key={loaded.key} className="p-6">
@@ -1247,18 +1248,22 @@ function ReviewLayout({
 }
 
 /**
- * The overview while the diffs are read or cannot show: a block above the headers and the message, at the inset of the
- * cards (the diffs hold it as their prologue once they show)
+ * The overview while the diffs are read or cannot show: its card above the headers and the message, at the inset and
+ * the space above the cards (the diffs hold it as their prologue once they show, diff-view.css)
  */
 function PlainPrologue({ prologue }: { prologue: ReactNode }) {
-  return prologue === undefined || prologue === null ? null : <div className="px-3 pt-2.5">{prologue}</div>
+  return prologue === undefined || prologue === null ? null : (
+    <div className="px-3 pt-2.5">
+      <div className="dv-prose dv-prologue">{prologue}</div>
+    </div>
+  )
 }
 
 /**
  * The bar above the diffs of a review with its plan (spec/branch/review-tour.spec.md, "In the Review Window"): one line,
  * the step of the section at the top, its place in the story and its title, whole in its hover, which a click shows at
  * its opening; "Overview · 4 steps" while the overview is at the top, a click the first step. It follows the diffs as
- * they scroll
+ * they scroll. It lies on the canvas of the diffs, so the column of the review is one canvas of cards
  */
 function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count: number; overview: boolean; onShow: (step: string) => void }) {
   return (
@@ -1267,7 +1272,7 @@ function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count
       data-testid="review-step-bar"
       data-step={chapter.id}
       title={overview ? undefined : chapter.label}
-      className="flex min-w-0 shrink-0 items-baseline gap-1.5 border-b border-border px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+      className="flex min-w-0 shrink-0 items-baseline gap-1.5 bg-canvas px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
       onClick={() => onShow(chapter.id)}
     >
       <span className="shrink-0 text-muted-foreground tabular-nums" data-testid="review-step-position">

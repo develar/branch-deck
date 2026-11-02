@@ -278,8 +278,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
 
 ### In the Review Window
-- With the review plan, the right column must be one document that scrolls: the overview first (`ReviewPrologue`),
-  then the story of the diffs. The overview must open on its headline: the title YouTrack gives the issue the commits
+- With the review plan, the right column must be one document that scrolls, one canvas of cards, the bar of the step
+  above it on that canvas: the overview first (`ReviewPrologue`), a card of prose at the inset of the file cards, the
+  same card at the same place while the diffs load, then the story of the diffs. The overview must open on its headline: the title YouTrack gives the issue the commits
   name once it is known, else the name the plan gives (`ReviewPlan.title`: the branch as the title bar names it, the
   range of the commits), the issue key a chip after it, a link with the popover of its issue; none under the title of
   a pull request, which names it already; a commit shown alone its
@@ -311,8 +312,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
-- The opening of a step (`ChapterOpening`) must stand on the canvas above the card of its first section, as tall as
-  its words (the diffs measure it): "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
+- The opening of a step (`ChapterOpening`) must be a card of prose a gap above the card of its first section (each
+  opening of a layer its own card), as tall as its words (the diffs measure it): "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
   at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
   body](../commit/commit-row.spec.md)): its lead a step larger, its paragraphs, lists, labels as the captions of their
   blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no

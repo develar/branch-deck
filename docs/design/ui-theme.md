@@ -139,6 +139,11 @@ below has its reason. It renders in the light DOM with the classes of `src/compo
   (a shadow of the light text colour lit the rows up). The ticks of the map of the files beside them are `--foreground`
   26% into the canvas (`--diff-map-tick`), a step 55% (`--diff-map-step`), one formula for both themes, since
   `--border` is the canvas itself in the light theme.
+- **The words of a review are islands too**: the overview at the top of the diffs and the opening of each step are
+  cards of prose (`.dv-prose`: the card colour, the ring and the radius of a file card), never text on the gap
+  between the cards, so a chip of code and a Look closely callout in them have a surface, as the rule below asks. The
+  column of the diffs is one canvas: the bar of the step above it lies on it (`bg-canvas`), the overview keeps its
+  card while the diffs load. A white band of the bar over a canvas of text read as a block sawn in two.
 - **Inline strikes its deleted parts through**, still grey and still left out of a copy. Inline has no precedent in
   IntelliJ: it puts the deleted run beside the inserted one in one line, where only the colour would tell them apart.
   A strikethrough is the convention of tracked changes, it matches the icon of the mode, and it does not depend on

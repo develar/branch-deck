@@ -6,7 +6,7 @@ import { Disclosure } from "@/components/shared/Disclosure"
 import type { OpeningView } from "@/presenters/review-story"
 
 /**
- * The opening of a step on the canvas above the card of its first section (spec/branch/review-tour.spec.md, "In the
+ * The opening of a step, a card of prose above the card of its first section (spec/branch/review-tour.spec.md, "In the
  * Review Window"): "Step 2" and the full title, which wraps, a click on them showing the step at the top (a title that
  * is the first sentence of the paragraph the step tells only for a screen reader: the paragraph, a step larger, shows
  * it); the story of the step, the body of the commit that starts it (of a concern of one commit and of a part of its
@@ -19,7 +19,7 @@ import type { OpeningView } from "@/presenters/review-story"
 export function ChapterOpening({ opening, group, onShowStep }: { opening: OpeningView; group: string | null; onShowStep: ((step: string) => void) | undefined }) {
   const { facts } = opening
   return (
-    <div className="flex min-w-0 flex-col gap-3 px-1 pt-5 pb-3" data-testid="review-opening" data-step={opening.id}>
+    <div className="flex min-w-0 flex-col gap-3 px-1" data-testid="review-opening" data-step={opening.id}>
       <button
         type="button"
         data-testid="review-concern-heading"

@@ -1262,7 +1262,14 @@ export function DiffView({
   const content: ReactNode[] = []
   if (prologued) {
     content.push(
-      <div key={PROLOGUE_KEY} ref={measure} className="dv-opening" data-testid="diff-view-prologue" data-measure={PROLOGUE_KEY} style={{ top: layout.stickyTop }}>
+      <div
+        key={PROLOGUE_KEY}
+        ref={measure}
+        className="dv-opening dv-prose dv-prologue"
+        data-testid="diff-view-prologue"
+        data-measure={PROLOGUE_KEY}
+        style={{ top: layout.stickyTop }}
+      >
         {prologue}
       </div>,
     )

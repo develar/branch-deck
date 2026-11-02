@@ -202,7 +202,8 @@ in microseconds.
 
 **Items of the document.** The view is a document of items: the header of a file, the notice of a file (one row; the
 review windows show their notices in the header and use no notice row), and the rows of a file; in a review window
-also the prologue before the first section and the opening of each step (below). Each item but those has a known height:
+also the prologue before the first section, the overview, a card of prose at the inset of the cards (`.dv-prologue`),
+and the opening of each step (below). Each item but those has a known height:
 - Soft wraps off (the default): every row has the row height. The height of a file is `header + rows × row height`,
   and in a review window the line at the end of a long card and the bottom border of its card (below).
   The row count comes from the blocks and the line counts, so the layout is exact before the texts arrive.
@@ -241,8 +242,10 @@ also the prologue before the first section and the opening of each step (below).
   against the line of what is above the view (the header of the commit in a review). The gap colour of the header
   reaches up over that space and hides the rows of its card there. A scroll to a file (`DiffLayout.fileTop`) and the
   file at the top (`fileAtTop`) count it.
-- A section of the story of a review that starts a step (`DiffSection.step`) has its opening on the canvas between the
-  gap above its card and the card (`renderOpening`, `LayoutFile.opening`), as tall as its words; one that starts a
+- A section of the story of a review that starts a step (`DiffSection.step`) has its opening between the gap above its
+  card and the card (`renderOpening`, `LayoutFile.opening`), as tall as its words: a card of prose a gap above the card
+  of its section, each opening of a layer its own card a gap apart (`.dv-openings`, `.dv-step-opening`), the border
+  and the padding inside the measured block; one that starts a
   group and no step a divider of 32 px there (`renderDivider`, `LayoutFile.divider`). The opening of a review is its
   chapter (`ChapterOpening`, [Review Tour](../../spec/branch/review-tour.spec.md#in-the-review-window)): "Step 3"
   muted above the full title in `text-base`, which a click shows as the bar of the step does, the body of its commit,
