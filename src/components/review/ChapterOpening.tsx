@@ -7,8 +7,10 @@ import type { OpeningView } from "@/presenters/review-story"
 
 /**
  * The opening of a step on the canvas above the card of its first section (spec/branch/review-tour.spec.md, "In the
- * Review Window"): "Step 2" and the full title, which wraps, a click on them showing the step at the top; the story of
- * the step, the body of the commit that starts it (of a concern of one commit, the parts of the body told here); the
+ * Review Window"): "Step 2" and the full title, which wraps, a click on them showing the step at the top (a title that
+ * is the first sentence of the paragraph the step tells only for a screen reader: the paragraph, a step larger, shows
+ * it); the story of the step, the body of the commit that starts it (of a concern of one commit and of a part of its
+ * message, the parts of the body told here); the
  * other commits of the step, each one row of the same form (a muted "Follows up" or "Without a story", its title; a
  * commit with a story a disclosure of it, at the size of the row); the facts of the step in one muted line, what joins
  * the parts of a concern among them, the warning of a step no test reaches; and the group the section starts. As tall
@@ -30,7 +32,11 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         </span>
         {/* the name of the button and its text: "Step 2 · The open keeps a stored layout" */}
         <span className="sr-only"> · </span>
-        <span className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium")} data-testid="review-opening-title">
+        {/* a title that is the first sentence of the paragraph below is read there, a step larger, not twice */}
+        <span
+          className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium", opening.titleInBody && "sr-only")}
+          data-testid="review-opening-title"
+        >
           {opening.title}
         </span>
       </button>

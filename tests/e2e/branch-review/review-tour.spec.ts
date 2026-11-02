@@ -842,6 +842,40 @@ test.describe("Review tour", () => {
     await expect(window.getByTestId("review-step-bar").getByTestId("review-step-title")).toHaveText("The theme")
   })
 
+  test("should tell each step of one commit by the paragraph of its message that names its code, titled by its first sentence, which its opening reads a step larger", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // one commit, its paragraphs each naming the code it tells: the splash, then the theme, then the tests
+    await repo.commit(
+      "(story) the cold start paints a splash in the accent of the theme\n\nThe cold start paints a splash at once, in the accent of the theme.\n\nThe splash shows before the frame. `Splash.show` paints it and `SplashScreen.hide` takes it down.\n\nThe theme answers the accent of the scheme. `Theme.accent` reads it.\n\nTests:\n- `SplashTest` and `ThemeTest`",
+      {
+        "src/c/Splash.kt": "package c\n\nclass Splash {\n  fun show(): Int = 1\n}\n",
+        "src/c/SplashScreen.kt": "package c\n\nclass SplashScreen(val splash: Splash) {\n  fun hide(): Int = splash.show() - 1\n}\n",
+        "test/c/SplashTest.kt": "package c\n\nimport org.junit.Test\n\nclass SplashTest {\n  @Test fun `the splash shows once`() = check(SplashScreen(Splash()).hide() == 0)\n}\n",
+        "src/d/Theme.kt": 'package d\n\nobject Theme {\n  fun accent(dark: Boolean): String = if (dark) "#88aaff" else "#3355cc"\n}\n',
+        "test/d/ThemeTest.kt": 'package d\n\nimport org.junit.Test\n\nclass ThemeTest {\n  @Test fun `a dark accent`() = check(Theme.accent(true) == "#88aaff")\n}\n',
+      },
+      1704121200,
+    )
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "story")
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-contents-source")).toHaveText("One commit: the steps are the parts of its message")
+    const titles = overview.getByTestId("review-contents-step-title")
+    await expect(titles).toHaveText(["The splash shows before the frame.", "The theme answers the accent of the scheme.", "Tests"])
+    // the tree names each step as its author did
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    await expect(tree.getByRole("treeitem", { name: "The theme answers the accent of the scheme.", exact: true })).toBeVisible()
+    // a step of its contents shows its opening at the top, which reads the paragraph of its title a step larger
+    await titles.nth(1).click()
+    await expect(window.getByTestId("review-step-bar").getByTestId("review-step-title")).toHaveText("The theme answers the accent of the scheme.")
+    const opening = window.getByTestId("review-opening").filter({ hasText: "Step 2" })
+    await expect(opening.getByTestId("commit-body-lead")).toHaveText("The theme answers the accent of the scheme. Theme.accent reads it.")
+  })
+
   test("should tell no step of the one concern that covers the range: no Steps, no opening, no place in the bar", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("review_tour")
     turnOnReviewPlan(repo)

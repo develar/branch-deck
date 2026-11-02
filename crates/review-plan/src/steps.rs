@@ -36,6 +36,7 @@ use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
+use crate::message_steps::message_steps;
 use crate::pair::{PairBlocks, block_of};
 use crate::story::{StoryCommit, StoryRef, add_step_facts, add_story_marks, add_story_titles, story_commits};
 use crate::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
@@ -115,6 +116,29 @@ pub enum StepSource {
   Commits,
   /// The concerns of the range are the steps: the commits tell no story
   Concerns { reason: ConcernsReason },
+  /// The range is one commit whose body tells its parts by the code they name: each part is a step, with the concerns
+  /// it names (`message_steps`); a concern no part names a step of its own after them
+  Message,
+}
+
+/// What titles a step (`ReviewStep::title`)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum TitleSource {
+  /// The subject of the commit that starts it
+  Commit,
+  /// The label or the heading of the section of the body it tells, which its opening names once, as its title
+  Label,
+  /// The first sentence of the paragraph it tells, its backticks aside: its opening tells the paragraph whole, so it
+  /// shows no title of its own
+  Sentence,
+  /// The first code name of the paragraph it tells that resolves: an identifier, set as code
+  Name,
+  /// No title: the page names it by the evidence of its concern
+  #[default]
+  Evidence,
 }
 
 /// Why the concerns are the steps
@@ -163,6 +187,8 @@ pub struct ReviewStep {
   /// step tells (`story::add_story_titles`), the name of its concern staying the evidence that joined it. `None` for the
   /// changes without a story and a concern no section names, which the page names by its evidence
   pub title: Option<String>,
+  /// What gives it its title
+  pub title_source: TitleSource,
   /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
   /// its id; `None` for a step that shows something
   pub taken_out_by: Option<String>,
@@ -188,6 +214,7 @@ impl ReviewStep {
       new_api: Vec::new(),
       module_links: Vec::new(),
       title: None,
+      title_source: TitleSource::Evidence,
       taken_out_by: None,
       shown_elsewhere: Vec::new(),
       code: Vec::new(),
@@ -617,9 +644,12 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
   } else {
     None
   };
-  let mut steps = match source {
-    None => commit_steps(input, &parts, &story, &rewrites),
-    Some(_) => concern_steps(input, &parts),
+  // one commit whose body tells its parts by the code they name: the parts are the steps
+  let message = (source == Some(ConcernsReason::OneCommit)).then(|| message_steps(input)).flatten();
+  let mut steps = match (&message, source) {
+    (Some(message), _) => message.steps.clone(),
+    (None, None) => commit_steps(input, &parts, &story, &rewrites),
+    (None, Some(_)) => concern_steps(input, &parts),
   };
   for step in &mut steps {
     order_stops(input, &file_of, step);
@@ -630,15 +660,23 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
   mark_paths(input, &mut steps);
   add_step_facts(input, &mut steps);
   let coverage = coverage(input, &steps);
-  let told = source.is_none() || input.concerns.len() > 1;
-  let mut commits = story_commits(input, &steps, source == Some(ConcernsReason::OneCommit), told);
+  let told = source.is_none() || message.is_some() || input.concerns.len() > 1;
+  let telling = message.as_ref().map(|message| (message.told.as_slice(), &message.titled));
+  let mut commits = story_commits(input, &steps, source == Some(ConcernsReason::OneCommit), told, telling);
   add_story_titles(&mut steps, &mut commits);
   add_story_marks(&mut steps, &commits);
-  for step in steps.iter_mut().filter(|step| step.concern.is_none()) {
-    step.title = step.commits.iter().find(|commit| commit.role == CommitRole::Starts).map(|commit| commit.title.clone());
+  if source.is_none() {
+    for step in steps.iter_mut().filter(|step| step.concern.is_none()) {
+      step.title = step.commits.iter().find(|commit| commit.role == CommitRole::Starts).map(|commit| commit.title.clone());
+      step.title_source = if step.title.is_some() { TitleSource::Commit } else { TitleSource::Evidence };
+    }
   }
   ReviewSteps {
-    source: source.map_or(StepSource::Commits, |reason| StepSource::Concerns { reason }),
+    source: match (&message, source) {
+      (Some(_), _) => StepSource::Message,
+      (None, None) => StepSource::Commits,
+      (None, Some(reason)) => StepSource::Concerns { reason },
+    },
     told,
     steps,
     coverage,
@@ -859,7 +897,7 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
 }
 
 /// A commit of a step: its id and its subject
-fn step_commit(input: &StepsInput<'_>, commit: usize, role: CommitRole) -> StepCommit {
+pub(crate) fn step_commit(input: &StepsInput<'_>, commit: usize, role: CommitRole) -> StepCommit {
   let (id, message) = &input.commits[commit];
   let (subject, _) = split_message(message);
   StepCommit {

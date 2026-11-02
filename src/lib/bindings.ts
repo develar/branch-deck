@@ -6869,6 +6869,8 @@ export type ReviewStep = {
 	 *  changes without a story and a concern no section names, which the page names by its evidence
 	 */
 	title: string | null,
+	/**  What gives it its title */
+	titleSource: TitleSource,
 	/**
 	 *  Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
 	 *  its id; `None` for a step that shows something
@@ -8218,7 +8220,12 @@ export type StepSource =
 /**  Each step starts at a commit whose body says what it does and why */
 { kind: "commits" } | 
 /**  The concerns of the range are the steps: the commits tell no story */
-{ kind: "concerns"; reason: ConcernsReason };
+{ kind: "concerns"; reason: ConcernsReason } | 
+/**
+ *  The range is one commit whose body tells its parts by the code they name: each part is a step, with the concerns
+ *  it names (`message_steps`); a concern no part names a step of its own after them
+ */
+{ kind: "message" };
 
 /**  What a step shows of one unit in one file */
 export type StepStop = {
@@ -8732,6 +8739,22 @@ export type TimeSpent = {
 	/**  From a failed or canceled robot to the next robot of the same branch, within 3 days */
 	between: number,
 };
+
+/**  What titles a step (`ReviewStep::title`) */
+export type TitleSource = 
+/**  The subject of the commit that starts it */
+"commit" | 
+/**  The label or the heading of the section of the body it tells, which its opening names once, as its title */
+"label" | 
+/**
+ *  The first sentence of the paragraph it tells, its backticks aside: its opening tells the paragraph whole, so it
+ *  shows no title of its own
+ */
+"sentence" | 
+/**  The first code name of the paragraph it tells that resolves: an identifier, set as code */
+"name" | 
+/**  No title: the page names it by the evidence of its concern */
+"evidence";
 
 /**  Where the GitHub token came from, in the order they are tried (`github::token`) */
 export type TokenSource = 

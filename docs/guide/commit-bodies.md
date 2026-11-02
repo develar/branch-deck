@@ -55,11 +55,14 @@ nothing summarizes the step.
 
 ## A paragraph per decision
 
-After the lead, give each decision its own paragraph: what you chose, what you did not and why. A reviewer reads a
-long body by its blocks: Branch Deck marks where a body folds at a block boundary, after the lead and the blocks that
-read in about 12 lines (`parts`, each `folded` or not), never between a label and its section; a Look closely never
-folds, wherever it stands. A body cut into short blocks folds where a reader expects it; a body of one long paragraph
-is all or nothing.
+After the lead, give each decision its own paragraph: what you chose, what you did not and why, and name in backticks
+the code it is about. The review of a commit alone takes such paragraphs as its steps, in your order, each with the code
+it names and titled by its first sentence, so open it with a short sentence of what the step does (100 characters or
+fewer); a list you write right under a paragraph is part of it, and `Tests:` naming the tests is the step of the tests.
+A reviewer reads a long body by its blocks: Branch Deck marks where a body folds at a block boundary, after the lead
+and the blocks that read in about 12 lines (`parts`, each `folded` or not), never between a label and its section; a
+Look closely never folds, wherever it stands. A body cut into short blocks folds where a reader expects it; a body of
+one long paragraph is all or nothing.
 
 ## Code names are anchors
 

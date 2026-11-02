@@ -55,7 +55,7 @@ use crate::api::ApiChangeKind;
 use crate::concerns::compound;
 use crate::interdiff::MessageChange;
 use crate::links::FileLink;
-use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, commit_title, split_message};
+use crate::steps::{CommitRole, ReviewStep, StepStop, StepsInput, TitleSource, commit_title, split_message};
 use crate::units::{ReviewUnit, UnitKind};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPartKind, LabelKind};
 use serde::Serialize;
@@ -588,6 +588,13 @@ fn line_mentions(resolver: &Resolver<'_>, line: &str, (block, item): (u32, u32),
   }
 }
 
+/// The mentions of the body of the one commit of `input`, resolved before there are steps: each target the unit or the
+/// file it names, no step (`message_steps`)
+pub(crate) fn unit_mentions(input: &StepsInput<'_>, body: &CommitBody) -> Vec<Mention> {
+  let resolver = Resolver::new(input, &[]);
+  mentions_of(&resolver, body, &[])
+}
+
 /// The mentions of `body`, `own` the steps of its commit
 fn mentions_of(resolver: &Resolver<'_>, body: &CommitBody, own: &[u32]) -> Vec<Mention> {
   let mut mentions = Vec::new();
@@ -693,9 +700,10 @@ fn place_hunks(parts: &mut [StoryPart], change: &MessageChange) {
 }
 
 /// The story of each commit of `input` whose body has a block, oldest first; `one_commit` when the steps are the
-/// concerns of one commit, whose parts then go to the steps that tell them while the steps are `told`, else to the
-/// overview
-pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_commit: bool, told: bool) -> Vec<StoryCommit> {
+/// concerns of one commit or the parts of its message, whose parts then go to the steps that tell them while the steps
+/// are `told`, else to the overview. Of the steps of a message (`telling`), the step of each block that tells one, a
+/// Look closely in the step of the part before it, and the first blocks of the sections whose label titles their step
+pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_commit: bool, told: bool, telling: Option<(&[Option<u32>], &BTreeSet<u32>)>) -> Vec<StoryCommit> {
   let resolver = Resolver::new(input, steps);
   input
     .commits
@@ -713,12 +721,28 @@ pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_co
         .filter_map(|(place, _)| u32::try_from(place).ok())
         .collect();
       let mentions = mentions_of(&resolver, &body, &own);
-      let told_in = match (one_commit, told) {
+      let mut told_in = match (one_commit, told) {
         (true, true) => Some(told_in(&resolver, &body, &mentions)),
         (true, false) => Some(vec![None; body.blocks.len()]),
         (false, _) => None,
       };
+      if let (Some(told_in), Some((tells, _))) = (told_in.as_mut(), telling) {
+        for (block, step) in told_in.iter_mut().zip(tells) {
+          if step.is_some() {
+            *block = *step;
+          }
+        }
+      }
       let mut parts = story_parts(&body, told_in.as_deref());
+      // a part that tells its step is what its opening is for: never folded there, its label told once as the title
+      if let Some((tells, titled)) = telling {
+        for part in &mut parts {
+          part.titled = titled.contains(&part.start);
+          if tells.get(part.start as usize).copied().flatten().is_some() {
+            part.folded = false;
+          }
+        }
+      }
       let change = input.message_changes.get(id).cloned();
       if let Some(change) = &change {
         place_hunks(&mut parts, change);
@@ -754,6 +778,7 @@ pub(crate) fn add_story_titles(steps: &mut [ReviewStep], commits: &mut [StoryCom
     let Some(step) = steps.get_mut(step as usize) else { continue };
     if step.concern.is_some() && step.title.is_none() {
       step.title = Some(title.clone());
+      step.title_source = TitleSource::Label;
       part.titled = true;
     }
   }

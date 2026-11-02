@@ -1,11 +1,11 @@
-import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ReviewPlan, ReviewStep, StepCommit, StoryRef } from "@/lib/bindings"
+import type { CommitRole, ConcernName, ConcernPart, JoinedUnit, ReviewPlan, ReviewStep, StepCommit, StepSource, StoryRef } from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
  * The words of the story of a review (spec/branch/review-tour.spec.md, "In the Review Window"): Rust tells the steps
- * (a step per commit whose body tells it, else the concerns), what each shows of the units in its order, the tests that
- * name its code, and the brief; this words them for the tree, the openings of the story and the bar above the diffs
- * (the overview and the openings themselves: `review-story.ts`).
+ * (a step per commit whose body tells it, of one commit a step per part of its message, else the concerns), what each
+ * shows of the units in its order, the tests that name its code, and the brief; this words them for the tree, the
+ * openings of the story and the bar above the diffs (the overview and the openings themselves: `review-story.ts`).
  */
 
 /** The id Rust gives the step of the changes only commits without a body wrote */
@@ -49,6 +49,11 @@ export interface Chapter {
   readonly told: boolean
   /** Its label is an identifier (the token, the declaration, the file of a concern no section of a body titles): code */
   readonly code: boolean
+  /**
+   * Its label is the first sentence of the paragraph its opening tells (`titleSource: "sentence"`): the opening shows
+   * that paragraph whole, a step larger, and no title of its own
+   */
+  readonly titleInBody: boolean
   readonly parts: readonly ChapterPart[]
   readonly paths: readonly string[]
   readonly elsewhere: readonly string[]
@@ -62,6 +67,8 @@ export function headOf(step: ReviewStep): StepCommit | undefined {
 /** The chapters of the story of `plan`, from its steps in their order (`Chapter`) */
 export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): Chapter[] {
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
+  // of the steps of a message, a concern may be a step in part: its files are those of the step
+  const message = plan.steps.source.kind === "message"
   return plan.steps.steps.map((step, index) => {
     const number = index + 1
     const parts = step.stops.map(stop => ({ unit: stop.unit, path: stop.path, blocks: stop.blocks, joined: stop.joined, marks: stop.marks }))
@@ -80,9 +87,30 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
         rest,
         told: !rest && plan.steps.told,
         code: step.title === null && isCodeName(concern.name),
+        titleInBody: false,
         parts,
-        paths: concern.paths,
-        elsewhere: concern.elsewhere,
+        paths: message ? step.paths : concern.paths,
+        elsewhere: message ? step.elsewhere : concern.elsewhere,
+      }
+    }
+    if (message) {
+      // a part of the message of one commit: named as its author wrote it, by its label, its first sentence or its first
+      // code name
+      const label = step.title ?? ""
+      return {
+        id: step.id,
+        number,
+        label,
+        heading: label,
+        reference: label,
+        hover: null,
+        rest: false,
+        told: plan.steps.told,
+        code: step.titleSource === "name",
+        titleInBody: step.titleSource === "sentence",
+        parts,
+        paths: step.paths,
+        elsewhere: step.elsewhere,
       }
     }
     // Rust titles a step by the commit that starts it, as its author wrote it
@@ -97,6 +125,7 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
       rest: false,
       told: true,
       code: false,
+      titleInBody: false,
       parts,
       paths: step.paths,
       elsewhere: step.elsewhere,
@@ -180,11 +209,12 @@ function sameCommit(a: string, b: string): boolean {
  * story; each by the title Rust gives it, its subject without the issue key the brief names; a step of the concerns lists its commits, the
  * most lines first. A commit several steps list (the concerns) is listed once, in the step that lists it first (its most
  * lines there), the first of equal ones; a commit of the range no step lists goes into Other commits, in the order of
- * `items`
+ * `items`. Of the steps of a message (`source`), no step is its commit: its one commit is listed in the first
  */
 export function placeCommits<T extends { readonly commit: { readonly id: string; readonly subject: string } }>(
   steps: readonly Pick<ReviewStep, "id" | "commits" | "concern">[],
   items: readonly T[],
+  source: StepSource["kind"] = "commits",
 ): CommitPlaces<T> {
   const itemOf = (commit: StepCommit) => items.find(item => sameCommit(item.commit.id, commit.id))
   const orderOf = (item: T | undefined) => (item === undefined ? items.length : items.indexOf(item))
@@ -203,7 +233,7 @@ export function placeCommits<T extends { readonly commit: { readonly id: string;
   const placed = new Map<string, PlacedCommit<T>[]>()
   const listed = new Set<string>()
   for (const step of steps) {
-    const ofCommits = step.concern === null
+    const ofCommits = step.concern === null && source === "commits"
     const commits: PlacedCommit<T>[] = []
     for (const commit of step.commits) {
       const item = itemOf(commit)
@@ -248,6 +278,7 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       rest,
       told: !rest,
       code: isCodeName(concern.name),
+      titleInBody: false,
       parts: concern.parts.map(part => ({ ...part, joined: NOT_JOINED, marks: NO_MARKS })),
       paths: concern.paths,
       elsewhere: concern.elsewhere,

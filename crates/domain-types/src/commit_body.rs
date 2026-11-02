@@ -25,6 +25,10 @@ pub struct CommitBody {
   /// The code of each line of its blocks that holds some (`sync_utils::code_spans`): the page sets these spans in the
   /// monospace font, so a card, a preview and the story of a review set one name alike
   pub code: Vec<LineCode>,
+  /// Whether the author wrote each block right under the one before it, no blank line between (a list under its
+  /// paragraph, the text after a run-in label): one thought. Rust reads it (the steps of a message), the page does not
+  #[serde(skip)]
+  pub tight: Vec<bool>,
 }
 
 /// The spans of code of one line of a block of a body: a line of a paragraph, an item of a list, a label or a heading

@@ -1,9 +1,10 @@
 ---
 name: Review Tour
-description: Requirements for the story of a review (experimental), one document that a reviewer who sees a change for the first time reads from its overview into each step's opening above its diffs; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
+description: Requirements for the story of a review (experimental), one document that a reviewer who sees a change for the first time reads from its overview into each step's opening above its diffs; the brief (the issue the commits name, the rules of the specs and the prose of the docs the change adds, with the tests their test links name) and the steps, a step per commit whose body tells it, its follow-ups and the commits without a body where their lines landed, of one commit whose message tells its parts by the code they name a step per part, else the concerns, each with the parts of the units that land in master in its order, a declaration it adds first and its uses after it, and the tests that reach its code through its callers, the change's and the others; every block of the diff in one stop; the story of each commit once, its code names resolved to the units and the files.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/steps.rs
+  - ../../crates/review-plan/src/message_steps.rs
   - ../../crates/review-plan/src/story.rs
   - ../../crates/review-plan/src/brief.rs
   - ../../crates/review-plan/src/interdiff.rs
@@ -49,7 +50,7 @@ change does for its user: the issue its commits name, the rules of the specs, th
 and the docs it adds or changes, and the tests their test links name. A step is a part of the change with the
 words of its author: a commit whose body tells it, with the rounds that follow it up; each step shows the parts of the
 units that land in master, a declaration it adds first and the uses of it after it, and the tests that reach its
-code, those the change adds or changes and those it did not touch. Reviews differ: where the commits tell no story, the concerns of the range are the steps. The vision
+code, those the change adds or changes and those it did not touch. Reviews differ: a commit alone whose paragraphs name the code they tell is told by its paragraphs; where the commits tell no story, the concerns of the range are the steps. The vision
 and the rounds: [Change Review](../../docs/design/change-review.md).
 
 ## Goals
@@ -109,9 +110,43 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   generated files of its sources.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_mechanical_change_follows_the_step_that_wrote_it`)
 
+### Steps of the Message
+- A range of one commit whose body tells two parts or more by the code they name must have those parts as its steps,
+  in the order of the body (`source`: `message`). The parts that may tell a step are a labelled section (a label or a
+  heading and its blocks, a verification aside) and each paragraph or list of a run with the blocks written right under
+  it (no blank line between: a list under its paragraph is one part); the lead, a Look closely, code alone and a
+  verification section are none, but a `Tests:` section tells the step of the tests. A part claims the parts of the
+  concerns (a unit in a file) its code names resolve to, resolved before there are steps: a declaration its parts, a
+  file its parts in that file; a part two of them name goes to the labelled section before a paragraph, a paragraph
+  before the tests, then to the one that names it most, then to the earlier one. Fewer than two parts of the story with
+  a claim (a body of one paragraph that names code, two sections that name the same code: the first keeps it, a body of
+  verification alone) keep the concerns as the steps.
+  [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`, `the_concerns_stay_the_steps_of_a_body_that_tells_no_two_parts_by_their_code`)
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_titled_by_its_label_the_lead_and_the_rest_in_the_prologue`)
+- A concern one part names must go to it whole; a concern two parts name must be cut by its own evidence, each of its
+  parts to the nearest claimed one (a use the change adds at 1, a use it keeps, a rare token or what no evidence
+  joined at 2, a repeated edit at 1), of equal distance the part of the better claim, then the earlier one; a part no
+  evidence reaches goes to the part that claims most of the concern. No evidence is added: a concern no part names
+  stays a step of its own after the parts, named by its evidence, a concern of test code alone joins the step of the
+  tests, and what no evidence joined goes part by part (to the part that names it, a test to the tests, the rest stays
+  the rest, last). Every block of the diff stays in one stop.
+  [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`)
+- A step of the message must be titled as its author wrote it (`titleSource`): the label or the heading of its
+  section (`label`, told once, as its title); else the first sentence of its paragraph, up to a `.`, `?` or `!` outside
+  backticks before a space or the end of the line, not after an abbreviation (`e.g.`), a single letter or a digit,
+  when it is 100 characters or fewer, its backticks aside (`sentence`); else the first code name of the paragraph
+  that resolves, set as code (`name`). Its id must be the fingerprint of its first part (its unit and file), so a
+  reword that names more of its code keeps it.
+  [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`, `a_long_first_sentence_titles_its_step_by_the_first_name_it_resolves_and_a_list_under_a_paragraph_is_one_part`, `a_step_of_the_message_keeps_its_id_when_its_paragraph_names_more`)
+- Of the steps of the message, each part that tells a step must be told in its opening, never folded there; a Look
+  closely in the step of the part before it; the lead, and the parts no step tells, by the rule of the concerns of one
+  commit ([The Story of a Commit](#the-story-of-a-commit)).
+  [@test] ../../crates/review-plan/src/message_steps_test.rs (`the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order`)
+
 ### Steps of the Concerns
-- A range of one commit and a range no commit of which tells a step must have the concerns as its steps, each with the
-  commits of its lines, the most lines first (`source`: `concerns` with its `reason`, `oneCommit` or `noStory`).
+- A range of one commit whose body tells no two parts by their code and a range no commit of which tells a step must
+  have the concerns as its steps, each with the commits of its lines, the most lines first (`source`: `concerns` with
+  its `reason`, `oneCommit` or `noStory`).
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_concerns_are_the_steps_when_the_commits_tell_no_story`)
 - A long branch is told by its commits too: its concerns were no shorter a list ([Measurements](#measurements)).
 
@@ -146,9 +181,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   ([Commit Row → Message body](../commit/commit-row.spec.md)), its code names (`mentions`), its parts as the
   document tells them (`parts`: each part of the body, its `kind` and `tone`, `folded`, where it is `told` and
   whether its label is the title of its step, `titled`), and the title of each step of the concerns of one commit that
-  tells a labelled section (`title`: the label of the first one, a verification and a Look closely aside). A commit of
-  a step names no body of its own.
-  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`)
+  tells a labelled section (`title`: the label of the first one, a verification and a Look closely aside; `titleSource`
+  `label`, of a step of the commits `commit`, of a concern no section names `evidence`). A commit of a step names no
+  body of its own.
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_titled_by_its_label_the_lead_and_the_rest_in_the_prologue`)
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`, `a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
 - A code name of a block that is no preformatted text must resolve to a unit or a changed file of the range, with no
   git process and no query of the index: a span in backticks that names code (a path, a file name, identifiers joined
@@ -188,13 +224,13 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the steps are not told. A story of several commits keeps the order of its author: each part is told with its
   commit (`commit`), in the opening of the step it starts or the disclosure of its round. The page shows the parts a
   place tells and decides none of it.
-  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_titled_by_its_label_the_lead_and_the_rest_in_the_prologue`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
 - Each stop must list the lines of the told bodies that name it (`marks`: the commit, the block, the line and where
   the block is told, `step`, `null` for the overview): a resolved mention marks the stops of the path of its target in
   the step of its target (in every step without one), of a declaration only the stops that show its unit, its own or
   joined, when one does; once per block. A story of several commits marks only from the commit that starts a step;
   a follow-up, folded under its step, marks nothing.
-  [@test] ../../crates/review-plan/src/story_test.rs (`a_line_of_a_told_body_marks_the_stops_it_names_where_it_is_told`, `the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`)
+  [@test] ../../crates/review-plan/src/story_test.rs (`a_line_of_a_told_body_marks_the_stops_it_names_where_it_is_told`, `the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_titled_by_its_label_the_lead_and_the_rest_in_the_prologue`)
 - The story of a commit whose message changed since the review (`message_change` of its pair in the interdiff of
   its branch, [Review Plan](review-plan.spec.md#since-your-review); of a commit shown alone, read with its reviewed
   commit) must carry that change (`change`) and place it: each part marks the added blocks it holds, and the removed
@@ -258,8 +294,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
   calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
-  tells the rest. Steps of the concerns say why, a muted line right under the count of the steps ("One commit: the
-  steps are its tasks"); a muted note is never pushed to the far end of the column, only a sum is; a range whose
+  tells the rest. Steps of the concerns and of the message say why, a muted line right under the count of the steps
+  ("One commit: the steps are its tasks", "One commit: the steps are the parts of its message"); a muted note is never pushed to the far end of the column, only a sum is; a range whose
   only step is what no evidence joined, or one concern that covers it, lists no step, and its facts are the facts of the range. Then Possible
   Breakage (the uses left outside right after the name of an entry) and Since your review ([Review
   Plan](review-plan.spec.md#requirements)); why the uses are unknown is folded under Possible Breakage when it lists an
@@ -298,6 +334,13 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the overview (in the heading of the commit shown alone), so each part of the body is in one place. A story of
   several commits keeps the order of its author: each part in the opening of its commit's step.
   [@test] ../../src/presenters/review-story.test.ts (`tells each part of the body of one commit where Rust places it, the label of the title of a step not again, the lead and the rest in the overview`)
+- A step of the message must open as a step of the concerns does, with the parts told in it, without the row of the
+  commit (its one commit is the row of no step: the tree lists it in the first step); a step titled by the first
+  sentence of its paragraph (`titleSource: "sentence"`) shows "Step 2" and that paragraph as its lead, a step larger,
+  the title only for a screen reader, so the sentence reads once; a step titled by a code name sets it as code. The
+  overview, the tree and the bar of the step name the step by its title.
+  [@test] ../../src/presenters/review-story.test.ts (`tells each part of the message of one commit in the step it is, a title of its first sentence read in its paragraph, a step larger, the commit no step's row`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should tell each step of one commit by the paragraph of its message that names its code, titled by its first sentence, which its opening reads a step larger`)
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by the label of the first section of the body of its commit it tells (`title`, "The splash"; a verification
@@ -504,6 +547,13 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 - A cap of 12 steps that made the concerns the steps of a long branch was measured on `air-local-launch`: its 42
   concerns and a rest of 201 stops were no shorter a list than its 30 steps of commits, and lost their bodies. There
   is no cap.
+- The steps of the message (`bd review-plan` schema 15, a debug build, 2026-11-02): of 31 commits of `develar` in
+  idea-1 with a body of 40 words or more and 3 changed files or more, and IJAI-5582 (`terminal-split-url`), 10 are
+  told by their parts, their 68 concerns now 48 steps; of the last 15 commits of this repository, 6, 45 concerns now 36
+  steps. Every block stays in one stop. On IJAI-5582 the 12 concerns, the core under the token `TerminalOffset` and 7
+  of them tests and their helpers, became the marker, the way of the markers, the joiner with its Look closely, the
+  batches of the frontend and the tests, each titled by its paragraph, then the DTO field no paragraph names and the
+  rest. A body that lists its changes as one list stays on the concerns: the list is one part.
 - The tests that reach the code (`bd review-plan` schema 13, 2026-11-01, the 5 virtual branches of `develar` in
   idea-1 then, 18 steps, 11 of them with code): a test reaches code of 10 of the 11, and in 8 of those a test the
   change did not touch does; no step is marked unproven. The text match of the changed lines of the range's tests it

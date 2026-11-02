@@ -16,8 +16,9 @@
 //!   add or delete
 //! - `files`: per changed file, its links, why its change is mechanical, its repeated edit, the usages of the API it
 //!   removes or changes and whether its tests changed with it
-//! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, else the concerns,
-//!   each with the parts of the units it shows and the tests that name its code
+//! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, of one commit the
+//!   parts of its message that name its code (`message_steps`), else the concerns, each with the parts of the units it
+//!   shows and the tests that name its code
 //! - `brief`: the issue the commits name and the prose of the specs and the docs the change adds or changes
 //! - `story`: the body of each commit once, its code names resolved to the units and the files of the range, and the
 //!   new API and the new links between modules of each step
@@ -34,6 +35,7 @@ pub mod files;
 pub mod interdiff;
 pub mod links;
 pub mod mark_reviewed;
+pub mod message_steps;
 pub mod order;
 pub mod pair;
 pub mod steps;
@@ -529,6 +531,8 @@ mod interdiff_test;
 mod links_test;
 #[cfg(test)]
 mod mark_reviewed_test;
+#[cfg(test)]
+mod message_steps_test;
 #[cfg(test)]
 mod order_test;
 #[cfg(test)]

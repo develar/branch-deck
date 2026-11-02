@@ -79,12 +79,14 @@ pub fn commit_body(body: &str) -> CommitBody {
   let lead = matches!(blocks.first(), Some(CommitBodyBlock::Paragraph { .. }));
   let parts = parts(&blocks, &raw_of, lead);
   let code = code_of(&blocks);
+  let tight = (0..blocks.len()).map(|block| block > 0 && raw_of[block] == raw_of[block - 1]).collect();
   CommitBody {
     blocks,
     trailers: trailer_lines,
     lead,
     parts,
     code,
+    tight,
   }
 }
 

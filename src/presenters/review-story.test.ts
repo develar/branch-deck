@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, StoryPlace, TestRef } from "@/lib/bindings"
 import { MORE } from "@/presenters/commit-body"
+import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
@@ -475,6 +476,58 @@ describe("the document of a review", () => {
     expect(prologue.source).toBe("One commit: the steps are its tasks")
     expect(prologue.untold?.subject).toBe("the open keeps the layout")
     expect(textOf(prologue.untold!.story)).toEqual({ lead: "The open keeps the stored layout.", shown: [["", "Names nothing."]], folded: [] })
+  })
+
+  it("tells each part of the message of one commit in the step it is, a title of its first sentence read in its paragraph, a step larger, the commit no step's row", () => {
+    const one = story(
+      "a URL is one link",
+      [
+        paragraph("A TUI breaks a URL at the edge."),
+        paragraph("The marker comes from the emulator. Only it knows the edge."),
+        paragraph("The markers travel in `Update.edges`, the model and the state."),
+        list("the event fills them", "the model keeps them"),
+        label("Look closely", "lookClosely"),
+        paragraph("the guards of `Joiner.join`."),
+      ],
+      [
+        [0, 1, false],
+        [1, 2, false],
+        [2, 4, false],
+        [4, 6, false],
+      ],
+      [{ kind: "overview" }, { kind: "step", step: 0 }, { kind: "step", step: 1 }, { kind: "step", step: 1 }],
+    )
+    const head = commit("a URL is one link")
+    const steps = [
+      { ...step("m1", [head], [["u:edge", "src/Grid.kt"]]), title: "The marker comes from the emulator.", titleSource: "sentence" as const },
+      { ...step("m2", [head], [["u:edges", "src/Model.kt"]]), title: "Update.edges", titleSource: "name" as const },
+    ]
+    const whole = plan(steps, [one], {
+      steps: { source: { kind: "message" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
+    })
+    const openings = presentOpenings(whole)
+    // the first sentence titles the step: its paragraph is the lead of the opening, the title only for a screen reader
+    const m1 = openings.get("m1")!
+    expect([m1.title, m1.titleInBody, textOf(m1.story!)]).toEqual([
+      "The marker comes from the emulator.",
+      true,
+      { lead: "The marker comes from the emulator. Only it knows the edge.", shown: [], folded: [] },
+    ])
+    // a title of a code name is code, above the paragraph and the list under it, the Look closely after them
+    const m2 = openings.get("m2")!
+    expect([m2.title, m2.code, m2.titleInBody, m2.commits]).toEqual(["Update.edges", true, false, []])
+    expect(textOf(m2.story!).shown.map(([head]) => head)).toEqual(["", "Look closely:"])
+    // the overview: why the steps are what they are, their titles, the Look closely in the contents of its step
+    const prologue = presentPrologue(whole, false)
+    expect(prologue.source).toBe("One commit: the steps are the parts of its message")
+    expect(prologue.steps.map(it => [it.title, it.code, it.lookClosely.length])).toEqual([
+      ["The marker comes from the emulator.", false, 0],
+      ["Update.edges", true, 1],
+    ])
+    expect(textOf(prologue.untold!.story)).toEqual({ lead: "A TUI breaks a URL at the edge.", shown: [], folded: [] })
+    // its one commit is the row of no step: the steps are its parts
+    const places = placeCommits(steps, [{ commit: { id: "a URL is one link", subject: "a URL is one link" } }], "message")
+    expect([places.heads.size, places.steps.get("m1")?.map(it => it.title)]).toEqual([0, ["a URL is one link"]])
   })
 
   it("links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it", () => {

@@ -10,6 +10,7 @@ import type {
   ReviewPlan,
   ReviewStep,
   ReviewUnit,
+  StepSource,
   StoryCommit,
   StoryPart,
 } from "@/lib/bindings"
@@ -75,14 +76,28 @@ export interface StoryView extends BodyParts {
  * The story of `commit` as the document shows it: of its parts `told` keeps (all by default), each as Rust cut, placed
  * and folded it (`StoryCommit.parts`, `presentBodyParts`), its code names worded
  */
-export function presentStory(commit: StoryCommit, told: (part: StoryPart) => boolean = () => true, words: MentionWords = plainWords): StoryView {
+export function presentStory(commit: StoryCommit, told: (part: StoryPart) => boolean = () => true, words: MentionWords = plainWords, titled = false): StoryView {
   const subjectBefore = commit.change?.subjectBefore ?? null
+  const parts = commit.parts.filter(told)
   return {
     commit: commit.id,
     mentions: wordMentions(commit, words),
-    ...presentBodyParts(commit.id, commit.body, commit.parts.filter(told), true, commit.change),
+    ...presentBodyParts(commit.id, commit.body, titled ? titleAsLead(parts) : parts, true, commit.change),
     ...(subjectBefore === null ? {} : { subjectBefore }),
   }
+}
+
+/**
+ * The parts a step tells whose first sentence titles it (`Chapter.titleInBody`): the paragraph of that sentence is
+ * their lead, a step larger, so the opening reads it as its title; the blocks written under it follow as its run
+ */
+function titleAsLead(parts: readonly StoryPart[]): StoryPart[] {
+  const [first, ...others] = parts
+  if (first?.kind !== "run") {
+    return [...parts]
+  }
+  const lead: StoryPart = { ...first, kind: "lead", end: first.start + 1 }
+  return first.end > first.start + 1 ? [lead, { ...first, start: first.start + 1, removals: [] }, ...others] : [lead, ...others]
 }
 
 /** The mentions of code of the body of `commit`, each worded by `words` (`StoryMention`) */
@@ -161,6 +176,26 @@ function toldInStep(part: StoryPart, index: number): boolean {
 const SOURCE_WORDS: Readonly<Record<ConcernsReason, string>> = {
   oneCommit: "One commit: the steps are its tasks",
   noStory: "The commits tell no story: the steps are the tasks of the range",
+}
+
+/** Why the steps are what they are, under the label of the steps; nothing for the steps of the commits */
+function formatStepSource(source: StepSource): string | null {
+  switch (source.kind) {
+    case "commits":
+      return null
+    case "message":
+      return "One commit: the steps are the parts of its message"
+    case "concerns":
+      return SOURCE_WORDS[source.reason]
+  }
+}
+
+/**
+ * Whether `step` tells parts of the one story of the range (`storyByParts`): a concern of one commit, a part of its
+ * message; else it tells the body of the commit that starts it
+ */
+function tellsParts(plan: Pick<ReviewPlan, "steps">, step: ReviewStep): boolean {
+  return step.concern !== null || plan.steps.source.kind === "message"
 }
 
 /** A name of a fact of a step that shows its place: a new declaration, a new link between modules at its first use */
@@ -430,9 +465,10 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
   const steps = (told ? plan.steps.steps : []).map((step, index): ContentsStep => {
     const chapter = chapters[index]!
     const head = headOf(step)
-    const story = step.concern !== null ? undefined : head?.role === "noStory" ? undefined : storyOf(plan, head?.id)
+    const byParts = tellsParts(plan, step)
+    const story = byParts ? undefined : head?.role === "noStory" ? undefined : storyOf(plan, head?.id)
     const view = story === undefined ? null : presentStory(story, undefined, words)
-    const toldHere = one === null || step.concern === null ? null : presentStory(one, part => toldInStep(part, index), words)
+    const toldHere = one === null || !byParts ? null : presentStory(one, part => toldInStep(part, index), words)
     return {
       id: step.id,
       number: chapter.number,
@@ -474,7 +510,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     untold: one === null ? null : { subject: one.title, story: presentStory(one, part => part.told.kind === "overview", words) },
     contract,
     steps,
-    source: !told || plan.steps.source.kind === "commits" ? null : SOURCE_WORDS[plan.steps.source.reason],
+    source: told ? formatStepSource(plan.steps.source) : null,
     facts: told ? null : rangeFacts(plan),
     breakage,
     since:
@@ -531,6 +567,8 @@ export interface OpeningView {
   readonly title: string
   /** Its title is an identifier: set as code */
   readonly code: boolean
+  /** Its title is the first sentence of the paragraph it tells, its lead here: no title line of its own (`Chapter.titleInBody`) */
+  readonly titleInBody: boolean
   /** Of a step of the commits: the subject the commit that starts it had at the review, when a reword changed it */
   readonly subjectBefore: string | null
   /** Of a step of a concern: what joins its parts ("Joined by the identifiers" `hide`, `show`), in the line of its facts */
@@ -557,17 +595,17 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
       }
       const chapter = chapters[index]!
       const concern = step.concern === null ? undefined : concerns.get(step.concern)
-      const head = concern === undefined ? headOf(step) : undefined
+      const byParts = tellsParts(plan, step)
+      const head = byParts ? undefined : headOf(step)
       const starts = head?.role === "starts" ? head : undefined
-      const story =
-        concern !== undefined
-          ? one === null
-            ? null
-            : presentStory(one, part => toldInStep(part, index), words)
-          : starts === undefined
-            ? null
-            : commitOf(starts.id, starts.title, "starts").story
-      const rest = concern === undefined ? step.commits.filter(commit => commit !== starts) : []
+      const story = byParts
+        ? one === null
+          ? null
+          : presentStory(one, part => toldInStep(part, index), words, chapter.titleInBody)
+        : starts === undefined
+          ? null
+          : commitOf(starts.id, starts.title, "starts").story
+      const rest = byParts ? [] : step.commits.filter(commit => commit !== starts)
       return [
         step.id,
         {
@@ -575,7 +613,8 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "a
           number: formatStepNumber(chapter.number),
           title: chapter.label,
           code: chapter.code,
-          subjectBefore: concern === undefined ? (story?.subjectBefore ?? null) : null,
+          titleInBody: chapter.titleInBody && story?.lead != null,
+          subjectBefore: byParts ? null : (story?.subjectBefore ?? null),
           evidence: concern === undefined ? [] : presentConcernEvidence(concern.evidence),
           story: story === null || (story.lead === null && story.shown.length === 0 && story.folded.length === 0) ? null : story,
           commits: [...rest.filter(commit => commit.role === "followsUp"), ...rest.filter(commit => commit.role === "noStory")].map(commit =>

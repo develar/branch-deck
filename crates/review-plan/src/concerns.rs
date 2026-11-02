@@ -209,7 +209,27 @@ pub struct Concern {
   pub evidence: Vec<ConcernEvidence>,
   /// The set of the fingerprints of its parts
   pub fingerprint: String,
+  /// The evidence between two of its `parts` (by their place) and its weight (`PartLink`): what the steps of a message
+  /// cut it by where two parts of its body name two of its parts (`message_steps`)
+  #[serde(skip)]
+  pub links: Vec<PartLink>,
 }
+
+/// The evidence that joins two parts of a concern (`Concern::links`), by their places in `Concern::parts`; `cost` 1 for
+/// the strong kind (a change that adds a use of a declaration, a repeated edit), 2 for the others (a use the change
+/// keeps, a rare token): a part that adds a call to a new declaration is nearer to it than to a type it kept using
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PartLink {
+  pub a: u32,
+  pub b: u32,
+  pub cost: u8,
+}
+
+/// The two nodes of a piece of evidence and its cost (`PartLink::cost`)
+type NodePair = (usize, usize, u8);
+
+/// A join of two components: a node of it, the kind of its evidence and its detail
+type Join = (usize, EvidenceKind, Option<String>);
 
 /// What a concern holds of one unit in one file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -348,20 +368,23 @@ pub(crate) fn review_concerns(
     return Vec::new();
   }
   let mut components = Components::new(nodes.len());
-  // (a node of the join, the evidence)
-  let mut joins: Vec<(usize, EvidenceKind, Option<String>)> = Vec::new();
+  // (a node of the join, the evidence), and the two nodes of each join
+  let mut joins: Vec<Join> = Vec::new();
+  // every piece of evidence between two nodes, also one between nodes a join had joined already
+  let mut pairs: Vec<NodePair> = Vec::new();
   for group in &groups {
     for pair in group.windows(2) {
       if components.join(pair[0], pair[1]) {
         joins.push((pair[0], EvidenceKind::Group, None));
       }
+      pairs.push((pair[0], pair[1], 1));
     }
   }
   if edges.uses {
-    join_uses(units, &nodes, links, &mut components, &mut joins);
+    join_uses(units, &nodes, links, &mut components, &mut joins, &mut pairs);
   }
   let rare = if edges.tokens {
-    join_tokens(&nodes, files, declared, &mut components, &mut joins)
+    join_tokens(&nodes, files, declared, &mut components, &mut joins, &mut pairs)
   } else {
     Vec::new()
   };
@@ -392,6 +415,7 @@ pub(crate) fn review_concerns(
     for (node, target) in moves {
       if components.join(node, target) {
         joins.push((node, EvidenceKind::Rest, None));
+        pairs.push((node, target, 2));
       }
     }
   }
@@ -439,7 +463,7 @@ pub(crate) fn review_concerns(
       followers_of.entry(root).or_default().push((follower.unit, path));
     }
   }
-  assemble(units, &nodes, &mut components, &joins, &rare, &followers_of)
+  assemble(units, &nodes, &mut components, (&joins, &pairs), &rare, &followers_of)
 }
 
 /// The root of the component of `candidates` (nodes, by their `roots`) with the most changed lines among them; of two
@@ -548,7 +572,7 @@ fn graph_nodes<'a>(units: &'a [ReviewUnit], files: &[ChangedFile<'a>], file_of: 
 
 /// Joins each node that changes a declaration to the nodes whose changed lines name it, in its file or in a file that
 /// links to it by that name; a name of more than `MAX_USES` such nodes joins none
-fn join_uses(units: &[ReviewUnit], nodes: &[Node<'_>], links: &[FileLink], components: &mut Components, joins: &mut Vec<(usize, EvidenceKind, Option<String>)>) {
+fn join_uses(units: &[ReviewUnit], nodes: &[Node<'_>], links: &[FileLink], components: &mut Components, joins: &mut Vec<Join>, pairs: &mut Vec<NodePair>) {
   let linked: HashSet<(&str, &str, &str)> = links
     .iter()
     .flat_map(|link| link.symbols.iter().map(move |symbol| (link.from.as_str(), link.to.as_str(), symbol.name.as_str())))
@@ -579,6 +603,9 @@ fn join_uses(units: &[ReviewUnit], nodes: &[Node<'_>], links: &[FileLink], compo
       if components.join(declaration, other) {
         joins.push((declaration, EvidenceKind::Uses, Some(name.to_string())));
       }
+      // a use the change adds is stronger evidence than one it keeps
+      let added = nodes[other].added.iter().any(|line| names_word(line, name)) && !nodes[other].removed.iter().any(|line| names_word(line, name));
+      pairs.push((declaration, other, if added { 1 } else { 2 }));
     }
   }
 }
@@ -591,7 +618,8 @@ fn join_tokens(
   files: &[ChangedFile<'_>],
   declared: &HashSet<String>,
   components: &mut Components,
-  joins: &mut Vec<(usize, EvidenceKind, Option<String>)>,
+  joins: &mut Vec<Join>,
+  pairs: &mut Vec<NodePair>,
 ) -> Vec<RareToken> {
   let path_parts: HashSet<String> = files
     .iter()
@@ -651,7 +679,7 @@ fn join_tokens(
       }
     }
   }
-  let mut pairs: Vec<((usize, usize), f64, Vec<&str>)> = shared
+  let mut alike: Vec<((usize, usize), f64, Vec<&str>)> = shared
     .into_iter()
     .map(|((a, b), (weight, tokens))| {
       // a small change all of whose rare tokens a large one holds is alike too: a server dropped from a short config and
@@ -662,10 +690,11 @@ fn join_tokens(
     })
     .filter(|(_, alike, _)| *alike >= MIN_ALIKE)
     .collect();
-  pairs.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-  for ((a, b), _, tokens) in pairs {
+  alike.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+  for ((a, b), _, tokens) in alike {
     let (root_a, root_b) = (components.root(a), components.root(b));
     if root_a == root_b {
+      pairs.push((a, b, 2));
       continue;
     }
     // two concerns of more than one node each join only by two tokens their nodes share
@@ -686,6 +715,7 @@ fn join_tokens(
     };
     if (alone || between() >= 2) && components.join(a, b) {
       joins.push((a, EvidenceKind::Token, Some(tokens[0].to_string())));
+      pairs.push((a, b, 2));
     }
   }
   rare
@@ -937,7 +967,7 @@ fn assemble(
   units: &[ReviewUnit],
   nodes: &[Node<'_>],
   components: &mut Components,
-  joins: &[(usize, EvidenceKind, Option<String>)],
+  (joins, pairs): (&[Join], &[NodePair]),
   rare: &[RareToken],
   followers_of: &BTreeMap<usize, Vec<(usize, &str)>>,
 ) -> Vec<Concern> {
@@ -1010,7 +1040,9 @@ fn assemble(
         }
       });
     let first = nodes[of[0]].unit;
-    concerns.push((first, concern(units, nodes, name, parts, evidence, &of), of));
+    let mut concern = concern(units, nodes, name, parts, evidence, &of);
+    concern.links = part_links(units, nodes, &concern.parts, pairs, &inside);
+    concerns.push((first, concern, of));
   }
   concerns.sort_by_key(|(first, ..)| *first);
   if !rest.is_empty() {
@@ -1064,7 +1096,30 @@ fn concern(units: &[ReviewUnit], nodes: &[Node<'_>], name: ConcernName, parts: V
     evidence,
     fingerprint: digest(fingerprints.iter().map(String::as_str)),
     parts,
+    links: Vec::new(),
   }
+}
+
+/// The evidence of `pairs` between the nodes `inside` one concern, by the places of their parts in `parts` (a unit in a
+/// file): each pair of parts once at its least cost, none within one part
+fn part_links(units: &[ReviewUnit], nodes: &[Node<'_>], parts: &[ConcernPart], pairs: &[NodePair], inside: &HashSet<usize>) -> Vec<PartLink> {
+  let part_of = |node: usize| {
+    let Node { unit, path, .. } = nodes[node];
+    parts
+      .iter()
+      .position(|part| part.unit == units[unit].id && part.path == path)
+      .and_then(|place| u32::try_from(place).ok())
+  };
+  let mut links: BTreeMap<(u32, u32), u8> = BTreeMap::new();
+  for &(a, b, cost) in pairs.iter().filter(|(a, b, _)| inside.contains(a) && inside.contains(b)) {
+    if let (Some(a), Some(b)) = (part_of(a), part_of(b))
+      && a != b
+    {
+      let least = links.entry((a.min(b), a.max(b))).or_insert(cost);
+      *least = (*least).min(cost);
+    }
+  }
+  links.into_iter().map(|((a, b), cost)| PartLink { a, b, cost }).collect()
 }
 
 /// The parts of the nodes `of` (in the order of the story): one per unit and file, the blocks of a file of no language

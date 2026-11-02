@@ -18,6 +18,7 @@ export function reviewStep(id: string, commits: StepCommit[], stops: [string, st
     newApi: [],
     moduleLinks: [],
     title: null,
+    titleSource: "evidence",
     takenOutBy: null,
     shownElsewhere: [],
     ...more,

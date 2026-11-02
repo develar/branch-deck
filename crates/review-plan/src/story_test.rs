@@ -1,5 +1,5 @@
 use crate::ReviewPlan;
-use crate::steps::{ConcernsReason, StepSource};
+use crate::steps::{StepSource, TitleSource};
 use crate::story::{MentionSide, MentionTarget, StoryCommit, StoryPlace};
 use crate::test_support::plan_of_range;
 use domain_types::commit_body::CommitBodyPartKind;
@@ -174,10 +174,11 @@ fn a_name_two_declarations_share_resolves_to_the_one_of_its_step_else_to_nothing
   );
 }
 
-/// The body of one commit, whose steps are its concerns, is told where its sections name the code: a labelled section
-/// in the step that holds most of what it names, the lead and a section that names nothing before the steps
+/// The body of one commit whose sections name the code it changes tells its steps: a step per labelled section, with the
+/// concern it names, titled by its label; a paragraph that names the code of a section in that section's step, the
+/// lead and a section that names nothing before the steps
 #[test]
-fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label() {
+fn the_body_of_one_commit_tells_a_step_by_each_section_that_names_its_code_titled_by_its_label_the_lead_and_the_rest_in_the_prologue() {
   let repo = TestRepo::new();
   let (store, reader) = ("src/store/Store.kt", "src/read/Reader.kt");
   let base = repo.create_commit_with_files(
@@ -197,14 +198,9 @@ fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and
     ],
   );
   let plan = plan_of_range(&repo, &base, &head);
-  assert_eq!(
-    plan.steps.source,
-    StepSource::Concerns {
-      reason: ConcernsReason::OneCommit
-    }
-  );
-  let concerns: Vec<&str> = plan.steps.steps.iter().map(|step| step.paths[0].as_str()).collect();
-  assert_eq!(concerns, [store, "src/time/Clock.kt"]);
+  assert_eq!(plan.steps.source, StepSource::Message);
+  let paths: Vec<&[String]> = plan.steps.steps.iter().map(|step| step.paths.as_slice()).collect();
+  assert_eq!(paths, [&[store.to_string(), reader.to_string()][..], &["src/time/Clock.kt".to_string()][..]]);
   // the lead in the overview; the run of no label cut where its place changes: the paragraph that names the clock in
   // its step, the one that names nothing in the overview; the sections of the scope and of the clock in their steps,
   // each the title of its step; the tests in the overview
@@ -223,8 +219,8 @@ fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and
     ]
   );
   // each step is titled by the label of the section it tells, as the author named its task
-  let titles: Vec<Option<&str>> = plan.steps.steps.iter().map(|step| step.title.as_deref()).collect();
-  assert_eq!(titles, [Some("The scope"), Some("The clock")]);
+  let titles: Vec<(Option<&str>, TitleSource)> = plan.steps.steps.iter().map(|step| (step.title.as_deref(), step.title_source)).collect();
+  assert_eq!(titles, [(Some("The scope"), TitleSource::Label), (Some("The clock"), TitleSource::Label)]);
   // a line marks the stops it names where it is told: the clock by the paragraph and the item of its step
   let marks: Vec<Vec<(u32, Option<u32>)>> = plan.steps.steps[1]
     .stops
