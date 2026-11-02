@@ -191,6 +191,8 @@ fn the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is
   .unwrap();
   std::fs::create_dir_all(Path::new(first).join("target/debug")).unwrap();
   std::fs::write(Path::new(first).join("target/debug/bin"), vec![1u8; BASE_BYTES]).unwrap();
+  // a file of the worktree of its own, which shares no block with the clone the slot came from
+  std::fs::write(Path::new(first).join("notes.bin"), vec![2u8; 2 * BASE_BYTES]).unwrap();
   let report = |args: &[&str]| {
     let (exit_code, output) = fixture.run(&[&["lease", "disk"][..], args].concat());
     assert_eq!(exit_code, 0, "{output}");
@@ -212,7 +214,10 @@ fn the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is
   assert!(walked["build"][0]["bytes"].as_u64().unwrap() >= BASE_BYTES as u64, "{output}");
   let bases: Vec<&str> = walked["output_bases"].as_array().unwrap().iter().map(|base| base["path"].as_str().unwrap()).collect();
   assert_eq!(bases, [trim.base("slot-1").to_str().unwrap(), trim.base("slot-1-community").to_str().unwrap()]);
-  assert!(walked["bytes"].as_u64().unwrap() >= 3 * BASE_BYTES as u64, "{output}");
+  // the worktree counts its own file, not the build directory, which counts apart
+  let worktree = walked["worktree_bytes"].as_u64().unwrap();
+  assert!((2 * BASE_BYTES as u64..3 * BASE_BYTES as u64).contains(&worktree), "{output}");
+  assert!(walked["bytes"].as_u64().unwrap() >= 5 * BASE_BYTES as u64, "{output}");
   // the output base of the source checkout and the orphan are named apart, the one outside every pool not at all
   assert_eq!(output["pools"][0]["checkout_bases"][0]["path"], trim.base("main").to_str().unwrap(), "{output}");
   assert_eq!(output["orphans"][0]["path"], trim.base("gone").to_str().unwrap(), "{output}");

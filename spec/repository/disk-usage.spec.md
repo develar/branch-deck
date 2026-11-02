@@ -47,8 +47,6 @@ palette opens it.
 
 - A trim of a host from the dialog: a host trims itself on its next lease below its minimum, or by `bd lease trim`
   there.
-- The bytes of the tracked tree of a slot: an APFS clone shares most of its blocks, and a walk of a 1.4M-file tree per
-  slot would take minutes ([Open Questions](#open-questions--risks)).
 - A change of the limit or of the minimum: both are the machine's git config.
 
 ## Requirements
@@ -62,7 +60,9 @@ palette opens it.
   set (branchdeck.leaseMinFree)"), in the warning colour below the minimum; each pool by the name of its repository with
   its size, its slots, its limit and how many go with a trim ("11 slots, limit 10, 1 goes with a trim"), the Bazel
   output bases of its main checkout; each slot, the largest first, with its number, its state ("Free", "Leased by
-  lane-3", "Busy"), "Goes with a trim" where a trim deletes it next, what its size is made of and its size; the output
+  lane-3", "Busy"), "Goes with a trim" where a trim deletes it next, what its size is made of ("worktree 15.1 GiB,
+  build 21.0 GiB, Bazel 8.0 GiB": what its worktree holds of its own beside the clone it came from, its build
+  directories, its Bazel output bases) and its size; the output
   bases of gone slots. A host that answers nothing shows why (an agent without the feature `disk` names `bd-host
   upgrade <alias>`).
   [@test] ../../tests/e2e/disk/disk-usage.spec.ts (`should show the pools of this Mac and of the hosts, and trim the free slots of this Mac past the limit`)
@@ -100,8 +100,7 @@ palette opens it.
 
 ## Open Questions / Risks
 
-- The tracked tree of a slot is not walked: a slot that many moves rewrote (each move writes the files it changes, so
-  they no longer share blocks with the clone it came from) holds more than its build outputs; on the Studio on
-  2026-11-02 the 9 free slots of idea-1 the report showed at 0 freed 121 GB when trimmed. The private size of a clone
-  (`ATTR_CMNEXT_PRIVATESIZE` of `getattrlistbulk`) would tell it, at the cost of a walk of the tree.
+- A walk of every slot with its worktree takes minutes the first time (five on the user's Mac, 860 GB in 32 slots); the
+  report answers from `disk.json` after it, and a leased slot is walked again after 15 minutes. The dialog shows the
+  last answer while Measure Again walks.
 - A host whose agent predates the feature `disk` shows only why; `bd-host upgrade <alias>` gives it the request.

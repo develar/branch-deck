@@ -57,9 +57,13 @@ export function slotStateLabel(slot: SlotDisk): string {
   }
 }
 
-/** What the size of a slot is: "build 41.0 GiB, Bazel 23.5 GiB" */
+/** What the size of a slot is: "worktree 15.1 GiB, build 41.0 GiB, Bazel 23.5 GiB" */
 export function slotSizeDetail(slot: SlotDisk): string {
-  const parts = [slot.buildMib > 0 ? `build ${formatSize(slot.buildMib)}` : null, slot.basesMib > 0 ? `Bazel ${formatSize(slot.basesMib)}` : null]
+  const parts = [
+    slot.worktreeMib > 0 ? `worktree ${formatSize(slot.worktreeMib)}` : null,
+    slot.buildMib > 0 ? `build ${formatSize(slot.buildMib)}` : null,
+    slot.basesMib > 0 ? `Bazel ${formatSize(slot.basesMib)}` : null,
+  ]
   return parts.filter(part => part !== null).join(", ")
 }
 

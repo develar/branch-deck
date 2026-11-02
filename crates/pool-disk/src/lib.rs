@@ -1,9 +1,9 @@
 //! `pool-disk`: what the pools of this machine hold on disk (`bd lease disk`, the Disk window of the app; spec/cli/lease.spec.md,
 //! "Disk"). A `du` of a pool takes minutes (two for the pools of the user's Mac, 1.25 TB) and says little: the tracked
-//! tree of a slot is an APFS clone that shares its blocks with the others. What a slot holds of its own is what its
-//! builds wrote: the directories its clean rules name (`target/`, `out/`) and its Bazel output bases outside it
-//! (`output_bases`). Only those are walked, side by side, and the bytes of a slot are kept in `disk.json` beside the
-//! state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` does;
+//! tree of a slot is an APFS clone that shares its blocks with the others. What a slot holds of its own is what a delete
+//! of it frees: the private size of its worktree (`walk`: the blocks no clone shares, as `getattrlistbulk` tells them),
+//! the directories its clean rules name (`target/`, `out/`) and its Bazel output bases outside it (`output_bases`),
+//! each walked apart, all side by side, and the bytes of a slot are kept in `disk.json` beside the state of its pool: a free slot does not change until a get leases it, so its bytes hold while its `returned` does;
 //! a leased slot is measured again after `LEASED_STALE`.
 
 use anyhow::Result;
@@ -12,20 +12,18 @@ use git_ops::lease_slot::lease_config;
 use git_ops::revs::RepositoryDirs;
 use lease_pool::free_space::available_bytes;
 use lease_pool::lease::{Pool, Slot, SlotState, lease_status_core};
-use lease_pool::lease_clean::{CleanRule, allocated, read_clean_rules};
+use lease_pool::lease_clean::{CleanRule, read_clean_rules};
 use lease_pool::output_bases::{OutputBase, orphans};
 use lease_pool::state_file::StateFile;
 use lease_pool::trim::{Machine, main_worktree, max_slots, trim_order};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sync_utils::paths::display_path;
 use sync_utils::size::parse_size;
-use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
+use walk::{Walk, walk_bytes};
 
 /// The file of the bytes of each slot, beside the state of the pool
 const DISK_FILE: &str = "disk.json";
@@ -33,11 +31,6 @@ const DISK_FILE: &str = "disk.json";
 const DISK_LOCK: &str = "disk.lock";
 /// How long the bytes of a leased slot hold: its builds write while it is leased
 pub const LEASED_STALE: Duration = Duration::from_mins(15);
-/// How many threads walk the directories
-const WALK_WORKERS: usize = 8;
-/// A walk splits its roots until it has this many directories to hand out, so one large directory (`external/` of an
-/// output base, 4000 repositories) does not keep one thread busy while the others are done
-const WALK_ITEMS: usize = 256;
 
 /// What `disk_usage_core` reports
 pub struct DiskParams<'a> {
@@ -103,6 +96,9 @@ pub struct SlotUsage {
   pub holder: Option<String>,
   /// The number of its last return in the pool
   pub returned: Option<u64>,
+  /// What its worktree holds of its own beside its build directories: the blocks its files share with no clone (a slot
+  /// cloned from a template shares most of them until moves rewrite its files)
+  pub worktree: u64,
   /// The directories its clean rules name, each with its bytes
   pub build: Vec<DirUsage>,
   pub output_bases: Vec<BaseUsage>,
@@ -117,7 +113,7 @@ pub struct SlotUsage {
 
 impl SlotUsage {
   pub fn bytes(&self) -> u64 {
-    self.build.iter().map(|dir| dir.bytes).sum::<u64>() + self.output_bases.iter().map(|base| base.bytes).sum::<u64>()
+    self.worktree + self.build.iter().map(|dir| dir.bytes).sum::<u64>() + self.output_bases.iter().map(|base| base.bytes).sum::<u64>()
   }
 }
 
@@ -162,6 +158,9 @@ struct Measured {
   /// Whether it was leased then
   leased: bool,
   at: u64,
+  /// `SlotUsage::worktree`; `None` in the file of a bd that did not walk the worktree, which is stale then
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  worktree: Option<u64>,
   build: Vec<DirUsage>,
   output_bases: Vec<BaseUsage>,
 }
@@ -182,7 +181,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
     ..DiskUsage::default()
   };
   // every directory to walk, with where its bytes go
-  let mut walks: Vec<(PathBuf, Target)> = Vec::new();
+  let mut walks: Vec<(Walk, Target)> = Vec::new();
   let mut files: Vec<(StateFile, DiskFile)> = Vec::new();
   for (pool_index, pool) in machine.pools.iter().enumerate() {
     let (statuses, _) = lease_status_core(&pool.git_common_dir, false)?;
@@ -216,7 +215,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
           .filter(|measured| now.saturating_sub(measured.at) < LEASED_STALE.as_secs())
         {
           Some(measured) => usage.bytes = measured.bytes,
-          None => walks.push((base.path.clone(), Target::CheckoutBase(pool_index, report.checkout_bases.len()))),
+          None => walks.push((Walk::of(&base.path), Target::CheckoutBase(pool_index, report.checkout_bases.len()))),
         }
         report.checkout_bases.push(usage);
       }
@@ -225,22 +224,32 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
       let slot = status.slot;
       let leased = slot.lease.is_some();
       let holder = slot.lease.as_ref().map(|lease| lease.holder.clone());
-      let fresh_enough =
-        |measured: &&Measured| measured.returned == slot.returned && measured.leased == leased && (!leased || now.saturating_sub(measured.at) < LEASED_STALE.as_secs());
+      let fresh_enough = |measured: &&Measured| {
+        measured.worktree.is_some() && measured.returned == slot.returned && measured.leased == leased && (!leased || now.saturating_sub(measured.at) < LEASED_STALE.as_secs())
+      };
       let slot_index = report.slots.len();
-      let (build, output_bases, measured_at, from_file) = if let Some(measured) = cached.slots.get(&slot.path).filter(fresh_enough) {
-        (measured.build.clone(), measured.output_bases.clone(), measured.at, true)
+      let (worktree, build, output_bases, measured_at, from_file) = if let Some(measured) = cached.slots.get(&slot.path).filter(fresh_enough) {
+        (
+          measured.worktree.unwrap_or_default(),
+          measured.build.clone(),
+          measured.output_bases.clone(),
+          measured.at,
+          true,
+        )
       } else {
         let root = PathBuf::from(&slot.path);
         let build: Vec<DirUsage> = build_dirs(&root).into_iter().map(|path| DirUsage { path, bytes: 0 }).collect();
         for (index, dir) in build.iter().enumerate() {
-          walks.push((root.join(&dir.path), Target::Build(pool_index, slot_index, index)));
+          walks.push((Walk::of(root.join(&dir.path)), Target::Build(pool_index, slot_index, index)));
         }
+        // the worktree without its build directories, which count apart
+        let skip = build.iter().map(|dir| root.join(&dir.path)).collect();
+        walks.push((Walk { root: root.clone(), skip }, Target::Worktree(pool_index, slot_index)));
         let bases: Vec<BaseUsage> = machine.bases.iter().filter(|base| base.is_in(&root)).map(base_usage).collect();
         for (index, base) in bases.iter().enumerate() {
-          walks.push((PathBuf::from(&base.path), Target::SlotBase(pool_index, slot_index, index)));
+          walks.push((Walk::of(&base.path), Target::SlotBase(pool_index, slot_index, index)));
         }
-        (build, bases, now, false)
+        (0, build, bases, now, false)
       };
       report.slots.push(SlotUsage {
         name: slot.name.clone(),
@@ -248,6 +257,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
         state: status.state,
         holder,
         returned: slot.returned,
+        worktree,
         build,
         output_bases,
         measured_at,
@@ -259,13 +269,14 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
     files.push((file, cached));
   }
   for base in orphans(&machine.bases, &machine.pool_dirs) {
-    walks.push((base.path.clone(), Target::Orphan(usage.orphans.len())));
+    walks.push((Walk::of(&base.path), Target::Orphan(usage.orphans.len())));
     usage.orphans.push(base_usage(base));
   }
 
-  let roots: Vec<&Path> = walks.iter().map(|(path, _)| path.as_path()).collect();
+  let roots: Vec<Walk> = walks.iter().map(|(walk, _)| walk.clone()).collect();
   for ((_, target), bytes) in walks.iter().zip(walk_bytes(&roots)) {
     match *target {
+      Target::Worktree(pool, slot) => usage.pools[pool].slots[slot].worktree = bytes,
       Target::Build(pool, slot, dir) => usage.pools[pool].slots[slot].build[dir].bytes = bytes,
       Target::SlotBase(pool, slot, base) => usage.pools[pool].slots[slot].output_bases[base].bytes = bytes,
       Target::CheckoutBase(pool, base) => usage.pools[pool].checkout_bases[base].bytes = bytes,
@@ -275,7 +286,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
   let walked_bases: HashSet<&Path> = walks
     .iter()
     .filter(|(_, target)| matches!(target, Target::CheckoutBase(..)))
-    .map(|(path, _)| path.as_path())
+    .map(|(walk, _)| walk.root.as_path())
     .collect();
   for (pool, (file, _)) in usage.pools.iter().zip(&files) {
     let measured: BTreeMap<String, Measured> = pool
@@ -289,6 +300,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
             returned: slot.returned,
             leased: slot.state != SlotState::Free,
             at: slot.measured_at,
+            worktree: Some(slot.worktree),
             build: slot.build.clone(),
             output_bases: slot.output_bases.clone(),
           },
@@ -324,6 +336,7 @@ pub fn disk_usage_core(git_executor: &GitCommandExecutor, params: &DiskParams<'_
 
 /// Where the bytes of a walk go
 enum Target {
+  Worktree(usize, usize),
   Build(usize, usize, usize),
   SlotBase(usize, usize, usize),
   CheckoutBase(usize, usize),
@@ -365,93 +378,8 @@ fn build_dirs(slot: &Path) -> Vec<String> {
   dirs
 }
 
-/// The bytes on disk of each of `roots` and of what is below it, links counted as themselves and a file with several
-/// hard links once (cargo links `deps/` into the profile dir): `WALK_WORKERS` threads over the directories, split until
-/// there are `WALK_ITEMS` of them. A root that is gone holds 0
-pub fn walk_bytes(roots: &[&Path]) -> Vec<u64> {
-  let totals: Vec<AtomicU64> = roots.iter().map(|_| AtomicU64::new(0)).collect();
-  let linked: Mutex<HashSet<(u64, u64)>> = Mutex::default();
-  let count = |index: usize, metadata: &std::fs::Metadata| {
-    if !metadata.is_dir() && links(metadata) > 1 && !linked.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(file_id(metadata)) {
-      return;
-    }
-    totals[index].fetch_add(allocated(metadata), Ordering::Relaxed);
-  };
-  // the directories to hand out, split breadth first; the files met on the way are counted at once
-  let mut items: Vec<(usize, PathBuf)> = Vec::new();
-  for (index, root) in roots.iter().enumerate() {
-    if let Ok(metadata) = root.symlink_metadata() {
-      count(index, &metadata);
-      if metadata.is_dir() {
-        items.push((index, root.to_path_buf()));
-      }
-    }
-  }
-  let mut split = 0;
-  while items.len() < WALK_ITEMS && split < items.len() {
-    let (index, dir) = items.swap_remove(split);
-    let mut children = Vec::new();
-    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-      let Ok(metadata) = entry.path().symlink_metadata() else { continue };
-      count(index, &metadata);
-      if metadata.is_dir() {
-        children.push((index, entry.path()));
-      }
-    }
-    if children.is_empty() {
-      continue;
-    }
-    items.extend(children);
-    split += 1;
-  }
-  // the directories split above were counted; the rest are walked whole, their own entry counted already
-  let next = AtomicUsize::new(0);
-  std::thread::scope(|scope| {
-    for _ in 0..WALK_WORKERS.min(items.len()) {
-      scope.spawn(in_current_span(|| {
-        while let Some((index, dir)) = items.get(next.fetch_add(1, Ordering::Relaxed)) {
-          walk(dir, &|metadata| count(*index, metadata));
-        }
-      }));
-    }
-  });
-  totals.into_iter().map(AtomicU64::into_inner).collect()
-}
-
-/// Every entry below `dir`, not `dir` itself, told to `count`; a link is never followed
-fn walk(dir: &Path, count: &dyn Fn(&std::fs::Metadata)) {
-  for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-    let Ok(metadata) = entry.path().symlink_metadata() else { continue };
-    count(&metadata);
-    if metadata.is_dir() {
-      walk(&entry.path(), count);
-    }
-  }
-}
-
-#[cfg(unix)]
-fn links(metadata: &std::fs::Metadata) -> u64 {
-  use std::os::unix::fs::MetadataExt;
-  metadata.nlink()
-}
-
-#[cfg(not(unix))]
-const fn links(_metadata: &std::fs::Metadata) -> u64 {
-  1
-}
-
-#[cfg(unix)]
-fn file_id(metadata: &std::fs::Metadata) -> (u64, u64) {
-  use std::os::unix::fs::MetadataExt;
-  (metadata.dev(), metadata.ino())
-}
-
-#[cfg(not(unix))]
-const fn file_id(_metadata: &std::fs::Metadata) -> (u64, u64) {
-  (0, 0)
-}
-
 pub mod report;
+pub mod walk;
 
 #[cfg(test)]
 mod disk_test;

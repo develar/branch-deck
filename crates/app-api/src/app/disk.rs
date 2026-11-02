@@ -96,6 +96,8 @@ pub struct SlotDisk {
   pub state: SlotDiskState,
   pub holder: Option<String>,
   pub mib: u32,
+  /// What its worktree holds of its own beside its build directories: the blocks no APFS clone shares
+  pub worktree_mib: u32,
   /// The directories its clean rules name (`target/`, `out/`)
   pub build_mib: u32,
   /// Its Bazel output bases
@@ -308,6 +310,7 @@ fn slot(slot: &SlotReport) -> SlotDisk {
     },
     holder: slot.holder.clone(),
     mib: mib(slot.bytes),
+    worktree_mib: mib(slot.worktree_bytes),
     build_mib: mib(slot.build.iter().map(|dir| dir.bytes).sum()),
     bases_mib: mib(slot.output_bases.iter().map(|base| base.bytes).sum()),
     trims_next: slot.trims_next,

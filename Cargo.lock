@@ -4820,6 +4820,7 @@ dependencies = [
  "git-executor",
  "git-ops",
  "lease-pool",
+ "libc",
  "schemars 1.2.3",
  "serde",
  "sync-utils",

@@ -58,8 +58,11 @@ pub struct SlotReport {
   /// The number of its last return in the pool, higher for a later one
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub returned: Option<u64>,
-  /// The bytes of its build directories and its output bases
+  /// The bytes of its worktree, its build directories and its output bases
   pub bytes: u64,
+  /// What its worktree holds of its own beside its build directories: on macOS the blocks no APFS clone shares
+  #[serde(default)]
+  pub worktree_bytes: u64,
   /// The directories its clean rules name, each with its bytes
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub build: Vec<DirReport>,
@@ -161,6 +164,7 @@ impl DiskReport {
             holder: slot.holder.clone(),
             returned: slot.returned,
             bytes: slot.bytes(),
+            worktree_bytes: slot.worktree,
             build: slot.build.iter().map(dir).collect(),
             output_bases: slot.output_bases.iter().map(base).collect(),
             measured_at: slot.measured_at,

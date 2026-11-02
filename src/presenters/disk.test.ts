@@ -15,7 +15,7 @@ import {
 } from "@/presenters/disk"
 
 function slot(name: string, mib: number, rest: Partial<SlotDisk> = {}): SlotDisk {
-  return { name, path: `/pool/${name}/repo`, state: "free", holder: null, mib, buildMib: mib, basesMib: 0, trimsNext: false, ...rest }
+  return { name, path: `/pool/${name}/repo`, state: "free", holder: null, mib, worktreeMib: 0, buildMib: mib, basesMib: 0, trimsNext: false, ...rest }
 }
 
 function pool(slots: SlotDisk[], rest: Partial<PoolDisk> = {}): PoolDisk {
@@ -40,13 +40,13 @@ describe("disk", () => {
   })
 
   it("words a pool, its slots largest first, and what a trim deletes", () => {
-    const slots = [slot("1", 100), slot("2", 4096, { basesMib: 2048, buildMib: 2048 }), slot("3", 0, { state: "leased", holder: "lane-3" })]
+    const slots = [slot("1", 100), slot("2", 5120, { worktreeMib: 1024, basesMib: 2048, buildMib: 2048 }), slot("3", 0, { state: "leased", holder: "lane-3" })]
     expect(poolLine(pool(slots))).toBe("3 slots, limit 10")
     expect(poolLine(pool(slots, { maxSlots: 1, pastLimit: 2 }))).toBe("3 slots, limit 1, 2 go with a trim")
     expect(slotsBySize(pool(slots)).map(it => it.name)).toEqual(["2", "1", "3"])
     expect(slots.map(slotStateLabel)).toEqual(["Free", "Free", "Leased by lane-3"])
     expect(slotStateLabel(slot("4", 0, { state: "changing" }))).toBe("Busy")
-    expect(slots.map(slotSizeDetail)).toEqual(["build 100 MiB", "build 2.0 GiB, Bazel 2.0 GiB", ""])
+    expect(slots.map(slotSizeDetail)).toEqual(["build 100 MiB", "worktree 1.0 GiB, build 2.0 GiB, Bazel 2.0 GiB", ""])
   })
 
   it("says why Trim to Limit does nothing, else what it deletes", () => {

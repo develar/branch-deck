@@ -57,7 +57,9 @@ function DiskUsage({ repositoryPath, generation, bodyRef }: { repositoryPath: st
         }
       >
         <h2 className="text-base font-semibold">Disk Usage</h2>
-        <p className="text-sm text-muted-foreground">What the build outputs of the lease pools take: each slot's build directories and Bazel output bases.</p>
+        <p className="text-sm text-muted-foreground">
+          What a delete of each slot of the lease pools frees: its own worktree blocks, its build directories and its Bazel output bases.
+        </p>
       </PreviewDialogHeader>
       <PreviewDialogBody ref={bodyRef} data-testid="disk-usage-body">
         {state.status === "loading" && (

@@ -16,6 +16,10 @@ schemars.workspace = true
 serde.workspace = true
 tracing.workspace = true
 
+# getattrlistbulk(2) of the walk (`walk`)
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2.191"
+
 [dev-dependencies]
 tempfile.workspace = true
 

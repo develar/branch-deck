@@ -660,15 +660,22 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   (`bytes`), `measured_at` and `cached`; per pool `max_slots`, `past_limit` (the free slots a trim would delete now),
   `bytes`, `trash_bytes` and the output bases of its main worktree (`checkout_bases`), which no trim deletes; each free
   slot a trim deletes now is `trims_next`, by the order of the trim itself (`trim_order`); the
-  `orphans`; the `free_bytes` of the volume and `min_free`. The tracked tree of a slot is an APFS clone and is never
-  walked. A file with several hard links counts once, a link as itself; the walks of the call run side by side
-  (`pool-disk`, 8 threads, the directories split until 256 of them).
+  `orphans`; the `free_bytes` of the volume and `min_free`. Each slot also has `worktree_bytes`, what its worktree
+  holds of its own beside its build directories, which its walk skips: its files rewritten since the clone it came
+  from (each move by the diff writes the files it changes, which then share no block with the template), 14 to 16 GB
+  in each slot of idea-1 on 2026-11-02. Every byte counted is what a delete frees: on macOS the private size of a file
+  (`ATTR_CMNEXT_PRIVATESIZE` of `getattrlistbulk`, the blocks no APFS clone shares, one call per batch of entries),
+  elsewhere its blocks (Linux) or its length (Windows). A file with several hard links counts once, a link as itself,
+  a directory nothing of its own; the walks of the call run side by side (`pool_disk::walk`, 8 threads over one queue
+  of directories).
   [@test] ../../crates/bd-lease/src/trim_test.rs (`the_disk_report_names_the_bytes_of_each_slot_and_keeps_them_until_the_slot_is_leased`)
-  [@test] ../../crates/pool-disk/src/disk_test.rs (`the_build_dirs_of_a_slot_are_the_outermost_dirs_its_clean_rules_name`, `a_walk_counts_each_root_side_by_side_and_a_hard_linked_file_once`)
+  [@test] ../../crates/pool-disk/src/disk_test.rs (`the_build_dirs_of_a_slot_are_the_outermost_dirs_its_clean_rules_name`)
+  [@test] ../../crates/pool-disk/src/walk_test.rs (`a_walk_counts_each_root_side_by_side_skips_what_counts_apart_and_a_hard_linked_file_once`, `a_clone_counts_only_the_blocks_it_shares_with_no_other_file`)
 - The bytes of a slot must be kept in `$GIT_COMMON_DIR/branch-deck/disk.json` with its `returned` and whether it was
   leased: those of a free slot hold until its `returned` or its lease changes, those of a leased slot and of the output
   bases of the main worktree for 15 minutes; a slot that left the pool leaves the file. `--fresh` walks everything
-  again. On the user's Mac a report from the file takes half a second, a walk of every slot (1.2 TB) a minute. It
+  again. On the user's Mac a report from the file takes half a second, a walk of every slot with its worktree (32
+  slots, 12 of them of idea-1 with 1.4M files each, 860 GB) five minutes. It
   writes nothing else, and counts as a read (`bd help`).
 
 ### Reclaimed

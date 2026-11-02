@@ -7491,6 +7491,8 @@ export type SlotDisk = {
 	state: SlotDiskState,
 	holder: string | null,
 	mib: number,
+	/**  What its worktree holds of its own beside its build directories: the blocks no APFS clone shares */
+	worktreeMib: number,
 	/**  The directories its clean rules name (`target/`, `out/`) */
 	buildMib: number,
 	/**  Its Bazel output bases */
