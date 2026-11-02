@@ -99,8 +99,11 @@ cd src-tauri && cargo test --lib -- --nocapture
 # Lint all code (Rust + TypeScript)
 pnpm lint
 
-# Format and lint Rust code only (cargo fmt + clippy --fix)
+# Format and lint Rust code only (cargo fmt + clippy -D warnings)
 pnpm lint:backend
+
+# Apply clippy's suggestions (cargo fmt + clippy --fix), then lint:backend again
+pnpm fix:backend
 
 # Format, lint and type-check TypeScript/React code only (Oxfmt + Oxlint + tsc)
 pnpm lint:frontend

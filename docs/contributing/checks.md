@@ -39,6 +39,23 @@ and under that load the suites take far longer and E2E fails on timeouts. What a
 If Homebrew `cargo`/`rustc` come before rustup in `PATH`, prefix cargo commands with `PATH=$HOME/.cargo/bin:$PATH`:
 the nightly toolchain pinned in `rust-toolchain.toml` is required to parse the workspace manifest.
 
+### Builds while iterating
+
+Measured on 2026-11-02 in a lease with a warm `target/` (the developer Mac, beside other agents' runs):
+
+- **Each set of packages compiles its own copy once.** Cargo unifies the features of the packages a command selects,
+  so `-p sync-core`, `-p bd-remote` and `--workspace` each build their own feature set of the crates below them: the
+  first `--no-run` of each in the lease compiled 11, 19 and 56 crates (9, 32 and 134 s); the same set again compiled
+  nothing (2 s). The sets stay side by side in `target/`, so switching back costs nothing.
+- **An edit costs its set**: one line in `crates/sync-core` rebuilt `-p sync-core` in 5 s and `--workspace` in 21–26 s
+  (20 units). Iterate with `-p` of the crate you change (and the crates of the tests you run), and leave
+  `--workspace` to the run on the Studio.
+- **A file put back with its old mtime is a stale fingerprint**: `mv` of a backup, `cp -p`, or a checkout that keeps
+  times leaves cargo the build of the file as it was before; `touch` it. One run of #163 tested the throwaway edit so.
+- **`pnpm lint:backend` is a check** (`cargo fmt`, then `clippy -D warnings`): after an edit of one crate 7 s on the
+  Studio. `clippy --fix` and the check invalidate each other's results, so the former pair took 104 s every time;
+  `pnpm fix:backend` applies clippy's suggestions when there are some, then `lint:backend` checks.
+
 ## By Change
 
 | You changed | Run |
@@ -92,7 +109,9 @@ pnpm screenshots:readme   # The README images in docs/screenshots (tests/screens
 
 pnpm lint                 # Every lint:* script
 pnpm exec vp check        # Formatting, lint and types without fixing (what CI checks first)
-pnpm lint:backend         # cargo fmt, clippy --fix, then clippy -D warnings
+pnpm lint:backend         # cargo fmt, then clippy -D warnings: incremental, 7 s after an edit of a crate on the Studio
+pnpm fix:backend          # cargo fmt and clippy --fix: a whole check of the workspace each time (about 100 s), so
+                          # only to apply clippy's suggestions; lint:backend after it
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:typecheck
 pnpm lint:typecheck       # tsc of tsconfig.app.json, tsconfig.node.json and tsconfig.e2e.json
 pnpm lint:cpd             # jscpd copy/paste detection (config in .jscpd.json); fails on any clone

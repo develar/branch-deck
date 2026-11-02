@@ -102,7 +102,7 @@ If Homebrew `cargo` comes before rustup in `PATH`, prefix cargo commands with `P
 
 | You changed | Run (every filter: [Checks → By Change](docs/contributing/checks.md#by-change)) |
 |---|---|
-| Rust | `pnpm lint:backend`, then `cargo nextest run --workspace` (`-p`, `-E 'test(/…/)'` while iterating); a new cross-crate edge fails `crates/bd-cli/src/architecture_test.rs` |
+| Rust | `pnpm lint:backend` (`fix:backend` applies clippy's fixes), then `cargo nextest run --workspace` (`-p <the crate>` while iterating); a new cross-crate edge fails `crates/bd-cli/src/architecture_test.rs` |
 | a git operation | also its test in `process_budget_test.rs`, the scan tests (`cargo nextest run -p git-executor`), a core under the repository lock its row of [Lock spans](docs/design/git-operations.md#lock-spans) and its test |
 | a command of app-api or a type it passes | `UPDATE_BINDINGS=1 cargo nextest run -p branch-deck -E 'test(/the_bindings_are_what_the_export_writes/)'` (`src/lib/bindings.ts`), `UPDATE_COMMANDS=1 cargo nextest run -p app-api -E 'test(/commands_json/)'`; a new command raises `COMMAND_COUNT` |
 | frontend | `pnpm lint:frontend`, `pnpm test:unit`, `pnpm e2e`; `pnpm e2e-up` when the HTML changes, its snapshot diff reviewed like code; an E2E spec or helper: also `pnpm lint:e2e-pins` |
@@ -138,8 +138,8 @@ Mistakes agents made here; each cost a session.
   (`hoverOpensOnMove`), and another element keeps it only as the same control.
 - **Typing into a Base UI dialog in E2E**: wait for `toBeFocused()` first, or the text lands at the start.
 - **zsh does not word-split `$args`**: write the arguments out, use `${=args}`, or `bash -c '…'`.
-- **An "unresolved import" of a module that exists**, after another session moved branches under the same `target/`,
-  is a stale cargo fingerprint: `touch` the crate's files and rebuild.
+- **A stale cargo fingerprint** (an "unresolved import" of a module that exists, a file put back with its old mtime by
+  `mv`): `touch` the files and rebuild.
 - **One stash and one rerere cache for every lease** (`refs/stash`, `.git/rr-cache` of the common git dir): a
   `git stash pop` applies another lease's entry, rerere replays another lease's resolution. Keep work in progress as a
   WIP commit or a patch in `notes.local/`; the clone sets `rerere.enabled false`
