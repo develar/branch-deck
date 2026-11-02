@@ -553,9 +553,10 @@ function showPlace(code: CommitReviewCodeHandle | null, place: ReviewPlace): voi
 
 /**
  * The width of the sidebar until its divider is dragged: what the names of a tree need, not a share of the window, so
- * a maximized window gives the diffs the rest (IntelliJ's commit tree is about as wide)
+ * a maximized window gives the diffs the rest. The titles of the steps of a story (subjects of about 100 characters)
+ * fit in one line up to about 40 characters and wrap to a second line after; at 19rem a title of 30 already wrapped
  */
-const SIDEBAR_WIDTH = "19rem"
+const SIDEBAR_WIDTH = "24rem"
 
 /**
  * The sidebar beside the diffs, in every state of the review: the parts of the sidebar (the commits, the header of the

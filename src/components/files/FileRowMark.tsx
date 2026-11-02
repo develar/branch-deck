@@ -34,7 +34,7 @@ export function FileRowMark({ facts, onSelectPlace, ...card }: FileRowMarkProps)
       label={facts.description}
       mark={
         <span
-          className={cn("flex size-4 shrink-0 items-center justify-center", facts.tone === "warning" ? "text-warning" : "text-muted-foreground")}
+          className={cn("my-0.5 flex size-4 shrink-0 items-center justify-center", facts.tone === "warning" ? "text-warning" : "text-muted-foreground")}
           data-testid="file-row-mark"
           data-tone={facts.tone}
         />

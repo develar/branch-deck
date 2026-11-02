@@ -354,19 +354,22 @@ test.describe("Review tour", () => {
     await expect(commitRow("the open keeps a stored layout")).toHaveCount(0)
     await expect(commitRow("2 · the open keeps a stored layout")).toHaveAttribute("aria-description", /^4 files, \+\d+ −\d+, commit [0-9a-f]{7,}$/)
     await captureHtmlSnapshot(commitRow("2 · the open keeps a stored layout"), "review-tree-step-commit")
-    // the hover of the row of a step shows the hash of its commit where its line counts are: its title keeps its width
+    // the row of a step is its commit: the hash in the title of its name, as a commit row has it, no box of its own that
+    // takes the width of the title
     const stepRow = commitRow("2 · the open keeps a stored layout")
-    const titleWidth = () => stepRow.locator("[data-group]").evaluate(element => Math.round(element.getBoundingClientRect().width))
-    const width = await titleWidth()
-    await stepRow.hover()
-    await expect(stepRow.getByTestId("review-commit-hash")).toBeVisible()
-    await expect(stepRow.getByTestId("directory-line-counts")).toBeHidden()
-    expect(await titleWidth()).toBe(width)
-    await window.mouse.move(0, 0)
-    await expect(stepRow.getByTestId("review-commit-hash")).toBeHidden()
+    await expect(stepRow.locator("[data-group]")).toHaveAttribute("title", /^the open keeps a stored layout\n[0-9a-f]{7,}$/)
+    await expect(stepRow.getByTestId("review-commit-hash")).toHaveCount(0)
+    // no title of a step or a commit is cut by the width: a title wraps to a second line, at 1440 and at 1024
+    const cutTitles = () =>
+      tree
+        .locator("[data-group=concern], [data-testid=review-commit-subject]")
+        .evaluateAll(titles => titles.filter(title => title.scrollWidth > title.clientWidth + 1 || title.scrollHeight > title.clientHeight + 1).length)
+    await window.setViewportSize({ width: 1440, height: 900 })
+    await expect.poll(cutTitles).toBe(0)
     // a narrow window: the directory after the name of a file shows whole or not at all, never cut to its last letters
     const wide = window.viewportSize()!
     await window.setViewportSize({ width: 1024, height: 768 })
+    await expect.poll(cutTitles).toBe(0)
     const cut = () =>
       tree.getByTestId("file-label-directory").evaluateAll(
         directories =>
@@ -445,8 +448,8 @@ test.describe("Review tour", () => {
     await commitRow("src/a/Frame.kt, also in 3 · the view paints with the first frame").press("ArrowUp")
     await expect(paint).toHaveAttribute("aria-selected", "true")
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
-    // the copy key on the row copies the hash of its commit, whole: the one its hover shows short
-    const hash = await paint.getByTestId("review-commit-hash").textContent()
+    // the copy key on the row copies the hash of its commit, whole: the one the title of its name shows short
+    const hash = (await paint.locator("[data-group]").getAttribute("title"))!.split("\n")[1]
     await pressCopyKey(window)
     await expect.poll(() => readClipboard(window)).toMatch(new RegExp(`^${hash}[0-9a-f]{32,}$`))
 

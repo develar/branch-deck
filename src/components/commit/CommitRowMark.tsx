@@ -45,7 +45,8 @@ export function CommitRowMark({ commit, onOpen, size = "list", ...card }: Commit
           className={cn(
             "flex shrink-0 cursor-default items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
             // `-my-0.5`: the 24px mark keeps the 20px line height of the subject
-            size === "list" ? "-my-0.5 size-6 hover:bg-muted" : "size-4",
+            // `my-0.5`: on the first line of a row of the tree, whose title may wrap
+            size === "list" ? "-my-0.5 size-6 hover:bg-muted" : "my-0.5 size-4",
           )}
           data-testid="commit-row-mark"
           onClick={handleClick}

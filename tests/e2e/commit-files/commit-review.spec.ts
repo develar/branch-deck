@@ -366,8 +366,8 @@ simpleTest.describe("Commit review", () => {
     const window = await openTreeReview(page)
     const sidebar = window.getByTestId("review-sidebar")
     const toggle = window.getByTestId("review-sidebar-toggle")
-    // 19rem in a maximized window, not a share of it
-    await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(304)
+    // 24rem in a maximized window, not a share of it
+    await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(384)
     await expect(window.getByTestId("review-window-footer")).toContainText("FSidebar")
     await expect(toggle).toHaveAttribute("aria-pressed", "true")
 

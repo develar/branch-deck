@@ -155,7 +155,8 @@ where a dialog would cover it.
   [Branch Review](../branch/branch-review.spec.md), [Review Requests](../repository/review-requests.spec.md#review-window)), at most 40% of its height and scrolling inside; then the header of the files ("5
   files", or what the surface puts there: the owner chips of a branch review); then the tree of the Files section, in
   the order of the tree, a file row selecting the file. The selection follows the focus.
-- The sidebar must be resizable (19rem at first, what the names of a tree need, not a share of the window; never
+- The sidebar must be resizable (24rem at first, what the names of a tree need, not a share of the window: a title of
+  a step of a story up to about 40 characters fits one line, a longer one wraps to two; never
   narrower than 16rem, at most 50%) and keep its width (`review-sidebar`, one width for every review). F and the
   sidebar button of the title bar must hide and show it, so the diffs take the whole window; the footer names F, and
   the choice is kept for every review and never changes by itself.

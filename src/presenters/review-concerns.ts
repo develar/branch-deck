@@ -32,6 +32,11 @@ export function formatAlsoIn(chapter: string): string {
   return `also in ${chapter}`
 }
 
+/** "in step 2", "in proxy": after the name of a row "also in" another chapter, the chapter of its own row */
+export function formatHomeTag(reference: string): string {
+  return `in ${reference}`
+}
+
 /** "Its own row is under grep → accio": where the main row of a file of several chapters is */
 export function formatHome(chapter: string): string {
   return `Its own row is under ${chapter}`

@@ -573,4 +573,35 @@ describe("the steps of the commits in the tree of a review", () => {
       "  @ the rule",
     ])
   })
+
+  it("names the step of the own row of a file shown in another step after its name", () => {
+    // the paint changes the rule's file too, whose own row is in the first step: its row there says where it lives
+    const shared = [
+      reviewStep("a1a1", [commitOf("a1a1a1a1", "starts")], [["u:rule", "src/Rule.kt"]], {}, { title: "the rule" }),
+      {
+        ...reviewStep(
+          "b2b2",
+          [commitOf("b2b2b2b2", "starts")],
+          [
+            ["u:paint", "src/Paint.kt"],
+            ["u:rule2", "src/Rule.kt"],
+          ],
+          {},
+          { title: "the paint" },
+        ),
+        elsewhere: ["src/Rule.kt"],
+      },
+    ]
+    const sharedChapters = presentChapters({
+      steps: { source: { kind: "commits" }, told: true, steps: shared, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
+      concerns: [],
+    })
+    const tree = buildReviewTree(files, new Map(), sharedChapters)
+    const also = (tree[1] as FileTreeDirectory).children.find(child => child.kind === "also")
+    expect([also?.kind === "also" && also.homeTag, also?.kind === "also" && also.home, also?.kind === "also" && also.also]).toEqual([
+      "in step 1",
+      "Its own row is under 1 · the rule",
+      "also in 2 · the paint",
+    ])
+  })
 })

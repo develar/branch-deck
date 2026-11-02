@@ -481,7 +481,8 @@ const FileTreeRow = memo(function FileTreeRow({
         render={
           <div
             className={cn(
-              "group/row relative flex h-6 cursor-default items-center gap-1.5 rounded-md pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
+              // a title of a step or a commit wraps to a second line: the row grows, its chevron, icon and end stay on the first
+              "group/row relative flex min-h-6 cursor-default items-start gap-1.5 rounded-md py-0.5 pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
               isSelected && "bg-primary/15 hover:bg-primary/15",
               // its parts fade, not the row: the selection and the hover keep their colour
               muted && "*:opacity-60",
@@ -506,11 +507,11 @@ const FileTreeRow = memo(function FileTreeRow({
         )}
         {isOpen === undefined ? (
           // a file of a navigation tree opens nothing: the space keeps the names aligned
-          <span className="size-3.5 shrink-0" />
+          <span className="my-[3px] size-3.5 shrink-0" />
         ) : (
           // the chevron folds the row, also where a click on the row selects it (the group of a step of the commits)
           <ChevronRightIcon
-            className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")}
+            className={cn("my-[3px] size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")}
             data-testid="tree-row-chevron"
             onClick={event => {
               event.stopPropagation()
@@ -532,15 +533,7 @@ const FileTreeRow = memo(function FileTreeRow({
         ) : (
           cardCommit !== null && <CommitRowMark commit={cardCommit} size="tree" {...cardState} />
         )}
-        {node.kind === "directory" ? (
-          node.commit !== undefined ? (
-            <StepRowEnd node={node} />
-          ) : (
-            node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} />
-          )
-        ) : (
-          node.kind === "file" && <FileLineCounts node={node} />
-        )}
+        {node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </RowMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -620,8 +613,8 @@ function CommitRowContent({ node }: { node: FileTreeCommit }) {
   const { commit } = node
   return (
     <>
-      <GitCommitHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate" title={`${commit.subject}\n${formatShortHash(commit.id)}`} data-testid="review-commit-subject">
+      <GitCommitHorizontalIcon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
+      <span className="line-clamp-2 min-w-0 flex-1 [overflow-wrap:anywhere]" title={`${commit.subject}\n${formatShortHash(commit.id)}`} data-testid="review-commit-subject">
         {node.name}
       </span>
       <CommitRowFacts node={node} />
@@ -652,21 +645,13 @@ function CommitRowFacts({ node: { commit } }: { node: FileTreeCommit }) {
   )
 }
 
-/**
- * The end of the row of a step of the commits: its line counts, which its hover replaces with the hash of its commit
- * in the same place, so the title keeps its width
- */
-function StepRowEnd({ node }: { node: FileTreeDirectory }) {
-  return (
-    <span className="grid shrink-0 justify-items-end text-xs text-muted-foreground *:[grid-area:1/1]">
-      <span className="group-hover/row:invisible" data-testid="directory-line-counts">
-        {node.fileCount > 0 && <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />}
-      </span>
-      <span className="invisible font-mono group-hover/row:visible" data-testid="review-commit-hash">
-        {formatShortHash(node.commit!.commit.id)}
-      </span>
-    </span>
-  )
+/** The hover of a group: the hover of a step (its evidence), the subject and the hash of the commit a step is, a directory's path */
+function groupTitle(node: FileTreeDirectory): string {
+  const commit = node.commit?.commit
+  if (commit !== undefined) {
+    return `${commit.subject}\n${formatShortHash(commit.id)}`
+  }
+  return node.title ?? (node.group === undefined ? node.key.slice(0, -1) : node.name)
 }
 
 function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirectory; isOpen: boolean; ownerMark: OwnerMark | null }) {
@@ -676,10 +661,15 @@ function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirect
     node.commit !== undefined ? GitCommitHorizontalIcon : node.group === "concern" ? TargetIcon : node.group !== undefined ? LayersIcon : isOpen ? FolderOpenIcon : FolderIcon
   return (
     <>
-      <Icon className="size-4 shrink-0 text-muted-foreground" />
+      <Icon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
       <span
-        className={cn("min-w-0 flex-1 truncate", node.group === "concern" && "font-medium", node.code === true && "font-mono text-xs")}
-        title={node.title ?? (node.group === undefined ? node.key.slice(0, -1) : node.name)}
+        className={cn(
+          "min-w-0 flex-1",
+          // the title of a step or a task wraps to a second line, never cut at the width of the sidebar; a path is cut
+          node.group === "concern" ? "line-clamp-2 font-medium [overflow-wrap:anywhere]" : "truncate",
+          node.code === true && "font-mono text-xs leading-5",
+        )}
+        title={groupTitle(node)}
         data-group={node.group}
       >
         {node.name}
@@ -697,7 +687,7 @@ function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirect
 
 function DirectoryLineCounts({ node }: { node: FileTreeDirectory }) {
   return (
-    <span className="shrink-0 text-xs text-muted-foreground" data-testid="directory-line-counts">
+    <span className="shrink-0 text-xs leading-5 text-muted-foreground" data-testid="directory-line-counts">
       <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />
     </span>
   )
@@ -717,7 +707,7 @@ function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | u
   )
 }
 
-/** A file in a concern that is not the one of its main row: its name played down, "also" after it */
+/** A file in a chapter that is not the one of its main row: its name played down, the chapter of its own row after it ("in step 2") */
 function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | undefined }) {
   const { file } = node
   const path = formatCommitFilePath(file)
@@ -726,7 +716,9 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
       <span className="flex min-w-0">
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup} letterSlot="icon" wholeDirectory />
       </span>
-      <span className="shrink-0 text-xs">also</span>
+      <span className="shrink-0 text-xs" data-testid="review-also-home">
+        {node.homeTag}
+      </span>
     </span>
   )
 }
@@ -734,7 +726,7 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
 function FileLineCounts({ node: { file } }: { node: FileTreeFile }) {
   return (
     (file.additions > 0 || file.deletions > 0) && (
-      <span className="shrink-0 text-xs">
+      <span className="shrink-0 text-xs leading-5">
         <LineCounts data-testid="file-line-counts" additions={file.additions} deletions={file.deletions} colored />
       </span>
     )

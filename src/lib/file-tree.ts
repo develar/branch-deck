@@ -1,7 +1,7 @@
 import type { CommitFile, DependencyChange, MechanicalKind, ReviewPlan } from "@/lib/bindings"
 import type { FileActionTarget } from "@/lib/file-actions"
 import type { RangeReviewItem } from "@/lib/range-review"
-import { formatAlsoIn, formatHome, OTHER_CHANGES } from "@/presenters/review-concerns"
+import { formatAlsoIn, formatHome, formatHomeTag, OTHER_CHANGES } from "@/presenters/review-concerns"
 import { formatMechanicalGroup } from "@/presenters/review-plan"
 import type { Chapter, CommitPlaces, PlacedCommit } from "@/presenters/review-steps"
 
@@ -33,8 +33,10 @@ export interface FileTreeAlso {
   file: CommitFile
   /** `Concern.id` of the concern it shows the file in */
   concern: string
-  /** "also in proxy", after its name */
+  /** "also in proxy": its name to a screen reader */
   also: string
+  /** After its name, the chapter of its own row: "in step 2", "in proxy"; "also" where no chapter holds it */
+  homeTag: string
   /** In its hover, where its main row is: "Its own row is under grep → accio" */
   home: string
   inGroup: boolean
@@ -256,6 +258,7 @@ export function buildReviewTree(
       file,
       concern: chapter.id,
       also: formatAlsoIn(chapter.heading),
+      homeTag: home === undefined ? "also" : formatHomeTag(home.reference),
       home: home === undefined ? "" : formatHome(home.heading),
     }
   }
