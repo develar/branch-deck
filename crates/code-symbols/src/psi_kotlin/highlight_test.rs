@@ -31,6 +31,12 @@ fn kotlin(text: &str) -> Vec<String> {
   pieces(Grammar::Kotlin, text)
 }
 
+/// The coloured pieces of the first line of a Kotlin text that spell `name`
+fn pieces_of(text: &str, name: &str) -> Vec<String> {
+  let quoted = format!("{name:?}");
+  kotlin(text).into_iter().filter(|it| it.ends_with(&quoted)).collect()
+}
+
 #[test]
 fn a_keyword_is_a_keyword_in_a_file_and_in_a_script() {
   for grammar in [Grammar::Kotlin, Grammar::KotlinScript] {
@@ -83,11 +89,9 @@ fn a_raw_string_has_no_escapes() {
 #[test]
 fn a_name_after_a_receiver_is_no_field_of_the_scopes() {
   // the callee of a qualified call and a reference after `X::` are never the property of that name; `::size` is
-  let pieces = kotlin("class A(val size: Int) { fun f() = Math.size(1) + B::size.name + ::size.name }\n");
   assert_eq!(
-    pieces.iter().filter(|it| it.ends_with("\"size\"")).collect::<Vec<_>>(),
-    [r#"field "size""#, r#"field "size""#],
-    "{pieces:?}"
+    pieces_of("class A(val size: Int) { fun f() = Math.size(1) + B::size.name + ::size.name }\n", "size"),
+    [r#"field "size""#, r#"field "size""#]
   );
   // nor a name of the path of an import
   assert_eq!(kotlin("import a.size.b\nval size = 1\n"), [r#"keyword "import""#]);
@@ -149,4 +153,13 @@ fn a_construct_past_the_nesting_limit_is_highlighted_as_its_error() {
     .unwrap();
   assert_eq!(runs.line(0)[..2], [0, Role::Keyword.style()]);
   assert!(runs.line(0).chunks(2).any(|it| it[1] == Role::Number.style()));
+}
+
+#[test]
+fn a_parameter_of_a_function_type_binds_nothing() {
+  // the name of a function type's parameter is no parameter of the function around it, nor a field itself
+  assert_eq!(
+    pieces_of("class A(val size: Int) { fun f(cb: (size: Int) -> Unit) = size }\n", "size"),
+    [r#"field "size""#, r#"field "size""#]
+  );
 }

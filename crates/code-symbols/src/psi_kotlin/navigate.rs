@@ -5,13 +5,14 @@
 //! - **A name** is an `IDENTIFIER` leaf of the code: not one of a doc comment, not a label (but the `Outer` of
 //!   `this@Outer`, a type).
 //! - **Its declaration by the scopes**: from the name up, the first scope (a function, a lambda, a class or an object,
-//!   an accessor, a block, a `for`, a `catch`, the file, and a body between them) that declares the name, without the
+//!   an accessor, a block, a `for`, a `catch`, a `when` with its subject, the file, and a body between them) that declares the name, without the
 //!   scopes inside it but with their own names (a function of a class is declared in the class); in it the last
 //!   declaration before the name, else the first (a member declared after its use). The declarations of the name are
 //!   found in one pass over the leaves and filed under the scopes that see them (`Declarations`), so the usages of a
 //!   name cost a pass and a climb per usage, not a walk of the scopes per name.
-//! - **A local** is a declaration inside a function, which no other file sees: its usages are those bound to it; the
-//!   usages of any other name are those that no local binds.
+//! - **A local** is a declaration inside code (a function, an `init` block, a block or a `catch` of an initializer) or
+//!   of a function type, which no other file sees: its usages are those bound to it; the usages of any other name are
+//!   those that no local binds. The parameter of a function type, `(event: Event) -> Unit`, no scope sees.
 
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answer};
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
@@ -212,16 +213,27 @@ impl Names<'_> {
     (parts.next() == Some(selector)).then_some(receiver)
   }
 
-  /// Whether a declared name is a local: a function around its declaration, not the function it names
+  /// Whether a declared name is a local, which no other file sees: code around its declaration (a function, not the one
+  /// it names, an `init` block, a block, a `catch` or a `when` of a property's initializer), or a function type, whose
+  /// parameter names nothing the code sees. The statements of a script are its members
   fn is_local(&self, declared: NodeId) -> bool {
     let tree = self.tree;
     let mut current = tree.parent(declared).and_then(|it| tree.parent(it));
     while let Some(node) = current {
-      if matches!(
-        self.kind(node),
-        Some(NodeKind::FUN | NodeKind::FUNCTION_LITERAL | NodeKind::SECONDARY_CONSTRUCTOR | NodeKind::PROPERTY_ACCESSOR)
-      ) {
-        return true;
+      match self.kind(node) {
+        Some(
+          NodeKind::FUN
+          | NodeKind::FUNCTION_LITERAL
+          | NodeKind::SECONDARY_CONSTRUCTOR
+          | NodeKind::PROPERTY_ACCESSOR
+          | NodeKind::CLASS_INITIALIZER
+          | NodeKind::CATCH
+          | NodeKind::FOR
+          | NodeKind::WHEN
+          | NodeKind::FUNCTION_TYPE,
+        ) => return true,
+        Some(NodeKind::BLOCK) if self.parent_kind(node) != Some(NodeKind::SCRIPT) => return true,
+        _ => {}
       }
       current = tree.parent(node);
     }
@@ -314,6 +326,10 @@ impl Declarations {
       let mut current = tree.parent(leaf).and_then(|it| tree.parent(it));
       while let Some(node) = current {
         let kind = tree.node_kind(node);
+        // the parameter of a function type, `(event: Event) -> Unit`, names nothing a scope sees
+        if kind == Some(NodeKind::FUNCTION_TYPE) {
+          break;
+        }
         let scope = kind.is_some_and(is_scope);
         if scope || tree.parent(node).is_none() || kind.is_some_and(is_body) {
           found.by_scope.entry(node.0).or_default().push(leaf);
@@ -390,6 +406,7 @@ const fn is_scope(kind: NodeKind) -> bool {
       | NodeKind::PROPERTY_ACCESSOR
       | NodeKind::FOR
       | NodeKind::CATCH
+      | NodeKind::WHEN
       | NodeKind::BLOCK
   )
 }

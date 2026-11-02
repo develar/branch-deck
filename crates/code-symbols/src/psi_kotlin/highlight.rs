@@ -267,17 +267,19 @@ impl<'t> Painter<'t> {
   }
 
   /// A parameter: of a primary constructor with `val` or `var`, a property; of a function, an accessor, a lambda, a
-  /// loop or a `catch`, bound in its scope
+  /// loop or a `catch`, bound in its scope; of a function type, `(size: Int) -> Unit`, nothing the code sees
   fn parameter(&mut self, id: NodeId) {
     let tree = self.tree;
     let Some(name) = self.child_token(id, TokenKind::IDENTIFIER) else { return };
-    if tree.parent(id).and_then(|list| self.parent_kind(list)) == Some(NodeKind::PRIMARY_CONSTRUCTOR) {
-      if is_property_parameter(tree, id) {
-        self.mark(name, FIELD);
+    match tree.parent(id).and_then(|list| self.parent_kind(list)) {
+      Some(NodeKind::PRIMARY_CONSTRUCTOR) => {
+        if is_property_parameter(tree, id) {
+          self.mark(name, FIELD);
+        }
       }
-      return;
+      Some(NodeKind::FUNCTION_TYPE) => {}
+      _ => self.scopes.bind(self.text_of(name)),
     }
-    self.scopes.bind(self.text_of(name));
   }
 
   /// The names a property or a destructuring declaration declares
@@ -417,8 +419,8 @@ impl<'t> Painter<'t> {
           _ => self.name_style(id),
         }
       }
-      // the function of an infix call, an alias of an import
-      Some(NodeKind::OPERATION_REFERENCE | NodeKind::IMPORT_ALIAS) => Paint::Opaque,
+      // the function of an infix call, an alias of an import, a parameter that no `val` makes a property
+      Some(NodeKind::OPERATION_REFERENCE | NodeKind::IMPORT_ALIAS | NodeKind::VALUE_PARAMETER) => Paint::Opaque,
       Some(NodeKind::CLASS | NodeKind::OBJECT_DECLARATION | NodeKind::TYPEALIAS) => self.type_name(id),
       _ => self.name_style(id),
     }
