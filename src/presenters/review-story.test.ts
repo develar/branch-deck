@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
-import { MORE, mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
+import { MORE } from "@/presenters/commit-body"
+import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { reviewStep, stepCommit } from "@/test-support/review-step"

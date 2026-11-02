@@ -16,7 +16,7 @@ export interface CommitRowMarkProps extends RowCardState {
 
 /**
  * The mark of a commit row whose message has a body (spec/commit/commit-row.spec.md, "Commit card"): its hover opens
- * the card of the commit (`CommitCard`), the header and the whole body, and so does `I` on its row, the focus in the
+ * the card of the commit (`CommitCard`), the header and the body folded as Rust says, and so does `I` on its row, the focus in the
  * card; Escape gives the focus back to the row (`RowCard`). A click opens the preview of the commit where its list has
  * one. Not a tab stop: Space previews the row, `I` opens its card. One mark for the rows of the main window and of the
  * tree of a review
@@ -46,8 +46,9 @@ export function CommitRowMark({ commit, onOpen, size = "list", ...card }: Commit
         />
       }
       icon={<RectangleEllipsisIcon className={size === "list" ? "size-3" : "size-3.5"} />}
-      // 24rem high at most, the body scrolls under the header, which stays and pads the top (`CommitCard`)
-      className="max-h-96 w-[min(36rem,var(--available-width))] overflow-y-auto px-4 pt-0 pb-4"
+      // 24rem high at most, the body scrolls under the header, which stays and pads the top, and over the fade of the
+      // card, which pads the bottom (`CommitCard`)
+      className="max-h-96 w-[min(36rem,var(--available-width))] overflow-y-auto px-4 py-0"
       data-testid="commit-card"
       focus="card"
     >

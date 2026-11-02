@@ -137,7 +137,7 @@ test.describe("Review tour", () => {
     // the opening tells the story of the commit that starts the step: its lead, the rest of its body, its round as a
     // disclosure of its own body, the facts of the step
     const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · The open keeps a stored layout", exact: true }) })
-    await expect(opening.getByTestId("review-story-lead").first()).toContainText("Two startup steps showed the project view at each open")
+    await expect(opening.getByTestId("commit-body-lead").first()).toContainText("Two startup steps showed the project view at each open")
     await expect(opening).toContainText("The product decision is to keep the layout of the user.")
     await expect(opening.getByTestId("review-opening-facts")).toHaveText(
       "Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show · New API: allowed",
@@ -207,7 +207,7 @@ test.describe("Review tour", () => {
 
     // `Manager.allowed` in the body of step 2 resolves to the rule the step adds: a link, its hover names it, its file,
     // its step
-    const allowed = opening.getByTestId("review-story-lead").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
+    const allowed = opening.getByTestId("commit-body-lead").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
     await expect(allowed).toHaveAttribute("data-path", "src/a/Manager.kt")
     await allowed.hover()
     await expect(window.getByTestId("review-story-mention-tip")).toHaveText("allowed — new · Manager.kt:6 · step 2")
@@ -237,12 +237,12 @@ test.describe("Review tour", () => {
     // the Look closely of the author is a callout in the opening of its step and in the contents; its tests are folded
     // always, named on the line of the folded parts
     const restart = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 4 · The restart story checks the layout", exact: true }) })
-    await expect(restart.getByTestId("review-story-look-closely")).toContainText("the story restarts the window alone, never the whole IDE.")
+    await expect(restart.getByTestId("commit-body-look-closely")).toContainText("the story restarts the window alone, never the whole IDE.")
     // the callout holds the question alone: the label right above its paragraph heads the story after it
-    await expect(restart.getByTestId("review-story-look-closely")).not.toContainText("takes a minute")
-    await expect(restart.getByTestId("review-story-part").filter({ hasText: "Why not the whole IDE" })).toContainText("A restart of the IDE takes a minute")
+    await expect(restart.getByTestId("commit-body-look-closely")).not.toContainText("takes a minute")
+    await expect(restart.getByTestId("commit-body-part").filter({ hasText: "Why not the whole IDE" })).toContainText("A restart of the IDE takes a minute")
     await expect(window.getByTestId("review-contents-step").nth(3).getByTestId("review-contents-step-look-closely")).toContainText("the story restarts the window alone")
-    const tests = restart.getByTestId("review-story-fold")
+    const tests = restart.getByTestId("commit-body-fold")
     await expect(tests).toHaveText("Tests")
     await expect(tests).toHaveAttribute("aria-expanded", "false")
     await expect(restart).not.toContainText("restarts the window once")
@@ -259,7 +259,7 @@ test.describe("Review tour", () => {
     await expect(tests).toHaveAttribute("aria-expanded", "false")
     await expect(restart).not.toContainText("restarts the window once")
     await tests.click()
-    await expect(restart.getByTestId("review-story-part").filter({ hasText: "restarts the window once" })).toBeVisible()
+    await expect(restart.getByTestId("commit-body-part").filter({ hasText: "restarts the window once" })).toBeVisible()
 
     // the outline plays once: the commit shown alone, then the whole story again, mount their stories with no block
     // outlined and no fold opened by the click before
@@ -267,7 +267,7 @@ test.describe("Review tour", () => {
     await commitRow("4 · The restart story checks the layout").click()
     await commitRow("4 · The restart story checks the layout").press("Enter")
     const header = window.getByTestId("range-review-commit-header")
-    await expect(header.getByTestId("review-story-fold")).toHaveAttribute("aria-expanded", "false")
+    await expect(header.getByTestId("commit-body-fold")).toHaveAttribute("aria-expanded", "false")
     await expect(window.locator("[data-highlight]")).toHaveCount(0)
     await column.filter({ hasText: "All Changes" }).click()
     await expect(header).toHaveCount(0)

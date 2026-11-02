@@ -1,23 +1,21 @@
-<div class="flex max-w-prose cursor-text flex-col pb-1 [font-feature-settings:'ss04'] text-foreground select-text gap-4 text-md" data-size="reading" data-testid="commit-message-body">
-  <div class="flex flex-col gap-1">
-    <div class="flex min-w-0 flex-col gap-2">
-      <p>
+<div class="flex max-w-prose min-w-0 cursor-text flex-col [font-feature-settings:'ss04'] text-foreground select-text gap-4 pb-1 text-md" data-size="reading" data-testid="commit-message-body">
+  <div data-testid="commit-body-lead">
+    <p>
+      <span>
         <span>
-          <span>
-            Skip the cache warm-up until
-          </span>
-          <a class="rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground" href="https://jira.example.com/browse/CRITICAL-112" rel="noopener noreferrer" target="_blank">
-            CRITICAL-112
-          </a>
-          <span>
-            is fixed.
-          </span>
+          Skip the cache warm-up until
         </span>
-      </p>
-    </div>
+        <a class="rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground" href="https://jira.example.com/browse/CRITICAL-112" rel="noopener noreferrer" target="_blank">
+          CRITICAL-112
+        </a>
+        <span>
+          is fixed.
+        </span>
+      </span>
+    </p>
   </div>
-  <div class="flex flex-col gap-1">
-    <div class="font-semibold" data-slot="commit-section-heading">
+  <div class="flex min-w-0 flex-col gap-1" data-part="body:1" data-testid="commit-body-part">
+    <div class="font-semibold" data-slot="commit-body-heading">
       <span>
         Rollout
       </span>
@@ -31,9 +29,11 @@
       <hr class="border-border" />
     </div>
   </div>
-  <div class="flex flex-col gap-1">
-    <div class="font-semibold" data-slot="commit-section-label">
-      Tests
+  <div class="flex min-w-0 flex-col gap-1" data-part="body:4" data-testid="commit-body-part">
+    <div class="font-semibold" data-slot="commit-body-label">
+      <span>
+        Tests
+      </span>
     </div>
     <div class="flex min-w-0 flex-col gap-2">
       <ul class="list-disc flex flex-col gap-1 pl-5 marker:text-muted-foreground">

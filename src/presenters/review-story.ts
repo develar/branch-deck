@@ -1,6 +1,8 @@
-import type { CommitBodyBlock, ContractKind, LabelKind, Mention, MentionTarget, ReviewPlan, ReviewStep, StoryCommit } from "@/lib/bindings"
+import type { CommitBodyBlock, ContractKind, Mention, MentionTarget, ReviewPlan, ReviewStep, StoryCommit } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
+import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
+import { presentBodyParts } from "@/presenters/commit-body"
 import { formatConcernEvidence } from "@/presenters/review-concerns"
 import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
@@ -15,35 +17,6 @@ import { formatUnitHeading } from "@/presenters/review-units"
  * is and, of the concerns of one commit, where each block is told; this only words and places them.
  */
 
-/** A block of a body at its place in `CommitBody.blocks`: the mentions of a line name it by that place */
-export interface PlacedBlock {
-  readonly index: number
-  readonly block: Exclude<CommitBodyBlock, { type: "label" | "heading" }>
-}
-
-/**
- * A part of a body: a labelled section (a label or a heading and its blocks up to the next one), else a run of blocks
- * before the first label; a run the fold cuts is two parts
- */
-export interface StoryPart {
-  /** Its commit and its first block: unique in the document */
-  readonly key: string
-  /** The place of its first block (its label or heading, else its first block) in `CommitBody.blocks` */
-  readonly first: number
-  /** Its label or heading at its place, null for blocks before any */
-  readonly head: { readonly index: number; readonly block: Extract<CommitBodyBlock, { type: "label" | "heading" }> } | null
-  /** The kind of its label: a verification folds always, a Look closely is a callout */
-  readonly tone: LabelKind
-  readonly blocks: readonly PlacedBlock[]
-}
-
-/** A part after the fold or of verification: its own disclosure, named in the outline of the folded parts */
-export interface FoldedPart {
-  readonly part: StoryPart
-  /** "The cause", "Tests"; "More" for blocks of no label */
-  readonly name: string
-}
-
 /**
  * A code name of a body (spec/branch/review-tour.spec.md, "Anchors"): its place in the diffs, which a click shows, and
  * the words of its hover ("allowed — new · Manager.kt:6 · step 2"); a name that resolves nothing has neither and stays
@@ -57,71 +30,23 @@ export interface StoryMention extends Mention {
 /** The words and the place of the target of a mention, by the units and the steps of the plan */
 export type MentionWords = (target: MentionTarget, text: string) => { readonly place: ReviewPlace; readonly title: string }
 
-/** The body of a commit (or the blocks of it told at one place) as the document shows it */
-export interface StoryView {
+/** The body of a commit (or the blocks of it told at one place) as the document shows it: its parts, its code names */
+export interface StoryView extends BodyParts {
   readonly commit: string
   /** The code names of the whole body: a line finds its own by its block and its item */
   readonly mentions: readonly StoryMention[]
-  /** The summary the body opens with, a step larger; null when it opens with a label or is told elsewhere */
-  readonly lead: PlacedBlock | null
-  /** The parts before the fold, in the order of the body */
-  readonly shown: readonly StoryPart[]
-  /** The parts after the fold and every verification section, in the order of the body */
-  readonly folded: readonly FoldedPart[]
 }
 
-/** The name of a folded part of no label */
-export const MORE = "More"
-
 /**
- * The story of `commit` as the document shows it: of the blocks `told` keeps (all by default), the lead, then the parts
- * of the body as Rust cut and folded them (`CommitBody.parts`), the shown ones in place and the folded ones named
+ * The story of `commit` as the document shows it: of the blocks `told` keeps (all by default), its parts as Rust cut
+ * and folded them (`presentBodyParts`), its code names worded
  */
 export function presentStory(commit: StoryCommit, told: (index: number) => boolean = () => true, words: MentionWords = plainWords): StoryView {
-  const { blocks, parts, lead } = commit.body
-  let leadBlock: PlacedBlock | null = null
-  const view: { shown: StoryPart[]; folded: FoldedPart[] } = { shown: [], folded: [] }
-  for (const { start, end, folded } of parts) {
-    const first = blocks[start]
-    const head = first !== undefined && (first.type === "label" || first.type === "heading") ? { index: start, block: first } : null
-    // Rust tells a labelled section whole, at one place; of a run of blocks of no label, a block told apart from the
-    // one before it starts a part
-    const runs: PlacedBlock[][] = []
-    for (let index = head === null ? start : start + 1; index < end; index++) {
-      const block = blocks[index]!
-      if (!told(index) || block.type === "label" || block.type === "heading") {
-        continue
-      }
-      if (index === 0 && lead && block.type === "paragraph") {
-        leadBlock = { index, block }
-        continue
-      }
-      const run = runs.at(-1)
-      if (run === undefined || run.at(-1)!.index !== index - 1) {
-        runs.push([{ index, block }])
-      } else {
-        run.push({ index, block })
-      }
-    }
-    if (head !== null && !told(start)) {
-      continue
-    }
-    const tone = head?.block.type === "label" ? head.block.kind : "plain"
-    for (const placed of head === null ? runs : [runs.flat()]) {
-      const firstIndex = head?.index ?? placed[0]!.index
-      const part: StoryPart = { key: `${commit.id}:${firstIndex}`, first: firstIndex, head, tone, blocks: placed }
-      if (folded) {
-        view.folded.push({ part, name: head === null ? MORE : head.block.text })
-      } else {
-        view.shown.push(part)
-      }
-    }
-  }
   const mentions = commit.mentions.map((mention): StoryMention => ({
     ...mention,
     ...(mention.target === null ? { place: null, title: null } : words(mention.target, mention.text)),
   }))
-  return { commit: commit.id, mentions, lead: leadBlock, ...view }
+  return { commit: commit.id, mentions, ...presentBodyParts(commit.id, commit.body, told) }
 }
 
 /** The words of a target without the units: its file and line */
@@ -268,7 +193,7 @@ export interface ContentsStep {
    * The sections of its story where the author asks the reviewer to decide ("Look closely:"), each its first block:
    * of the commit that starts it, then of each that follows it up
    */
-  readonly lookClosely: readonly { readonly story: StoryView; readonly part: StoryPart }[]
+  readonly lookClosely: readonly { readonly story: StoryView; readonly part: BodyPart }[]
 }
 
 /** A file of What Changes: its kind and path once, then each changed block of it */

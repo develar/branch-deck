@@ -12,6 +12,7 @@ targets:
   - ../../src/components/commit/CommitSubject.tsx
   - ../../src/components/commit/CommitMetadata.tsx
   - ../../src/components/commit/CommitBodyView.tsx
+  - ../../src/presenters/commit-body.ts
   - ../../src/components/commit/CommitCard.tsx
   - ../../src/components/commit/CommitRowMark.tsx
   - ../../src/components/shared/RowCard.tsx
@@ -174,8 +175,11 @@ place that shows a commit shows the same way.
 - The mark must be named "Show full commit message", and a click on it must open the preview of its commit.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
 - The hover of the mark (300 ms, only after a move of the pointer) must open the commit card: the whole subject over
-  the meta line with its line counts, then the whole body, its trailers last; the pointer leaving the mark closes it.
-  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark and by I, and give the focus back on Escape`)
+  the meta line with its line counts, then the body folded as the opening of a review folds it (the parts Rust shows,
+  the author's "Look closely:" always, then one line that names the folded parts, verification among them, each its
+  own disclosure), its trailers last; the pointer leaving the mark closes it. While more of the card is below its
+  bottom edge, the bottom fades into the popover, so a body the height cuts never reads as the whole message.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark and by I, and give the focus back on Escape`, `should fold a long body in the card as the review folds it, open each folded part, keep the Look closely, and fade the card while more is below`)
 - I on the row Space would preview must open its card with the focus in it. Escape must close the card alone and give
   the focus back to the list, whose keys go on from that row; a card opened by I that goes otherwise gives it back too.
   The Escape of a card the hover opened closes it alone too: the selection of the list stays. The window keeps one card
@@ -186,8 +190,9 @@ place that shows a commit shows the same way.
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
 - The card is one for every place a commit is shown (`CommitCard`: `CommitHeader` and `CommitBodyView`): the card of a
   row's mark, the commits of the preview of a branch and of a kept branch, the commit a review shows alone; the commit
-  preview shows the same header as its title and the same body. The opening of a step in a review tells the body by
-  the same blocks ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
+  preview shows the same header as its title and the same body, whole. There is one view of a body
+  (`BodyPartsView`): the card, the preview and the opening of a step in a review set the same parts, labels and
+  callouts, folded or whole ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
 - The row must not render the body.
 
 ### Commit preview
@@ -610,7 +615,7 @@ for a message shown again, and only lays out what Rust read.
 ### Commit card
 
 - The card is a popover at the end of the mark, 36rem wide at most and 24rem high at most; its body scrolls under its
-  header, which stays at the top of the card.
+  header, which stays at the top of the card, and a 40px gradient of `popover` fades its bottom while more is below.
 - The header shows the whole subject in `text-sm font-medium` above the meta line, the line counts coloured
   (`success`, `destructive`), as every header but a row's (`CommitHeader`: `row`, `card`, `heading` in `text-md`, `title`
   in `text-base`).
@@ -633,7 +638,8 @@ for a message shown again, and only lays out what Rust read.
 - No test covers the Pending, Blocked and generic Error badges. No backend path in the mock server emits them.
 - No test covers the height limit of the commit card, its header staying as the body scrolls, or a commit without a
   subject in it.
-- The commit card and the preview show the whole body; the story of a review folds the parts Rust folds. A p90 body (about 43 lines) scrolls in a card 24rem high: the card could fold as the story does.
+- The preview shows the whole body; the card and the story of a review fold the parts Rust folds. A body whose shown
+  parts alone are taller than 24rem still scrolls in the card.
 - No test checks that the subject does not detect code.
 - Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
   ↓ right after Space is lost.

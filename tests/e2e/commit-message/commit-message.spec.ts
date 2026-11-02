@@ -30,6 +30,17 @@ async function expectPreviewFocused(preview: Locator) {
   await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
 }
 
+/** Rewords the unassigned commit of CRITICAL-111 to `message` and waits for its row to show the new commit */
+async function rewordEmergencyFix(page: Page, repo: { reword: (hash: string, message: string) => Promise<string> }, message: string): Promise<Locator> {
+  await enableAutoSyncOnFocus(page)
+  const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
+  const hash = await unassignedRow.getAttribute("data-row-id")
+  const newHash = await repo.reword(hash!, message)
+  await syncOnWindowFocus(page)
+  await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
+  return unassignedRow
+}
+
 test.describe("Commit message", () => {
   test("should open the full message in a preview and reflow it into paragraphs, lists and code", async ({ page }) => {
     const { commitRow, toggle } = await findCommitRow(page)
@@ -65,7 +76,7 @@ test.describe("Commit message", () => {
     await expect(body.locator("pre")).toHaveText("retry: { attempts: 6, maxDelayMs: 5000 }")
 
     // a paragraph that is only "Label:" and a run-in "Why:" become section labels; the long one stacks above its blocks
-    await expect(body.locator("[data-slot=commit-section-label]")).toHaveText(["Retry the connection instead", "Why"])
+    await expect(body.locator("[data-slot=commit-body-label]")).toHaveText(["Retry the connection instead", "Why"])
     await expect(paragraphs.last()).toHaveText("createPool in db/pool.js ignored POOL_RETRY_LIMIT, so retry never ran, unlike the JavaScript client.")
 
     // identifiers, paths and backtick spans are code; a product name is not
@@ -228,6 +239,47 @@ test.describe("Commit message", () => {
     await expect(card).toHaveCount(1)
   })
 
+  test("should fold a long body in the card as the review folds it, open each folded part, keep the Look closely, and fade the card while more is below", async ({
+    page,
+    issueLinksRepo: repo,
+  }) => {
+    const unassignedRow = await rewordEmergencyFix(
+      page,
+      repo,
+      [
+        "Emergency fix for CRITICAL-111",
+        "The cache warm-up blocked every request for a second after a deploy, so the first users of a node waited. Now the warm-up runs in the background and a request reads the store until it is done.",
+        "The cause:\n- the warm-up held the lock of the cache\n- every request waited for that lock\n- a deploy restarts every node at once",
+        "The fix:\n- the warm-up fills a second cache\n- a request reads the store until the swap\n- the swap is one pointer write",
+        "Look closely: a request during the warm-up reads the store, which is slower for that second. Decide whether a slower second is better than a blocked one, or the warm-up must stay in front of the traffic.",
+        "Why not a lock per key:\nA lock per key would still block the keys a request asks first, and those are the hot ones the warm-up fills first too.",
+        "Tests:\n- the warm-up test\n- the swap test",
+        "Evidence:\n- 5 deploys on staging: no request waited",
+      ].join("\n\n"),
+    )
+
+    await page.mouse.move(0, 0)
+    await unassignedRow.getByTestId("commit-row-mark").hover()
+    const card = page.getByTestId("commit-card")
+    await expect(card).toBeVisible()
+    // the body shows up to its fold, the question of the author whole; the rest named on one line, verification too
+    await expect(card.getByTestId("commit-body-look-closely")).toContainText("Decide whether a slower second is better than a blocked one")
+    const folds = card.getByTestId("commit-body-fold")
+    await expect(folds).toHaveText(["Why not a lock per key", "Tests", "Evidence"])
+    await expect(card).not.toContainText("the swap test")
+    // a fold opens below the line, the card scrolls, and fades at its bottom while more is below
+    await folds.nth(1).click()
+    await expect(folds.nth(1)).toHaveAttribute("aria-expanded", "true")
+    await expect(card.getByTestId("commit-body-part").filter({ hasText: "the swap test" })).toBeAttached()
+    await folds.nth(0).click()
+    await folds.nth(2).click()
+    const fade = card.getByTestId("commit-card-fade")
+    await expect(fade).toHaveAttribute("data-more", "")
+    await card.evaluate(element => element.scrollTo({ top: element.scrollHeight }))
+    await expect(fade).not.toHaveAttribute("data-more", "")
+    await expect(card.getByText("5 deploys on staging: no request waited")).toBeInViewport()
+  })
+
   test("should say No description above the trailers of a body of trailers alone, which has no mark", async ({ page, issueLinksRepo: repo }) => {
     await enableAutoSyncOnFocus(page)
     const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
@@ -267,15 +319,11 @@ test.describe("Commit message", () => {
   })
 
   test("should render a Markdown heading, a rule and a label glued to its list as sections of the body", async ({ page, issueLinksRepo: repo }) => {
-    await enableAutoSyncOnFocus(page)
-    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
-    const hash = await unassignedRow.getAttribute("data-row-id")
-    const newHash = await repo.reword(
-      hash!,
+    const unassignedRow = await rewordEmergencyFix(
+      page,
+      repo,
       "Emergency fix for CRITICAL-111\n\nSkip the cache warm-up until CRITICAL-112 is fixed.\n\n## Rollout\n\nEnable it on staging first.\n\n---\n\nTests:\n- the warm-up test",
     )
-    await syncOnWindowFocus(page)
-    await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
 
     await unassignedRow.getByTestId("commit-row-mark").click()
     const body = getPreview(page).getByTestId("commit-message-body")
@@ -283,10 +331,10 @@ test.describe("Commit message", () => {
     await captureHtmlSnapshot(body, "commit-message-markdown")
 
     // the heading heads its section without its marks, the rule is a line of that section, the label heads the list
-    const heading = body.locator("[data-slot=commit-section-heading]")
+    const heading = body.locator("[data-slot=commit-body-heading]")
     await expect(heading).toHaveText("Rollout")
     await expect(body.getByRole("separator")).toBeVisible()
-    await expect(body.locator("[data-slot=commit-section-label]")).toHaveText("Tests")
+    await expect(body.locator("[data-slot=commit-body-label]")).toHaveText("Tests")
     await expect(body.locator("ul > li")).toHaveText(["the warm-up test"])
     await expect(body).not.toContainText("##")
     await expect(body).not.toContainText("---")
