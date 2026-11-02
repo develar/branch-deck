@@ -94,66 +94,57 @@
       <td class="relative p-0" colspan="4">
         <div class="bd-lane-rail animate-in py-(--bd-cell-y) duration-150 fade-in-0 pl-(--bd-row-inset) [--bd-row-inset:calc(var(--bd-tree-x)+0.5rem)]" data-lane-end="" style="--bd-rail-lane: 0">
           <div class="flex flex-col gap-2 pr-6" data-testid="commit-rail">
-            <div class="flex flex-col gap-2">
-              <div class="px-4 sm:px-6">
-                <div class="flex h-6 items-center justify-end gap-2" data-testid="commit-list-bar">
-                  <span class="text-xs text-muted-foreground">
-                    Select a commit to move it
-                  </span>
-                </div>
-              </div>
-              <div>
-                <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="0">
-                  <tbody class="divide-y divide-border">
-                    <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="ddf3648ed6af7efe3f03d950c12b2b3e5139abae" data-selected="false" data-slot="context-menu-trigger" draggable="true">
-                      <td class="bd-padding-list-item">
-                        <div class="flex flex-col gap-3">
-                          <div class="flex min-w-0 flex-col gap-0.5">
-                            <div class="flex items-center gap-2">
-                              <span class="line-clamp-2 text-sm text-pretty text-foreground">
-                                <span>
-                                  foo 2
-                                </span>
-                              </span>
-                              <button aria-expanded="false" aria-haspopup="dialog" aria-label="Push Up to Here…" class="flex size-4 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/10 focus-visible:ring-3 focus-visible:ring-ring/30" data-base-ui-click-trigger="" data-slot="popover-trigger" data-testid="commit-push-mark" id="base-ui-[ID]" tabindex="0" type="button">
-                                <svg aria-hidden="true" class="lucide lucide-arrow-up size-3" />
-                              </button>
-                            </div>
-                            <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                              <span class="font-mono" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="commit-synced-hash" id="base-ui-[ID]">
-                                [SHA]
-                              </span>
+            <div>
+              <table class="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30" data-space-preview="" tabindex="0">
+                <tbody class="divide-y divide-border">
+                  <tr class="cursor-pointer select-none hover:bg-muted select-none" data-row-id="ddf3648ed6af7efe3f03d950c12b2b3e5139abae" data-selected="false" data-slot="context-menu-trigger" draggable="true">
+                    <td class="bd-padding-list-item">
+                      <div class="flex flex-col gap-3">
+                        <div class="flex min-w-0 flex-col gap-0.5">
+                          <div class="flex items-center gap-2">
+                            <span class="line-clamp-2 text-sm text-pretty text-foreground">
                               <span>
-                                ·
+                                foo 2
                               </span>
-                              <span>
-                                Yesterday 3:30 PM
+                            </span>
+                            <button aria-expanded="false" aria-haspopup="dialog" aria-label="Push Up to Here…" class="flex size-4 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/10 focus-visible:ring-3 focus-visible:ring-ring/30" data-base-ui-click-trigger="" data-slot="popover-trigger" data-testid="commit-push-mark" id="base-ui-[ID]" tabindex="0" type="button">
+                              <svg aria-hidden="true" class="lucide lucide-arrow-up size-3" />
+                            </button>
+                          </div>
+                          <div class="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                            <span class="font-mono" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="commit-synced-hash" id="base-ui-[ID]">
+                              [SHA]
+                            </span>
+                            <span>
+                              ·
+                            </span>
+                            <span>
+                              Yesterday 3:30 PM
+                            </span>
+                            <span>
+                              ·
+                            </span>
+                            <span class="tabular-nums" data-testid="commit-file-count">
+                              1 file
+                            </span>
+                            <span>
+                              ·
+                            </span>
+                            <span class="whitespace-nowrap tabular-nums" data-testid="commit-line-counts">
+                              <span class="">
+                                +1
                               </span>
-                              <span>
-                                ·
+                              <span class="">
+                                −0
                               </span>
-                              <span class="tabular-nums" data-testid="commit-file-count">
-                                1 file
-                              </span>
-                              <span>
-                                ·
-                              </span>
-                              <span class="whitespace-nowrap tabular-nums" data-testid="commit-line-counts">
-                                <span class="">
-                                  +1
-                                </span>
-                                <span class="">
-                                  −0
-                                </span>
-                              </span>
-                            </div>
+                            </span>
                           </div>
                         </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

@@ -22,13 +22,26 @@ export interface CommitMetadataProps {
   coloredLineCounts?: boolean
   /** Extra items (e.g. the branch name), each after a `·` separator */
   extra?: readonly ReactNode[]
+  /** Keep to one line, clipping its end, where something shares the line (the selection's actions of a row) */
+  singleLine?: boolean
 }
 
 /**
  * The meta line of every commit presentation: short hash (and the synced hash), author, time, file count with the line
  * counts and extras, separated by `·`, in `text-xs text-muted-foreground`.
  */
-export function CommitMetadata({ hash, newHash, author, authorTime, committerTime, fileCount, fileStats, coloredLineCounts = false, extra = [] }: CommitMetadataProps) {
+export function CommitMetadata({
+  hash,
+  newHash,
+  author,
+  authorTime,
+  committerTime,
+  fileCount,
+  fileStats,
+  coloredLineCounts = false,
+  extra = [],
+  singleLine = false,
+}: CommitMetadataProps) {
   const items: ReactNode[] = []
   if (author) {
     items.push(<span>{author}</span>)
@@ -50,7 +63,7 @@ export function CommitMetadata({ hash, newHash, author, authorTime, committerTim
   items.push(...extra)
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+    <div className={cn("flex min-w-0", singleLine ? "overflow-hidden whitespace-nowrap" : "flex-wrap", "items-center gap-x-2 text-xs text-muted-foreground")}>
       {newHash && newHash !== hash ? (
         // the hash of the user's log; the copy in the virtual branch, which Patronus and the remote name, on hover
         <Tooltip>

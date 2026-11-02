@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent, MouseEvent } from "react"
+import { clickRow, emptySelection, leadOf, NO_SELECTION } from "@/lib/row-selection"
+import type { SelectionState } from "@/lib/row-selection"
 
 export interface RowSelectionOptions<T> {
   items: readonly T[]
@@ -15,24 +17,32 @@ export interface RowSelection<T> {
   /** Selected items in item order */
   selectedItems: T[]
   selectedCount: number
+  /**
+   * The selected row the selection's actions sit on (the lead of a desktop list): the row clicked last if it is selected,
+   * else the selected row nearest to it, else the first selected one (a selection made by `selectIds`); null without a
+   * selection
+   */
+  leadId: string | null
   isSelected: (id: string) => boolean
   clearSelection: () => void
-  /** Replaces the selection (e.g. with the commits just moved into the list) */
+  /** Replaces the selection (e.g. with the commits just moved into the list); its first row leads it */
   selectIds: (ids: Iterable<string>) => void
-  /** Desktop-style click: plain = select only this row, Cmd/Ctrl = toggle, Shift = range from the last clicked row (Cmd/Ctrl+Shift adds the range) */
+  /**
+   * Desktop-style click: plain = select only this row, Cmd/Ctrl = toggle, Shift = range from the anchor (the row of the
+   * last plain or Cmd/Ctrl click), Cmd/Ctrl+Shift adds the range. Every click makes the row the lead.
+   */
   handleRowClick: (event: MouseEvent, id: string, index: number) => void
   /** Cmd/Ctrl+A toggles select all, Escape clears a non-empty selection */
   handleKeyDown: (event: KeyboardEvent) => void
-  /** Id of the last clicked row (the Shift+click anchor), or null before the first click */
-  getAnchorId: () => string | null
+  /** Id of the row clicked last, selected or not, or null before the first click; for event handlers */
+  getLastClickedId: () => string | null
 }
-
-const emptySelection: ReadonlySet<string> = new Set()
 
 /** Multi-row selection state for a list (replaces the TanStack Table row selection feature). */
 export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelectionOptions<T>): RowSelection<T> {
-  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(emptySelection)
-  // anchor for Shift+click range selection
+  const [state, setState] = useState<SelectionState>(NO_SELECTION)
+  const selectedIds = state.ids
+  // the row clicked last, for the keys of a list that act on it while nothing is selected (Space previews it)
   const lastClickedIdRef = useRef<string | null>(null)
 
   const itemsRef = useRef(items)
@@ -45,6 +55,8 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
   })
 
   const selectedItems = useMemo(() => (selectedIds.size === 0 ? [] : items.filter(item => selectedIds.has(getId(item)))), [items, selectedIds, getId])
+  const rowIds = useMemo(() => items.map(getId), [items, getId])
+  const leadId = useMemo(() => leadOf(state, rowIds), [state, rowIds])
 
   // change callback: not called for the initial value
   const isFirstRef = useRef(true)
@@ -57,48 +69,19 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
   }, [selectedItems])
 
   const clearSelection = useCallback(() => {
-    setSelectedIds(emptySelection)
+    setState(previous => (previous.ids === emptySelection ? previous : { ...previous, ids: emptySelection }))
   }, [])
 
   const selectIds = useCallback((ids: Iterable<string>) => {
     const next = new Set(ids)
-    setSelectedIds(next.size === 0 ? emptySelection : next)
+    setState(previous => ({ ...previous, ids: next.size === 0 ? emptySelection : next, lead: null }))
   }, [])
 
   const handleRowClick = useCallback((event: MouseEvent, id: string, index: number) => {
     const isToggle = event.metaKey || event.ctrlKey
-    const anchorId = lastClickedIdRef.current
+    const isRange = event.shiftKey
     lastClickedIdRef.current = id
-
-    if (event.shiftKey && anchorId !== null) {
-      const currentItems = itemsRef.current
-      const anchorIndex = currentItems.findIndex(item => getIdRef.current(item) === anchorId)
-      if (anchorIndex === -1) {
-        return
-      }
-      const start = Math.min(anchorIndex, index)
-      const end = Math.max(anchorIndex, index)
-      setSelectedIds(previous => {
-        const next = new Set(isToggle ? previous : emptySelection)
-        for (let i = start; i <= end; i++) {
-          const item = currentItems[i]
-          if (item !== undefined) {
-            next.add(getIdRef.current(item))
-          }
-        }
-        return next
-      })
-    } else if (isToggle) {
-      setSelectedIds(previous => {
-        const next = new Set(previous)
-        if (!next.delete(id)) {
-          next.add(id)
-        }
-        return next
-      })
-    } else {
-      setSelectedIds(new Set([id]))
-    }
+    setState(previous => clickRow(previous, { id, index, toggle: isToggle, range: isRange }, itemsRef.current.map(getIdRef.current)))
   }, [])
 
   const selectedCount = selectedItems.length
@@ -108,27 +91,28 @@ export function useRowSelection<T>({ items, getId, onSelectionChange }: RowSelec
         event.preventDefault()
         const currentItems = itemsRef.current
         const allSelected = currentItems.length > 0 && selectedCount === currentItems.length
-        setSelectedIds(allSelected ? emptySelection : new Set(currentItems.map(item => getIdRef.current(item))))
+        setState(previous => ({ ...previous, ids: allSelected ? emptySelection : new Set(currentItems.map(item => getIdRef.current(item))) }))
       } else if (event.key === "Escape" && selectedCount > 0) {
         event.preventDefault()
-        setSelectedIds(emptySelection)
+        clearSelection()
       }
     },
-    [selectedCount],
+    [selectedCount, clearSelection],
   )
 
   const isSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds])
-  const getAnchorId = useCallback(() => lastClickedIdRef.current, [])
+  const getLastClickedId = useCallback(() => lastClickedIdRef.current, [])
 
   return {
     selectedIds,
     selectedItems,
     selectedCount,
+    leadId,
     isSelected,
     clearSelection,
     selectIds,
     handleRowClick,
     handleKeyDown,
-    getAnchorId,
+    getLastClickedId,
   }
 }

@@ -438,10 +438,14 @@ for a message shown again, and only lays out what Rust read.
 
 - A click on the mark of a row or in its card must not change the selection.
 - A click in the preview body must not change the selection.
-- A click on another part of the row must select the row.
+- A click on another part of the row must select the row; a press of the selection's actions on the row must not change
+  the selection.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
 - Cmd/Ctrl+click must add the row to the selection.
-- The card header must show "N selected" and a "Move to…" button while rows are selected.
+- The lead row of the selection (the row clicked last) must show "N selected" and a "Move to…" button at the end of its
+  meta line while rows are selected, after its other items and before a "⋯"
+  ([Move Commits](../branch/move-commits.spec.md)).
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should verify commit selection states with ARIA snapshots`)
 - Enter must open the inline "Move to…" form when rows are selected.
   [@test] ../../tests/e2e/inline-branch-creator/inline-branch-creator.spec.ts (`should open with Enter key when commits are selected`)

@@ -25,6 +25,7 @@ import type { CommitUnion } from "@/lib/commit"
 import { getCommitFileCount, getCommitHash, getShownSubject, toCardCommit, toReviewCommit } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
+import { KEY_OWNERS } from "@/lib/preview-keys"
 import { resolvedNotice } from "@/lib/resolved-by-words"
 import { openCommitReviewWindow, reviewBranchCommit } from "@/lib/review-window"
 import type { RobotRailMark } from "@/lib/robot-coverage"
@@ -85,8 +86,13 @@ export interface CommitListProps<T extends CommitUnion> {
   /** Called when a drag started in this list ends, dropped or not */
   onDragEnd?: () => void
 
-  /** Rendered above the table (e.g. an inline form) */
-  portalTarget?: ReactNode
+  /**
+   * The selection's actions, at the end of the meta line of the lead selected row (`RowSelection.leadId`): no line of
+   * their own, so selecting a row moves none
+   */
+  leadActions?: ReactNode
+  /** Rendered as a row right below the lead selected row (the inline form one of its actions opened) */
+  leadForm?: ReactNode
   /** Rendered at the end of each commit cell; keep it stable (`useCallback`) so rows stay memoized */
   renderAfterCommit?: (commit: T, index: number) => ReactNode
   /** A header row above a commit that starts a section of the list (the branch of the missing commits), or null */
@@ -130,7 +136,8 @@ export function CommitList<T extends CommitUnion>({
   onKeyDown,
   onDragCommits,
   onDragEnd,
-  portalTarget,
+  leadActions,
+  leadForm,
   renderAfterCommit,
   renderSectionHeader,
   robotMarks,
@@ -278,7 +285,7 @@ export function CommitList<T extends CommitUnion>({
       requestCommitForm(null)
     }
   }, [rewordRequest])
-  usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getAnchorId() ?? null, {
+  usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getLastClickedId() ?? null, {
     preview: openPreview,
     review: reviewHash,
     card: openCard,
@@ -312,6 +319,22 @@ export function CommitList<T extends CommitUnion>({
     if (event.key === "Escape" && isCommitCardOpen()) {
       return
     }
+    // the keys of a field, a menu or a dialog (the form below the lead row) and of a button in a row (the selection's
+    // actions) are theirs: Enter presses the button, "m" types into the name. Escape on a button still clears the
+    // selection, which unmounts the actions, so the focus goes back to the list
+    if (event.target !== event.currentTarget && event.target instanceof Element) {
+      if (event.target.closest(KEY_OWNERS) !== null) {
+        return
+      }
+      if (event.target.closest("button") !== null) {
+        if (event.key === "Escape" && selection !== undefined && selection.selectedCount > 0) {
+          event.preventDefault()
+          selection.clearSelection()
+          tableRef.current?.focus()
+        }
+        return
+      }
+    }
     onKeyDown?.(event)
     if (!event.defaultPrevented && selection !== undefined) {
       selection.handleKeyDown(event)
@@ -320,7 +343,6 @@ export function CommitList<T extends CommitUnion>({
 
   return (
     <div>
-      {portalTarget}
       <table
         ref={tableRef}
         className="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
@@ -333,6 +355,7 @@ export function CommitList<T extends CommitUnion>({
           {commits.map((commit, index) => {
             const hash = getCommitHash(commit)
             const sectionHeader = renderSectionHeader?.(commit, index)
+            const isLead = selection?.leadId === hash
             return (
               <Fragment key={hash}>
                 {sectionHeader != null && (
@@ -365,7 +388,13 @@ export function CommitList<T extends CommitUnion>({
                   robotMark={robotMarks?.get(hash)}
                   offersPushUpTo={branchName !== undefined && pushUpTo?.has(hash) === true}
                   pushedUpTo={pushedUpTo?.has(hash) === true}
+                  actions={isLead ? leadActions : undefined}
                 />
+                {isLead && leadForm != null && (
+                  <tr data-testid="lead-form-row">
+                    <td className="p-0">{leadForm}</td>
+                  </tr>
+                )}
               </Fragment>
             )
           })}
@@ -431,6 +460,8 @@ interface CommitRowProps {
   offersPushUpTo: boolean
   /** The hovered Push Up to Here sends the commit */
   pushedUpTo: boolean
+  /** The selection's actions on the lead row, at the end of its meta line; undefined on every other row */
+  actions: ReactNode
 }
 
 const CommitRow = memo(function CommitRow(props: CommitRowProps) {
@@ -523,6 +554,7 @@ function CommitCellContent({
   focusList,
   robotMark,
   offersPushUpTo,
+  actions,
 }: CommitRowProps) {
   const status = variant === "status" && "status" in commit ? commit.status : undefined
   const error = variant === "status" && "error" in commit ? commit.error : undefined
@@ -554,6 +586,7 @@ function CommitCellContent({
         fileStats={fileStats}
         subjectPrefix={autosquash !== "" && <FixupMarker marker={autosquash.trim()} commitId={hash} />}
         subjectProps={commit.hasBody ? hover.text : undefined}
+        actions={actions === undefined ? undefined : <RowActions>{actions}</RowActions>}
         subjectAddon={
           <>
             {commit.hasBody && (
@@ -622,6 +655,26 @@ function CommitCellContent({
         )
       )}
     </div>
+  )
+}
+
+/**
+ * The selection's actions in a row: their click is no click of the row (it would select the row alone), and a drag that
+ * starts on them drags no commit
+ */
+function RowActions({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="flex items-center"
+      draggable
+      onClick={event => event.stopPropagation()}
+      onDragStart={event => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+    >
+      {children}
+    </span>
   )
 }
 

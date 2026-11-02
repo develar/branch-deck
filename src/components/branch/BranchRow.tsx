@@ -17,11 +17,11 @@ import { PullRequestChip } from "@/components/branch/PullRequestChip"
 import { PassedParentLabel } from "@/components/branch/StackBaseLabel"
 import { StackChip } from "@/components/branch/StackChip"
 import { LaneCell, LaneGutter } from "@/components/branch/StackLanes"
+import { BranchFixupBadge } from "@/components/commit/SquashFixupsButton"
 import { InlineRowProgressBar } from "@/components/shared/InlineForm"
 import { acceptanceOf, beginCommitDrag, dropTargetState, getBranchDropFacts, useCommitDropTarget } from "@/hooks/useCommitDrag"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useRowOperation } from "@/hooks/useRowOperation"
-import { useListFixups } from "@/hooks/useSquashFixups"
 import { formatBranchesAndCommits } from "@/lib/branch"
 import { TRACK_GROUP_CLASS } from "@/lib/branch-columns"
 import { moveDrop } from "@/lib/branch-drop"
@@ -120,7 +120,6 @@ export const BranchRow = memo(function BranchRow({
   // the node of a branch whose robot runs has the ring of the Safe Push slot, whatever the node says (`LandingNode.ring`)
   const robotRuns = useRowPart(name, "landing")?.node.ring ?? false
   const activeInline = useActiveInlineForRow(name)
-  const { count: fixupCount } = useListFixups(name)
   // commits and branches dragged from elsewhere move here; the rows of the branch below its row are the target too. A
   // dragged branch is stacked here instead when dropped on the chip over the Actions cell (`StackOnDropChip`); a row of
   // the Parked card leaves a drag of branches that land to the card, which parks them (`moveDrop`)
@@ -238,7 +237,7 @@ export const BranchRow = memo(function BranchRow({
             />
           }
           issueKey={showIssueKey ? branch.issueKey : null}
-          fixupCount={fixupCount}
+          fixups={<BranchFixupBadge branch={name} />}
           mark={
             stackShown === undefined ? undefined : (
               <StackChip

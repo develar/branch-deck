@@ -22,6 +22,8 @@ targets:
   - ../../src/lib/stack.ts
   - ../../src/lib/move-summary.ts
   - ../../src/lib/branch-selection.ts
+  - ../../src/lib/row-selection.ts
+  - ../../src/hooks/useRowSelection.ts
   - ../../src/hooks/useCommitMoveList.ts
   - ../../src/hooks/useCommitDrag.ts
   - ../../src/hooks/useBranchDropTarget.ts
@@ -181,7 +183,12 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 ### Selection and the "Move to…" form
 
-- The commits of a branch table row and of the unassigned commits card must be selectable.
+- The commits of a branch table row and of the unassigned commits card must be selectable: a click selects the row
+  alone, Cmd/Ctrl-click toggles it, Shift-click selects the rows from the anchor (the row of the last plain or Cmd/Ctrl
+  click, which a Shift-click leaves in place), Cmd+A selects all, Escape clears. The row clicked last leads the
+  selection; when a Cmd/Ctrl-click took it out, the selected row nearest to it leads, and a selection the app made
+  (the commits just moved) is led by its first row.
+  [@test] ../../src/lib/row-selection.test.ts (`ranges every Shift+click from the row of the last plain click, and leads with the row clicked last`, `adds a range to the selection with Cmd/Ctrl+Shift and moves the anchor with a Cmd/Ctrl click`, `is the selected row nearest to the lead once a Cmd/Ctrl click took the lead out, the earlier of two as near`, `is the first selected row of a selection made by its ids, and nothing without a selection`)
 - The branch rows must be selectable: Cmd/Ctrl-click toggles a row, Shift-click selects the rows from the last clicked
   one, Cmd+A selects all, Escape clears; a plain click expands the row and clears the selection. Under the filter of the
   table, Shift-click takes the shown rows, Cmd+A the rows the filter matched (not the dimmed ones), and a selected
@@ -193,13 +200,18 @@ Renaming and ungrouping a branch are moves of all its commits.
 - Only one list must hold a selection, the branch table included: selecting in another list must clear it.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
   [@test] ../../src/stores/commit-move.test.ts (`clears the selected branches and their form when a commit list takes the selection`)
-- A selection must show "N selected" and a "Move to…" button, above the branch commits or in the unassigned card header;
-  selected branches "N branches selected", "Move to…" and a clear button over the column heads of the branch table.
-- Selecting or deselecting a commit must not move a row: the line above the branch commits is there whether or not
-  commits are selected, and the header of the unassigned card keeps its height with the selection's actions in it. With
-  nothing selected the line says "Select commits to move or squash them" (where it holds no "Squash N Fixups…"), on a
-  branch of one commit "Select a commit to move it". While the "Move to…" form is open, both say "N selected" alone.
+- A selection of commits must show "N selected" and a "Move to…" button at the end of the meta line of its lead row, in
+  a branch and in the unassigned card alike; selected branches "N branches selected", "Move to…" and a clear button
+  over the column heads of the branch table. The selection's actions never get a line of their own: they take the
+  place that holds nothing else, the column heads of the branches, the meta line of a commit.
+- Selecting or deselecting a commit must not move a row: no line above the commits holds the actions or a hint, and the
+  meta line of the lead row stays one line with them. Their press keeps the selection. The "Move to…" form opens as a
+  row right below the lead row, which says "N selected" alone while it is open.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
+- The keys of the selection's actions and of the form must be theirs: Enter presses the focused button (Squash opens
+  the squash, not the form of the list's Enter), a letter typed into the name is a letter of the name. Escape on a
+  button of the actions clears the selection and gives the focus back to the list.
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should leave the keys of the selection's actions and of its form to them`)
 - Selecting or deselecting a branch must not move a row: the branch selection bar takes the place of the column heads
   of the branch table, as high as they are, and says "N branches selected" alone while the "Move to…" form is open
   above the table. A table that shows no rows (the branches in islands or parked, or a filter that matched none) has no
@@ -376,10 +388,10 @@ Renaming and ungrouping a branch are moves of all its commits.
 
 ## User Experience
 
-- The selection actions sit right-aligned above the branch commits, in a line one `xs` button high (`h-6`,
-  `CommitListBar`) that is always there, and in the card header for the unassigned commits, where they overhang its
-  20px line into the padding (`-my-0.5`), so the header stays 40px. The hint of the idle line is muted `text-xs`, as
-  "N selected" that takes its place.
+- The selection's actions sit at the right end of the meta line of the lead row (`leadActions` of `CommitList`), "N
+  selected" muted `text-xs` like the meta line; their `xs` buttons overhang its 16px line (`-my-1`, as the "⋯" of a
+  card), and the meta line keeps to one line beside them (`singleLine`), its end clipped where the row is narrow. The
+  "Move to…" form is a row of the table below the lead row (`leadForm`).
 - "Move to…" is an outline `xs` button in the primary colour. The way back is a ghost `xs` button.
 - The branch selection bar sits right-aligned over the column heads of the branch table (`absolute`, `h-8` like the
   heads, `bg-card`; the heads are `invisible` under it, so the columns keep their widths), with a ghost `icon-xs`

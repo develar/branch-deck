@@ -144,8 +144,8 @@ baseTest.describe("Unassigned Commits Feature", () => {
       const passwordHashingCommit = page.locator("[data-row-id]:has-text('Implement secure password hashing')")
       await selectCommit(passwordHashingCommit)
 
-      // the selection's actions appear in the card header
-      await expect(unassignedSection.getByTestId("selection-actions")).toHaveText(/1 selected/)
+      // the selection's actions appear on the row, at the end of its meta line
+      await expect(passwordHashingCommit.getByTestId("selection-actions")).toHaveText(/1 selected/)
 
       // Verify selection state
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-one-selected")
@@ -157,8 +157,8 @@ baseTest.describe("Unassigned Commits Feature", () => {
       // Both commits should be selected
       await captureHtmlSnapshot(unassignedSection, "unassigned-commits-both-selected")
 
-      // the header counts both commits and offers the grouping action
-      const selectionActions = unassignedSection.getByTestId("selection-actions")
+      // the row clicked last counts both commits and offers the grouping action
+      const selectionActions = bcryptCommit.getByTestId("selection-actions")
       await expect(selectionActions).toHaveText(/2 selected/)
       await captureHtmlSnapshot(selectionActions, "selection-actions")
     })

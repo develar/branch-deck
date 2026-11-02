@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LinkedText } from "@/components/commit/LinkedText"
-import { formatFixupCount } from "@/lib/autosquash"
 import type { IssueLead } from "@/lib/bindings"
 import { getBranchSummary, getSimpleBranchName } from "@/lib/branch"
 import type { SplitSubject } from "@/lib/commit"
@@ -29,8 +28,8 @@ export interface BranchNameCellProps {
   lanes?: ReactNode
   /** The issue of the branch, shown as a chip next to the name */
   issueKey?: string | null
-  /** Fixup commits to squash into commits of the branch */
-  fixupCount?: number
+  /** The fixups to squash into commits of the branch, after the issue (`BranchFixupBadge`) */
+  fixups?: ReactNode
   /** A mark after the name, e.g. "New" on a branch archived in this session */
   mark?: ReactNode
   onToggleExpanded: () => void
@@ -48,7 +47,7 @@ export function BranchNameCell({
   simplified = false,
   lanes,
   issueKey = null,
-  fixupCount = 0,
+  fixups,
   mark,
   onToggleExpanded,
 }: BranchNameCellProps) {
@@ -84,11 +83,7 @@ export function BranchNameCell({
       {/* an issue key in the name is a link, but the name keeps the foreground colour */}
       <LinkedText text={simplified ? getSimpleBranchName(name) : name} className="shrink-0 text-sm font-medium" linkClassName="text-foreground hover:underline" />
       {issueKey !== null && <BranchIssueBadge issueKey={issueKey} />}
-      {fixupCount > 0 && (
-        <Badge variant="outline" className="shrink-0 text-muted-foreground" data-testid="branch-fixup-count">
-          {formatFixupCount(fixupCount)}
-        </Badge>
-      )}
+      {fixups}
       {mark}
       {/* the rest of the row; below 6rem the summary would be a letter or two, so it drops out */}
       {shownSummary !== null && (

@@ -216,11 +216,8 @@ export function getBranchContextMenuItems(branch: Branch, setExpanded: (name: st
         ? null
         : branchItem(branch, "squash-fixups", {
             label: formatSquashFixupsLabel(fixupCount),
-            onSelect: () => {
-              // the confirmation opens from the button above the commits
-              setExpanded(branch.name, true)
-              openInline("squash-fixups", branch.name)
-            },
+            // the confirmation opens from the fixups badge of the row, the commits collapsed or not
+            onSelect: () => openInline("squash-fixups", branch.name),
           }),
     ),
   )

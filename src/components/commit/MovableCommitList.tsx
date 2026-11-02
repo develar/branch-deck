@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
-import type { ReactNode } from "react"
 import { CombineIcon, FolderInputIcon, UndoDotIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommitList } from "@/components/commit/CommitList"
@@ -13,14 +12,15 @@ const SquashCommitsDialog = lazy(() => import("@/components/commit/SquashCommits
 
 export interface MovableCommitListProps<T extends Commit> extends Omit<
   CommitListProps<T>,
-  "selection" | "contextMenuItems" | "onKeyDown" | "onDragCommits" | "onDragEnd" | "portalTarget"
+  "selection" | "contextMenuItems" | "onKeyDown" | "onDragCommits" | "onDragEnd" | "leadActions" | "leadForm"
 > {
   moveList: CommitMoveList<T>
 }
 
 /**
  * Commit list whose commits can be selected, moved to another branch ("Move to…" form, context menu, drag) and
- * squashed.
+ * squashed. The selection's actions sit at the end of the meta line of its lead row and the "Move to…" form opens right
+ * below that row, so selecting a commit adds no line and moves no row.
  */
 export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: MovableCommitListProps<T>) {
   const { selection, isTargetOpen, closeTarget, sourceBranch, squashCommits, closeSquash } = moveList
@@ -54,8 +54,9 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
         onKeyDown={moveList.onKeyDown}
         onDragCommits={moveList.onDragCommits}
         onDragEnd={endCommitDrag}
-        portalTarget={
-          isTargetOpen && (
+        leadActions={<CommitSelectionActions moveList={moveList} />}
+        leadForm={
+          isTargetOpen ? (
             <div ref={targetRef}>
               <InlineBranchTarget
                 commits={selection.selectedItems}
@@ -68,7 +69,7 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
                 }}
               />
             </div>
-          )
+          ) : null
         }
       />
       {isSquashMounted && (
@@ -89,39 +90,10 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
 }
 
 /**
- * The line above the commits of an expanded branch: the selection's actions (`CommitSelectionActions`), then `children`
- * (the "Squash N Fixups…" of the branch); with nothing selected, the hint of what a selection does where the line holds
- * nothing else (`hint`), "Select a commit to move it" on a branch of one commit, which has nothing to squash. It is one
- * `xs` button high whatever it holds, so selecting or deselecting a commit never moves a row.
- */
-export function CommitListBar<T extends Commit>({
-  moveList,
-  hint,
-  commitCount,
-  children,
-}: {
-  moveList: CommitMoveList<T>
-  hint: boolean
-  commitCount: number
-  children?: ReactNode
-}) {
-  return (
-    <div className="flex h-6 items-center justify-end gap-2" data-testid="commit-list-bar">
-      {moveList.selection.selectedCount === 0 ? (
-        hint && <span className="text-xs text-muted-foreground">{commitCount > 1 ? "Select commits to move or squash them" : "Select a commit to move it"}</span>
-      ) : (
-        <CommitSelectionActions moveList={moveList} />
-      )}
-      {children}
-    </div>
-  )
-}
-
-/**
  * "N selected", "Move to…", "Squash" (for two commits or more) and "Move Back to ABC-1" (if a selected commit has a
  * prefix); "N selected" alone while the "Move to…" form is open, nothing without a selection.
  */
-export function CommitSelectionActions<T extends Commit>({ moveList }: { moveList: CommitMoveList<T> }) {
+function CommitSelectionActions<T extends Commit>({ moveList }: { moveList: CommitMoveList<T> }) {
   const { selection, isTargetOpen, removePrefixLabel } = moveList
   if (selection.selectedCount === 0) {
     return null

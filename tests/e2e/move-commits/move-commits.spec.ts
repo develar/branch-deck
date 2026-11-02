@@ -4,7 +4,17 @@ import { test, expect } from "../fixtures/test-fixtures"
 import { activityButton, activityEntry, activityPanel } from "../helpers/activity-helpers"
 import { expandBranch, findBranchRow, getBranchCommitRow, getBranchDetailsRow, getMoreButton, getUnassignedCommitRow, verifyCommitCount } from "../helpers/branch-helpers"
 import { inlineBranchCreator, submitInlineForm } from "../helpers/inline-form-helpers"
-import { clickContextMenuItem, clickGroupIntoBranchButton, dropAt, dropOn, multiSelectCommit, openContextMenu, selectCommit, startDrag } from "../helpers/selection-helpers"
+import {
+  clickContextMenuItem,
+  clickGroupIntoBranchButton,
+  dropAt,
+  dropOn,
+  multiSelectCommit,
+  openContextMenu,
+  selectCommit,
+  shiftSelectCommit,
+  startDrag,
+} from "../helpers/selection-helpers"
 import { finishedSyncCount, pressSyncHeld, runAndWaitForSync, syncFromMenu } from "../helpers/sync-helpers"
 import type { TestRepositoryBuilder } from "../helpers/test-repository"
 import { closeToast } from "../helpers/toast-helpers"
@@ -115,7 +125,6 @@ test.describe("Move commits", () => {
 
   test("should split commits out of an issue branch into a new branch nested under the issue", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
-    await expect(getBranchDetailsRow(page, ISSUE).getByTestId("commit-list-bar")).toHaveText("Select commits to move or squash them")
     await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
     await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add lexer"))
     await expect(getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions")).toContainText("2 selected")
@@ -137,55 +146,106 @@ test.describe("Move commits", () => {
     await expect(lexerRow).toHaveAttribute("data-state", "open")
     await expect(getBranchCommitRow(page, "lexer", "Add lexer")).toHaveAttribute("data-selected", "true")
     await expect(getBranchCommitRow(page, "lexer", "Add tokens")).toHaveAttribute("data-selected", "true")
+    // the way back names the issue branch; with the selection cleared, no row names the key
+    await expect(getBranchDetailsRow(page, "lexer").getByTestId("selection-actions")).toContainText("Move Back to ABC-123")
+    await getBranchCommitRow(page, "lexer", "Add lexer").click({ modifiers: ["ControlOrMeta"] })
+    await getBranchCommitRow(page, "lexer", "Add tokens").click({ modifiers: ["ControlOrMeta"] })
+    await expect(getBranchDetailsRow(page, "lexer").getByTestId("selection-actions")).toHaveCount(0)
     await expect(getBranchDetailsRow(page, "lexer").locator("[data-row-id]").filter({ hasText: "ABC-123" })).toHaveCount(0)
   })
 
   test("should keep the rows in place as commits are selected and deselected", async ({ page }) => {
-    // docs is above the issue branch; of one commit, it has nothing to squash
-    const docsRow = findBranchRow(page, "docs")
-    await expandBranch(page, docsRow)
-    const bar = getBranchDetailsRow(page, "docs").getByTestId("commit-list-bar")
-    await expect(bar).toHaveText("Select a commit to move it")
-    const docsCommit = getBranchCommitRow(page, "docs", "Update documentation")
+    const issueRow = findBranchRow(page, ISSUE)
+    await expandBranch(page, issueRow)
+    const [tokens, lexer, parser] = ["Add tokens", "Add lexer", "Add parser"].map(subject => getBranchCommitRow(page, ISSUE, subject))
     const unassignedCard = page.getByTestId("unassigned-commits-section")
     const unassignedCommit = getUnassignedCommitRow(page, "Refactor build script")
+    // no line above the commits: the first one sits right below the row of its branch
+    const issueRowBox = await issueRow.boundingBox()
+    expect(await offsetBelow(tokens!, issueRow)).toBeLessThan(issueRowBox!.height + 8)
     // from the row of the branch and the top of the card: a scroll moves them alike
-    const offsets = async () => [
-      await offsetBelow(docsCommit, docsRow),
-      await offsetBelow(findBranchRow(page, ISSUE), docsRow),
-      await offsetBelow(unassignedCommit, unassignedCard),
-    ]
+    const offsets = async () => [await offsetBelow(lexer!, issueRow), await offsetBelow(parser!, issueRow), await offsetBelow(unassignedCommit, unassignedCard)]
     const idle = await offsets()
-    expect(idle[1]).toBeGreaterThan(idle[0]!)
 
-    await selectCommit(docsCommit)
-    await expect(bar.getByTestId("selection-actions")).toContainText("1 selected")
+    // the actions on the meta line of the row clicked last, the lead of the selection
+    await selectCommit(tokens!)
+    await expect(tokens!.getByTestId("selection-actions")).toContainText("1 selected")
+    expect(await offsets()).toEqual(idle)
+    await shiftSelectCommit(parser!)
+    await expect(parser!.getByTestId("selection-actions")).toContainText("3 selected")
+    await expect(tokens!.getByTestId("selection-actions")).toHaveCount(0)
     expect(await offsets()).toEqual(idle)
 
-    // the open form takes the actions; the line keeps the count
-    await bar.getByRole("button", { name: "Move to…" }).click()
+    // its press keeps the selection, and the form opens right below the lead, the count staying on its row
+    await parser!.getByRole("button", { name: "Move to…" }).click()
     await inlineBranchCreator.waitForVisible(page)
-    await expect(bar).toHaveText("1 selected")
+    await expect(parser!.getByTestId("selection-actions")).toHaveText("3 selected")
+    expect(await offsetBelow(inlineBranchCreator.getPortal(page), parser!)).toBeGreaterThan(0)
     await inlineBranchCreator.getCancelButton(page).click()
     await inlineBranchCreator.waitForHidden(page)
-    await expect(bar.getByTestId("selection-actions")).toContainText("1 selected")
-
-    await docsCommit.click({ modifiers: ["ControlOrMeta"] })
-    await expect(docsCommit).toHaveAttribute("data-selected", "false")
-    await expect(bar).toHaveText("Select a commit to move it")
     expect(await offsets()).toEqual(idle)
 
-    // the selection's actions in the header of the unassigned card keep its height too, and its count while the form is open
+    // a Cmd/Ctrl click takes the lead out: the actions go to the selected row nearest to it
+    await parser!.click({ modifiers: ["ControlOrMeta"] })
+    await expect(parser!).toHaveAttribute("data-selected", "false")
+    await expect(lexer!.getByTestId("selection-actions")).toContainText("2 selected")
+    await lexer!.click({ modifiers: ["ControlOrMeta"] })
+    await tokens!.click({ modifiers: ["ControlOrMeta"] })
+    await expect(tokens!).toHaveAttribute("data-selected", "false")
+    await expect(getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions")).toHaveCount(0)
+    expect(await offsets()).toEqual(idle)
+
+    // in the unassigned card as in a branch: on the row, the form below it
     await selectCommit(unassignedCommit)
-    const unassignedActions = unassignedCard.getByTestId("selection-actions")
+    const unassignedActions = unassignedCommit.getByTestId("selection-actions")
     await expect(unassignedActions).toContainText("1 selected")
     expect(await offsets()).toEqual(idle)
     await unassignedActions.getByRole("button", { name: "Move to…" }).click()
     await inlineBranchCreator.waitForVisible(page)
     await expect(unassignedActions).toHaveText("1 selected")
+    expect(await offsetBelow(inlineBranchCreator.getPortal(page), unassignedCommit)).toBeGreaterThan(0)
     await inlineBranchCreator.getCancelButton(page).click()
     await inlineBranchCreator.waitForHidden(page)
     await expect(unassignedActions.getByRole("button", { name: "Move to…" })).toBeVisible()
+  })
+
+  // WebKit keeps the focus on an element that went away: Escape must give it back to the list there too
+  test("should leave the keys of the selection's actions and of its form to them", { tag: "@webkit" }, async ({ page }) => {
+    await expandBranch(page, findBranchRow(page, ISSUE))
+    const tokens = getBranchCommitRow(page, ISSUE, "Add tokens")
+    const lexer = getBranchCommitRow(page, ISSUE, "Add lexer")
+    await selectCommit(tokens)
+    await multiSelectCommit(lexer)
+    const actions = lexer.getByTestId("selection-actions")
+
+    // Enter presses the focused button: Squash opens the squash, not the "Move to…" form of the list's Enter
+    const squash = actions.getByRole("button", { name: "Squash" })
+    await squash.focus()
+    await page.keyboard.press("Enter")
+    const dialog = page.getByTestId("squash-dialog")
+    await expect(dialog).toBeVisible()
+    await expect(inlineBranchCreator.getPortal(page)).toHaveCount(0)
+    await expect(dialog.getByTestId("squash-message-editor")).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+    await expect(actions).toContainText("2 selected")
+
+    // "m" typed into the name of the form is a letter of the name
+    const moveTo = actions.getByRole("button", { name: "Move to…" })
+    await moveTo.click()
+    const input = inlineBranchCreator.getInput(page)
+    await expect(input).toBeFocused()
+    await page.keyboard.type("mm")
+    await expect(input).toHaveValue("mm")
+    await inlineBranchCreator.getCancelButton(page).click()
+    await inlineBranchCreator.waitForHidden(page)
+
+    // Escape on a button of the actions clears the selection, and the focus goes back to the list
+    await moveTo.focus()
+    await page.keyboard.press("Escape")
+    await expect(lexer).toHaveAttribute("data-selected", "false")
+    await expect(tokens).toHaveAttribute("data-selected", "false")
+    await expect(getBranchDetailsRow(page, ISSUE).getByRole("table")).toBeFocused()
   })
 
   test("should move a commit to an existing branch from the context menu and undo it", async ({ page }) => {

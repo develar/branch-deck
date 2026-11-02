@@ -1,6 +1,6 @@
 import { cn } from "cn"
 import { Card } from "@/components/ui/card"
-import { CommitSelectionActions, MovableCommitList } from "@/components/commit/MovableCommitList"
+import { MovableCommitList } from "@/components/commit/MovableCommitList"
 import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
 import { InlineCode } from "@/components/shared/InlineCode"
 import { SectionCardHeader } from "@/components/shared/SectionCardHeader"
@@ -45,17 +45,8 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
           itemPlural="commits"
           badgeColor="neutral"
           help={commits.length > 0 && <UnassignedCommitsHelpPopover />}
-          actions={
-            commits.length > 0 && (
-              // the selection's actions live in the card header, next to what they act on ("N selected" alone while the
-              // "Move to…" form is open); their xs buttons overhang its 20px line into the padding, so the header stays
-              // 40px and no row moves as they come and go
-              <div className="-my-0.5 flex items-center gap-3">
-                <CommitSelectionActions moveList={moveList} />
-                <SquashFixupsButton branch={null} />
-              </div>
-            )
-          }
+          // the selection's actions sit on its lead row, as in a branch (`MovableCommitList`)
+          actions={commits.length > 0 && <SquashFixupsButton />}
         />
         {hasNoBranches && (
           <p className="mt-2 text-sm text-muted-foreground" data-testid="unassigned-commits-hint">

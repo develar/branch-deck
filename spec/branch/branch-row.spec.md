@@ -204,12 +204,13 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 
 - The name cell must show, in this order: the stack graph (in a table with stacks, [Tree](#tree)), the folder button
   that expands the commits, the branch name with its issue keys as links, the issue chip of a branch whose issue has no
-  row above it, the fixup count, a mark (the archived "New", the stack chip of a stack root, [Stacked
+  row above it, the fixup count (a button that opens the squash of the fixups, [Squash
+  Fixups](../commit/fixups.spec.md#ui)), a mark (the archived "New", the stack chip of a stack root, [Stacked
   Branches](stacked-branches.spec.md#ui)), then the summary, muted.
   [@test] ../../tests/e2e/branch-row-layout/branch-row-layout.spec.ts (`should display correct branch row structure`)
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in branch names`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
-  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from the fixup badge of its row and undo it`)
 - The summary must be the title of the branch's description (`branch.<name>.description`, which `bd describe` and the
   `descriptions` of a `bd group` plan write) as written, read by the sync. Without one, a branch of an issue shows its
   latest subject that is not a cleanup, refactor or format commit, after the issue key, with its conventional-commit

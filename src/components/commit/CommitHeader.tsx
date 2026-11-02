@@ -32,6 +32,8 @@ export interface CommitHeaderProps extends Omit<CommitMetadataProps, "coloredLin
   subjectProps?: HTMLAttributes<HTMLElement> & { "data-testid"?: string }
   /** The "⋯" of the commit at the end of its meta line, one place in every header that has a meta line */
   menu?: ReactNode
+  /** The selection's actions of a row, at the right end of its meta line, before `menu` */
+  actions?: ReactNode
 }
 
 const SUBJECT_CLASS: Record<Exclude<CommitHeaderVariant, "row" | "compact">, string> = {
@@ -45,7 +47,7 @@ const SUBJECT_CLASS: Record<Exclude<CommitHeaderVariant, "row" | "compact">, str
  * The subject line over the meta line: the one header of a commit wherever one is shown (rows, the card of a row, the
  * previews, the review), in the size of its place (`CommitHeaderVariant`); a compact one its subject line alone
  */
-export function CommitHeader({ subject, variant = "row", subjectPrefix, subjectAddon, subjectProps, menu, ...metadata }: CommitHeaderProps) {
+export function CommitHeader({ subject, variant = "row", subjectPrefix, subjectAddon, subjectProps, menu, actions, ...metadata }: CommitHeaderProps) {
   const isRow = variant === "row" || variant === "compact"
   const subjectElement = (
     <CommitSubject
@@ -68,13 +70,15 @@ export function CommitHeader({ subject, variant = "row", subjectPrefix, subjectA
   return (
     <div className={cn("flex min-w-0 flex-col", isRow ? "gap-0.5" : "gap-1")}>
       {subjectLine}
-      {menu === undefined ? (
+      {menu === undefined && actions === undefined ? (
         <CommitMetadata {...metadata} coloredLineCounts={!isRow} />
       ) : (
-        // the "⋯" right after the meta line, its 24px button kept to the height of the line
+        // the actions at the right end, then the "⋯" right after the meta line; their 24px buttons kept to the 16px of the
+        // line, which then stays one line, so neither makes the header taller
         <div className="flex min-w-0 items-center gap-1" data-testid="commit-header-meta">
-          <CommitMetadata {...metadata} coloredLineCounts={!isRow} />
-          <span className="-my-1 shrink-0">{menu}</span>
+          <CommitMetadata {...metadata} coloredLineCounts={!isRow} singleLine={actions !== undefined} />
+          {actions !== undefined && <span className="-my-1 ml-auto shrink-0 pl-2">{actions}</span>}
+          {menu !== undefined && <span className="-my-1 shrink-0">{menu}</span>}
         </div>
       )}
     </div>

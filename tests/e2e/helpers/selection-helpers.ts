@@ -85,7 +85,7 @@ export async function closeMenus(page: Page): Promise<void> {
  * Wait for and click the "Move to…" button of the selection
  */
 export async function clickGroupIntoBranchButton(page: Page): Promise<void> {
-  // the button is in the header of the unassigned commits card (or above the branch commits) while commits are selected
+  // the button is on the lead row of the selection (the row clicked last), wherever the list is
   const createBranchButton = page.getByTestId("selection-actions").getByRole("button", { name: "Move to…" })
   await expect(createBranchButton).toBeVisible()
   await createBranchButton.click()

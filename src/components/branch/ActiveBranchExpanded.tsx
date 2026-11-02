@@ -6,13 +6,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { FamilyGuide, LanesBelow } from "@/components/branch/StackLanes"
 import { StackProblemAlert } from "@/components/branch/StackProblemAlert"
-import { CommitListBar, MovableCommitList } from "@/components/commit/MovableCommitList"
-import { SquashFixupsButton } from "@/components/commit/SquashFixupsButton"
+import { MovableCommitList } from "@/components/commit/MovableCommitList"
 import { MenuItemButton } from "@/components/shared/MenuItemButton"
 import { useBaselineOnRemote } from "@/hooks/useBaselineOnRemote"
 import { getBranchUnstackItem } from "@/hooks/useBranchContextActions"
 import { useCommitMoveList } from "@/hooks/useCommitMoveList"
-import { useListFixups } from "@/hooks/useSquashFixups"
 import { getCommitHash } from "@/lib/commit"
 import { robotRailMarks } from "@/lib/robot-coverage"
 import { blockingBranchOf, describeParentState, passedParentOf, stackProblemOf } from "@/lib/stack"
@@ -161,16 +159,15 @@ function PassedParentAlert({ branch }: { branch: Branch }) {
 }
 
 /**
- * The commits of the branch; select them to move them to another branch (or drag them onto one), their actions in the
- * line above them that is always there (`CommitListBar`). On the lane of a stack
- * (`oldestFirst`) time runs down with the graph: the tip of a parent sits right above the row of its child. A commit the
- * remote lacks has the push arrow of Push Up to Here (`pushUpToCommitsIn`), and the commits its hovered button sends are
- * tinted.
+ * The commits of the branch, with no line above them; select them to move them to another branch (or drag them onto
+ * one), their actions on the lead row (`MovableCommitList`); the fixups squash from the badge of the branch row
+ * (`BranchFixupBadge`). On the lane of a stack (`oldestFirst`) time runs down with the graph: the tip of a parent sits
+ * right above the row of its child. A commit the remote lacks has the push arrow of Push Up to Here
+ * (`pushUpToCommitsIn`), and the commits its hovered button sends are tinted.
  */
 function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch: Branch; highlightTipCommit: boolean; oldestFirst: boolean }) {
   const commits = useMemo(() => (oldestFirst ? branch.commits.toReversed() : branch.commits), [branch.commits, oldestFirst])
   const moveList = useCommitMoveList({ commits, oldestFirst, sourceBranch: branch.name })
-  const { count: fixupCount } = useListFixups(branch.name)
   // the running robot that tests the branch: its line over the commits it covers, a marker on the ones it lacks
   const coverage = useRobotCoverage(branch.name)
   const robotMarks = useMemo(() => (coverage === null ? undefined : robotRailMarks(commits.map(getCommitHash), coverage, !oldestFirst)), [commits, coverage, oldestFirst])
@@ -183,26 +180,19 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
     [commits, sent],
   )
   return (
-    <div className="flex flex-col gap-2">
-      <div className="px-4 sm:px-6">
-        <CommitListBar moveList={moveList} hint={fixupCount === 0} commitCount={commits.length}>
-          <SquashFixupsButton branch={branch.name} />
-        </CommitListBar>
-      </div>
-      <MovableCommitList
-        moveList={moveList}
-        commits={commits}
-        branchName={branch.name}
-        variant="status"
-        showFileCount={false}
-        highlightTipCommit={highlightTipCommit}
-        oldestFirst={oldestFirst}
-        omitIssueKey={branch.issueKey}
-        editable
-        robotMarks={robotMarks}
-        pushUpTo={pushUpTo}
-        pushedUpTo={pushedUpTo}
-      />
-    </div>
+    <MovableCommitList
+      moveList={moveList}
+      commits={commits}
+      branchName={branch.name}
+      variant="status"
+      showFileCount={false}
+      highlightTipCommit={highlightTipCommit}
+      oldestFirst={oldestFirst}
+      omitIssueKey={branch.issueKey}
+      editable
+      robotMarks={robotMarks}
+      pushUpTo={pushUpTo}
+      pushedUpTo={pushedUpTo}
+    />
   )
 }

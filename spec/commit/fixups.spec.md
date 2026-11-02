@@ -116,18 +116,20 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 ### UI
 
 - After a sync that found fixup commits, the plan is loaded once; a branch with fixups shows a muted "N fixups" badge
-  next to its name. Orphans are not counted.
+  next to its name. Orphans are not counted. The badge is a button whose tooltip says "Squash N Fixups…": its press
+  opens the confirmation, the commits collapsed or not, and neither selects nor expands the row.
   [@test] ../../src/lib/autosquash.test.ts (`takes the groups by the branch of their target and the orphans by their own branch`)
-  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from the fixup badge of its row and undo it`)
 - A fixup commit row shows its marker, muted (warning colour for an orphan), with a tooltip "Squashes into “X”" or
   "No target in this range".
   [@test] ../../src/lib/autosquash.test.ts (`names the target of a fixup, or none for an orphan`)
-  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
-- "Squash N Fixups…" ("Squash 1 Fixup…", ghost `xs`, `formatSquashFixupsLabel`) appears above the commits of an
-  expanded branch and in the unassigned card header; it opens the confirmation, hence the ellipsis. The branch menu has
-  the same item, named alike, in a "History" group, which expands the branch and opens the confirmation.
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from the fixup badge of its row and undo it`)
+- "Squash N Fixups…" ("Squash 1 Fixup…", ghost `xs`, `formatSquashFixupsLabel`) appears in the unassigned card header,
+  and as the tooltip of the badge of a branch; it opens the confirmation, hence the ellipsis. No line above the commits
+  of a branch holds it. The branch menu has the same item, named alike, in a "History" group, which opens the
+  confirmation at the badge of the row and leaves its commits as they are.
   [@test] ../../src/lib/autosquash.test.ts (`names the squash of the fixups alike on the button and in the branch menu, which open the confirmation`)
-  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`, `should keep every row in its place when the fixup of the branch that began first is squashed`)
 - The confirmation popover reads the plan again and lists each target with its fixups, then the orphans under
   "Won't be squashed: no target in this range"; Squash runs it, Cancel, Escape or a click outside closes it. Nothing
   closes it while the squash runs (as the squash dialog): it closes when the squash is done or failed.
@@ -140,7 +142,7 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - Success shows "Squashed N fixups" with Undo, as for a squash of selected commits (the rewrite `undo` of its
   `squash` token).
-  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from its commits and undo it`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from the fixup badge of its row and undo it`)
 
 ## Testing / Local Run
 
