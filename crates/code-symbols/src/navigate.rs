@@ -220,6 +220,47 @@ pub(crate) fn usage_answer(text: &str, start: usize, name: &str, access: Access)
   }
 }
 
+/// The usages of any parser in the order of the text: the name `name` at each byte with its access, in one pass over the
+/// text, where `usage_answer` scans it from its start for each (a generated file of 400 KB has 14 000 names of a word)
+pub(crate) fn usage_answers(text: &str, name: &str, usages: impl IntoIterator<Item = (usize, Access)>) -> Vec<Usage> {
+  let length = utf16_length(name);
+  let mut last = (0, Position { line: 0, column: 0 });
+  usages
+    .into_iter()
+    .map(|(start, access)| {
+      let position = match text.get(last.0..start) {
+        Some(between) => advance(last.1, between, text.as_bytes()[..last.0].last() == Some(&b'\r')),
+        None => position_of(text, start),
+      };
+      last = (start, position);
+      Usage {
+        start: position,
+        end_column: position.column + length,
+        access,
+      }
+    })
+    .collect()
+}
+
+/// The place after `text` that follows `from`, with the lines as the view splits them; `after_cr` when the text before
+/// it ends with a `\r`, whose `\n` ends no other line
+fn advance(from: Position, text: &str, after_cr: bool) -> Position {
+  let mut position = from;
+  let mut previous_cr = after_cr;
+  for character in text.chars() {
+    match character {
+      '\n' if previous_cr => {}
+      '\n' | '\r' => {
+        position.line += 1;
+        position.column = 0;
+      }
+      _ => position.column += utf16_length_of(character),
+    }
+    previous_cr = character == '\r';
+  }
+  position
+}
+
 /// The usages of the name at `position`: those of its declaration for a local, else those of every name of that text that
 /// no local binds; `None` where no name is
 pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {

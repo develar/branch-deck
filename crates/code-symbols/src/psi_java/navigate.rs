@@ -1,6 +1,6 @@
 //! Go to Declaration and Find Usages in a Java file from its PSI (spec/commit/symbol-navigation.spec.md): the name at
 //! a place (`Tree::leaf_index`), its qualifier, the kind of the reference, its declaration in the file by the scopes,
-//! and the usages of a name, answered by `navigate::{reference_answer, usage_answer}`.
+//! and the usages of a name, answered by `navigate::{reference_answer, usage_answers}`.
 //!
 //! - **A name** is an `IDENTIFIER` leaf outside a Javadoc; a keyword (`var`, `this`) is none.
 //! - **Its kind** by the node it is the name of or a part of: the name of a declaration (a class, a method, a field, a
@@ -17,7 +17,7 @@
 //!   any other name are its names that no local binds, each with how it uses the name (`access_of`).
 
 use super::highlight::{is_callee, is_class, is_doc_comment, is_local_scope, is_path_owner, name_leaf, qualifier, reference_owner, text_of};
-use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answer};
+use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
 use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 
 /// The name at `position` of a Java text and what its syntax says (`navigate::reference_at`)
@@ -45,14 +45,11 @@ pub(crate) fn usages_at(text: &str, position: Position) -> Option<UsagesAt> {
   let name = text_of(&tree, leaf);
   let names = resolve(&tree, name, None);
   let local = names.iter().find(|it| it.leaf == leaf).and_then(|it| it.binding).filter(|&it| is_local(&tree, it));
-  let usages = names
-    .iter()
-    .filter(|it| match (local, it.binding) {
-      (Some(local), binding) => binding == Some(local),
-      (None, binding) => binding.is_none_or(|binding| !is_local(&tree, binding)),
-    })
-    .map(|it| usage_answer(text, tree.range(it.leaf).start, name, access_of(&tree, it.leaf, it.kind)))
-    .collect();
+  let used = names.iter().filter(|it| match (local, it.binding) {
+    (Some(local), binding) => binding == Some(local),
+    (None, binding) => binding.is_none_or(|binding| !is_local(&tree, binding)),
+  });
+  let usages = usage_answers(text, name, used.map(|it| (tree.range(it.leaf).start, access_of(&tree, it.leaf, it.kind))));
   Some(UsagesAt {
     name: name.to_string(),
     local: local.is_some(),
@@ -67,11 +64,9 @@ pub(crate) fn usages_of(text: &str, name: &str) -> Vec<Usage> {
     return Vec::new();
   }
   let tree = crate::psi_java::parse(text.as_bytes());
-  resolve(&tree, name, None)
-    .into_iter()
-    .filter(|it| it.binding.is_none_or(|binding| !is_local(&tree, binding)))
-    .map(|it| usage_answer(text, tree.range(it.leaf).start, name, access_of(&tree, it.leaf, it.kind)))
-    .collect()
+  let names = resolve(&tree, name, None);
+  let used = names.iter().filter(|it| it.binding.is_none_or(|binding| !is_local(&tree, binding)));
+  usage_answers(text, name, used.map(|it| (tree.range(it.leaf).start, access_of(&tree, it.leaf, it.kind))))
 }
 
 /// The tree of a text and the leaf of the name at `position` in it
