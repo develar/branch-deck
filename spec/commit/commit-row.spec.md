@@ -442,7 +442,9 @@ for a message shown again, and only lays out what Rust read.
 - The context menu of a row that is not selected must act on that commit only.
 - The context menu must not change the selection.
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should select a range of rows with Shift+click`, `should select all rows with Cmd/Ctrl+A and clear the selection with Escape`, `should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
-- The card header must hide the selection actions while the inline "Move to…" form is open.
+- While the inline "Move to…" form is open, the card header must show "N selected" alone, as the line above the
+  commits of a branch does ([Move Commits](../branch/move-commits.spec.md)).
+  [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
 
 ### Conflict view
 
@@ -666,7 +668,6 @@ for a message shown again, and only lays out what Rust read.
 - No test checks that the subject does not detect code.
 - Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
   ↓ right after Space is lost.
-- No test checks that the card header hides the selection actions while the inline branch form is open.
 - No test covers the generic error alert, or the explanation and the steps of the fix in the conflict pages of a
   separate window.
 - Code detection is heuristic. A false positive sets a prose word in the monospace font. Add such words to the stoplist.

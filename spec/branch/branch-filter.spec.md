@@ -53,8 +53,8 @@ that stops matching while the user looks at it (its move made, its robot done) s
 
 ### The bar
 
-- The bar must sit at the top of the branch card, above the selection bar and the column heads: the search, then the
-  chips.
+- The bar must sit at the top of the branch card, above the column heads and the selection bar over them: the search,
+  then the chips.
 - It must show from 8 branches on (`FILTER_BAR_MIN_BRANCHES`), and below that while a filter is active, so a filter
   that a sync left on a smaller table can still be cleared. A table of fewer branches is read in one look: the bar
   would be the only chrome on it, and `/` does nothing there.
@@ -145,7 +145,7 @@ that stops matching while the user looks at it (its move made, its robot done) s
 ## User Experience
 
 - The bar is `flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2`, on the card like the
-  selection bar below it.
+  column heads below it.
 - The search is the `SearchField` of every list with a search (the files of a review too): an `InputGroup` `h-7`,
   here `w-60`, with the `SearchIcon`, the placeholder "Filter branches" (also its accessible name), the `Kbd` `/` at
   its end while empty and an `icon-xs` X button ("Clear the filter text") once typed.

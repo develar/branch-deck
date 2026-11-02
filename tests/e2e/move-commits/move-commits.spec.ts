@@ -115,6 +115,7 @@ test.describe("Move commits", () => {
 
   test("should split commits out of an issue branch into a new branch nested under the issue", async ({ page }) => {
     await expandBranch(page, findBranchRow(page, ISSUE))
+    await expect(getBranchDetailsRow(page, ISSUE).getByTestId("commit-list-bar")).toHaveText("Select commits to move or squash them")
     await selectCommit(getBranchCommitRow(page, ISSUE, "Add tokens"))
     await multiSelectCommit(getBranchCommitRow(page, ISSUE, "Add lexer"))
     await expect(getBranchDetailsRow(page, ISSUE).getByTestId("selection-actions")).toContainText("2 selected")
@@ -140,11 +141,11 @@ test.describe("Move commits", () => {
   })
 
   test("should keep the rows in place as commits are selected and deselected", async ({ page }) => {
-    // docs is above the issue branch
+    // docs is above the issue branch; of one commit, it has nothing to squash
     const docsRow = findBranchRow(page, "docs")
     await expandBranch(page, docsRow)
     const bar = getBranchDetailsRow(page, "docs").getByTestId("commit-list-bar")
-    await expect(bar).toHaveText("Select commits to move or squash them")
+    await expect(bar).toHaveText("Select a commit to move it")
     const docsCommit = getBranchCommitRow(page, "docs", "Update documentation")
     const unassignedCard = page.getByTestId("unassigned-commits-section")
     const unassignedCommit = getUnassignedCommitRow(page, "Refactor build script")
@@ -171,13 +172,20 @@ test.describe("Move commits", () => {
 
     await docsCommit.click({ modifiers: ["ControlOrMeta"] })
     await expect(docsCommit).toHaveAttribute("data-selected", "false")
-    await expect(bar).toHaveText("Select commits to move or squash them")
+    await expect(bar).toHaveText("Select a commit to move it")
     expect(await offsets()).toEqual(idle)
 
-    // the selection's actions in the header of the unassigned card keep its height too
+    // the selection's actions in the header of the unassigned card keep its height too, and its count while the form is open
     await selectCommit(unassignedCommit)
-    await expect(unassignedCard.getByTestId("selection-actions")).toContainText("1 selected")
+    const unassignedActions = unassignedCard.getByTestId("selection-actions")
+    await expect(unassignedActions).toContainText("1 selected")
     expect(await offsets()).toEqual(idle)
+    await unassignedActions.getByRole("button", { name: "Move to…" }).click()
+    await inlineBranchCreator.waitForVisible(page)
+    await expect(unassignedActions).toHaveText("1 selected")
+    await inlineBranchCreator.getCancelButton(page).click()
+    await inlineBranchCreator.waitForHidden(page)
+    await expect(unassignedActions.getByRole("button", { name: "Move to…" })).toBeVisible()
   })
 
   test("should move a commit to an existing branch from the context menu and undo it", async ({ page }) => {

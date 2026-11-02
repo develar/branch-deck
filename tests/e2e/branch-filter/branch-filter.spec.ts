@@ -322,7 +322,8 @@ test.describe("Branch filter", () => {
     const selection = page.getByTestId("branch-selection-actions")
     await expect(selection).toContainText("1 branch selected · 1 hidden")
 
-    await page.getByRole("columnheader", { name: "Branch Name" }).click()
+    // the selection bar is over the column heads: the keys go to the row of the chip
+    await findBranchRow(page, "core").focus()
     await page.keyboard.press("ControlOrMeta+a")
     await expect(selection).toContainText("8 branches selected")
     await expect(selection).not.toContainText("hidden")

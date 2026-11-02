@@ -51,11 +51,6 @@ export interface CommitMoveList<T extends Commit> {
   onDragCommits: (commits: readonly T[]) => void
 }
 
-/** Whether `CommitSelectionActions` shows anything: commits are selected and the "Move to…" form is closed */
-export function hasSelectionActions<T extends Commit>({ selection, isTargetOpen }: CommitMoveList<T>): boolean {
-  return selection.selectedCount > 0 && !isTargetOpen
-}
-
 /**
  * What moving the commits back does: a commit with an explicit prefix goes to the issue group of its key
  * (`issueGroups`, issue key -> branch name), to its issue branch (`strippedSubject` starts with the key) or to the

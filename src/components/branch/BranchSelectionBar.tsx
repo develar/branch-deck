@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from "react"
+import { cn } from "cn"
 import { CirclePauseIcon, CirclePlayIcon, FolderInputIcon, UndoDotIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -16,16 +17,9 @@ import { clearBranchSelection, setBranchTargetOpen, useCommitMove } from "@/stor
 import { useRecentProjects } from "@/stores/settings/repositorySettings"
 import { useShownBranchTables } from "@/stores/stack-collapse"
 
-/**
- * Above the branch table while branch rows are selected (Cmd/Ctrl-click, Shift-click): "N branches selected" (with
- * "· 1 hidden" for the selected branches the filter or a collapsed stack hides, which the actions take too), "Move to…" (the form that puts
- * the commits of all of them into one branch, existing or new), the way back, Park and Unpark (as the targets of a drag
- * of them, `branch-drop.ts`: those that land are parked, the parked ones unparked); the form itself while it is open.
- */
-export function BranchSelectionBar() {
+/** The selected branches in the order of the screen, their commits, and how many of them the view hides */
+function useBranchSelection() {
   const selected = useCommitMove(state => state.selectedBranches)
-  const isTargetOpen = useCommitMove(state => state.isBranchTargetOpen)
-  const issueGroups = useIssueGroups()
   const rows = useBranchTableRows()
   // the rows of the Parked card are selected too, after the table
   const parkedRows = useParkedTableRows()
@@ -36,57 +30,86 @@ export function BranchSelectionBar() {
   const shown = useShownBranchTables(useShownBranches()).order
   const parkedOpen = useRecentProjects(projects => projects[0]?.parkedCollapsed !== true)
   const hiddenCount = names.filter(name => !shown.includes(name) && !(parkedOpen && parkedNames.includes(name))).length
-  if (names.length === 0) {
+  return { names, commits, hiddenCount }
+}
+
+/** The "Move to…" form of the selected branches, above the branch table while it is open */
+export function BranchSelectionForm() {
+  const isTargetOpen = useCommitMove(state => state.isBranchTargetOpen)
+  const { names, commits } = useBranchSelection()
+  if (names.length === 0 || !isTargetOpen) {
     return null
   }
+  return (
+    <div className="border-b border-border">
+      <InlineBranchTarget commits={commits} sourceBranches={names} isActive onCancel={() => setBranchTargetOpen(false)} onSuccess={clearBranchSelection} />
+    </div>
+  )
+}
 
-  if (isTargetOpen) {
-    return (
-      <div className="border-b border-border">
-        <InlineBranchTarget commits={commits} sourceBranches={names} isActive onCancel={() => setBranchTargetOpen(false)} onSuccess={clearBranchSelection} />
-      </div>
-    )
+/**
+ * While branch rows are selected (Cmd/Ctrl-click, Shift-click): "N branches selected" (with "· 1 hidden" for the
+ * selected branches the filter or a collapsed stack hides, which the actions take too), "Move to…" (the form that puts
+ * the commits of all of them into one branch, existing or new, `BranchSelectionForm`), the way back, Park and Unpark (as
+ * the targets of a drag of them, `branch-drop.ts`: those that land are parked, the parked ones unparked), and "N branches
+ * selected" alone while the form is open. `overHead`: it takes the place of the column heads of the table, as high as
+ * they are (`h-8`), so selecting or deselecting a branch never moves a row; otherwise (the table shows no rows) it is a
+ * line above the islands.
+ */
+export function BranchSelectionBar({ overHead }: { overHead: boolean }) {
+  const isTargetOpen = useCommitMove(state => state.isBranchTargetOpen)
+  const issueGroups = useIssueGroups()
+  const { names, commits, hiddenCount } = useBranchSelection()
+  if (names.length === 0 || (isTargetOpen && !overHead)) {
+    return null
   }
 
   const backLabel = getRemovePrefixLabel(commits, issueGroups)
   return (
-    <div className="flex items-center justify-end gap-2 border-b border-border px-4 py-2" data-testid="branch-selection-actions">
+    <div
+      className={cn("flex items-center justify-end gap-2 bg-card px-4", overHead ? "absolute inset-x-0 top-0 h-8" : "border-b border-border py-2")}
+      data-testid="branch-selection-actions"
+    >
       <span className="text-xs text-muted-foreground">
         {names.length === 1 ? "1 branch selected" : `${names.length} branches selected`}
         {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
       </span>
-      <Button size="xs" variant="outline" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => setBranchTargetOpen(true)}>
-        <FolderInputIcon data-icon="inline-start" />
-        Move to…
-      </Button>
-      {backLabel !== null && (
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => {
-            void moveCommits(commits, null).then(success => {
-              if (success) {
-                clearBranchSelection()
-              }
-            })
-          }}
-        >
-          <UndoDotIcon data-icon="inline-start" />
-          {backLabel}
-        </Button>
+      {!isTargetOpen && (
+        <>
+          <Button size="xs" variant="outline" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => setBranchTargetOpen(true)}>
+            <FolderInputIcon data-icon="inline-start" />
+            Move to…
+          </Button>
+          {backLabel !== null && (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                void moveCommits(commits, null).then(success => {
+                  if (success) {
+                    clearBranchSelection()
+                  }
+                })
+              }}
+            >
+              <UndoDotIcon data-icon="inline-start" />
+              {backLabel}
+            </Button>
+          )}
+          <SelectionShapeButton names={names} icon={CirclePauseIcon} decide={parkSelection} act={taken => parkBranches(taken, "")}>
+            Park
+          </SelectionShapeButton>
+          <SelectionShapeButton names={names} icon={CirclePlayIcon} decide={unparkSelection} act={unparkBranches}>
+            Unpark
+          </SelectionShapeButton>
+          <Tooltip>
+            <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Clear the branch selection" onClick={clearBranchSelection} />}>
+              <XIcon />
+            </TooltipTrigger>
+            <TooltipContent>Clear the selection (Esc)</TooltipContent>
+          </Tooltip>
+        </>
       )}
-      <SelectionShapeButton names={names} icon={CirclePauseIcon} decide={parkSelection} act={taken => parkBranches(taken, "")}>
-        Park
-      </SelectionShapeButton>
-      <SelectionShapeButton names={names} icon={CirclePlayIcon} decide={unparkSelection} act={unparkBranches}>
-        Unpark
-      </SelectionShapeButton>
-      <Tooltip>
-        <TooltipTrigger render={<Button size="icon-xs" variant="ghost" aria-label="Clear the branch selection" onClick={clearBranchSelection} />}>
-          <XIcon />
-        </TooltipTrigger>
-        <TooltipContent>Clear the selection (Esc)</TooltipContent>
-      </Tooltip>
     </div>
   )
 }

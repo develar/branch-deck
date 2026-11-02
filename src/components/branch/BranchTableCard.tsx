@@ -7,7 +7,7 @@ import { BranchColumnsRoot, ColumnLabel, ColumnTrack } from "@/components/branch
 import { BranchFilterBar, BranchFilterEmptyRow } from "@/components/branch/BranchFilterBar"
 import { BranchGraphHelpPopover } from "@/components/branch/BranchGraphHelpPopover"
 import { BranchRow } from "@/components/branch/BranchRow"
-import { BranchSelectionBar } from "@/components/branch/BranchSelectionBar"
+import { BranchSelectionBar, BranchSelectionForm } from "@/components/branch/BranchSelectionBar"
 import { IssueFamilyRow } from "@/components/branch/IssueFamilyRow"
 import { ParkedBranchesCard } from "@/components/branch/ParkedBranchesCard"
 import { BranchPatronusSection } from "@/components/branch/PatronusChip"
@@ -235,6 +235,8 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
   const sideStackRoots = sideStackSizes([...tableAll, ...islands.flatMap(island => island.rows)])
   // the table without rows while islands or the Parked card show the rest: no "No branches match", unless a filter left it empty
   const showsTable = table.rows.length > 0 || (islands.length === 0 && (visible !== null || parkedRows.length === 0))
+  // the column heads show above rows only; a table the filter left empty has none
+  const headsTable = table.rows.length > 0
 
   return (
     // the table and its islands: their columns line up (`ColumnTrack`); one menu for the rows of all of them
@@ -242,10 +244,13 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
       <BranchColumnsRoot>
         <Card className="gap-0 py-0" data-cached={cached ? "true" : undefined}>
           <BranchFilterBar onFocusRows={focusFirstRow} onLeave={() => tableRef.current?.focus()} />
-          <BranchSelectionBar />
+          <BranchSelectionForm />
+          {!headsTable && <BranchSelectionBar overHead={false} />}
           <NewBranchForm />
           {showsTable && (
-            <div className="overflow-x-auto">
+            // the selection's actions take the place of the column heads, so no row moves as they come and go
+            <div className="relative overflow-x-auto">
+              {headsTable && <BranchSelectionBar overHead />}
               {/* focusable, so a click on a row gives it the focus that Space falls back on */}
               <table
                 ref={tableRef}
@@ -255,7 +260,7 @@ export function BranchTableCard({ isLoadingRows }: { isLoadingRows: boolean }) {
                 style={laneCount > 0 ? ({ "--bd-lane-count": laneCount } as CSSProperties) : undefined}
                 onKeyDown={onTableKeyDown}
               >
-                <BranchTableHead />
+                <BranchTableHead hidden={selectedBranches.length > 0} />
                 <TableMenuBody className="bd-branch-rows" {...pathPointer}>
                   {table.rows.length === 0 && <BranchFilterEmptyRow columnCount={4} />}
                   {renderRows(table.rows, null)}
@@ -393,10 +398,12 @@ function NewBranchForm() {
 }
 
 /** The column heads of the branch table */
-function BranchTableHead() {
+/** The column heads, 32px high (`h-8`); `hidden` (branches are selected): the selection bar is in their place */
+function BranchTableHead({ hidden }: { hidden: boolean }) {
   return (
     <thead className="border-b border-border">
-      <tr>
+      {/* invisible, not gone: the columns keep the widths the heads measure */}
+      <tr className={cn("h-8", hidden && "invisible")}>
         <TableHeader>
           <span className="inline-flex items-center gap-1">
             Branch Name
@@ -437,7 +444,7 @@ function BranchTableLoading() {
           </div>
         )}
         <table className="w-full">
-          <BranchTableHead />
+          <BranchTableHead hidden={false} />
           <tbody>
             {Array.from({ length: rowCount }, (_, index) => (
               <tr key={index}>

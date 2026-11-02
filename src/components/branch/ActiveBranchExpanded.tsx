@@ -185,7 +185,7 @@ function BranchCommitList({ branch, highlightTipCommit, oldestFirst }: { branch:
   return (
     <div className="flex flex-col gap-2">
       <div className="px-4 sm:px-6">
-        <CommitListBar moveList={moveList} hint={fixupCount === 0}>
+        <CommitListBar moveList={moveList} hint={fixupCount === 0} commitCount={commits.length}>
           <SquashFixupsButton branch={branch.name} />
         </CommitListBar>
       </div>

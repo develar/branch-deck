@@ -194,12 +194,17 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should select commit rows of a branch, one list at a time`)
   [@test] ../../src/stores/commit-move.test.ts (`clears the selected branches and their form when a commit list takes the selection`)
 - A selection must show "N selected" and a "Move to…" button, above the branch commits or in the unassigned card header;
-  selected branches "N branches selected", "Move to…" and a clear button above the branch table.
+  selected branches "N branches selected", "Move to…" and a clear button over the column heads of the branch table.
 - Selecting or deselecting a commit must not move a row: the line above the branch commits is there whether or not
   commits are selected, and the header of the unassigned card keeps its height with the selection's actions in it. With
-  nothing selected the line says "Select commits to move or squash them" (where it holds no "Squash N Fixups…"); while
-  the "Move to…" form is open, "N selected".
+  nothing selected the line says "Select commits to move or squash them" (where it holds no "Squash N Fixups…"), on a
+  branch of one commit "Select a commit to move it". While the "Move to…" form is open, both say "N selected" alone.
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
+- Selecting or deselecting a branch must not move a row: the branch selection bar takes the place of the column heads
+  of the branch table, as high as they are, and says "N branches selected" alone while the "Move to…" form is open
+  above the table. A table that shows no rows (the branches in islands or parked, or a filter that matched none) has no
+  heads, and the bar is a line above the islands there.
+  [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should keep the rows in place as branches are selected and deselected`)
 - A selection with a way back must also offer it: "Move Back to ABC-123" (the issue group of the key when it has
   one, see [Issue Groups](issue-groups.spec.md); the issue branch of the key for a commit an issue group holds), "Move
   to Unassigned", "Remove Prefix", or "Move Back" when they go back to several branches.
@@ -376,8 +381,9 @@ Renaming and ungrouping a branch are moves of all its commits.
   20px line into the padding (`-my-0.5`), so the header stays 40px. The hint of the idle line is muted `text-xs`, as
   "N selected" that takes its place.
 - "Move to…" is an outline `xs` button in the primary colour. The way back is a ghost `xs` button.
-- The branch selection bar sits right-aligned above the branch table header, with a ghost `icon-xs` clear button; a
-  selected branch row is `bg-primary/15`, like a selected commit row.
+- The branch selection bar sits right-aligned over the column heads of the branch table (`absolute`, `h-8` like the
+  heads, `bg-card`; the heads are `invisible` under it, so the columns keep their widths), with a ghost `icon-xs`
+  clear button; a selected branch row is `bg-primary/15`, like a selected commit row.
 - Of the droppable branch rows only the one under the pointer shows: `bg-primary/10` and a solid primary outline, its
   rows below `bg-primary/5`; a dragged row is at half opacity. The unassigned card and the Parked card get a primary
   ring.

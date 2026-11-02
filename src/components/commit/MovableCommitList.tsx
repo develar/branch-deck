@@ -1,13 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
-import { cn } from "cn"
 import { CombineIcon, FolderInputIcon, UndoDotIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommitList } from "@/components/commit/CommitList"
 import type { CommitListProps } from "@/components/commit/CommitList"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import type { CommitMoveList } from "@/hooks/useCommitMoveList"
-import { hasSelectionActions } from "@/hooks/useCommitMoveList"
 import type { Commit } from "@/lib/bindings"
 import { endCommitDrag } from "@/stores/commit-move"
 
@@ -91,19 +89,26 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
 }
 
 /**
- * The line above the commits of an expanded branch: the selection's actions, "N selected" alone while its "Move to…" form
- * is open, then `children` (the "Squash N Fixups…" of the branch); with nothing selected, the hint of what a selection
- * does where the line holds nothing else (`hint`). It is one `xs` button high whatever it holds, so selecting or
- * deselecting a commit never moves a row.
+ * The line above the commits of an expanded branch: the selection's actions (`CommitSelectionActions`), then `children`
+ * (the "Squash N Fixups…" of the branch); with nothing selected, the hint of what a selection does where the line holds
+ * nothing else (`hint`), "Select a commit to move it" on a branch of one commit, which has nothing to squash. It is one
+ * `xs` button high whatever it holds, so selecting or deselecting a commit never moves a row.
  */
-export function CommitListBar<T extends Commit>({ moveList, hint, children }: { moveList: CommitMoveList<T>; hint: boolean; children?: ReactNode }) {
-  const { selection, isTargetOpen } = moveList
+export function CommitListBar<T extends Commit>({
+  moveList,
+  hint,
+  commitCount,
+  children,
+}: {
+  moveList: CommitMoveList<T>
+  hint: boolean
+  commitCount: number
+  children?: ReactNode
+}) {
   return (
     <div className="flex h-6 items-center justify-end gap-2" data-testid="commit-list-bar">
-      {selection.selectedCount === 0 ? (
-        hint && <span className="text-xs text-muted-foreground">Select commits to move or squash them</span>
-      ) : isTargetOpen ? (
-        <SelectedCount count={selection.selectedCount} />
+      {moveList.selection.selectedCount === 0 ? (
+        hint && <span className="text-xs text-muted-foreground">{commitCount > 1 ? "Select commits to move or squash them" : "Select a commit to move it"}</span>
       ) : (
         <CommitSelectionActions moveList={moveList} />
       )}
@@ -112,37 +117,37 @@ export function CommitListBar<T extends Commit>({ moveList, hint, children }: { 
   )
 }
 
-function SelectedCount({ count }: { count: number }) {
-  return <span className="text-xs text-muted-foreground">{`${count} selected`}</span>
-}
-
 /**
  * "N selected", "Move to…", "Squash" (for two commits or more) and "Move Back to ABC-1" (if a selected commit has a
- * prefix); nothing without a selection.
+ * prefix); "N selected" alone while the "Move to…" form is open, nothing without a selection.
  */
-export function CommitSelectionActions<T extends Commit>({ moveList, className }: { moveList: CommitMoveList<T>; className?: string }) {
-  const { selection, removePrefixLabel } = moveList
-  if (!hasSelectionActions(moveList)) {
+export function CommitSelectionActions<T extends Commit>({ moveList }: { moveList: CommitMoveList<T> }) {
+  const { selection, isTargetOpen, removePrefixLabel } = moveList
+  if (selection.selectedCount === 0) {
     return null
   }
   return (
-    <div className={cn("flex items-center gap-2", className)} data-testid="selection-actions">
-      <SelectedCount count={selection.selectedCount} />
-      <Button size="xs" variant="outline" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => moveList.openTarget()}>
-        <FolderInputIcon data-icon="inline-start" />
-        Move to…
-      </Button>
-      {selection.selectedCount > 1 && (
-        <Button size="xs" variant="ghost" onClick={() => moveList.openSquash()}>
-          <CombineIcon data-icon="inline-start" />
-          Squash
-        </Button>
-      )}
-      {removePrefixLabel !== null && (
-        <Button size="xs" variant="ghost" onClick={moveList.removePrefix}>
-          <UndoDotIcon data-icon="inline-start" />
-          {removePrefixLabel}
-        </Button>
+    <div className="flex items-center gap-2" data-testid="selection-actions">
+      <span className="text-xs text-muted-foreground">{`${selection.selectedCount} selected`}</span>
+      {!isTargetOpen && (
+        <>
+          <Button size="xs" variant="outline" className="border-primary/50 text-primary hover:bg-primary/10 hover:text-primary" onClick={() => moveList.openTarget()}>
+            <FolderInputIcon data-icon="inline-start" />
+            Move to…
+          </Button>
+          {selection.selectedCount > 1 && (
+            <Button size="xs" variant="ghost" onClick={() => moveList.openSquash()}>
+              <CombineIcon data-icon="inline-start" />
+              Squash
+            </Button>
+          )}
+          {removePrefixLabel !== null && (
+            <Button size="xs" variant="ghost" onClick={moveList.removePrefix}>
+              <UndoDotIcon data-icon="inline-start" />
+              {removePrefixLabel}
+            </Button>
+          )}
+        </>
       )}
     </div>
   )

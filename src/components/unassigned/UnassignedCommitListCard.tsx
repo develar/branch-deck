@@ -47,8 +47,9 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
           help={commits.length > 0 && <UnassignedCommitsHelpPopover />}
           actions={
             commits.length > 0 && (
-              // the selection's actions live in the card header, next to what they act on; their xs buttons overhang its
-              // 20px line into the padding, so the header stays 40px and no row moves as they come and go
+              // the selection's actions live in the card header, next to what they act on ("N selected" alone while the
+              // "Move to…" form is open); their xs buttons overhang its 20px line into the padding, so the header stays
+              // 40px and no row moves as they come and go
               <div className="-my-0.5 flex items-center gap-3">
                 <CommitSelectionActions moveList={moveList} />
                 <SquashFixupsButton branch={null} />

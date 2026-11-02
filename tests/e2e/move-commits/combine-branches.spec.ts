@@ -87,6 +87,38 @@ test.describe("Combine branches", () => {
     await expect(actions).toHaveCount(0)
   })
 
+  test("should keep the rows in place as branches are selected and deselected", async ({ page }) => {
+    const heads = page.getByRole("columnheader", { name: "Branch Name" })
+    const headsBox = await heads.boundingBox()
+    expect(headsBox).not.toBeNull()
+    const rowTops = async () => [await findBranchRow(page, "IJPL-1").boundingBox(), await findBranchRow(page, "docs").boundingBox()].map(box => box?.y)
+    const idle = await rowTops()
+
+    await findBranchRow(page, "IJPL-2").click({ modifiers: ["ControlOrMeta"] })
+    const actions = page.getByTestId("branch-selection-actions")
+    await expect(actions).toContainText("1 branch selected")
+    // the bar is where the column heads were, as high as they are
+    await expect(heads).toBeHidden()
+    const actionsBox = await actions.boundingBox()
+    expect(actionsBox?.y).toBeCloseTo(headsBox!.y, 0)
+    // the heads take half of the border below them too
+    expect(Math.abs(actionsBox!.height - headsBox!.height)).toBeLessThanOrEqual(1)
+    expect(await rowTops()).toEqual(idle)
+
+    // the form above the table takes the actions; the bar keeps the count
+    await actions.getByRole("button", { name: "Move to…" }).click()
+    await inlineBranchCreator.waitForVisible(page)
+    await expect(actions).toHaveText("1 branch selected")
+    await inlineBranchCreator.getCancelButton(page).click()
+    await inlineBranchCreator.waitForHidden(page)
+    expect(await rowTops()).toEqual(idle)
+
+    await actions.getByRole("button", { name: "Clear the branch selection" }).click()
+    await expect(actions).toHaveCount(0)
+    await expect(heads).toBeVisible()
+    expect(await rowTops()).toEqual(idle)
+  })
+
   test("should open Move to… for the focused row with M, without a selection", async ({ page }) => {
     const row = findBranchRow(page, "IJPL-2")
     await row.click({ button: "right" })
