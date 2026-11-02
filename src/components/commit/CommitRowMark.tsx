@@ -14,12 +14,18 @@ export interface CommitRowMarkProps extends RowCardState {
   size?: "list" | "tree"
 }
 
+/** The row of a mark: a row of a list of commits, the line of a row of the tree of a review (not the rows of its group) */
+function rowOfMark(mark: HTMLElement): Element | null {
+  // a tree item holds the rows of its group after the line of its own row, its first child
+  return mark.closest("tr") ?? mark.closest("[role=treeitem]")?.firstElementChild ?? null
+}
+
 /**
  * The mark of a commit row whose message has a body (spec/commit/commit-row.spec.md, "Commit card"): its hover opens
- * the card of the commit (`CommitCard`), the header and the body folded as Rust says, and so does `I` on its row, the focus in the
- * card; Escape gives the focus back to the row (`RowCard`). A click opens the preview of the commit where its list has
- * one. Not a tab stop: Space previews the row, `I` opens its card. One mark for the rows of the main window and of the
- * tree of a review
+ * the card of the commit (`CommitCard`), the header and the body folded as Rust says, under the whole row at its
+ * start, and so does `I` on its row, the focus in the card; Escape gives the focus back to the row (`RowCard`). A click
+ * opens the preview of the commit where its list has one. Not a tab stop: Space previews the row, `I` opens its card.
+ * One mark for the rows of the main window and of the tree of a review
  */
 export function CommitRowMark({ commit, onOpen, size = "list", ...card }: CommitRowMarkProps) {
   // the card keeps the click from the row, which would select it
@@ -51,6 +57,8 @@ export function CommitRowMark({ commit, onOpen, size = "list", ...card }: Commit
       className="max-h-96 w-[min(36rem,var(--available-width))] overflow-y-auto px-4 py-0"
       data-testid="commit-card"
       focus="card"
+      // under the whole row, never over the meta line of the commit the reader was reading
+      anchor={rowOfMark}
     >
       {() => <CommitCard commit={commit} variant="card" />}
     </RowCard>

@@ -175,7 +175,8 @@ place that shows a commit shows the same way.
 - The mark must be named "Show full commit message", and a click on it must open the preview of its commit.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
 - The hover of the mark (300 ms, only after a move of the pointer) must open the commit card: the whole subject over
-  the meta line with its line counts, then the body folded as the opening of a review folds it (the parts Rust shows,
+  the meta line with its line counts, under the whole row so its meta line stays in view, then the body folded as the
+  opening of a review folds it (the parts Rust shows,
   the author's "Look closely:" always, then one line that names the folded parts, verification among them, each its
   own disclosure), its trailers last; the pointer leaving the mark closes it. While more of the card is below its
   bottom edge, the bottom fades into the popover, so a body the height cuts never reads as the whole message.
@@ -614,7 +615,9 @@ for a message shown again, and only lays out what Rust read.
 
 ### Commit card
 
-- The card is a popover at the end of the mark, 36rem wide at most and 24rem high at most; its body scrolls under its
+- The card is a popover under the whole row of its mark, at the start of the row (above it when there is no room
+  below), never over the meta line of the row (its hash, files and line counts), 36rem wide at most and 24rem high at
+  most; its body scrolls under its
   header, which stays at the top of the card, and a 40px gradient of `popover` fades its bottom while more is below.
 - The header shows the whole subject in `text-sm font-medium` above the meta line, the line counts coloured
   (`success`, `destructive`), as every header but a row's (`CommitHeader`: `row`, `card`, `heading` in `text-md`, `title`

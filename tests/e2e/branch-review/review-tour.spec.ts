@@ -357,6 +357,18 @@ test.describe("Review tour", () => {
     await expect(card.getByTestId("commit-message-body")).toHaveText("The review asked for the name of the flag to say what it holds.")
     await window.mouse.move(0, 0)
     await expect(card).toHaveCount(0)
+    // the card of the row of a step opens at the line of that row, not under the rows of its group
+    const stepMark = commitRow("2 · The open keeps a stored layout").getByTestId("commit-row-mark")
+    await stepMark.hover()
+    await expect(card).toBeVisible()
+    const markBox = (await stepMark.boundingBox())!
+    const atTheLine = async () => {
+      const box = await card.boundingBox()
+      return box !== null && (Math.abs(box.y - (markBox.y + markBox.height)) < 16 || Math.abs(box.y + box.height - markBox.y) < 16)
+    }
+    await expect.poll(atTheLine).toBe(true)
+    await window.mouse.move(0, 0)
+    await expect(card).toHaveCount(0)
     await commitRow("The rule names its flag again").focus()
     await window.keyboard.press("i")
     await expect(card).toBeFocused()

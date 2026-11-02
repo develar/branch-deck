@@ -52,10 +52,17 @@ export interface RowCardProps extends RowCardState {
   children: (close: () => void) => ReactNode
   /** Where the focus goes as the key opens the card: its first button by default (a file to show), else the card */
   focus?: RowCardFocus
+  /**
+   * The element the card opens under, from the mark: the mark by default, at its end; else the card opens under that
+   * element at its start (a row whose lines below the mark the card must not cover)
+   */
+  anchor?: (mark: HTMLElement) => Element | null
 }
 
 /** The mark of a row and the card its hover or `I` opens (the module's header) */
-export function RowCard({ open, openedByKey, onOpenChange, focusRow, label, mark, icon, className, "data-testid": testId, children, focus = "firstButton" }: RowCardProps) {
+export function RowCard({ open, openedByKey, onOpenChange, focusRow, label, mark, icon, className, "data-testid": testId, children, focus = "firstButton", anchor }: RowCardProps) {
+  // the trigger renders the mark, a `span` (`nativeButton` false): typed as the button of a trigger
+  const markElement = useRef<HTMLButtonElement>(null)
   // the popup of the card opened by the key, kept as the ref lets it go (before the effect below asks where the focus
   // is); stable, so a render does not move the focus again
   const keyPopup = useRef<HTMLElement | null>(null)
@@ -116,11 +123,13 @@ export function RowCard({ open, openedByKey, onOpenChange, focusRow, label, mark
         }
       }}
     >
-      <PopoverTrigger openOnHover delay={300} nativeButton={false} tabIndex={-1} aria-label={label} render={mark} onClick={keepFromRow}>
+      <PopoverTrigger ref={markElement} openOnHover delay={300} nativeButton={false} tabIndex={-1} aria-label={label} render={mark} onClick={keepFromRow}>
         {icon}
       </PopoverTrigger>
       <PopoverContent
-        align="end"
+        align={anchor === undefined ? "end" : "start"}
+        anchor={anchor === undefined ? undefined : () => (markElement.current === null ? null : (anchor(markElement.current) ?? markElement.current))}
+        collisionPadding={8}
         className={cn("gap-3", className)}
         data-testid={testId}
         // the card moves the focus itself: by the key into it and back to the row, by the hover never

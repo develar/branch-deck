@@ -30,6 +30,13 @@ async function expectPreviewFocused(preview: Locator) {
   await expect(preview.getByTestId("commit-preview-body")).toBeFocused()
 }
 
+/** Whether the card lies clear of its row, below it or above it: it never covers the meta line the reader was reading */
+async function cardClearsRow(card: Locator, row: Locator): Promise<boolean> {
+  const cardBox = await card.boundingBox()
+  const rowBox = await row.boundingBox()
+  return cardBox !== null && rowBox !== null && (cardBox.y >= rowBox.y + rowBox.height - 1 || cardBox.y + cardBox.height <= rowBox.y + 1)
+}
+
 /** Rewords the unassigned commit of CRITICAL-111 to `message` and waits for its row to show the new commit */
 async function rewordEmergencyFix(page: Page, repo: { reword: (hash: string, message: string) => Promise<string> }, message: string): Promise<Locator> {
   await enableAutoSyncOnFocus(page)
@@ -198,6 +205,8 @@ test.describe("Commit message", () => {
     await toggle.hover()
     await expect(card).toBeVisible()
     await expect(card.getByText(SUBJECT, { exact: true })).toBeVisible()
+    // under the whole row: its hash, files and line counts stay in view
+    await expect.poll(() => cardClearsRow(card, commitRow)).toBe(true)
     await expect(card.getByTestId("commit-message-body").locator("p").first()).toHaveText(
       "The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.",
     )
@@ -262,6 +271,7 @@ test.describe("Commit message", () => {
     await unassignedRow.getByTestId("commit-row-mark").hover()
     const card = page.getByTestId("commit-card")
     await expect(card).toBeVisible()
+    await expect.poll(() => cardClearsRow(card, unassignedRow)).toBe(true)
     // the body shows up to its fold, the question of the author whole; the rest named on one line, verification too
     await expect(card.getByTestId("commit-body-look-closely")).toContainText("Decide whether a slower second is better than a blocked one")
     const folds = card.getByTestId("commit-body-fold")
