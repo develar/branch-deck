@@ -107,7 +107,9 @@ wherever they are, so a long account of what you ran never pushes the story out 
 
 `Look closely:` is where you ask the reviewer to decide: a trade-off you made, a behaviour you were unsure of, a place
 where a wrong guess costs the most. Branch Deck tells this label from the others (`kind: lookClosely`): it is the one
-thing in a body that asks for an answer, so a review never folds it, wherever it is, and it costs no line of the fold. A request for a specific review is the strongest lever an author has on a
+thing in a body that asks for an answer, so a review never folds it, wherever it is, and it costs no line of the fold.
+Written at the start of a paragraph (`Look closely: the count is a constant for now…`), it heads that paragraph
+alone: what you write after it is the story again, so put the question in that one paragraph. A request for a specific review is the strongest lever an author has on a
 review that helps, so write one where it is true, and only there: a request in every commit is read as none.
 
 ## Measurements and code

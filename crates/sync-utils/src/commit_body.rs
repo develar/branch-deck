@@ -14,8 +14,9 @@
 //! - the other lines are prose: hard-wrapped lines joined, a line after a hard break, a quote line and a table row a
 //!   line of their own;
 //! - a label (`LEAD_IN_MAX`, `RUN_IN_MAX`) heads the blocks after it: a paragraph that is only `Label:` followed by a
-//!   block, a `Label:` line right before a list item, or the 1–3 words of a paragraph that starts `Label: text`; its
-//!   kind is by its words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`);
+//!   block, a `Label:` line right before a list item, a `Label:` line that starts its block (or follows a list) right
+//!   before a line of prose or code, or the 1–3 words of a paragraph that starts `Label: text`; its kind is by its
+//!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`); a run-in `Look closely: text` heads its paragraph alone;
 //! - the parts and the fold (`CommitBody::parts`): the lead alone, a labelled section whole, a run of other blocks; the
 //!   first part shows, then whole parts while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS`
 //!   characters), the rest folds; a verification section folds and a Look closely section shows wherever it is, and
@@ -166,10 +167,15 @@ fn parts(blocks: &[CommitBodyBlock], lead: bool) -> Vec<CommitBodyPart> {
   let mut start = 0;
   while start < blocks.len() {
     let headed = heads(&blocks[start]);
-    let end = if headed {
-      blocks[start + 1..].iter().position(heads).map_or(blocks.len(), |next| start + 1 + next)
-    } else {
-      start + 1
+    let end = match blocks[start] {
+      // the author's question is the paragraph the label starts: what follows it is the story again
+      CommitBodyBlock::Label {
+        kind: LabelKind::LookClosely,
+        run_in: true,
+        ..
+      } => (start + 2).min(blocks.len()),
+      _ if headed => blocks[start + 1..].iter().position(heads).map_or(blocks.len(), |next| start + 1 + next),
+      _ => start + 1,
     };
     let kind = match blocks[start] {
       CommitBodyBlock::Label { kind, .. } => kind,
@@ -351,6 +357,12 @@ fn heading(trimmed: &str) -> Option<CommitBodyBlock> {
   })
 }
 
+/// A line a label heads: prose or code, not a heading, a rule, a quote line, a table row or a trailer
+fn is_content(line: &str) -> bool {
+  let trimmed = line.trim();
+  !trimmed.is_empty() && !is_heading(trimmed) && !is_rule(trimmed) && !is_own_line(trimmed) && trailer(line).is_none()
+}
+
 /// A line that is a line of its own in prose: a quote line or a table row
 fn is_own_line(trimmed: &str) -> bool {
   trimmed.starts_with('>') || trimmed.starts_with('|')
@@ -381,8 +393,12 @@ fn parse_block(lines: &[&str], blocks: &mut Vec<CommitBodyBlock>) {
   };
   for (index, &line) in lines.iter().enumerate() {
     let trimmed = line.trim();
-    // a `Label:` line right before an item heads the list: it ends the list or the prose before it
-    if !line.starts_with(char::is_whitespace) && lead_in(trimmed).is_some() && lines.get(index + 1).is_some_and(|next| list_item(next).is_some()) {
+    // a `Label:` line right before an item heads the list: it ends the list or the prose before it; one that starts its
+    // block or follows a list heads the paragraph or the code right after it too
+    let heads_next = lines
+      .get(index + 1)
+      .is_some_and(|&next| list_item(next).is_some() || (prose.lines.is_empty() && is_content(next)));
+    if !line.starts_with(char::is_whitespace) && lead_in(trimmed).is_some() && heads_next {
       prose.flush(blocks);
       flush_preformatted(&mut preformatted, blocks);
       flush_list(&mut list, blocks);

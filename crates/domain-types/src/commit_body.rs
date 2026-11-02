@@ -18,7 +18,8 @@ pub struct CommitBody {
   /// Whether `blocks[0]` is a paragraph, before any label or heading: the summary of the body
   pub lead: bool,
   /// The parts of the body in its order, each block in one: the lead alone; a labelled section (a label or a heading
-  /// and its blocks up to the next one); a run of the other blocks, two where the fold cuts it. Each says whether a
+  /// and its blocks up to the next one; a run-in `Look closely: text` its paragraph alone); a run of the other blocks,
+  /// two where the fold cuts it. Each says whether a
   /// reader folds it, so Rust alone says where the fold is
   pub parts: Vec<CommitBodyPart>,
 }
@@ -61,9 +62,10 @@ pub enum CommitBodyBlock {
   Preformatted { text: String },
   /// A Markdown heading (`## Text`): its level, one to six, and its text without the marks
   Heading { level: u8, text: String },
-  /// The label of the blocks after it, up to the next label or heading: a paragraph that is only `Label:`, a `Label:`
-  /// line right before a list, or the 1–3 words that start a `Label: text` paragraph, whose text is then the paragraph
-  /// after it. The text without its colon, as the author wrote it
+  /// The label of the blocks after it, up to the next label or heading (a run-in Look closely its paragraph alone): a
+  /// paragraph that is only `Label:`, a `Label:` line right before a list, or right before a paragraph or code at the
+  /// start of its block, or the 1–3 words that start a `Label: text` paragraph, whose text is then the paragraph after
+  /// it. The text without its colon, as the author wrote it
   Label {
     text: String,
     kind: LabelKind,

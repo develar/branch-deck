@@ -245,7 +245,7 @@ export interface ContentsStep {
   /** The summary its commit's body opens with, with its code names; null without */
   readonly lead: { readonly story: StoryView; readonly block: PlacedBlock } | null
   readonly facts: StepFacts
-  /** The sections of its story where the author asks the reviewer to decide ("Look closely:") */
+  /** The sections of its story where the author asks the reviewer to decide ("Look closely:"), each its first block */
   readonly lookClosely: readonly { readonly story: StoryView; readonly part: StoryPart }[]
 }
 
@@ -303,9 +303,12 @@ function short(id: string): string {
   return id.slice(0, 8)
 }
 
-/** The parts of `story` where the author asks the reviewer to decide, before the fold or after it */
+/**
+ * The parts of `story` where the author asks the reviewer to decide, each its question alone (its first block): the
+ * opening tells the rest
+ */
 function lookCloselyOf(story: StoryView): ContentsStep["lookClosely"] {
-  return [...story.shown, ...story.folded.map(it => it.part)].filter(part => part.tone === "lookClosely").map(part => ({ story, part }))
+  return story.shown.filter(part => part.tone === "lookClosely").map(part => ({ story, part: { ...part, blocks: part.blocks.slice(0, 1) } }))
 }
 
 /** The story a step's commit tells: none for a commit of no story, whose few words tell no step */

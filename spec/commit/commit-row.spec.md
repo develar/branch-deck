@@ -349,9 +349,13 @@ for a message shown again, and only lays out what Rust read.
   [@test] ../../crates/sync-utils/src/commit_body_test.rs (`joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line`, `keeps_a_line_after_a_hard_break_a_quote_line_and_a_table_row_its_own_and_a_heading_and_a_rule_a_block_of_their_own`, `reads_lists_without_their_markers_each_kind_its_own`, `keeps_code_verbatim_without_the_common_indent_and_the_fences`, `reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names`, `keeps_as_prose_a_trailer_shaped_block_that_is_not_the_last_one_has_prose_or_only_one_word_tokens`)
 - A paragraph that is only `Label:` (a capital letter of any script, at most 39 characters without a colon) must
   become the label of the blocks after it when a paragraph, a list or code follows it; a `Label:` line right before a
-  list item must, also after prose or a list of its block.
+  list item must, also after prose or a list of its block; a `Label:` line that starts its block or follows a list
+  must, right before a line of prose or code ("Why not a setting:" over its paragraph with no blank line between),
+  never inside prose, where the author wrapped a sentence.
 - A paragraph that starts with a short `Label: ` (a capitalised word and up to two lowercase ones of any script, at
-  most 20 characters) must become a label above its remaining text, a label written at the start of its paragraph.
+  most 20 characters) must become a label above its remaining text, a label written at the start of its paragraph. A
+  run-in `Look closely: text` must head that paragraph alone: the blocks after it are the story again, a part of no
+  label up to the next label, so the callout holds the author's question and nothing more.
 - A `Label:` paragraph without a following block of content (the last one, one before the trailers or a heading) must
   stay a paragraph.
 - A label's kind must come from its words, a leading "The", the case and what follows a comma aside: Tests, Test,
@@ -359,7 +363,7 @@ for a message shown again, and only lays out what Rust read.
   verification, "Look closely" asks the reviewer to decide, any other label is plain.
 - The trailers must show last, below the blocks, without a label.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_label_the_rest_of_its_paragraph`, `a_label_without_blocks_to_head_a_long_one_and_a_sentence_stay_prose`, `a_label_line_right_before_a_list_heads_it_after_prose_or_another_list`, `a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_aside`)
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_label_the_rest_of_its_paragraph`, `a_label_without_blocks_to_head_a_long_one_and_a_sentence_stay_prose`, `a_label_line_right_before_a_list_heads_it_after_prose_or_another_list`, `a_label_line_that_starts_its_block_heads_the_paragraph_or_the_code_right_after_it`, `a_run_in_look_closely_heads_its_paragraph_alone`, `a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_aside`)
 - The lead of a body must be its first block when that is a paragraph, before any label or heading.
 - The parts of a body (`parts`: the lead alone, a labelled section, a run of the other blocks) must each say whether a
   reader folds it, at a block, never at a fixed row count: the first part shows, a labelled section whole when the

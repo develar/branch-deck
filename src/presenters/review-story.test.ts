@@ -108,6 +108,7 @@ describe("the document of a review", () => {
             paragraph("The product decision is to keep the layout."),
             label("Look closely", "lookClosely"),
             paragraph("Is a stored layout enough?"),
+            paragraph("A layout of more tool windows may need more."),
           ]),
           story("the rule again", [paragraph("Renamed.")]),
           // a body of a few words is the story of its commit, but no lead of the step it is in
@@ -145,7 +146,7 @@ describe("the document of a review", () => {
       [4, "The try", null, "Nothing of it lands: a later commit took it out", null],
       [5, "The wip", null, null, null],
     ])
-    // where the author asks the reviewer to decide, in the contents too
+    // where the author asks the reviewer to decide, in the contents too: its question alone, the opening tells the rest
     expect(view.steps[0]!.lookClosely.map(({ part }) => [part.head?.block.type === "label" && part.head.block.text, part.blocks.map(it => it.block)])).toEqual([
       ["Look closely", [paragraph("Is a stored layout enough?")]],
     ])

@@ -424,3 +424,55 @@ fn a_look_closely_section_shows_wherever_it_is_and_costs_no_line() {
   assert_eq!(fold_at(&first), all(&first));
   assert_eq!(parts(&first), [(0, 1, false), (1, 3, false), (3, 5, false)]);
 }
+
+#[test]
+fn a_label_line_that_starts_its_block_heads_the_paragraph_or_the_code_right_after_it() {
+  assert_eq!(
+    blocks("Why not a setting:\nA setting would let the user pick\nthe count."),
+    [label("Why not a setting"), paragraph(&["A setting would let the user pick the count."])]
+  );
+  assert_eq!(
+    blocks("Measurements, five runs:\n    before  412 ms\n    after   418 ms"),
+    [label("Measurements, five runs"), preformatted("before  412 ms\nafter   418 ms")]
+  );
+  // after a list too
+  assert_eq!(
+    blocks("- one\nWhy not:\nBecause it."),
+    [list(false, 1, &["one"]), label("Why not"), paragraph(&["Because it."])]
+  );
+  // inside prose a short line with a colon is prose: the author wrapped a sentence there
+  assert_eq!(
+    blocks("The frame painted once\nWhy not:\nit asked nothing."),
+    [paragraph(&["The frame painted once Why not: it asked nothing."])]
+  );
+  // a heading, a quote or a trailer after it is no text of the label
+  assert_eq!(blocks("Notes:\n> quoted"), [paragraph(&["Notes:", "> quoted"])]);
+}
+
+#[test]
+fn a_run_in_look_closely_heads_its_paragraph_alone() {
+  let body =
+    commit_body("The lead.\n\nLook closely: decide the count.\n\nWhy not a setting:\nNo user knows a pass.\n\nMeasurements of five runs.\n\n    before 412 ms\n\nTests:\n- a test");
+  assert_eq!(
+    body.blocks,
+    [
+      paragraph(&["The lead."]),
+      run_in_labelled("Look closely", LabelKind::LookClosely),
+      paragraph(&["decide the count."]),
+      label("Why not a setting"),
+      paragraph(&["No user knows a pass."]),
+      paragraph(&["Measurements of five runs."]),
+      preformatted("before 412 ms"),
+      labelled("Tests", LabelKind::Verification),
+      list(false, 1, &["a test"]),
+    ]
+  );
+  // the callout holds the question alone; the label after it heads the rest of the story
+  assert_eq!(parts(&body), [(0, 1, false), (1, 3, false), (3, 7, false), (7, 9, true)]);
+  // the blocks after a run-in Look closely and before the next label are a part of no label
+  let after = commit_body("Look closely: decide.\n\nThe story goes on.\n\nAnd on.");
+  assert_eq!(parts(&after), [(0, 2, false), (2, 4, false)]);
+  // a Look closely on a line of its own heads its blocks up to the next label
+  let own = commit_body("Look closely:\n\nThe count.\n\nThe passes.");
+  assert_eq!(parts(&own), [(0, 3, false)]);
+}

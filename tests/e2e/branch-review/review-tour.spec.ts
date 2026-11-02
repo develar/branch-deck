@@ -238,6 +238,9 @@ test.describe("Review tour", () => {
     // always, named on the line of the folded parts
     const restart = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 4 · The restart story checks the layout", exact: true }) })
     await expect(restart.getByTestId("review-story-look-closely")).toContainText("the story restarts the window alone, never the whole IDE.")
+    // the callout holds the question alone: the label right above its paragraph heads the story after it
+    await expect(restart.getByTestId("review-story-look-closely")).not.toContainText("takes a minute")
+    await expect(restart.getByTestId("review-story-part").filter({ hasText: "Why not the whole IDE" })).toContainText("A restart of the IDE takes a minute")
     await expect(window.getByTestId("review-contents-step").nth(3).getByTestId("review-contents-step-look-closely")).toContainText("the story restarts the window alone")
     const tests = restart.getByTestId("review-story-fold")
     await expect(tests).toHaveText("Tests")

@@ -206,7 +206,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place); a step accio answered for
   whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
   calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
-  its body as an info callout. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
+  its body as an info callout, its question alone (its first block): the opening tells the rest. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
   only step is what no evidence joined lists no step, and its facts are the facts of the range. Then Possible
   Breakage and Since your review ([Review Plan](review-plan.spec.md#requirements)). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
