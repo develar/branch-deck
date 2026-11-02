@@ -330,7 +330,7 @@ fn a_branch_reworded_by_bd_reword_needs_a_push() {
 }
 
 /// A member of a stack that landed whole got a new commit: its remote branch has its commits as they were before the
-/// landing, which the baseline has by identity (`remote.landed`). The check names them and refuses nothing, the start
+/// landing, which the baseline has by identity or by content (`remote.landed`). The check names them and refuses nothing, the start
 /// pushes without --force; someone else's commit there, which the baseline lacks, refuses the check and the start with
 /// the push that drops it
 #[test_log::test]
@@ -341,7 +341,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   land_auth_by_content(&space.repo);
 
   let remote = check_auth_needs_a_push(&space);
-  assert_eq!((&remote["unpushed"], &remote["landed"], &remote["behind"]), (&json!(1), &json!(1), &json!(0)));
+  assert_eq!((&remote["unpushed"], &remote["landed"], &remote["behind"]), (&json!(1), &json!(2), &json!(0)));
 
   let theirs = push_from_elsewhere_to(&space.remote, AUTH, "Someone else");
   git(&space.repo, &["fetch", "-q", "origin"]);
@@ -355,7 +355,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   );
   assert_eq!(
     (&output["remotes"][0]["remote"]["behind"], &output["remotes"][0]["remote"]["landed"]),
-    (&json!(1), &json!(1))
+    (&json!(1), &json!(2))
   );
 
   let (exit_code, output) = space.run(&["auth"]);

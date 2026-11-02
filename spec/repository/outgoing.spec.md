@@ -131,6 +131,15 @@ is outgoing compares content, not hashes: the question is whether the remote has
   the branch. The sync knows the commits of the ancestors; a push outside it reads them from the parent's virtual
   branch, only while the remote lacks a commit of the branch or of its ancestors or has one the branch lacks; the
   baseline is read only while commits are left dropped, one walk more.
+- A remote commit the branch has by content only through a commit of the baseline, none of its own or of the branches
+  it is built on above the baseline, must be landed too (`commitsLanded`; listed in `landedCommits` when a baseline
+  commit has its identity): the parent of a stack landed by a rebase merge, the child rebuilt on the baseline, its
+  remote branch still built on the old one with the parent's old commits. A pull request from that remote branch shows
+  the landed changes again, so the branch is not up to date and its push replaces them without `--force`, whether the
+  trees differ or not; a branch only rebuilt on a newer baseline, its ancestors too, stays up to date. It takes no walk
+  more; the baseline is read for the baseline commits of those copies, one walk, only when there are some.
+  [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_rebuilt_on_the_baseline_after_its_parent_landed_replaces_the_parents_old_copies`, `a_child_of_a_reworded_parent_is_restacked`, `one_walk_tells_what_is_behind_and_the_fast_forward`)
+  [@test] ../../crates/bd-remote/src/push_test.rs (`a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`)
 - The commits of the branches a stacked branch is built on that its remote branch lacks by content (the parent got a
   new commit since the child was pushed, `ancestorCommitsAhead`) must make the push of the child replace its remote
   branch: a Safe Push of the remote branch would land an older piece. They are no commits of the child to push (the

@@ -1,7 +1,7 @@
 # Remote Status for Virtual Branches
 
 **Status:** Implemented  
-**Updated:** 2026-10-24  
+**Updated:** 2026-11-02  
 **Tags:** [git, remote-status, virtual-branches]
 
 ## Problem
@@ -39,8 +39,9 @@ Compare content, not hashes, with Git's cherry-pick algorithm:
     branch was pushed: a child's remote branch has its parent's commits as they were (`commits_restacked`). A reworded
     ancestor's commit is not behind, the remote has it by content, yet its message there is the old one: it counts here
     too, so the child has a push to do;
-  - **landed**: an older version of a commit the baseline has above the remote branch, as a Safe Push landed it
-    (`commits_landed`, the newest ten in `landed_commits` with the baseline commit of each);
+  - **landed**: an older version of a commit the baseline has above the remote branch, as a Safe Push landed it, or a
+    copy the branch has by content only through the baseline, as after a rebase merge of the parent of a stack
+    (`commits_landed`, the newest ten in `landed_commits` with the baseline commit of each, Decision 10);
   - **dropped**: the rest, work a push drops (`commits_behind`). The status lists the newest ten of them
     (`dropped_commits`: id, subject, author, author email, time), so the Force Push button can say what it drops. Of
     them, `others_behind` counts those whose author email is not `my_email` (the branch's author): someone else's work
@@ -95,7 +96,7 @@ flowchart TD
    **Rationale**: Consistent access to baseline reference for filtering operations
 
 5. **Decision**: Use patch equivalence (`--cherry-mark`) for commits behind calculation, without `^baseline`
-   **Rationale**: After rebasing, commits have different SHAs but same content. Patch equivalence correctly identifies patch-equivalent commits, preventing false "commits behind" counts that confuse users with messages about "commits you removed or changed locally". The baseline stays in the walk: a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy, not reported as dropped.
+   **Rationale**: After rebasing, commits have different SHAs but same content. Patch equivalence correctly identifies patch-equivalent commits, preventing false "commits behind" counts that confuse users with messages about "commits you removed or changed locally". The baseline stays in the walk: a remote commit that reached the baseline as a copy (cherry-pick, squash merge) is matched by that copy, not reported as dropped. Such a copy is not on the branch as it is, though: it is landed (Decision 10).
 
 6. **Decision**: Force push from the walk of the remote commits, not from the sync status
    **Rationale**: The sync reports a branch as rewritten only in the sync that rewrote it; the next sync or a restart
@@ -148,6 +149,30 @@ flowchart TD
    copy (`=`) whose author, author email, author time and message no remote copy (`=` of the walk behind) has is
    reworded. No process more; a rebased copy keeps all four, so a branch only rebuilt stays up to date.
 
+10. **Decision**: A remote commit the branch has by content only through the baseline is landed, and the branch is not
+    up to date
+    **Rationale**: Decision 5 matches a remote commit by a copy anywhere on the local side of `<remote>...<local>`, the
+    baseline commits since the remote branch's base included, and Decision 8 only the ones with another patch. A copy
+    the baseline has with the same patch counted nowhere. After the parent of a stack landed by a rebase merge (new
+    ids, the same patches) and the child was rebuilt on the baseline (`bd update`, `bd unstack --sync`), the child's
+    own commits were on the remote by content and the parent's old commits matched the baseline's copies, so `bd push`
+    of the child answered `up_to_date` and pushed nothing, also with `--force` (#163, the accio repository: a child 23
+    commits ahead of main on the remote, 20 locally; and one whose tree differed in 8 files). The remote branch is no
+    state of the branch then: a pull request into the baseline from it shows the landed changes again (GitHub reported
+    it `CONFLICTING`), and a Safe Push of it lands them again. A branch only rebuilt on a newer baseline still stays up
+    to date: its remote commits are copies of its own commits or of its ancestors', which the branch has above the
+    baseline. So the walk of the commits ahead, which excludes the baseline (`^baseline`), takes the remote side too
+    (`--left-right`): a remote commit it marks `<` has no copy among the commits of the branch and its ancestors, and
+    one the walk of the commits behind marks `=` all the same has its copy only in the baseline. No process more: the
+    walk was there, and the remote side it adds is as long as the walk behind. `%m` marks a copy `=` on either side,
+    so the remote side's lines are told by the ids of the walk behind (the same set, `<remote> ^<local>`, the
+    baseline being in the branch). The baseline commit of each comes from the same read of the baseline by identity
+    as Decision 8, one `rev-list` for both, only when there is one: a rebase merge and a cherry-pick keep the author,
+    the author time and the subject; a squash merge of one commit keeps none of the time, so its copy is counted, not
+    listed.
+    **Risk**: none for a remote commit reachable from a newer baseline than the branch is built on (a fetch after the
+    sync): the walk of the commits ahead excludes it, so it is not counted.
+
 ### Implementation Details
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
@@ -175,8 +200,10 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   commit map): `--format=%m%x00%H%x00%an%x00%ae%x00%at%x00%s`, the caller's options, then the revs between
   `--end-of-options` and `--`; the two walks of a pushed branch read the raw messages too
   (`walk_commits_with_messages`).
-- **Commits ahead and mine**: one walk, `git rev-list --reverse --cherry-mark --right-only ^baseline
-  origin/branch...local`; the lines marked `=` are copies the remote has by content, the rest is ahead. Of a stacked
+- **Commits ahead and mine**: one walk, `git rev-list --reverse --cherry-mark --left-right ^baseline
+  origin/branch...local`; the lines of the remote side (`<`, and the `=` ones whose ids the walk of the commits behind
+  lists) are set apart first: a `<` one with a `=` in the walk behind is a landed copy (Decision 10). Of the branch's
+  side, the lines marked `=` are copies the remote has by content, the rest is ahead. Of a stacked
   branch the walk holds its ancestors' commits too: those with the identity of an ancestor's commit (the stack
   ancestors below) are the ancestors' side, the rest the branch's own. An ancestor's line not marked `=` is ahead of
   the remote branch (`ancestor_commits_ahead`) unless it is a newer version of a commit behind, which is restacked. The user's
@@ -187,9 +214,9 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   first (a child before its parent). A line
   marked `=` (`%m`) is patch-equivalent to a local commit: the branch has it by content, it is not behind. Of the
   others, a line with the identity of an unpushed commit is an older version of it, one with the identity of a stack
-  ancestor's commit restacked; of the rest, when there is any, one more walk of the baseline above the remote tip by
-  the authors of those commits finds the landed ones (Decision 8); what remains is `commits_behind`, and its first ten
-  are `dropped_commits`.
+  ancestor's commit restacked; of the rest, when there is any, or when there are landed copies (Decision 10), one more
+  walk of the baseline above the remote tip by the authors of those commits finds the landed ones (Decision 8) and the
+  baseline commits of the copies; what remains is `commits_behind`, and its first ten are `dropped_commits`.
 - **Reworded ancestors**: a remote copy marked `=` whose version is no version of a copy of the branch is a copy of an
   ancestor's commit; the ancestors' side of the walk has their copies with their messages, so no process more. A
   remote copy with the author and author time of one of them and another version is restacked. A parent only rebuilt
@@ -336,7 +363,7 @@ push of a rebased, amended or restacked branch too, pushes on the click: asking 
 without reading.
 
 ### Handling Rebased Branches
-When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped).
+When branches are rebased onto latest master, the remote still has old pre-rebase commits. The `--cherry-pick` algorithm correctly identifies these as patch-equivalent: 0 behind and 0 ahead, so the branch is up to date. With new commits on top, only those are ahead, and the push is a safe force push (not a fast-forward, nothing dropped). A remote commit whose copy is only in the baseline, not among the commits of the branch or its ancestors, makes it no rebased branch: it is landed, and the push replaces it (Decision 10).
 
 ### Review Status
 The commit a review took, the source revision of a Patronus robot or the head of a pull request, is compared with the

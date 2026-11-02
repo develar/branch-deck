@@ -347,8 +347,8 @@ pub const LANDED_SUBJECTS: [&str; 2] = ["(auth) Add auth", "(auth) Add login"];
 
 /// After the push of `LANDED_SUBJECTS`, a Safe Push landed both commits of auth into the baseline, as the robot of a
 /// whole stack does: `Add auth` rebuilt on a target that changed its lines (another patch; the author, the author time and
-/// the subject kept), `Add login` as it was; Update Project put the branch onto it, and auth got one new commit. Returns
-/// the baseline commit of `Add auth`
+/// the subject kept), `Add login` as it was, with its patch; Update Project put the branch onto it, and auth got one new
+/// commit: both remote commits are landed. Returns the baseline commit of `Add auth`
 pub fn land_auth_by_content(repo: &TestRepo) -> String {
   git(repo, &["reset", "-q", "--hard", "refs/remotes/origin/master"]);
   write(repo, "f0.txt", "(auth) Add auth, rebuilt on a changed target");

@@ -2,7 +2,7 @@ use crate::detection_test_helpers::options_with_strategy;
 use crate::remote_status::{AncestorCommits, DROPPED_COMMITS_LIMIT, PushTimes, StackParent, StatusBranch, compute_remote_status_for_branch, compute_remote_statuses};
 use crate::sync::sync_branches;
 use branch_integration::strategy::DetectionStrategy;
-use domain_types::{DroppedCommit, LandedRemoteCommit, SyncEvent};
+use domain_types::{DroppedCommit, LandedRemoteCommit, PushAction, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -751,11 +751,8 @@ async fn a_child_of_an_amended_parent_is_restacked() {
   assert_eq!(pushed.ancestor_commits_ahead, 0);
 }
 
-/// A stack whose parent got a new commit after the child was pushed: the child's remote branch lacks it, so a Safe
-/// Push of that remote branch would land an older piece. The commit is the parent's, not unpushed work of the child,
-/// in the sync and outside it; once the child is pushed, nothing is ahead
-#[test(tokio::test)]
-async fn a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote() {
+/// The stack `login` on `auth`, one commit each, synced and both pushed; HEAD is `development`
+async fn pushed_stack() -> TestScenario {
   let scenario = TestScenario::new();
   scenario.setup_development_branch();
   append_config(scenario.local_repo.path(), &[("branchdeck.stacks", "true")]);
@@ -769,6 +766,15 @@ async fn a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote() {
   scenario.run_sync("user").await;
   scenario.local_repo.push("origin", "user/virtual/auth").unwrap();
   scenario.local_repo.push("origin", "user/virtual/login").unwrap();
+  scenario
+}
+
+/// A stack whose parent got a new commit after the child was pushed: the child's remote branch lacks it, so a Safe
+/// Push of that remote branch would land an older piece. The commit is the parent's, not unpushed work of the child,
+/// in the sync and outside it; once the child is pushed, nothing is ahead
+#[test(tokio::test)]
+async fn a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote() {
+  let scenario = pushed_stack().await;
 
   scenario
     .local_repo
@@ -824,9 +830,18 @@ async fn a_child_of_a_reworded_parent_is_restacked() {
   let events = scenario.run_sync("user").await.get_events();
   let login = synced_status(&events, "login");
   assert_eq!(
-    (login.commits_reworded, login.commits_restacked, login.commits_behind, login.ancestor_commits_ahead),
-    (0, 0, 0, 0)
+    (
+      login.commits_reworded,
+      login.commits_restacked,
+      login.commits_landed,
+      login.commits_behind,
+      login.ancestor_commits_ahead
+    ),
+    (0, 0, 0, 0, 0)
   );
+  // the remote's copies of the parent's commits have their content in the parent, above the baseline: none landed
+  let pushed = login_status_outside_the_sync(&scenario);
+  assert_eq!((pushed.commits_restacked, pushed.commits_landed, pushed.action), (0, 0, PushAction::UpToDate));
 }
 
 /// Someone else's commit with the subject and the author time of a commit of the branch is someone else's work: the
@@ -975,6 +990,64 @@ async fn a_remote_commit_that_landed_in_the_baseline_with_other_changes_is_lande
   assert_eq!(dropped_subjects(&result), ["Their fix 0"], "only someone else's commit is dropped");
 }
 
+/// The stack `login` on `auth`, both pushed; then `auth` landed in `origin/main` as another commit with its patch (a
+/// rebase merge), after a change of someone else when `baseline_moved`, and `login` rebuilt on `origin/main` alone, its
+/// commit as it was: the remote commit of `auth` and the baseline commit that has it
+async fn child_of_a_parent_that_landed(baseline_moved: bool) -> (TestScenario, String, String) {
+  let scenario = pushed_stack().await;
+  let pushed_auth = scenario.local_repo.git(&["rev-parse", "user/virtual/auth"]);
+  let pushed_login = scenario.local_repo.git(&["rev-parse", "user/virtual/login"]);
+
+  if baseline_moved {
+    push_baseline_change(&scenario);
+  }
+  scenario.local_repo.checkout("main").unwrap();
+  scenario.local_repo.cherry_pick(&pushed_auth).unwrap();
+  scenario.local_repo.push("origin", "main").unwrap();
+  let landed = scenario.local_repo.head();
+
+  scenario.local_repo.git(&["branch", "-f", "user/virtual/login", "origin/main"]);
+  scenario.local_repo.checkout("user/virtual/login").unwrap();
+  scenario.local_repo.cherry_pick(&pushed_login).unwrap();
+  (scenario, pushed_auth, landed)
+}
+
+/// The parent of a stack landed as other commits with its patches (a rebase merge on GitHub), and the child was rebuilt
+/// on the baseline: its own commit is on the remote by content, and the remote's copy of the parent's commit has its
+/// content only in the baseline. The remote branch is still built on the old baseline with the parent's old commits, so
+/// a pull request from it shows the landed changes again: it is landed, the push replaces it without --force, whether
+/// the trees of the two differ (the baseline moved since) or not
+#[test(tokio::test)]
+async fn a_child_rebuilt_on_the_baseline_after_its_parent_landed_replaces_the_parents_old_copies() {
+  for baseline_moved in [false, true] {
+    let (scenario, pushed_auth, landed) = child_of_a_parent_that_landed(baseline_moved).await;
+
+    let result = branch_status(&scenario.git_executor, &scenario, "login");
+
+    assert_eq!(result.unpushed_commits, Vec::<String>::new(), "login's own commit is on the remote by content");
+    assert_eq!(
+      (
+        result.commits_amended,
+        result.commits_restacked,
+        result.commits_landed,
+        result.commits_reworded,
+        result.commits_behind
+      ),
+      (0, 0, 1, 0, 0),
+      "baseline moved: {baseline_moved}"
+    );
+    assert_eq!(
+      result.landed_commits,
+      [LandedRemoteCommit {
+        id: pushed_auth,
+        subject: scenario.local_repo.git(&["log", "-1", "--format=%s", &landed]),
+        baseline_commit: landed,
+      }]
+    );
+    assert_eq!(result.action, PushAction::Force { drops: false, replaces: true }, "no --force: nothing is dropped");
+  }
+}
+
 /// A reword keeps the changes, so the remote has the commit by content, yet in another version: its message. The
 /// remote branch is not up to date, a robot would land the old message; a new author is another version too, and a copy
 /// with the message and the author as pushed only rebuilt
@@ -1081,11 +1154,12 @@ fn one_walk_tells_what_is_behind_and_the_fast_forward() {
   landed.local_repo.checkout("user/virtual/feature").unwrap();
   landed.local_repo.reset_hard("origin/main").unwrap();
   let second = landed.local_repo.create_commit("(feature) Second", "second.txt", "second");
-  assert_eq!(
-    counted_remote_side(&landed),
-    walked(vec![second], 0, false),
-    "the remote commit is in the baseline as a copy"
-  );
+  // a landed copy is looked for in the baseline by its identity, for the commit that has it: one more `rev-list`
+  let landed_copy = RemoteSide {
+    processes: BTreeMap::from([("for-each-ref".to_string(), 1), ("reflog".to_string(), 1), ("rev-list".to_string(), 3)]),
+    ..walked(vec![second], 0, false)
+  };
+  assert_eq!(counted_remote_side(&landed), landed_copy, "the remote commit is in the baseline as a copy");
 }
 
 /// Pushes `user/virtual/{name}` with the reflog entry at `time`, in a translated locale: git writes the reflog message

@@ -6060,12 +6060,14 @@ export type RemoteStatusUpdate = {
 	/**
 	 *  Commits of the remote that are older versions of commits the baseline has above the remote branch (author, author
 	 *  time and subject match a baseline commit, as Update Project finds landed commits; the changes may differ, as when a
-	 *  Safe Push landed them rebuilt on a newer target): a push replaces them
+	 *  Safe Push landed them rebuilt on a newer target), or copies the branch has by content only through a baseline
+	 *  commit, none of its own or its ancestors' (the parent of a stack landed by a rebase merge): a push replaces them
 	 */
 	commitsLanded: number,
 	/**
 	 *  The newest of the landed commits, newest first, at most `sync_core::remote_status::DROPPED_COMMITS_LIMIT`, all of
-	 *  them when only one more (`commits_landed` is the total)
+	 *  them when only one more (`commits_landed` is the total); a copy by content whose baseline commit has another
+	 *  identity (a squash merge of one commit) is counted, not listed
 	 */
 	landedCommits: LandedRemoteCommit[],
 	/**

@@ -727,9 +727,9 @@ fn amended_and_restacked_commits_push_without_force() {
 }
 
 /// The remote branch of a member of a stack that landed whole has its commits as they were before the landing: older
-/// versions of commits the baseline has, by identity, though one has another patch there. Nothing of them is lost, so
-/// the sync counts them `landed`, not `behind`, and `bd push` replaces them without --force, naming them in
-/// `replaced_landed`; the remote branch gets the baseline and the one new commit
+/// versions of commits the baseline has, by identity, though one has another patch there, and a copy of one the baseline
+/// has with its patch. Nothing of them is lost, so the sync counts both `landed`, not `behind`, and `bd push` replaces
+/// them without --force, naming them in `replaced_landed`; the remote branch gets the baseline and the one new commit
 #[test_log::test]
 fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
   let (repo, remote) = repo_with_remote(&LANDED_SUBJECTS);
@@ -741,12 +741,16 @@ fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
   let (exit_code, output) = run_in(&repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");
   let auth = &branch(&output, "auth")["remote"];
-  assert_eq!((&auth["unpushed"], &auth["landed"], &auth["behind"]), (&json!(1), &json!(1), &json!(0)), "{output}");
-  // the copy of `Add auth` on the remote, below the one of `Add login`, which the baseline has as it is
+  assert_eq!((&auth["unpushed"], &auth["landed"], &auth["behind"]), (&json!(1), &json!(2), &json!(0)), "{output}");
+  // newest first: the copy of `Add login` on the remote, which the baseline has as it is, then the one of `Add auth`
   let pushed_auth = git(&repo, &["rev-parse", &format!("{pushed}~1")]);
+  let landed_login = git(&repo, &["rev-parse", "refs/remotes/origin/master"]);
   assert_eq!(
     auth["landed_commits"],
-    json!([{"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)}])
+    json!([
+      {"commit": short_id(&pushed), "subject": "Add login", "baseline_commit": short_id(&landed_login)},
+      {"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)},
+    ])
   );
   assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
@@ -769,7 +773,7 @@ fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
 }
 
 /// The same landing, and someone else's commit on the remote branch, which the baseline lacks: the push stays refused
-/// without --force, and `dropped_commits` names only that commit, the landed one counted apart
+/// without --force, and `dropped_commits` names only that commit, the landed ones counted apart
 #[test_log::test]
 fn a_remote_commit_the_baseline_lacks_still_refuses_the_push() {
   let (repo, remote) = repo_with_remote(&LANDED_SUBJECTS);
@@ -784,10 +788,49 @@ fn a_remote_commit_the_baseline_lacks_still_refuses_the_push() {
   let refused = &output["error"]["branches"][0]["remote"];
   assert_eq!(
     (&refused["head"], &refused["behind"], &refused["landed"]),
-    (&json!(short_id(&theirs)), &json!(1), &json!(1))
+    (&json!(short_id(&theirs)), &json!(1), &json!(2))
   );
   assert_eq!(dropped_subjects(refused), ["Someone else"]);
   assert_eq!(remote_tip(&remote, AUTH), theirs, "nothing was pushed");
+}
+
+/// A stack whose parent landed as another commit with its patch (a rebase merge on GitHub), the child then rebuilt on
+/// the baseline alone (`bd unstack`): the child's remote branch is still built on the old baseline, with the old copy of
+/// the parent's commit, which the branch has by content only through the baseline. `bd push` of the child pushes,
+/// without --force, and names that copy in `replaced_landed`, instead of answering `up_to_date` (#163)
+#[test_log::test]
+fn a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed() {
+  const LOGIN: &str = "test-user/virtual/login";
+  let (repo, remote) = repo_with_remote(&["(auth) Add auth", "(auth/login) Add login"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let (exit_code, output) = run_in(&repo, &["push", "auth", "--with-children"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let pushed_login = remote_tip(&remote, LOGIN);
+  let pushed_auth = git(&repo, &["rev-parse", &format!("{pushed_login}~1")]);
+
+  // the rebase merge of auth: its patch, its author and author time, the subject without the prefix
+  git(&repo, &["reset", "-q", "--hard", "refs/remotes/origin/master"]);
+  write(&repo, "f0.txt", "(auth) Add auth");
+  let landed = commit_all(&repo, "Add auth", 1_700_000_000);
+  git(&repo, &["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  write(&repo, "f1.txt", "(auth/login) Add login");
+  commit_all(&repo, "(login) Add login", 1_700_000_100);
+
+  let (exit_code, output) = run_in(&repo, &["push", "login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  let login = branch(&output, "login");
+  assert_eq!((&login["state"], &login["lease"]), (&json!("forced"), &json!(short_id(&pushed_login))), "{output}");
+  assert_eq!(
+    login["replaced_landed"],
+    json!([{"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)}])
+  );
+  let tip = git(&repo, &["rev-parse", &format!("refs/heads/{LOGIN}")]);
+  assert_eq!(remote_tip(&remote, LOGIN), tip);
+  assert_eq!(
+    git(&repo, &["rev-list", "--count", &format!("refs/remotes/origin/master..{tip}")]),
+    "1",
+    "only login's commit on the baseline"
+  );
 }
 
 /// `bd push` with the arguments of a `push` line of the sync output
