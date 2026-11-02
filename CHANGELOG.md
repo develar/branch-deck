@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.43.0](https://github.com/develar/branch-deck/compare/v0.42.0...v0.43.0) (2026-11-02)
+
+
+### Features
+
+* **bd-host:** `bd-host disk` asks the agents what the lease pools of their hosts hold, the report of `bd lease disk` over the link ([9947626](https://github.com/develar/branch-deck/commit/9947626df5818bf70bae87a752318c917c7aa051))
+* **bd:** a pool gives its space back: below the minimum free space a get deletes the free slots past branchdeck.leaseMaxSlots with their Bazel output bases; bd lease trim and bd lease disk ([e95ead3](https://github.com/develar/branch-deck/commit/e95ead35623f297bcdb5f8eec93d2f2c34105cbb))
+* **commit:** one commit card for every place a commit is shown ([59bedc6](https://github.com/develar/branch-deck/commit/59bedc6724e7775257c7a6c056698675642733dd))
+* **commit:** one commit row for every sidebar, whose subject opens its card on hover, and the "⋯" of a commit at the end of its meta line ([041ae2c](https://github.com/develar/branch-deck/commit/041ae2c071d8d844405b1634bee0bc6d7628c8db))
+* **commit:** Rust finds the code of a line of prose, and a card, a preview and the story set one name alike ([d59527a](https://github.com/develar/branch-deck/commit/d59527ae1491f4c27a7c97e90ec1b2f279c91af4))
+* **commit:** Rust owns the whole grammar of a commit body ([0dbf651](https://github.com/develar/branch-deck/commit/0dbf6513409c95f6e873ebc6802a95832b15a4e6))
+* **commit:** the card of a commit folds its body as the review does, and fades while more is below ([916047a](https://github.com/develar/branch-deck/commit/916047a1c23f98dbc45f8c5e66ab1bab892532e7))
+* **diff:** a story opening of measured height above the card of a step, and a prologue before the first ([dbab3ce](https://github.com/develar/branch-deck/commit/dbab3ceef71a83aca37e9f3c2d02ad13e34e5d72))
+* **disk:** Disk Usage shows what the lease pools of this Mac and of the bd-host hosts hold, and trims this Mac's pools to their limit ([251b302](https://github.com/develar/branch-deck/commit/251b302f5b85b01c0001ab585d3852f9f4b348a7))
+* **disk:** the disk report counts the private size of the worktree of a slot, what a delete of it frees beside the APFS clone it came from ([22d7e76](https://github.com/develar/branch-deck/commit/22d7e767369e08cda70322d47ab2bb08f7dc8c99))
+* **review:** a code name of a story is a link to its section, and a section a body names links back ([8b6dc97](https://github.com/develar/branch-deck/commit/8b6dc97d8131dadf7acceedb8823717518685dc0))
+* **review:** a commit with a story of its own starts its step, and a step that lands nothing names who took it out ([0fc963e](https://github.com/develar/branch-deck/commit/0fc963e341f3802b92fd912edc092e8fad516f43))
+* **review:** a task of one commit takes the label its body gives it, and one task that covers the range tells no step ([bbe07bc](https://github.com/develar/branch-deck/commit/bbe07bcb8c6dcec56c73debbd55d403d35ef8ee3))
+* **review:** the group of a step of the commits is its commit ([fe14f79](https://github.com/develar/branch-deck/commit/fe14f7961efdb8c91a72685d55c6684c34bdfbcb))
+* **review:** the mark of the story on a section opens a card of the story, not a black tooltip ([48ca4dd](https://github.com/develar/branch-deck/commit/48ca4dd312b16041daee47f62932e8d23c622459))
+* **review:** the overview of a pull request is the document of its changes, its body the lead ([56cf9cd](https://github.com/develar/branch-deck/commit/56cf9cd77b1cf022457699280671bd6312ded8f1))
+* **review:** the review is one document: the overview, then each step's opening above its first card ([8ccbaec](https://github.com/develar/branch-deck/commit/8ccbaec236131030b34fe5accc10878a4219f83d))
+* **review:** the story of each commit in the plan, its code names resolved to the units ([d291306](https://github.com/develar/branch-deck/commit/d291306b93098dbc03c5d524808c407cc1fd3476))
+
+
+### Bug Fixes
+
+* **air:** a stop of a watch ends it without an error on Windows too ([53449e8](https://github.com/develar/branch-deck/commit/53449e80f1ff45cb6f412ad1adc55949cd436f58))
+* **commit:** a label right above its paragraph heads it, and a run-in Look closely holds its question alone ([66250b8](https://github.com/develar/branch-deck/commit/66250b8f8d3ab0e493e985c0afd32a35f1149381))
+* **commit:** the author's Look closely shows wherever it is in a body, never behind the fold ([c2ba0d8](https://github.com/develar/branch-deck/commit/c2ba0d8b6477b75c35fd82a9c33c0d8dae686986))
+* **commit:** the card a subject opened stays as the pointer moves onto its mark, and a comma follows its name in the line of folds ([fc4fd33](https://github.com/develar/branch-deck/commit/fc4fd33ac4101108dd828bfe4c14e7c8de7099fd))
+* **commit:** the card of a commit opens under its whole row, never over the meta line ([1af76d3](https://github.com/develar/branch-deck/commit/1af76d391b2becbb603e7a2b5ca85d23b684d4fc))
+* **disk:** the walk of Linux and Windows reads its entries in one function, which only the size and the link id of a file tell apart ([df74853](https://github.com/develar/branch-deck/commit/df748537555a81b736e123582414c58d47acf035))
+* **domain-policy:** a pull request merged into another branch than the target lands nothing ([af78af0](https://github.com/develar/branch-deck/commit/af78af02f64fd934a0b8f2a86e78f4bf8446e0d3))
+* **e2e:** the menu of a commit of the branch review is asked once the actions of the main window came ([fe7dc6c](https://github.com/develar/branch-deck/commit/fe7dc6cb0173c8d46d4e0195c6defa1570f6f2d8))
+* **review:** a body of trailers alone tells no step ([5dc5cac](https://github.com/develar/branch-deck/commit/5dc5cacbac3b0f54efaf25eb127ad5d009230ff7))
+* **review:** one commit is titled alike everywhere, in its author's case, and the overview names the branch as the title bar does ([e203527](https://github.com/develar/branch-deck/commit/e203527ddba8c3b82a3b361a78ea3f671977328e))
+* **review:** the footer says Overview, a code name's hover says what it names, the cards keep their rows in view, and a form reads as code ([dc44f55](https://github.com/develar/branch-deck/commit/dc44f55b9f8f2dbbccb2d5ee87b5566e21b89f1e))
+* **review:** the rows of the tree give their width to the titles: no role word, the hash in place of the counts, a directory whole or not at all ([fa00b56](https://github.com/develar/branch-deck/commit/fa00b56efed36b44e12aff748d257627723f5db2))
+* **review:** the story shows a name once, folds in one line, nests a round at the size of its row, and keeps its notes beside what they tell ([6e8cb83](https://github.com/develar/branch-deck/commit/6e8cb8386a0e8fe23e5d5c6eedbcd30385ae2903))
+* **review:** the titles of the tree wrap to a second line in a wider sidebar, and a row of a file says the step of its own row ([d94f140](https://github.com/develar/branch-deck/commit/d94f1406e0a9e76752845b13a42c0ab68a04302c))
+* **sync-core:** a remote branch with old copies of landed commits needs a push ([a0feb72](https://github.com/develar/branch-deck/commit/a0feb72db99a820673f86064363626d63e118460))
+* **sync-utils:** a caller of NextFlight that comes to the follow-up after it ended takes its answer ([3ad04d8](https://github.com/develar/branch-deck/commit/3ad04d8e45a56caf0a8acf9bb262b9a778082809))
+* **tests:** a helper or import of a unix-only test is no dead code on Windows ([0daeb61](https://github.com/develar/branch-deck/commit/0daeb611f5ec0f3b0f408854dc567e8e433c51fc))
+* **tests:** the tests over the trace directories of a measure skip on Windows ([ba034d0](https://github.com/develar/branch-deck/commit/ba034d028a7eba2c03115d1bd54f1ff2cac704db))
+
 ## [0.42.0](https://github.com/develar/branch-deck/compare/v0.41.0...v0.42.0) (2026-11-01)
 
 
