@@ -8,6 +8,11 @@ use air_launch::protocol::{Activity, Refusal, RefusalCode, Session, WatchLine};
 use pretty_assertions::assert_eq;
 use std::sync::Mutex;
 
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
+#[cfg(windows)]
+use uds_windows::UnixListener;
+
 /// The statuses a page heard; `gone`: the page went away, a send fails
 #[derive(Default)]
 struct Page {
@@ -92,11 +97,10 @@ fn a_page_that_went_away_stops_the_watch_at_its_first_status() {
 }
 
 /// A watch connected to a socket that greets in the handshake and then answers nothing: its `next` waits until a stop
-#[cfg(unix)]
 fn waiting_watch(dir: &std::path::Path, name: &str) -> air_launch::client::Watch {
   use std::io::{BufRead, Read, Write};
   let socket = dir.join(format!("{name}.sock"));
-  let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+  let listener = UnixListener::bind(&socket).unwrap();
   std::thread::spawn(move || {
     let (stream, _) = listener.accept().unwrap();
     let mut reader = std::io::BufReader::new(stream);
@@ -113,7 +117,6 @@ fn waiting_watch(dir: &std::path::Path, name: &str) -> air_launch::client::Watch
   air_launch::client::Client::new(&socket).watch("/work/idea", name).unwrap()
 }
 
-#[cfg(unix)]
 #[test]
 fn a_stop_a_newer_watch_of_the_session_and_a_page_that_went_away_end_the_watches_of_a_window() {
   let dir = tempfile::Builder::new().prefix("air").tempdir().unwrap();

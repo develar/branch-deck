@@ -16,6 +16,8 @@ use serde::de::DeserializeOwned;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -108,6 +110,7 @@ impl Client {
       answer,
       first: true,
       ended: false,
+      stopped: Arc::default(),
     })
   }
 
@@ -206,6 +209,10 @@ pub struct Watch {
   first: bool,
   /// The IDE sent the end or a refusal: no line comes after it
   ended: bool,
+  /// A `WatchStopper` closed the connection: what the read then gives is no line and no error. A read after the
+  /// shutdown ends at once, but how differs: Unix reads the end of the stream, Windows refuses the read
+  /// (`WSAESHUTDOWN`, os error 10058)
+  stopped: Arc<AtomicBool>,
 }
 
 impl Watch {
@@ -214,7 +221,11 @@ impl Watch {
   /// # Errors
   /// The socket cannot be shared
   pub fn stopper(&self) -> Result<WatchStopper, ClientError> {
-    self.stream.try_clone().map(WatchStopper).map_err(ClientError::Io)
+    let stream = self.stream.try_clone().map_err(ClientError::Io)?;
+    Ok(WatchStopper {
+      stream,
+      stopped: Arc::clone(&self.stopped),
+    })
   }
 }
 
@@ -226,9 +237,15 @@ impl Iterator for Watch {
     if self.ended {
       return None;
     }
-    let line = match self.answer.take() {
-      Some(answer) => Ok(answer),
-      None => self.lines.next(&mut self.stream, None).transpose()?,
+    let line = if let Some(answer) = self.answer.take() {
+      Ok(answer)
+    } else {
+      let read = self.lines.next(&mut self.stream, None);
+      if self.stopped.load(Ordering::SeqCst) {
+        self.ended = true;
+        return None;
+      }
+      read.transpose()?
     };
     let first = std::mem::replace(&mut self.first, false);
     let line = line.and_then(|line| if first { parse_first::<WatchLine>(&line) } else { parse::<WatchLine>(&line) });
@@ -239,13 +256,18 @@ impl Iterator for Watch {
 
 /// Stops a watch from another thread
 #[derive(Debug)]
-pub struct WatchStopper(UnixStream);
+pub struct WatchStopper {
+  stream: UnixStream,
+  stopped: Arc<AtomicBool>,
+}
 
 impl WatchStopper {
   /// Closes the connection: the IDE ends the watch, and the `next` that waits answers none
   pub fn stop(&self) {
+    // before the shutdown: the read it ends finds the flag set
+    self.stopped.store(true, Ordering::SeqCst);
     // the IDE may have closed it already
-    let _ = self.0.shutdown(Shutdown::Both);
+    let _ = self.stream.shutdown(Shutdown::Both);
   }
 }
 

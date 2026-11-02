@@ -54,6 +54,10 @@ update-core = { path = "../update-core", features = ["fixtures"] }
 pretty_assertions = { workspace = true }
 tempfile.workspace = true
 
+# the fake socket of an IDE in `air_launch_test.rs`: AF_UNIX on Windows, as `air-launch` connects to it
+[target.'cfg(windows)'.dev-dependencies]
+uds_windows = "1.2.1"
+
 [features]
 default = []
 # `contract_cases`: the errors of the adapters' contract test (the app and the e2e server answer the same JSON)

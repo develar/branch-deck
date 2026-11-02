@@ -183,6 +183,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trial-check",
+ "uds_windows",
  "update-core",
  "youtrack",
 ]

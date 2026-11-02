@@ -86,7 +86,9 @@ one dialog.
 - A watch (`watch`, the project and the session id) holds its connection without a timeout of the client: the IDE
   sends the status of the session (its title and activity) now and after each change, and ends with `end` (`timeout`
   after 4 h), with the refusal `NO_SESSION`, or with a close. Nothing is read after the end. A refusal of v1 can come
-  before the first status (`BUSY` when 8 watches are open). A stop from another thread closes the connection.
+  before the first status (`BUSY` when 8 watches are open). A stop from another thread closes the connection, and the
+  read it ends gives no line and no error on every platform (Windows refuses a read after the shutdown, where Unix
+  reads the end of the stream).
   [@test] ../../crates/air-launch/src/client_test.rs (`a_watch_names_the_session_and_reads_each_status_until_the_end`, `a_watch_of_a_session_that_is_gone_ends_with_no_session_and_a_close_ends_it_without_a_line`, `a_watch_waits_without_a_timeout_and_its_stopper_ends_it_from_another_thread`, `a_garbled_line_of_a_watch_is_a_bad_response_and_ends_it`)
 
 ### The action
