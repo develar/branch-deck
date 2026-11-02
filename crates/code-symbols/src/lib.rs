@@ -17,6 +17,7 @@ pub mod highlight;
 pub mod language;
 pub mod navigate;
 pub mod summary;
+pub mod summary_text;
 
 #[cfg(feature = "java")]
 mod java;
