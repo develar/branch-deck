@@ -1,6 +1,6 @@
 // @spec spec/branch/branch-review.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import type { ReviewSegment, Interdiff, ReviewCommit, ReviewPlan } from "@/lib/bindings"
+import type { ReviewSegment, Interdiff, ReviewCommit } from "@/lib/bindings"
 import {
   ALL_CHANGES,
   SINCE_REVIEW,
@@ -14,6 +14,7 @@ import {
   shownKey,
   storyCommits,
 } from "@/lib/range-review"
+import { reviewPlan } from "@/test-support/review-step"
 
 function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
   return { id, subject, message: subject, hasBody: false, author: "Test User", authorTime, committerTime: authorTime }
@@ -58,23 +59,7 @@ describe("the local Since Your Review", () => {
     items.map(item => (item.kind === "scope" ? `${item.label} ${item.detail}` : `${item.commit.subject}${item.since === undefined ? "" : ` (${item.since})`}`))
 
   it("takes the interdiff only of the part's own branch, and only of a plan of the head on screen", () => {
-    const plan: ReviewPlan = {
-      branch: "user/virtual/auth",
-      base: "base",
-      head: "c4",
-      interdiff,
-      api: [],
-      files: [],
-      links: [],
-      dependencies: [],
-      repeatedEdits: [],
-      units: [],
-      concerns: [],
-      steps: { source: { kind: "commits" }, steps: [], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
-      brief: { issue: null, contract: [] },
-      order: [],
-      indexNote: null,
-    }
+    const plan = reviewPlan({ branch: "user/virtual/auth", base: "base", head: "c4", interdiff })
     expect(shownInterdiff(plan, true, "c4")).toBe(interdiff)
     // a part of several branches: the pair is on the base of the upper branch alone, the lower commits are no news
     expect(shownInterdiff(plan, false, "c4")).toBeNull()

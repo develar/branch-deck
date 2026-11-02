@@ -262,6 +262,7 @@ function openingOf(section: DiffSection, openings: ReadonlyMap<string, OpeningVi
       id: step.id,
       number: step.number,
       title: step.title,
+      code: false,
       evidence: null,
       story: null,
       followUps: [],
@@ -406,11 +407,11 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
   const navigator = useSelectReviewFile()
   const first = marks[0]!
   // the marks of one place under one heading, in their order
-  const places: { title: string; marks: StoryMark[] }[] = []
+  const places: { title: string; head: StoryMark; marks: StoryMark[] }[] = []
   for (const mark of marks) {
     const place = places.find(it => it.title === mark.title)
     if (place === undefined) {
-      places.push({ title: mark.title, marks: [mark] })
+      places.push({ title: mark.title, head: mark, marks: [mark] })
     } else {
       place.marks.push(mark)
     }
@@ -446,7 +447,15 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
       >
         {places.map(place => (
           <div key={place.title} className="flex min-w-0 flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">{place.title}</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              {place.head.place}
+              {place.head.label !== null && (
+                <>
+                  {" · "}
+                  <span className={cn(place.head.code && "font-mono")}>{place.head.label}</span>
+                </>
+              )}
+            </span>
             {place.marks.map(mark => (
               <p key={mark.key} className="border-l-2 border-border pl-2.5 [font-feature-settings:'ss04'] text-sm">
                 <StoryText text={mark.preview} mentions={mark.mentions} />

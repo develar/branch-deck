@@ -678,7 +678,7 @@ function DirectoryRowContent({ node, isOpen, ownerMark }: { node: FileTreeDirect
     <>
       <Icon className="size-4 shrink-0 text-muted-foreground" />
       <span
-        className={cn("min-w-0 flex-1 truncate", node.group === "concern" && "font-medium")}
+        className={cn("min-w-0 flex-1 truncate", node.group === "concern" && "font-medium", node.code === true && "font-mono text-xs")}
         title={node.title ?? (node.group === undefined ? node.key.slice(0, -1) : node.name)}
         data-group={node.group}
       >

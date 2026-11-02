@@ -18,7 +18,7 @@ const step = reviewStep
 
 function plan(steps: ReviewStep[], issue: string | null = null, concerns: Concern[] = []): Pick<ReviewPlan, "steps" | "concerns" | "brief"> {
   return {
-    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
+    steps: { source: { kind: "commits" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     concerns,
     brief: { issue, contract: [] },
   }
@@ -44,7 +44,7 @@ describe("review steps", () => {
     expect(chapters.map(chapter => formatStepDivider(chapter))).toEqual(["Step 1 · The rule", `Step 2 · ${WITHOUT_A_STORY}`])
   })
 
-  it("names a step of a concern by its concern and keeps its main rows", () => {
+  it("names a step of a concern by the label of the section of the body it tells, else by its concern as code, keeps its main rows, and tells no step of a story Rust tells in none", () => {
     const concern: Concern = {
       id: "c",
       name: { source: "token", token: "proxy" },
@@ -62,6 +62,28 @@ describe("review steps", () => {
       "Joined by the identifier ij-proxy",
       ["a.json"],
       "Step 1 · proxy",
+    ])
+    // its name is an identifier, set as code; a story Rust tells in no steps (one task that covers the range,
+    // `ReviewSteps.told`) tells no chapter
+    expect([chapter!.told, chapter!.code]).toEqual([true, true])
+    expect(presentChapters({ ...of, steps: { ...of.steps, told: false } }).map(it => it.told)).toEqual([false])
+
+    // beside another task, each a step; the label of the section of the body told in a step is its title, as the author
+    // named the task, and is no code
+    const theme: Concern = { ...concern, id: "t", name: { source: "token", token: "accent" }, paths: ["b.json"], elsewhere: [], fingerprint: "t" }
+    const two = presentChapters(
+      plan(
+        [
+          { ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c", title: "The proxy" },
+          { ...step("t", [commit("one")], [["u:b", "b.json"]]), concern: "t" },
+        ],
+        null,
+        [concern, theme],
+      ),
+    )
+    expect(two.map(it => [it.label, it.told, it.code])).toEqual([
+      ["The proxy", true, false],
+      ["accent", true, true],
     ])
   })
 

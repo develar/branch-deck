@@ -588,4 +588,50 @@ test.describe("Review tour", () => {
     await paint.getByTestId("review-step-taken-out-by").click()
     await expect(window.getByTestId("review-step-bar").getByTestId("review-step-position")).toHaveText("Step 5 / 5")
   })
+
+  test("should title each task of one commit by the label of the section of its body it tells", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // one commit, two tasks: the splash and the accent it takes, each a labelled section of its body
+    await repo.commit(
+      "(story) the cold start paints a splash in the accent of the theme\n\nThe cold start paints a splash at once, and the theme of the splash follows the IDE.\n\nThe splash:\n- `Splash.show` paints the splash before the frame registers its tool windows\n- `SplashScreen.hide` takes it down after the first frame\n\nThe theme:\n- `Theme.accent` answers the accent of the current scheme\n\nTests:\n- `SplashTest` and `ThemeTest`",
+      {
+        "src/c/Splash.kt": "package c\n\nclass Splash {\n  fun show(): Int = 1\n}\n",
+        "src/c/SplashScreen.kt": "package c\n\nclass SplashScreen(val splash: Splash) {\n  fun hide(): Int = splash.show() - 1\n}\n",
+        "test/c/SplashTest.kt": "package c\n\nimport org.junit.Test\n\nclass SplashTest {\n  @Test fun `the splash shows once`() = check(SplashScreen(Splash()).hide() == 0)\n}\n",
+        "src/d/Theme.kt": 'package d\n\nobject Theme {\n  fun accent(dark: Boolean): String = if (dark) "#88aaff" else "#3355cc"\n}\n',
+        "test/d/ThemeTest.kt": 'package d\n\nimport org.junit.Test\n\nclass ThemeTest {\n  @Test fun `a dark accent`() = check(Theme.accent(true) == "#88aaff")\n}\n',
+      },
+      1704121200,
+    )
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "story")
+    const titles = window.getByTestId("review-overview").getByTestId("review-contents-step-title")
+    await expect(titles.first()).toHaveText("The splash")
+    await expect(titles.nth(1)).toHaveText("The theme")
+    // the identifier stays the evidence that joined the task
+    await expect(window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "The splash", exact: true })).toBeVisible()
+    await titles.nth(1).click()
+    await expect(window.getByTestId("review-step-bar").getByTestId("review-step-title")).toHaveText("The theme")
+  })
+
+  test("should tell no step of the one concern that covers the range: no Steps, no opening, no place in the bar", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    await repo.commit(
+      "(solo) the splash shows once\n\nThe cold start paints a splash at once and takes it down after the first frame.\n\nThe splash:\n- `Splash.show` paints it\n- `SplashScreen.hide` takes it down",
+      {
+        "src/c/Splash.kt": "package c\n\nclass Splash {\n  fun show(): Int = 1\n}\n",
+        "src/c/SplashScreen.kt": "package c\n\nclass SplashScreen(val splash: Splash) {\n  fun hide(): Int = splash.show() - 1\n}\n",
+      },
+      1704121200,
+    )
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "solo")
+    const overview = window.getByTestId("review-overview")
+    // the overview tells the whole body under the heading of the commit, its section too; the tree lists the files
+    await expect(overview.getByTestId("range-review-commit-header")).toContainText("SplashScreen.hide takes it down")
+    await expect(window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "src/c", exact: true })).toBeVisible()
+    await expect(overview.getByTestId("review-contents")).toHaveCount(0)
+    await expect(window.getByTestId("review-opening")).toHaveCount(0)
+    await expect(window.getByTestId("review-step-bar")).toHaveCount(0)
+  })
 })

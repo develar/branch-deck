@@ -31,7 +31,7 @@ use crate::fan_in::ask_index;
 use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
 use crate::links::FileLink;
 use crate::pair::{PairBlocks, block_of};
-use crate::story::{StoryCommit, add_step_facts, story_commits};
+use crate::story::{StoryCommit, add_step_facts, add_story_titles, story_commits};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice};
 use anyhow::Result;
 use code_symbols::language::language_of;
@@ -66,6 +66,10 @@ const TAIL: u64 = u64::MAX / 4;
 #[serde(rename_all = "camelCase")]
 pub struct ReviewSteps {
   pub source: StepSource,
+  /// Whether the story tells the range in steps: not when the steps are one concern, which covers the whole range and
+  /// would only repeat the header; the range then reads as without a plan: its whole body, no list of steps, no
+  /// opening, no place in the step bar
+  pub told: bool,
   /// In the order of the story: the commits that start them, oldest first; "Changes without a story" last
   pub steps: Vec<ReviewStep>,
   pub coverage: StepCoverage,
@@ -146,6 +150,9 @@ pub struct ReviewStep {
   /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
   /// step whose stop shows the first use, each in one step
   pub module_links: Vec<u32>,
+  /// Of a step of the concerns of one commit: the label of the first labelled section of its body the step tells
+  /// (`story::add_story_titles`), its title; the name of its concern stays the evidence that joined it. `None` otherwise
+  pub title: Option<String>,
   /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
   /// its id; `None` for a step that shows something
   pub taken_out_by: Option<String>,
@@ -167,6 +174,7 @@ impl ReviewStep {
       tests: StepTests::default(),
       new_api: Vec::new(),
       module_links: Vec::new(),
+      title: None,
       taken_out_by: None,
       code: Vec::new(),
     }
@@ -540,8 +548,10 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
   add_step_facts(input, &mut steps);
   let coverage = coverage(input, &steps);
   let commits = story_commits(input, &steps, source == Some(ConcernsReason::OneCommit));
+  add_story_titles(&mut steps, &commits);
   ReviewSteps {
     source: source.map_or(StepSource::Commits, |reason| StepSource::Concerns { reason }),
+    told: source.is_none() || input.concerns.len() > 1,
     steps,
     coverage,
     commits,

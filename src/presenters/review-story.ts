@@ -190,6 +190,8 @@ export interface ContentsStep {
   readonly number: number
   /** Its full title: the subject of the commit that starts it without the issue key, a concern by its name */
   readonly title: string
+  /** Its title is an identifier: set as code */
+  readonly code: boolean
   /** The summary its commit's body opens with, with its code names; null without */
   readonly lead: { readonly story: StoryView; readonly block: PlacedBlock } | null
   readonly facts: StepFacts
@@ -283,7 +285,7 @@ function storyOf(plan: Pick<ReviewPlan, "steps">, id: string | undefined): Story
 export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueView {
   const chapters = presentChapters(plan)
   const words = mentionWords(plan)
-  const told = chapters.some(chapter => !chapter.rest)
+  const told = chapters.some(chapter => chapter.told)
   const one = storyOfOneCommit(plan)
   const steps = (told ? plan.steps.steps : []).map((step, index): ContentsStep => {
     const chapter = chapters[index]!
@@ -295,6 +297,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
       id: step.id,
       number: chapter.number,
       title: chapter.label,
+      code: chapter.code,
       lead: view?.lead == null ? null : { story: view, block: view.lead },
       facts: presentStepFacts(step, plan),
       // the author's question of a round too: its story is folded under the step's opening
@@ -381,6 +384,8 @@ export interface OpeningView {
   readonly number: string
   /** Its full title, which wraps */
   readonly title: string
+  /** Its title is an identifier: set as code */
+  readonly code: boolean
   /** Of a step of a concern: what joins its parts ("Joined by the identifiers …") */
   readonly evidence: string | null
   /** The story it tells: the body of the commit that starts it, of a concern of one commit the blocks told in it */
@@ -423,6 +428,7 @@ export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
           id: step.id,
           number: formatStepNumber(chapter.number),
           title: chapter.label,
+          code: chapter.code,
           evidence: concern === undefined ? null : formatConcernEvidence(concern.evidence),
           story: story === null || (story.lead === null && story.shown.length === 0 && story.folded.length === 0) ? null : story,
           followUps: rest.filter(commit => commit.role === "followsUp").map(commit => commitOf(commit.id, commit.subject, true)),
@@ -447,6 +453,11 @@ export interface StoryMark {
   readonly step: string | null
   /** Where it is told: "Step 2 · The open keeps a stored layout", "Overview" */
   readonly title: string
+  /** The place of `title` ("Step 2", "Overview") and the label of its step after it, `null` for the overview */
+  readonly place: string
+  readonly label: string | null
+  /** The label of its step is an identifier, set as code (`Chapter.code`) */
+  readonly code: boolean
   /** The text of the line of the block that names the section, its backticks kept */
   readonly preview: string
   /** The code names of that line, worded (`mentionWords`): the quote of a mark links them as the story does */
@@ -479,7 +490,7 @@ export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief"
   const chapters = presentChapters(plan)
   const words = mentionWords(plan)
   const steps = plan.steps.steps
-  const told = chapters.some(chapter => !chapter.rest)
+  const told = chapters.some(chapter => chapter.told)
   const one = storyOfOneCommit(plan)
   // where each told commit is told: its step, or per block for the concerns of one commit
   const toldAt = new Map<string, (block: number) => number | null>()
@@ -521,6 +532,9 @@ export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief"
             block: mention.block,
             step: where?.id ?? null,
             title: chapter === undefined ? "Overview" : `${formatStepNumber(chapter.number)} · ${chapter.label}`,
+            place: chapter === undefined ? "Overview" : formatStepNumber(chapter.number),
+            label: chapter?.label ?? null,
+            code: chapter?.code ?? false,
             preview: lineOf(commit.body.blocks[mention.block], mention.item),
             mentions: worded.filter(it => it.block === mention.block && it.item === mention.item),
           })

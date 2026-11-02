@@ -1,5 +1,6 @@
 import { useEffect } from "react"
 import type { ReactNode } from "react"
+import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -218,7 +219,10 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
         <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{step.number}</span>
         <button
           type="button"
-          className="min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
+          className={cn(
+            "min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline",
+            step.code && "font-mono text-sm",
+          )}
           disabled={onShow === null}
           data-testid="review-contents-step-title"
           onClick={() => onShow?.()}

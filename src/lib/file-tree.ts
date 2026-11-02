@@ -63,6 +63,8 @@ export interface FileTreeDirectory {
   commitCount?: number
   /** Its hover: why the files of a concern are together */
   title?: string
+  /** A concern named by an identifier: its name is code */
+  code?: boolean
   /**
    * The commit that starts a step of the commits, which the row of its step is: its menu, its hash, Enter shows it alone;
    * its key is the key of the group
@@ -231,7 +233,7 @@ export function buildReviewTree(
   commits?: CommitPlaces<ReviewCommitItem>,
   searched = false,
 ): FileTreeNode[] {
-  const tasks = chapters.filter(chapter => !chapter.rest)
+  const tasks = chapters.filter(chapter => chapter.told)
   const otherCommits = searched ? undefined : commits
   if (tasks.length === 0) {
     return withOtherCommits(withMechanicalGroup(buildFileTree(files.filter(file => !mechanical.has(file.path))), files, mechanical), otherCommits, new Set(), COMMITS)
@@ -297,7 +299,7 @@ export function buildReviewTree(
     const commitRows = listed ? commitNodes(commits?.steps.get(chapter.id) ?? [], key, chapter.id) : []
     if (children.length > 0 || commitRows.length > 0 || head !== undefined) {
       grouped.add(chapter.id)
-      const group = groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined)
+      const group = { ...groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined), ...(chapter.code && { code: true }) }
       nodes.push(head === undefined ? group : { ...group, commit: { kind: "commit", key, name: head.title, depth: 0, parentKey: undefined, commit: head, chapter: chapter.id } })
     }
   }

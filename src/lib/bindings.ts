@@ -6686,6 +6686,11 @@ export type ReviewStep = {
 	 */
 	moduleLinks: number[],
 	/**
+	 *  Of a step of the concerns of one commit: the label of the first labelled section of its body the step tells
+	 *  (`story::add_story_titles`), its title; the name of its concern stays the evidence that joined it. `None` otherwise
+	 */
+	title: string | null,
+	/**
 	 *  Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
 	 *  its id; `None` for a step that shows something
 	 */
@@ -6695,6 +6700,12 @@ export type ReviewStep = {
 /**  The steps of a review */
 export type ReviewSteps = {
 	source: StepSource,
+	/**
+	 *  Whether the story tells the range in steps: not when the steps are one concern, which covers the whole range and
+	 *  would only repeat the header; the range then reads as without a plan: its whole body, no list of steps, no
+	 *  opening, no place in the step bar
+	 */
+	told: boolean,
 	/**  In the order of the story: the commits that start them, oldest first; "Changes without a story" last */
 	steps: ReviewStep[],
 	coverage: StepCoverage,

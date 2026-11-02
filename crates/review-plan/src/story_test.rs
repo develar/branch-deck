@@ -151,7 +151,7 @@ fn a_name_two_declarations_share_resolves_to_the_one_of_its_step_else_to_nothing
 /// The body of one commit, whose steps are its concerns, is told where its sections name the code: a labelled section
 /// in the step that holds most of what it names, the lead and a section that names nothing before the steps
 #[test]
-fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue() {
+fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label() {
   let repo = TestRepo::new();
   let (store, reader) = ("src/store/Store.kt", "src/read/Reader.kt");
   let base = repo.create_commit_with_files(
@@ -182,6 +182,11 @@ fn the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and
   // the lead, the label and the list of the scope, of the clock, of the tests
   let story = story(&plan, "A load names its scope");
   assert_eq!(story.told_in, [None, Some(0), Some(0), Some(1), Some(1), None, None]);
+  // each step is titled by the label of the section it tells, as the author named its task
+  let titles: Vec<Option<&str>> = plan.steps.steps.iter().map(|step| step.title.as_deref()).collect();
+  assert_eq!(titles, [Some("The scope"), Some("The clock")]);
+  // two tasks are a story told in steps
+  assert!(plan.steps.told);
   // the body is told once, though both steps list its commit
   assert_eq!(plan.steps.commits.len(), 1);
 }

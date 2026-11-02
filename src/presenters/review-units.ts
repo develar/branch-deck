@@ -152,7 +152,7 @@ interface Step {
  * mechanical groups) in the order of the units; else the units as Rust ordered them
  */
 function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]): Step[] {
-  if (!concerns.some(concern => !concern.rest)) {
+  if (!concerns.some(concern => concern.told)) {
     return units.map(unit => ({ unit, concern: null }))
   }
   const byId = new Map(units.map(unit => [unit.id, unit]))

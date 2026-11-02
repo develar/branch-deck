@@ -1,4 +1,4 @@
-import type { CommitRole, ConcernPart, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
+import type { CommitRole, ConcernName, ConcernPart, ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
 import { formatConcernEvidence, formatConcernName } from "@/presenters/review-concerns"
 
 /*
@@ -31,7 +31,15 @@ export interface Chapter {
   readonly reference: string
   /** Why its parts are together, in the hover of its row: the evidence of a concern */
   readonly hover: string | null
+  /** What no evidence joined: the concern "Other changes" */
   readonly rest: boolean
+  /**
+   * Whether the story tells it as a step (its row a group, its opening, its place in the bar): not what no evidence
+   * joined, and not the one concern that covers the whole range, which would only repeat the range
+   */
+  readonly told: boolean
+  /** Its label is an identifier (the token, the declaration, the file of a concern no section of a body titles): code */
+  readonly code: boolean
   readonly parts: readonly ConcernPart[]
   readonly paths: readonly string[]
   readonly elsewhere: readonly string[]
@@ -56,7 +64,9 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
     const parts = step.stops.map(stop => ({ unit: stop.unit, path: stop.path, blocks: stop.blocks }))
     const concern = step.concern === null ? undefined : concerns.get(step.concern)
     if (concern !== undefined) {
-      const label = formatConcernName(concern.name)
+      // the author's name of the task, the label of the section of the body told in it, else the name of its evidence
+      const label = step.title ?? formatConcernName(concern.name)
+      const rest = concern.name.source === "rest"
       return {
         id: step.id,
         number,
@@ -64,7 +74,9 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
         heading: label,
         reference: label,
         hover: formatConcernEvidence(concern.evidence),
-        rest: concern.name.source === "rest",
+        rest,
+        told: !rest && plan.steps.told,
+        code: step.title === null && isCodeName(concern.name),
         parts,
         paths: concern.paths,
         elsewhere: concern.elsewhere,
@@ -79,6 +91,8 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns" | "b
       reference: `step ${number}`,
       hover: null,
       rest: false,
+      told: true,
+      code: false,
       parts,
       paths: step.paths,
       elsewhere: step.elsewhere,
@@ -190,6 +204,7 @@ export function formatCommitRole(role: CommitRole | null): string | null {
 export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns"]): Chapter[] {
   return concerns.map((concern, index) => {
     const label = formatConcernName(concern.name)
+    const rest = concern.name.source === "rest"
     return {
       id: concern.id,
       number: index + 1,
@@ -197,12 +212,19 @@ export function concernChapters(concerns: Pick<ReviewPlan, "concerns">["concerns
       heading: label,
       reference: label,
       hover: formatConcernEvidence(concern.evidence),
-      rest: concern.name.source === "rest",
+      rest,
+      told: !rest,
+      code: isCodeName(concern.name),
       parts: concern.parts,
       paths: concern.paths,
       elsewhere: concern.elsewhere,
     }
   })
+}
+
+/** Whether the name of a concern is an identifier the code spells: a token, a declaration, a replacement, a file or a directory */
+function isCodeName(name: ConcernName): boolean {
+  return name.source !== "rest" && !(name.source === "directory" && name.directory === "")
 }
 
 /** The words of a step in the diffs, in the hover of the map of the files: "Step 2 · The open keeps a stored layout" */

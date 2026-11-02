@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent, ReactNode } from "react"
+import { cn } from "cn"
 import { useDefaultLayout } from "react-resizable-panels"
 import { Button } from "@/components/ui/button"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
@@ -1149,7 +1150,7 @@ function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count
       <span aria-hidden className="shrink-0 text-muted-foreground">
         ·
       </span>
-      <span className="min-w-0 truncate font-medium" data-testid="review-step-title">
+      <span className={cn("min-w-0 truncate font-medium", !overview && chapter.code && "font-mono")} data-testid="review-step-title">
         {overview ? formatStepCount(count) : chapter.label}
       </span>
     </button>

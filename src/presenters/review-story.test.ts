@@ -4,7 +4,7 @@ import { MORE } from "@/presenters/commit-body"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
-import { reviewStep, stepCommit } from "@/test-support/review-step"
+import { reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
 
 const commit = stepCommit
 const step = reviewStep
@@ -27,24 +27,8 @@ function story(subject: string, blocks: CommitBodyBlock[], parts: readonly Part[
 }
 
 function plan(steps: ReviewStep[], commits: StoryCommit[], more: Partial<ReviewPlan> = {}): ReviewPlan {
-  return {
-    branch: "feature/layout",
-    base: "1111111111",
-    head: "2222222222",
-    interdiff: null,
-    api: [],
-    files: [],
-    links: [],
-    dependencies: [],
-    repeatedEdits: [],
-    units: [],
-    concerns: [],
-    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits },
-    brief: { issue: null, contract: [] },
-    order: [],
-    indexNote: null,
-    ...more,
-  }
+  const base = reviewPlan()
+  return reviewPlan({ steps: { ...base.steps, steps, commits }, ...more })
 }
 
 /** The text of the blocks of a part: a paragraph its lines, a list its items */
@@ -163,6 +147,7 @@ describe("the document of a review", () => {
         brief: { issue: "IJAI-1", contract: [] },
         steps: {
           source: { kind: "concerns", reason: "noStory" },
+          told: true,
           steps: [{ ...step("r", [commit("fix", "noStory")], [["u:a", "a.kt"]]), concern: "r" }],
           coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 },
           commits: [],
@@ -327,7 +312,7 @@ describe("the document of a review", () => {
     const whole = plan(steps, [one], {
       concerns,
       brief: { issue: "IJAI-1", contract: [] },
-      steps: { source: { kind: "concerns", reason: "oneCommit" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
+      steps: { source: { kind: "concerns", reason: "oneCommit" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [one] },
     })
     const openings = presentOpenings(whole)
     expect(textOf(openings.get("c1")!.story!)).toEqual({ lead: null, shown: [["The rule:", "allowed decides."]], folded: [] })
@@ -420,6 +405,8 @@ describe("the document of a review", () => {
       ["file:src/a/Manager.kt#1", [["the rule", 0, "b", "Step 2 · The rule", "One rule decides now: `Manager.allowed` answers, by `Layout`."]]],
       ["file:src/a/Frame.kt", [["the rule", 2, "b", "Step 2 · The rule", "- `Frame.kt` asks it"]]],
     ])
+    // the heading of its card: the place, then the label of the step, an identifier set as code
+    expect(marks.get("file:src/a/Frame.kt")!.map(mark => [mark.place, mark.label, mark.code])).toEqual([["Step 2", "The rule", false]])
     // the quote of a mark links the code names of its line, worded as the story words them
     expect(marks.get("file:src/a/Manager.kt#1")![0]!.mentions.map(it => [it.text, it.title])).toEqual([
       ["Manager.allowed", "allowed — new · Manager.kt:6 · step 2"],

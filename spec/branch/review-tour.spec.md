@@ -132,8 +132,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 - Every commit of the range whose body has a block must have its story once (`commits`, oldest first), also when
   several steps list it: its id, its subject without the `(prefix)`, its body by the grammar of a body
   ([Commit Row → Message body](../commit/commit-row.spec.md)), its code names (`mentions`) and, of the concerns of one
-  commit, where each block is told (`toldIn`). A commit of a step names no body of its own.
-  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue`)
+  commit, where each block is told (`toldIn`), and the title of each step that tells a labelled section (`title`:
+  the label of the first one, a verification and a Look closely aside). A commit of a step names no body of its own.
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`)
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote`, `a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
 - A code name of a block that is no preformatted text must resolve to a unit or a changed file of the range, with no
   git process and no query of the index: a span in backticks that names code (a path, a file name, identifiers joined
@@ -166,7 +167,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   each block, must be told in the step that holds the targets of most of its resolved mentions, the earliest of equal
   ones (`toldIn`, by the place of the step); the lead and a part that names nothing are told before the steps
   (`null`). A story of several commits keeps the order of its author: `toldIn` is empty.
-  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
+  [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
 - A step must list the public declarations it adds (`newApi`, the keys of the `added` entries of `api` whose
   declaration or new file its stops show) and the links it adds between two modules (`moduleLinks`, by their place in
   `links`, in the step whose stop shows the first use of the link, else the first step of the file that uses), each
@@ -215,7 +216,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
   tells the rest. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
-  only step is what no evidence joined lists no step, and its facts are the facts of the range. Then Possible
+  only step is what no evidence joined, or one concern that covers it, lists no step, and its facts are the facts of the range. Then Possible
   Breakage and Since your review ([Review Plan](review-plan.spec.md#requirements)). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
@@ -242,13 +243,20 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../src/presenters/review-story.test.ts (`tells the body of one commit in the openings of the concerns its sections name, its lead and the rest in the overview`)
 - The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
-  named by its concern and keeps its main rows ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The
+  named by the label of the first section of the body of its commit it tells (`title`, "The splash"; a verification
+  and a Look closely aside), else by its concern, an identifier set in the code font wherever the step is named (the
+  tree, the contents, its opening, the bar of the step, the heading of a card of a story mark), and keeps its main rows
+  ([Review Concerns](review-concerns.spec.md#in-the-review-window)). The step of the one concern that covers the whole range is no story
+  (`ReviewSteps.told` false, which the plan decides): no Steps in the overview, which tells the whole body, no
+  opening, no place in the bar of the step, and the tree lists the files as without the plan. The
   story of the diffs must follow the steps: the first section of each starts with its opening right above its card,
   its heading "Step 2 · The open keeps a stored layout" (`review-concern-heading`); a click on it must show the step as
   the bar of the step does, the opening at the top, the bar and the tree following. The header of a file names the
   file alone (no step, no group), so the name of every file stands at one x.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`)
-  [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by its concern and keeps its main rows`)
+  [@test] ../../src/presenters/review-steps.test.ts (`names a step by the subject of the commit that starts it, without the issue the brief names, a step of no story by what it is`, `names a step of a concern by the label of the section of the body it tells, else by its concern as code, keeps its main rows, and tells no step of a story Rust tells in none`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should title each task of one commit by the label of the section of its body it tells`, `should tell no step of the one concern that covers the range: no Steps, no opening, no place in the bar`)
+  [@test] ../../crates/review-plan/src/steps_test.rs (`the_concerns_are_the_steps_when_the_commits_tell_no_story`)
   [@test] ../../src/lib/diff/layout.test.ts (`puts the opening of a step at its measured height and the divider of a group between the gap and its card: a scroll to the file shows it, a y in it is the file below`)
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
   Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree. The group

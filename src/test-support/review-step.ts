@@ -1,4 +1,4 @@
-import type { ReviewStep, StepCommit } from "@/lib/bindings"
+import type { ReviewPlan, ReviewStep, StepCommit } from "@/lib/bindings"
 
 /** A commit of a step by its subject, which is its id too */
 export function stepCommit(subject: string, role: StepCommit["role"] = "starts"): StepCommit {
@@ -17,7 +17,30 @@ export function reviewStep(id: string, commits: StepCommit[], stops: [string, st
     tests: { answered: true, reached: [], unreached: [], scenarios: [], ...tests },
     newApi: [],
     moduleLinks: [],
+    title: null,
     takenOutBy: null,
+    ...more,
+  }
+}
+
+/** A review plan of no files and no steps, the story told by its commits, with `more` of it */
+export function reviewPlan(more: Partial<ReviewPlan> = {}): ReviewPlan {
+  return {
+    branch: "feature/layout",
+    base: "1111111111",
+    head: "2222222222",
+    interdiff: null,
+    api: [],
+    files: [],
+    links: [],
+    dependencies: [],
+    repeatedEdits: [],
+    units: [],
+    concerns: [],
+    steps: { source: { kind: "commits" }, told: true, steps: [], coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
+    brief: { issue: null, contract: [] },
+    order: [],
+    indexNote: null,
     ...more,
   }
 }

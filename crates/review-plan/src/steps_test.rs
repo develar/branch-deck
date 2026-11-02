@@ -161,9 +161,11 @@ fn a_commit_with_a_story_of_its_own_starts_a_step_though_it_rewrites_the_code_of
   );
   let taken_out: Vec<Option<&str>> = plan.steps.steps.iter().map(|step| step.taken_out_by.as_deref()).collect();
   assert_eq!(taken_out, [Some(head.as_str()), None]);
+  assert!(plan.steps.told);
 }
 
-/// Commits without a body make the concerns the steps, and so does a range of one commit
+/// Commits without a body make the concerns the steps, and so does a range of one commit; one concern that covers the
+/// whole range tells no step
 #[test]
 fn the_concerns_are_the_steps_when_the_commits_tell_no_story() {
   let repo = TestRepo::new();
@@ -179,6 +181,8 @@ fn the_concerns_are_the_steps_when_the_commits_tell_no_story() {
     }
   );
   assert_eq!(one.steps.steps.len(), one.concerns.len());
+  // one task that covers the whole range is no story to tell in steps: it would only repeat the range
+  assert_eq!((one.concerns.len(), one.steps.told), (1, false));
 }
 
 /// A declaration a step adds comes first, and the changes of the step that use it right after it, whatever the order

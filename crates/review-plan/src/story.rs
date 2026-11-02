@@ -32,6 +32,8 @@
 //!   label or a heading and its blocks up to the next one), else a block, goes to the step that holds the targets of
 //!   most of its resolved mentions, the earliest of equal ones; the lead and a part without one stay before the steps
 //!   (`None`). A story of several commits keeps the order of its author: no `told_in`.
+//! - **The title of a step** of those concerns (`add_story_titles`): the label of the first labelled section told in
+//!   it, a verification and a Look closely aside; the name of the concern stays its evidence.
 //! - **The facts of a step**: the public declarations it adds (`ReviewStep::new_api`, the keys of `ApiChange` of kind
 //!   `Added` its stops show, a new file's by its path) and the links between modules it adds (`module_links`, by the
 //!   stop that holds the first use), each in one step, the first that holds it.
@@ -41,7 +43,7 @@ use crate::concerns::compound;
 use crate::links::FileLink;
 use crate::steps::{ReviewStep, StepStop, StepsInput, split_message};
 use crate::units::{ReviewUnit, UnitKind};
-use domain_types::commit_body::{CommitBody, CommitBodyBlock};
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sync_utils::commit_body::commit_body;
@@ -608,6 +610,31 @@ pub(crate) fn story_commits(input: &StepsInput<'_>, steps: &[ReviewStep], one_co
       })
     })
     .collect()
+}
+
+/// The title of each step of the concerns of one commit that tells a labelled section of its body (`ReviewStep::title`):
+/// the label (or the heading) of the first one it tells, a section of verification or a Look closely aside, so a step
+/// reads as the author named its task ("The splash") and its identifier stays the evidence that joined it
+pub(crate) fn add_story_titles(steps: &mut [ReviewStep], commits: &[StoryCommit]) {
+  let [commit] = commits else { return };
+  for part in &commit.body.parts {
+    let start = part.start as usize;
+    let (CommitBodyBlock::Label {
+      text: title,
+      kind: LabelKind::Plain,
+      ..
+    }
+    | CommitBodyBlock::Heading { text: title, .. }) = &commit.body.blocks[start]
+    else {
+      continue;
+    };
+    let Some(step) = commit.told_in.get(start).copied().flatten().and_then(|step| steps.get_mut(step as usize)) else {
+      continue;
+    };
+    if step.concern.is_some() && step.title.is_none() {
+      step.title = Some(title.clone());
+    }
+  }
 }
 
 /// Whether `stop` of a step shows line `line` (from 1) of its file after the commits: a slice taken whole, or a block of

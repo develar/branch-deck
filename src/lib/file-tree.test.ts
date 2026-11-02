@@ -246,7 +246,16 @@ describe("the tree of a review with its plan", () => {
       evidence: [],
       fingerprint: "s",
     }
-    const withConcern = buildReviewTree([file("app/User.kt"), file("app/app.iml")], new Map([["app/app.iml", "buildModel"]]), concernChapters([holding]))
+    // beside a second task: one task that covers the whole range is no story the tree tells
+    const second: Concern = {
+      ...holding,
+      id: "t",
+      name: { source: "token", token: "readme" },
+      parts: [{ unit: "other:README.md", path: "README.md", blocks: null }],
+      paths: ["README.md"],
+      fingerprint: "t",
+    }
+    const withConcern = buildReviewTree([file("app/User.kt"), file("app/app.iml"), file("README.md")], new Map([["app/app.iml", "buildModel"]]), concernChapters([holding, second]))
     expect([...dependencyRows(withConcern, [change("app/app.iml", "store")]).keys()]).toEqual(["//concern/s/"])
     // the directory a merged row holds: `plugins/air/` is in the row `plugins/air/backend/`
     const merged = buildFileTree([file("plugins/air/backend/A.kt"), file("README.md")])
@@ -481,7 +490,7 @@ describe("the steps of the commits in the tree of a review", () => {
     reviewStep("b2b2", [commitOf("b2b2b2b2", "starts")], [["u:paint", "src/Paint.kt"]]),
   ]
   const chapters = presentChapters({
-    steps: { source: { kind: "commits" }, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
+    steps: { source: { kind: "commits" }, told: true, steps, coverage: { blocks: 0, inStops: 0, mechanical: 0, missing: 0, twice: 0 }, commits: [] },
     concerns: [],
     brief: { issue: "IJAI-1", contract: [] },
   })

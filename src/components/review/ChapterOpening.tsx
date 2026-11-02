@@ -1,3 +1,4 @@
+import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
@@ -28,7 +29,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         </span>
         {/* the name of the button and its text: "Step 2 · The open keeps a stored layout" */}
         <span className="sr-only"> · </span>
-        <span className="text-base font-semibold text-foreground underline-offset-4" data-testid="review-opening-title">
+        <span className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium")} data-testid="review-opening-title">
           {opening.title}
         </span>
       </button>
