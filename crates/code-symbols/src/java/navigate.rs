@@ -64,7 +64,7 @@ pub(crate) fn usages_of(text: &str, name: &str) -> Vec<Usage> {
   if !text.contains(name) {
     return Vec::new();
   }
-  let tree = crate::psi_java::parse(text.as_bytes());
+  let tree = crate::java::parse(text.as_bytes());
   let names = resolve(&tree, name, None);
   let used = names.iter().filter(|it| it.binding.is_none_or(|binding| !is_local(&tree, binding)));
   usage_answers(text, name, used.map(|it| (tree.range(it.leaf).start, access_of(&tree, it.leaf, it.kind))))
@@ -73,7 +73,7 @@ pub(crate) fn usages_of(text: &str, name: &str) -> Vec<Usage> {
 /// The tree of a text and the leaf of the name at `position` in it
 fn parse_with_name_at(text: &str, position: Position) -> Option<(Tree, NodeId)> {
   let offset = byte_offset(text, position)?;
-  let tree = crate::psi_java::parse(text.as_bytes());
+  let tree = crate::java::parse(text.as_bytes());
   let leaf = name_at(&tree, offset)?;
   Some((tree, leaf))
 }

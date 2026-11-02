@@ -1,6 +1,6 @@
 //! The summary of a Kotlin file from its PSI (`FileSummary`): one preorder walk over the tree of `kotlin-syntax`, by
-//! `NodeKind` and `TokenKind`, with the rules the head of `extract.rs` states for every language and the parser-neutral
-//! builders of `summary_builder`.
+//! `NodeKind` and `TokenKind`, with the rules the head of `extract.rs` states for every language and those of the JVM
+//! languages (`jvm`), on the parser-neutral builders of `summary_builder`.
 //!
 //! - **Names in PSI**: a declared name is an `IDENTIFIER` token of its declaration (a class, a function, a parameter, a
 //!   destructuring entry), never a `REFERENCE_EXPRESSION`; a reference is a `REFERENCE_EXPRESSION`, so a name that is no
@@ -12,7 +12,7 @@
 //!   local. A local `val` and the names of a lambda's parameters and a `when` subject become visible when their node is
 //!   left; a function parameter at once (its default values see it); a `for` variable in its body, not its range. A
 //!   property with context or type parameters is a scope of its own; a `do`'s body shares its scope with its condition.
-//! - **Overrides**, **calls**, **constructors**, **`enclosed`**: as `extract.rs` says. A class-like node pushes its
+//! - **Overrides**, **calls**, **constructors**, **`enclosed`**: as `jvm` says. A class-like node pushes its
 //!   supertypes before its members are walked, a function, a lambda and an anonymous function an empty list. A call is
 //!   a `CALL_EXPRESSION`; `a.b(c)` is `DOT_QUALIFIED_EXPRESSION(a, CALL_EXPRESSION(b, (c)))`, so the qualified
 //!   expression gives its selector's callee the role `Call` and the shape of that call. A class with an
@@ -24,14 +24,13 @@
 //!   `summarize` parses a file as a `.kt` and, when that gives an error element at the top level (a statement, which
 //!   only a script has), as a `.kts` script too, and keeps the parse with fewer error bytes: a build script reads as a
 //!   script, a file as the compiler reads it. A script's statements are its `SCRIPT`'s `BLOCK`, read as the top level.
-//! - **Bounded**: the walk keeps its own stack of frames, the parse is bounded by the parser (`psi_kotlin`), the size
+//! - **Bounded**: the walk keeps its own stack of frames, the parse is bounded by the parser (`kotlin`), the size
 //!   by the caller (`extract::summarize_with_budget`).
 
-// jscpd:ignore-start: until the tree-sitter Kotlin and Java go (`kotlin.rs`, `java.rs` and the `JvmHooks` of
-// `extract.rs`), the walk there holds the same JVM rules; then this walk and `psi_java`'s are the two that share them
-use crate::psi_kotlin::parse;
-use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{Bindings, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line, is_junit3_test};
+use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
+use crate::kotlin::parse;
+use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
+use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
 use kotlin_syntax::{FileKind, NodeId, NodeKind as N, TokenKind as K, Tree};
 use psi_builder::document::Lines;
 
@@ -115,19 +114,6 @@ enum Context {
   Unknown,
 }
 
-/// What a container is to the declarations in it, for their member kind and reach
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Holder {
-  Class,
-  Interface,
-  /// An object or a companion: its members are static
-  Object,
-  Enum,
-  Annotation,
-  /// A function, an enum entry, a property, an accessor: nothing in it is a member
-  Leaf,
-}
-
 /// The scope a declaration opens for its children
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Opens {
@@ -175,26 +161,6 @@ struct Modality {
   receiver: Option<u32>,
 }
 
-/// The JVM facts of a declaration, before it is declared
-#[derive(Debug, Default)]
-#[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
-struct JvmFields {
-  signature: Option<Signature>,
-  overrides: bool,
-  overridable: bool,
-  jvm_static: bool,
-  jvm_field: bool,
-  jvm_name: bool,
-  lateinit: bool,
-  test: bool,
-  entry_point: bool,
-  unstable: bool,
-  setter: Option<Reach>,
-  supertypes: Vec<Vec<u32>>,
-  value_type: Option<Typed>,
-  constructors: Option<Vec<Constructor>>,
-}
-
 /// A declaration node: its kind and the scope it opens
 #[derive(Debug, Clone, Copy)]
 struct DeclRule {
@@ -220,28 +186,13 @@ const fn rule(kind: DeclKind, opens: Opens) -> DeclRule {
 struct Frame {
   scopes: u8,
   container: bool,
-  /// The entries this node pushed onto `Walk::supertypes`
+  /// The entries this node pushed onto the supertypes of `Walk::classes`
   supertypes: u8,
   /// It pushed its coroutine context onto `Walk::coroutines`
   coroutine: bool,
   error: bool,
   /// The first line of the doc comments above the next child
   leading: Option<u32>,
-}
-
-struct Container {
-  decl: Option<u32>,
-  holder: Holder,
-  /// A function or an accessor, whose code sees no parameter of a primary constructor
-  code: bool,
-  /// The depth of `Walk::supertypes` when it was entered, its own entry included
-  supertypes: usize,
-}
-
-/// A member reference whose receiver may have a type (`Reference::receiver_type`), decided when the walk is done
-enum TypedReceiver {
-  Bound { serial: u32, type_path: Typed },
-  Property,
 }
 
 /// The state of one walk
@@ -254,13 +205,10 @@ struct Walk<'t> {
   out: SummaryBuilder<'t>,
   frames: Vec<Frame>,
   /// (node, mark, index of the frame that set it)
-  marks: Vec<(NodeId, Mark, usize)>,
+  marks: Marks<NodeId, Mark>,
   bindings: Bindings,
-  /// (frame index, name, type): bindings that become visible when that frame is left
-  pending: Vec<(usize, u32, Option<Typed>)>,
-  containers: Vec<Container>,
-  /// The supertypes whose members the declarations at this level override
-  supertypes: Vec<Vec<Vec<u32>>>,
+  /// The containers and the supertypes whose members the declarations at each level override
+  classes: Classes,
   coroutines: Vec<Context>,
   error_depth: u32,
   /// The leading line taken from the parent for the node being entered
@@ -278,11 +226,9 @@ impl<'t> Walk<'t> {
       errors: tree.errors().map(|(id, _)| id.0).collect(),
       out: SummaryBuilder::new(),
       frames: Vec::new(),
-      marks: Vec::new(),
+      marks: Marks::default(),
       bindings: Bindings::default(),
-      pending: Vec::new(),
-      containers: Vec::new(),
-      supertypes: Vec::new(),
+      classes: Classes::default(),
       coroutines: Vec::new(),
       error_depth: 0,
       leading_now: None,
@@ -569,23 +515,15 @@ impl<'t> Walk<'t> {
 
   fn leave(&mut self) {
     let Some(frame) = self.frames.pop() else { return };
-    let index = self.frames.len();
-    while self.marks.last().is_some_and(|it| it.2 >= index) {
-      self.marks.pop();
-    }
-    for _ in 0..frame.scopes {
-      self.bindings.pop();
-    }
-    while self.pending.last().is_some_and(|(at, ..)| *at >= index) {
-      if let Some((_, name, type_path)) = self.pending.pop() {
-        self.bindings.bind(name, type_path);
-      }
-    }
+    // the index the frame had
+    let left = self.frames.len();
+    self.marks.leave_frame(left);
+    self.bindings.leave_frame(left, frame.scopes);
     if frame.container {
-      self.containers.pop();
+      self.classes.leave();
     }
     for _ in 0..frame.supertypes {
-      self.supertypes.pop();
+      self.classes.pop_supertypes();
     }
     if frame.coroutine {
       self.coroutines.pop();
@@ -695,10 +633,7 @@ impl<'t> Walk<'t> {
     let before = self.out.references.len();
     self.reference(text, self.line_of(name), role, Some(qualifier), shape);
     if let Some(typed) = typed.filter(|_| self.out.references.len() > before) {
-      match typed {
-        TypedReceiver::Bound { serial, type_path } => self.out.bound_receiver(before, serial, type_path),
-        TypedReceiver::Property => self.out.property_receiver(before),
-      }
+      typed.give(&mut self.out, before);
     }
   }
 
@@ -896,39 +831,19 @@ impl<'t> Walk<'t> {
     {
       let binding = self.bindings.binding(id)?;
       // a parameter of a primary constructor is no name in a function or an accessor: a property of its name is
-      if binding.initializers.is_some_and(|depth| self.containers.iter().skip(depth).any(|it| it.code)) {
+      if binding.initializers.is_some_and(|depth| self.classes.in_code_below(depth)) {
         return None;
       }
-      return Some(TypedReceiver::Bound {
-        serial: binding.serial,
-        type_path: binding.type_path.clone()?,
-      });
+      return TypedReceiver::bound(binding);
     }
-    let this = self.out.name_id("this");
-    let property = match qualifier {
-      [_] => true,
-      [first, _] => Some(*first) == this,
-      _ => false,
-    };
-    (property && !self.enclosed()).then_some(TypedReceiver::Property)
+    TypedReceiver::property(&self.out, qualifier, self.enclosed())
   }
 
   /// A smart cast may give a name of `path` another type: a local or a property (`m`, `this.m`)
   fn smart_cast(&mut self, path: Option<Vec<&'t str>>) {
-    let Some(path) = path else { return };
-    let name = match path.as_slice() {
-      [name] | ["this", name] => *name,
-      _ => return,
-    };
-    let Some(id) = self.out.name_id(name) else { return };
-    if path.len() == 1
-      && let Some(serial) = self.bindings.binding(id).map(|it| it.serial)
-    {
-      self.out.cast_binding(serial);
-      return;
+    if let Some(path) = path {
+      smart_cast(&mut self.out, &self.bindings, self.classes.container(), &path);
     }
-    let container = self.container();
-    self.out.cast_name(container, id);
   }
 
   /// `is Sub ->` of a `when` with a subject: a smart cast may give the subject another type
@@ -1051,7 +966,7 @@ impl<'t> Walk<'t> {
         let Some(text) = self.tree.utf8_text(name) else { continue };
         let name_id = self.out.intern(text);
         if rule.late {
-          self.pending.push((index, name_id, value_type.clone()));
+          self.bindings.bind_later(index, name_id, value_type.clone());
         } else {
           self.bindings.bind(name_id, value_type.clone());
         }
@@ -1154,7 +1069,7 @@ impl<'t> Walk<'t> {
       self.override_references(name, kind == DeclKind::Function, modality.receiver, signature.as_ref());
     }
     let name_text = name.and_then(|it| self.tree.utf8_text(it));
-    let test = kind == DeclKind::Function && (modality.test || self.junit3_test(name_text, signature.as_ref()));
+    let test = kind == DeclKind::Function && (modality.test || self.classes.junit3_test(&self.out, self.bindings.is_local(), name_text, signature.as_ref()));
     let entry_point = kind == DeclKind::Function && !self.bindings.is_local() && name_text == Some("main") && signature.as_ref().is_some_and(|it| self.entry_point(id, it));
     JvmFields {
       signature,
@@ -1174,12 +1089,9 @@ impl<'t> Walk<'t> {
 
   /// One `Override` reference per supertype of the class around the member, qualified by its path
   fn override_references(&mut self, name: NodeId, function: bool, receiver: Option<u32>, signature: Option<&Signature>) {
-    let Some(supertypes) = self.supertypes.last().filter(|it| !it.is_empty()).cloned() else {
-      return;
-    };
+    let Some(supertypes) = self.classes.overridden() else { return };
     let Some(text) = self.tree.utf8_text(name) else { return };
-    let parameters = signature.map_or_else(Vec::new, |it| it.parameters.iter().map(|parameter| parameter.type_ref.clone()).collect());
-    let shape = self.out.intern_shape(Shape::Override { function, receiver, parameters });
+    let shape = override_shape(&mut self.out, function, receiver, signature);
     for supertype in supertypes {
       self.reference(text, self.line_of(name), Role::Override, Some(supertype), Some(shape));
     }
@@ -1193,30 +1105,13 @@ impl<'t> Walk<'t> {
     let unstable = fields.unstable || (traits.kind != DeclKind::Binding && container.is_none() && self.file_annotations.iter().any(|it| self.out.unstable_annotation(it)));
     let header = matches!(traits.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant).then(|| self.header(node, has_signature));
     let name_line = if name_node == node { start } else { self.line_of(name_node) };
-    let declaration = Declaration {
-      receiver: traits.receiver,
-      signature: fields.signature,
-      overrides: fields.overrides,
-      overridable: fields.overridable,
-      jvm_static: fields.jvm_static,
-      jvm_field: fields.jvm_field,
-      jvm_name: fields.jvm_name,
-      lateinit: fields.lateinit,
-      test: fields.test,
-      entry_point: fields.entry_point,
-      unstable,
-      setter: fields.setter,
-      supertypes: fields.supertypes,
-      value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
-      value_type: fields.value_type.map(|it| it.path),
-      constructors: fields.constructors,
-      header,
-      start_line: leading.map_or(start, |it| it.min(start)),
-      end_line: end,
-      name_line,
-      in_error: self.error_depth > 0,
-      ..blank_declaration(name, traits.kind, traits.reach, traits.member, container)
-    };
+    let mut declaration = JvmFields { unstable, ..fields }.declaration(blank_declaration(name, traits.kind, traits.reach, traits.member, container));
+    declaration.receiver = traits.receiver;
+    declaration.header = header;
+    declaration.start_line = leading.map_or(start, |it| it.min(start));
+    declaration.end_line = end;
+    declaration.name_line = name_line;
+    declaration.in_error = self.error_depth > 0;
     self.out.add_declaration(declaration)
   }
 
@@ -1296,14 +1191,6 @@ impl<'t> Walk<'t> {
     self.annotation_names(id).iter().any(|path| self.out.unstable_annotation(path))
   }
 
-  /// Whether a function of `name` and `signature` is a `JUnit` 3 test
-  fn junit3_test(&self, name: Option<&str>, signature: Option<&Signature>) -> bool {
-    let Some(name) = name else { return false };
-    let class = self.container().and_then(|id| self.out.declarations.get(id as usize)).map(|it| self.out.name(it.name));
-    let supertypes = self.supertypes.last().into_iter().flatten().filter_map(|path| path.last()).map(|&name| self.out.name(name));
-    is_junit3_test(name, signature.is_some_and(|it| it.parameters.is_empty()), self.bindings.is_local(), class, supertypes)
-  }
-
   /// A top-level `fun main` without a receiver or type parameters, returning `Unit` if it has a declared return type:
   /// without parameters, of one `Array<String>` or of a `vararg` of `String`
   fn entry_point(&self, id: NodeId, signature: &Signature) -> bool {
@@ -1367,11 +1254,7 @@ impl<'t> Walk<'t> {
       match self.tree.node_kind(node) {
         Some(N::USER_TYPE) => {
           let path = self.type_path(node)?;
-          let (first, last) = (path.first()?, path.last()?);
-          if type_parameters.contains(first) || self.out.name_id(first).is_some_and(|it| self.bindings.is_bound(it)) {
-            return None;
-          }
-          names.push(self.out.intern(last));
+          names.push(type_name(&mut self.out, &self.bindings, &path, type_parameters)?);
           // the type arguments of each segment, the outermost qualifier's first
           let mut segment = Some(node);
           while let Some(current) = segment {
@@ -1425,7 +1308,7 @@ impl<'t> Walk<'t> {
     if self.bindings.is_local() {
       return;
     }
-    if let Some(decl) = self.containers.last().and_then(|it| it.decl) {
+    if let Some(decl) = self.classes.innermost() {
       self.out.add_constructor(decl, constructor, false);
     }
   }
@@ -1494,7 +1377,7 @@ impl<'t> Walk<'t> {
   fn supertypes_of(&mut self, id: NodeId) -> Option<Vec<Vec<u32>>> {
     match self.tree.node_kind(id) {
       Some(N::CLASS | N::OBJECT_DECLARATION) => Some(self.supertype_list(id)),
-      Some(N::ENUM_ENTRY) => Some(self.enum_supertypes()),
+      Some(N::ENUM_ENTRY) => Some(self.classes.enum_supertypes(&self.out)),
       _ => None,
     }
   }
@@ -1531,21 +1414,6 @@ impl<'t> Walk<'t> {
       paths.push(self.out.ids(&path));
     }
     paths
-  }
-
-  /// The supertypes of the body of an enum entry: the path of the enum around it; none outside an enum
-  fn enum_supertypes(&self) -> Vec<Vec<u32>> {
-    if self.holder() != Some(Holder::Enum) {
-      return Vec::new();
-    }
-    let mut path = Vec::new();
-    let mut current = self.container();
-    while let Some(declaration) = current.and_then(|it| self.out.declarations.get(it as usize)) {
-      path.push(declaration.name);
-      current = declaration.container;
-    }
-    path.reverse();
-    vec![path]
   }
 
   /// An object expression: a scope whose members override those of its supertypes
@@ -1596,7 +1464,7 @@ impl<'t> Walk<'t> {
     for name in self.parameter_names(id) {
       if let Some(text) = self.tree.utf8_text(name) {
         let name_id = self.out.intern(text);
-        self.pending.push((at, name_id, type_path.cloned()));
+        self.bindings.bind_later(at, name_id, type_path.cloned());
       }
     }
   }
@@ -1618,7 +1486,7 @@ impl<'t> Walk<'t> {
       let type_path = self.typed(id);
       self.bind_token(name, type_path);
       if !property && let Some(binding) = self.bindings.last_mut() {
-        binding.initializers = Some(self.containers.len());
+        binding.initializers = Some(self.classes.depth());
       }
       return;
     }
@@ -1637,10 +1505,7 @@ impl<'t> Walk<'t> {
   fn accessor(&mut self, id: NodeId) {
     self.push_scope(true);
     self.bind_text("field");
-    self.enter_container(self.container(), Holder::Leaf);
-    if let Some(container) = self.containers.last_mut() {
-      container.code = true;
-    }
+    self.enter_container_as(self.container(), Holder::Leaf, true);
     let modifiers = self.modifier_texts(id);
     if self.child_token(id, K::SET_KEYWORD).is_some()
       && (modifiers.contains(&"private") || modifiers.contains(&"internal") || modifiers.contains(&"protected"))
@@ -1924,49 +1789,50 @@ impl<'t> Walk<'t> {
   }
 
   fn push_supertypes(&mut self, supertypes: Vec<Vec<u32>>) {
-    self.supertypes.push(supertypes);
+    self.classes.push_supertypes(supertypes);
     if let Some(frame) = self.frames.last_mut() {
       frame.supertypes += 1;
     }
   }
 
-  /// Makes the declaration the container of what is below the current node
+  /// Makes the declaration the container of what is below the current node; a function is code
   fn enter_container(&mut self, decl: Option<u32>, holder: Holder) {
-    let supertypes = self.supertypes.len();
     let code = decl.and_then(|it| self.out.declarations.get(it as usize)).is_some_and(|it| it.kind == DeclKind::Function);
-    self.containers.push(Container { decl, holder, code, supertypes });
+    self.enter_container_as(decl, holder, code);
+  }
+
+  /// Makes the declaration the container of what is below the current node, `code` for a function or an accessor
+  fn enter_container_as(&mut self, decl: Option<u32>, holder: Holder, code: bool) {
+    self.classes.enter(decl, holder, code);
     if let Some(frame) = self.frames.last_mut() {
       frame.container = true;
     }
   }
 
   fn holder(&self) -> Option<Holder> {
-    self.containers.last().map(|it| it.holder)
+    self.classes.holder()
   }
 
   fn container(&self) -> Option<u32> {
-    self.containers.iter().rev().find_map(|it| it.decl)
+    self.classes.container()
   }
 
   /// Whether a lambda, an anonymous function, an object expression or a local declaration lies between the current
-  /// node and the declaration around it
+  /// node and the declaration around it (`Classes::enclosed`)
   fn enclosed(&self) -> bool {
-    let level = self.containers.iter().rev().find(|it| it.decl.is_some()).map_or(0, |it| it.supertypes);
-    self.supertypes.len() > level
+    self.classes.enclosed()
   }
 
   fn take_mark(&mut self, id: NodeId) -> Option<Mark> {
-    let index = self.marks.iter().rposition(|it| it.0 == id)?;
-    Some(self.marks.remove(index).1)
+    self.marks.take(id)
   }
 
   fn is_marked(&self, id: NodeId) -> bool {
-    self.marks.iter().any(|it| it.0 == id)
+    self.marks.contains(id)
   }
 
   fn mark(&mut self, id: NodeId, mark: Mark) {
-    let owner = self.frames.len() - 1;
-    self.marks.push((id, mark, owner));
+    self.marks.set(id, mark, self.frames.len() - 1);
   }
 
   fn claim(&mut self, id: NodeId) {
@@ -2051,8 +1917,6 @@ const fn member_in(holder: Option<Holder>, nested_type: bool) -> MemberKind {
     Some(_) => MemberKind::Instance,
   }
 }
-
-// jscpd:ignore-end
 
 #[cfg(test)]
 #[path = "summary_test.rs"]

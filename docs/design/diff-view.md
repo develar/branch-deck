@@ -501,8 +501,8 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 ### Syntax highlighting
 
 **Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree (Kotlin's
-and Java's PSI, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Java from its PSI"
-and "Tree-sitter highlighting" below); the other languages by Shiki in a worker. The two sides of a file always share
+and Java's PSI, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Backend
+highlighting" below); the other languages by Shiki in a worker. The two sides of a file always share
 an engine: a file the backend cannot colour goes to the worker whole.
 
 **A worker per window, two in the main window.** The view pins a blob to one worker: the worker with the least pinned
@@ -569,43 +569,41 @@ grammar is not loaded stays empty, so the front matter of Markdown would be a pa
 when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
-**Java from its PSI** (`crates/code-symbols/src/psi_java/highlight.rs`). Java has the roles below from IntelliJ's own
-tree (psi-syntax's `java-syntax`), painted leaf by leaf (`paint::paint_leaf`) in one pass over the nodes in preorder:
-- the tokens are the lexer's as the parser left them, so a keyword the parser reads in its context is one (`var`,
-  `record`, `yield`, `sealed`, `non-sealed`, `permits`, `when`) and a name elsewhere; a string, a text block and a
-  character literal have their escapes as Java reads them (an octal `\77`, a unicode `\uuu0041`, the line continuation
-  of a text block); a JavaDoc is lexed whole, a Markdown one (`///`) line by line from its slashes;
-- the scopes are those of the PSI: the fields of an anonymous class and of an enum constant's body are fields (in its
-  body, not in its arguments), a pattern, loop, resource and vararg variable hides the field of its name (a pattern
-  variable only where Java sees it: in its statement, after an `if (!(o instanceof String s)) return;` the rest of the
-  block), a field is static by its modifier or in an interface, `Outer.this.size` is the instance's and
-  `Base.super.run()` no static call, an annotation's element is a method declaration and the name of an argument
-  (`@Range(value = 1)`) no field, an annotated type parameter (`<@A T>`) one.
-
-**Tree-sitter highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Rust, TypeScript, TSX and JavaScript
-are coloured as the IntelliJ editor colours them without resolving a name, from a tree-sitter tree (the grammars of
-`code-symbols`; `.ts` by the TypeScript grammar, the rest of the script files by TSX):
-- one preorder walk asks the rules of the grammar (`kotlin.rs`, `rust_lang.rs`, `typescript.rs`) for the
-  `Paint` of each node; a node with a style paints its text, an inner node paints over it (an escape in a string, the
-  code of a template), a parent marks children before the walk reaches them (the name of a declaration, the callee of
-  a call). The spans come out in the order of the text, with no sort;
+**Backend highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, Rust, TypeScript, TSX and JavaScript
+are coloured as the IntelliJ editor colours them without resolving a name, from a syntax tree of `code-symbols`: Kotlin
+and Java from their PSI, the trees of the Kotlin compiler's and IntelliJ's own parsers (psi-syntax's `kotlin-syntax`
+and `java-syntax`, read by `kotlin/highlight.rs` and `java/highlight.rs`), the others from a tree-sitter tree (`.ts` by
+the TypeScript grammar, the rest of the script files by TSX):
+- Kotlin and Java: one pass over the tree's ids in preorder with an explicit stack of the open nodes, each leaf of the
+  tree (its tokens tile the text) painted by `paint::paint_leaf`, so a keyword is the parser's token as the parser
+  left it, a soft or contextual one only where the parser made it one; Rust and TypeScript: one preorder walk asks the
+  rules of the grammar (`rust_lang.rs`, `typescript.rs`) for the `Paint` of each node; a node with a style paints its
+  text, an inner node paints over it (an escape in a string, the code of a template), a parent marks children before
+  the walk reaches them (the name of a declaration, the callee of a call). Either way the spans come out in the order
+  of the text, with no sort;
 - a scope table (`scopes.rs`) tells what IntelliJ resolves and the tree shows by its scopes: an unqualified name that
   is a member of an enclosing class with no local of that name in between is a field (`count++`), the companion members
   of a Kotlin class too, a Rust `mut` binding is underlined wherever it is used, a type parameter is one in its scope;
 - a static member is italic: a `static`, `const` or top-level property, an enum entry, a name in upper case, a member
   reached through a type (`Box.LIMIT`, `Math.max()`);
-- what a leaf holds and the grammar does not split is lexed: the escapes of a Kotlin string, the tags of a doc comment
-  (`@param` and its name, a KDoc `[link]`), the keyword and the `@` of `return@label`;
-- a leaf inside a parse error keeps what its kind tells (a keyword), the rest of the error stays plain;
-- Kotlin is coloured from its PSI, the tree of the compiler's own parser (psi-syntax's `kotlin-syntax`, read by
-  `psi_kotlin/highlight.rs`), by the same scopes and roles: one pass over the tree's ids in preorder with an explicit
-  stack of the open nodes, each leaf of the tree (its tokens tile the text) painted by `paint::paint_leaf`. Its
-  keywords are the parser's tokens (`as?`, `!in` and `!is` whole, a soft keyword only where the parser made it one,
-  the `constructor` of a primary constructor), a raw string has no escapes, the `@Outer` of `this@Outer` is a label,
-  the arguments of a file annotation are code, the name after a receiver and `::` is no field of the scopes and an
-  operand of an infix call is read by them as any other, the parameter of a function type (`(size: Int) -> Unit`)
-  binds nothing and a parameter's own name is plain; a string, a number or a comment in a parse error keeps its
-  colour. A `.kts` is parsed as a script, whose top-level properties are static members;
+- what a leaf holds and the parser does not split is lexed: the escapes of a string (none in a Kotlin raw string), the
+  tags of a doc comment (`@param` and its name, a KDoc `[link]`);
+- a leaf inside a parse error keeps what its kind tells (a keyword; of Kotlin and Java a string, a number, a comment
+  too), the rest of the error stays plain;
+- Kotlin: `as?`, `!in` and `!is` are keywords whole, the `constructor` of a primary constructor one, the `@Outer` of
+  `this@Outer` and `return@label` a label, the arguments of a file annotation are code, the name after a receiver and
+  `::` is no field of the scopes and an operand of an infix call is read by them as any other, the parameter of a
+  function type (`(size: Int) -> Unit`) binds nothing and a parameter's own name is plain. A `.kts` is parsed as a
+  script, whose top-level properties are static members;
+- Java: a keyword the parser reads in its context is one (`var`, `record`, `yield`, `sealed`, `non-sealed`, `permits`,
+  `when`) and a name elsewhere; a string, a text block and a character literal have their escapes as Java reads them
+  (an octal `\77`, a unicode `\uuu0041`, the line continuation of a text block); a JavaDoc is lexed whole, a Markdown
+  one (`///`) line by line from its slashes. The scopes are those of the PSI: the fields of an anonymous class and of
+  an enum constant's body are fields (in its body, not in its arguments), a pattern, loop, resource and vararg variable
+  hides the field of its name (a pattern variable only where Java sees it: in its statement, after an
+  `if (!(o instanceof String s)) return;` the rest of the block), a field is static by its modifier or in an interface,
+  `Outer.this.size` is the instance's and `Base.super.run()` no static call, an annotation's element is a method
+  declaration and the name of an argument (`@Range(value = 1)`) no field, an annotated type parameter (`<@A T>`) one;
 - the roles are IntelliJ's colours that the syntax shows (`--syntax-*` of `src/index.css`): a property and a field, a
   static one and a constant italic, a static Java method in the colour of a declaration and italic, a Rust call in the
   colour of its function (RustRover colours calls, IntelliJ does not), a type parameter, a Kotlin label (a Rust one is
@@ -626,8 +624,9 @@ are coloured as the IntelliJ editor colours them without resolving a name, from 
 - the answer is the format of the worker: the lines as `buildLineTable` splits them, runs of (UTF-16 offset, style) per
   line, a style the role in its low 6 bits and the font style above; the roles are `SYNTAX_ROLES` in their order
   (`roles_match_the_view` checks it);
-- bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) or after the parse budget (50 operations per KiB) there is
-  no highlighting.
+- bounded: over `MAX_BYTES` (8 MiB, the limit of the texts) or after the parse budget of a tree-sitter grammar (50
+  operations per KiB) there is no highlighting; psi-syntax parses any text, a construct nested past its limit (1000
+  levels of Kotlin, 1200 of Java) as an error element.
 
 The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`), one call per blob and range of lines:
 - the text comes from the blobs `get_file_diffs` and `get_blob_texts` read (the memory cache, so no git process), the
@@ -649,9 +648,11 @@ The view asks for it with `get_blob_syntax` (`crates/file-diffs/src/syntax.rs`),
   file, a parse over its budget: the worker colours it) or `Missing`. The typed bindings cannot say raw bytes, so the
   command has its own handler beside theirs (`lib.rs` of `src-tauri`).
 
-On the corpus of the comparison with Shiki (578 files of the IntelliJ monorepo and Branch Deck) every file is
-highlighted at 77–115 ms of CPU per MB in a release build, the parse included; `opt-level = 3` for the grammars gains 0
-to 18 % over the `s` of the release profile, so it stays. The rules have golden files
+On the corpus of the comparison with Shiki (578 files of the IntelliJ monorepo and Branch Deck) every file was
+highlighted by tree-sitter at 77–115 ms of CPU per MB in a release build, the parse included; `opt-level = 3` for the
+grammars gains 0 to 18 % over the `s` of the release profile, so it stays. Kotlin and Java from their PSI take 18–19 ms
+per MB, the parse included (the first 5 000 files of each language of intellij-community on one thread, 18.6 MB each:
+343 and 365 ms, where tree-sitter took 1 527 and 1 257 ms). The rules have golden files
 (`crates/code-symbols/testdata/highlight/*.highlight`).
 
 **Go to Declaration** ([Symbol Navigation](../../spec/commit/symbol-navigation.spec.md)). The painter finds the word
@@ -660,8 +661,8 @@ without the deleted parts of an Inline row) and selects a name once its row is p
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
 types in the view or selects elsewhere (`selectWord`); the view draws
 the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
-(`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`; Java's from its PSI in one
-walk that keeps the declarations of the name, `psi_java/navigate.rs`),
+(`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`; Kotlin's and Java's from their PSI in one
+walk that keeps the declarations of the name, `kotlin/navigate.rs` and `java/navigate.rs`),
 then the declarations of the review's files from the summaries of the `blob_summary` store and the texts the diffs
 read, so a jump starts no git process. A name the review does not declare is asked of the index of accio
 (`crates/file-diffs/src/accio.rs`, behind the `SymbolIndex` trait: the e2e server answers from a fixture of the test

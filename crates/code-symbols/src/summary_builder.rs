@@ -1,5 +1,5 @@
 //! The half of a summary walk that knows no parser: what any walk over any syntax tree (tree-sitter's in `extract.rs`,
-//! psi-syntax's in `psi_kotlin/` and `psi_java/`) collects and how it becomes a `FileSummary`.
+//! psi-syntax's in `kotlin/` and `java/`) collects and how it becomes a `FileSummary`.
 //!
 //! - `SummaryBuilder`: the names (interned in the order the walk meets them, sorted by `finish`), the package, imports
 //!   and import lines, the declarations in source order, the references, the interned shapes, the error bytes, the
@@ -517,13 +517,47 @@ impl<'t> SummaryBuilder<'t> {
   }
 }
 
+/// What the parents decided about their children before the walk reaches them (a declaration's name, the callee of a
+/// call), by node, each with the index of the frame that decided it: a mark lasts while that frame does
+pub(crate) struct Marks<K, M>(Vec<(K, M, usize)>);
+
+impl<K, M> Default for Marks<K, M> {
+  fn default() -> Self {
+    Self(Vec::new())
+  }
+}
+
+impl<K: Copy + PartialEq, M> Marks<K, M> {
+  /// Marks `node`, a child of the node of the frame at index `frame`
+  pub(crate) fn set(&mut self, node: K, mark: M, frame: usize) {
+    self.0.push((node, mark, frame));
+  }
+
+  /// The mark of `node`, the one set last, which it no longer has
+  pub(crate) fn take(&mut self, node: K) -> Option<M> {
+    let index = self.0.iter().rposition(|it| it.0 == node)?;
+    Some(self.0.remove(index).1)
+  }
+
+  pub(crate) fn contains(&self, node: K) -> bool {
+    self.0.iter().any(|it| it.0 == node)
+  }
+
+  /// The walk leaves its frame at index `frame`: the marks it and the frames below it set are gone
+  pub(crate) fn leave_frame(&mut self, frame: usize) {
+    while self.0.last().is_some_and(|it| it.2 >= frame) {
+      self.0.pop();
+    }
+  }
+}
+
 /// A scope of `Bindings`
 struct Scope {
   bound_start: usize,
   body: bool,
 }
 
-/// A name bound in a scope, with the type it was declared with (`JvmHooks::value_type`)
+/// A name bound in a scope, with the type it was declared with (`Declaration::value_type`)
 pub(crate) struct Binding {
   pub(crate) name: u32,
   pub(crate) type_path: Option<Typed>,
@@ -542,6 +576,8 @@ pub(crate) struct Bindings {
   counts: HashMap<u32, u32>,
   serials: u32,
   body_scopes: u32,
+  /// (frame index, name, type): the names `bind_later` binds when the walk leaves that frame
+  pending: Vec<(usize, u32, Option<Typed>)>,
 }
 
 impl Bindings {
@@ -594,6 +630,30 @@ impl Bindings {
   /// The innermost binding of `name`
   pub(crate) fn binding(&self, name: u32) -> Option<&Binding> {
     self.bound.iter().rev().find(|it| it.name == name)
+  }
+
+  /// Binds `name` when the walk leaves its frame at index `frame` (`bind_left`): a local `val x = x`, the names of a
+  /// pattern, which the code they are declared in does not see
+  pub(crate) fn bind_later(&mut self, frame: usize, name: u32, type_path: Option<Typed>) {
+    self.pending.push((frame, name, type_path));
+  }
+
+  /// The walk leaves its frame at index `frame`: closes the `scopes` it opened, then binds the names of `bind_later`
+  /// that wait for it (`bind_left`)
+  pub(crate) fn leave_frame(&mut self, frame: usize, scopes: u8) {
+    for _ in 0..scopes {
+      self.pop();
+    }
+    self.bind_left(frame);
+  }
+
+  /// Binds the names of `bind_later` whose frame, at index `frame` or deeper, the walk leaves, in the scope it is in
+  pub(crate) fn bind_left(&mut self, frame: usize) {
+    while self.pending.last().is_some_and(|(at, ..)| *at >= frame) {
+      if let Some((_, name, type_path)) = self.pending.pop() {
+        self.bind(name, type_path);
+      }
+    }
   }
 
   /// The binding made last

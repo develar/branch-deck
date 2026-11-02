@@ -44,7 +44,7 @@ flowchart TD
     UC[update-core: Update Project, bd pick, the resolve sessions] --> TC
     UC --> CORE
     TC[trial-check: the trial checks, the landing gate, bd move-hunk; the diffs and the symbols of the commits] --> CORE
-    TC --> FD[file-diffs, code-symbols: the typed diffs, the tree-sitter summaries]
+    TC --> FD[file-diffs, code-symbols: the typed diffs, the syntax summaries]
     LP[lease-pool: bd lease, bd workspace, the clean rules] --> CORE
     RM[repository-model: the branch table Rust derives, the guards of the push and robot actions] --> CORE
     RM -.->|until s7| TC

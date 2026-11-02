@@ -2,8 +2,8 @@
 //! IntelliJ's Java PSI (`CLASS`, `METHOD`, `METHOD_CALL_EXPRESSION`, `REFERENCE_EXPRESSION`, …), read by walks of this
 //! module over its preorder ids by `java_syntax::NodeKind` and `TokenKind`, never as tree-sitter nodes. `parse` is the
 //! one call into the parser; `summary` makes the `FileSummary`, `highlight` the `LineRuns`, `navigate` the answers of Go
-//! to Declaration and Find Usages, each by the parser-neutral builders (`summary_builder`, `highlight::lines` and
-//! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answer, byte_offset}`).
+//! to Declaration and Find Usages, each by the parser-neutral builders (`summary_builder` and `jvm`, `highlight::lines` and
+//! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answers, byte_offset}`).
 //!
 //! - **The text** is the file as IntelliJ's document holds it (`java_syntax::document_text`): a byte order mark as
 //!   spaces, at the file's offsets; the Java lexer reads `\r`, `\n` and `\r\n` as line ends itself. The tree owns that
@@ -12,7 +12,7 @@
 //!   `JavaSyntaxDefinition.parse(builder)` parses it.
 //! - **Bounded by the parser**: any bytes parse, losslessly and without a panic; a construct nested past 1200 levels is
 //!   an error element "Code is too deeply nested" over its rest. A parse needs 1 MB of stack in a release build (772 KB
-//!   at the limit): the threads that run it have 2 MiB or more (`psi_kotlin`, "Bounded by the parser"). A walk of the
+//!   at the limit): the threads that run it have 2 MiB or more (`kotlin`, "Bounded by the parser"). A walk of the
 //!   tree must not recurse per level of nesting beyond a small frame; an explicit stack is safe.
 //! - **The size limits** stay the callers': `extract::{MAX_BYTES, MAX_LINES, MAX_AVERAGE_LINE}` before a summary,
 //!   `highlight::MAX_BYTES` before the highlighting.

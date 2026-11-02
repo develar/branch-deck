@@ -1,8 +1,11 @@
-//! One preorder walk over a tree-sitter tree, driven by per-language tables of node kinds.
+//! The summary of a file (`summarize`): Kotlin and Java by a walk of their PSI (`kotlin::summary`, `java::summary`),
+//! Rust, TypeScript and JavaScript by one preorder walk over a tree-sitter tree, driven by per-language tables of node
+//! kinds (below); both on the parser-neutral `summary_builder`. The size limits and the version of the rules are those
+//! of every language.
 //!
-//! - **Tables, not queries**: each language lists its node kinds with a `Rule` from the shared vocabulary below
-//!   (`kotlin.rs`, `java.rs`, `rust_lang.rs`, `typescript.rs`); the few constructs the vocabulary cannot say are a
-//!   `Rule::Special` with a function of that language. The rules are resolved once per grammar into a table indexed by kind id, and
+//! - **Tables, not queries**: each tree-sitter language lists its node kinds with a `Rule` from the shared vocabulary
+//!   below (`rust_lang.rs`, `typescript.rs`); the few constructs the vocabulary cannot say are a `Rule::Special` with a
+//!   function of that language. The rules are resolved once per grammar into a table indexed by kind id, and
 //!   `every_spec_kind_exists_in_its_grammar` checks every kind and field name against the grammar, so a grammar
 //!   upgrade that renames a node fails a test instead of losing names silently.
 //! - **Iterative**: a `TreeCursor` walk with an explicit frame stack, so a deeply nested file cannot overflow the
@@ -12,43 +15,29 @@
 //!   reference anywhere in that scope, and a declaration inside a function body is a local, not a declaration. A
 //!   binding is visible from its declaration to the end of its scope, except in TypeScript, where `let`, `const`,
 //!   `class` and `function` are visible in their whole block and `var` in its whole function (`Spec::hoist`).
-//! - **Overrides** (`Spec::jvm`, Kotlin and Java): a class-like node, local or not, pushes its supertypes onto a
-//!   stack that its frame pops, and a function or a Kotlin lambda pushes an empty list, so a member sees the supertypes
-//!   of the class it is directly in. A Kotlin `override` or Java `@Override` member is a `Role::Override` reference per
-//!   supertype on top of the stack, with its parameter types as a `Shape::Override`.
-//! - **Calls** (`Spec::call_shape`, Kotlin and Java): a call gives the reference of its callee, through the mark of the
-//!   callee, a `Shape::Call` of its arguments. It is `enclosed` when the stack of supertypes is deeper than at the
-//!   declaration around it: a Kotlin lambda or anonymous function, an object expression, an anonymous class or a local
-//!   declaration lies between them, each of which pushes onto it.
-//! - **Constructors** (`JvmHooks::constructors`, Kotlin and Java): a class (not an interface, an object, an enum or
-//!   an annotation) has the constructors its header declares, those its body adds (`Walk::add_constructor`: a Kotlin
-//!   secondary constructor, a Java constructor), and without any the implicit `()`, added when the walk is done. Those
-//!   of a class with a parse error in it, which may have swallowed one, are unknown. A
-//!   Kotlin constructor invocation of a supertype and a Java `new` call the type (`Walk::give_call`), with the shape
-//!   taken before an object expression or an anonymous class pushes its supertypes: they and their arguments are of the
-//!   code around it.
-//! - **Bounded**: files over `MAX_BYTES`, `MAX_LINES` or `MAX_AVERAGE_LINE` (minified) are not parsed, and the parse
-//!   stops after `PARSE_BUDGET` progress callbacks, a count of parser operations, so the same bytes always give the same
-//!   summary, unlike a wall-clock timeout. Either gives a `truncated` summary.
+//! - **Bounded**: files over `MAX_BYTES`, `MAX_LINES` or `MAX_AVERAGE_LINE` (minified) are not parsed, and a
+//!   tree-sitter parse stops after `PARSE_BUDGET` progress callbacks, a count of parser operations, so the same bytes
+//!   always give the same summary, unlike a wall-clock timeout. Either gives a `truncated` summary. psi-syntax parses
+//!   any text within the limits, a construct past its nesting limit as an error element.
 
 use crate::language::Language;
-use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, Import, LineSpan, MemberKind, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{Bindings, SummaryBuilder, Typed, empty_summary, is_junit3_test};
+use crate::summary::{DeclKind, FileSummary, Import, LineSpan, MemberKind, Reach, Role};
+use crate::summary_builder::{Bindings, Marks, SummaryBuilder, blank_declaration, empty_summary};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::OnceLock;
 use tree_sitter::{Node, ParseOptions, ParseState, Parser, Tree};
 
 /// The version of the extraction rules; bump it on any rule change, so that cached summaries are made again
-pub const RULES_VERSION: u32 = 21;
+pub const RULES_VERSION: u32 = 22;
 /// Files above this size are not parsed
 pub const MAX_BYTES: usize = 1 << 20;
 /// Files with more lines are not parsed
 pub const MAX_LINES: u32 = 20_000;
 /// Files whose average line is longer are minified or generated, and not parsed
 pub const MAX_AVERAGE_LINE: u32 = 500;
-/// The progress callbacks a parse may take; tree-sitter calls it every 100 parser operations. The densest of 922 files
+/// The progress callbacks a tree-sitter parse may take; tree-sitter calls it every 100 parser operations. The densest of 922 files
 /// of the IntelliJ monorepo took 19 per KiB, so a file at `MAX_BYTES` needs about 20 000; the rest is for error
 /// recovery, which this cuts at 5 million operations.
 pub const PARSE_BUDGET: u32 = 50_000;
@@ -58,8 +47,8 @@ pub fn summarize(language: Language, source: &[u8]) -> FileSummary {
   summarize_with_budget(language, source, PARSE_BUDGET)
 }
 
-/// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`psi_kotlin`) and
-/// Java (`psi_java`), tree-sitter's with `budget` for the others
+/// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`kotlin`) and
+/// Java (`java`), tree-sitter's with `budget` for the others
 pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u32) -> FileSummary {
   let mut summary = empty_summary(language, source);
   let lines = summary.lines;
@@ -68,9 +57,9 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
   }
   let read = match language {
     #[cfg(feature = "kotlin")]
-    Language::Kotlin => crate::psi_kotlin::summary::summarize(source, &mut summary),
+    Language::Kotlin => crate::kotlin::summary::summarize(source, &mut summary),
     #[cfg(feature = "java")]
-    Language::Java => crate::psi_java::summary::summarize(source, &mut summary),
+    Language::Java => crate::java::summary::summarize(source, &mut summary),
     _ => summarize_tree_sitter(source, budget, &mut summary),
   };
   summary.truncated = !read;
@@ -79,7 +68,7 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
 
 /// Fills `summary` (`empty_summary` of the file) by one walk over the tree-sitter tree of `source`, within the parse
 /// budget; whether the file was read
-pub(crate) fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) -> bool {
+fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) -> bool {
   let Some(spec) = spec_of(summary.language) else { return false };
   let table = table_of(spec);
   let Some(tree) = parse(table, source, budget) else { return false };
@@ -89,21 +78,28 @@ pub(crate) fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut Fi
   true
 }
 
-/// A stable hash of the rules and the grammars of this build: a cached summary is valid only for the same value. FNV-1a
-/// over `RULES_VERSION` and the `node-types.json` of each enabled grammar, so it is the same across runs and compilers.
+/// The revision of psi-syntax, whose `kotlin-syntax` and `java-syntax` read Kotlin and Java: the `rev` of the three
+/// psi-syntax crates in `Cargo.toml` (`the_psi_syntax_revision_is_the_one_cargo_builds`)
+pub(crate) const PSI_SYNTAX_REVISION: &str = "36222345d10cee7425d29da747b01fcbebc268e7";
+
+/// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
+/// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax (Kotlin, Java) or the
+/// `node-types.json` of its tree-sitter grammar, so it is the same across runs and compilers.
 pub fn extractor_version() -> u32 {
   let mut hash = Fnv::new();
   hash.write(&RULES_VERSION.to_le_bytes());
-  for language in Language::ALL {
-    if let Some(spec) = spec_of(language) {
-      hash.write(&[language.id()]);
-      hash.write(spec.node_types.as_bytes());
+  for language in Language::ALL.into_iter().filter(|it| it.is_enabled()) {
+    hash.write(&[language.id()]);
+    match spec_of(language) {
+      Some(spec) => hash.write(spec.node_types.as_bytes()),
+      None => hash.write(PSI_SYNTAX_REVISION.as_bytes()),
     }
   }
   hash.finish()
 }
 
-/// The tree-sitter grammar of a language in this build, for tools that look at the syntax tree itself
+/// The tree-sitter grammar of a language in this build (Rust, TypeScript), for tools that look at the syntax tree
+/// itself; none for Kotlin and Java, which psi-syntax reads
 pub fn grammar(language: Language) -> Option<tree_sitter::Language> {
   spec_of(language).map(|spec| (spec.grammar)())
 }
@@ -127,20 +123,13 @@ impl Fnv {
   }
 }
 
+/// The rules of a language tree-sitter reads in this build
 pub(crate) fn spec_of(language: Language) -> Option<&'static Spec> {
   match language {
-    #[cfg(feature = "kotlin")]
-    Language::Kotlin => Some(&crate::kotlin::SPEC),
-    #[cfg(feature = "java")]
-    Language::Java => Some(&crate::java::SPEC),
     #[cfg(feature = "rust")]
     Language::Rust => Some(&crate::rust_lang::SPEC),
     #[cfg(feature = "typescript")]
     Language::TypeScript => Some(&crate::typescript::SPEC),
-    #[cfg_attr(
-      all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript"),
-      expect(unreachable_patterns, reason = "every arm above is behind a feature")
-    )]
     _ => None,
   }
 }
@@ -149,7 +138,8 @@ fn parse(table: &Table, source: &[u8], budget: u32) -> Option<Tree> {
   parse_language(&table.language, source, budget)
 }
 
-/// A parse that stops after `budget` progress callbacks, on one parser per thread; the highlighting parses with it too
+/// A tree-sitter parse that stops after `budget` progress callbacks, on one parser per thread; the highlighting and the
+/// navigation parse with it too
 pub(crate) fn parse_language(language: &tree_sitter::Language, source: &[u8], budget: u32) -> Option<Tree> {
   thread_local! {
     static PARSER: RefCell<Parser> = RefCell::new(Parser::new());
@@ -171,7 +161,7 @@ pub(crate) fn parse_language(language: &tree_sitter::Language, source: &[u8], bu
   })
 }
 
-/// One language: its grammar, its rules and the code of its special constructs
+/// One tree-sitter language: its grammar, its rules and the code of its special constructs
 pub(crate) struct Spec {
   pub(crate) language: Language,
   pub(crate) grammar: fn() -> tree_sitter::Language,
@@ -179,7 +169,7 @@ pub(crate) struct Spec {
   pub(crate) rules: &'static [(&'static str, Rule)],
   /// The identifier kinds a binding pattern binds
   pub(crate) binding_names: &'static [&'static str],
-  /// Names that are never references (`var` in Java, `Self` in Rust)
+  /// Names that are never references (`Self` in Rust)
   pub(crate) reserved: &'static [&'static str],
   /// The named node kinds, anonymous ones (keywords, operators) and fields the language code reads by name besides
   /// those of the rules, checked against the grammar like the rules
@@ -192,17 +182,8 @@ pub(crate) struct Spec {
   pub(crate) binds: fn(&str) -> bool,
   /// Binds the names visible in a whole scope before the walk enters it
   pub(crate) hoist: Option<for<'t> fn(&mut Walk<'t>, Node<'t>)>,
-  /// The hooks of a JVM language (Kotlin, Java): signatures, overriding, supertypes and constructors
-  pub(crate) jvm: Option<JvmHooks>,
   /// What the header of a function or a value is (`Declaration::header`)
   pub(crate) header: Header,
-  /// Of a JVM language, the coroutine context a node opens for the references below it (`Reference::coroutine`):
-  /// `Some(context)` for a function or a lambda, `None` for any other node; outside them the context is `Some(false)`.
-  /// `None` for a language without suspend functions
-  pub(crate) coroutine: Option<CoroutineRule>,
-  /// The arguments of a call node (a `Rule::Call`, a `Rule::Member` of the role `Call`, a call of `Walk::give_call`),
-  /// for the `Shape::Call` of the reference of its callee; `None` when it says nothing of them
-  pub(crate) call_shape: Option<for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<CallArguments>>,
 }
 
 /// The node kinds that end and shorten the header of a function or a value (`Declaration::header`); a token is matched by
@@ -218,98 +199,6 @@ pub(crate) struct Header {
   pub(crate) drop_tokens: &'static [&'static str],
   /// The kinds of a parameter list: left out where `signature` holds the parameters, else kept, `=` included
   pub(crate) parameters: &'static [&'static str],
-}
-
-/// The coroutine context of the code a node holds (`Spec::coroutine`, `Reference::coroutine`)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Context {
-  /// A suspend call is allowed: a `suspend` function, the lambda of a coroutine builder
-  Coroutine,
-  /// It isn't: any other function, an initializer, an accessor
-  Plain,
-  /// A lambda that a suspend function type may take
-  Unknown,
-}
-
-/// The context a node opens for the references below it, `None` for a node that opens none
-pub(crate) type CoroutineRule = for<'t> fn(&Walk<'t>, Node<'t>) -> Option<Context>;
-
-/// The type of a value as `JvmHooks::value_type` reads it: its path, and whether a constructor call gave it
-pub(crate) type ValueType<'t> = (Vec<&'t str>, bool);
-
-/// The arguments of a call in source order, each with its name if it has one, and whether one spreads an array
-pub(crate) type CallArguments = (Vec<(Option<u32>, Argument)>, bool);
-
-/// What a declaration says about overriding, asked at the start of `Walk::declaration`, local or not, and by the
-/// language code that declares around it (a Kotlin constructor property), and the constructors of a class
-pub(crate) struct JvmHooks {
-  /// The parameters of a function declaration
-  pub(crate) signature: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Signature>,
-  /// The modifiers of a function or property declaration
-  pub(crate) overrides: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Modality,
-  /// `Some` for a class-like node, also an empty list: the supertypes whose members the declarations directly in it
-  /// override (an enum entry: its enum)
-  pub(crate) supertypes: for<'t> fn(&mut Walk<'t>, Node<'t>) -> Option<Vec<Vec<u32>>>,
-  /// The named leaves that are types besides type names (Java `int`), for `TypeRef`
-  pub(crate) primitives: &'static [&'static str],
-  /// The constructors the header of a class declares, given the reach of the class: a Kotlin primary constructor, the
-  /// canonical constructor of a Java record; its body adds the others (`Walk::add_constructor`)
-  pub(crate) constructors: for<'t> fn(&mut Walk<'t>, Node<'t>, Reach) -> Vec<Constructor>,
-  /// The reach of the implicit `()` of a class that declares no constructor, given the reach of the class
-  pub(crate) implicit_constructor: fn(Reach) -> Reach,
-  /// The type of a declaration of a value (a property, a field, a local, a parameter): as written, without type
-  /// arguments, else the type its initializer constructs; `None` for a type parameter, a function type and an
-  /// inferred type of any other expression (`Declaration::value_type`); with whether a constructor call gave it
-  pub(crate) value_type: for<'t> fn(&Walk<'t>, Node<'t>) -> Option<ValueType<'t>>,
-  /// The node a receiver of a member names a value by: a name inside a Kotlin `m!!`, else the node itself
-  pub(crate) receiver_node: for<'t> fn(&Walk<'t>, Node<'t>) -> Node<'t>,
-  /// Whether a function named `main`, not a local one, of this signature is one the JVM starts a program with
-  /// (`Declaration::entry_point`)
-  pub(crate) entry_point: for<'t> fn(&Walk<'t>, Node<'t>, &Signature) -> bool,
-  /// Whether an annotation of a declaration of any kind marks it as no stable API (`Walk::unstable_annotation`)
-  pub(crate) unstable: for<'t> fn(&Walk<'t>, Node<'t>) -> bool,
-}
-
-/// What the modifiers of a member say about overriding
-#[derive(Debug, Clone, Copy, Default)]
-#[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
-pub(crate) struct Modality {
-  pub(crate) overrides: bool,
-  pub(crate) overridable: bool,
-  /// A Kotlin `@JvmStatic` member
-  pub(crate) jvm_static: bool,
-  /// A Kotlin `@JvmField` property
-  pub(crate) jvm_field: bool,
-  /// A Kotlin member that `@JvmName` (also `@get:` or `@set:`) names otherwise for Java, or `@JvmSynthetic` hides
-  pub(crate) jvm_name: bool,
-  /// A Kotlin `lateinit` property
-  pub(crate) lateinit: bool,
-  /// A Kotlin or Java function annotated as a test (`Declaration::test`)
-  pub(crate) test: bool,
-  /// The reach of the setter of a Kotlin `var`
-  pub(crate) setter: Option<Reach>,
-  /// The extension receiver of a Kotlin member, for the shape of its override
-  pub(crate) receiver: Option<u32>,
-}
-
-/// The fields of a `Declaration` that `JvmHooks` fills
-#[derive(Debug, Default)]
-#[expect(clippy::struct_excessive_bools, reason = "independent facts of a declaration")]
-pub(crate) struct JvmFields {
-  signature: Option<Signature>,
-  overrides: bool,
-  overridable: bool,
-  jvm_static: bool,
-  jvm_field: bool,
-  jvm_name: bool,
-  lateinit: bool,
-  test: bool,
-  entry_point: bool,
-  unstable: bool,
-  setter: Option<Reach>,
-  supertypes: Vec<Vec<u32>>,
-  value_type: Option<Typed>,
-  constructors: Option<Vec<Constructor>>,
 }
 
 /// What a node kind means; the shared vocabulary of the language tables
@@ -329,8 +218,6 @@ pub(crate) enum Rule {
     name: Child,
     role: Option<Role>,
   },
-  /// Kotlin `a.b.C<T>.D`: each type name qualified by the names before it
-  Path,
   /// A call or an annotation: the callee (a name, a member or a `Forward`) gets `role`
   Call {
     callee: Child,
@@ -338,8 +225,6 @@ pub(crate) enum Rule {
   },
   /// A generic wrapper (`foo::<T>`, `List<T>`) passes the role it gets on to this child
   Forward(Child),
-  /// This child is a label, not a reference: a named argument, an object key
-  Label(Child),
   /// A scope and the names it binds
   Bind(Binder),
   /// These children of a pattern are no bindings: a struct pattern's type, a default value
@@ -362,7 +247,6 @@ pub(crate) enum Child {
   Kind(&'static [&'static str]),
   /// The n-th named child
   Nth(u8),
-  Last,
 }
 
 /// A scope (`scope`) and the names bound in it or in the enclosing one
@@ -373,25 +257,12 @@ pub(crate) struct Binder {
   pub(crate) names: &'static [Child],
   /// The names become visible when this node is left (`let x = x;`), not when the pattern is
   pub(crate) late: bool,
-  /// Names the scope binds without a declaration: Kotlin `it`, `field`
-  pub(crate) implicit: &'static [&'static str],
-  /// Children that are no references (the name of a Java constructor)
-  pub(crate) labels: &'static [Child],
-  /// A lambda: the declarations in it override nothing of the class around it
-  pub(crate) lambda: bool,
 }
 
 pub(crate) const SCOPE: Rule = Rule::Bind(binder(true, &[]));
 
 pub(crate) const fn binder(scope: bool, names: &'static [Child]) -> Binder {
-  Binder {
-    scope,
-    names,
-    late: false,
-    implicit: &[],
-    labels: &[],
-    lambda: false,
-  }
+  Binder { scope, names, late: false }
 }
 
 /// The scope a declaration opens for its children
@@ -411,12 +282,8 @@ pub(crate) struct DeclRule {
   pub(crate) opens: Opens,
   /// In a local scope, the name becomes visible when the node is left (`val x = x`), not at once (recursion)
   pub(crate) late: bool,
-  /// A child that is a pattern of several names (Kotlin `val (a, b)`, TypeScript `const { a, b }`)
+  /// A child that is a pattern of several names (TypeScript `const { a, b }`)
   pub(crate) pattern: Option<Child>,
-  /// The name of a declaration without one in the source (Kotlin `companion object`)
-  pub(crate) default_name: Option<&'static str>,
-  /// A child whose members are locals (the body of an enum entry overrides members declared elsewhere)
-  pub(crate) local_body: Option<Child>,
 }
 
 /// The rules of node kinds that several grammars have
@@ -448,8 +315,6 @@ pub(crate) const fn decl(kind: DeclKind, name: Child) -> DeclRule {
     opens: Opens::Nothing,
     late: false,
     pattern: None,
-    default_name: None,
-    local_body: None,
   }
 }
 
@@ -478,12 +343,8 @@ pub(crate) struct TokenItem<'t> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Holder {
   Class,
-  /// Its Java fields are constants and its members public
   Interface,
-  /// A Kotlin object or companion: its members are static
-  Object,
   Enum,
-  Annotation,
   Trait,
   Impl,
   TraitImpl,
@@ -550,7 +411,7 @@ impl Spec {
     let mut add = |child: &Child| match child {
       Child::Field(name) => fields.push(*name),
       Child::Kind(names) => kinds.extend_from_slice(names),
-      Child::Itself | Child::Nth(_) | Child::Last => {}
+      Child::Itself | Child::Nth(_) => {}
     };
     for (_, rule) in self.rules {
       match rule {
@@ -558,14 +419,14 @@ impl Spec {
           add(object);
           add(name);
         }
-        Rule::Call { callee: child, .. } | Rule::Forward(child) | Rule::Label(child) => add(child),
-        Rule::Bind(binder) => binder.names.iter().chain(binder.labels).for_each(&mut add),
+        Rule::Call { callee: child, .. } | Rule::Forward(child) => add(child),
+        Rule::Bind(binder) => binder.names.iter().for_each(&mut add),
         Rule::Unbind(children) => children.iter().for_each(&mut add),
         Rule::Decl(decl) => {
           add(&decl.name);
-          decl.pattern.iter().chain(&decl.local_body).for_each(&mut add);
+          decl.pattern.iter().for_each(&mut add);
         }
-        Rule::Comment | Rule::Skip | Rule::Name(_) | Rule::Keyword(_) | Rule::Path | Rule::Wrapper | Rule::Special(_) => {}
+        Rule::Comment | Rule::Skip | Rule::Name(_) | Rule::Keyword(_) | Rule::Wrapper | Rule::Special(_) => {}
       }
     }
     (kinds, fields)
@@ -582,34 +443,25 @@ pub(crate) fn table_of(spec: &'static Spec) -> &'static Table {
 enum Mark {
   /// A name that is no reference: a declaration's own name, a label, a key
   Claimed,
-  /// The role a call, an annotation or a JSX tag gives a name or a member, with the shape of a call's arguments
-  Role(Role, Option<u32>),
+  /// The role a call, an attribute or a JSX tag gives a name or a member
+  Role(Role),
   /// The root of a binding pattern; its names become visible when the frame at this index is left (`None`: the root)
   Pattern(Option<usize>),
   /// Leaves a pattern: a pattern's type, a default value, a member's object
   Expr,
-  /// A body whose declarations are locals
-  Scope,
 }
 
-#[expect(clippy::struct_excessive_bools, reason = "independent facts of the node of a frame")]
 struct Frame<'t> {
   node: Node<'t>,
   /// Names below bind, and become visible when the frame at this index is left
   pattern: Option<usize>,
   scopes: u8,
   container: bool,
-  /// The entries this node pushed onto `Walk::supertypes`
-  supertypes: u8,
-  /// It pushed its coroutine context onto `Walk::coroutines`
-  coroutine: bool,
   error: bool,
   /// The first line of the doc comments and attributes above the next child
   leading: Option<u32>,
   /// A test attribute above the next child (Rust `#[test]`)
   test_mark: bool,
-  /// The last declaration among the children, for a Kotlin accessor that the grammar puts beside its property
-  last_decl: Option<u32>,
   /// Inside a Rust token tree: the path of the `a::b::` (or `a.b.`) tokens before the next one
   tokens: Option<Tokens<'t>>,
 }
@@ -627,18 +479,6 @@ struct Container {
   decl: Option<u32>,
   holder: Holder,
   receiver: Option<u32>,
-  /// A function or an accessor, whose code sees no parameter of a primary constructor
-  code: bool,
-  /// The depth of `Walk::supertypes` when it was entered, its own entry included
-  supertypes: usize,
-}
-
-/// A member reference whose receiver may have a type (`Reference::receiver_type`), decided when the walk is done
-enum TypedReceiver {
-  /// A bound name of this type and binding
-  Bound { serial: u32, type_path: Typed },
-  /// A property or field `[m]` or `[this, m]`, not enclosed
-  Property,
 }
 
 /// The state of one walk; the language code reads and writes it through the methods below
@@ -650,28 +490,14 @@ pub(crate) struct Walk<'t> {
   out: SummaryBuilder<'t>,
   frames: Vec<Frame<'t>>,
   /// (node id, mark, index of the frame that set it)
-  marks: Vec<(usize, Mark, usize)>,
+  marks: Marks<usize, Mark>,
   bindings: Bindings,
-  /// Name node id -> the type its binding gets, set by the language code before the walk binds it
-  binding_types: HashMap<usize, Typed>,
-  /// Name node ids of the parameters of a Kotlin primary constructor (`Binding::initializers`)
-  initializer_names: HashSet<usize>,
-  /// (frame index, name, type): bindings that become visible when that frame is left
-  pending: Vec<(usize, u32, Option<Typed>)>,
   containers: Vec<Container>,
-  /// The supertypes whose members the declarations at this level override; a class-like node pushes its own, a
-  /// function body and a lambda an empty list
-  supertypes: Vec<Vec<Vec<u32>>>,
-  /// The coroutine contexts of the functions and lambdas around the current node (`Spec::coroutine`)
-  coroutines: Vec<Context>,
   error_depth: u32,
   /// The leading line taken from the parent for the node being entered
   leading_now: Option<u32>,
   /// The test attribute taken from the parent for the node being entered
   test_now: bool,
-  /// The paths of the annotations of a Kotlin file (`@file:ApiStatus.Internal`), which come before its imports: an
-  /// unstable one makes the top-level declarations `unstable`
-  file_annotations: Vec<Vec<&'t str>>,
 }
 
 impl<'t> Walk<'t> {
@@ -682,18 +508,12 @@ impl<'t> Walk<'t> {
       source,
       out: SummaryBuilder::new(),
       frames: Vec::new(),
-      marks: Vec::new(),
+      marks: Marks::default(),
       bindings: Bindings::default(),
-      binding_types: HashMap::new(),
-      initializer_names: HashSet::new(),
-      pending: Vec::new(),
       containers: Vec::new(),
-      supertypes: Vec::new(),
-      coroutines: Vec::new(),
       error_depth: 0,
       leading_now: None,
       test_now: false,
-      file_annotations: Vec::new(),
     }
   }
 
@@ -756,18 +576,11 @@ impl<'t> Walk<'t> {
       pattern,
       scopes: 0,
       container: false,
-      supertypes: 0,
-      coroutine: false,
       error: false,
       leading: None,
       test_mark: false,
-      last_decl: None,
       tokens: None,
     };
-    if let Some(context) = self.spec.coroutine.and_then(|opens| opens(self, node)) {
-      self.coroutines.push(context);
-      frame.coroutine = true;
-    }
     if node.is_error() || node.is_missing() {
       if self.error_depth == 0 {
         let bytes = u32::try_from(node.byte_range().len()).unwrap_or(u32::MAX).max(u32::from(node.is_missing()));
@@ -786,9 +599,6 @@ impl<'t> Walk<'t> {
       _ => self.frames.last_mut().is_some_and(|it| std::mem::take(&mut it.test_mark)),
     };
     self.frames.push(frame);
-    if matches!(mark, Some(Mark::Scope)) {
-      self.push_scope(true);
-    }
     match rule {
       None => !matches!(mark, Some(Mark::Claimed)),
       Some(Rule::Comment) => {
@@ -816,34 +626,20 @@ impl<'t> Walk<'t> {
         self.member(node, mark, object, name, role);
         true
       }
-      Some(Rule::Path) => {
-        self.path(node, mark);
-        true
-      }
       Some(Rule::Call { callee, role }) => {
         if let Some(callee) = self.child(node, callee) {
-          let shape = if role == Role::Call { self.call_shape(node) } else { None };
-          self.mark(callee, Mark::Role(role, shape));
+          self.mark(callee, Mark::Role(role));
         }
         true
       }
       Some(Rule::Forward(child)) => {
-        if let (Some(Mark::Role(role, shape)), Some(child)) = (mark, self.child(node, child)) {
-          self.mark(child, Mark::Role(role, shape));
-        }
-        true
-      }
-      Some(Rule::Label(child)) => {
-        if let Some(child) = self.child(node, child).filter(|it| self.is_name(*it)) {
-          self.claim(child);
+        if let (Some(Mark::Role(role)), Some(child)) = (mark, self.child(node, child)) {
+          self.mark(child, Mark::Role(role));
         }
         true
       }
       Some(Rule::Bind(binder)) => {
         self.bind(node, &binder);
-        if binder.lambda {
-          self.push_supertypes(Vec::new());
-        }
         true
       }
       Some(Rule::Unbind(children)) => {
@@ -869,25 +665,10 @@ impl<'t> Walk<'t> {
   fn leave(&mut self) {
     let Some(frame) = self.frames.pop() else { return };
     let index = self.frames.len();
-    while self.marks.last().is_some_and(|it| it.2 >= index) {
-      self.marks.pop();
-    }
-    for _ in 0..frame.scopes {
-      self.pop_scope();
-    }
-    while self.pending.last().is_some_and(|(at, ..)| *at >= index) {
-      if let Some((_, name, type_path)) = self.pending.pop() {
-        self.bind_typed(name, type_path);
-      }
-    }
+    self.marks.leave_frame(index);
+    self.bindings.leave_frame(index, frame.scopes);
     if frame.container {
       self.containers.pop();
-    }
-    for _ in 0..frame.supertypes {
-      self.supertypes.pop();
-    }
-    if frame.coroutine {
-      self.coroutines.pop();
     }
     if frame.error {
       self.error_depth -= 1;
@@ -905,17 +686,16 @@ impl<'t> Walk<'t> {
     if binds {
       let at = self.frames[frame].pattern.unwrap_or(frame);
       let id = self.intern(text);
-      let type_path = self.binding_types.remove(&node.id());
-      self.pending.push((at, id, type_path));
+      self.bindings.bind_later(at, id, None);
       return;
     }
-    let (role, shape) = match mark {
-      Some(Mark::Role(role, shape)) => (role, shape),
-      _ => (role, None),
+    let role = match mark {
+      Some(Mark::Role(role)) => role,
+      _ => role,
     };
     let qualifier = self.token_qualifier(text);
     let before = self.out.references.len();
-    self.reference(text, line_of(node), role, qualifier, shape);
+    self.reference(text, line_of(node), role, qualifier);
     if let Some(tokens) = self.frames.len().checked_sub(2).and_then(|it| self.frames[it].tokens.as_mut()) {
       tokens.last = (self.out.references.len() > before).then_some(before);
     }
@@ -948,97 +728,18 @@ impl<'t> Walk<'t> {
       return;
     }
     let Some(text) = self.text(name_node) else { return };
-    let (role, shape) = match (mark, role) {
-      (Some(Mark::Role(role, shape)), _) => (role, shape),
-      // a Java method invocation is a call of its own
-      (_, Some(Role::Call)) => (Role::Call, self.call_shape(node)),
-      (_, role) => (role.unwrap_or_else(|| self.default_role(name_node)), None),
+    let role = match (mark, role) {
+      (Some(Mark::Role(role)), _) => role,
+      (_, role) => role.unwrap_or_else(|| self.default_role(name_node)),
     };
     let qualifier = object.map(|object| self.qualifier_of(object));
-    let receiver = object
-      .filter(|_| matches!(role, Role::Call | Role::Value))
-      .and_then(|object| self.typed_receiver(object, qualifier.as_deref()));
-    let before = self.out.references.len();
-    self.reference(text, line_of(name_node), role, qualifier, shape);
-    if let Some(receiver) = receiver.filter(|_| self.out.references.len() > before) {
-      match receiver {
-        TypedReceiver::Bound { serial, type_path } => self.out.bound_receiver(before, serial, type_path),
-        TypedReceiver::Property => self.out.property_receiver(before),
-      }
-    }
-  }
-
-  /// What the receiver `object` of a member reference may have a type by: a bound name with a declared type, or, not
-  /// enclosed, a property `[m]` or `[this, m]` of the qualifier, decided when the walk is done (`receiver_types`)
-  fn typed_receiver(&self, object: Node<'t>, qualifier: Option<&[u32]>) -> Option<TypedReceiver> {
-    let hooks = self.spec.jvm.as_ref()?;
-    let object = (hooks.receiver_node)(self, object);
-    if self.is_name(object) {
-      let id = self.out.name_id(self.text(object)?)?;
-      if self.is_bound(id) {
-        let binding = self.bindings.binding(id)?;
-        // a parameter of a primary constructor is no name in a function or an accessor: a property of its name is
-        if binding.initializers.is_some_and(|depth| self.containers.iter().skip(depth).any(|it| it.code)) {
-          return None;
-        }
-        return Some(TypedReceiver::Bound {
-          serial: binding.serial,
-          type_path: binding.type_path.clone()?,
-        });
-      }
-    }
-    let this = self.out.name_id("this");
-    let property = match qualifier? {
-      [_] => true,
-      [first, _] => Some(*first) == this,
-      _ => false,
-    };
-    (property && !self.enclosed()).then_some(TypedReceiver::Property)
-  }
-
-  /// The interned `Shape::Call` of the arguments of a call node, by the language's `Spec::call_shape`, `enclosed` by
-  /// the walk
-  fn call_shape(&mut self, node: Node<'t>) -> Option<u32> {
-    let (arguments, spread) = (self.spec.call_shape?)(self, node)?;
-    let enclosed = self.enclosed();
-    Some(self.intern_shape(Shape::Call { arguments, spread, enclosed }))
-  }
-
-  /// A type path, each name qualified by the names before it, which are types: the role and the shape of a mark go to
-  /// the last name, the type a Kotlin constructor invocation `a.b.Base(…)` calls (a Kotlin call of `a.b.C(…)` is of a
-  /// navigation, not of a type)
-  fn path(&mut self, node: Node<'t>, mark: Option<Mark>) {
-    let (role, shape) = match mark {
-      Some(Mark::Role(role, shape)) => (role, shape),
-      _ => (Role::Type, None),
-    };
-    let mut cursor = node.walk();
-    let names: Vec<Node<'t>> = node.named_children(&mut cursor).filter(|it| self.is_name(*it)).collect();
-    let mut segments: Vec<&'t str> = Vec::new();
-    for (index, child) in names.iter().copied().enumerate() {
-      self.claim(child);
-      let Some(text) = self.text(child) else { continue };
-      let qualifier = if segments.is_empty() { None } else { Some(self.qualifier_ids(&segments)) };
-      if !matches!(mark, Some(Mark::Claimed)) {
-        let (role, shape) = if index + 1 == names.len() { (role, shape) } else { (Role::Type, None) };
-        self.reference(text, line_of(child), role, qualifier, shape);
-      }
-      segments.push(text);
-    }
+    self.reference(text, line_of(name_node), role, qualifier);
   }
 
   fn bind(&mut self, node: Node<'t>, binder: &Binder) {
     let index = self.frames.len() - 1;
     if binder.scope {
       self.push_scope(true);
-    }
-    for name in binder.implicit {
-      self.bind_text(name);
-    }
-    for label in binder.labels {
-      if let Some(label) = self.child(node, *label) {
-        self.claim(label);
-      }
     }
     for child in binder.names {
       let Some(child) = self.child(node, *child) else { continue };
@@ -1053,26 +754,19 @@ impl<'t> Walk<'t> {
   fn declaration(&mut self, node: Node<'t>, rule: &DeclRule) {
     let index = self.frames.len() - 1;
     let leading = self.leading_now;
-    let mut fields = self.jvm_fields(node, rule);
     if self.bindings.is_local() {
-      // a local declaration binds its name in the scope around it, with its type
-      let value_type = fields.value_type.take();
+      // a local declaration binds its name in the scope around it
       match rule.pattern.and_then(|it| self.child(node, it)) {
-        Some(pattern) => {
-          if let (Some(type_path), [name]) = (value_type, self.pattern_names(pattern).as_slice()) {
-            self.binding_types.insert(name.id(), type_path);
-          }
-          self.mark(pattern, Mark::Pattern(rule.late.then_some(index)));
-        }
+        Some(pattern) => self.mark(pattern, Mark::Pattern(rule.late.then_some(index))),
         None => {
           if let Some(name) = self.child(node, rule.name).and_then(|it| self.name_node(it)) {
             self.claim(name);
             if let Some(text) = self.text(name) {
               let id = self.intern(text);
               if rule.late {
-                self.pending.push((index, id, value_type));
+                self.bindings.bind_later(index, id, None);
               } else {
-                self.bind_typed(id, value_type);
+                self.bind_id(id);
               }
             }
           }
@@ -1084,37 +778,21 @@ impl<'t> Walk<'t> {
       return;
     }
     let names = self.declared_names(node, rule);
-    let traits = if names.is_empty() && rule.default_name.is_none() {
-      None
-    } else {
-      (self.spec.traits)(self, node, rule)
-    };
+    let traits = if names.is_empty() { None } else { (self.spec.traits)(self, node, rule) };
     for name in &names {
       self.claim(*name);
     }
     if let Some(traits) = traits {
-      let spec = self.spec;
-      // a parse error in a class may swallow a constructor: its constructors are unknown then
-      if let (Some(hooks), DeclKind::Type, Holder::Class, false) = (&spec.jvm, traits.kind, traits.holder, node.has_error()) {
-        fields.constructors = Some((hooks.constructors)(self, node, traits.reach));
-      }
-      let mut first = rule
-        .default_name
-        .filter(|_| names.is_empty())
-        .map(|name| self.declare(node, node, name, &traits, leading, std::mem::take(&mut fields)));
+      let mut first = None;
       for name in names {
         if let Some(text) = self.text(name) {
-          // a pattern of several names declares values: only the first name could take a signature or a supertype
-          let id = self.declare(node, name, text, &traits, leading, std::mem::take(&mut fields));
+          let id = self.declare(node, name, text, &traits, leading);
           first.get_or_insert(id);
         }
       }
       if let Some(first) = first {
         self.enter_container(Some(first), traits.holder, traits.receiver);
       }
-    }
-    if let Some(body) = rule.local_body.and_then(|it| self.child(node, it)) {
-      self.mark(body, Mark::Scope);
     }
     if rule.opens != Opens::Nothing {
       self.push_scope(rule.opens == Opens::Body);
@@ -1147,7 +825,6 @@ impl<'t> Walk<'t> {
       let skipped: Vec<usize> = match self.table.rule(node.kind_id()) {
         Some(Rule::Member { .. }) => continue,
         Some(Rule::Unbind(children)) => children.iter().filter_map(|it| self.child(node, *it)).map(|it| it.id()).collect(),
-        Some(Rule::Label(child)) => self.child(node, child).map(|it| it.id()).into_iter().collect(),
         _ => Vec::new(),
       };
       let mut cursor = node.walk();
@@ -1159,125 +836,24 @@ impl<'t> Walk<'t> {
     names
   }
 
-  /// What a declaration says about overriding, before the walk enters it, local or not: an override is an `Override`
-  /// reference per supertype of the class-like node around it. Then it pushes the supertypes of the declarations
-  /// directly in it: a class-like node its own, a function an empty list for its body.
-  fn jvm_fields(&mut self, node: Node<'t>, rule: &DeclRule) -> JvmFields {
-    let spec = self.spec;
-    let Some(hooks) = &spec.jvm else { return JvmFields::default() };
-    let name = self.child(node, rule.name).and_then(|it| self.name_node(it));
-    let mut fields = self.overriding(hooks, node, name, rule.kind);
-    fields.unstable = (hooks.unstable)(self, node);
-    match (hooks.supertypes)(self, node) {
-      Some(supertypes) => {
-        if rule.kind == DeclKind::Type {
-          fields.supertypes.clone_from(&supertypes);
-        }
-        self.push_supertypes(supertypes);
-      }
-      None if rule.opens == Opens::Body => self.push_supertypes(Vec::new()),
-      None => {}
-    }
-    fields
-  }
-
-  /// The signature and the modifiers of a function or a property, and its `Override` references
-  fn overriding(&mut self, hooks: &JvmHooks, node: Node<'t>, name: Option<Node<'t>>, kind: DeclKind) -> JvmFields {
-    if !matches!(kind, DeclKind::Function | DeclKind::Value) {
-      return JvmFields::default();
-    }
-    let modality = (hooks.overrides)(self, node);
-    // a local function is no declaration: only the shape of an override needs its parameters
-    let signature = if kind == DeclKind::Function && (modality.overrides || !self.is_local()) {
-      (hooks.signature)(self, node)
-    } else {
-      None
-    };
-    if let (true, Some(name)) = (modality.overrides, name) {
-      self.override_references(name, kind == DeclKind::Function, modality.receiver, signature.as_ref());
-    }
-    let test = kind == DeclKind::Function && (modality.test || self.junit3_test(name, signature.as_ref()));
-    let entry_point = kind == DeclKind::Function
-      && !self.is_local()
-      && name.and_then(|it| self.text(it)) == Some("main")
-      && signature.as_ref().is_some_and(|it| (hooks.entry_point)(self, node, it));
-    JvmFields {
-      signature,
-      overrides: modality.overrides,
-      overridable: modality.overridable,
-      jvm_static: modality.jvm_static,
-      jvm_field: modality.jvm_field,
-      jvm_name: modality.jvm_name,
-      lateinit: modality.lateinit,
-      test,
-      entry_point,
-      setter: modality.setter,
-      value_type: if kind == DeclKind::Value { self.value_type(hooks, node) } else { None },
-      ..JvmFields::default()
-    }
-  }
-
-  /// One `Override` reference per supertype of the class around the member, qualified by its path
-  fn override_references(&mut self, name: Node<'t>, function: bool, receiver: Option<u32>, signature: Option<&Signature>) {
-    let Some(supertypes) = self.supertypes.last().filter(|it| !it.is_empty()).cloned() else {
-      return;
-    };
-    let Some(text) = self.text(name) else { return };
-    let parameters = signature.map_or_else(Vec::new, |it| it.parameters.iter().map(|parameter| parameter.type_ref.clone()).collect());
-    let shape = self.intern_shape(Shape::Override { function, receiver, parameters });
-    for supertype in supertypes {
-      self.reference(text, line_of(name), Role::Override, Some(supertype), Some(shape));
-    }
-  }
-
-  fn intern_shape(&mut self, shape: Shape) -> u32 {
-    self.out.intern_shape(shape)
-  }
-
-  fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>, fields: JvmFields) -> u32 {
+  fn declare(&mut self, node: Node<'t>, name_node: Node<'t>, name: &'t str, traits: &Traits, leading: Option<u32>) -> u32 {
     let name = self.intern(name);
     let start = row_line(node.start_position().row);
-    let end_line = end_line_of(node);
-    let has_signature = fields.signature.is_some();
-    let declaration = Declaration {
-      name,
-      kind: traits.kind,
-      container: self.container(),
-      receiver: traits.receiver,
-      reach: traits.reach,
-      member: traits.member,
-      signature: fields.signature,
-      overrides: fields.overrides,
-      overridable: fields.overridable,
-      jvm_static: fields.jvm_static,
-      jvm_field: fields.jvm_field,
-      jvm_name: fields.jvm_name,
-      lateinit: fields.lateinit,
-      test: fields.test || (traits.kind == DeclKind::Function && self.test_now),
-      entry_point: fields.entry_point,
-      unstable: fields.unstable || (traits.kind != DeclKind::Binding && self.container().is_none() && self.file_annotations.iter().any(|it| self.unstable_annotation(it))),
-      setter: fields.setter,
-      supertypes: fields.supertypes,
-      value_constructed: fields.value_type.as_ref().is_some_and(|it| it.constructed),
-      value_type: fields.value_type.map(|it| it.path),
-      constructors: fields.constructors,
-      header: matches!(traits.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant).then(|| self.header(node, has_signature)),
-      start_line: leading.map_or(start, |it| it.min(start)),
-      end_line,
-      name_line: line_of(name_node),
-      in_error: self.error_depth > 0,
-    };
-    let id = self.out.add_declaration(declaration);
-    if let Some(parent) = self.frames.len().checked_sub(2) {
-      self.frames[parent].last_decl = Some(id);
-    }
-    id
+    let mut declaration = blank_declaration(name, traits.kind, traits.reach, traits.member, self.container());
+    declaration.receiver = traits.receiver;
+    declaration.test = traits.kind == DeclKind::Function && self.test_now;
+    declaration.header = matches!(traits.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant).then(|| self.header(node));
+    declaration.start_line = leading.map_or(start, |it| it.min(start));
+    declaration.end_line = end_line_of(node);
+    declaration.name_line = line_of(name_node);
+    declaration.in_error = self.error_depth > 0;
+    self.out.add_declaration(declaration)
   }
 
   /// The header of the function or value `node` (`Declaration::header`): the tokens of its node before its body or
-  /// initializer, after those of a `Rule::Wrapper` around it before its first declarator (Java's `int a, b;`, the
-  /// `const` of TypeScript), without what `Spec::header` drops; without the parameter list when `has_signature`
-  fn header(&self, node: Node<'t>, has_signature: bool) -> String {
+  /// initializer, after those of a `Rule::Wrapper` around it before its first declarator (the `const` of TypeScript),
+  /// without what `Spec::header` drops
+  fn header(&self, node: Node<'t>) -> String {
     let mut tokens: Vec<&'t str> = Vec::new();
     if let Some(parent) = node.parent().filter(|it| matches!(self.table.rule(it.kind_id()), Some(Rule::Wrapper))) {
       let mut cursor = parent.walk();
@@ -1287,17 +863,17 @@ impl<'t> Walk<'t> {
         .map_or_else(|| node.id(), |it| it.id());
       let mut cursor = parent.walk();
       for child in parent.children(&mut cursor).take_while(|it| it.id() != first) {
-        if self.header_tokens(child, has_signature, false, &mut tokens).is_break() {
+        if self.header_tokens(child, false, &mut tokens).is_break() {
           break;
         }
       }
     }
-    let _ = self.header_tokens(node, has_signature, false, &mut tokens);
+    let _ = self.header_tokens(node, false, &mut tokens);
     tokens.join(" ")
   }
 
   /// The header tokens of `node` and below, `Break` at the end of the header
-  fn header_tokens(&self, node: Node<'t>, has_signature: bool, in_parameters: bool, tokens: &mut Vec<&'t str>) -> ControlFlow<()> {
+  fn header_tokens(&self, node: Node<'t>, in_parameters: bool, tokens: &mut Vec<&'t str>) -> ControlFlow<()> {
     let header = &self.spec.header;
     let kind = node.kind();
     if node.is_named() {
@@ -1311,9 +887,6 @@ impl<'t> Walk<'t> {
       return ControlFlow::Break(());
     }
     let parameters = header.parameters.contains(&kind);
-    if parameters && has_signature {
-      return ControlFlow::Continue(());
-    }
     if node.child_count() == 0 {
       if (node.is_named() || !header.drop_tokens.contains(&kind))
         && let Some(text) = self.text(node).filter(|it| !it.is_empty())
@@ -1324,12 +897,12 @@ impl<'t> Walk<'t> {
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-      self.header_tokens(child, has_signature, in_parameters || parameters, tokens)?;
+      self.header_tokens(child, in_parameters || parameters, tokens)?;
     }
     ControlFlow::Continue(())
   }
 
-  fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>, shape: Option<u32>) {
+  fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>) {
     if name.is_empty() || self.spec.reserved.contains(&name) {
       return;
     }
@@ -1338,12 +911,7 @@ impl<'t> Walk<'t> {
       return;
     }
     let container = self.container();
-    let coroutine = self.spec.coroutine.and_then(|_| match self.coroutines.last() {
-      Some(Context::Coroutine) => Some(true),
-      Some(Context::Plain) | None => Some(false),
-      Some(Context::Unknown) => None,
-    });
-    self.out.add_reference(id, line, role, qualifier, container, shape, coroutine);
+    self.out.add_reference(id, line, role, qualifier, container, None, None);
   }
 
   /// The qualifier of a member of `object`: its path of names, or empty for an expression or a local
@@ -1404,16 +972,8 @@ impl<'t> Walk<'t> {
     }
   }
 
-  fn pop_scope(&mut self) {
-    self.bindings.pop();
-  }
-
   fn bind_id(&mut self, name: u32) {
-    self.bind_typed(name, None);
-  }
-
-  fn bind_typed(&mut self, name: u32, type_path: Option<Typed>) {
-    self.bindings.bind(name, type_path);
+    self.bindings.bind(name, None);
   }
 
   fn is_bound(&self, name: u32) -> bool {
@@ -1422,55 +982,22 @@ impl<'t> Walk<'t> {
 
   /// Makes the declaration (`None` for a Rust `impl`) the container of what is below the current node
   pub(crate) fn enter_container(&mut self, decl: Option<u32>, holder: Holder, receiver: Option<u32>) {
-    let supertypes = self.supertypes.len();
-    let code = decl.and_then(|it| self.out.declarations.get(it as usize)).is_some_and(|it| it.kind == DeclKind::Function);
-    self.containers.push(Container {
-      decl,
-      holder,
-      receiver,
-      code,
-      supertypes,
-    });
+    self.containers.push(Container { decl, holder, receiver });
     if let Some(frame) = self.frames.last_mut() {
       frame.container = true;
     }
-  }
-
-  /// Makes the property `decl` (`None`: the container of the current node) the container of an accessor of it below
-  /// the current node: code, as a function is
-  pub(crate) fn enter_accessor(&mut self, decl: Option<u32>) {
-    let decl = decl.or_else(|| self.container());
-    self.enter_container(decl, Holder::Leaf, None);
-    if let Some(container) = self.containers.last_mut() {
-      container.code = true;
-    }
-  }
-
-  /// The innermost declaration around the current node
-  pub(crate) fn current_container(&self) -> Option<u32> {
-    self.container()
   }
 
   fn container(&self) -> Option<u32> {
     self.containers.iter().rev().find_map(|it| it.decl)
   }
 
-  /// Whether a lambda, an anonymous function, an object expression, an anonymous class or a local declaration lies
-  /// between the current node and the declaration around it: each pushes onto `supertypes`, and the declaration's own
-  /// entry (a type's supertypes, a function's empty list) is pushed before it is entered
-  fn enclosed(&self) -> bool {
-    let level = self.containers.iter().rev().find(|it| it.decl.is_some()).map_or(0, |it| it.supertypes);
-    self.supertypes.len() > level
-  }
-
   fn take_mark(&mut self, id: usize) -> Option<Mark> {
-    let index = self.marks.iter().rposition(|it| it.0 == id)?;
-    Some(self.marks.remove(index).1)
+    self.marks.take(id)
   }
 
   fn mark(&mut self, node: Node<'t>, mark: Mark) {
-    let owner = self.frames.len() - 1;
-    self.marks.push((node.id(), mark, owner));
+    self.marks.set(node.id(), mark, self.frames.len() - 1);
   }
 
   fn is_name(&self, node: Node<'t>) -> bool {
@@ -1512,8 +1039,7 @@ impl<'t> Walk<'t> {
   }
 
   fn finish(self, summary: &mut FileSummary) {
-    let implicit_constructor = self.spec.jvm.as_ref().map(|hooks| hooks.implicit_constructor);
-    self.out.finish(summary, implicit_constructor);
+    self.out.finish(summary, None);
   }
 }
 
@@ -1536,7 +1062,6 @@ impl<'t> Walk<'t> {
         node.named_children(&mut cursor).find(|it| kinds.contains(&it.kind()))
       }
       Child::Nth(n) => node.named_child(u32::from(n)),
-      Child::Last => node.named_child(node.named_child_count().checked_sub(1)?.try_into().ok()?),
     }
   }
 
@@ -1600,24 +1125,12 @@ impl<'t> Walk<'t> {
   }
 
   pub(crate) fn give_role(&mut self, node: Node<'t>, role: Role) {
-    self.mark(node, Mark::Role(role, None));
-  }
-
-  /// Gives `callee` the role `Call` with the shape of the arguments of `call` (`Spec::call_shape`), taken now: a Kotlin
-  /// constructor invocation of a supertype, a Java `new`, before an object expression or an anonymous class pushes its
-  /// supertypes
-  pub(crate) fn give_call(&mut self, callee: Node<'t>, call: Node<'t>) {
-    let shape = self.call_shape(call);
-    self.mark(callee, Mark::Role(Role::Call, shape));
+    self.mark(node, Mark::Role(role));
   }
 
   /// Whether the node is a comment, which a list of arguments may hold among them
   pub(crate) fn is_comment(&self, node: Node<'t>) -> bool {
     matches!(self.table.rule(node.kind_id()), Some(Rule::Comment))
-  }
-
-  pub(crate) fn mark_scope(&mut self, node: Node<'t>) {
-    self.mark(node, Mark::Scope);
   }
 
   /// Marks a pattern whose names become visible when it is left
@@ -1641,125 +1154,23 @@ impl<'t> Walk<'t> {
   pub(crate) fn bind_node(&mut self, node: Node<'t>) {
     self.claim(node);
     if let Some(text) = self.text(node) {
-      let id = self.intern(text);
-      let type_path = self.binding_types.remove(&node.id());
-      self.bind_typed(id, type_path);
-      if self.initializer_names.remove(&node.id())
-        && let Some(binding) = self.bindings.last_mut()
-      {
-        binding.initializers = Some(self.containers.len());
-      }
+      self.bind_text(text);
     }
-  }
-
-  /// Marks the name `node` that the walk binds next as a parameter of a Kotlin primary constructor
-  /// (`Binding::initializers`)
-  pub(crate) fn initializer_binding(&mut self, node: Node<'t>) {
-    self.initializer_names.insert(node.id());
-  }
-
-  /// Gives the name `node` that the walk binds next the type `declaration` was declared with (`JvmHooks::value_type`):
-  /// a parameter, a typed lambda parameter
-  pub(crate) fn type_binding(&mut self, node: Node<'t>, declaration: Node<'t>) {
-    let Some(hooks) = &self.spec.jvm else { return };
-    if let Some(type_path) = self.value_type(hooks, declaration) {
-      self.binding_types.insert(node.id(), type_path);
-    }
-  }
-
-  fn value_type(&mut self, hooks: &JvmHooks, declaration: Node<'t>) -> Option<Typed> {
-    let (path, constructed) = (hooks.value_type)(self, declaration)?;
-    Some(Typed {
-      path: self.ids(&path),
-      constructed,
-    })
-  }
-
-  /// Whether `text` is a name bound around the current node: a local, a parameter, a type parameter
-  pub(crate) fn is_bound_text(&self, text: &str) -> bool {
-    self.out.name_id(text).is_some_and(|id| self.is_bound(id))
-  }
-
-  /// The operand of a Kotlin `is` or `as` or a Java `instanceof` or cast: a smart cast may give a name of it, a local
-  /// or a property (`m`, `this.m`), another type in its scope or function, which the walk can't follow
-  pub(crate) fn smart_cast(&mut self, operand: Node<'t>) {
-    let Some(path) = self.path_of(operand) else { return };
-    let name = match path.as_slice() {
-      [name] | ["this", name] => *name,
-      _ => return,
-    };
-    let Some(id) = self.out.name_id(name) else { return };
-    if path.len() == 1
-      && let Some(serial) = self.bindings.binding(id).map(|it| it.serial)
-    {
-      self.out.cast_binding(serial);
-      return;
-    }
-    let container = self.container();
-    self.out.cast_name(container, id);
   }
 
   pub(crate) fn emit(&mut self, node: Node<'t>, role: Role, qualifier: Option<Vec<u32>>) {
     self.claim(node);
     if let Some(text) = self.text(node) {
-      self.reference(text, line_of(node), role, qualifier, None);
+      self.reference(text, line_of(node), role, qualifier);
     }
   }
 
   pub(crate) fn emit_text(&mut self, text: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>) {
-    self.reference(text, line, role, qualifier, None);
-  }
-
-  /// A call of a constructor of the type `path` (its last name the type's, those before it its qualifier) on `line`,
-  /// with the shape of the arguments of `call`: `this(…)` and `super(…)` of a constructor, which name no type to give
-  /// the call to (`give_call`)
-  pub(crate) fn emit_constructor_call(&mut self, path: &[&'t str], line: u32, call: Node<'t>) {
-    let Some((name, qualifier)) = path.split_last() else { return };
-    let shape = self.call_shape(call);
-    let qualifier = (!qualifier.is_empty()).then(|| self.ids(qualifier));
-    self.reference(name, line, Role::Call, qualifier, shape);
+    self.reference(text, line, role, qualifier);
   }
 
   pub(crate) fn ids(&mut self, path: &[&'t str]) -> Vec<u32> {
     path.iter().map(|it| self.intern(it)).collect()
-  }
-
-  pub(crate) fn set_package(&mut self, package: String) {
-    self.out.package = Some(package);
-  }
-
-  /// The reach of the setter of the property `decl` that an accessor of it narrows (`private set`)
-  pub(crate) fn set_setter_reach(&mut self, decl: u32, reach: Reach) {
-    if let Some(declaration) = self.out.declarations.get_mut(decl as usize)
-      && declaration.setter.is_some()
-    {
-      declaration.setter = Some(reach);
-    }
-  }
-
-  pub(crate) fn set_jvm_name(&mut self, name: String) {
-    self.out.jvm_name = Some(name);
-  }
-
-  /// An annotation of a Kotlin file, its path as written: an unstable one (`unstable_annotation`, asked once the
-  /// imports are known) marks the top-level declarations of the file (`Declaration::unstable`)
-  pub(crate) fn add_file_annotation(&mut self, path: Vec<&'t str>) {
-    self.file_annotations.push(path);
-  }
-
-  /// Whether an annotation of this path, as written, marks a declaration as no stable API (`Declaration::unstable`):
-  /// one of `UNSTABLE_ANNOTATIONS` by its last name; `Internal` or `Experimental` of `ApiStatus` qualified by
-  /// `ApiStatus` or by its full name, or bare when an import of the file brings it in from
-  /// `org.jetbrains.annotations.ApiStatus` (by its name, an alias of it, or `ApiStatus.*`), so that another `Internal`
-  /// is none
-  pub(crate) fn unstable_annotation(&self, path: &[&str]) -> bool {
-    self.out.unstable_annotation(path)
-  }
-
-  /// Whether a parameter type is not nullable and of these last names and array dimensions (`[String]` and 1 of Java
-  /// `String[]`)
-  pub(crate) fn type_is(&self, type_ref: Option<&TypeRef>, names: &[&str], arrays: u8) -> bool {
-    self.out.type_is(type_ref, names, arrays)
   }
 
   pub(crate) fn add_import(&mut self, import: Import) {
@@ -1778,7 +1189,7 @@ impl<'t> Walk<'t> {
   pub(crate) fn import_name(&mut self, path: &[&'t str], name: &'t str, alias: Option<&'t str>, exported: bool, line: u32, name_line: u32) {
     self.out.add_import_name(path, name, alias, exported, line);
     let path_ids = self.ids(path);
-    self.reference(name, name_line, Role::Import, (!path.is_empty()).then_some(path_ids), None);
+    self.reference(name, name_line, Role::Import, (!path.is_empty()).then_some(path_ids));
   }
 
   /// `import a.b.*`, `use a::b::*`
@@ -1799,19 +1210,18 @@ impl<'t> Walk<'t> {
       receiver: None,
       holder: Holder::Leaf,
     };
-    self.declare(node, name_node, name, &traits, None, JvmFields::default());
+    self.declare(node, name_node, name, &traits, None);
   }
 
   fn member_kind_at_top(&self) -> MemberKind {
     if self.container().is_some() { MemberKind::Static } else { MemberKind::TopLevel }
   }
 
-  /// Declares a member from language code with what `member_jvm_fields` found (a Kotlin `val` constructor parameter),
-  /// or with `JvmFields::default()` (a Java record component, a TypeScript parameter property)
-  pub(crate) fn add_declaration(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits, fields: JvmFields) -> Option<u32> {
+  /// Declares a member from language code (a TypeScript parameter property, an enum member)
+  pub(crate) fn add_declaration(&mut self, node: Node<'t>, name_node: Node<'t>, traits: &Traits) -> Option<u32> {
     let name = self.text(name_node)?;
     self.claim(name_node);
-    Some(self.declare(node, name_node, name, traits, None, fields))
+    Some(self.declare(node, name_node, name, traits, None))
   }
 
   /// Declares an item that language code found among the tokens of a macro (an item in the token tree of a Rust item
@@ -1820,7 +1230,7 @@ impl<'t> Walk<'t> {
   pub(crate) fn add_token_declaration(&mut self, container: Option<u32>, item: TokenItem<'t>, traits: &Traits) -> Option<u32> {
     let name = self.text(item.name)?;
     self.claim(item.name);
-    let id = self.declare(item.name, item.name, name, traits, Some(line_of(item.first)), JvmFields::default());
+    let id = self.declare(item.name, item.name, name, traits, Some(line_of(item.first)));
     let declaration = self.out.declarations.get_mut(id as usize)?;
     declaration.end_line = declaration.end_line.max(end_line_of(item.last));
     if container.is_some() {
@@ -1837,160 +1247,11 @@ impl<'t> Walk<'t> {
   pub(crate) fn tokens_header(&self, nodes: &[Node<'t>]) -> String {
     let mut tokens: Vec<&'t str> = Vec::new();
     for node in nodes {
-      if self.header_tokens(*node, false, false, &mut tokens).is_break() {
+      if self.header_tokens(*node, false, &mut tokens).is_break() {
         break;
       }
     }
     tokens.join(" ")
-  }
-
-  /// Adds a constructor that the body of the class around the current node declares (a Kotlin secondary constructor, a
-  /// Java constructor); a `canonical` one, the canonical constructor of a Java record declared again or compact,
-  /// replaces the one of its header, the first. Any other is added, also beside one of the same types as the summary
-  /// has them (`Stamp(java.util.Date)` and `Stamp(java.sql.Date)` of the same last names, `T` and `List<T>` of any
-  /// type), which sync-core then can't tell apart. Nothing in a local class, nor in a type whose constructors are
-  /// unknown or that has none (an enum)
-  pub(crate) fn add_constructor(&mut self, constructor: Constructor, canonical: bool) {
-    if self.is_local() {
-      return;
-    }
-    if let Some(decl) = self.containers.last().and_then(|it| it.decl) {
-      self.out.add_constructor(decl, constructor, canonical);
-    }
-  }
-
-  /// What a member that language code declares says about overriding (a Kotlin `override val` constructor parameter,
-  /// local or not), and its `Override` references
-  pub(crate) fn member_jvm_fields(&mut self, node: Node<'t>, name_node: Node<'t>, kind: DeclKind) -> JvmFields {
-    let spec = self.spec;
-    match &spec.jvm {
-      Some(hooks) => JvmFields {
-        unstable: (hooks.unstable)(self, node),
-        ..self.overriding(hooks, node, Some(name_node), kind)
-      },
-      None => JvmFields::default(),
-    }
-  }
-
-  /// The unstable annotation of a declaration which does not use `member_jvm_fields` for its other JVM facts
-  pub(crate) fn unstable_jvm_fields(&self, node: Node<'t>) -> JvmFields {
-    self.spec.jvm.as_ref().map_or_else(JvmFields::default, |hooks| JvmFields {
-      unstable: (hooks.unstable)(self, node),
-      ..JvmFields::default()
-    })
-  }
-
-  /// Makes `supertypes` those whose members the declarations directly below the current node override, until the walk
-  /// leaves it
-  pub(crate) fn push_supertypes(&mut self, supertypes: Vec<Vec<u32>>) {
-    self.supertypes.push(supertypes);
-    if let Some(frame) = self.frames.last_mut() {
-      frame.supertypes += 1;
-    }
-  }
-
-  /// The paths of the supertypes that `types` name, without type arguments: `[a, Base]` of Kotlin `a.Base<T>` and of
-  /// Java `a.Base<T>`; a node that names no type path (a comment, a function type) is skipped
-  pub(crate) fn supertype_paths(&mut self, types: &[Node<'t>]) -> Vec<Vec<u32>> {
-    let paths: Vec<Vec<&'t str>> = types.iter().filter_map(|it| self.type_path(*it)).collect();
-    paths.iter().map(|it| self.ids(it)).collect()
-  }
-
-  /// `[a, b, C]` of a Kotlin user type `a.b.C<T>` (a `Rule::Path`), else the `path_of` the node (a Java type)
-  pub(crate) fn type_path(&self, node: Node<'t>) -> Option<Vec<&'t str>> {
-    if !matches!(self.table.rule(node.kind_id()), Some(Rule::Path)) {
-      return self.path_of(node);
-    }
-    let mut cursor = node.walk();
-    let path: Vec<&'t str> = node.named_children(&mut cursor).filter(|it| self.is_name(*it)).filter_map(|it| self.text(it)).collect();
-    (!path.is_empty()).then_some(path)
-  }
-
-  /// The type of a parameter as the last name of each type in it, in source order (`TypeRef`), with the `arrays` of the
-  /// parameter the language counted. `None` when a type parameter is in it, one of the function's (`type_parameters`) or
-  /// one bound around it (of the class), or when it has no names: such a type matches any.
-  pub(crate) fn type_ref(&mut self, node: Node<'t>, nullable: bool, arrays: u8, type_parameters: &[&'t str]) -> Option<TypeRef> {
-    let primitives = self.spec.jvm.as_ref().map_or(&[][..], |it| it.primitives);
-    let mut names = Vec::new();
-    let mut stack = vec![node];
-    while let Some(node) = stack.pop() {
-      let rule = self.table.rule(node.kind_id());
-      match rule {
-        Some(Rule::Path | Rule::Name(Role::Type) | Rule::Member { .. }) => {
-          let path = self.type_path(node)?;
-          let (first, last) = (path.first()?, path.last()?);
-          if type_parameters.contains(first) || self.out.name_id(first).is_some_and(|it| self.is_bound(it)) {
-            return None;
-          }
-          names.push(self.intern(last));
-          // a Java path has no type arguments in it, a Kotlin one has them beside its names
-          if !matches!(rule, Some(Rule::Path)) {
-            continue;
-          }
-        }
-        Some(Rule::Forward(_)) | None => {
-          if node.named_child_count() == 0 {
-            if primitives.iter().any(|kind| self.is(node, kind))
-              && let Some(text) = self.text(node)
-            {
-              names.push(self.intern(text));
-            }
-            continue;
-          }
-        }
-        // an annotation; a named parameter of a Kotlin function type, whose type is left out
-        Some(_) => continue,
-      }
-      let mut cursor = node.walk();
-      // in source order when popped, without the names of a path
-      let start = stack.len();
-      stack.extend(node.named_children(&mut cursor).filter(|it| !(matches!(rule, Some(Rule::Path)) && self.is_name(*it))));
-      stack[start..].reverse();
-    }
-    (!names.is_empty()).then_some(TypeRef { names, nullable, arrays })
-  }
-
-  /// The names of the type parameters in `list` (`<T, R>`)
-  pub(crate) fn type_parameter_names(&self, list: Option<Node<'t>>) -> Vec<&'t str> {
-    let Some(list) = list else { return Vec::new() };
-    let mut cursor = list.walk();
-    list
-      .named_children(&mut cursor)
-      .filter_map(|it| self.child(it, Child::Kind(&["type_identifier"])))
-      .filter_map(|it| self.text(it))
-      .collect()
-  }
-
-  /// The supertypes of the body of an enum entry, the current node: the path of the enum around it, its containers and
-  /// its name; none outside an enum
-  pub(crate) fn enum_supertypes(&self) -> Vec<Vec<u32>> {
-    if self.holder() != Some(Holder::Enum) {
-      return Vec::new();
-    }
-    let mut path = Vec::new();
-    let mut current = self.container();
-    while let Some(declaration) = current.and_then(|it| self.out.declarations.get(it as usize)) {
-      path.push(declaration.name);
-      current = declaration.container;
-    }
-    path.reverse();
-    vec![path]
-  }
-
-  /// The last declaration among the earlier siblings of the current node
-  pub(crate) fn previous_declaration(&self) -> Option<u32> {
-    let parent = self.frames.len().checked_sub(2)?;
-    self.frames[parent].last_decl
-  }
-
-  pub(crate) fn extend_declaration(&mut self, id: u32, node: Node<'t>) {
-    if let Some(declaration) = self.out.declarations.get_mut(id as usize) {
-      declaration.end_line = declaration.end_line.max(end_line_of(node));
-    }
-  }
-
-  pub(crate) fn declaration_kind(&self, id: u32) -> Option<DeclKind> {
-    self.out.declarations.get(id as usize).map(|it| it.kind)
   }
 
   /// Makes the current node extend the declaration below it, like a doc comment (a Rust attribute)
@@ -2009,15 +1270,6 @@ impl<'t> Walk<'t> {
     if let Some(parent) = self.frames.len().checked_sub(2) {
       self.frames[parent].test_mark = test;
     }
-  }
-
-  /// Whether a JVM function of `name` and `signature` is a `JUnit` 3 test: `test` and a capital or `_` after it, no
-  /// parameters, in a class named `…Test`, `…Tests` or `…TestCase` or that extends a `…TestCase`
-  fn junit3_test(&self, name: Option<Node<'t>>, signature: Option<&Signature>) -> bool {
-    let Some(text) = name.and_then(|it| self.text(it)) else { return false };
-    let class = self.container().and_then(|id| self.out.declarations.get(id as usize)).map(|it| self.out.name(it.name));
-    let supertypes = self.supertypes.last().into_iter().flatten().filter_map(|path| path.last()).map(|&name| self.out.name(name));
-    is_junit3_test(text, signature.is_some_and(|it| it.parameters.is_empty()), self.is_local(), class, supertypes)
   }
 
   /// Gives the leading line of the current node to its first child declaration

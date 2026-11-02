@@ -16,18 +16,14 @@ use crate::highlight::lines::{Builder, LineRuns};
 use crate::highlight::paint::{Paint, comment_paint, paint_leaf};
 use crate::highlight::scopes::Scopes;
 use crate::highlight::{BOLD, COMMENT, FIELD, Role, STATIC_FIELD, UNDERLINE, is_constant_name};
-use crate::psi_kotlin::navigate::{Receiver, callable_receiver};
+use crate::kotlin::navigate::{Receiver, callable_receiver};
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
 use std::ops::Range;
 
 /// The highlighting of a Kotlin text of `kind` (its size within `highlight::MAX_BYTES`): any bytes parse, so it always
 /// has one
-#[expect(
-  clippy::unnecessary_wraps,
-  reason = "the shape of the dispatch `highlight::highlight`, where tree-sitter's parse may run out of budget"
-)]
-pub(crate) fn highlight(kind: FileKind, text: &str) -> Option<LineRuns> {
+pub(crate) fn highlight(kind: FileKind, text: &str) -> LineRuns {
   let tree = super::parse(text.as_bytes(), kind);
   let mut out = LineRuns::builder(text);
   Painter {
@@ -38,7 +34,7 @@ pub(crate) fn highlight(kind: FileKind, text: &str) -> Option<LineRuns> {
     frames: Vec::new(),
   }
   .paint(&mut out);
-  Some(out.finish())
+  out.finish()
 }
 
 /// An open node of the pass

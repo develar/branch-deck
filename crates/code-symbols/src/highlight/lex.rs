@@ -9,8 +9,6 @@ pub(crate) enum Lex {
   Escapes,
   /// A doc comment: `@tag` and the name after `@param`-like tags, a `KDoc` `[link]`, a Javadoc `{@link …}`
   Doc,
-  /// A Kotlin keyword with the `@` of a label: `return@`
-  KeywordAt,
 }
 
 /// The spans of `text` (a leaf that starts at byte `offset`): calls `emit(end, style)` in order, the base style between
@@ -18,10 +16,6 @@ pub(crate) fn lex(lex: Lex, text: &str, offset: usize, base: u32, emit: &mut imp
   match lex {
     Lex::Escapes => escapes(text, offset, base, emit),
     Lex::Doc => doc(text, offset, base, emit),
-    Lex::KeywordAt => {
-      emit(offset + text.len() - 1, base);
-      emit(offset + text.len(), Role::Label.style());
-    }
   }
 }
 

@@ -2,7 +2,7 @@
 
 **Status:** Implemented (`branchdeck.symbols on` by default)
 **Updated:** 2026-10-21
-**Tags:** [dependencies, tree-sitter, bd, check, suggest, conflict-fix]
+**Tags:** [dependencies, psi-syntax, tree-sitter, bd, check, suggest, conflict-fix]
 
 ## Problem
 
@@ -123,20 +123,17 @@ flowchart TD
    tree is good at saying what is not a use (a comment, a string, a local), and bad at saying everything that is. A name
    that is everywhere (`cleanup` of an instance member) has no candidate lines worth reading, only uses that resolve.
 
-5. **Decision**: a table-driven walk of the tree, not tree-sitter queries.
+5. **Decision**: a walk of the tree, not tree-sitter queries: of a tree-sitter language (Rust, TypeScript) a walk
+   driven by a table of its node kinds, of Kotlin and Java a walk of the PSI by its `NodeKind`s (decisions 20, 21).
    **Rationale**: shadowing needs a walk of the scopes anyway, the shipped `tags.scm` files are too thin, and a test
-   checks every node kind of the tables against the grammar, so a grammar upgrade can't silently break a rule.
+   checks every node kind of the tables against the grammar, so a grammar upgrade can't silently break a rule; the
+   kinds of the PSI are constants of psi-syntax, which a renamed one fails to compile.
 
-6. **Decision**: fwcd's Kotlin grammar with the commits of fwcd/tree-sitter-kotlin#329, pinned at
-   `develar/tree-sitter-kotlin` `3dacb0e` as accio pins it, and one TSX grammar for TypeScript and JavaScript.
-   **Rationale**: the series follows Kotlin's own parser (`KotlinParsing`) and reserves Kotlin's hard keywords, so
-   `internal sealed interface X { … }`, a one-line object expression and the body of a class after its delegate are
-   declarations, not calls with a lambda and no ERROR node. Of the 122 197 non-test Kotlin files of the IntelliJ
-   monorepo, 2 446 had a parse error with `tree-sitter-kotlin-sg` 0.4.1 (ast-grep's republish of fwcd), 4 have one
-   with the fork (Velocity templates named `.kt`), at the same speed; the grammar takes 3.4 MB less of a binary. The
-   pin goes back to fwcd's crate once fwcd releases the series. `-ng` is dormant, parses far worse and exports the same
-   C symbol. TSX parses TypeScript and JavaScript but `<T>expr` casts, which make a file degraded and send it back to
-   the lines; one grammar less is about 1 MB of binary. The highlighting of the diffs (`code_symbols::highlight`,
+6. **Decision**: one TSX grammar for TypeScript and JavaScript. (Kotlin was read by fwcd's tree-sitter grammar with
+   the commits of fwcd/tree-sitter-kotlin#329, pinned at `develar/tree-sitter-kotlin` `3dacb0e`, until decision 21
+   replaced it with the compiler's parser; tree-sitter-java went with decision 20; decision 22 removed both grammars.)
+   **Rationale**: TSX parses TypeScript and JavaScript but `<T>expr` casts, which make a file degraded and send it back
+   to the lines; one grammar less is about 1 MB of binary. The highlighting of the diffs (`code_symbols::highlight`,
    [Diff View](diff-view.md#syntax-highlighting)) reads `.ts`, `.mts` and `.cts` by the TypeScript grammar of the same
    crate: a generic arrow or a cast there is an error under TSX, and a colour that changes at it is visible.
 
@@ -583,8 +580,8 @@ flowchart TD
     such an import of another commit in the same file is still no edge: a limit.
 
 20. **Decision**: a Java file is read by psi-syntax's `java-syntax`, a port of IntelliJ's own Java parser whose tree is
-    IntelliJ's PSI, at the highest language level, and summarized by a walk of that tree (`psi_java/summary.rs`) by the
-    rules of tree-sitter's walk, which stays the oracle: every fact that moved on the 68 263 Java files of
+    IntelliJ's PSI, at the highest language level, and summarized by a walk of that tree (`java/summary.rs`) by the
+    rules of the tree-sitter walk before it, the oracle of the move: every fact that moved on the 68 263 Java files of
     intellij-community (`examples/facts.rs`) is a construct tree-sitter-java 0.23.5 misread. A member of a call's
     result (`Hosts.getInstance().known()`) has an empty qualifier, as any expression's, where tree-sitter's walk took
     the callee's path (14 408 files) and, for `this.items().add()`, a field of the callee's name for the receiver's
@@ -605,9 +602,9 @@ flowchart TD
     otherwise than javac; IntelliJ's parser is the reference of the code Branch Deck mostly reads, and its walk takes
     30 to 40 % of the time (24.9 s to 9.9 s of the corpus on 18 threads, one thread 1.53 s to 0.46 s on 5 000 files).
 
-21. **Decision**: the summary of a Kotlin file is a walk of its PSI (`psi_kotlin/summary.rs`), the tree of psi-syntax's
-    `kotlin-syntax`, a port of the Kotlin compiler's parser, by the rules of the walk of `extract.rs`; never a
-    tree-sitter view of it. A summary is asked by language alone, without the file's name, so the file is parsed as a
+21. **Decision**: the summary of a Kotlin file is a walk of its PSI (`kotlin/summary.rs`), the tree of psi-syntax's
+    `kotlin-syntax`, a port of the Kotlin compiler's parser, by the rules of the tree-sitter walk before it (those of
+    `extract.rs` and the JVM rules now in `jvm.rs`); never a tree-sitter view of it. A summary is asked by language alone, without the file's name, so the file is parsed as a
     `.kt` and, when that has an error element at its top level (a statement, which only a script has), as a `.kts`
     script too, and the parse with fewer error bytes is kept; a script's statements are its top level.
     **Rationale**: the tree is the one the compiler reads. On the 55 501 Kotlin files of intellij-community (3caa0bf)
@@ -626,21 +623,37 @@ flowchart TD
     `try` and a `finally` are scopes, and the condition of a `do … while` sees the locals of its body; `m!!.foo` names
     `m` as `m?.foo` does, so a property `m` gives the receiver its type (570 more files moved on the corpus).
 
+22. **Decision**: Kotlin and Java have one parser each, psi-syntax's, for the summary, the highlighting and the
+    navigation of the diffs ([Diff View](diff-view.md#syntax-highlighting)); tree-sitter reads Rust, TypeScript and
+    JavaScript. tree-sitter-kotlin and tree-sitter-java are no dependency, the JVM rules both walks share are one module
+    (`jvm.rs`: the containers, the stack of supertypes and `enclosed`, the JVM facts of a declaration, the receivers'
+    types, the smart casts), and `extractor_version` hashes the revision of psi-syntax for Kotlin and Java
+    (`PSI_SYNTAX_REVISION`, which a test checks against `Cargo.toml` and `Cargo.lock`) where it hashed their grammars'
+    node types.
+    **Rationale**: two parsers of one language give two readings of one file, the summary's and the view's. Against the
+    tree-sitter baseline (intellij-community 3caa0bf, `examples/facts.rs`) the moved facts are the sums of the readings
+    decisions 20 and 21 and the view's specs accept, no more: of the 55 501 Kotlin files the summary of 3 229, the
+    highlighting of 12 422 and the navigation of 5 843; of the 68 263 Java files 16 228, 6 344 and 3 590; of the 2 289
+    Rust and TypeScript files of Branch Deck none. On one thread, the first 5 000 files of each language (18.6 MB):
+    Kotlin's summary 2.07 s to 0.49 s, highlighting 1.53 s to 0.34 s, navigation 25.0 s to 3.3 s; Java's 1.49 s to
+    0.47 s, 1.26 s to 0.37 s, 19.2 s to 3.3 s.
+
 ### Implementation Notes
 
-- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules and the grammars' node types);
-  `Spec::jvm` of Kotlin and Java (`JvmHooks`, the `JvmFields` of a declaration): the signatures, `overrides`,
-  `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, `test`, `entry_point`
-  (`JvmHooks::entry_point`) and `unstable` (`JvmHooks::unstable`, `Walk::unstable_annotation` by the imports, a Kotlin
-  `@file:` one by `Walk::add_file_annotation`), the `@file:JvmName` (`FileSummary::jvm_name`), the `value_type` of a
-  property and whether a constructor call gave it (`JvmHooks::value_type`), the supertypes, and the `Role::Override`
-  references with their `Shape::Override`, and the constructors of a class (`JvmHooks::constructors` of its header,
-  `Walk::add_constructor` of its body, the implicit `()` by `JvmHooks::implicit_constructor` when the walk is done);
-  `Spec::call_shape` of Kotlin and Java: the arguments
-  of a call, for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the stack of supertypes
-  (`Walk::enclosed`), of `this(…)` and `super(…)` on the type they call (`Walk::emit_constructor_call`), and of a `new`
-  and a Kotlin constructor invocation of a supertype on the type (`Walk::give_call`, before an object expression or an
-  anonymous class pushes its supertypes). Rust (`rust_lang.rs`): the items of the body of a macro in item position
+- `crates/code-symbols`: `summarize`, `FileSummary`, `extractor_version` (the rules, the revision of psi-syntax and the
+  node types of the tree-sitter grammars). Kotlin (`kotlin/summary.rs`) and Java (`java/summary.rs`) are walks of
+  their PSI on the JVM rules of `jvm.rs` (decision 22): the `JvmFields` of a declaration (the signatures,
+  `overrides`, `overridable`, `jvm_static`, `jvm_field`, `jvm_name`, `lateinit` and the `setter` of a `var`, `test`,
+  `entry_point`, and `unstable` by `SummaryBuilder::unstable_annotation` and the imports, a Kotlin `@file:` one by
+  `Walk::file_annotation_list`), the `@file:JvmName` (`FileSummary::jvm_name`), the `value_type` of a property or a
+  field and whether a constructor call gave it (`Typed`), the supertypes and the `Role::Override` references with
+  their `Shape::Override` (`Classes::overridden`, `override_shape`), and the constructors of a class (of its header, of
+  its body by `SummaryBuilder::add_constructor`, the implicit `()` by `SummaryBuilder::finish`); the arguments of a call
+  (`Walk::call_shape` of each), for the `Shape::Call` on the reference of its callee, `enclosed` by the depth of the
+  stack of supertypes (`Classes::enclosed`), of `this(…)` and `super(…)` on the type they call (Kotlin's
+  `Walk::constructor_delegation`), and of a `new` (Java's `Walk::creation`) and a Kotlin constructor invocation of a
+  supertype on the type, before an object expression or an anonymous class pushes its supertypes. Rust
+  (`rust_lang.rs`, on the tree-sitter walk of `extract.rs`): the items of the body of a macro in item position
   (`macro_items`, `macro_item`, `enum_variants`; `Walk::add_token_declaration` with a `TokenItem`, `Walk::tokens_header`,
   decision 17), and a field of a struct expression or pattern as a reference qualified by the struct (`field`, the
   shorthand by `emit_text` beside its local).
@@ -674,9 +687,9 @@ flowchart TD
   `searches_of` (the declarations on the changed lines of a branch's commits, `changed_form`, `constructor_forms`,
   `push_duplicates`), `DeclarationSearch::in_tree`, `uses` (`resolved`, `fit` with `header_fit`, `calls`),
   `removes_use` and `needs_new_form` for `fixed_by` and `mutual`; `TreeSearch::written_lines` of
-  `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols/src/extract.rs`: `Walk::header` by
-  `Spec::header`, and `Reference::coroutine` by `Spec::coroutine` (`coroutine` and `COROUTINE_BUILDERS` of
-  `kotlin.rs`).
+  `dangling_references.rs` for the uses the branch wrote; `crates/code-symbols`: `Walk::header` of each walk (of a
+  tree-sitter language by its `Spec::header`), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
+  of `kotlin/summary.rs`.
 - `crates/trial-check/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
   `symbols`) for `bd commits`.
 - `crates/trial-check/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix

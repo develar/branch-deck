@@ -27,10 +27,9 @@ use std::collections::HashMap;
 /// A static method, declared or called: the colour of a declaration, italic, as IntelliJ's `STATIC_METHOD`
 const STATIC_METHOD: u32 = Role::FunctionDeclaration.style() | ITALIC;
 
-/// The highlighting of a Java text (its size within `highlight::MAX_BYTES`); `None` when it has none
-#[expect(clippy::unnecessary_wraps, reason = "the highlighting of every grammar, whose tree-sitter ones end with their parse budget")]
-pub(crate) fn highlight(text: &str) -> Option<LineRuns> {
-  let tree = crate::psi_java::parse(text.as_bytes());
+/// The highlighting of a Java text (its size within `highlight::MAX_BYTES`): any bytes parse, so it always has one
+pub(crate) fn highlight(text: &str) -> LineRuns {
+  let tree = crate::java::parse(text.as_bytes());
   let mut out = LineRuns::builder(text);
   Painter {
     tree: &tree,
@@ -38,7 +37,7 @@ pub(crate) fn highlight(text: &str) -> Option<LineRuns> {
     field_styles: HashMap::new(),
   }
   .paint(&mut out);
-  Some(out.finish())
+  out.finish()
 }
 
 /// What a composite the walk enters is to it

@@ -1,7 +1,8 @@
 //! The walk that paints: a preorder `TreeCursor` walk with an explicit stack, so a deeply nested file cannot overflow
 //! the stack. Each node asks the rules of its grammar for a `Paint`; the text between the children of a node takes the
 //! style of the innermost node with one. A parent may mark its children before the walk reaches them (the callee of a
-//! call, the name of a declaration), as the summary does (`extract.rs`).
+//! call, the name of a declaration), as the summary does (`extract.rs`). The walks of psi-syntax's trees (Kotlin, Java)
+//! paint by `paint_leaf`, one leaf at a time, and share `Paint`, `comment_paint` and the lexers.
 
 use crate::highlight::lex::{Lex, lex};
 use crate::highlight::lines::Builder;
@@ -16,7 +17,7 @@ pub(crate) enum Paint {
   /// The node has the style of the node around it, and its children are walked
   Inherit,
   /// The node has the style of the node around it, and its children are not walked: a name, whose tokens may be words
-  /// a grammar also has as keywords (Kotlin's `value`, `get`, `field`)
+  /// a grammar also has as keywords
   Opaque,
   /// The node has this style, and its children may paint over it
   Style(u32),
@@ -41,7 +42,7 @@ pub(crate) trait Rules {
 /// The paint of a node the walk enters: the mark of its parent, else the rules of the grammar, else a type parameter in
 /// scope, a keyword token, or the style around it
 fn enter(rules: &mut impl Rules, scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>, marked: Option<u32>) -> Paint {
-  // a marked node with no named children is a leaf: its anonymous tokens are its text (Kotlin's soft keywords)
+  // a marked node with no named children is a leaf: its anonymous tokens are its text (a name that is a keyword elsewhere)
   if let Some(style) = marked {
     return if node.named_child_count() == 0 { Paint::Leaf(style) } else { Paint::Style(style) };
   }
