@@ -61,9 +61,11 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - A Java file must be read as IntelliJ's own parser reads it, at the highest language level: an annotated vararg
   (`Object @NotNull ... params`), `case null, default`, a module import, a guarded record pattern, comments inside an
-  import, `Outer.super::m`, a compact source file, an annotated receiver parameter and an annotated supertype. A member
-  of a call's result (`a.b().c()`) must have an empty qualifier, as of any expression.
-  [@test] ../../crates/code-symbols/src/psi_java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`, `an_annotated_vararg_is_a_parameter`, `the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`, `a_module_import_imports_no_name`, `an_import_with_comments_inside`, `a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`)
+  import, `Outer.super::m`, a compact source file, an annotated receiver parameter, an annotated supertype and a vararg
+  component of a record (a public field). A member of a call's result (`a.b().c()`) must have an empty qualifier, as of
+  any expression, and so must a member of a chain of names longer than any path (64 segments), so that the
+  qualifiers of a chain take linear space.
+  [@test] ../../crates/code-symbols/src/psi_java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`, `an_annotated_vararg_is_a_parameter`, `the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`, `a_module_import_imports_no_name`, `an_import_with_comments_inside`, `a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`, `a_vararg_record_component_is_a_public_field`, `a_long_chain_of_names_takes_linear_space`)
 - The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type, `?`,
   a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any type),
   whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`,
@@ -107,11 +109,13 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   whose name is the whole receiver (`m.foo()`, `m?.foo()`, `m!!.foo()`), or of a property or field `m` or `this.m` of a
   class around a reference that is not enclosed, not past a class with a supertype, a nested class that isn't inner, a
   companion or an extension of another receiver; a parameter of a primary constructor only in the initializers of the
-  class; and whether a constructor call gave the type. A type parameter, a function type, a vararg, a delegate, a
-  destructuring declaration, an inferred expression, a Java anonymous class and a name that its scope or function casts
-  (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`, Java `instanceof` and casts; not `in`) must give none.
+  class; and whether a constructor call gave the type. A type parameter, a function type, a vararg, a Java array after
+  the name (`Foo a[]`), a delegate, a destructuring declaration, an inferred expression, a Java anonymous class and a
+  name that its scope or function casts (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`, Java `instanceof` and
+  casts; not `in`) must give none.
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`, `an_extension_receiver_or_a_function_hides_the_type`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`, `a_smart_cast_drops_the_type`, `an_anonymous_class_initializer_has_no_type`)
+  [@test] ../../crates/code-symbols/src/psi_java/summary_test.rs (`an_array_after_the_name_has_no_type`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The summary of a Kotlin or Java call (not an infix call), Java's `new` and a Kotlin constructor invocation of a
   supertype included, must hold the shape of its arguments on the reference of its callee (the last name of the type of

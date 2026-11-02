@@ -4,12 +4,17 @@
 
 use crate::extract::summarize;
 use crate::language::Language;
-use crate::summary::{FileSummary, ImportTarget};
+use crate::summary::{FileSummary, ImportTarget, MemberKind, Reach};
 use crate::summary_text::reference_text;
 use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs, signatures, supertypes_of};
 
 fn java(source: &str) -> FileSummary {
   summarize(Language::Java, source.as_bytes())
+}
+
+/// The names of a path of name ids
+fn names<'s>(summary: &'s FileSummary, path: Option<&[u32]>) -> Vec<&'s str> {
+  path.unwrap_or_default().iter().map(|it| summary.name(*it)).collect()
 }
 
 /// The references of a line as `text#container`, sorted
@@ -203,6 +208,58 @@ fn bodies_and_case_groups_scope_their_names() {
   assert_eq!(refs(&summary, "z"), ["3 z"]);
   assert_eq!(refs(&summary, "go"), ["4 go(){}"]);
   assert_eq!(refs(&summary, "run"), NONE, "no `@Override`");
+}
+
+/// A vararg component of a record is a public field like any other component, whose header has its type; tree-sitter's
+/// walk read its declarator as a field of the package without a type, which no use from another package reached
+#[test]
+fn a_vararg_record_component_is_a_public_field() {
+  let summary = java("record V(String name, Foo... rest) {}\n");
+  let rest = declaration(&summary, "rest");
+  assert_eq!((rest.reach, rest.member), (Reach::Public, MemberKind::Instance));
+  assert_eq!(rest.header.as_deref(), Some("Foo ... rest"));
+  assert_eq!(constructors_of(&summary, "V").unwrap(), ["Module new(name: String, vararg rest: Foo[])"]);
+}
+
+/// `Foo a[]` declares an array (JLS 10.2): a field, a local or a parameter of it has no `value_type`, and a member of it
+/// no receiver type, which tree-sitter's walk took from the type before the name
+#[test]
+fn an_array_after_the_name_has_no_type() {
+  let summary = java(
+    "class A {
+  Foo field[], other;
+  void f(Foo args[], Foo plain) {
+    Foo local[] = null;
+    local.length(); args.clone(); plain.bar(); field.baz(); other.qux();
+  }
+}
+",
+  );
+  assert_eq!(declaration(&summary, "field").value_type, None);
+  assert_eq!(names(&summary, declaration(&summary, "other").value_type.as_deref()), ["Foo"]);
+  assert_eq!(
+    line(&summary, 5),
+    ["<Foo>.bar()#f", "<Foo>other.qux()#f", "?.clone()#f", "?.length()#f", "field#f", "field.baz()#f", "other#f"]
+  );
+}
+
+/// A chain of names `a.b.c…` is a reference per segment, each qualified by the segments before it: past `MAX_PATH`
+/// segments a qualifier is empty, as of an expression, so that the qualifiers of a chain of `n` segments don't take `n²/2`
+/// names
+#[test]
+fn a_long_chain_of_names_takes_linear_space() {
+  let segments = 5_000;
+  let source = format!(
+    "class A {{ Object v = a{}; }}\n",
+    (0..segments).map(|i| if i % 50 == 0 { "\n.a" } else { ".a" }).collect::<String>()
+  );
+  let summary = java(&source);
+  assert!(!summary.truncated);
+  let names: usize = summary.references.iter().filter_map(|it| it.qualifier.as_ref()).map(Vec::len).sum();
+  assert!(names <= summary.references.len() * 64, "{names} names in {} references", summary.references.len());
+  // a short path is whole
+  let summary = java("class A { Object v = a.b.c.d; }\n");
+  assert_eq!(refs(&summary, "d"), ["1 a.b.c.d"]);
 }
 
 /// A construct nested as deep as the parser allows is walked without a frame of the stack per level

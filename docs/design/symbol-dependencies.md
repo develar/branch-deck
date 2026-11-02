@@ -593,9 +593,13 @@ flowchart TD
     constructor bodies, `_`, record patterns, string templates and `(x) = …`. And `default` of `case null, default`
     is no name, a module import (`import module java.base;`) imports no package, a compact source file's field has a
     field's header, the receiver parameter `@A T this` is no parameter, an annotated supertype (`extends @A List`) is
-    a supertype, a string literal is one token of a header, and only the doc comment right above a declaration (not
-    one above another comment) starts it. Files that IntelliJ parses with an error, at the highest level, are read as
-    its error recovery leaves them (592 test data files of intellij-community).
+    a supertype, a string literal is one token of a header, only the doc comment right above a declaration (not
+    one above another comment) starts it, a vararg component of a record is a public field with its type in its header
+    (tree-sitter's walk read a field of the package without one; 20 files), and `Foo a[]` has no `value_type` (an
+    array; 4 files). Files that IntelliJ parses with an error, at the highest level, are read as its error recovery
+    leaves them (592 test data files of intellij-community). A path is at most 64 segments (`MAX_PATH`; the longest of
+    intellij-community has 11), a longer qualifier empty: each segment of a chain `a.b.c…` is a reference qualified by
+    those before it, so a chain of 20 000 segments took 4 s and 1.7 GB, and one at the size limit would exhaust memory.
     **Rationale**: tree-sitter's Java grammar lags the language (it has no annotated varargs, which every message bundle
     of IntelliJ has) and reads a method of a compact source file, a guarded record pattern or `case X -> y -> …`
     otherwise than javac; IntelliJ's parser is the reference of the code Branch Deck mostly reads, and its walk takes

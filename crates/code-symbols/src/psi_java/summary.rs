@@ -16,8 +16,7 @@
 //! - **Not read**: doc comments (their `{@link}` references too), the receiver parameter `Outer this`, the labels of
 //!   `break` and `continue`, a module declaration, the element names of an annotation's arguments.
 //! - **As tree-sitter's walk had them**: a local of a `case` group is bound until the next group; the loop variable of
-//!   a `for` and the parameter of a `catch` have no type; the vararg component of a record (`int... xs`) is a field of
-//!   the package without a type, its header its name.
+//!   a `for` and the parameter of a `catch` have no type.
 
 use crate::summary::{Argument, Constructor, DeclKind, Declaration, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{Bindings, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line, is_junit3_test};
@@ -516,7 +515,12 @@ impl<'t> Walk<'t> {
     let head = self.head_of(id);
     let name = self.name_leaf(id);
     let initializer = self.initializer(id);
-    let value_type = self.value_type(self.child(head, N::TYPE), initializer);
+    let value_type = if self.has_token(id, T::LBRACKET) {
+      // `Foo a[]`: an array, of no type here
+      None
+    } else {
+      self.value_type(self.child(head, N::TYPE), initializer)
+    };
     if self.bindings.is_local() {
       self.bind_name(name, value_type, true);
       return;
@@ -572,8 +576,8 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// A component of a record: a field (and its accessor); in a local record a parameter. A vararg one is a field of
-  /// the package without a type, as tree-sitter's walk read its declarator
+  /// A component of a record: a public field (and its accessor), a vararg one too (`int... xs`, which tree-sitter's
+  /// walk read as a field of the package without a type); in a local record a parameter
   fn record_component(&mut self, id: NodeId) {
     let name = self.name_leaf(id);
     let ty = self.child(id, N::TYPE);
@@ -588,32 +592,20 @@ impl<'t> Walk<'t> {
       unstable: self.unstable(id),
       ..Fields::default()
     };
-    if vararg {
-      let traits = self.traits(self.child(id, N::MODIFIER_LIST), DeclKind::Value, Holder::Leaf, false);
-      let start = self.tree.range(name).start;
-      let span = Span {
-        start: self.lines.line(start),
-        end: self.end_line(start, self.own_range(id).end),
-        name: self.lines.line(start),
-      };
-      let header = self.tokens_text(self.tree.descendants(id).skip_while(|it| *it != name));
-      self.declare(name, traits, &span, fields, Some(header));
-    } else {
-      let range = self.own_range(id);
-      let span = Span {
-        start: self.lines.line(range.start),
-        end: self.end_line(range.start, range.end),
-        name: self.line_at(name),
-      };
-      let header = self.header(None, id, false);
-      self.declare(name, (DeclKind::Value, Reach::Public, MemberKind::Instance), &span, fields, Some(header));
-    }
+    let range = self.own_range(id);
+    let span = Span {
+      start: self.lines.line(range.start),
+      end: self.end_line(range.start, range.end),
+      name: self.line_at(name),
+    };
+    let header = self.header(None, id, false);
+    self.declare(name, (DeclKind::Value, Reach::Public, MemberKind::Instance), &span, fields, Some(header));
   }
 
-  /// A parameter of a method or a lambda binds its name with its declared type (a vararg none); the variable of a
-  /// `for` and the parameter of a `catch` without
+  /// A parameter of a method or a lambda binds its name with its declared type (a vararg and `Foo a[]` none); the
+  /// variable of a `for` and the parameter of a `catch` without
   fn parameter(&mut self, id: NodeId) {
-    let typed = self.parent_kind(id) == Some(N::PARAMETER_LIST);
+    let typed = self.parent_kind(id) == Some(N::PARAMETER_LIST) && !self.has_token(id, T::LBRACKET);
     let ty = self.child(id, N::TYPE);
     let vararg = ty.is_some_and(|it| self.has_token(it, T::ELLIPSIS));
     let value_type = if typed && !vararg { self.value_type(ty, None) } else { None };
@@ -1051,16 +1043,6 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// The texts of the leaves among `ids`, one space apart, without trivia
-  fn tokens_text(&self, ids: impl Iterator<Item = NodeId>) -> String {
-    let texts: Vec<&str> = ids
-      .filter(|it| self.tree.is_leaf(*it) && !self.is_trivia(*it))
-      .filter_map(|it| self.text(it))
-      .filter(|it| !it.is_empty())
-      .collect();
-    texts.join(" ")
-  }
-
   // --- references ---
 
   /// A call: the callee's reference gets the shape of the arguments; `this(…)` and `super(…)` call a constructor of
@@ -1282,13 +1264,16 @@ impl<'t> Walk<'t> {
   }
 
   /// `a.b.c` as `[a, b, c]`: a reference and the references of its qualifiers, `this`, `super`, and the type of a
-  /// plain class type; `Outer.super` is `Outer`'s; else `None`
+  /// plain class type; `Outer.super` is `Outer`'s; else `None`, also past `MAX_PATH` segments
   fn path_of(&self, id: NodeId) -> Option<Vec<&'t str>> {
     let mut reversed = Vec::new();
     let mut node = id;
     loop {
       match self.kind(node) {
         Some(N::REFERENCE_EXPRESSION | N::JAVA_CODE_REFERENCE | N::IMPORT_STATIC_REFERENCE) => {
+          if reversed.len() == MAX_PATH {
+            return None;
+          }
           reversed.push(self.name_text(node)?);
           match self.qualifier(node) {
             Some(qualifier) => node = qualifier,
@@ -1468,6 +1453,11 @@ impl<'t> Walk<'t> {
       .any(|it| self.tree.token_kind(it) == Some(T::LBRACKET) || self.kind(it) == Some(N::ARRAY_INITIALIZER_EXPRESSION))
   }
 }
+
+/// The segments of the longest path (`Walk::path_of`); a longer one is of an expression. Every segment of a chain
+/// `a.b.c…` is a reference qualified by the segments before it, so without a bound a chain of `n` segments would take
+/// `n²/2` names: 20 000 in 60 KB took 4 s and 1.7 GB. The longest of intellij-community has 11.
+const MAX_PATH: usize = 64;
 
 /// A primitive type's keyword, a name of a `TypeRef`
 const fn is_primitive(token: T) -> bool {
