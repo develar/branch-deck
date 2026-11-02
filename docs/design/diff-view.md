@@ -602,7 +602,8 @@ are coloured as the IntelliJ editor colours them without resolving a name, from 
   keywords are the parser's tokens (`as?`, `!in` and `!is` whole, a soft keyword only where the parser made it one,
   the `constructor` of a primary constructor), a raw string has no escapes, the `@Outer` of `this@Outer` is a label,
   the arguments of a file annotation are code, the name after a receiver and `::` is no field of the scopes and an
-  operand of an infix call is read by them as any other; a string, a number or a comment in a parse error keeps its
+  operand of an infix call is read by them as any other, the parameter of a function type (`(size: Int) -> Unit`)
+  binds nothing and a parameter's own name is plain; a string, a number or a comment in a parse error keeps its
   colour. A `.kts` is parsed as a script, whose top-level properties are static members;
 - the roles are IntelliJ's colours that the syntax shows (`--syntax-*` of `src/index.css`): a property and a field, a
   static one and a constant italic, a static Java method in the colour of a declaration and italic, a Rust call in the
