@@ -361,12 +361,14 @@ for a message shown again, and only lays out what Rust read.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
   [@test] ../../crates/sync-utils/src/commit_body_test.rs (`a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_label_the_rest_of_its_paragraph`, `a_label_without_blocks_to_head_a_long_one_and_a_sentence_stay_prose`, `a_label_line_right_before_a_list_heads_it_after_prose_or_another_list`, `a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_aside`)
 - The lead of a body must be its first block when that is a paragraph, before any label or heading.
-- The fold of a body (the blocks a reader shows before it, `shown`) must be at a block, never at a fixed row count: the
-  first block, a labelled section whole when the body opens with one, then whole blocks while they read in about 12
-  lines (a line of prose or an item by 100 characters, a line of code one), a labelled section (a label or a heading
-  and its blocks up to the next one, a rule among them) only whole, so a label never ends what shows; a verification
-  section costs no line. A body of about 12 lines shows whole.
-  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_lead_is_a_paragraph_before_any_label_or_heading`, `a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines`, `a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no_line`)
+- The parts of a body (`parts`: the lead alone, a labelled section, a run of the other blocks) must each say whether a
+  reader folds it, at a block, never at a fixed row count: the first part shows, a labelled section whole when the
+  body opens with one, then whole parts while they read in about 12 lines (a line of prose or an item by 100
+  characters, a line of code one), a labelled section (a label or a heading and its blocks up to the next one, a rule
+  among them) only whole, so a label never ends what shows, and every part after the first that does not fit folds. A
+  verification section folds and a "Look closely:" section shows wherever it is, and neither costs a line: the
+  decision the author asks for is never behind a fold. A body of about 12 lines shows whole.
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_lead_is_a_paragraph_before_any_label_or_heading`, `a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines`, `a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no_line`, `a_look_closely_section_shows_wherever_it_is_and_costs_no_line`)
 - Issue keys in the body must become links.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
 
@@ -627,8 +629,7 @@ for a message shown again, and only lays out what Rust read.
 - No test covers the Pending, Blocked and generic Error badges. No backend path in the mock server emits them.
 - No test covers the height limit of the commit card, its header staying as the body scrolls, or a commit without a
   subject in it.
-- The commit card and the preview show the whole body; the story of a review folds it at `shown` and folds its
-  verification sections. A p90 body (about 43 lines) scrolls in a card 24rem high: the card could fold as the story does.
+- The commit card and the preview show the whole body; the story of a review folds the parts Rust folds. A p90 body (about 43 lines) scrolls in a card 24rem high: the card could fold as the story does.
 - No test checks that the subject does not detect code.
 - Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
   ↓ right after Space is lost.

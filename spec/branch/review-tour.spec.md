@@ -218,10 +218,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
   body](../commit/commit-row.spec.md)): its lead a step larger, its paragraphs, lists, labels as the captions of their
   blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no
-  muted text. A long body shows whole blocks up to the fold Rust sets (`shown`), then one line that names the folded
-  parts ("The cause · The fix · Tests · Evidence", a part of no label "More"), each its own disclosure, which opens
-  below the line, so the text grows downward; a verification section (Tests, Evidence, Gates, Verified, Results,
-  Proof, Left out) is folded always. Then the commits that follow it up, each "Follows up: <subject>" a disclosure of
+  muted text. A long body shows the parts Rust shows (`parts`), then one line that names the folded parts ("The
+  cause · The fix · Tests · Evidence", a part of no label "More"), each its own disclosure, which opens below the
+  line, so the text grows downward; a verification section (Tests, Evidence, Gates, Verified, Results, Proof, Left
+  out) is folded always, and the author's "Look closely:" shows always, in its place among the shown parts. Then the commits that follow it up, each "Follows up: <subject>" a disclosure of
   its body, those without a story ("Without a story: …"), the facts of the step in one line and the warning of a step
   no test reaches, and the group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
@@ -355,7 +355,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
      "body": {"blocks": [{"type": "paragraph", "lines": ["Three startup steps showed the Project view at each open: …"]},
                          {"type": "label", "text": "Tests", "kind": "verification", "runIn": false},
                          {"type": "list", "ordered": false, "start": 1, "items": ["DeferredToolWindowRegistrationTest …"]}],
-              "trailers": ["Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"], "lead": true, "shown": 3},
+              "trailers": ["Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"], "lead": true,
+              "parts": [{"start": 0, "end": 1, "folded": false}, {"start": 1, "end": 3, "folded": true}]},
      "mentions": [{"block": 0, "item": 0, "start": 41, "end": 66, "text": "isShownOnStartupAllowed",
                    "target": {"kind": "unit", "unit": "declaration:…/ToolWindowManagerImpl.kt:…isShownOnStartupAllowed:id:String",
                               "path": "…/ToolWindowManagerImpl.kt", "side": "new", "line": 171, "step": 0}},

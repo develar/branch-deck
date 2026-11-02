@@ -17,11 +17,26 @@ pub struct CommitBody {
   pub trailers: Vec<String>,
   /// Whether `blocks[0]` is a paragraph, before any label or heading: the summary of the body
   pub lead: bool,
-  /// The blocks shown before the fold, a prefix of `blocks`: the first block (a labelled section whole when the body
-  /// opens with one), then whole blocks while they read in about 12 lines, a labelled section (a label or a heading and
-  /// its blocks up to the next one) only whole; a verification section costs no line, a reader folds it wherever it
-  /// is. `blocks.len()` when nothing folds
-  pub shown: u32,
+  /// The parts of the body in its order, each block in one: the lead alone; a labelled section (a label or a heading
+  /// and its blocks up to the next one); a run of the other blocks, two where the fold cuts it. Each says whether a
+  /// reader folds it, so Rust alone says where the fold is
+  pub parts: Vec<CommitBodyPart>,
+}
+
+/// A part of a commit body (`CommitBody::parts`): the blocks a reader shows or folds together
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CommitBodyPart {
+  /// Its first block in `CommitBody::blocks`: its label or heading when it has one
+  pub start: u32,
+  /// The block after its last one
+  pub end: u32,
+  /// Whether a reader folds it: a part past the fold, which comes after the first part and the whole parts that read in
+  /// about 12 lines with it, and a verification section wherever it is; never a Look closely section, wherever it is.
+  /// Neither of the two costs a line
+  pub folded: bool,
 }
 
 /// A block of a commit body

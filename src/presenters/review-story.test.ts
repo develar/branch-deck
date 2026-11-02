@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitBodyBlock, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
+import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
 import { MORE, mentionWords, presentOpenings, presentPrologue, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
@@ -12,9 +12,38 @@ const paragraph = (text: string): CommitBodyBlock => ({ type: "paragraph", lines
 const label = (text: string, kind: "plain" | "verification" | "lookClosely" = "plain"): CommitBodyBlock => ({ type: "label", text, kind, runIn: false })
 const list = (...items: string[]): CommitBodyBlock => ({ type: "list", ordered: false, start: 1, items })
 
+/**
+ * The parts Rust cuts `blocks` into (`sync_utils::commit_body`), the fold at block `shown`: the lead alone, a labelled
+ * section to the next label, a run of other blocks on one side of the fold; a verification folded and a Look closely
+ * shown wherever it is
+ */
+function partsOf(blocks: readonly CommitBodyBlock[], lead: boolean, shown: number): CommitBodyPart[] {
+  const heads = (block: CommitBodyBlock | undefined) => block?.type === "label" || block?.type === "heading"
+  const parts: CommitBodyPart[] = []
+  let start = 0
+  while (start < blocks.length) {
+    const block = blocks[start]!
+    let end = start + 1
+    if (heads(block)) {
+      while (end < blocks.length && !heads(blocks[end])) {
+        end++
+      }
+    } else if (!(lead && start === 0)) {
+      while (end < blocks.length && !heads(blocks[end]) && end !== shown) {
+        end++
+      }
+    }
+    const kind = block.type === "label" ? block.kind : "plain"
+    parts.push({ start, end, folded: kind === "verification" || (kind !== "lookClosely" && start >= shown) })
+    start = end
+  }
+  return parts
+}
+
 /** The story of the commit of `subject`: its blocks, the fold after `shown` of them, the lead when it opens with prose */
 function story(subject: string, blocks: CommitBodyBlock[], shown = blocks.length, toldIn: (number | null)[] = []): StoryCommit {
-  return { id: subject, subject, body: { blocks, trailers: [], lead: blocks[0]?.type === "paragraph", shown }, mentions: [], toldIn }
+  const lead = blocks[0]?.type === "paragraph"
+  return { id: subject, subject, body: { blocks, trailers: [], lead, parts: partsOf(blocks, lead, shown) }, mentions: [], toldIn }
 }
 
 function plan(steps: ReviewStep[], commits: StoryCommit[], more: Partial<ReviewPlan> = {}): ReviewPlan {
@@ -172,6 +201,17 @@ describe("the document of a review", () => {
     })
     // a body that opens with a label has no lead
     expect(textOf(presentStory(story("labelled", [label("Why"), paragraph("Because.")]))).lead).toBeNull()
+    // the author's Look closely shows where it is, also after the fold
+    const asks = [
+      paragraph("Lead."),
+      label("The cause"),
+      paragraph("A hook."),
+      label("Look closely", "lookClosely"),
+      paragraph("Is it enough?"),
+      label("Tests", "verification"),
+      list("ManagerTest"),
+    ]
+    expect(textOf(presentStory(story("asks", asks, 1)))).toEqual({ lead: "Lead.", shown: [["Look closely:", "Is it enough?"]], folded: ["The cause", "Tests"] })
   })
 
   it("opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places", () => {

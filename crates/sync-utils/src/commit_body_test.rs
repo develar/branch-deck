@@ -69,6 +69,30 @@ fn all(body: &CommitBody) -> u32 {
   u32::try_from(body.blocks.len()).unwrap()
 }
 
+/// Where the fold of `body` is: the first block of its first part the fold holds, a verification section aside;
+/// `all(body)` when nothing folds
+fn fold_at(body: &CommitBody) -> u32 {
+  body
+    .parts
+    .iter()
+    .find(|part| {
+      part.folded
+        && !matches!(
+          body.blocks[part.start as usize],
+          CommitBodyBlock::Label {
+            kind: LabelKind::Verification,
+            ..
+          }
+        )
+    })
+    .map_or_else(|| all(body), |part| part.start)
+}
+
+/// The parts of `body` as `(start, end, folded)`
+fn parts(body: &CommitBody) -> Vec<(u32, u32, bool)> {
+  body.parts.iter().map(|part| (part.start, part.end, part.folded)).collect()
+}
+
 #[test]
 fn joins_hard_wrapped_lines_into_one_paragraph_and_starts_a_block_after_a_blank_line() {
   assert_eq!(
@@ -167,7 +191,7 @@ fn reads_a_last_block_of_trailers_with_one_that_only_a_trailer_names() {
   );
   // a body of trailers alone has no block
   let only = commit_body("Co-Authored-By: Claude Opus <noreply@anthropic.com>");
-  assert_eq!((only.blocks.len(), only.trailers.len(), only.lead, only.shown), (0, 1, false, 0));
+  assert_eq!((only.blocks.len(), only.trailers.len(), only.lead, only.parts.len()), (0, 1, false, 0));
 }
 
 #[test]
@@ -329,15 +353,18 @@ fn the_lead_is_a_paragraph_before_any_label_or_heading() {
 #[test]
 fn a_short_body_shows_whole_and_a_long_one_folds_at_a_block_after_about_twelve_lines() {
   let short = commit_body("The summary.\n\nWhy: more.\n\n- one\n- two");
-  assert_eq!(short.shown, all(&short));
-  assert_eq!(commit_body("").shown, 0);
+  assert_eq!(fold_at(&short), all(&short));
+  assert_eq!(fold_at(&commit_body("")), 0);
   // 4 + 4 + 4 lines fit, the fourth paragraph folds, and the one after it with it
-  assert_eq!(commit_body(&[4, 4, 4, 1, 1].map(lines_of_prose).join("\n\n")).shown, 3);
+  let long = commit_body(&[4, 4, 4, 1, 1].map(lines_of_prose).join("\n\n"));
+  assert_eq!(fold_at(&long), 3);
+  // the lead alone, then a run of prose on each side of the fold
+  assert_eq!(parts(&long), [(0, 1, false), (1, 3, false), (3, 5, true)]);
   // the lead shows however long it is
-  assert_eq!(commit_body(&[20, 1].map(lines_of_prose).join("\n\n")).shown, 1);
+  assert_eq!(fold_at(&commit_body(&[20, 1].map(lines_of_prose).join("\n\n"))), 1);
   // an item and a line of code count one line each, an item its wraps: 1 + 7 + 2 + 2 fit, the line after them folds
   let items = format!("The summary.\n\n{}- {}\n\n    a\n    b\n\nAfter.", "- item\n".repeat(7), lines_of_prose(2));
-  assert_eq!(commit_body(&items).shown, 3);
+  assert_eq!(fold_at(&commit_body(&items)), 3);
 }
 
 #[test]
@@ -351,25 +378,49 @@ fn a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no
   );
   let body = commit_body(&body);
   // the lead (2) and the cause (1 + 3 + 3) fit; the fix (1 + 5) would end at 15: it folds whole, label and all
-  assert_eq!(body.shown, 4);
+  assert_eq!(fold_at(&body), 4);
   assert_eq!(body.blocks[4], label("The fix"));
   // a section that does not fit folds whole, though its label and first paragraph alone would
   let big = commit_body(&format!("{}\n\nThe cause:\n\n{}\n\n{}", lines_of_prose(2), lines_of_prose(6), lines_of_prose(6)));
-  assert_eq!(big.shown, 1);
+  assert_eq!(fold_at(&big), 1);
   // a body that opens with a section shows it whole however long it is, as it would its first block
-  assert_eq!(commit_body(&format!("Why: {}", lines_of_prose(20))).shown, 2);
+  assert_eq!(fold_at(&commit_body(&format!("Why: {}", lines_of_prose(20)))), 2);
   let summary = commit_body(&format!(
     "## Summary\n\n{}\n\n{}\n\nThe fix:\n\n{}",
     lines_of_prose(10),
     lines_of_prose(10),
     lines_of_prose(1)
   ));
-  assert_eq!(summary.shown, 3);
+  assert_eq!(fold_at(&summary), 3);
   assert_eq!(summary.blocks[3], label("The fix"));
   // the tests in between cost nothing: the fix after them still shows
   let tests = format!("{}\n\nTests:\n{}\nThe fix:\n\n{}", lines_of_prose(4), "- a test\n".repeat(20), lines_of_prose(6));
   let tests = commit_body(&tests);
-  assert_eq!(tests.shown, all(&tests));
+  assert_eq!(fold_at(&tests), all(&tests));
   assert_eq!(tests.blocks[1], labelled("Tests", LabelKind::Verification));
   assert_eq!(tests.blocks[3], label("The fix"));
+}
+
+#[test]
+fn a_look_closely_section_shows_wherever_it_is_and_costs_no_line() {
+  // the lead (2) and the cause (1 + 5) fit, the fix (1 + 5) would end at 14 and folds; the Look closely after it still
+  // shows, where the author put it, and the tests after it fold
+  let body = commit_body(&format!(
+    "{}\n\nThe cause:\n\n{}\n\nThe fix:\n\n{}\n\nLook closely:\n\n{}\n\nTests:\n- a test",
+    lines_of_prose(2),
+    lines_of_prose(5),
+    lines_of_prose(5),
+    lines_of_prose(6)
+  ));
+  assert_eq!(body.blocks[5], labelled("Look closely", LabelKind::LookClosely));
+  assert_eq!(parts(&body), [(0, 1, false), (1, 3, false), (3, 5, true), (5, 7, false), (7, 9, true)]);
+  // a long Look closely before the cause costs nothing: the cause after it still fits
+  let first = commit_body(&format!(
+    "{}\n\nLook closely: {}\n\nThe cause:\n\n{}",
+    lines_of_prose(2),
+    lines_of_prose(10),
+    lines_of_prose(5)
+  ));
+  assert_eq!(fold_at(&first), all(&first));
+  assert_eq!(parts(&first), [(0, 1, false), (1, 3, false), (3, 5, false)]);
 }

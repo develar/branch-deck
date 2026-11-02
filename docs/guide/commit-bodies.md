@@ -57,8 +57,9 @@ nothing summarizes the step.
 
 After the lead, give each decision its own paragraph: what you chose, what you did not and why. A reviewer reads a
 long body by its blocks: Branch Deck marks where a body folds at a block boundary, after the lead and the blocks that
-read in about 12 lines (`shown`), never between a label and its section. A body cut into short blocks folds where a
-reader expects it; a body of one long paragraph is all or nothing.
+read in about 12 lines (`parts`, each `folded` or not), never between a label and its section; a Look closely never
+folds, wherever it stands. A body cut into short blocks folds where a reader expects it; a body of one long paragraph
+is all or nothing.
 
 ## Code names are anchors
 
@@ -99,14 +100,14 @@ vocabulary, so a reviewer finds the same section in every commit:
 
 "The cause", "Fix, in two places" and "Evidence, on the final code" are the same labels: a leading "The", the case and
 what follows a comma do not matter. `Tests:`, `Evidence:`, `Left out:` (and Gates, Verified, Verification, Results,
-Proof) are the verification of the change (`kind: verification`): they cost no line of the fold (`shown`), so a long
-account of what you ran never pushes the story out of sight. Put them after the story.
+Proof) are the verification of the change (`kind: verification`): they cost no line of the fold and a review folds them
+wherever they are, so a long account of what you ran never pushes the story out of sight. Put them after the story.
 
 ## Look closely
 
 `Look closely:` is where you ask the reviewer to decide: a trade-off you made, a behaviour you were unsure of, a place
 where a wrong guess costs the most. Branch Deck tells this label from the others (`kind: lookClosely`): it is the one
-thing in a body that asks for an answer. A request for a specific review is the strongest lever an author has on a
+thing in a body that asks for an answer, so a review never folds it, wherever it is, and it costs no line of the fold. A request for a specific review is the strongest lever an author has on a
 review that helps, so write one where it is true, and only there: a request in every commit is read as none.
 
 ## Measurements and code

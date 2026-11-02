@@ -74,43 +74,47 @@ export interface StoryView {
 export const MORE = "More"
 
 /**
- * The story of `commit` as the document shows it: of the blocks `told` keeps (all by default), the lead, the parts
- * before the fold Rust set (`CommitBody.shown`), then the rest and the verification sections folded
+ * The story of `commit` as the document shows it: of the blocks `told` keeps (all by default), the lead, then the parts
+ * of the body as Rust cut and folded them (`CommitBody.parts`), the shown ones in place and the folded ones named
  */
 export function presentStory(commit: StoryCommit, told: (index: number) => boolean = () => true, words: MentionWords = plainWords): StoryView {
-  const { blocks, shown, lead } = commit.body
-  const parts: { head: StoryPart["head"]; first: number; last: number; blocks: PlacedBlock[] }[] = []
+  const { blocks, parts, lead } = commit.body
   let leadBlock: PlacedBlock | null = null
-  blocks.forEach((block, index) => {
-    if (!told(index)) {
-      return
-    }
-    if (index === 0 && lead && block.type === "paragraph") {
-      leadBlock = { index, block }
-      return
-    }
-    if (block.type === "label" || block.type === "heading") {
-      parts.push({ head: { index, block }, first: index, last: index, blocks: [] })
-      return
-    }
-    const current = parts.at(-1)
-    // a block told apart from the one before it, and the first block after the fold in a run of no label, start a part
-    // (Rust tells a labelled section whole, at one place)
-    if (current === undefined || current.last !== index - 1 || (current.head === null && index === shown)) {
-      parts.push({ head: null, first: index, last: index, blocks: [{ index, block }] })
-    } else {
-      current.blocks.push({ index, block })
-      current.last = index
-    }
-  })
   const view: { shown: StoryPart[]; folded: FoldedPart[] } = { shown: [], folded: [] }
-  for (const { head, first, blocks: placed } of parts) {
+  for (const { start, end, folded } of parts) {
+    const first = blocks[start]
+    const head = first !== undefined && (first.type === "label" || first.type === "heading") ? { index: start, block: first } : null
+    // Rust tells a labelled section whole, at one place; of a run of blocks of no label, a block told apart from the
+    // one before it starts a part
+    const runs: PlacedBlock[][] = []
+    for (let index = head === null ? start : start + 1; index < end; index++) {
+      const block = blocks[index]!
+      if (!told(index) || block.type === "label" || block.type === "heading") {
+        continue
+      }
+      if (index === 0 && lead && block.type === "paragraph") {
+        leadBlock = { index, block }
+        continue
+      }
+      const run = runs.at(-1)
+      if (run === undefined || run.at(-1)!.index !== index - 1) {
+        runs.push([{ index, block }])
+      } else {
+        run.push({ index, block })
+      }
+    }
+    if (head !== null && !told(start)) {
+      continue
+    }
     const tone = head?.block.type === "label" ? head.block.kind : "plain"
-    const part: StoryPart = { key: `${commit.id}:${first}`, first, head, tone, blocks: placed }
-    if (tone === "verification" || first >= shown) {
-      view.folded.push({ part, name: head === null ? MORE : head.block.text })
-    } else {
-      view.shown.push(part)
+    for (const placed of head === null ? runs : [runs.flat()]) {
+      const firstIndex = head?.index ?? placed[0]!.index
+      const part: StoryPart = { key: `${commit.id}:${firstIndex}`, first: firstIndex, head, tone, blocks: placed }
+      if (folded) {
+        view.folded.push({ part, name: head === null ? MORE : head.block.text })
+      } else {
+        view.shown.push(part)
+      }
     }
   }
   const mentions = commit.mentions.map((mention): StoryMention => ({

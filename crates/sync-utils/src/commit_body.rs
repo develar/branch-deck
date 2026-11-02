@@ -16,11 +16,12 @@
 //! - a label (`LEAD_IN_MAX`, `RUN_IN_MAX`) heads the blocks after it: a paragraph that is only `Label:` followed by a
 //!   block, a `Label:` line right before a list item, or the 1–3 words of a paragraph that starts `Label: text`; its
 //!   kind is by its words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`);
-//! - the fold (`CommitBody::shown`): the first block, a labelled section whole when the body opens with one, then whole
-//!   blocks while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS` characters), a labelled section
-//!   only whole, a verification section for free.
+//! - the parts and the fold (`CommitBody::parts`): the lead alone, a labelled section whole, a run of other blocks; the
+//!   first part shows, then whole parts while they read in `FOLD_LINES` lines (a line of prose about `LINE_CHARS`
+//!   characters), the rest folds; a verification section folds and a Look closely section shows wherever it is, and
+//!   neither costs a line.
 
-use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
+use domain_types::commit_body::{CommitBody, CommitBodyBlock, CommitBodyPart, LabelKind};
 
 /// The lines a body shows before its fold
 const FOLD_LINES: u32 = 12;
@@ -69,12 +70,12 @@ pub fn commit_body(body: &str) -> CommitBody {
   }
   let blocks = labelled(blocks);
   let lead = matches!(blocks.first(), Some(CommitBodyBlock::Paragraph { .. }));
-  let shown = shown(&blocks);
+  let parts = parts(&blocks, lead);
   CommitBody {
     blocks,
     trailers: trailer_lines,
     lead,
-    shown,
+    parts,
   }
 }
 
@@ -152,36 +153,59 @@ fn label_kind(text: &str) -> LabelKind {
   }
 }
 
-/// The blocks before the fold (`CommitBody::shown`): the units of the body in order, a block before the first label or
-/// heading, else a labelled section whole; the first unit however long it is, so something shows before the fold, then
-/// each while the lines so far stay within `FOLD_LINES`, a verification section for free
-fn shown(blocks: &[CommitBodyBlock]) -> u32 {
+/// The parts of `blocks` and their fold (`CommitBody::parts`). The units of the fold in order: the lead, a labelled
+/// section whole, any other block alone; the first unit shows however long it is, so something shows before the fold,
+/// then each while the lines so far stay within `FOLD_LINES`, and every unit after the first that does not fit folds. A
+/// verification section folds and a Look closely section shows wherever it is, at no cost. A run of other blocks on one
+/// side of the fold is one part
+fn parts(blocks: &[CommitBodyBlock], lead: bool) -> Vec<CommitBodyPart> {
   let heads = |block: &CommitBodyBlock| matches!(block, CommitBodyBlock::Label { .. } | CommitBodyBlock::Heading { .. });
+  let mut parts: Vec<CommitBodyPart> = Vec::new();
   let mut lines = 0;
-  let mut shown = 0;
+  let mut cut = false;
   let mut start = 0;
   while start < blocks.len() {
-    let end = if heads(&blocks[start]) {
+    let headed = heads(&blocks[start]);
+    let end = if headed {
       blocks[start + 1..].iter().position(heads).map_or(blocks.len(), |next| start + 1 + next)
     } else {
       start + 1
     };
-    let verification = matches!(
-      blocks[start],
-      CommitBodyBlock::Label {
-        kind: LabelKind::Verification,
-        ..
+    let kind = match blocks[start] {
+      CommitBodyBlock::Label { kind, .. } => kind,
+      _ => LabelKind::Plain,
+    };
+    let folded = match kind {
+      LabelKind::Verification => true,
+      LabelKind::LookClosely => false,
+      LabelKind::Plain => {
+        let cost: u32 = blocks[start..end].iter().map(lines_of).sum();
+        cut |= lines > 0 && lines + cost > FOLD_LINES;
+        if !cut {
+          lines += cost;
+        }
+        cut
       }
-    );
-    let cost = if verification { 0 } else { blocks[start..end].iter().map(lines_of).sum() };
-    if start > 0 && lines + cost > FOLD_LINES {
-      break;
+    };
+    let part = CommitBodyPart {
+      start: index(start),
+      end: index(end),
+      folded,
+    };
+    match parts.last_mut() {
+      // a run of blocks of no label on one side of the fold, the lead apart
+      Some(last) if !headed && last.folded == folded && last.end == part.start && !heads(&blocks[last.start as usize]) && !(lead && last.start == 0) => {
+        last.end = part.end;
+      }
+      _ => parts.push(part),
     }
-    lines += cost;
-    shown = end;
     start = end;
   }
-  u32::try_from(shown).unwrap_or(u32::MAX)
+  parts
+}
+
+fn index(place: usize) -> u32 {
+  u32::try_from(place).unwrap_or(u32::MAX)
 }
 
 /// The lines a block reads in: a line of prose or an item by `LINE_CHARS` characters, a line of code one

@@ -80,8 +80,9 @@ export function StoryBlock({ placed, ...props }: StoryPlaceProps & { placed: Pla
  * The body of a commit as the review tells it (spec/branch/review-tour.spec.md, "In the Review Window"): its lead a
  * step larger, then its parts before the fold, a label the caption of its blocks and a Look closely of the author an
  * info callout; then one line that names the folded parts ("The cause · Tests · Evidence"), each its own disclosure,
- * an open one below the line, so a disclosure grows downward. Rust says where the fold is; a verification section is
- * folded always. The text is the foreground's: no part of the author's words is muted
+ * an open one below the line, so a disclosure grows downward. Rust says which part folds (`CommitBody.parts`): a
+ * verification section always, the author's Look closely never. The text is the foreground's: no part of the author's
+ * words is muted
  */
 export function StoryBody({ story, className }: { story: StoryView; className?: string }) {
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set())

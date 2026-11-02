@@ -12,22 +12,13 @@ interface CommitBodySection {
   blocks: CommitBodyBlock[]
 }
 
-/** The sections of the blocks Rust read, as `CommitBodyBlock` defines them: a label or a heading starts one, a rule is a block of it */
-function sectionsOf(blocks: readonly CommitBodyBlock[]): CommitBodySection[] {
-  const sections: CommitBodySection[] = []
-  let current: CommitBodySection | null = null
-  for (const block of blocks) {
-    if (block.type === "label" || block.type === "heading") {
-      current = { head: block, blocks: [] }
-      sections.push(current)
-    } else if (current == null) {
-      current = { head: null, blocks: [block] }
-      sections.push(current)
-    } else {
-      current.blocks.push(block)
-    }
-  }
-  return sections
+/** The sections of a body: its parts as Rust cut them (`CommitBody.parts`), a label or a heading the head of its part */
+function sectionsOf({ blocks, parts }: CommitBody): CommitBodySection[] {
+  return parts.map(({ start, end }) => {
+    const first = blocks[start]!
+    const headed = first.type === "label" || first.type === "heading"
+    return { head: headed ? first : null, blocks: blocks.slice(headed ? start + 1 : start, end) }
+  })
 }
 
 /**
@@ -46,7 +37,7 @@ function sectionsOf(blocks: readonly CommitBodyBlock[]): CommitBodySection[] {
 export function CommitBodyView({ body: source, size = "reading", empty }: { body: string | CommitBody; size?: "card" | "reading"; empty?: ReactNode }) {
   const read = useCommitBody(typeof source === "string" ? source : null)
   const body = typeof source === "string" ? read : source
-  const sections = body === undefined ? [] : sectionsOf(body.blocks)
+  const sections = body === undefined ? [] : sectionsOf(body)
   const isEmpty = body !== undefined && body.blocks.length === 0
   if (isEmpty && body.trailers.length === 0 && empty === undefined) {
     return null

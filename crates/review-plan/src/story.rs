@@ -547,18 +547,14 @@ fn mentions_of(resolver: &Resolver<'_>, body: &CommitBody, own: &[u32]) -> Vec<M
 
 /// The step that tells each block of a body of one commit told by its concerns (`StoryCommit::told_in`)
 fn told_in(resolver: &Resolver<'_>, body: &CommitBody, mentions: &[Mention]) -> Vec<Option<u32>> {
-  // the parts a step tells whole: a labelled section, else a block; the lead alone
+  // the parts a step tells whole: a labelled section of the grammar (`CommitBody::parts`), else a block; the lead alone
   let mut parts: Vec<Vec<usize>> = Vec::new();
-  let mut in_section = false;
-  for (place, block) in body.blocks.iter().enumerate() {
-    let heads = matches!(block, CommitBodyBlock::Label { .. } | CommitBodyBlock::Heading { .. });
-    if place == 0 && body.lead {
-      parts.push(vec![place]);
-    } else if heads || !in_section {
-      parts.push(vec![place]);
-      in_section = heads;
-    } else if let Some(part) = parts.last_mut() {
-      part.push(place);
+  for part in &body.parts {
+    let range = part.start as usize..part.end as usize;
+    if matches!(body.blocks[range.start], CommitBodyBlock::Label { .. } | CommitBodyBlock::Heading { .. }) {
+      parts.push(range.collect());
+    } else {
+      parts.extend(range.map(|place| vec![place]));
     }
   }
   let mut told = vec![None; body.blocks.len()];

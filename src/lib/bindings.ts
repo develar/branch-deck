@@ -1496,12 +1496,11 @@ export type CommitBody = {
 	/**  Whether `blocks[0]` is a paragraph, before any label or heading: the summary of the body */
 	lead: boolean,
 	/**
-	 *  The blocks shown before the fold, a prefix of `blocks`: the first block (a labelled section whole when the body
-	 *  opens with one), then whole blocks while they read in about 12 lines, a labelled section (a label or a heading and
-	 *  its blocks up to the next one) only whole; a verification section costs no line, a reader folds it wherever it
-	 *  is. `blocks.len()` when nothing folds
+	 *  The parts of the body in its order, each block in one: the lead alone; a labelled section (a label or a heading
+	 *  and its blocks up to the next one); a run of the other blocks, two where the fold cuts it. Each says whether a
+	 *  reader folds it, so Rust alone says where the fold is
 	 */
-	shown: number,
+	parts: CommitBodyPart[],
 };
 
 /**  A block of a commit body */
@@ -1543,6 +1542,20 @@ runIn: boolean } |
 export type CommitBodyParams = {
 	/**  The whole message: its body is the lines after the subject line */
 	message: string,
+};
+
+/**  A part of a commit body (`CommitBody::parts`): the blocks a reader shows or folds together */
+export type CommitBodyPart = {
+	/**  Its first block in `CommitBody::blocks`: its label or heading when it has one */
+	start: number,
+	/**  The block after its last one */
+	end: number,
+	/**
+	 *  Whether a reader folds it: a part past the fold, which comes after the first part and the whole parts that read in
+	 *  about 12 lines with it, and a verification section wherever it is; never a Look closely section, wherever it is.
+	 *  Neither of the two costs a line
+	 */
+	folded: boolean,
 };
 
 /**

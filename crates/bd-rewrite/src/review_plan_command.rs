@@ -155,8 +155,8 @@ pub struct ReviewPlanOutput {
   /// adds (`newApi`, by the key of their `api` entry) and the links between modules it adds (`moduleLinks`, by their
   /// place in `links`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
   /// of each commit with a body once, oldest first: its `body` by blocks (paragraphs, lists, preformatted text,
-  /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and the blocks `shown` before the
-  /// fold; its `mentions` of code, each with its block, its line or item, its UTF-16 range and its `target` (a `unit`
+  /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and its `parts` (a labelled
+  /// section, a run of other blocks), each `folded` or not; its `mentions` of code, each with its block, its line or item, its UTF-16 range and its `target` (a `unit`
   /// with its path, side, line and step, or a `file` with its step), `null` for a name in backticks that resolves
   /// nothing; `toldIn`, of the concerns of one commit, the step that tells each block (`null` before the steps)
   pub steps: ReviewSteps,
