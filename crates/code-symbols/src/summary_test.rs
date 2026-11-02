@@ -162,7 +162,9 @@ fn a_degraded_file_marks_what_it_misreads() {
   assert!(summary.error_bytes > 0);
   assert!(summary.is_degraded(), "{} of {} bytes in errors", summary.error_bytes, summary.total_bytes);
   assert!(!declaration(&summary, "ok").in_error);
-  assert!(declaration(&summary, "call").in_error);
+  // PSI keeps `call` in its class around the stray `)`, but a parse error in a class makes its constructors unknown
+  assert!(!declaration(&summary, "call").in_error);
+  assert!(declaration(&summary, "Unclosed").constructors.is_none());
   let clean = summary_of("kotlin/declarations.kt");
   assert_eq!(clean.error_bytes, 0);
   assert!(!clean.is_degraded());
@@ -172,11 +174,20 @@ fn a_degraded_file_marks_what_it_misreads() {
 #[test]
 #[cfg(feature = "kotlin")]
 fn deep_nesting_does_not_overflow_the_stack() {
-  let depth = 9_000;
-  let source = format!("fun f() =\n{}x{}\n", "(\n".repeat(depth), ")\n".repeat(depth));
-  let summary = summarize(Language::Kotlin, source.as_bytes());
-  assert!(!summary.truncated);
-  assert_eq!(summary.references_to("x").count(), 1);
+  // the 2 MiB of trial-check's workers and tokio's blocking threads; an unoptimized parse needs more per level
+  let stack = if cfg!(debug_assertions) { 64 << 20 } else { 2 << 20 };
+  let thread = std::thread::Builder::new().stack_size(stack).spawn(|| {
+    let nested = |depth: usize| summarize(Language::Kotlin, format!("fun f() =\n{}x{}\n", "(\n".repeat(depth), ")\n".repeat(depth)).as_bytes());
+    let shallow = nested(100);
+    assert_eq!(shallow.references_to("x").count(), 1);
+    // past the parser's nesting limit the rest of the file is one error element, "Code is too deeply nested"
+    let deep = nested(9_000);
+    assert!(!deep.truncated);
+    assert!(deep.is_degraded());
+    assert_eq!(deep.references_to("x").count(), 0);
+    assert!(deep.declares("f"));
+  });
+  thread.unwrap().join().unwrap();
 }
 
 #[test]

@@ -1024,10 +1024,11 @@ fn an_override_of_another_receiver_or_kind_is_no_edge() {
   assert_eq!(edges(&range.in_modules(&["impl"])), [(3, 0, vec![link("decorate", Evidence::Override)])]);
 }
 
-/// A declaration the parser recovered around may be misread, so a commit whose before side has one changes no entry of
-/// its key, which is only present or absent then; the same commit over a clean file is an edge
+/// A side the parser recovered around may be misread, so a commit whose before side is degraded changes no entry of its
+/// key, which is only present or absent then; the same commit over a clean file is an edge, and so it is over a file
+/// whose parse error leaves the key's declarations readable
 #[test]
-fn a_before_side_in_error_changes_no_state() {
+fn a_misread_before_side_changes_no_state() {
   // a parse error of a few bytes leaves a large file readable
   let callback = |body: &str| {
     format!(
@@ -1035,10 +1036,16 @@ fn a_before_side_in_error_changes_no_state() {
       "padding ".repeat(80)
     )
   };
-  // a `)` after the last `}` puts the interface and its function in an error
-  let misread = callback("{ fun call() } )");
-  let summary = summarize(Language::Kotlin, misread.as_bytes());
-  assert!(summary.declarations.iter().any(|declaration| declaration.in_error) && !summary.is_degraded(), "{summary:?}");
+  // a `)` after the last `}` is an error of its own: the interface and its function are read
+  let stray = callback("{ fun call() } )");
+  let summary = summarize(Language::Kotlin, stray.as_bytes());
+  assert!(
+    summary.error_bytes > 0 && !summary.is_degraded() && summary.declarations.iter().all(|it| !it.in_error),
+    "{summary:?}"
+  );
+  // tokens no declaration starts with, over 5 % of the bytes, degrade the file
+  let misread = callback(&format!("{{ fun call() }} {}", ")".repeat(60)));
+  assert!(summarize(Language::Kotlin, misread.as_bytes()).is_degraded());
   let graph = |before: &str| {
     let mut range = Range::default();
     range
@@ -1048,6 +1055,7 @@ fn a_before_side_in_error_changes_no_state() {
     edges(&range.in_modules(&["impl"]))
   };
   assert_eq!(graph(&misread), []);
+  assert_eq!(graph(&stray), [(1, 0, vec![link("call", Evidence::Override)])]);
   assert_eq!(graph(&callback("{\n  fun call()\n}")), [(1, 0, vec![link("call", Evidence::Override)])]);
 }
 
@@ -1688,8 +1696,8 @@ fn overloads_a_move_brings_into_one_file_keep_their_origins() {
 }
 
 /// The entries of a top-level function go with their file where a commit renames it, or with their declaration where
-/// it moves it, also when the parser can't read the file there (degraded, a parse error in the declaration, one that
-/// swallows the declaration): they keep their form and origin there until a commit reads the file again, so a later
+/// it moves it, also when the parser can't read the file there (degraded, the declaration read or swallowed by a parse
+/// error before it): they keep their form and origin there until a commit reads the file again, so a later
 /// removal from it drops them and a call of the name is no edge, while without the removal it needs the commit that
 /// added the function
 #[test]
@@ -1698,22 +1706,19 @@ fn entries_go_with_their_file_into_a_version_the_parser_cannot_read() {
   let other = ("impl/src/p/Other.kt", Some("package p\n\nfun other() = 1\n"));
   let (from, to) = ("impl/src/p/A.kt", "impl/src/p/B.kt");
   let small = |body: &str| format!("package p\n\nfun first() = 0\n\n{body}\n\nfun last() = 9\n");
-  // a parse error of a few bytes leaves a large file readable
-  let large = |body: &str| format!("package p\n\n// {}\n\nfun first() = 0\n\n{body}\n", "padding ".repeat(80));
-  // the file without the function, with it, a version the parser can't read, and how: degraded, and the declaration
-  // in error or swallowed
+  // the file without the function, with it, a version the parser can't read, and how: degraded, the declaration read
+  // or swallowed (no declaration is in a parse error: those of PSI hold the tokens the parser skipped)
   let versions = [
     (
       small(""),
       small("fun helper(x: Int) = x"),
-      small("fun helper(x: Int) = x\n\nfun broken( = "),
+      small("fun helper(x: Int) = x\n\nfun broken( = ))))"),
       (true, Some(false)),
     ),
-    (large(""), large("fun helper(x: Int) = x"), large("fun helper(x: Int) = x }"), (false, Some(true))),
     (
       small(""),
       small("fun helper(x: Int) = x"),
-      small("fun broken() = listOf(\n\nfun helper(x: Int) = x"),
+      small("fun broken() = listOf(\n\nfun helper(x: Int) = x\n\n@@@@@"),
       (true, None),
     ),
   ];
