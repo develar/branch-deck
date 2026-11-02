@@ -115,7 +115,9 @@ menu stacks, unstacks and renames branches.
   On the route of Patronus every pull request of a virtual branch goes into the baseline; elsewhere a straight chain is
   a stack of GitHub, whose layers go into their parents' branches and are judged by the rules of the target
   ([Stacks of GitHub](#stacks-of-github)). An open one into a virtual branch outside such a stack is retargeted
-  ([Pull requests](#pull-requests)).
+  ([Pull requests](#pull-requests)); one GitHub merged into a parent's branch landed nothing: the next step and
+  `bd push` say so (`mergedIntoBranch`, `merged_elsewhere`), and a new pull request into the baseline lands it
+  ([Next Step](next-step.spec.md)).
 - The pull requests of every branch of a stack at once: "Create Pull Request…" creates the pull request of one branch
   ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)), of a layer of a stack of GitHub with those of the
   layers below it that have none, as a stack of GitHub has a pull request on every layer. A stack that forks has one

@@ -9,7 +9,9 @@ use domain_types::patronus::{
   MissingApprovalsReason, MissingReviewGroup, PatronusAvailability, PatronusPullRequestLink, PatronusRobot, PatronusRobotStatus, Person, ReviewReadiness, ReviewReadinessBranch,
   UnknownReadinessReason,
 };
-use domain_types::pull_request::{MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestBase, ReviewDecision, Reviewer, ReviewerState};
+use domain_types::pull_request::{
+  MergeMethod, MergeMethods, MergeStateStatus, PullRequest, PullRequestAvailability, PullRequestBase, PullRequestState, ReviewDecision, Reviewer, ReviewerState,
+};
 use domain_types::reason::Reason;
 use domain_types::repository_view::LandingNeeds;
 use domain_types::session::{Fact, FactState, Parked, RobotsHead, SubjectReadiness};
@@ -1251,7 +1253,8 @@ fn a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push() 
 }
 
 /// A repository off Space that lands by a merge of the pull request on GitHub takes the table of its route: no pull
-/// request is Create Pull Request… (`pr`), a mergeable one "Merge #7" (`merge`), required checks still running
+/// request is Create Pull Request… (`pr`), also one GitHub merged into another branch than the target (a parent's, which
+/// master lacks), with why, a mergeable one "Merge #7" (`merge`), required checks still running
 /// "Auto-Merge #7", an enabled auto-merge its wait (`merge′`, Cancel Auto-Merge), what holds the merge back its reason
 /// (`merge″`); GitHub not knowing whether it can merge waits (row 0), and so does the gate; a refusal of the gate
 /// disables the merge
@@ -1310,6 +1313,25 @@ fn a_merge_of_the_pull_request_is_the_step_of_its_route_by_what_github_tells() {
       StepRow::PullRequest,
       StepKind::OpenPullRequest,
       rule(Reason::NoPullRequestToMerge { branch: "auth".to_string() }),
+      no_dry_run.clone()
+    )
+  );
+  let into_parent = merging(open_gate.clone(), None).with(|it| {
+    let mut pull_request = pull_request("auth", 7);
+    pull_request.state = PullRequestState::Merged;
+    pull_request.base_ref_name = "user/virtual/core".to_string();
+    it.pull_request = Some((pull_request, None));
+  });
+  assert_eq!(
+    shape(&into_parent.step()),
+    (
+      StepRow::PullRequest,
+      StepKind::OpenPullRequest,
+      rule(Reason::MergedIntoBranch {
+        number: 7,
+        base: "user/virtual/core".to_string(),
+        target: "master".to_string()
+      }),
       no_dry_run.clone()
     )
   );

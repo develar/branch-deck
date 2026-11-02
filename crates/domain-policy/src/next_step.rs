@@ -29,7 +29,8 @@
 //! A repository that lands by a merge of the pull request on GitHub (`LandingRoute::PullRequest` where no robot of
 //! Patronus lands it, `land::merges_on_github`) takes the table of its route too (spec/branch/next-step.spec.md, "A merge
 //! of the pull request"; `merge_step`): rows 1, 0, 1′ and 1″ as a push's (row 0 also while GitHub computes whether it
-//! can merge), then by `land_direct::merge_of`: `pr` Create Pull Request…, 5 and 5′ a pull request into another base,
+//! can merge), then by `land_direct::merge_of`: `pr` Create Pull Request… (why: no open pull request, or the one GitHub
+//! merged into another branch than the target, `MergedIntoBranch`), 5 and 5′ a pull request into another base,
 //! `merge` "Merge #7" or "Auto-Merge #7", `merge′` its auto-merge enabled, `merge″` what holds the merge back.
 
 use crate::facts::RemoteBranch;
@@ -37,6 +38,7 @@ use crate::github_stack::layers_below;
 use crate::holds::is_active;
 use crate::land::merges_on_github;
 use crate::land_direct::{MergeAnswer, merge_of};
+use crate::pull_request::merged_elsewhere;
 use crate::readiness::waiting_reviewers;
 use domain_types::error::ErrorCode;
 use domain_types::landing::{Landed, LandedBy, LandingRefusal, Subject};
@@ -635,11 +637,13 @@ fn merge_step(facts: &StepFacts<'_>, slot: Slot, gate: &RouteGate, general: Opti
   let below = pull_request.map_or_default(|pull_request| facts.listed.map_or_default(|listed| layers_below(listed.values(), pull_request)));
   match merge_of(pull_request, |_| base, facts.tip, facts.merge_methods, target, &below) {
     MergeAnswer::NoPullRequest => {
-      let branch = facts.subject.name().to_owned();
-      let blocker = blocker.or(Some(StepBlocker::Rule {
-        reason: Reason::NoPullRequestToMerge { branch },
-      }));
-      step(StepRow::PullRequest, StepKind::OpenPullRequest, blocker, dry_run)
+      // its pull request merged into another branch (a parent's) is why the target lacks it
+      let reason = pull_request
+        .and_then(|pull_request| merged_elsewhere(pull_request, target))
+        .unwrap_or_else(|| Reason::NoPullRequestToMerge {
+          branch: facts.subject.name().to_owned(),
+        });
+      step(StepRow::PullRequest, StepKind::OpenPullRequest, blocker.or(Some(StepBlocker::Rule { reason })), dry_run)
     }
     MergeAnswer::OtherBase { pull_request, base } => {
       let number = pull_request.number;

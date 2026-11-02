@@ -71,7 +71,10 @@ Measured on a private repository of github.com, 2026-10-30, REST `X-GitHub-Api-V
   can't merge a stack. The merge of the middle layer by rebase took under five seconds and put the commits of both
   layers into main with new ids, author and author time kept: the rows of the update pair them as after any rebase
   merge.
-- **After a partial merge.** The merged layers are `MERGED` and keep their old base. The layer above goes into the base
+- **After a partial merge.** The merged layers are `MERGED` and keep their old base, and stay in the stack: a merged
+  pull request lands its branch when it went into the target or GitHub lists it in a stack into the target
+  (`domain_policy::pull_request::merges_into_target`); one merged into a parent's branch outside a stack landed nothing
+  (`MergedIntoBranch`). The layer above goes into the base
   of the stack, and GitHub rebases it on the server: its branch gets a new commit on the merged ones, author and author
   time kept, the same patch (`rev-list --cherry-mark` marks every commit `=`). The merged branches stay (the repository
   did not delete head branches).

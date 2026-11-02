@@ -166,6 +166,7 @@ const words = {
   layerNotLinked: ({ number, parent }) => `#${number} goes into ${parent} outside a stack of GitHub: its merge would land nothing, link the stack first`,
   layerRebased: ({ branch, number, target }) => `GitHub moved #${number} of ${branch} onto ${target} after the layers below it merged: Update Project first`,
   noPullRequestToMerge: ({ branch }) => `${branch} has no open pull request: create one, GitHub merges it`,
+  mergedIntoBranch: ({ number, base, target }) => `#${number} was merged into ${base}, not ${target}: create a pull request into ${target} to land it`,
   mergeDraft: ({ number }) => `#${number} is a draft: mark it ready for review on GitHub first`,
   mergeConflict: ({ number }) => `#${number} conflicts with its base: GitHub can't merge it`,
   mergeBehind: ({ number, target }) => `${target} requires #${number} to be up to date with it: Update Project, then Push Branch`,

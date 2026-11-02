@@ -942,12 +942,14 @@ pub fn landed_subject<'a>(table: &'a BranchTable, remote: &'a RemoteFacts, of: O
       tip: table.tip_of(name),
       remote: remote.branches.get(name).and_then(RemoteFact::branch),
       pull_request: pull_requests.and_then(|listing| listing.pull_requests.get(name)),
+      target: baseline_on_remote(&table.baseline),
     },
     Of::WholeStack { root, .. } => LandedSubject {
       of,
       tip: table.stack(root).and_then(|stack| stack.tip.as_deref()),
       remote: remote.stacks.get(root).and_then(RemoteFact::branch),
       pull_request: pull_requests.and_then(|listing| listing.stack_pull_requests.get(root)),
+      target: baseline_on_remote(&table.baseline),
     },
   }
 }

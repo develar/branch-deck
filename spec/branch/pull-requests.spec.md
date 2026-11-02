@@ -479,7 +479,9 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say whom GitHub refused, and keep the dialog when GitHub creates nothing`)
 - A pull request of the branch that already exists is found and left as it is: "feature-auth already has pull
   request #7" / "The title, the reviewers and the assignee weren't applied to it". One a refresh brings while the
-  dialog is open (open or merged) turns it into "feature-auth already has pull request #7." with "Open Pull Request";
+  dialog is open (open, or merged so that the branch landed by it: into the target with its commits, as Rust's next
+  step says; one merged into a parent's branch is none) turns it into "feature-auth already has pull request #7." with
+  "Open Pull Request";
   Create and "Continue on GitHub" are disabled, and their hover says why ("feature-auth already has pull request #7",
   "Pull request #7 of feature-auth is merged"): GitHub's form would open nothing. A disabled Create always says why on
   hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…". The existing one is
@@ -487,6 +489,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   request only a while later: a retry after a timeout, or the app and `bd safe-push --create-pull-request` at once,
   find the one just created.
   [@test] ../../src/presenters/pull-request-url.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
+  [@test] ../../src/lib/pull-request-dialog.test.ts (`lets a new pull request repeat a merged one only while the branch did not land by it, as into a parent's branch`)
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should say why it can't create, and offer only Open Pull Request once the branch has one`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`a_pull_request_that_already_exists_is_found_and_left_as_it_is`)
   [@test] ../../crates/operations/src/pull_request_test.rs (`a_creation_again_finds_the_pull_request_the_search_does_not_list_yet`)

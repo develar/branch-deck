@@ -1159,6 +1159,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   line, with the `gh pr edit` that retargets it; the push goes on. `--dry-run` lists the retargets a push would make
   and changes nothing on GitHub. Without a GitHub repository of the branches or a token, GitHub is not asked.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline`)
+- A branch of `branches` whose pull request GitHub merged into another branch than the baseline, a parent's virtual
+  branch most of all (a child of a stack merged after its parent's pull request had landed), must be named in
+  `merged_elsewhere` (`branch`, `number`, `url`, `base`): the baseline lacks its commits, nothing of it landed, and its
+  `pull_request` draft opens a new one into the baseline; a merged pull request is never retargeted.
+  [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_names_a_pull_request_merged_into_another_branch_than_the_baseline`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget`)
 - On Space, with the Safe Push CLI logged in, it must hold the branches the app holds
   ([Patronus](../branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs)): a named branch whose Safe Push

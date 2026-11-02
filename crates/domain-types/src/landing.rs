@@ -584,7 +584,7 @@ pub enum LandedBy {
   /// of the whole stack); of a whole stack what landed each branch of it, each robot once in the order they merged.
   /// `own`: the robot of the subject itself landed all of it; `target` the branch the first one pushed into
   Robots { by: Vec<RobotOf>, own: bool, target: String },
-  /// GitHub merged its pull request `number` with the commits the subject has (D13)
+  /// GitHub merged its pull request `number` into the target with the commits the subject has (D13)
   PullRequest { number: u32 },
 }
 

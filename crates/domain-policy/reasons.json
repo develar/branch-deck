@@ -397,5 +397,11 @@
   {
     "code": "keptCheckedOut",
     "branch": "docs"
+  },
+  {
+    "code": "mergedIntoBranch",
+    "number": 126,
+    "base": "jane/virtual/auth",
+    "target": "master"
   }
 ]

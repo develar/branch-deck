@@ -1663,6 +1663,7 @@ impl Told<'_> {
       | Reason::MergeHeadBehind { .. }
       | Reason::LayerRebased { .. }
       | Reason::LayerNotLinked { .. }
+      | Reason::MergedIntoBranch { .. }
       | Reason::KeptLandsNothing { .. }
       | Reason::KeptCheckedOut { .. } => Refusal::new(refusal_code(reason), start_refusal_text(reason, what, self.session.robots())),
       Reason::OtherBase { number, base, target } => {

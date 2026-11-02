@@ -300,7 +300,8 @@ target, read before anything is pushed.
   once the checks pass, while required checks still run (`BLOCKED` by them) where the repository allows it, and after
   the push of the branch (of a whole stack its stack branch) when the pull request shows another commit than the copy:
   the push restarts its checks, a merge now would merge the old head. It must refuse, with its reason: no open pull
-  request into the target (`noPullRequestToMerge`: Create Pull Request first), one into another base (`otherBase`), a
+  request into the target (`noPullRequestToMerge`: Create Pull Request first; `mergedIntoBranch` when GitHub merged the
+  branch's pull request into another branch, a parent's, which the target lacks), one into another base (`otherBase`), a
   draft (`mergeDraft`), changes requested (`mergeChangesRequested`), approvals the base requires (`mergeNeedsApprovals`),
   required checks that fail (`mergeChecksFail`) or run without auto-merge (`mergeChecksRunning`), what GitHub doesn't
   name (`mergeBlocked`), a head behind its base (`mergeBehind`: the update of the branch and its push), a conflict
@@ -441,6 +442,12 @@ target, read before anything is pushed.
   fast-forward of the remote (`Merger`); a rebase merge of GitHub writes the copy again (its author, time and message
   kept, GitHub the committer), and the update after it drops the originals all the same, naming them as landed.
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge the approved green pull request from the slot of the row by rebase, and update after it`)
+- A branch whose pull request GitHub merged into another branch than master, a parent's virtual branch, must offer
+  Create Pull Request… into master in its slot, Merge disabled with why ("#7 was merged into user-name/virtual/core, not
+  master: create a pull request into master to land it"), and the dialog must create it: nothing of the branch landed,
+  and the merged pull request is no live one a new one would repeat (only one by which the branch landed is).
+  [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should offer Create Pull Request… into master when GitHub merged the pull request into a parent's branch, saying why, and create it`)
+  [@test] ../../src/lib/pull-request-dialog.test.ts (`lets a new pull request repeat a merged one only while the branch did not land by it, as into a parent's branch`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should open the popover of Merge #7 with S on the row, naming the method`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge from the menu of the row`)
   [@test] ../../tests/e2e/landing/merge-pull-request.spec.ts (`should merge from the footer of the branch preview`)

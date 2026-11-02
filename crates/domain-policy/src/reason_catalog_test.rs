@@ -67,10 +67,11 @@ const fn code_index(reason: &Reason) -> usize {
     Reason::LayerNotLinked { .. } => 50,
     Reason::KeptLandsNothing { .. } => 51,
     Reason::KeptCheckedOut { .. } => 52,
+    Reason::MergedIntoBranch { .. } => 53,
   }
 }
 
-const CODES: usize = 53;
+const CODES: usize = 54;
 
 fn of(branch: &str, robot_id: &str, whole_stack: bool) -> RobotOf {
   if whole_stack {
@@ -285,6 +286,11 @@ fn examples() -> Vec<Reason> {
     },
     Reason::KeptLandsNothing { branch: "docs".to_owned() },
     Reason::KeptCheckedOut { branch: "docs".to_owned() },
+    Reason::MergedIntoBranch {
+      number: 126,
+      base: "jane/virtual/auth".to_owned(),
+      target: "master".to_owned(),
+    },
   ]
 }
 

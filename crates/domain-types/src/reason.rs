@@ -163,6 +163,10 @@ pub enum Reason {
   /// The open pull request `number` goes into the branch of `parent`, the layer below it, and GitHub lists it in no stack
   /// yet: a merge now would merge it into that branch, not the target; the link of the stack first
   LayerNotLinked { number: u32, parent: String },
+  /// GitHub merged the pull request `number` of the branch into `base`, not into `target` (a child of a stack merged into
+  /// its parent's virtual branch after the parent's pull request had landed): `target` lacks its commits, a new pull
+  /// request into `target` lands them
+  MergedIntoBranch { number: u32, base: String, target: String },
   /// The branch is kept outside HEAD, unapplied: it lands nothing until it is reapplied
   KeptLandsNothing { branch: String },
   /// A worktree has the kept branch checked out: a reapply and a delete would take it from under that worktree
@@ -224,6 +228,7 @@ impl Reason {
       | Self::MergeHeadBehind { .. }
       | Self::LayerRebased { .. }
       | Self::LayerNotLinked { .. }
+      | Self::MergedIntoBranch { .. }
       | Self::KeptLandsNothing { .. }
       | Self::KeptCheckedOut { .. } => None,
     }

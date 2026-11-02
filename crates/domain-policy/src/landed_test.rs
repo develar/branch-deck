@@ -4,7 +4,7 @@ use domain_types::fixtures::{pull_request, robot, robot_of, stack_robot, whole_s
 use domain_types::landed::LandedBranch;
 use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
 use domain_types::patronus::{PatronusPullRequestLink, PatronusRobot, PatronusRobotStatus};
-use domain_types::pull_request::{PullRequest, PullRequestState};
+use domain_types::pull_request::{PullRequest, PullRequestStackEntry, PullRequestState};
 use domain_types::reason::Reason;
 use domain_types::repository_view::{BranchPatronus, LandedByView, PatronusView, RobotLandedBranch, RobotOf};
 use domain_types::session::{BaselineStatus, LandedSection};
@@ -72,6 +72,7 @@ fn branch<'a>(name: &'a str, pull_request: Option<&'a PullRequest>) -> LandedSub
     }),
     remote: None,
     pull_request,
+    target: "master",
   }
 }
 
@@ -154,36 +155,74 @@ fn what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull
   assert_eq!(landed_state(&without_robots, &branch("oauth", None)), None);
 }
 
+/// `check` over facts with no landing report, no robot and no Patronus view: only a pull request lands a subject
+fn with_no_other_landing(check: impl FnOnce(&LandedFacts<'_>)) {
+  let robots = Robots::new(&[]);
+  let no_landing = section(Vec::new());
+  check(&LandedFacts {
+    pushed: None,
+    baseline: &no_landing,
+    view: None,
+    robots: &robots,
+  });
+}
+
 /// A merged pull request lands the branch only with the commits it has: its head is the tip, or the remote branch that
 /// has what the branch has (rebuilt on a newer baseline since); one of other commits is new work under the same name,
 /// and an open or closed one lands nothing
 #[test]
 fn a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has() {
-  let robots = Robots::new(&[]);
-  let no_landing = section(Vec::new());
-  let facts = LandedFacts {
-    pushed: None,
-    baseline: &no_landing,
-    view: None,
-    robots: &robots,
-  };
-  let pushed_before = PullRequest {
-    head_ref_oid: "auth-pushed".to_owned(),
-    ..with_state(PullRequestState::Merged, pull_request("auth", 5))
-  };
-  let landed = |subject: LandedSubject<'_>| landed_state(&facts, &subject).map(|landed| landed.by);
-  let at = |remote| LandedSubject {
-    remote: Some(remote),
-    ..branch("auth", Some(&pushed_before))
-  };
-  assert_eq!(landed(at(remote("auth-pushed", true, 0))), Some(LandedBy::PullRequest { number: 5 }));
-  assert_eq!(landed(at(remote("auth-pushed", false, 0))), None, "the branch has work its pull request lacks");
-  assert_eq!(landed(at(remote("auth-other", true, 0))), None, "the remote moved on since");
-  assert_eq!(landed(branch("auth", Some(&pushed_before))), None, "no remote status: only the tip tells");
-  let open = pull_request("auth", 5);
-  let closed = with_state(PullRequestState::Closed, pull_request("auth", 5));
-  assert_eq!(landed(branch("auth", Some(&open))), None);
-  assert_eq!(landed(branch("auth", Some(&closed))), None);
+  with_no_other_landing(|facts| {
+    let pushed_before = PullRequest {
+      head_ref_oid: "auth-pushed".to_owned(),
+      ..with_state(PullRequestState::Merged, pull_request("auth", 5))
+    };
+    let landed = |subject: LandedSubject<'_>| landed_state(facts, &subject).map(|landed| landed.by);
+    let at = |remote| LandedSubject {
+      remote: Some(remote),
+      ..branch("auth", Some(&pushed_before))
+    };
+    assert_eq!(landed(at(remote("auth-pushed", true, 0))), Some(LandedBy::PullRequest { number: 5 }));
+    assert_eq!(landed(at(remote("auth-pushed", false, 0))), None, "the branch has work its pull request lacks");
+    assert_eq!(landed(at(remote("auth-other", true, 0))), None, "the remote moved on since");
+    assert_eq!(landed(branch("auth", Some(&pushed_before))), None, "no remote status: only the tip tells");
+    let open = pull_request("auth", 5);
+    let closed = with_state(PullRequestState::Closed, pull_request("auth", 5));
+    assert_eq!(landed(branch("auth", Some(&open))), None);
+    assert_eq!(landed(branch("auth", Some(&closed))), None);
+  });
+}
+
+/// A pull request merged into another branch than the target lands nothing, as a child of a stack merged into its
+/// parent's virtual branch after the parent's pull request had landed: master lacks its commits (#163). A layer of a
+/// stack of GitHub into master keeps its old base once merged, and GitHub merged it into master with the layers below
+#[test]
+fn a_pull_request_merged_into_another_branch_lands_nothing() {
+  with_no_other_landing(|facts| {
+    let merged_into = |base: &str, stack: Option<PullRequestStackEntry>| PullRequest {
+      base_ref_name: base.to_owned(),
+      stack,
+      ..with_state(PullRequestState::Merged, pull_request("login", 7))
+    };
+    let landed = |pull_request: &PullRequest| landed_state(facts, &branch("login", Some(pull_request))).map(|landed| landed.by);
+    let into_parent = merged_into("user/virtual/auth", None);
+    assert_eq!(landed(&into_parent), None, "the parent's branch has it, master doesn't");
+    assert_eq!(merged_pull_request(&branch("login", Some(&into_parent))), None);
+    assert_eq!(landed(&merged_into("release/2026.3", None)), None, "another base");
+    assert_eq!(landed(&merged_into("master", None)), Some(LandedBy::PullRequest { number: 7 }));
+    let layer = PullRequestStackEntry {
+      number: 3,
+      base_ref_name: "master".to_owned(),
+      size: 2,
+      position: 2,
+    };
+    assert_eq!(
+      landed(&merged_into("user/virtual/auth", Some(layer))),
+      Some(LandedBy::PullRequest { number: 7 }),
+      "a layer of a stack into master"
+    );
+    assert_eq!(landed_reason(facts, &branch("login", Some(&into_parent))), None, "a start is not refused as landed");
+  });
 }
 
 /// A whole stack landed when every branch of it did: in the fetched baseline, or by merged Safe Pushes whole (`own` when
@@ -198,6 +237,7 @@ fn a_whole_stack_landed_when_every_branch_of_it_did() {
     tip: Some("stack-tip"),
     remote: None,
     pull_request,
+    target: "master",
   };
   let robots = [stack_robot("s", "auth", PatronusRobotStatus::Success, "stack-tip"), merged("r", "login")];
   let robots = Robots::new(&robots);
@@ -534,6 +574,7 @@ fn a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed() {
     tip: Some("stack-tip"),
     remote: None,
     pull_request: None,
+    target: "master",
   };
   assert_eq!(landed_state(&facts, &stack), in_master);
 }

@@ -8,6 +8,7 @@
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::error::ApiError;
 use domain_types::pull_request::{BranchRules, PullRequest, PullRequestBase, PullRequestState, ReviewerState};
+use domain_types::reason::Reason;
 use domain_types::session::{Fact, FactState};
 
 /// Where the pull request goes: `target` (or no base read), a virtual branch of `prefix` (`{prefix}/virtual/<name>`, any
@@ -40,6 +41,28 @@ pub fn layer_base_of(pull_request: &PullRequest, target: &str, prefix: &str, lay
     PullRequestBase::Virtual { from, .. } if layer_parent == Some(from.as_str()) => PullRequestBase::Layer { parent: from },
     base => base,
   }
+}
+
+/// The pull request merges into the target: it goes into it (or GitHub didn't say its base), or GitHub lists it in a
+/// stack into it, whose merge merges a layer into the target with the layers below it (a merged layer keeps its old
+/// base, docs/design/github-stacks.md). One merged into another branch, the virtual branch of a parent most of all,
+/// put nothing into the target
+#[must_use]
+pub fn merges_into_target(pull_request: &PullRequest, target: &str) -> bool {
+  let base = pull_request.base_ref_name.as_str();
+  base.is_empty() || base == target || pull_request.stack.as_ref().is_some_and(|stack| stack.base_ref_name == target)
+}
+
+/// GitHub merged the pull request into another branch than the target (`merges_into_target`), as a child of a stack
+/// merged into its parent's virtual branch once the parent's pull request had landed: the target lacks its commits, so
+/// nothing of the branch landed by it, and a new pull request into the target lands them (`MergedIntoBranch`)
+#[must_use]
+pub fn merged_elsewhere(pull_request: &PullRequest, target: &str) -> Option<Reason> {
+  (pull_request.state == PullRequestState::Merged && !merges_into_target(pull_request, target)).then(|| Reason::MergedIntoBranch {
+    number: pull_request.number,
+    base: pull_request.base_ref_name.clone(),
+    target: target.to_owned(),
+  })
 }
 
 /// Where the pull request of a subject goes for its start: `base_of`, but of a whole stack a virtual branch is another

@@ -480,7 +480,9 @@ branches stacked on them) syncs, takes the parents along that have commits for t
 branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
 of `branches` to the user (one the remote has as it is is `up_to_date`, nothing of it pushed). Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
 its `body` into it. An open pull request into a virtual branch (a parent's) is retargeted to the baseline: name
-`retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused.
+`retargeted` with `approved_by` (GitHub may dismiss those approvals); `retarget_warnings` says what GitHub refused;
+`merged_elsewhere` names a branch whose pull request GitHub merged into another branch (a parent's): tell the user
+nothing of it landed, its `pull_request` draft opens a new one into the baseline.
 --dry-run syncs, then asks the remote. Refusals, nothing pushed:
 - `push_refused` (exit 4): a branch didn't sync, or is behind its remote branch (`remote.behind`, only what the
   baseline lacks too). Older versions push without --force: of commits amended or restacked here

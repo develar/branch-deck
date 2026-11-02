@@ -77,6 +77,12 @@ export interface CreatePullRequestFacts {
   /** The baseline of the view (`BranchSyncState.baselineBranch`): the base of the pull request on the remote */
   readonly baselineBranch: string | null
   readonly pullRequest: PullRequest | undefined
+  /**
+   * All of the branch landed, as the next step of Rust says it (`BranchNextStep.landed`): a merged pull request lands it
+   * only merged into the target with its commits; one merged into a parent's branch, which the target lacks, is no
+   * pull request of the branch a new one would repeat
+   */
+  readonly landed: boolean
   readonly availability: PullRequestAvailability | null
   readonly patronusAvailable: boolean
   readonly review: ReviewRequirementState
@@ -88,7 +94,8 @@ export interface CreatePullRequestFacts {
 export function toCreatePullRequestContext(branch: Branch, facts: CreatePullRequestFacts): CreatePullRequestContext {
   const head = getFullBranchName(branch.name)
   const ancestors = getStackAncestors(branch.name).flatMap(name => getBranch(name) ?? [])
-  const existing = facts.pullRequest !== undefined && facts.pullRequest.state !== "closed" ? facts.pullRequest : null
+  const pullRequest = facts.pullRequest
+  const existing = pullRequest !== undefined && (pullRequest.state === "open" || (pullRequest.state === "merged" && facts.landed)) ? pullRequest : null
   const withoutReview = facts.withoutReview
   // a layer of a stack of GitHub shows only its own commits, against the branch below it
   const layer = facts.layer

@@ -35,6 +35,7 @@ use bd_core::operation_record::{admit_planned, run_admitted};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::services::{BdServices, github_service, patronus_service, session_key};
 use bd_core::sync_command::{LandedRemoteCommitSummary, RemoteSummary, SyncOutput, SyncedBranch, landed_commits, sync};
+use domain_policy::pull_request::merged_elsewhere;
 use domain_types::branch_names::{BranchKind, qualified_branch_name, to_final_branch_name};
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::landing::{PlannedEffect, Subject};
@@ -132,6 +133,12 @@ pub struct PushOutput {
   /// requests
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub retarget_warnings: Vec<String>,
+  /// The branches of `branches` whose pull request GitHub merged into another branch than the baseline, a parent's
+  /// virtual branch most of all (a child of a stack merged after its parent's pull request had landed): the baseline
+  /// lacks their commits, nothing of them landed. Tell the user; the `pull_request` draft of each opens a new one into
+  /// the baseline
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub merged_elsewhere: Vec<MergedElsewhere>,
   /// With `--with-children` of the root of a stack that forks: its stack branch (`{prefix}/stack/<root>`, all its commits
   /// in one branch, `name` the root), in the same atomic push, when the sync built it and the remote lacks it; its pull
   /// request is the one of the whole stack
@@ -267,6 +274,16 @@ impl RetargetedPullRequest {
         .collect(),
     }
   }
+}
+
+/// A pull request GitHub merged into another branch than the baseline (`domain_policy::pull_request::merged_elsewhere`)
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MergedElsewhere {
+  pub branch: String,
+  pub number: u32,
+  pub url: String,
+  /// The branch it was merged into, e.g. `jane/virtual/auth`
+  pub base: String,
 }
 
 /// "cannot retarget pull request #8 of login to master: <what GitHub said>; `gh pr edit 8 --repo acme/monorepo --base
@@ -754,6 +771,19 @@ impl PushRun<'_> {
     branches.sort_by_key(|branch| order.iter().position(|name| *name == branch.name).unwrap_or(usize::MAX));
     let mut retarget_warnings = told.retarget_warnings;
     retarget_warnings.extend(self.listing_warning(facts, !branches.is_empty() || !stacks.is_empty())?);
+    let listed = &facts.session.facts().pull_requests.view().pull_requests;
+    let merged_into_other_bases = branches
+      .iter()
+      .filter_map(|branch| {
+        let pull_request = listed.get(&branch.name)?;
+        merged_elsewhere(pull_request, &base).map(|_| MergedElsewhere {
+          branch: branch.name.clone(),
+          number: pull_request.number,
+          url: pull_request.url.clone(),
+          base: pull_request.base_ref_name.clone(),
+        })
+      })
+      .collect();
     Ok(PushOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
@@ -764,6 +794,7 @@ impl PushRun<'_> {
       restarted: told.restarted,
       retargeted: told.retargeted,
       retarget_warnings,
+      merged_elsewhere: merged_into_other_bases,
       github_stacks,
       stacks,
       stack_warnings: covered.stack_warnings,

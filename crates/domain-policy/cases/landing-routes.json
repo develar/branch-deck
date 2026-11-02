@@ -269,5 +269,32 @@
         "lands": ["auth"]
       }
     }
+  },
+  {
+    "id": "merge-after-a-merge-into-a-parent-branch",
+    "group": "modes-and-routes",
+    "title": "a repository that lands by a merge of the pull request: GitHub merged the branch's pull request into its parent's virtual branch, which master lacks (#163): nothing landed, Create Pull Request comes first, saying why",
+    "spec": ["spec/branch/landing-routes.spec.md#merge", "spec/cli/agent-cli.spec.md#bd-land", "spec/branch/next-step.spec.md#the-table:pr"],
+    "given": {
+      "route": "pullRequest",
+      "notOnSpace": true,
+      "readiness": "notAsked",
+      "pullRequest": {
+        "state": "merged",
+        "base": "test-user/virtual/core"
+      }
+    },
+    "expect": {
+      "step": {
+        "row": "pr",
+        "kind": "openPullRequest",
+        "safePush": "mergedIntoBranch",
+        "dryRun": "dryRunNeedsPatronus"
+      },
+      "land": {
+        "blockers": ["mergedIntoBranch"],
+        "lands": ["auth"]
+      }
+    }
   }
 ]

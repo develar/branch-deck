@@ -70,9 +70,10 @@ describe("formatReason", () => {
       "#9 goes into login outside a stack of GitHub: its merge would land nothing, link the stack first",
       "Not in master: Reapply it to land it",
       "A worktree has docs checked out",
+      "#126 was merged into jane/virtual/auth, not master: create a pull request into master to land it",
     ])
     // every code of the bindings has an example: the formatter's table is typed by the codes
-    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(53)
+    expect(new Set(CATALOG.map(reason => reason.code)).size).toBe(54)
   })
 
   it("names why the sync did not build a branch by its status text, as its row says it", () => {

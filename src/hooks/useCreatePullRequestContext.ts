@@ -21,6 +21,7 @@ export function useCreatePullRequestContext(branch: Branch): CreatePullRequestCo
     repositoryPath: useSelectedProjectPath() ?? "",
     baselineBranch: useBranchSync(state => state.baselineBranch),
     pullRequest: usePullRequest(branch.name),
+    landed: (nextStep?.landed ?? null) !== null,
     availability: usePullRequestAvailability(),
     patronusAvailable,
     review: usePatronusReviewRequirement(branch.name, patronusAvailable).state,

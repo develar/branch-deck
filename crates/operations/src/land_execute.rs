@@ -699,7 +699,7 @@ pub fn refusal_code(reason: &Reason) -> ErrorCode {
     }
     // no robot lands off Space, nor where a push into the target lands it; no pull request of GitHub merges it
     Reason::NotOnSpace | Reason::DryRunNeedsPatronus => ErrorCode::NotOnSpace,
-    Reason::GitHubMirror { .. } | Reason::NotOnGitHub | Reason::NoPullRequestToMerge { .. } => ErrorCode::NoPullRequest,
+    Reason::GitHubMirror { .. } | Reason::NotOnGitHub | Reason::NoPullRequestToMerge { .. } | Reason::MergedIntoBranch { .. } => ErrorCode::NoPullRequest,
     // GitHub can't merge it: a conflict, a head behind its base, a branch to push first
     Reason::MergeConflict { .. } | Reason::MergeBehind { .. } | Reason::MergeHeadBehind { .. } | Reason::LayerNotLinked { .. } => ErrorCode::NotMergeable,
     // the rules of the base hold it back until what they need comes

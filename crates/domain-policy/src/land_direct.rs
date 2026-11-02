@@ -47,7 +47,7 @@ use crate::facts::RemoteBranch;
 use crate::github_stack::layers_below;
 use crate::land::{BranchStart, LandFacts, Start, SubjectFacts, branch_lands, conflict_blocker, drops, gate_blockers, more_than_row, stack_lands, start_refusal, table_blocker};
 use crate::next_step::{Listing, changes_requested_by};
-use crate::pull_request::start_base;
+use crate::pull_request::{merged_elsewhere, start_base};
 use domain_types::error::ErrorCode;
 use domain_types::landing::{Confirmation, FactWait, Land, LandDecision, LandFact, PlannedEffect, Unchecked};
 use domain_types::landing_route::{RouteFact, RouteGate};
@@ -353,7 +353,12 @@ pub(crate) fn decide_merge(facts: &LandFacts<'_>, land: &Land, gate: &RouteGate)
   let base = |pull_request: &PullRequest| start_base(pull_request, facts.target, facts.prefix, whole_stack);
   let below = pull_request.map_or_default(|pull_request| layers_below(facts.pull_requests.pull_requests.values(), pull_request));
   match merge_of(pull_request, base, tip, methods, facts.target, &below) {
-    MergeAnswer::NoPullRequest => decision.blockers.push(Reason::NoPullRequestToMerge { branch: name.to_owned() }),
+    // its pull request merged into another branch (a parent's) is why the target lacks it
+    MergeAnswer::NoPullRequest => decision.blockers.push(
+      pull_request
+        .and_then(|pull_request| merged_elsewhere(pull_request, facts.target))
+        .unwrap_or_else(|| Reason::NoPullRequestToMerge { branch: name.to_owned() }),
+    ),
     MergeAnswer::OtherBase { pull_request, base } => decision.blockers.push(Reason::OtherBase {
       number: pull_request.number,
       base: match base {

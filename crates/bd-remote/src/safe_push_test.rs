@@ -1267,6 +1267,33 @@ fn push_retargets_a_pull_request_into_a_virtual_branch_to_the_baseline() {
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 }
 
+/// A child of a stack whose pull request GitHub merged into its parent's virtual branch, which master lacks (#163):
+/// nothing of it landed, so its push says so (`merged_elsewhere`) beside the draft of a new pull request into master,
+/// and retargets nothing; one merged into master says nothing
+#[test_log::test]
+fn push_names_a_pull_request_merged_into_another_branch_than_the_baseline() {
+  let space = Space::new(&["(auth) Add auth", "(auth/login) Add login"]);
+  space.repo.set_config("branchdeck.stacks", "true").unwrap();
+  let mut auth = pull_request_of("auth", 7, "master", &[]);
+  auth["state"] = json!("MERGED");
+  let mut login = pull_request_of("login", 8, AUTH, &[]);
+  login["state"] = json!("MERGED");
+  let (github, url) = fake_github(&space, &[auth, login]);
+  let environment = reviewed_on_github(&space, &url);
+
+  let (exit_code, output) = bd_push(&environment, &["login"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(
+    output["merged_elsewhere"],
+    json!([{"branch": "login", "number": 8, "url": "https://github.com/acme/monorepo/pull/8", "base": AUTH}])
+  );
+  let login = output["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == "login").unwrap();
+  assert_eq!(login["pull_request"]["base"], json!("master"), "{output}");
+  assert_eq!(retargets_sent(&github), [], "a merged pull request is never retargeted");
+  let (_, schema) = run_json(&environment, &["schema", "--all"]);
+  assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
+}
+
 /// The retarget goes before the push (D3a), after the lock: GitHub never compares the pushed commits with the parent's
 /// branch the pull request no longer goes into. A push the remote then refuses leaves the retarget done, which is the
 /// rule's anyway (every pull request into the baseline)

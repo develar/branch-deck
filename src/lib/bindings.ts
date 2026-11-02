@@ -3788,7 +3788,7 @@ export type LandedBy =
  *  `own`: the robot of the subject itself landed all of it; `target` the branch the first one pushed into
  */
 { kind: "robots"; by: RobotOf[]; own: boolean; target: string } | 
-/**  GitHub merged its pull request `number` with the commits the subject has (D13) */
+/**  GitHub merged its pull request `number` into the target with the commits the subject has (D13) */
 { kind: "pullRequest"; number: number };
 
 /**  What a merged robot landed of a branch: the robot that left the fewest commits after it, of equals the first merge */
@@ -5967,6 +5967,12 @@ export type Reason =
  *  yet: a merge now would merge it into that branch, not the target; the link of the stack first
  */
 { code: "layerNotLinked"; number: number; parent: string } | 
+/**
+ *  GitHub merged the pull request `number` of the branch into `base`, not into `target` (a child of a stack merged into
+ *  its parent's virtual branch after the parent's pull request had landed): `target` lacks its commits, a new pull
+ *  request into `target` lands them
+ */
+{ code: "mergedIntoBranch"; number: number; base: string; target: string } | 
 /**  The branch is kept outside HEAD, unapplied: it lands nothing until it is reapplied */
 { code: "keptLandsNothing"; branch: string } | 
 /**  A worktree has the kept branch checked out: a reapply and a delete would take it from under that worktree */

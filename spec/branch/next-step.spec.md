@@ -160,11 +160,15 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
 - What landed a branch, and a whole stack, is one rule in Rust for the app and `bd` (`domain_policy::landed::landed_state`,
   the view's `landedStates`, [Patronus](patronus.spec.md#merged)), the first that holds: the fetched baseline has every
   commit of it (of a whole stack, of every branch); merged Safe Pushes landed it (also a part of it, the commits added
-  after it the work left); GitHub merged its pull request with the commits it has: its head is the branch's tip (the
-  stack branch's), or its remote branch, which has what the branch has (a branch only rebuilt on a newer baseline since,
-  D13). A merged pull request of other commits is new work under the same name, a closed one lands nothing. A start of
-  a branch all of which landed is refused at both sides (`bd safe-push`: `landed`).
-  [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has`, `a_whole_stack_landed_when_every_branch_of_it_did`, `the_reason_a_start_gives_of_what_landed_all_of_the_subject`)
+  after it the work left); GitHub merged its pull request into the target with the commits it has: its head is the
+  branch's tip (the stack branch's), or its remote branch, which has what the branch has (a branch only rebuilt on a
+  newer baseline since, D13). A merged pull request of other commits is new work under the same name, a closed one
+  lands nothing, and so does one merged into another branch than the target, a parent's virtual branch most of all (a
+  child of a stack merged after its parent's pull request had landed: the target lacks its commits); a layer of a stack
+  of GitHub into the target keeps its old base once merged and lands
+  (`domain_policy::pull_request::merges_into_target`). A start of a branch all of which landed is refused at both
+  sides (`bd safe-push`: `landed`).
+  [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has`, `a_pull_request_merged_into_another_branch_lands_nothing`, `a_whole_stack_landed_when_every_branch_of_it_did`, `the_reason_a_start_gives_of_what_landed_all_of_the_subject`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedWhole`: the words of the
   view's landed state, `formatLanded`; before the view of the robots, the robot of the row that merged), also while

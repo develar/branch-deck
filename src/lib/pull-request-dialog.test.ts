@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test"
+import type { PullRequest } from "@/lib/bindings"
 import { formatPullRequestIncludes } from "@/lib/create-pull-request"
 import type { CreatePullRequestFacts } from "@/lib/pull-request-dialog"
 import { toCreatePullRequestContext } from "@/lib/pull-request-dialog"
@@ -31,6 +32,7 @@ const FACTS: CreatePullRequestFacts = {
   repositoryPath: "/repo",
   baselineBranch: "origin/master",
   pullRequest: undefined,
+  landed: false,
   availability: null,
   patronusAvailable: false,
   review: { status: "loading" },
@@ -75,5 +77,18 @@ describe("the context of the Create pull request dialog", () => {
   it("includes nothing more for a branch built on the baseline", () => {
     const docs = add("docs", null, 1)
     expect(toCreatePullRequestContext(docs, FACTS)).toMatchObject({ base: "master", includes: null })
+  })
+
+  it("lets a new pull request repeat a merged one only while the branch did not land by it, as into a parent's branch", () => {
+    const docs = add("docs", null, 1)
+    const merged = { number: 7, state: "merged" } as PullRequest
+    // GitHub merged #7 into a parent's branch, which master lacks: Rust says nothing of docs landed
+    expect(toCreatePullRequestContext(docs, { ...FACTS, pullRequest: merged })).toMatchObject({ existing: null, newPullRequestBlocker: null })
+    expect(toCreatePullRequestContext(docs, { ...FACTS, pullRequest: merged, landed: true })).toMatchObject({
+      existing: merged,
+      newPullRequestBlocker: "Pull request #7 of docs is merged",
+    })
+    const open = { number: 8, state: "open" } as PullRequest
+    expect(toCreatePullRequestContext(docs, { ...FACTS, pullRequest: open })).toMatchObject({ existing: open, newPullRequestBlocker: "docs already has pull request #8" })
   })
 })

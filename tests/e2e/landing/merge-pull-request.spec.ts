@@ -5,7 +5,7 @@ import type { ReviewRunRequest } from "../../../src/lib/review-runs"
 import { test, expect } from "../fixtures/test-fixtures"
 import { findBranchRow, getLandingNode } from "../helpers/branch-helpers"
 import { expectWaitingForTheFirstSync, releaseTheFirstSync, reloadWarm } from "../helpers/common-setup"
-import { availablePullRequests, gitHubMutations, pullRequest } from "../helpers/pull-request-helpers"
+import { availablePullRequests, createPullRequestDialog, gitHubMutations, gitHubWrites, pullRequest } from "../helpers/pull-request-helpers"
 import { virtualBranch } from "../helpers/push-helpers"
 import { openSafePushWithKey, popoverStart, safePushPopover, startFromPreviewFooter } from "../helpers/safe-push-helpers"
 import { openSubmenu } from "../helpers/selection-helpers"
@@ -228,6 +228,31 @@ test.describe("Merge #7", () => {
     await page.getByRole("menuitem", { name: "Cancel Auto-Merge" }).click()
     await expect.poll(async () => gitHubMutations(await repo.getGitHubLog())).toEqual([["disablePullRequestAutoMerge", { id: "PR_7" }]])
     await expect(mergeToast(page, "Canceled the auto-merge of #7")).toBeVisible()
+  })
+
+  test("should offer Create Pull Request… into master when GitHub merged the pull request into a parent's branch, saying why, and create it", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // #7 was merged into the branch of its parent core after core had landed: master lacks its commits (#163)
+    const repo = await setup(page, setupRepo, syncAndWaitForBranches, seven({ state: "merged", baseRefName: "user-name/virtual/core" }))
+    const step = findBranchRow(page, BRANCH).getByTestId("next-step-slot").getByTestId("next-step")
+    await expect(step).toHaveText("Create Pull Request…")
+    await findBranchRow(page, BRANCH).click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Merge" }).hover()
+    await expect(page.getByRole("tooltip")).toHaveText("#7 was merged into user-name/virtual/core, not master: create a pull request into master to land it")
+    await page.keyboard.press("Escape")
+
+    await step.click()
+    const dialog = createPullRequestDialog(page)
+    await dialog.getByTestId("create-pull-request-submit").click()
+    await expect(dialog).toHaveCount(0)
+    expect(gitHubWrites(await repo.getGitHubLog())).toContainEqual([
+      "POST",
+      "/repos/acme/monorepo/pulls",
+      expect.objectContaining({ head: `user-name/virtual/${BRANCH}`, base: "master" }),
+    ])
   })
 
   test("should disable Merge with the reason while the pull request waits for the approvals its base requires", async ({ page, setupRepo, syncAndWaitForBranches }) => {

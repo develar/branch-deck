@@ -1,13 +1,14 @@
 //! What landed a subject (docs/design/rust-domain-authority.md, D7, D13; spec/branch/next-step.spec.md, row 1): a push
 //! of this session put its copy into the target, the fetched baseline has all of it, merged Safe Pushes landed it, or
-//! GitHub merged its pull request with the commits it has (`landed_state`, one answer for the view of the app and for
-//! `bd safe-push`), what a start says of it
+//! GitHub merged its pull request into the target with the commits it has (`landed_state`, one answer for the view of
+//! the app and for `bd safe-push`), what a start says of it
 //! (`Landed::reason` of `landed_reason`), and the open pull requests that hold nothing more than what landed
 //! (`pull_requests_to_close`, D7): of the branches a merged Safe Push landed whole besides its own, of the branches a push
 //! of this session put into the target, of the branches the fetched baseline or a merged pull request has (`Landing`);
 //! the app closes them, `bd robot` and `bd land` list them.
 
 use crate::facts::{RemoteBranch, Robots};
+use crate::pull_request::merges_into_target;
 use crate::reasons::{landed, stack_landed};
 use domain_types::landing::{BaselinePush, Landed, LandedBy, LandedPullRequest};
 use domain_types::patronus::PatronusRobot;
@@ -52,13 +53,16 @@ pub struct LandedSubject<'a> {
   pub remote: Option<RemoteBranch<'a>>,
   /// Its pull request in the last listing of GitHub, in any state; `None` without one or before a listing
   pub pull_request: Option<&'a PullRequest>,
+  /// The branch the target is on the remote ("master"): a merged pull request lands the subject only into it
+  /// (`pull_request::merges_into_target`)
+  pub target: &'a str,
 }
 
 /// What landed `subject`, the first that holds: a push of this session put it into the target at the tip it is at (the
 /// baseline has it once fetched), the fetched baseline has every commit of it (of a whole stack, of every branch),
 /// merged Safe Pushes landed it (of a branch also a part of it, `after` the work left; of a whole stack every branch
-/// whole), GitHub merged its pull request with the commits it has (`merged_with`, D13). `None` while work is left that
-/// none of them has
+/// whole), GitHub merged its pull request into the target with the commits it has (`merged_with`, D13). `None` while
+/// work is left that none of them has
 #[must_use]
 pub fn landed_state(facts: &LandedFacts<'_>, subject: &LandedSubject<'_>) -> Option<Landed> {
   by_push(facts.pushed, subject)
@@ -154,12 +158,16 @@ fn holds_nothing_more(pull_request: &PullRequest, tip: Option<&str>, remote: Opt
   head.is_some() && (head == tip || remote.is_some_and(|remote| remote.tip == head && remote.drops == 0))
 }
 
-/// The pull request merged the commits the branch has, by content: its head is the branch's tip, or the remote branch,
-/// which has what the branch has (a branch only rebuilt on a newer baseline since). One merged with other commits than
-/// the branch has now is new work under the same name
-fn merged_with(pull_request: &PullRequest, tip: Option<&str>, remote: Option<RemoteBranch<'_>>) -> bool {
+/// The pull request merged the commits the branch has into the target, by content: its head is the branch's tip, or the
+/// remote branch, which has what the branch has (a branch only rebuilt on a newer baseline since). One merged with other
+/// commits than the branch has now is new work under the same name; one merged into another branch than the target (a
+/// parent's virtual branch, `merges_into_target`) put nothing into the target
+fn merged_with(pull_request: &PullRequest, subject: &LandedSubject<'_>) -> bool {
   let head = head_of(pull_request);
-  pull_request.state == PullRequestState::Merged && head.is_some() && (head == tip || remote.is_some_and(|remote| remote.tip == head && remote.up_to_date))
+  pull_request.state == PullRequestState::Merged
+    && merges_into_target(pull_request, subject.target)
+    && head.is_some()
+    && (head == subject.tip || subject.remote.is_some_and(|remote| remote.tip == head && remote.up_to_date))
 }
 
 /// The head of the pull request; `None` when GitHub didn't name it
@@ -254,7 +262,7 @@ fn robots_reason(facts: &LandedFacts<'_>, of: Of<'_>) -> Option<Reason> {
 
 /// GitHub merged the pull request of the subject with the commits it has (D13)
 fn by_pull_request(subject: &LandedSubject<'_>) -> Option<Landed> {
-  let pull_request = subject.pull_request.filter(|pull_request| merged_with(pull_request, subject.tip, subject.remote))?;
+  let pull_request = subject.pull_request.filter(|pull_request| merged_with(pull_request, subject))?;
   Some(Landed {
     by: LandedBy::PullRequest { number: pull_request.number },
     after: Vec::new(),
