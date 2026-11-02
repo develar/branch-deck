@@ -20,7 +20,8 @@
 //!   any parser: every start of an identifier-like word (a letter, `_` or `$` after no letter, digit, `_` or `$`),
 //!   at most `--probes` (8) of them per file, taken at the indices `i * count / K`.
 //!
-//! The time of each family (the sum of its calls on every thread) and the wall time go to stderr. `--compare` reads two
+//! The time of each family (the sum of its calls on every thread) and the wall time go to stderr, and every 30 s the
+//! files a worker has been on that long (`slow<TAB>path<TAB>N s`). `--compare` reads two
 //! runs over the same list and prints each moved group (`moved<TAB>family<TAB>path<TAB>-removed +added` with its first
 //! `--show` (4) lines that only one run has) and a table of the moved files and lines per family.
 
@@ -91,9 +92,11 @@ fn run(paths: &[String], root: Option<&Path>, threads: usize, options: &Options)
   let started = Instant::now();
   let next = AtomicUsize::new(0);
   let times: Mutex<Times> = Mutex::new(HashMap::new());
+  // the file each worker is on, since when
+  let busy: Vec<Mutex<Option<(usize, Instant)>>> = (0..threads.max(1)).map(|_| Mutex::new(None)).collect();
   let (sender, receiver) = mpsc::sync_channel::<(usize, String)>(threads * 4);
   std::thread::scope(|scope| {
-    for _ in 0..threads.max(1) {
+    for slot in &busy {
       let sender = sender.clone();
       let (next, times) = (&next, &times);
       scope.spawn(move || {
@@ -102,12 +105,14 @@ fn run(paths: &[String], root: Option<&Path>, threads: usize, options: &Options)
           let index = next.fetch_add(1, Ordering::Relaxed);
           let Some(path) = paths.get(index) else { break };
           let full = root.map_or_else(|| PathBuf::from(path), |it| it.join(path));
+          *lock(slot) = Some((index, Instant::now()));
           let out = facts_of(path, &full, options, &mut own);
+          *lock(slot) = None;
           if sender.send((index, out)).is_err() {
             break;
           }
         }
-        let mut times = times.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut times = lock(times);
         for (family, (files, time)) in own {
           let entry = times.entry(family).or_default();
           entry.0 += files;
@@ -119,11 +124,17 @@ fn run(paths: &[String], root: Option<&Path>, threads: usize, options: &Options)
     let mut stdout = BufWriter::new(std::io::stdout().lock());
     let mut pending: BTreeMap<usize, String> = BTreeMap::new();
     let mut written = 0;
-    for (index, out) in receiver {
-      pending.insert(index, out);
-      while let Some(out) = pending.remove(&written) {
-        let _ = stdout.write_all(out.as_bytes());
-        written += 1;
+    loop {
+      match receiver.recv_timeout(SLOW) {
+        Ok((index, out)) => {
+          pending.insert(index, out);
+          while let Some(out) = pending.remove(&written) {
+            let _ = stdout.write_all(out.as_bytes());
+            written += 1;
+          }
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => report_slow(paths, &busy),
+        Err(mpsc::RecvTimeoutError::Disconnected) => break,
       }
     }
     let _ = stdout.flush();
@@ -223,6 +234,24 @@ fn facts_of(path: &str, full: &Path, options: &Options, times: &mut Times) -> St
 
 fn push(out: &mut String, path: &str, family: &str, fact: &str) {
   let _ = writeln!(out, "{path}\t{family}\t{fact}");
+}
+
+/// A file whose facts take longer is named on stderr, every `SLOW` while it lasts
+const SLOW: Duration = Duration::from_secs(30);
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+  mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// `slow<TAB>path<TAB>N s` of each file a worker has been on for `SLOW` or longer
+fn report_slow(paths: &[String], busy: &[Mutex<Option<(usize, Instant)>>]) {
+  for slot in busy {
+    if let Some((index, since)) = *lock(slot)
+      && since.elapsed() >= SLOW
+    {
+      let _ = writeln!(std::io::stderr(), "slow\t{}\t{} s", paths[index], since.elapsed().as_secs());
+    }
+  }
 }
 
 fn time(times: &mut Times, family: &'static str, start: Instant) {
