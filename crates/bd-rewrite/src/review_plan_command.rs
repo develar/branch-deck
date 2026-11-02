@@ -21,7 +21,8 @@
 //! of the `body` of each commit of a step, the `newApi`, `moduleLinks`, `takenOutBy` and `title` of a step, `told`,
 //! the `title` of each commit in place of its `subject` (without the issue key of the brief) and the `title` of the plan,
 //! the `code` of a body and the `addedCode` and `removedCode` of an entry of the brief (`sync_utils::code_spans`), the
-//! `toldAsTitle` of a step
+//! `toldAsTitle` of a step, the `joined` units of a stop (a declaration without a block of its own, with its step) and
+//! the `shownElsewhere` units of a step
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -156,11 +157,13 @@ pub struct ReviewPlanOutput {
   /// that follow it up (`followsUp`) and those of no story whose lines are in it (`noStory`), the changes only commits
   /// without a body wrote last (`id` `no-story`); else, with no body, one commit or more than 12 steps, a step per
   /// concern. Each step shows parts of the units (`stops`: `unit`, `path`, `blocks`; a declaration it adds or changes
-  /// the form of first, the stops that `uses` it right after; `also` the other steps that changed its lines) and the
+  /// the form of first, the stops that `uses` it right after; `also` the other steps that changed its lines; `joined`
+  /// the declarations without a block of their own on a line of its blocks, each with its `step`) and the
   /// tests accio finds among the callers of its code (`tests`: `answered`, `reached` with each test's `unit` when the
   /// range adds or changes it, `unreached` with `within` when the walk stopped at the depth), the public declarations it
   /// adds (`newApi`, by the key of their `api` entry) and the links between modules it adds (`moduleLinks`, by their
-  /// place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`); a step of the concerns of one commit, the
+  /// place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`); its units the
+  /// stop of another step shows (`shownElsewhere`, with that `step`); a step of the concerns of one commit, the
   /// label of the first section of its body it tells (`title`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
   /// of each commit with a body once, oldest first: its `body` by blocks (paragraphs, lists, preformatted text,
   /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and its `parts` (a labelled

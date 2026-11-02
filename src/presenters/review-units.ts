@@ -1,4 +1,4 @@
-import type { ApiChange, FileFacts, GeneratedBy, ReviewUnit, UnitBlock } from "@/lib/bindings"
+import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewUnit, UnitBlock } from "@/lib/bindings"
 import type { SectionUnits } from "@/lib/diff/rows"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
 import type { Chapter } from "@/presenters/review-steps"
@@ -121,10 +121,6 @@ function sameBlocks(blocks: readonly UnitBlock[], file: NarrativeFile): boolean 
 interface Draft {
   key: string
   path: string
-  /** The headings of its declarations whose block another section holds, by that block */
-  notes?: Map<number, string>
-  /** The units of `notes`, by that block */
-  noteUnits?: Map<number, readonly string[]>
   /** The blocks it shows, null for the whole file */
   blocks: Set<number> | null
   marks: Map<number, string>
@@ -144,7 +140,11 @@ interface Draft {
 interface Step {
   readonly unit: ReviewUnit
   readonly concern: Chapter | null
+  /** The units without a block of their own that its blocks show (`StepStop.joined`), by the path of the slice */
+  readonly joined: ReadonlyMap<string, readonly JoinedUnit[]>
 }
+
+const NO_JOINED: ReadonlyMap<string, readonly JoinedUnit[]> = new Map()
 
 /**
  * The units in the order of the story: with a concern beside the rest, the parts of each concern in its order (a unit
@@ -153,7 +153,7 @@ interface Step {
  */
 function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]): Step[] {
   if (!concerns.some(concern => concern.told)) {
-    return units.map(unit => ({ unit, concern: null }))
+    return units.map(unit => ({ unit, concern: null, joined: NO_JOINED }))
   }
   const byId = new Map(units.map(unit => [unit.id, unit]))
   const held = new Set<string>()
@@ -166,22 +166,26 @@ function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]):
         continue
       }
       held.add(`${unit.id}\n${slice.path}`)
+      // a unit without a block of its own is shown by the stop of the block of its line
+      for (const joined of part.joined) {
+        held.add(`${joined.unit}\n${slice.path}`)
+      }
       // the blocks a concern holds of a slice, also of one the story shows whole (a file of no language): the others
       // are a row there that opens their concern
       const blocks = part.blocks
       const cut = blocks === null ? slice : { ...slice, whole: false, blocks: slice.blocks.filter(block => blocks.includes(block.index)) }
       const last = steps.at(-1)
       if (last !== undefined && last.concern === concern && last.unit.id === unit.id) {
-        steps[steps.length - 1] = { concern, unit: { ...last.unit, slices: [...last.unit.slices, cut] } }
+        steps[steps.length - 1] = { concern, unit: { ...last.unit, slices: [...last.unit.slices, cut] }, joined: new Map([...last.joined, [slice.path, part.joined]]) }
       } else {
-        steps.push({ concern, unit: { ...unit, slices: [cut] } })
+        steps.push({ concern, unit: { ...unit, slices: [cut] }, joined: new Map([[slice.path, part.joined]]) })
       }
     }
   }
   for (const unit of units) {
     const left = unit.slices.filter(slice => !held.has(`${unit.id}\n${slice.path}`))
     if (left.length > 0) {
-      steps.push({ concern: null, unit: { ...unit, slices: left } })
+      steps.push({ concern: null, unit: { ...unit, slices: left }, joined: NO_JOINED })
     }
   }
   return steps
@@ -192,7 +196,8 @@ function storySteps(units: readonly ReviewUnit[], concerns: readonly Chapter[]):
  * with `concerns` beside the rest in the order of the concerns (`storySteps`): the first section of each under the name
  * of its concern, a generated file of a concern collapsed at its end, the mechanical groups after them.
  * A run of units of one file is one section, each change with its heading before its first block; a unit with no block
- * of its own joins the heading of the block that changed its lines. A group is a section per file: a mechanical one
+ * of its own joins the heading of the block of its line, which Rust names (`StepStop.joined`), marked with its step where
+ * it is another's ("hooks — removed in step 1"). A group is a section per file: a mechanical one
  * collapsed, saying its kind; of a repeated edit the first file open under "Same edit in N files", the others collapsed.
  * A block of a file that another section shows is one row there, which opens that section. A file whose blocks do not
  * match the units (the window reads another whitespace policy), and a file no unit names, is one section of the whole
@@ -207,6 +212,7 @@ export function presentNarrative(
   concerns: readonly Chapter[],
 ): NarrativeSection[] {
   const byPath = new Map(files.map(file => [file.path, file]))
+  const unitOf = new Map(units.map(unit => [unit.id, unit]))
   const generatedOf = new Map(facts.flatMap(file => (file.generated === null ? [] : [[file.path, file.generated] as const])))
   const steps = storySteps(units, concerns)
   // a file whose blocks the units cannot cut shows whole
@@ -289,9 +295,13 @@ export function presentNarrative(
     if (slice === undefined || !byPath.has(slice.path)) {
       continue
     }
+    const joined = step.joined.get(slice.path) ?? []
     if (whole.has(slice.path) || slice.whole) {
       last = null
       placeWhole(slice.path, unit.id)
+      for (const it of joined) {
+        placeWhole(slice.path, it.unit)
+      }
       continue
     }
     placed.add(slice.path)
@@ -303,22 +313,12 @@ export function presentNarrative(
     }
     const first = slice.blocks[0]
     if (first === undefined) {
-      // a declaration whose block another unit holds: its words join the heading before it, else the block of its line,
-      // which another section may show
+      // a declaration without a block whose line no stop shows (Rust joins the others to the stop of their block): its
+      // words join the heading before it
       const before = [...draft.marks.keys()].at(-1)
       if (before !== undefined && heading !== null) {
         draft.marks.set(before, `${draft.marks.get(before)} · ${heading}`)
         own(draft, unit.id)
-      } else if (heading !== null && unit.line !== null) {
-        const line = unit.line - 1
-        const removed = unit.kind.kind === "removed"
-        const index = byPath.get(slice.path)?.blocks?.findIndex(block => (removed ? block.oldStart <= line && line < block.oldEnd : block.newStart <= line && line < block.newEnd))
-        if (index !== undefined && index >= 0) {
-          draft.notes ??= new Map()
-          draft.notes.set(index, heading)
-          draft.noteUnits ??= new Map()
-          draft.noteUnits.set(index, [...(draft.noteUnits.get(index) ?? []), unit.id])
-        }
       }
     } else {
       own(draft, unit.id)
@@ -327,6 +327,19 @@ export function presentNarrative(
       }
       for (const block of slice.blocks) {
         draft.blocks!.add(block.index)
+      }
+      // the declarations without a block of their own on a line of its blocks: after the heading of their block, of
+      // another step marked so
+      for (const it of joined) {
+        const other = unitOf.get(it.unit)
+        if (other === undefined) {
+          continue
+        }
+        own(draft, other.id)
+        const of = concerns[it.step]
+        const words = of === undefined || of === step.concern ? formatUnitHeading(other) : `${formatUnitHeading(other)} in ${of.reference}`
+        const mark = draft.marks.get(it.block)
+        draft.marks.set(it.block, mark === undefined ? words : `${mark} · ${words}`)
       }
     }
     last = { draft, unit: unit.id }
@@ -348,19 +361,6 @@ export function presentNarrative(
         owners.set(draft.path, ofPath)
       }
       ofPath.set(block, draft)
-    }
-  }
-  // the block of a declaration another section shows names it there too
-  for (const draft of drafts) {
-    for (const [block, note] of draft.notes ?? []) {
-      const owner = owners.get(draft.path)?.get(block)
-      if (owner !== undefined && owner !== draft) {
-        const mark = owner.marks.get(block)
-        owner.marks.set(block, mark === undefined ? note : `${mark} · ${note}`)
-        for (const unit of draft.noteUnits?.get(block) ?? []) {
-          own(owner, unit)
-        }
-      }
     }
   }
   return drafts.flatMap(draft => [sectionOf(draft, owners), ...draft.ghosts])
@@ -414,8 +414,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
           owner.concern !== draft.concern && owner.concernName !== null
             ? owner.concernName
             : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : (owner.marks.values().next().value ?? fileName(owner.path))))
-        const note = draft.notes?.get(block)
-        elsewhere.set(block, note === undefined ? `Shown in ${where}` : `${note} · shown in ${where}`)
+        elsewhere.set(block, `Shown in ${where}`)
         targets.set(block, owner.key)
       }
     }

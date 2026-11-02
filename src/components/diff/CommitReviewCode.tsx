@@ -39,12 +39,14 @@ export interface CommitReviewCodeHandle extends DiffViewHandle {
 
 /**
  * A stop J shows after another (`CommitReviewCodeProps.nextSection`): the key of its section, its file and its part,
- * the opening of a step, the card, or the prologue above the first section
+ * the opening of a step, the card, or the prologue above the first section; of an opening the step whose opening it is
+ * (`DiffSection.before`: a section may hold the openings of several)
  */
 export interface NextSection {
   readonly key: string
   readonly path: string
   readonly part: LayoutPart
+  readonly step?: string
 }
 
 export interface CommitReviewCodeProps {
@@ -55,7 +57,7 @@ export interface CommitReviewCodeProps {
   /** The file shown first, at the top */
   initialPath: string | null
   /** The section whose header is at the top, its key, its file and its part at the top, as the diffs scroll */
-  onVisibleSectionChange: (key: string, path: string, part: LayoutPart) => void
+  onVisibleSectionChange: (key: string, path: string, part: LayoutPart, step?: string) => void
   /** The first screen is painted: the window can show */
   onFirstScreen?: () => void
   /** The code owner of a file by its path, in its header */
@@ -71,6 +73,11 @@ export interface CommitReviewCodeProps {
   /** The opening of each step by its id, above the card of its first section */
   openings?: ReadonlyMap<string, OpeningView>
   /**
+   * The steps of no card told after the last card, in their order: their openings are the epilogue of the diffs, each an
+   * element `data-opening-step` of it
+   */
+  after?: readonly NonNullable<DiffSection["step"]>[]
+  /**
    * What J shows after the section of a key, undefined when nothing is left: the line at the end of a long card and of
    * the last one names it; no such line without
    */
@@ -85,7 +92,8 @@ export interface CommitReviewCodeProps {
  * The diffs of all files of a commit or a range in one `DiffView`: a sticky header per file, the unchanged lines folded
  * as IntelliJ, lock and generated files, files over 1,000 changed lines and the files the review plan folds collapsed;
  * with the plan, the overview before the first section, the opening of each step above the card of its first section
- * and a divider above the first of each group; a long card and the last one end with a line naming what J shows next.
+ * (of a step of no card after the last card, below that card) and a divider above the first of each group; a long card
+ * and the last one end with a line naming what J shows next.
  */
 export function CommitReviewCode({
   ref,
@@ -100,6 +108,7 @@ export function CommitReviewCode({
   onShowStep,
   prologue,
   openings,
+  after,
   nextSection,
   onShowSection,
   ownerLabel = null,
@@ -124,9 +133,9 @@ export function CommitReviewCode({
       setFileViews([])
       review.current?.scrollToFile(path)
     },
-    scrollToSection: (key, part) => {
+    scrollToSection: (key, part, step) => {
       setFileViews([])
-      review.current?.scrollToSection(key, part)
+      review.current?.scrollToSection(key, part, step)
     },
     moveChange: (direction, accept) => {
       setFileViews([])
@@ -178,13 +187,27 @@ export function CommitReviewCode({
         onFindUsages={inReview.findUsages}
         renderHeader={header => <ReviewFileHeader {...header} owner={fileOwners?.get(header.file.path)} muted={marked !== null && !marked.has(header.file.path)} />}
         prologue={prologue}
-        renderOpening={section => <ChapterOpening opening={openingOf(section, openings)} group={section.heading} onShowStep={onShowStep} />}
+        epilogue={after === undefined || after.length === 0 ? undefined : <LayerOfOpenings steps={after} openings={openings} group={null} onShowStep={onShowStep} />}
+        renderOpening={section => <SectionOpenings section={section} openings={openings} onShowStep={onShowStep} />}
         renderDivider={section => <ReviewDivider section={section} />}
         muted={marked === null ? undefined : path => !marked.has(path)}
         renderFooter={
           nextSection === undefined
             ? undefined
-            : (key, path) => <ReviewCardEnd path={path} next={nextSection(key)} owner={key === lastKey ? null : ownerLabel} onShow={showFromCardEnd} />
+            : (key, path) => {
+                const next = nextSection(key)
+                // the opening of a step of no card below the last card, by its words
+                const ending = next?.part === "opening" ? after?.find(step => step.id === next.step) : undefined
+                return (
+                  <ReviewCardEnd
+                    path={path}
+                    next={next}
+                    owner={key === lastKey ? null : ownerLabel}
+                    step={ending === undefined ? null : `${ending.number} · ${ending.title}`}
+                    onShow={showFromCardEnd}
+                  />
+                )
+              }
         }
       />
       {shownFile !== undefined && (
@@ -254,9 +277,43 @@ interface ReviewFileHeaderProps extends DiffHeaderProps {
   muted: boolean
 }
 
-/** The opening of the step a section starts: its words, else its number and title alone */
-function openingOf(section: DiffSection, openings: ReadonlyMap<string, OpeningView> | undefined): OpeningView {
-  const step = section.step!
+/**
+ * The openings above the card of a section: of the steps of no card told before its own (`DiffSection.before`), each
+ * its element of the layer (`data-opening-step`), then of its own step with the group the section starts
+ */
+function SectionOpenings({ section, openings, onShowStep }: { section: DiffSection; openings: ReadonlyMap<string, OpeningView> | undefined; onShowStep?: (step: string) => void }) {
+  const before = section.before ?? []
+  if (before.length === 0) {
+    return <ChapterOpening opening={openingOf(section.step!, openings)} group={section.heading} onShowStep={onShowStep} />
+  }
+  return <LayerOfOpenings steps={[...before, section.step!]} openings={openings} group={section.heading} onShowStep={onShowStep} />
+}
+
+/** The openings of several steps in one layer, each its element (`data-opening-step`), the last with `group` */
+function LayerOfOpenings({
+  steps,
+  openings,
+  group,
+  onShowStep,
+}: {
+  steps: readonly NonNullable<DiffSection["step"]>[]
+  openings: ReadonlyMap<string, OpeningView> | undefined
+  group: string | null
+  onShowStep?: (step: string) => void
+}) {
+  return (
+    <>
+      {steps.map((step, index) => (
+        <div key={step.id} data-opening-step={step.id}>
+          <ChapterOpening opening={openingOf(step, openings)} group={index === steps.length - 1 ? group : null} onShowStep={onShowStep} />
+        </div>
+      ))}
+    </>
+  )
+}
+
+/** The opening of a step: its words, else its number and title alone */
+function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap<string, OpeningView> | undefined): OpeningView {
   return (
     openings?.get(step.id) ?? {
       id: step.id,
@@ -266,7 +323,7 @@ function openingOf(section: DiffSection, openings: ReadonlyMap<string, OpeningVi
       evidence: [],
       story: null,
       commits: [],
-      facts: { line: null, newApi: [], moduleLinks: [], takenOutBy: null, unproven: null },
+      facts: { line: null, newApi: [], moduleLinks: [], takenOutBy: null, shownElsewhere: [], unproven: null },
     }
   )
 }
@@ -295,8 +352,21 @@ function keyOf(file: DiffViewFile): string {
  * name and its directory as its header names them, which a click shows as J does, or the end (`presentCardEnd`);
  * `owner` before the last card, the chosen owner chip whose files J steps through. Not focusable: J does it from the keys
  */
-function ReviewCardEnd({ path, next, owner, onShow }: { path: string; next: NextSection | undefined; owner: string | null; onShow: (next: NextSection) => void }) {
-  const end = presentCardEnd(path, next?.path, owner)
+function ReviewCardEnd({
+  path,
+  next,
+  owner,
+  step,
+  onShow,
+}: {
+  path: string
+  next: NextSection | undefined
+  owner: string | null
+  /** The words of the step of no card after the last card whose opening is `next` */
+  step: string | null
+  onShow: (next: NextSection) => void
+}) {
+  const end = presentCardEnd(path, next?.path, owner, step)
   if (next === undefined || end.kind === "end") {
     return <span data-testid="review-card-end">{end.kind === "end" ? end.text : null}</span>
   }
@@ -311,7 +381,9 @@ function ReviewCardEnd({ path, next, owner, onShow }: { path: string; next: Next
       onClick={() => onShow(next)}
     >
       <span className="shrink-0">Next:</span>
-      {end.continued ? (
+      {end.step ? (
+        <span className="min-w-0 truncate font-semibold text-foreground">{end.name}</span>
+      ) : end.continued ? (
         <>
           <span className="min-w-0 truncate font-semibold text-foreground">{`${end.name},`}</span>
           <span className="shrink-0">continued</span>

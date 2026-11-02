@@ -25,6 +25,8 @@ targets:
   - ../../src/lib/range-review.ts
   - ../../src/presenters/review-units.ts
   - ../../src/lib/diff/rows.ts
+  - ../../src/lib/diff/layout.ts
+  - ../../src/components/diff/DiffView.tsx
   - ../../src/hooks/useSelectReviewFile.ts
 ---
 
@@ -183,9 +185,11 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/story_test.rs (`the_body_of_one_commit_is_told_by_the_concerns_its_sections_name_the_lead_and_the_rest_in_the_prologue_each_titled_by_its_label`, `a_body_names_a_declaration_by_its_name_by_owner_member_and_a_file_by_its_path_or_name`)
 - A step must list the public declarations it adds (`newApi`, the keys of the `added` entries of `api` whose
   declaration or new file its stops show) and the links it adds between two modules (`moduleLinks`, by their place in
-  `links`, in the step whose stop shows the first use of the link, else the first step of the file that uses), each
-  in one step, the first that holds it.
+  `links`, in the step whose stop shows the first use of the link, else the first step whose stops show the file that
+  uses), each in one step, the first that holds it. A declaration a stop of another step shows beside its own unit
+  (`StepStop.joined`) is new API of the step that wrote it, which says where it is shown.
   [@test] ../../crates/review-plan/src/story_test.rs (`a_step_lists_the_new_api_and_the_new_links_between_modules_it_holds`)
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_declaration_a_later_step_adds_in_the_block_of_another_is_the_new_api_of_the_step_that_wrote_it`)
 
 ### Coverage
 - Every block of the diff must be in one stop, else in a mechanical unit no stop shows; a file of no blocks counts as
@@ -340,10 +344,28 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show the plan of a commit shown alone from its row in the tree: its overview and the story of its diffs @webkit`, `should give the commits back to the column while the search keeps none of their rows, and copy a commit row by the copy key and its menu`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name the branch of each commit row of the plan's tree, from the root and in the whole stack, and review the branch of a commit shown alone`)
-- A declaration of a step whose block another step shows must be one row in the section of its step, "hooks —
-  removed · shown in step 2", which opens that section, and its heading must join the heading of that block there
-  ("allowed — new · hooks — removed"); a section of no change of its own shows only such rows.
-  [@test] ../../src/presenters/review-steps.test.ts (`lays a declaration without a block of its own out in its step as the row of the block another step shows`)
+- A declaration without a block of its own (of one side, its lines in a block another unit holds) must be no stop of
+  its own: Rust joins it to the stop that shows the block of the line of its name (`StepStop.joined`, a stop of its own
+  step first), whose section names it after the heading of that block ("allowed — new · hooks — removed"), marked with
+  its step where it is another step's ("hooks — removed in step 1", "passes — new in step 5": " · " joins the units;
+  a step of the concerns by its number too, what no evidence joined by its name); in a story whose steps are not told
+  (one commit or one pull request of one task) as well, unmarked there. A step whose unit another step's section shows
+  says so in the line of its facts ("Removes hooks, shown in step 2", `ReviewStep.shownElsewhere`), "step 2" a link to that
+  step, and its tree lists the file of that section as a row "also in" it, its own row in that step. A declaration of
+  two stops (a part of two concerns) joins once, the stop of the step whose stop holds its line first; a block only a
+  group shows (a mechanical change, a repeated edit, deleted files) joins none. A step left with no stop (all it
+  changes shown so, or nothing of it lands) keeps its opening and shows no card: its opening stands right above the
+  opening of the next step that has a card, in the one layer of openings of that section, J going from it to that
+  opening and K back; after the last card, in the epilogue below it, J going to it from the last card ("Next: Step 2 ·
+  …" at its end) and K back. Its row of the tree, its step of the overview and a link "shown in step N" show it; the
+  bar, the tree and a step of the overview follow the opening at the top. A declaration whose line no stop shows (or
+  only a group) stays a stop, its heading joined to the one before it; a section of no change of its own shows only the
+  rows of the blocks other sections show. The coverage of the steps stays exact.
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_removed_declaration_whose_block_a_later_step_shows_is_a_part_of_that_stop_and_of_no_stop_of_its_own`, `a_removed_declaration_whose_block_an_earlier_step_shows_leaves_the_last_step_no_stop`, `a_declaration_without_a_block_joins_the_stop_of_the_block_of_its_line_each_of_its_own_step`, `a_declaration_without_a_block_of_two_concerns_joins_once_and_never_a_group`, `a_mechanical_change_follows_the_step_that_wrote_it`)
+  [@test] ../../src/presenters/review-steps.test.ts (`joins a declaration without a block of its own to the heading of the block Rust names, marked with its step where it is another's`, `words a joined unit after the heading of its block and keeps the marks of the stop in a story whose steps are not told`, `marks a joined unit of another told step of a concern by the number of that step`)
+  [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open a step whose code another step's card shows above the opening of that step, with no card, its unit named in that card, J and K through both openings`, `should open a last step whose code an earlier step's card shows below the last card, from its row, the overview, the end of that card and J, K going back to the card`)
+  [@test] ../../src/lib/diff/layout.test.ts (`puts the epilogue after the last card, a gap above it, as an opening of the last file, and keeps a top in it from its top`)
   [@test] ../../src/lib/diff/rows.test.ts (`makes a section of no change of its own the rows of the blocks other sections show, alone`)
 - Above the diffs the bar of the step of the section at the top (`review-step-bar`) must be one line, "Step 3 / 4 · The
   view paints with the first frame", the whole title in its hover and no text of the body, "Overview · 4 steps" while
@@ -440,7 +462,6 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   lambda passed far away is no edge, and a call only the name ties is not walked. "Within 3 calls" says the walk
   stopped with callers left; a deeper test is not seen. A constant or a property is reached only by calls, not by the
   declarations that read it.
-- A step whose commit lands nothing (a file added and removed again, a revert) has no stop.
 
 ## Measurements
 

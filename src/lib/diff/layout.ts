@@ -24,9 +24,12 @@ export interface LayoutMetrics {
 /** The key of the anchor of a top in the prologue (`ScrollAnchor.key`): no file has it */
 export const PROLOGUE_KEY = "\u0000prologue"
 
+/** The key of the anchor of a top in the epilogue (`ScrollAnchor.key`): no file has it */
+export const EPILOGUE_KEY = "\u0000epilogue"
+
 /**
  * Where a y of the document is: the prologue above the first section, the opening of a step above its card (the
- * divider of a group too), or the card of a file with the space below it
+ * divider of a group too) or in the epilogue below the last card, or the card of a file with the space below it
  */
 export type LayoutPart = "prologue" | "opening" | "card"
 
@@ -66,7 +69,10 @@ export function endsWithFooter(rows: FileRows | null, last: boolean): boolean {
 
 /** Where the view stands in a document: kept across a change of heights, restored after it */
 export interface ScrollAnchor {
-  /** The key of the file, or `PROLOGUE_KEY` for a top in the prologue, whose offset is from the top of the document */
+  /**
+   * The key of the file, or `PROLOGUE_KEY` for a top in the prologue, whose offset is from the top of the document, or
+   * `EPILOGUE_KEY` for a top in the epilogue, whose offset is from its top
+   */
   key: string
   /** A line of a side whose row is at the top; absent when the top is in the header or the notice */
   line?: { side: number; line: number }
@@ -86,12 +92,18 @@ export class DiffLayout {
   readonly offsets: Float64Array
   /** The height of the prologue above the first section, as the view measured it (cards only); 0 for none */
   readonly prologue: number
+  /**
+   * The height of the epilogue below the last card, a gap above it, as the view measured it (cards and files only): the
+   * openings of the steps of no card told after the last card; 0 for none
+   */
+  readonly epilogue: number
   private readonly byKey: Map<string, number>
 
-  constructor(files: readonly LayoutFile[], metrics: LayoutMetrics, prologue = 0) {
+  constructor(files: readonly LayoutFile[], metrics: LayoutMetrics, prologue = 0, epilogue = 0) {
     this.files = files
     this.metrics = metrics
     this.prologue = metrics.cards === undefined ? 0 : prologue
+    this.epilogue = metrics.cards === undefined || files.length === 0 ? 0 : epilogue
     this.offsets = new Float64Array(files.length + 1)
     this.byKey = new Map()
     const gap = metrics.cards?.gap ?? 0
@@ -104,13 +116,18 @@ export class DiffLayout {
     })
   }
 
-  /** The height of the document: the prologue, the files, the gaps between them and the space around them */
+  /** The height of the document: the prologue, the files, the epilogue, the gaps between them and the space around them */
   get height(): number {
     const padding = this.metrics.cards?.padding ?? 0
     if (this.files.length === 0) {
       return this.prologue > 0 ? padding + this.prologue + padding : 0
     }
-    return this.offsets[this.files.length]! - (this.metrics.cards?.gap ?? 0) + padding
+    return this.epilogue > 0 ? this.epilogueTop + this.epilogue + padding : this.offsets[this.files.length]! - (this.metrics.cards?.gap ?? 0) + padding
+  }
+
+  /** The top of the epilogue: a gap below the last card */
+  get epilogueTop(): number {
+    return this.offsets[this.files.length]!
   }
 
   indexOf(key: string): number {
@@ -216,10 +233,16 @@ export class DiffLayout {
     return part === "prologue" || this.fileShownAt(scrollTop, viewHeight) === this.fileAtTop(scrollTop) ? part : "card"
   }
 
-  /** The part of the document at `y`: the prologue above the first section, the opening of the file at `y`, else its card */
+  /**
+   * The part of the document at `y`: the prologue above the first section, the opening of the file at `y`, else its
+   * card; the epilogue is an opening (of the last file, which `fileAt` names there)
+   */
   partAt(y: number): LayoutPart {
     if (this.prologue > 0 && (this.files.length === 0 || y < this.sectionStart(0))) {
       return "prologue"
+    }
+    if (this.epilogue > 0 && y >= this.epilogueTop) {
+      return "opening"
     }
     const file = this.fileAt(y)
     return this.files.length > 0 && y < this.offsets[file]! && this.files[file]!.opening !== undefined && this.metrics.cards !== undefined ? "opening" : "card"
@@ -273,7 +296,7 @@ export class DiffLayout {
    * opening that grows grows below it. Below the prologue (the gap, the space above the cards) and below the rows of a
    * file (the line at the end of its card, its bottom border, the gap) it is the start of the next section: a scroll
    * to a file (`fileTop`) stays where it is when the prologue, the file above it or its opening changes, and a row of
-   * the file above never holds it
+   * the file above never holds it. A top in the epilogue keeps its offset from the top of the epilogue
    */
   anchorAt(scrollTop: number): ScrollAnchor | null {
     if (this.prologue > 0 && (this.files.length === 0 || scrollTop < (this.metrics.cards?.padding ?? 0) + this.prologue)) {
@@ -281,6 +304,9 @@ export class DiffLayout {
     }
     if (this.files.length === 0) {
       return null
+    }
+    if (this.epilogue > 0 && scrollTop >= this.epilogueTop) {
+      return { key: EPILOGUE_KEY, offset: scrollTop - this.epilogueTop }
     }
     const file = this.fileAt(scrollTop)
     const { key, rows } = this.files[file]!
@@ -315,6 +341,9 @@ export class DiffLayout {
   scrollTopOf(anchor: ScrollAnchor): number | null {
     if (anchor.key === PROLOGUE_KEY) {
       return Math.min(anchor.offset, this.files.length === 0 ? this.height : this.sectionStart(0))
+    }
+    if (anchor.key === EPILOGUE_KEY) {
+      return this.files.length === 0 ? null : this.epilogueTop + Math.min(anchor.offset, this.epilogue)
     }
     const file = this.indexOf(anchor.key)
     if (file < 0) {

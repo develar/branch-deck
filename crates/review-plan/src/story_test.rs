@@ -159,7 +159,8 @@ fn a_name_two_declarations_share_resolves_to_the_one_of_its_step_else_to_nothing
     &[("src/a/Api.kt", &api("a", "2")), ("src/b/Api.kt", &with_close(api("b", "3")))],
   );
   let plan = plan_of_range(&repo, &base, &head);
-  assert_eq!(mentions(&plan, "Close moves to b"), [words("close", (4, 13), "unit:b.close step Some(3)")]);
+  // the step of the commit shows neither close: the step of `open` shows each, the one that lands its target
+  assert_eq!(mentions(&plan, "Close moves to b"), [words("close", (4, 13), "unit:b.close step Some(1)")]);
   assert_eq!(mentions(&plan, "The a open gives 2"), [words("open", (4, 12), "unit:a.open step Some(0)")]);
   assert_eq!(mentions(&plan, "The b open gives 3"), [words("open", (4, 12), "unit:b.open step Some(1)")]);
   assert_eq!(

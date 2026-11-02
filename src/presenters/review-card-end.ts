@@ -12,6 +12,8 @@ export type CardEnd =
        * header does, the name and then the directory (`FilePathLabel`)
        */
       readonly continued: boolean
+      /** `name` is the words of a step whose opening is next below the last card, not a file */
+      readonly step: boolean
       /** The accessible name of the line, which a click shows: "Next: SKILL.md .claude/skills/setup-local-rd-flow" */
       readonly label: string
     }
@@ -22,16 +24,19 @@ export type CardEnd =
  * the header of its card names it (ten files named SKILL.md in a row differ by their last folder), "continued" when it
  * is the next part of the same file; with nothing left, "End of the review", or before the last card, under an owner
  * chip whose files J steps through, the end of them. Never "End of <file>": a section of the story may be a part of
- * its file
+ * its file. After the last card, the opening of a step of no card there by its words (`step`: "Step 3 · Close moves")
  */
-export function presentCardEnd(path: string, next: string | undefined, owner: string | null): CardEnd {
+export function presentCardEnd(path: string, next: string | undefined, owner: string | null, step: string | null = null): CardEnd {
+  if (step !== null) {
+    return { kind: "next", name: step, continued: false, step: true, label: `Next: ${step}` }
+  }
   if (next === undefined) {
     return { kind: "end", text: owner === null ? "End of the review" : `No more files of ${owner}` }
   }
   const slash = next.lastIndexOf("/")
   const name = next.slice(slash + 1)
   if (next === path) {
-    return { kind: "next", name, continued: true, label: `Next: ${name}, continued` }
+    return { kind: "next", name, continued: true, step: false, label: `Next: ${name}, continued` }
   }
-  return { kind: "next", name, continued: false, label: slash < 0 ? `Next: ${name}` : `Next: ${name} ${next.slice(0, slash)}` }
+  return { kind: "next", name, continued: false, step: false, label: slash < 0 ? `Next: ${name}` : `Next: ${name} ${next.slice(0, slash)}` }
 }

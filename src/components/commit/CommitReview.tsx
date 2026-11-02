@@ -498,11 +498,46 @@ const NO_ROWS = { rowOf: new Map<string, string>(), sectionOf: new Map<string, s
 
 /** A section of the story that shows its file whole */
 const NO_UNITS: SectionUnits = { marks: new Map(), elsewhere: new Map() }
+const NO_STEPS_WITHOUT_CARD: StepsWithoutCard = { before: new Map(), after: [] }
 
 /** The step the first section of a step starts, for the divider above its card: its id, which a click shows, and its words */
 function stepOf(section: NarrativeSection, chapterOf: ReadonlyMap<string, Chapter>): DiffSection["step"] {
   const chapter = section.concernHeading === null || section.concern === null ? undefined : chapterOf.get(section.concern)
   return chapter === undefined ? null : { id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.label }
+}
+
+/** The steps told without a card of their own (`stepsWithoutCard`) */
+interface StepsWithoutCard {
+  /** By the key of the section whose opening theirs stand above: the first section of the next step with a card */
+  readonly before: ReadonlyMap<string, readonly NonNullable<DiffSection["step"]>[]>
+  /** Those after the last step with a card: their openings are the epilogue of the diffs */
+  readonly after: readonly NonNullable<DiffSection["step"]>[]
+}
+
+/**
+ * The steps told without a card of their own (no section: another step's shows all they change, or nothing of them
+ * lands), in the order of the story: each above the opening of the next step with a card, else after the last card
+ */
+function stepsWithoutCard(chapters: readonly Chapter[], narrative: readonly NarrativeSection[]): StepsWithoutCard {
+  const starts = new Map<string, string>()
+  for (const section of narrative) {
+    if (section.ghost === null && section.concern !== null && section.concernHeading !== null && !starts.has(section.concern)) {
+      starts.set(section.concern, section.key)
+    }
+  }
+  const shown = new Set(narrative.flatMap(section => (section.ghost === null && section.concern !== null ? [section.concern] : [])))
+  const before = new Map<string, NonNullable<DiffSection["step"]>[]>()
+  let waiting: NonNullable<DiffSection["step"]>[] = []
+  for (const chapter of chapters.filter(it => it.told)) {
+    const key = starts.get(chapter.id)
+    if (key !== undefined && waiting.length > 0) {
+      before.set(key, waiting)
+      waiting = []
+    } else if (key === undefined && !shown.has(chapter.id)) {
+      waiting.push({ id: chapter.id, number: formatStepNumber(chapter.number), title: chapter.label })
+    }
+  }
+  return { before, after: waiting }
 }
 
 /** The words of the step every section of a step is of, for the hover of the map of the files; null outside the steps */
@@ -688,6 +723,9 @@ function ReviewLayout({
       current = false
     }
   }, [narrative, revision, outside])
+  // a step of no card (another step's section shows all it changed, or nothing of it lands) has its opening above the
+  // opening of the next step that has a card, else after the last card
+  const withoutCard = useMemo(() => (narrative === null ? NO_STEPS_WITHOUT_CARD : stepsWithoutCard(chapters, narrative)), [chapters, narrative])
   const viewFiles = useMemo((): readonly DiffViewFile[] | null => {
     if (diffs === null) {
       return null
@@ -720,13 +758,27 @@ function ReviewLayout({
             targets: section.targets,
             heading: section.heading,
             step: stepOf(section, chapterOf),
+            before: withoutCard.before.get(section.key),
             stepHeading: stepHeadingOf(section, chapterOf),
             story: marks.get(section.key) ?? [],
           },
         },
       ]
     })
-  }, [diffs, diffsComplete, files, narrative, outside, chapters, reviewFacts])
+  }, [diffs, diffsComplete, files, narrative, outside, chapters, reviewFacts, withoutCard])
+  // the section whose layer of openings holds the opening of a step: its first, else the one a step of no card stands
+  // above; of a step of no card after the last card (the epilogue), the last section
+  const openingOfStep = useCallback(
+    (step: string): { key: string; path: string } | undefined => {
+      if (withoutCard.after.some(it => it.id === step)) {
+        const last = viewFiles?.at(-1)
+        return last === undefined ? undefined : { key: last.section?.key ?? last.file.path, path: last.file.path }
+      }
+      const file = viewFiles?.find(it => it.section?.step?.id === step || it.section?.before?.some(before => before.id === step) === true)
+      return file?.section == null ? undefined : { key: file.section.key, path: file.file.path }
+    },
+    [viewFiles, withoutCard],
+  )
   const showWindow = useCallback(() => {
     markSubWindowOpenPhase("painted")
     markWindowContentReady()
@@ -753,10 +805,11 @@ function ReviewLayout({
     [files, rows, select],
   )
 
-  // the opening of a step at the top selects the row of its step; a step of no row (what no evidence joined) its file
+  // the opening of a step at the top selects the row of its step (of a layer of several, `step`); a step of no row (what
+  // no evidence joined) its file
   const selectStep = useCallback(
-    (key: string, path: string) => {
-      const chapter = narrative?.find(it => it.key === key)?.concern ?? null
+    (key: string, path: string, step?: string) => {
+      const chapter = step ?? narrative?.find(it => it.key === key)?.concern ?? null
       const row = chapter === null ? undefined : concernRowKey(chapter)
       // the groups of the steps are rows of the top of the tree
       if (row !== undefined && nodes.some(node => node.key === row)) {
@@ -772,16 +825,19 @@ function ReviewLayout({
   // of the overview scrolls them, which the diffs do not report. At the opening of a step the tree selects the step, at
   // a card its file; the overview keeps the selection
   const [topSection, setTopSection] = useState<string | null>(null)
+  // the step whose opening is at the top: of a section that holds the openings of several, the one there
+  const [topOpening, setTopOpening] = useState<string | null>(null)
   // the overview at the top, where the review opens: the bar says so
   const [overviewShown, setOverviewShown] = useState(true)
   const showVisibleSection = useCallback(
-    (key: string, path: string, part: LayoutPart = "card") => {
+    (key: string, path: string, part: LayoutPart = "card", step?: string) => {
       if (part === "opening") {
-        selectStep(key, path)
+        selectStep(key, path, step)
       } else if (part === "card") {
         selectShown(key, path)
       }
       setTopSection(key)
+      setTopOpening(part === "opening" ? (step ?? null) : null)
       setOverviewShown(part === "prologue")
     },
     [selectShown, selectStep],
@@ -798,6 +854,7 @@ function ReviewLayout({
         code.current?.scrollToFile(file.path)
       } else {
         setTopSection(section)
+        setTopOpening(null)
         code.current?.scrollToSection(section, "card")
       }
     },
@@ -839,13 +896,13 @@ function ReviewLayout({
   // a step of the overview, of the bar or the title of its opening: its opening at the top of the diffs, its row selected
   const showStep = useCallback(
     (step: string) => {
-      const section = narrative?.find(it => it.concern === step && it.ghost === null)
-      if (section !== undefined) {
-        showVisibleSection(section.key, section.path, "opening")
-        code.current?.scrollToSection(section.key, "opening")
+      const opening = openingOfStep(step)
+      if (opening !== undefined) {
+        showVisibleSection(opening.key, opening.path, "opening", step)
+        code.current?.scrollToSection(opening.key, "opening", step)
       }
     },
-    [narrative, showVisibleSection],
+    [openingOfStep, showVisibleSection],
   )
   // the block of a story a mark of a section showed last: its story outlines it
   const [highlight, setHighlight] = useState<StoryHighlight | null>(null)
@@ -877,15 +934,16 @@ function ReviewLayout({
   // top of the diffs, as a step of the overview; Enter and Show Commit Alone the commit alone
   const selectCommit = useCallback(
     (node: FileTreeCommit) => {
-      const section = node.chapter === null ? undefined : narrative?.find(it => it.concern === node.chapter && it.ghost === null)
-      setSelection(previous => ({ ...previous, selectedPath: section?.path ?? previous.selectedPath, selectedRow: node.key }))
-      if (section !== undefined) {
-        setTopSection(section.key)
+      const opening = node.chapter === null ? undefined : openingOfStep(node.chapter)
+      setSelection(previous => ({ ...previous, selectedPath: opening?.path ?? previous.selectedPath, selectedRow: node.key }))
+      if (opening !== undefined && node.chapter !== null) {
+        setTopSection(opening.key)
+        setTopOpening(node.chapter)
         setOverviewShown(false)
-        code.current?.scrollToSection(section.key, "opening")
+        code.current?.scrollToSection(opening.key, "opening", node.chapter)
       }
     },
-    [narrative],
+    [openingOfStep],
   )
   const onShowCommit = commitRows?.onShow
   const commitMenu = commitRows?.menu
@@ -907,10 +965,10 @@ function ReviewLayout({
   // the opening of each step above the card of its first section
   const openings = useMemo(() => (reviewFacts === null ? undefined : presentOpenings(reviewFacts)), [reviewFacts])
   const topStep = useMemo(() => {
-    const chapter = narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
+    const chapter = topOpening ?? narrative?.find(it => it.key === topSection)?.concern ?? narrative?.find(it => it.concern !== null)?.concern
     const index = chapters.findIndex(it => it.id === chapter)
     return index < 0 ? null : { chapter: chapters[index]!, count: chapters.length }
-  }, [narrative, topSection, chapters])
+  }, [narrative, topSection, topOpening, chapters])
 
   // the badges of the review plan
   const badges = useMemo<FileTreeBadges | null>(() => {
@@ -948,18 +1006,36 @@ function ReviewLayout({
     const stops: NextSection[] = hasPrologue && viewFiles.length > 0 ? [{ key: PROLOGUE_KEY, path: viewFiles[0]!.file.path, part: "prologue" }] : []
     for (const file of viewFiles) {
       const key = file.section?.key ?? file.file.path
-      if (file.section?.step != null) {
-        stops.push({ key, path: file.file.path, part: "opening" })
+      const step = file.section?.step
+      if (step != null) {
+        // the openings of the steps of no card told before it, each a stop, then its own
+        for (const it of [...(file.section?.before ?? []), step]) {
+          stops.push({ key, path: file.file.path, part: "opening", step: it.id })
+        }
       }
       stops.push({ key, path: file.file.path, part: "card" })
     }
+    // the openings of the steps of no card after the last card, of the last section
+    const last = viewFiles.at(-1)
+    if (last !== undefined) {
+      for (const step of withoutCard.after) {
+        stops.push({ key: last.section?.key ?? last.file.path, path: last.file.path, part: "opening", step: step.id })
+      }
+    }
     return stops
-  }, [reviewFacts, viewFiles, files, hasPrologue])
+  }, [reviewFacts, viewFiles, files, hasPrologue, withoutCard])
   // what J (1) and K (-1) show after the stop at the top (none: from before the first), under an owner chip the next
   // card of its files; undefined when none is left
   const stepSection = useCallback(
-    (from: { key: string; part: LayoutPart } | null, direction: 1 | -1): NextSection | undefined => {
-      const at = from === null ? -1 : stepOrder.findIndex(it => (from.part === "prologue" ? it.part === "prologue" : it.key === from.key && it.part === from.part))
+    (from: { key: string; part: LayoutPart; step?: string } | null, direction: 1 | -1): NextSection | undefined => {
+      const at =
+        from === null
+          ? -1
+          : stepOrder.findIndex(it =>
+              from.part === "prologue"
+                ? it.part === "prologue"
+                : it.key === from.key && it.part === from.part && (from.part !== "opening" || from.step === undefined || it.step === from.step),
+            )
       for (let index = at + direction; index >= 0 && index < stepOrder.length; index += direction) {
         const stop = stepOrder[index]!
         if (marked === null || (stop.part === "card" && marked.has(stop.path))) {
@@ -979,9 +1055,9 @@ function ReviewLayout({
       if (next.part === "prologue") {
         code.current?.scrollToPrologue()
       } else {
-        code.current?.scrollToSection(next.key, next.part)
+        code.current?.scrollToSection(next.key, next.part, next.step)
       }
-      showVisibleSection(next.key, next.path, next.part)
+      showVisibleSection(next.key, next.path, next.part, next.step)
     },
     [showVisibleSection],
   )
@@ -1148,6 +1224,7 @@ function ReviewLayout({
                       onShowStep={showStep}
                       prologue={prologue}
                       openings={openings}
+                      after={withoutCard.after}
                       nextSection={nextSection}
                       onShowSection={showSection}
                       ownerLabel={ownerLabel}

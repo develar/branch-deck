@@ -2,8 +2,10 @@ use crate::ReviewPlan;
 use crate::brief::{ContractKind, contract_kind, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
-use crate::steps::{CommitRole, ConcernsReason, StepSource, TEST_DEPTH, commit_title, tells_a_story};
+use crate::files::MechanicalKind;
+use crate::steps::{CommitRole, ConcernsReason, JoinedUnit, ReviewStep, ShownElsewhere, StepSource, StepStop, TEST_DEPTH, commit_title, join_units, tells_a_story};
 use crate::test_support::{plan_of, plan_of_range, range};
+use crate::units::{ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use domain_types::commit_body::CommitBodyBlock;
 use file_diffs::accio::{ReachingTest, TestReach, TestStep, WalkCut};
 use pretty_assertions::assert_eq;
@@ -527,13 +529,15 @@ fn a_mechanical_change_follows_the_step_that_wrote_it() {
     )],
   );
   let plan = plan_of_range(&repo, &base, &head);
+  // `fresh` has no block of its own: the block of `close` holds its lines, and the stop of `close` shows it
   assert_eq!(
     steps(&plan),
     [
-      (commits(&[("Fresh opens anew", CommitRole::Starts)]), names(&["fresh", "src/b/User.kt"])),
+      (commits(&[("Fresh opens anew", CommitRole::Starts)]), names(&["src/b/User.kt"])),
       (commits(&[("Close returns four", CommitRole::Starts)]), names(&["close"]))
     ]
   );
+  assert_eq!(plan.steps.steps[0].shown_elsewhere.iter().map(|shown| shown.step).collect::<Vec<_>>(), [1]);
 }
 
 /// A commit whose lines a later commit rewrote whole shows nothing of its own: it follows the step of that commit
@@ -595,9 +599,8 @@ fn a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place() {
   assert_eq!(contract_kind("src/notes.md"), None);
 }
 
-/// A declaration a step removes, whose block a declaration a later step adds holds, is in the step that removed it
-#[test]
-fn a_removed_declaration_is_in_the_step_that_removed_it() {
+/// A manager whose hooks a commit drops, then a commit of `rule` in their place: the repository and the base
+fn hooks_dropped(rule: &str, body: &str) -> (TestRepo, String, String) {
   let repo = TestRepo::new();
   let manager = |body: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = 1\n{body}}}\n");
   let base = repo.create_commit_with_files("Add", &[("src/a/Manager.kt", &manager("\n  fun hooks(): Int = 0\n"))]);
@@ -605,16 +608,236 @@ fn a_removed_declaration_is_in_the_step_that_removed_it() {
     "The manager drops its hooks\n\nNo caller asks the hooks of the manager, so they go.",
     &[("src/a/Manager.kt", &manager(""))],
   );
-  let head = repo.create_commit_with_files(
-    "The manager allows a layout\n\nOne rule decides whether the open may show a tool window.",
-    &[("src/a/Manager.kt", &manager("\n  fun allowed(id: String): Boolean = id.isNotEmpty()\n"))],
+  let head = repo.create_commit_with_files(&format!("The manager allows a layout\n\n{body}"), &[("src/a/Manager.kt", &manager(rule))]);
+  (repo, base, head)
+}
+
+/// A declaration a step removes, whose block a declaration a later step adds holds, is no stop of its own: the stop of
+/// that block shows it, marked as of the step that removed it, and that step names it among its facts, lists the file
+/// "also in" it with its main row in the later step, and shows no card; the coverage stays exact
+#[test]
+fn a_removed_declaration_whose_block_a_later_step_shows_is_a_part_of_that_stop_and_of_no_stop_of_its_own() {
+  let (repo, base, head) = hooks_dropped(
+    "\n  fun allowed(id: String): Boolean = id.isNotEmpty()\n",
+    "One rule decides whether the open may show a tool window.",
   );
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(
     steps(&plan),
     [
-      (commits(&[("The manager drops its hooks", CommitRole::Starts)]), names(&["hooks"])),
+      (commits(&[("The manager drops its hooks", CommitRole::Starts)]), names(&[])),
       (commits(&[("The manager allows a layout", CommitRole::Starts)]), names(&["allowed"])),
     ]
+  );
+  let hooks = plan.units.iter().find(|unit| unit.name.as_deref() == Some("hooks")).unwrap();
+  let [dropped, allowed] = plan.steps.steps.as_slice() else {
+    panic!("{:?}", plan.steps.steps)
+  };
+  assert_eq!(dropped.shown_elsewhere, [ShownElsewhere { unit: hooks.id.clone(), step: 1 }]);
+  assert!(dropped.stops.is_empty() && dropped.taken_out_by.is_none(), "{dropped:?}");
+  assert_eq!(
+    (dropped.paths.as_slice(), dropped.elsewhere.as_slice()),
+    (["src/a/Manager.kt".to_string()].as_slice(), ["src/a/Manager.kt".to_string()].as_slice())
+  );
+  assert_eq!(
+    allowed.stops[0].joined,
+    [JoinedUnit {
+      unit: hooks.id.clone(),
+      block: 0,
+      step: 0
+    }]
+  );
+  assert_eq!(allowed.paths, ["src/a/Manager.kt"]);
+  assert!(allowed.elsewhere.is_empty(), "{allowed:?}");
+  let coverage = plan.steps.coverage;
+  assert_eq!((coverage.missing, coverage.twice, coverage.in_stops), (0, 0, 1), "{coverage:?}");
+}
+
+/// A declaration without a block of its own that the step of the block wrote too joins its stop, of that step, and is
+/// no stop of its own; one of another step beside it is of that step
+#[test]
+fn a_declaration_without_a_block_joins_the_stop_of_the_block_of_its_line_each_of_its_own_step() {
+  let (repo, base, head) = hooks_dropped(
+    "\n  fun allowed(id: String): Boolean = id.isNotEmpty()\n\n  fun passes(): Int = 3\n",
+    "One rule decides whether the open may show a tool window, and its passes count.",
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  let name_of = |id: &str| plan.units.iter().find(|unit| unit.id == id).and_then(|unit| unit.name.clone()).unwrap();
+  let shown: Vec<(String, Vec<(String, u32)>)> = plan.steps.steps[1]
+    .stops
+    .iter()
+    .map(|stop| (name_of(&stop.unit), stop.joined.iter().map(|joined| (name_of(&joined.unit), joined.step)).collect()))
+    .collect();
+  // the block of `allowed` holds `hooks`, which step 1 removed, and `passes`, which its own commit added
+  assert_eq!(shown, [("allowed".to_string(), vec![("hooks".to_string(), 0), ("passes".to_string(), 1)])]);
+  assert_eq!(plan.steps.steps[0].stops, []);
+  let coverage = plan.steps.coverage;
+  assert_eq!((coverage.missing, coverage.twice), (0, 0), "{coverage:?}");
+}
+
+/// A declaration a later step adds beside a block of an earlier step, its lines in that block, is shown by the stop of
+/// that block and is the new API of the step that wrote it, which shows no card and names where it is shown
+#[test]
+fn a_declaration_a_later_step_adds_in_the_block_of_another_is_the_new_api_of_the_step_that_wrote_it() {
+  let repo = TestRepo::new();
+  let manager = |body: &str| format!("package a\n\nclass Manager {{\n  fun open(): Int = 1\n{body}}}\n");
+  let allowed = "\n  fun allowed(id: String): Boolean {\n    val named = id.isNotEmpty()\n    val long = id.length > 2\n    return named && long\n  }\n";
+  let base = repo.create_commit_with_files("Add", &[("src/a/Manager.kt", &manager(""))]);
+  repo.create_commit_with_files(
+    "The manager allows a layout\n\nOne rule decides whether the open may show a tool window.",
+    &[("src/a/Manager.kt", &manager(allowed))],
+  );
+  let head = repo.create_commit_with_files(
+    "The manager counts its passes\n\nThe frame paints as many passes as the manager asks.",
+    &[("src/a/Manager.kt", &manager(&format!("{allowed}\n  fun passes(): Int = 3\n")))],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  let key_of = |name: &str| plan.units.iter().find(|unit| unit.name.as_deref() == Some(name)).and_then(|unit| unit.key.clone()).unwrap();
+  let id_of = |name: &str| plan.units.iter().find(|unit| unit.name.as_deref() == Some(name)).map(|unit| unit.id.clone()).unwrap();
+  let [allows, counts] = plan.steps.steps.as_slice() else {
+    panic!("{:?}", plan.steps.steps)
+  };
+  assert_eq!(
+    allows.stops[0].joined,
+    [JoinedUnit {
+      unit: id_of("passes"),
+      block: 0,
+      step: 1
+    }]
+  );
+  assert_eq!(allows.new_api, [key_of("allowed")]);
+  assert_eq!(counts.new_api, [key_of("passes")]);
+  assert_eq!(counts.shown_elsewhere, [ShownElsewhere { unit: id_of("passes"), step: 0 }]);
+  assert!(counts.stops.is_empty(), "{counts:?}");
+}
+
+/// A unit of the steps of the concerns by its id, its kind, the line of its name and its blocks in `src/a/Manager.kt`
+fn unit_of(id: &str, kind: UnitKind, line: Option<u32>, blocks: Vec<UnitBlock>) -> ReviewUnit {
+  ReviewUnit {
+    id: id.to_string(),
+    kind,
+    name: Some(id.to_string()),
+    key: Some(id.to_string()),
+    signature: None,
+    api: false,
+    test: false,
+    line,
+    slices: vec![UnitSlice {
+      path: "src/a/Manager.kt".to_string(),
+      old_path: None,
+      whole: false,
+      blocks,
+      fingerprint: String::new(),
+    }],
+    fingerprint: String::new(),
+  }
+}
+
+/// A step of the concerns whose stops show the units of `units` in `src/a/Manager.kt`
+fn concern_step(id: &str, units: &[&str]) -> ReviewStep {
+  ReviewStep {
+    stops: units.iter().map(|unit| StepStop::new((*unit).to_string(), "src/a/Manager.kt".to_string(), None)).collect(),
+    ..ReviewStep::new(id.to_string())
+  }
+}
+
+/// A declaration without a block that is a part of two concerns joins the stop of its block once, of the step whose stop
+/// holds its line; its stop in the other step goes too, that step naming where it is shown. A block only a group shows
+/// (a mechanical change) takes no unit: the declaration stays a stop of its own
+#[test]
+fn a_declaration_without_a_block_of_two_concerns_joins_once_and_never_a_group() {
+  let block = UnitBlock {
+    index: 0,
+    old_start: 2,
+    old_end: 6,
+    new_start: 2,
+    new_end: 8,
+  };
+  let units = [
+    unit_of("allowed", UnitKind::Added, Some(3), vec![block.clone()]),
+    unit_of("hooks", UnitKind::Removed, Some(4), Vec::new()),
+  ];
+  let mut steps = [concern_step("layout", &["allowed", "hooks"]), concern_step("hooks", &["hooks"])];
+  join_units(&units, &mut steps);
+  let [layout, hooks] = &steps;
+  assert_eq!(
+    layout.stops.iter().map(|stop| (stop.unit.as_str(), stop.joined.clone())).collect::<Vec<_>>(),
+    [(
+      "allowed",
+      vec![JoinedUnit {
+        unit: "hooks".to_string(),
+        block: 0,
+        step: 0
+      }]
+    )]
+  );
+  assert!(layout.shown_elsewhere.is_empty(), "{layout:?}");
+  assert_eq!(
+    hooks.shown_elsewhere,
+    [ShownElsewhere {
+      unit: "hooks".to_string(),
+      step: 0
+    }]
+  );
+  assert!(hooks.stops.is_empty(), "{hooks:?}");
+
+  let units = [
+    unit_of(
+      "imports",
+      UnitKind::Mechanical {
+        mechanical: MechanicalKind::ImportsOnly,
+      },
+      None,
+      vec![block],
+    ),
+    unit_of("hooks", UnitKind::Removed, Some(4), Vec::new()),
+  ];
+  let mut steps = [concern_step("layout", &["imports", "hooks"])];
+  join_units(&units, &mut steps);
+  assert_eq!(steps[0].stops.iter().map(|stop| stop.unit.as_str()).collect::<Vec<_>>(), ["imports", "hooks"]);
+  assert!(steps[0].stops.iter().all(|stop| stop.joined.is_empty()), "{:?}", steps[0]);
+}
+
+/// A declaration the last step removes, whose block a declaration an earlier step adds holds, is shown by the stop of
+/// that block: the last step shows no card, names where it is shown and lists the file "also in" it
+#[test]
+fn a_removed_declaration_whose_block_an_earlier_step_shows_leaves_the_last_step_no_stop() {
+  let repo = TestRepo::new();
+  let test = |body: &str| format!("package b\n\nimport org.junit.Test\n\nclass WelcomeTest {{\n{body}}}\n");
+  let focuses = "  @Test fun `the welcome focuses its project`() = check(focus() >= 0)\n";
+  let keeps = "\n  @Test fun `the welcome keeps the stored layout`() {\n    val focused = focus()\n    check(focused >= 0)\n  }\n";
+  let base = repo.create_commit_with_files("Add", &[("test/b/WelcomeTest.kt", &test(focuses))]);
+  repo.create_commit_with_files(
+    "The welcome test checks a stored layout\n\nThe welcome test checks that the welcome keeps the stored layout of its project.",
+    &[("test/b/WelcomeTest.kt", &test(&format!("{focuses}{keeps}")))],
+  );
+  let head = repo.create_commit_with_files(
+    "The welcome test drops the focus check\n\nThe check of the focus repeats the check of the layout, so it goes.",
+    &[("test/b/WelcomeTest.kt", &test(keeps))],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  let id_of = |name: &str| plan.units.iter().find(|unit| unit.name.as_deref() == Some(name)).map(|unit| unit.id.clone()).unwrap();
+  let [checks, drops] = plan.steps.steps.as_slice() else {
+    panic!("{:?}", plan.steps.steps)
+  };
+  assert_eq!(
+    checks
+      .stops
+      .iter()
+      .map(|stop| stop.joined.iter().map(|joined| (joined.unit.clone(), joined.step)).collect::<Vec<_>>())
+      .collect::<Vec<_>>(),
+    [vec![(id_of("`the welcome focuses its project`"), 1)]]
+  );
+  assert!(drops.stops.is_empty(), "{drops:?}");
+  assert_eq!(
+    drops.shown_elsewhere,
+    [ShownElsewhere {
+      unit: id_of("`the welcome focuses its project`"),
+      step: 0
+    }]
+  );
+  assert_eq!(
+    (drops.paths.as_slice(), drops.elsewhere.as_slice()),
+    (["test/b/WelcomeTest.kt".to_string()].as_slice(), ["test/b/WelcomeTest.kt".to_string()].as_slice())
   );
 }

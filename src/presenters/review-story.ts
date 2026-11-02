@@ -154,6 +154,11 @@ export interface StepFacts {
    */
   readonly takenOutBy: { readonly words: string; readonly title: string; readonly step: string | null } | null
   /**
+   * Its units the section of another step shows (`ReviewStep.shownElsewhere`), by what it does to them and that step:
+   * "Removes hooks, shown in step 2", "step 2" showing that step
+   */
+  readonly shownElsewhere: readonly { readonly key: string; readonly words: string; readonly step: string; readonly stepId: string }[]
+  /**
    * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
    * reaches paint within 3 calls" when the walk stopped with callers left
    */
@@ -176,7 +181,7 @@ function fileName(path: string): string {
  * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
  * the links it adds between modules, and that nothing of it lands
  */
-export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps">): StepFacts {
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "units">): StepFacts {
   const { answered, reached, unreached, scenarios } = step.tests
   const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
   const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
@@ -196,20 +201,58 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
     return link === undefined ? [] : [{ key: `${index}`, label: `${fileName(link.from)} → ${fileName(link.to)}`, place: firstUse(link) }]
   })
   const takenOutBy = takenOutOf(step, plan)
+  const shownElsewhere = shownElsewhereOf(step, plan)
   const parts = [
     ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
     untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
     scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
     none !== null && (reached.length > 0 || scenarios.length > 0) ? none : null,
-    step.stops.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
+    step.stops.length === 0 && step.shownElsewhere.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
   ].filter(part => part !== null)
   return {
     line: parts.length === 0 ? null : parts.join(" · "),
     newApi: added,
     moduleLinks: links,
     takenOutBy,
+    shownElsewhere,
     unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
   }
+}
+
+/** What a step does to a unit of its own that another step shows: "Removes", "Adds" */
+function verbOf(unit: ReviewUnit | undefined): string {
+  switch (unit?.kind.kind) {
+    case "added":
+    case "newFile":
+      return "Adds"
+    case "removed":
+    case "deletedFile":
+    case "deletedFiles":
+      return "Removes"
+    default:
+      return "Changes"
+  }
+}
+
+/** The units of `step` that a section of another step shows, by what it does to them and that step, in their order */
+function shownElsewhereOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps" | "units">): StepFacts["shownElsewhere"] {
+  const units = new Map(plan.units.map(unit => [unit.id, unit]))
+  const groups: { key: string; verb: string; names: string[]; step: number }[] = []
+  for (const shown of step.shownElsewhere) {
+    const unit = units.get(shown.unit)
+    const verb = verbOf(unit)
+    const name = unit?.name ?? shown.unit
+    const group = groups.find(it => it.verb === verb && it.step === shown.step)
+    if (group === undefined) {
+      groups.push({ key: `${verb}:${shown.step}`, verb, names: [name], step: shown.step })
+    } else {
+      group.names.push(name)
+    }
+  }
+  return groups.flatMap(group => {
+    const holder = plan.steps.steps[group.step]
+    return holder === undefined ? [] : [{ key: group.key, words: `${group.verb} ${names(group.names)}, shown in`, step: `step ${group.step + 1}`, stepId: holder.id }]
+  })
 }
 
 /**
@@ -420,6 +463,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     newApi: all.flatMap(it => it.newApi),
     moduleLinks: all.flatMap(it => it.moduleLinks),
     takenOutBy: null,
+    shownElsewhere: [],
     unproven: null,
   }
   return facts.line === null && facts.newApi.length === 0 && facts.moduleLinks.length === 0 ? null : facts

@@ -11,7 +11,7 @@ export function reviewStep(id: string, commits: StepCommit[], stops: [string, st
     id,
     commits,
     concern: null,
-    stops: stops.map(([unit, path]) => ({ unit, path, blocks: null, uses: null, also: [], concern: null })),
+    stops: stops.map(([unit, path]) => ({ unit, path, blocks: null, uses: null, also: [], concern: null, joined: [] })),
     paths: [...new Set(stops.map(([, path]) => path))],
     elsewhere: [],
     tests: { answered: true, reached: [], unreached: [], scenarios: [], ...tests },
@@ -20,6 +20,7 @@ export function reviewStep(id: string, commits: StepCommit[], stops: [string, st
     title: null,
     toldAsTitle: null,
     takenOutBy: null,
+    shownElsewhere: [],
     ...more,
   }
 }

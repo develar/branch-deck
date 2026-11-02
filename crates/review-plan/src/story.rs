@@ -161,6 +161,8 @@ struct Resolver<'a> {
   declarations: Vec<Declaration<'a>>,
   paths: Vec<&'a str>,
   steps_of_unit: HashMap<&'a str, Vec<u32>>,
+  /// The step of each unit another step's stop shows (`ReviewStep::shown_elsewhere`): a name of its commit is its own
+  owner_of_unit: HashMap<&'a str, u32>,
   steps_of_path: HashMap<&'a str, Vec<u32>>,
 }
 
@@ -209,20 +211,39 @@ impl<'a> Resolver<'a> {
     let mut steps_of_path: HashMap<&str, Vec<u32>> = HashMap::new();
     for (place, step) in steps.iter().enumerate() {
       let place = u32::try_from(place).unwrap_or(u32::MAX);
-      for stop in &step.stops {
-        let of = steps_of_unit.entry(stop.unit.as_str()).or_default();
+      // a unit a stop of the step shows beside its own is shown in it too
+      for unit in step
+        .stops
+        .iter()
+        .flat_map(|stop| std::iter::once(stop.unit.as_str()).chain(stop.joined.iter().map(|joined| joined.unit.as_str())))
+      {
+        let of = steps_of_unit.entry(unit).or_default();
         if !of.contains(&place) {
           of.push(place);
         }
       }
+      // a file of a step whose stops show none of it (its unit shown in another step) is not shown in it
       for path in &step.paths {
-        steps_of_path.entry(path.as_str()).or_default().push(place);
+        if step.stops.iter().any(|stop| stop.path == *path) {
+          steps_of_path.entry(path.as_str()).or_default().push(place);
+        }
       }
     }
+    let owner_of_unit = steps
+      .iter()
+      .enumerate()
+      .flat_map(|(place, step)| {
+        step
+          .shown_elsewhere
+          .iter()
+          .map(move |shown| (shown.unit.as_str(), u32::try_from(place).unwrap_or(u32::MAX)))
+      })
+      .collect();
     Resolver {
       declarations,
       paths: input.changed.iter().map(|file| file.path).collect(),
       steps_of_unit,
+      owner_of_unit,
       steps_of_path,
     }
   }
@@ -332,11 +353,10 @@ impl<'a> Resolver<'a> {
       })
       .find(|found| !found.is_empty())
       .unwrap_or_default();
+    // of a step of the commit: a stop of it shows the unit, or the step wrote the unit another step's stop shows
     let in_own = |declaration: &&&Declaration<'a>| {
-      self
-        .steps_of_unit
-        .get(declaration.unit.id.as_str())
-        .is_some_and(|steps| steps.iter().any(|step| own.contains(step)))
+      let id = declaration.unit.id.as_str();
+      self.steps_of_unit.get(id).is_some_and(|steps| steps.iter().any(|step| own.contains(step))) || self.owner_of_unit.get(id).is_some_and(|step| own.contains(step))
     };
     let keys = |found: &[&&Declaration<'a>]| found.iter().map(|declaration| declaration.key.as_str()).collect::<BTreeSet<&str>>().len();
     let all: Vec<&&Declaration<'a>> = found.iter().collect();
@@ -604,19 +624,30 @@ fn shows_line(unit_of: &HashMap<&str, &ReviewUnit>, stop: &StepStop, line: u32) 
 }
 
 /// The new API and the new links between modules of each step (`ReviewStep::new_api`, `module_links`): each in the
-/// first step whose stops show it
+/// first step whose stops show it; a declaration a stop shows beside its own unit (`StepStop::joined`) in the step that
+/// wrote it, which names where it is shown (`ReviewStep::shown_elsewhere`)
 pub(crate) fn add_step_facts(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
   let unit_of: HashMap<&str, &ReviewUnit> = input.units.iter().map(|unit| (unit.id.as_str(), unit)).collect();
   for change in input.api.iter().filter(|change| change.kind == ApiChangeKind::Added) {
-    let shows = |step: &ReviewStep| {
-      step.stops.iter().any(|stop| {
-        stop.path == change.file
-          && unit_of.get(stop.unit.as_str()).is_some_and(|unit| {
-            unit.key.as_deref() == Some(change.key.as_str()) || matches!(unit.kind, UnitKind::NewFile) || unit.slices.iter().any(|slice| slice.path == stop.path && slice.whole)
-          })
+    let named = |id: &str| unit_of.get(id).is_some_and(|unit| unit.key.as_deref() == Some(change.key.as_str()));
+    // the step of the first stop that shows it: its own, else the one of the unit it shows beside its own
+    let owner = steps.iter().enumerate().find_map(|(place, step)| {
+      step.stops.iter().filter(|stop| stop.path == change.file).find_map(|stop| {
+        let own = unit_of
+          .get(stop.unit.as_str())
+          .is_some_and(|unit| named(&unit.id) || matches!(unit.kind, UnitKind::NewFile) || unit.slices.iter().any(|slice| slice.path == stop.path && slice.whole));
+        if own {
+          Some(place)
+        } else {
+          stop
+            .joined
+            .iter()
+            .find(|joined| named(&joined.unit))
+            .map(|joined| usize::try_from(joined.step).unwrap_or(place))
+        }
       })
-    };
-    if let Some(step) = steps.iter_mut().find(|step| shows(step))
+    });
+    if let Some(step) = owner.and_then(|place| steps.get_mut(place))
       && !step.new_api.contains(&change.key)
     {
       step.new_api.push(change.key.clone());
@@ -633,7 +664,7 @@ pub(crate) fn add_step_facts(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
           .iter()
           .any(|stop| stop.path == link.from && first.is_some_and(|line| shows_line(&unit_of, stop, line)))
       })
-      .or_else(|| steps.iter().position(|step| step.paths.contains(&link.from)));
+      .or_else(|| steps.iter().position(|step| step.stops.iter().any(|stop| stop.path == link.from)));
     if let Some(at) = at {
       steps[at].module_links.push(place);
     }

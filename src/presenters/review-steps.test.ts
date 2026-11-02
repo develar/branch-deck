@@ -179,7 +179,7 @@ describe("review steps", () => {
     expect([concerns.heads.size, concerns.steps.get("proxy")?.[0]?.title]).toEqual([0, "the paint"])
   })
 
-  it("lays a declaration without a block of its own out in its step as the row of the block another step shows", () => {
+  it("joins a declaration without a block of its own to the heading of the block Rust names, marked with its step where it is another's", () => {
     const block = { index: 0, oldStart: 4, oldEnd: 6, newStart: 4, newEnd: 9 }
     const unit = (id: string, kind: ReviewUnit["kind"], name: string, blocks: (typeof block)[]): ReviewUnit => ({
       id,
@@ -193,14 +193,27 @@ describe("review steps", () => {
       slices: [{ path: "src/Manager.kt", oldPath: null, whole: false, blocks, fingerprint: id }],
       fingerprint: id,
     })
-    const units = [unit("u:hooks", { kind: "removed" }, "hooks", []), unit("u:allowed", { kind: "added" }, "allowed", [block])]
+    const units = [unit("u:hooks", { kind: "removed" }, "hooks", []), unit("u:allowed", { kind: "added" }, "allowed", [block]), unit("u:passes", { kind: "added" }, "passes", [])]
+    // the step that dropped the hooks has no stop: the stop of `allowed` shows them, and `passes` its own step wrote
+    const allowed = step("b", [commit("the rule")], [["u:allowed", "src/Manager.kt"]])
     const chapters = presentChapters(
-      plan([step("a", [commit("drop the hooks")], [["u:hooks", "src/Manager.kt"]]), step("b", [commit("the rule")], [["u:allowed", "src/Manager.kt"]])]),
+      plan([
+        step("a", [commit("drop the hooks")], [], {}, { shownElsewhere: [{ unit: "u:hooks", step: 1 }] }),
+        {
+          ...allowed,
+          stops: allowed.stops.map(stop => ({
+            ...stop,
+            joined: [
+              { unit: "u:hooks", block: 0, step: 0 },
+              { unit: "u:passes", block: 0, step: 1 },
+            ],
+          })),
+        },
+      ]),
     )
     const sections = presentNarrative(units, [{ path: "src/Manager.kt", blocks: [block] }], [], [], chapters)
-    expect(sections.map(section => [section.key, section.concernHeading, [...(section.units?.marks ?? [])], [...(section.units?.elsewhere ?? [])]])).toEqual([
-      ["file:src/Manager.kt", "1 · drop the hooks", [], [[0, "hooks — removed · shown in step 2"]]],
-      ["file:src/Manager.kt#1", "2 · the rule", [[0, "allowed — new · hooks — removed"]], []],
+    expect(sections.map(section => [section.key, section.concernHeading, [...(section.units?.marks ?? [])], [...(section.units?.elsewhere ?? [])], [...section.unitIds]])).toEqual([
+      ["file:src/Manager.kt", "2 · the rule", [[0, "allowed — new · hooks — removed in step 1 · passes — new"]], [], ["u:allowed", "u:hooks", "u:passes"]],
     ])
   })
 })

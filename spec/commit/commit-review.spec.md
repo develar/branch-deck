@@ -215,13 +215,14 @@ where a dialog would cover it.
   what J shows next, by its rows alone, never by the viewport: "Next: SKILL.md .claude/skills/setup-local-rd-flow J",
   the file as the header of its card names it, the name and then the directory, which gives way from its start, so
   its last folder shows (ten files named SKILL.md in a row differ by it); "Next: SKILL.md, continued" for the next
-  section of the same file, under an owner chip the next of its files. With nothing left it says "End of the review", and under
+  section of the same file, under an owner chip the next of its files; at the last card above the opening of a step of no card
+  after it, the words of that step ("Next: Step 2 · Close moves to b"). With nothing left it says "End of the review", and under
   an owner chip before the last card "No more files of Design". A click shows what it names as J does: its header at
   the top, the tree and the footer following, the focus left in the diffs, so J goes on from there. It never says
   "End of <file>" (a section of the story may be a part of its file), it is out of the tab order (J does it from the
   keys) and never in a copy of the code.
   [@test] ../../src/lib/diff/layout.test.ts (`ends a card of more than 30 rows and the last card with a line one row high, below the rows, which the offsets count`)
-  [@test] ../../src/presenters/review-card-end.test.ts (`names the next file as its header does, its name and its directory, and the next part of the same file as continued`, `ends the review at the last card, and the files of an owner chip before it`)
+  [@test] ../../src/presenters/review-card-end.test.ts (`names the next file as its header does, its name and its directory, and the next part of the same file as continued`, `names after the last card the opening of a step of no card below it by the words of the step`, `ends the review at the last card, and the files of an owner chip before it`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should end a long card with a line naming the next file, which a click shows as J does, and the last card with the end of the review`)
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should name at the end of a long card the next file of the chosen owner chip, which a click shows as J does`)
 - The diffs must have a map of the files in place of their scrollbar: a column at their right, beside the diffs and

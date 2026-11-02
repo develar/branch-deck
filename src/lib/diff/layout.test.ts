@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-files.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { DiffLayout, endsWithFooter, FOOTER_MIN_ROWS, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, EPILOGUE_KEY, FOOTER_MIN_ROWS, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutFile } from "@/lib/diff/layout"
 import { rowHeightOf } from "@/lib/diff/metrics"
 import { buildFileRows, EXPANDED, NEW, OLD, rowOfLine } from "@/lib/diff/rows"
@@ -240,6 +240,23 @@ describe("DiffLayout of file cards", () => {
     expect([alone.height, alone.anchorAt(20), alone.partAt(20)]).toEqual([320, { key: PROLOGUE_KEY, offset: 20 }, "prologue"])
     expect(new DiffLayout(files, { rowHeight: 20, headerHeight: 36 }, 300).prologue).toBe(0)
     expect(new DiffLayout(files, CARDS, 0).offsets[0]).toBe(10 + 40)
+  })
+
+  it("puts the epilogue after the last card, a gap above it, as an opening of the last file, and keeps a top in it from its top", () => {
+    const rows = buildFileRows(ONE_CHANGE, "unified", [EXPANDED, EXPANDED])
+    const files = [file("a", rows, { opening: 40 }), file("b", rows)]
+    const plain = new DiffLayout(files, CARDS)
+    const layout = new DiffLayout(files, CARDS, 0, 120)
+    // the last card, the gap, the epilogue, the space below the cards; the cards stay where they were
+    expect([layout.epilogueTop, layout.height]).toEqual([plain.offsets[2], plain.offsets[2]! + 120 + 10])
+    expect([...layout.offsets]).toEqual([...plain.offsets])
+    expect([layout.partAt(layout.epilogueTop - 1), layout.partAt(layout.epilogueTop), layout.fileAt(layout.epilogueTop + 50)]).toEqual(["card", "opening", 1])
+    // a top in the epilogue keeps its offset from its top, clamped to its end when it is lower
+    const anchor = layout.anchorAt(layout.epilogueTop + 30)!
+    expect(anchor).toEqual({ key: EPILOGUE_KEY, offset: 30 })
+    expect([layout.scrollTopOf(anchor), new DiffLayout(files, CARDS, 0, 20).scrollTopOf(anchor)]).toEqual([layout.epilogueTop + 30, layout.epilogueTop + 20])
+    // none without cards, nor without files
+    expect([new DiffLayout(files, METRICS, 0, 120).epilogue, new DiffLayout([], CARDS, 0, 120).epilogue]).toEqual([0, 0])
   })
 
   it("shows a change, a hit of the find and a declaration in a card below the opening of its step: the top of the card is their least top", () => {

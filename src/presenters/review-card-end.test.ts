@@ -8,10 +8,27 @@ describe("presentCardEnd", () => {
       kind: "next",
       name: "SKILL.md",
       continued: false,
+      step: false,
       label: "Next: SKILL.md .claude/skills/setup-local-rd-flow",
     })
-    expect(presentCardEnd("src/a/Manager.kt", "README.md", null)).toEqual({ kind: "next", name: "README.md", continued: false, label: "Next: README.md" })
-    expect(presentCardEnd("src/a/Manager.kt", "src/a/Manager.kt", null)).toEqual({ kind: "next", name: "Manager.kt", continued: true, label: "Next: Manager.kt, continued" })
+    expect(presentCardEnd("src/a/Manager.kt", "README.md", null)).toEqual({ kind: "next", name: "README.md", continued: false, step: false, label: "Next: README.md" })
+    expect(presentCardEnd("src/a/Manager.kt", "src/a/Manager.kt", null)).toEqual({
+      kind: "next",
+      name: "Manager.kt",
+      continued: true,
+      step: false,
+      label: "Next: Manager.kt, continued",
+    })
+  })
+
+  it("names after the last card the opening of a step of no card below it by the words of the step", () => {
+    expect(presentCardEnd("src/a/Manager.kt", "src/a/Manager.kt", null, "Step 2 · Close moves to b")).toEqual({
+      kind: "next",
+      name: "Step 2 · Close moves to b",
+      continued: false,
+      step: true,
+      label: "Next: Step 2 · Close moves to b",
+    })
   })
 
   it("ends the review at the last card, and the files of an owner chip before it", () => {

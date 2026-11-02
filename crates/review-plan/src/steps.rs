@@ -22,6 +22,11 @@
 //!   test, a fixture of its class or module, `ReviewUnit::test`), the tests accio finds among its callers within
 //!   `TEST_DEPTH` calls by calls a type or an import ties (`accio tests --at`, every declaration of the plan in one
 //!   process), each a test of the range or one the change did not touch, and the declarations none reaches.
+//! - **A declaration without a block of its own** (of one side, whose lines a block of another unit holds) is no stop:
+//!   it joins the stop that shows the block of the line of its name (`StepStop::joined`, with the step it is of), and a
+//!   step whose unit another step's stop shows names it among its facts (`ReviewStep::shown_elsewhere`) and lists its
+//!   file, whose main row is elsewhere; a step left with no stop tells its story and shows no card. One whose line no
+//!   stop shows, or only a group's, stays a stop of its own; one of two stops (a part of two concerns) joins once.
 //! - **Coverage**: every block of the range in one stop, else in a mechanical unit (`StepCoverage`).
 
 use crate::api::ApiChange;
@@ -32,7 +37,7 @@ use crate::files::{ChangedFile, blob_lines, lines_in, test_subject};
 use crate::links::FileLink;
 use crate::pair::{PairBlocks, block_of};
 use crate::story::{StoryCommit, add_step_facts, add_story_titles, story_commits};
-use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice};
+use crate::units::{OtherReason, ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use anyhow::Result;
 use code_symbols::language::language_of;
 use domain_types::commit_body::{CommitBodyBlock, LabelKind};
@@ -138,14 +143,16 @@ pub struct ReviewStep {
   pub concern: Option<String>,
   /// What the step shows, in its order
   pub stops: Vec<StepStop>,
-  /// The files of its stops, each once, in the order of its stops
+  /// The files of its stops, each once, in the order of its stops, then the files of its units another step's stop
+  /// shows (`shown_elsewhere`), whose main row is that step's
   pub paths: Vec<String>,
   /// Its files whose main row, in the tree of the review, is another step's: of the steps of a file, the one whose
   /// stops change the most lines of it holds its row, the first of equal ones
   pub elsewhere: Vec<String>,
   pub tests: StepTests,
   /// The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
-  /// first step whose stops show it
+  /// first step whose stops show it; one a stop of another step shows beside its own (`StepStop::joined`) in the step
+  /// that wrote it
   pub new_api: Vec<String>,
   /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
   /// step whose stop shows the first use, each in one step
@@ -161,6 +168,9 @@ pub struct ReviewStep {
   /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
   /// its id; `None` for a step that shows something
   pub taken_out_by: Option<String>,
+  /// Its units another step's stop shows (`StepStop::joined` there), each with that step: no stop of its own shows them,
+  /// so its facts name them ("Removes hooks, shown in step 2")
+  pub shown_elsewhere: Vec<ShownElsewhere>,
   /// The declarations of its code, which `add_tests` asks the tests of
   #[serde(skip)]
   pub code: Vec<StepCode>,
@@ -168,7 +178,7 @@ pub struct ReviewStep {
 
 impl ReviewStep {
   /// A step of `id` that shows nothing yet
-  fn new(id: String) -> Self {
+  pub(crate) fn new(id: String) -> Self {
     Self {
       id,
       commits: Vec::new(),
@@ -182,9 +192,22 @@ impl ReviewStep {
       title: None,
       told_as_title: None,
       taken_out_by: None,
+      shown_elsewhere: Vec::new(),
       code: Vec::new(),
     }
   }
+}
+
+/// A unit of a step that a stop of another step shows (`ReviewStep::shown_elsewhere`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ShownElsewhere {
+  /// `ReviewUnit::id`
+  pub unit: String,
+  /// The step whose stop shows it, by its place in `ReviewSteps::steps`
+  pub step: u32,
 }
 
 /// A commit of a step; its body is its `StoryCommit` of `ReviewSteps::commits`
@@ -231,6 +254,40 @@ pub struct StepStop {
   pub also: Vec<u32>,
   /// The concern of its unit, when the step holds parts of two concerns or more that evidence joined
   pub concern: Option<String>,
+  /// The units it shows beside its own: each declaration without a block of its own whose name is on a line of a block
+  /// it shows, with the step it is of, another step's too (its heading says so where the stop shows it)
+  pub joined: Vec<JoinedUnit>,
+}
+
+impl StepStop {
+  /// The stop of `unit` in `path` that shows `blocks` (`None`: the whole slice), alone
+  pub(crate) const fn new(unit: String, path: String, blocks: Option<Vec<u32>>) -> Self {
+    Self {
+      unit,
+      path,
+      blocks,
+      uses: None,
+      also: Vec::new(),
+      concern: None,
+      joined: Vec::new(),
+    }
+  }
+}
+
+/// A declaration without a block of its own that a stop shows (`StepStop::joined`): of one side, its lines in a block
+/// of the stop's unit
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct JoinedUnit {
+  /// `ReviewUnit::id`
+  pub unit: String,
+  /// The block of the stop's slice that holds the line of its name, by its index
+  pub block: u32,
+  /// The step it is of, by its place in `ReviewSteps::steps`: the step that wrote it, which may be another than the
+  /// stop's
+  pub step: u32,
 }
 
 /// The tests that reach the code of a step
@@ -567,6 +624,7 @@ pub(crate) fn review_steps(input: &StepsInput<'_>) -> ReviewSteps {
     (step.code, step.tests.scenarios) = code_of(input, step);
   }
   mark_concerns(input, &mut steps);
+  join_units(input.units, &mut steps);
   mark_paths(input, &mut steps);
   add_step_facts(input, &mut steps);
   let coverage = coverage(input, &steps);
@@ -811,12 +869,8 @@ fn step_commit(input: &StepsInput<'_>, commit: usize, role: CommitRole) -> StepC
 fn stop_of(input: &StepsInput<'_>, part: &Part, also: Vec<u32>) -> StepStop {
   let unit = &input.units[part.unit];
   StepStop {
-    unit: unit.id.clone(),
-    path: unit.slices[part.slice].path.clone(),
-    blocks: part.block.map(|block| vec![block]),
-    uses: None,
     also,
-    concern: None,
+    ..StepStop::new(unit.id.clone(), unit.slices[part.slice].path.clone(), part.block.map(|block| vec![block]))
   }
 }
 
@@ -859,14 +913,7 @@ fn concern_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)])
         stops: concern
           .parts
           .iter()
-          .map(|part| StepStop {
-            unit: part.unit.clone(),
-            path: part.path.clone(),
-            blocks: part.blocks.clone(),
-            uses: None,
-            also: Vec::new(),
-            concern: None,
-          })
+          .map(|part| StepStop::new(part.unit.clone(), part.path.clone(), part.blocks.clone()))
           .collect(),
         ..ReviewStep::new(concern.id.clone())
       }
@@ -1138,8 +1185,121 @@ fn mark_concerns(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
   }
 }
 
+/// The blocks of `unit` that `stop` shows: of its slice of the path of the stop, those it names, all without
+fn shown_blocks<'a>(unit: &'a ReviewUnit, stop: &'a StepStop) -> impl Iterator<Item = &'a UnitBlock> + 'a {
+  unit
+    .slices
+    .iter()
+    .filter(|slice| slice.path == stop.path)
+    .flat_map(|slice| &slice.blocks)
+    .filter(|block| stop.blocks.as_ref().is_none_or(|blocks| blocks.contains(&block.index)))
+}
+
+/// The block of `stop` that holds line `line` (from 1) of its file, of the old side for `old`, by its index
+fn block_at(unit_of: &HashMap<&str, &ReviewUnit>, stop: &StepStop, line: u32, old: bool) -> Option<u32> {
+  let unit = unit_of.get(stop.unit.as_str())?;
+  let at = line.checked_sub(1)?;
+  shown_blocks(unit, stop)
+    .find(|block| {
+      if old {
+        block.old_start <= at && at < block.old_end
+      } else {
+        block.new_start <= at && at < block.new_end
+      }
+    })
+    .map(|block| block.index)
+}
+
+/// A stop of a declaration without a block of its own and the stop that shows the block of the line of its name
+#[derive(Clone, Copy)]
+struct Join {
+  /// Its step and its stop there
+  place: usize,
+  at: usize,
+  /// The step of the stop that shows it, that stop and its block
+  other: usize,
+  holder: usize,
+  block: u32,
+}
+
+/// Joins each declaration without a block of its own to the stop that shows the block of the line of its name
+/// (`StepStop::joined`), a stop of its own step first: it is no stop of its own then, and a step whose unit another
+/// step's stop shows names it (`ReviewStep::shown_elsewhere`). One whose line no stop shows stays a stop, and so does one
+/// whose line only a group shows (a mechanical change, a repeated edit, deleted files), whose section names no unit. A
+/// unit of several stops (a part of two concerns) joins once: by the stop of the step whose stop holds its line, else
+/// by its first; every stop of it goes, each step it was of naming it
+pub(crate) fn join_units(units: &[ReviewUnit], steps: &mut [ReviewStep]) {
+  let unit_of: HashMap<&str, &ReviewUnit> = units.iter().map(|unit| (unit.id.as_str(), unit)).collect();
+  let group = |id: &str| {
+    unit_of
+      .get(id)
+      .is_some_and(|unit| matches!(unit.kind, UnitKind::Mechanical { .. } | UnitKind::RepeatedEdit { .. } | UnitKind::DeletedFiles { .. }))
+  };
+  let mut joins: Vec<Join> = Vec::new();
+  for (place, step) in steps.iter().enumerate() {
+    for (at, stop) in step.stops.iter().enumerate() {
+      let Some(unit) = unit_of.get(stop.unit.as_str()) else { continue };
+      let alone = unit.slices.iter().any(|slice| slice.path == stop.path && !slice.whole && slice.blocks.is_empty());
+      let Some(line) = unit.line.filter(|_| alone) else { continue };
+      let old = unit.kind == UnitKind::Removed;
+      let holder = std::iter::once(place).chain((0..steps.len()).filter(|&other| other != place)).find_map(|other| {
+        steps[other]
+          .stops
+          .iter()
+          .enumerate()
+          .filter(|(_, holder)| holder.path == stop.path && holder.unit != stop.unit && !group(&holder.unit))
+          .find_map(|(holder, of)| block_at(&unit_of, of, line, old).map(|block| (other, holder, block)))
+      });
+      if let Some((other, holder, block)) = holder {
+        joins.push(Join { place, at, other, holder, block });
+      }
+    }
+  }
+  let index = |place: usize| u32::try_from(place).unwrap_or(u32::MAX);
+  let mut gone: HashSet<(usize, usize)> = HashSet::new();
+  // the stops of each unit by its path, in the order of the steps
+  let mut of_unit: Vec<((String, String), Vec<Join>)> = Vec::new();
+  for join in joins {
+    let stop = &steps[join.place].stops[join.at];
+    let key = (stop.unit.clone(), stop.path.clone());
+    match of_unit.iter_mut().find(|(of, _)| *of == key) {
+      Some((_, stops)) => stops.push(join),
+      None => of_unit.push((key, vec![join])),
+    }
+  }
+  for ((unit, _), stops) in of_unit {
+    let Some(&Join { place, other, holder, block, .. }) = stops.iter().find(|join| join.place == join.other).or_else(|| stops.first()) else {
+      continue;
+    };
+    steps[other].stops[holder].joined.push(JoinedUnit {
+      unit: unit.clone(),
+      block,
+      step: index(place),
+    });
+    for &Join { place: of, at, .. } in &stops {
+      let shown = ShownElsewhere {
+        unit: unit.clone(),
+        step: index(other),
+      };
+      if of != other && !steps[of].shown_elsewhere.contains(&shown) {
+        steps[of].shown_elsewhere.push(shown);
+      }
+      gone.insert((of, at));
+    }
+  }
+  for (place, step) in steps.iter_mut().enumerate() {
+    let mut at = 0;
+    step.stops.retain(|_| {
+      at += 1;
+      !gone.contains(&(place, at - 1))
+    });
+  }
+}
+
 /// The files of each step and the main row of each file (`ReviewStep::paths`, `elsewhere`): the step whose stops change
-/// the most lines of it, by the lines of the blocks they show, a file without blocks one
+/// the most lines of it, by the lines of the blocks they show, a file without blocks one. A file of a unit of the step
+/// another step's stop shows (`ReviewStep::shown_elsewhere`) is a file of the step too, its main row elsewhere: the tree
+/// lists it "also in" the step
 fn mark_paths(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
   let unit_of: HashMap<&str, &ReviewUnit> = input.units.iter().map(|unit| (unit.id.as_str(), unit)).collect();
   // the path -> (the step of its main row, its changed lines there)
@@ -1148,12 +1308,7 @@ fn mark_paths(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
     let mut weights: Vec<(String, u32)> = Vec::new();
     for stop in &step.stops {
       let lines: u32 = unit_of.get(stop.unit.as_str()).map_or(1, |unit| {
-        unit
-          .slices
-          .iter()
-          .filter(|slice| slice.path == stop.path)
-          .flat_map(|slice| &slice.blocks)
-          .filter(|block| stop.blocks.as_ref().is_none_or(|blocks| blocks.contains(&block.index)))
+        shown_blocks(unit, stop)
           .map(|block| (block.old_end - block.old_start) + (block.new_end - block.new_start))
           .sum::<u32>()
           .max(1)
@@ -1170,6 +1325,28 @@ fn mark_paths(input: &StepsInput<'_>, steps: &mut [ReviewStep]) {
       }
     }
     step.paths = weights.into_iter().map(|(path, _)| path).collect();
+  }
+  // the file of each unit of a step that another step's stop shows
+  let shown_paths: Vec<Vec<String>> = steps
+    .iter()
+    .map(|step| {
+      step
+        .shown_elsewhere
+        .iter()
+        .filter_map(|shown| {
+          let holder = steps.get(usize::try_from(shown.step).ok()?)?;
+          let stop = holder.stops.iter().find(|stop| stop.joined.iter().any(|joined| joined.unit == shown.unit))?;
+          Some(stop.path.clone())
+        })
+        .collect()
+    })
+    .collect();
+  for (step, paths) in steps.iter_mut().zip(shown_paths) {
+    for path in paths {
+      if !step.paths.contains(&path) {
+        step.paths.push(path);
+      }
+    }
   }
   for (place, step) in steps.iter_mut().enumerate() {
     step.elsewhere = step

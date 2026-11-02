@@ -19,11 +19,11 @@ function cardBelow(heading: Locator): Promise<{ gap: number; path: string | null
   })
 }
 
-/** The top of the opening of the step of `heading` below the top of the diffs */
+/** The top of the opening of the step of `heading` below the top of the diffs: of a layer of several, its own */
 function topOf(heading: Locator): Promise<number> {
   return heading.evaluate(element => {
     const view = element.closest("[data-testid=diff-view]")!
-    return Math.round(element.closest("[data-testid=diff-view-opening]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
+    return Math.round(element.closest("[data-testid=review-opening]")!.getBoundingClientRect().top - view.getBoundingClientRect().top)
   })
 }
 
@@ -102,7 +102,8 @@ test.describe("Review tour", () => {
     await captureHtmlSnapshot(overview, "review-overview")
 
     // the tree lists the steps, each the commit that starts it, its round under it, then its files, a file of two steps
-    // with its row in the step of its most lines and a row "also in" the other; the diffs tell the story by them
+    // with its row in the step of its most lines and a row "also in" the other; the diffs tell the story by them. Step 1
+    // shows no card: the card of step 2 shows the hooks it removed, its file a row "also in" step 1
     const tree = window.getByRole("tree", { name: "Changed files" })
     const rows = () => tree.getByRole("treeitem").evaluateAll(items => items.map(item => item.getAttribute("aria-label")))
     await expect
@@ -150,11 +151,12 @@ test.describe("Review tour", () => {
     await expect(round).toContainText("The review asked for the name of the flag to say what it holds.")
     await captureHtmlSnapshot(opening, "review-opening")
     await expect(window.getByTestId("review-opening").nth(2).getByTestId("review-opening-unproven")).toHaveText("No test reaches paint within 3 calls")
-    // the map of the files beside the diffs crosses itself at the start of each step; its hover names the file and its step
+    // the map of the files beside the diffs crosses itself at the start of each step with a card; its hover names the
+    // file and its step
     const map = window.getByTestId("review-file-map")
-    await expect(map).toHaveAttribute("data-steps", "4")
-    // the second section of Manager.kt, the card below the opening of step 2
-    const start = await mapPointOf(window.locator("[data-testid=diff-view-file][data-path='src/a/Manager.kt']").nth(1))
+    await expect(map).toHaveAttribute("data-steps", "3")
+    // the first section of Manager.kt, the card below the openings of steps 1 and 2
+    const start = await mapPointOf(window.locator("[data-testid=diff-view-file][data-path='src/a/Manager.kt']").first())
     await window.mouse.move(start.x, start.y)
     await expect(map.getByTestId("review-file-map-tip")).toHaveText(/Manager\.ktsrc\/a.*Step 2 · the open keeps a stored layout/)
     // an opening is measured in place before the frame paints: the layout has its height by the next frame
@@ -163,8 +165,8 @@ test.describe("Review tour", () => {
     await expect.poll(() => headerNameLefts(window)).toEqual([expect.any(Number)])
     // the rule first in its step, its uses right after it, its test with them
     await expect
-      .poll(async () => (await reviewedPaths(window)).slice(0, 7))
-      .toEqual(["src/a/Manager.kt", "src/a/Manager.kt", "src/a/Frame.kt", "src/b/Welcome.kt", "test/a/ManagerTest.kt", "src/a/Frame.kt", "spec/window.spec.md"])
+      .poll(async () => (await reviewedPaths(window)).slice(0, 6))
+      .toEqual(["src/a/Manager.kt", "src/a/Frame.kt", "src/b/Welcome.kt", "test/a/ManagerTest.kt", "src/a/Frame.kt", "spec/window.spec.md"])
     await window.setViewportSize(viewport)
 
     // a step of the contents shows its opening at the top: the bar names it on one line, the tree selects the step
@@ -193,6 +195,128 @@ test.describe("Review tour", () => {
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
     await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => topOf(second)).toBe(10)
+  })
+
+  test("should open a step whose code another step's card shows above the opening of that step, with no card, its unit named in that card, J and K through both openings", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const { tree } = reviewSidebar(window)
+    const position = window.getByTestId("review-step-position")
+    const openingOf = (name: string) => window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name, exact: true }) })
+    const first = openingOf("Step 1 · the manager drops the hooks nothing sets")
+    const second = openingOf("Step 2 · the open keeps a stored layout")
+
+    // step 1 removed the hooks, whose block the rule of step 2 holds: its opening stands right above the opening of
+    // step 2, one layer above the card of Manager.kt, and its facts say where its change is shown
+    const layer = window.getByTestId("diff-view-opening").filter({ has: first })
+    await expect(layer.getByTestId("review-opening")).toHaveCount(2)
+    await expect(layer.getByTestId("review-opening-title")).toHaveText(["the manager drops the hooks nothing sets", "the open keeps a stored layout"])
+    await expect(layer).toHaveAttribute("data-section", "file:src/a/Manager.kt")
+    await expect(first.getByTestId("review-opening-facts")).toHaveText("Removes hooks, shown in step 2")
+    const manager = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]')
+    await expect(manager).toHaveCount(1)
+    // its tree lists Manager.kt "also in" it, its own row in step 2
+    const also = tree.getByRole("treeitem", { name: "src/a/Manager.kt, also in 1 · the manager drops the hooks nothing sets", exact: true })
+    await expect(also.getByTestId("review-also-home")).toHaveText("in step 2")
+
+    // the row of step 1 shows its opening at the top: the bar and the tree follow it
+    await tree.getByRole("treeitem", { name: "1 · the manager drops the hooks nothing sets", exact: true }).click()
+    await expect(position).toHaveText("Step 1 / 4")
+    await expect.poll(() => topOf(first.getByTestId("review-concern-heading"))).toBe(10)
+    // J goes from it to the opening of step 2, then to its card; K back the same way, then to the overview
+    await window.keyboard.press("j")
+    await expect(position).toHaveText("Step 2 / 4")
+    await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
+    await window.keyboard.press("j")
+    await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+    // the card of step 2 names the removal after the heading of its block, marked with the step it is of
+    await expect(manager.getByTestId("diff-unit-heading").first()).toHaveText("allowed — new · hooks — removed in step 1")
+    await window.keyboard.press("k")
+    await expect(position).toHaveText("Step 2 / 4")
+    await window.keyboard.press("k")
+    await expect(position).toHaveText("Step 1 / 4")
+    await expect(tree.getByRole("treeitem", { name: "1 · the manager drops the hooks nothing sets", exact: true })).toHaveAttribute("aria-selected", "true")
+    await window.keyboard.press("k")
+    await expect(position).toHaveText("Overview")
+    // the link of the facts shows the step that shows the change
+    await first.getByTestId("review-step-shown-elsewhere").click()
+    await expect(position).toHaveText("Step 2 / 4")
+    await expect.poll(() => topOf(second.getByTestId("review-concern-heading"))).toBe(10)
+  })
+
+  test("should open a last step whose code an earlier step's card shows below the last card, from its row, the overview, the end of that card and J, K going back to the card", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // the second commit removes the focus test alone, whose line the block of the test the first adds holds
+    const test = (body: string) => `package b\n\nimport a.Manager\nimport org.junit.Test\n\nclass WelcomeTest {\n${body}}\n`
+    const focuses = "  @Test fun `the welcome focuses its project`() = check(Welcome(Manager()).focus() >= 0)\n"
+    const keeps = "\n  @Test fun `the welcome keeps the stored layout`() {\n    val welcome = Welcome(Manager())\n    val focused = welcome.focus()\n    check(focused >= 0)\n  }\n"
+    await repo.commit(
+      "(tail) the welcome test checks a stored layout\n\nThe welcome test checks that the welcome keeps the stored layout of its project.",
+      { "test/b/WelcomeTest.kt": test(focuses + keeps) },
+      1704121200,
+    )
+    await repo.commit(
+      "(tail) the welcome test drops the focus check\n\nThe check of the focus repeats the check of the layout, so it goes.",
+      { "test/b/WelcomeTest.kt": test(keeps) },
+      1704121800,
+    )
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "tail")
+    const { tree } = reviewSidebar(window)
+    const position = window.getByTestId("review-step-position")
+    const stepRow = tree.getByRole("treeitem", { name: "2 · the welcome test drops the focus check", exact: true })
+    const fileRow = tree.getByRole("treeitem", { name: "test/b/WelcomeTest.kt", exact: true })
+
+    // the last step shows no card: its opening is the epilogue of the diffs, below the last card, and its facts say
+    // where its change is shown; its tree lists the file "also in" it, its own row in step 1
+    const last = window.getByTestId("diff-view-epilogue").getByTestId("review-opening")
+    await expect(last.getByTestId("review-opening-title")).toHaveText("the welcome test drops the focus check")
+    await expect(last.getByTestId("review-step-shown-elsewhere")).toHaveText("step 1")
+    await expect(window.locator('[data-testid="diff-view-file"]')).toHaveCount(1)
+    await expect(window.getByTestId("diff-unit-heading").first()).toContainText("in step 2")
+    const also = tree.getByRole("treeitem", { name: "test/b/WelcomeTest.kt, also in 2 · the welcome test drops the focus check", exact: true })
+    await expect(also.getByTestId("review-also-home")).toHaveText("in step 1")
+
+    // its row shows its opening: the bar and the tree follow it
+    await stepRow.click()
+    await expect(position).toHaveText("Step 2 / 2")
+    await expect(last).toBeInViewport()
+    // K goes back to the card of step 1, J to the opening again, which J goes on from to nothing
+    await window.keyboard.press("k")
+    await expect(fileRow).toHaveAttribute("aria-selected", "true")
+    await expect(position).toHaveText("Step 1 / 2")
+    await window.keyboard.press("j")
+    await expect(position).toHaveText("Step 2 / 2")
+    await expect(stepRow).toHaveAttribute("aria-selected", "true")
+    await window.keyboard.press("j")
+    await expect(position).toHaveText("Step 2 / 2")
+    await expect(stepRow).toHaveAttribute("aria-selected", "true")
+    // the step of the overview shows it too
+    await window.keyboard.press("k")
+    await window.keyboard.press("k")
+    await window.keyboard.press("k")
+    await expect(position).toHaveText("Overview")
+    await window.getByTestId("review-contents-step").nth(1).getByTestId("review-contents-step-title").click()
+    await expect(position).toHaveText("Step 2 / 2")
+    await expect(stepRow).toHaveAttribute("aria-selected", "true")
+    await expect(last).toBeInViewport()
+    // the line at the end of the last card names it, and a click shows it as J does
+    await fileRow.click()
+    await expect(position).toHaveText("Step 1 / 2")
+    const end = window.getByTestId("review-card-end")
+    await expect(end).toHaveAccessibleName("Next: Step 2 · the welcome test drops the focus check")
+    await end.click()
+    await expect(position).toHaveText("Step 2 / 2")
+    await expect(stepRow).toHaveAttribute("aria-selected", "true")
   })
 
   test("should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it", async ({
@@ -224,10 +348,9 @@ test.describe("Review tour", () => {
     await expect(window.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention")).toHaveText("Manager.allowed")
 
     // back: the header of the section the body names marks it, its hover the line that names it, where it is told
-    const manager = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').nth(1)
+    const manager = window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').first()
     const mark = manager.getByTestId("review-story-mark")
     await expect(mark).toHaveCount(1)
-    await expect(window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').first().getByTestId("review-story-mark")).toHaveCount(0)
     await mark.hover()
     // a card of the story: where it is told once, then the line that names the section, its code names links, inside
     // the window
@@ -557,7 +680,7 @@ test.describe("Review tour", () => {
       "4 · the restart story checks the layout",
     ]
     const frameAlso = row("src/a/Frame.kt, also in 3 · the view paints with the first frame")
-    // the steps, each its commit, their files and the round of step 2
+    // the steps, each its commit, their files (Manager.kt also in step 1) and the round of step 2
     await expect(tree.getByRole("treeitem")).toHaveCount(13)
 
     await window.getByTestId("branch-review-owner").filter({ hasText: "Design" }).click()

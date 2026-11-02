@@ -246,7 +246,13 @@ also the prologue before the first section and the opening of each step (below).
   group and no step a divider of 32 px there (`renderDivider`, `LayoutFile.divider`). The opening of a review is its
   chapter (`ChapterOpening`, [Review Tour](../../spec/branch/review-tour.spec.md#in-the-review-window)): "Step 3"
   muted above the full title in `text-base`, which a click shows as the bar of the step does, the body of its commit,
-  the facts of the step, then the group, muted. A change of step is a wider break than a change of file, so its title
+  the facts of the step, then the group, muted. A step of no card of its own (another step's card shows all it
+  changes, or nothing of it lands) has its opening above the opening of the next step with a card, in the same layer
+  (`DiffSection.before`, each opening an element `data-opening-step`): the layer is measured whole, and the view finds
+  the opening at the top, and the one J shows, by the offsets of those elements (`visibleStop().step`). One told after
+  the last card has its opening in the epilogue, a layer below the last card and a gap (`epilogue` of `DiffView`,
+  `DiffLayout.epilogue`), an opening of the last section to J, the tree and the bar; a scroll to it brings it as far up
+  as the end of the document lets it, and the line at the end of the last card names it by its step. A change of step is a wider break than a change of file, so its title
   outranks the name of a file (a coloured name in bold outweighed black words of the same size); a group alone is one
   muted line. The prologue of a review is its overview (`ReviewPrologue`). The header names the file alone: its order is
   always the chevron, the letter, the name, the path, then the actions (the mark of a story that names the section
@@ -256,7 +262,8 @@ also the prologue before the first section and the opening of each step (below).
   `LayoutFile.footer`, `endsWithFooter`): what J shows next, "Next: **SKILL.md** .claude/skills/setup-local-rd-flow
   `J`", the file as the header of its card names it (`FilePathLabel`), so the line promises what the next header
   shows; a last folder alone read as a word ("Next: StepBar.kt review"). "Next: SKILL.md, continued" for the next
-  section of the same file, else "End of the review" (or, under an owner chip, the end of its files). It is in the band
+  section of the same file, "Next: Step 2 · Close moves to b" for the opening of a step in the epilogue below the last
+  card, else "End of the review" (or, under an owner chip, the end of its files). It is in the band
   of the header, so a long card ends as it starts, the ring's line above it unless its last row is a fold, which draws
   its own; the words that a click follows are one target, `bg-accent` on hover. The end of a long card is far from its header, so the line says where
   the file ends and what comes next; a short card needs none, and a line on every card would be noise. It is decided
@@ -280,7 +287,8 @@ also the prologue before the first section and the opening of each step (below).
   its part at the top as it is asked (`visibleStop`).
 
 **Measured: the prologue and the openings.** Every height is arithmetic but two kinds of blocks of words of a
-review: the prologue before the first section (`prologue` of `DiffView`) and the opening of each step. Their words
+review: the prologue before the first section (`prologue` of `DiffView`) and the opening of each step (of a step of no
+card after the last card, the epilogue: `epilogue` of `DiffView`). Their words
 are proportional Inter text with spans of code, links and lists that the browser wraps; a count of their lines would
 miss by a line here and there, and a miss of one line lays the opening over its card. They are few (one per step, a
 hundred on the longest range) and always mounted, outside the virtualization, each at its start among the sections
@@ -288,7 +296,7 @@ in the order of the document (`.dv-opening`), so the tab order and a screen read
 They are measured in place (`useMeasuredHeights`): one `ResizeObserver` measures a block in the frame it mounts in,
 after the layout of that frame and before its paint, and again on every change of its height (the width of the view,
 the load of a font, a disclosure, a title or a body that arrives). It sets the heights with `flushSync`, so the first
-paint already has them. Before its first measure an opening counts 32 px. The layout takes the heights as numbers (`LayoutFile.opening`, the `prologue` of `DiffLayout`), so
+paint already has them. Before its first measure an opening counts 32 px. The layout takes the heights as numbers (`LayoutFile.opening`, the `prologue` and the `epilogue` of `DiffLayout`), so
 everything below stays arithmetic: a new height is a new layout, and the painter keeps the anchor across it
 (`setModel`). Only the positions of the blocks depend on the heights, never their sizes, so a measure never asks for
 another in the same frame.
@@ -353,7 +361,8 @@ of the opening (`ScrollAnchor.opening`), so a disclosure in it grows downwards, 
 height keeps the reader where they are; an offset past the end of an opening that became lower lands at the top of
 its card. A top in the prologue, or in the space above it, keeps its offset from the top of the document
 (`PROLOGUE_KEY`), clamped to the first section; a top in the gap below the prologue is anchored to the start of the
-first section, so a scroll to it stays at it when the prologue grows. A top below the rows of a file (the line at the end of its card, its bottom border, the gap) is anchored to
+first section, so a scroll to it stays at it when the prologue grows; a top in the epilogue keeps its offset from the
+top of the epilogue (`EPILOGUE_KEY`). A top below the rows of a file (the line at the end of its card, its bottom border, the gap) is anchored to
 the start of the next section, not in the last row: a scroll to a file keeps its gap and its opening in view when the
 file above changes, and the clamp of an offset to its row (for a row that shows fewer visual lines) never moves it. After the change, the view sets `scrollTop`
 to the new offset of the same anchor, in the same task, before the paint. The browser's own anchoring is off

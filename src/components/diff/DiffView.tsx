@@ -21,7 +21,7 @@ import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
 import { findHits, hitsByLine } from "@/lib/diff/find"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
-import { DiffLayout, endsWithFooter, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
+import { DiffLayout, endsWithFooter, EPILOGUE_KEY, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutPart } from "@/lib/diff/layout"
 import { inlineParts } from "@/lib/diff/line-parts"
 import { getLineTable, lineText, maxColumns } from "@/lib/diff/line-table"
@@ -64,7 +64,7 @@ import "./diff-view.css"
  * header holds the top border of its card, a band of its own colour (diff-view.css). A section that starts a step of the
  * review plan has its opening on the canvas between the gap above its card and the card (`renderOpening`), as tall as
  * its words; one that starts a group a line of a fixed height there (`renderDivider`). A prologue may come before the
- * first section (`prologue`). A long card and the last one end with a line one row high that names what comes after it
+ * first section (`prologue`), an epilogue after the last card (`epilogue`). A long card and the last one end with a line one row high that names what comes after it
  * (`renderFooter`, `endsWithFooter`). Their own scroller hides its scrollbar for the map of the files beside it
  * (`DiffFileMap`, "The map of files").
  */
@@ -110,6 +110,11 @@ export interface DiffSection {
    * its card, its number ("Step 2") and its title ("The open keeps a stored layout")
    */
   readonly step: { readonly id: string; readonly number: string; readonly title: string } | null
+  /**
+   * The steps of no card of their own told right before `step`, in their order: each its opening above the opening of
+   * `step`, in the one layer of openings of the section (each element of it `data-opening-step` its id), J one stop each
+   */
+  readonly before?: readonly { readonly id: string; readonly number: string; readonly title: string }[]
   /** The words of the step the section is of, on every section of it: the hover of the map of the files names it */
   readonly stepHeading: string | null
   /** The blocks of the stories that name the section (`storyMarks`): its header marks it, a click shows the block */
@@ -144,10 +149,11 @@ export interface DiffViewHandle {
   /** Shows the file at the top */
   scrollToFile: (path: string) => void
   /**
-   * Shows the section of a review at the top, by its key (`DiffSection.key`): its opening (the default), or its card
-   * with the opening above the view
+   * Shows the section of a review at the top, by its key (`DiffSection.key`): its opening (the default), of a step of
+   * no card told before it (`DiffSection.before`) by its id, or its card with the opening above the view; the opening
+   * of a step in the epilogue (`DiffViewProps.epilogue`) by its id, the key of the last section
    */
-  scrollToSection: (key: string, part?: "opening" | "card") => void
+  scrollToSection: (key: string, part?: "opening" | "card", step?: string) => void
   /** Shows the prologue at the top; nothing without one */
   scrollToPrologue: () => void
   /**
@@ -157,10 +163,10 @@ export interface DiffViewHandle {
    */
   moveChange: (direction: 1 | -1, accept?: (path: string) => boolean) => string | undefined
   /**
-   * The section at the top and its part there: the one the view showed last, or the one scrolled to
-   * (`onVisibleSectionChange`); undefined without files
+   * The section at the top and its part there, at its opening the step whose opening it is: the one the view showed
+   * last, or the one scrolled to (`onVisibleSectionChange`); undefined without files
    */
-  visibleStop: () => { key: string; part: LayoutPart } | undefined
+  visibleStop: () => { key: string; part: LayoutPart; step?: string } | undefined
   focus: () => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
@@ -200,7 +206,7 @@ export interface DiffViewProps {
    * key; and its part at the top then, its opening or its card, or the prologue above the first section. Told as the
    * section or its part changes
    */
-  onVisibleSectionChange?: (key: string, path: string, part: LayoutPart) => void
+  onVisibleSectionChange?: (key: string, path: string, part: LayoutPart, step?: string) => void
   /** The rows of the first screen are painted with their texts, and highlighted or 80 ms late */
   onFirstScreen?: () => void
   /**
@@ -223,6 +229,12 @@ export interface DiffViewProps {
    * its content (measured in place), the space above the cards above it and a gap below it
    */
   prologue?: ReactNode
+  /**
+   * What comes after the last card, with the headers only: the openings of the steps of no card told after it, each an
+   * element `data-opening-step` of its step; always mounted, as tall as its content (measured in place), a gap above it
+   * and the space below the cards below it. An opening of the last section to the view, J and the tree
+   */
+  epilogue?: ReactNode
   /**
    * The opening on the canvas above the card of a section that starts a step (`DiffSection.step`), with the headers
    * only: always mounted, as tall as its content (measured in place); without it no section has one
@@ -429,6 +441,7 @@ export function DiffView({
   onFirstScreen,
   renderHeader,
   prologue,
+  epilogue,
   renderOpening,
   renderDivider,
   renderFooter,
@@ -466,8 +479,12 @@ export function DiffView({
   // the section at the top: of a file its path, of a section of a review its key; and its part at the top
   const visibleKey = useRef<string | undefined>(files[0] === undefined ? undefined : keyOf(files[0]))
   const visiblePart = useRef<LayoutPart>("card")
+  // at the opening of a section, the step whose opening is at the top: of the steps told before it, or its own
+  const visibleStep = useRef<string | undefined>(undefined)
   // the prologue and the openings of the steps: their heights, measured in place
   const { heights: measured, measure } = useMeasuredHeights()
+  // the epilogue, whose openings J and the tree show
+  const epilogueElement = useRef<HTMLDivElement | null>(null)
   // the block of changed lines N and P stepped to last, in the section at the top
   const changeCursor = useRef<{ key: string; index: number } | null>(null)
   const [painter] = useState(() => new DiffPainter(EMPTY_CALLBACKS, getHighlightClientOrNull, () => blobTextsStore.getState().byId))
@@ -543,6 +560,7 @@ export function DiffView({
   const opens = cards && renderOpening !== undefined
   const divides = cards && renderDivider !== undefined
   const prologued = cards && prologue !== undefined && prologue !== null
+  const epilogued = cards && epilogue !== undefined && epilogue !== null
   const layout = useMemo(
     () =>
       new DiffLayout(
@@ -560,8 +578,9 @@ export function DiffView({
         }),
         { rowHeight: metrics.rowHeight, headerHeight, cards: cards ? { gap: CARD_GAP, padding: CARD_GAP, borderBottom: CARD_BORDER, divider: CARD_DIVIDER } : undefined },
         prologued ? (measured.get(PROLOGUE_KEY) ?? 0) : 0,
+        epilogued ? (measured.get(EPILOGUE_KEY) ?? 0) : 0,
       ),
-    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, measured, footers],
+    [prepared, visualLines, metrics, headerHeight, notices, cards, opens, divides, prologued, epilogued, measured, footers],
   )
 
   // the sections as the map of the files shows them: where a step starts, which files the chip plays down
@@ -732,15 +751,61 @@ export function DiffView({
       return next
     })
 
-  /** Shows the section at `index` at the top, its opening (none: its card) or its card, N and P from its top */
-  const showSection = (index: number, part: "opening" | "card" = "opening") => {
+  /**
+   * Shows the section at `index` at the top, its opening (none: its card) or its card, N and P from its top; the opening
+   * of `step` in the epilogue as far up as the end of the document lets it
+   */
+  const showSection = (index: number, part: "opening" | "card" = "opening", step?: string) => {
     const file = prepared[index]!
     changeCursor.current = { key: file.key, index: -1 }
+    const ending = part === "opening" && step !== undefined ? epilogueElements().find(element => element.dataset.openingStep === step) : undefined
+    if (ending !== undefined) {
+      visibleKey.current = file.key
+      visiblePart.current = "opening"
+      visibleStep.current = step
+      visiblePath.current = file.path
+      painter.scrollTo(Math.max(layout.epilogueTop + ending.offsetTop - layout.stickyTop, 0))
+      fileMap.current?.sync()
+      return
+    }
     visibleKey.current = file.key
     visiblePart.current = part === "opening" && layout.files[index]!.opening !== undefined ? "opening" : "card"
+    visibleStep.current = visiblePart.current === "opening" ? (step ?? file.section?.before?.[0]?.id ?? file.section?.step?.id) : undefined
     visiblePath.current = file.path
-    painter.scrollTo(part === "opening" ? layout.fileTop(index) : layout.cardTop(index))
+    painter.scrollTo(part === "opening" ? layout.fileTop(index) + openingOffset(file, step) : layout.cardTop(index))
     fileMap.current?.sync()
+  }
+
+  /** The element of the opening of `step` in the layer of openings of a section, of the steps told before its own */
+  const openingElements = (file: PreparedFile): HTMLElement[] =>
+    file.section?.before === undefined || file.section.before.length === 0
+      ? []
+      : [...(scroller.current?.querySelector(`[data-measure="${CSS.escape(file.key)}"]`)?.querySelectorAll<HTMLElement>("[data-opening-step]") ?? [])]
+  /** Where the opening of `step` lies in the layer of openings of its section: 0 for the first, and without `step` */
+  const openingOffset = (file: PreparedFile, step: string | undefined): number =>
+    step === undefined ? 0 : (openingElements(file).find(element => element.dataset.openingStep === step)?.offsetTop ?? 0)
+  /** The openings of the epilogue, each the element of its step */
+  const epilogueElements = (): HTMLElement[] => [...(epilogueElement.current?.querySelectorAll<HTMLElement>("[data-opening-step]") ?? [])]
+  /**
+   * The step whose opening is at `y` of the document in the layer of openings of the section of `index`, of the epilogue
+   * below the last card
+   */
+  const openingStepAt = (index: number, y: number): string | undefined => {
+    const file = prepared[index]
+    const ending = layout.epilogue > 0 && y >= layout.epilogueTop
+    let found = ending ? undefined : file?.section?.step?.id
+    if (file === undefined) {
+      return found
+    }
+    const offset = y - (ending ? layout.epilogueTop : layout.sectionStart(index))
+    for (const element of ending ? epilogueElements() : openingElements(file)) {
+      if (element.offsetTop <= offset) {
+        found = element.dataset.openingStep
+      } else {
+        break
+      }
+    }
+    return found
   }
 
   /** Shows the prologue at the top, the section of `file` (the first) the one it is above */
@@ -748,6 +813,7 @@ export function DiffView({
     changeCursor.current = null
     visibleKey.current = file.key
     visiblePart.current = "prologue"
+    visibleStep.current = undefined
     painter.scrollTo(0)
     fileMap.current?.sync()
   }
@@ -769,7 +835,7 @@ export function DiffView({
     } else {
       showSection(index)
     }
-    onVisibleSectionChange?.(file.key, file.path, visiblePart.current)
+    onVisibleSectionChange?.(file.key, file.path, visiblePart.current, visibleStep.current)
     onVisibleFileChange?.(file.path)
   }
 
@@ -795,16 +861,19 @@ export function DiffView({
         const shown = part !== "prologue" && cursor >= index && cursor <= bottom ? cursor : index
         const file = prepared[shown]
         const shownPart = shown === index ? part : "card"
+        // at a layer of openings of several steps, the one at the top
+        const step = shownPart === "opening" && element !== null ? openingStepAt(shown, element.scrollTop + layout.stickyTop + headerHeight / 2) : undefined
         // another section, or another part of it: the tree selects the row of a step at its opening, of a file at its
         // card, and keeps its row at the prologue
-        if (file !== undefined && (file.key !== visibleKey.current || shownPart !== visiblePart.current)) {
+        if (file !== undefined && (file.key !== visibleKey.current || shownPart !== visiblePart.current || step !== visibleStep.current)) {
           // the user scrolled into another section: N starts from its top
           if (file.key !== visibleKey.current && changeCursor.current?.key !== file.key) {
             changeCursor.current = null
           }
           visibleKey.current = file.key
           visiblePart.current = shownPart
-          onVisibleSectionChange?.(file.key, file.path, shownPart)
+          visibleStep.current = step
+          onVisibleSectionChange?.(file.key, file.path, shownPart, step)
         }
         if (file !== undefined && file.path !== visiblePath.current) {
           visiblePath.current = file.path
@@ -1085,10 +1154,10 @@ export function DiffView({
         showSection(index)
       }
     },
-    scrollToSection: (key, part) => {
+    scrollToSection: (key, part, step) => {
       const index = prepared.findIndex(file => file.key === key)
       if (index >= 0) {
-        showSection(index, part)
+        showSection(index, part, step)
       }
     },
     moveChange: (direction, accept) => {
@@ -1114,6 +1183,7 @@ export function DiffView({
           changeCursor.current = { key, index: clamped }
           visibleKey.current = key
           visiblePart.current = "card"
+          visibleStep.current = undefined
           visiblePath.current = path
           scrollToChange(fileIndex, target)
           fileMap.current?.sync()
@@ -1130,7 +1200,10 @@ export function DiffView({
         showPrologue(file)
       }
     },
-    visibleStop: () => (visibleKey.current === undefined ? undefined : { key: visibleKey.current, part: visiblePart.current }),
+    visibleStop: () =>
+      visibleKey.current === undefined
+        ? undefined
+        : { key: visibleKey.current, part: visiblePart.current, ...(visiblePart.current === "opening" && visibleStep.current !== undefined && { step: visibleStep.current }) },
     focus: () => scroller.current?.focus(),
     revealDeclaration: (place, from) => {
       if (sectionOf(prepared, place.path) < 0) {
@@ -1204,6 +1277,23 @@ export function DiffView({
     if (section !== undefined) {
       content.push(section)
     }
+  }
+  if (epilogued) {
+    content.push(
+      <div
+        key={EPILOGUE_KEY}
+        ref={element => {
+          epilogueElement.current = element
+          return measure(element)
+        }}
+        className="dv-opening"
+        data-testid="diff-view-epilogue"
+        data-measure={EPILOGUE_KEY}
+        style={{ top: layout.epilogueTop }}
+      >
+        {epilogue}
+      </div>,
+    )
   }
 
   // the divider of Split, as IntelliJ's DiffSplitter: the line between the halves of a row, 4 px to each side of it

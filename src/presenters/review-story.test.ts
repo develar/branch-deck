@@ -145,6 +145,44 @@ describe("the document of a review", () => {
     )
     // by its step, the title of the commit in the hover: a subject inside the sentence would not read
     expect([tookOut.line, tookOut.takenOutBy]).toEqual([null, { words: "step 1", title: "the paint", step: "b" }])
+    // a step whose units another step's section shows lands them there: it says what it does to them and where
+    const unitOf = (id: string, kind: ReviewUnit["kind"], name: string): ReviewUnit => ({
+      id,
+      kind,
+      name,
+      key: name,
+      signature: "",
+      api: false,
+      test: false,
+      line: 3,
+      slices: [],
+      fingerprint: id,
+    })
+    const shown = presentStepFacts(
+      step(
+        "h",
+        [commit("drop the hooks")],
+        [],
+        {},
+        {
+          shownElsewhere: [
+            { unit: "u:hooks", step: 1 },
+            { unit: "u:flags", step: 1 },
+            { unit: "u:passes", step: 0 },
+          ],
+        },
+      ),
+      plan([step("h", [commit("drop the hooks")], []), step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]])], [], {
+        units: [unitOf("u:hooks", { kind: "removed" }, "hooks"), unitOf("u:flags", { kind: "removed" }, "flags"), unitOf("u:passes", { kind: "added" }, "passes")],
+      }),
+    )
+    expect([shown.line, shown.shownElsewhere.map(it => [`${it.words} ${it.step}`, it.stepId])]).toEqual([
+      null,
+      [
+        ["Removes hooks, flags, shown in step 2", "b"],
+        ["Adds passes, shown in step 1", "h"],
+      ],
+    ])
     // where the author asks the reviewer to decide, in the contents too: its question alone, the opening tells the rest
     expect(view.steps[0]!.lookClosely.map(({ part }) => [part.head?.block.type === "label" && part.head.block.text, part.blocks.map(it => it.block)])).toEqual([
       ["Look closely", [paragraph("Is a stored layout enough?")]],

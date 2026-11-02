@@ -3601,6 +3601,22 @@ export type IssueNavigationLink = {
 };
 
 /**
+ *  A declaration without a block of its own that a stop shows (`StepStop::joined`): of one side, its lines in a block
+ *  of the stop's unit
+ */
+export type JoinedUnit = {
+	/**  `ReviewUnit::id` */
+	unit: string,
+	/**  The block of the stop's slice that holds the line of its name, by its index */
+	block: number,
+	/**
+	 *  The step it is of, by its place in `ReviewSteps::steps`: the step that wrote it, which may be another than the
+	 *  stop's
+	 */
+	step: number,
+};
+
+/**
  *  One operation of the remote that ended, as the journal of its repository keeps it (`operations::journal`,
  *  `$GIT_COMMON_DIR/branch-deck/journal.jsonl`): of the app and of every `bd`, one line each; or what became of a start
  *  whose answer was lost (`transition`), under the id of that start
@@ -6768,7 +6784,10 @@ export type ReviewStep = {
 	concern: string | null,
 	/**  What the step shows, in its order */
 	stops: StepStop[],
-	/**  The files of its stops, each once, in the order of its stops */
+	/**
+	 *  The files of its stops, each once, in the order of its stops, then the files of its units another step's stop
+	 *  shows (`shown_elsewhere`), whose main row is that step's
+	 */
 	paths: string[],
 	/**
 	 *  Its files whose main row, in the tree of the review, is another step's: of the steps of a file, the one whose
@@ -6778,7 +6797,8 @@ export type ReviewStep = {
 	tests: StepTests,
 	/**
 	 *  The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
-	 *  first step whose stops show it
+	 *  first step whose stops show it; one a stop of another step shows beside its own (`StepStop::joined`) in the step
+	 *  that wrote it
 	 */
 	newApi: string[],
 	/**
@@ -6803,6 +6823,11 @@ export type ReviewStep = {
 	 *  its id; `None` for a step that shows something
 	 */
 	takenOutBy: string | null,
+	/**
+	 *  Its units another step's stop shows (`StepStop::joined` there), each with that step: no stop of its own shows them,
+	 *  so its facts name them ("Removes hooks, shown in step 2")
+	 */
+	shownElsewhere: ShownElsewhere[],
 };
 
 /**  The steps of a review */
@@ -7488,6 +7513,14 @@ export type Share = {
 	total: number,
 };
 
+/**  A unit of a step that a stop of another step shows (`ReviewStep::shown_elsewhere`) */
+export type ShownElsewhere = {
+	/**  `ReviewUnit::id` */
+	unit: string,
+	/**  The step whose stop shows it, by its place in `ReviewSteps::steps` */
+	step: number,
+};
+
 /**  A value of each of the three sides of a merge */
 export type Sides<T> = {
 	left: T,
@@ -8141,6 +8174,11 @@ export type StepStop = {
 	also: number[],
 	/**  The concern of its unit, when the step holds parts of two concerns or more that evidence joined */
 	concern: string | null,
+	/**
+	 *  The units it shows beside its own: each declaration without a block of its own whose name is on a line of a block
+	 *  it shows, with the step it is of, another step's too (its heading says so where the stop shows it)
+	 */
+	joined: JoinedUnit[],
 };
 
 /**  The tests that reach the code of a step */
