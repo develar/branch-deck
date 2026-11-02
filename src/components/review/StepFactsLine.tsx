@@ -1,16 +1,17 @@
 import { Fragment } from "react"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
-import type { FactPlace, StepFacts } from "@/presenters/review-story"
+import type { FactList, StepFacts } from "@/presenters/review-story"
 
 /**
  * The facts of a step in one muted line (spec/branch/review-tour.spec.md, "In the Review Window"): the tests that reach
- * its code, "New API: Cache, Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its place
- * in the diffs (a declaration, the first use of a link), its file selected; of a step none of whose code lands, the
- * commit that took it out, which shows its step; its units the section of another step shows, which shows that step;
- * nothing without a fact
+ * its code, "New API: Cache and Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its
+ * place in the diffs (a declaration, the first use of a link), its file selected, a list the contents cut ending with
+ * the count of the rest ("Cache, Reader, Store and 16 more"); of a step none of whose code lands, the commit that took
+ * it out, which shows its step; its units the section of another step shows, which shows that step; nothing without a
+ * fact
  */
 export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: string }) {
-  if (facts.line === null && facts.newApi.length === 0 && facts.moduleLinks.length === 0 && facts.takenOutBy === null && facts.shownElsewhere.length === 0) {
+  if (facts.line === null && facts.newApi.places.length === 0 && facts.moduleLinks.places.length === 0 && facts.takenOutBy === null && facts.shownElsewhere.length === 0) {
     return null
   }
   const parts = [
@@ -19,8 +20,17 @@ export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: str
     ...facts.shownElsewhere.map(shown => (
       <StepLink key={`shown:${shown.key}`} before={`${shown.words} `} words={shown.step} step={shown.stepId} title={null} testId="review-step-shown-elsewhere" />
     )),
-    ...(facts.newApi.length === 0 ? [] : [<FactPlaces key="api" title="New API:" places={facts.newApi} testId="review-step-new-api" />]),
-    ...(facts.moduleLinks.length === 0 ? [] : [<FactPlaces key="links" title="New link between modules:" places={facts.moduleLinks} testId="review-step-module-link" />]),
+    ...(facts.newApi.places.length === 0 ? [] : [<FactPlaces key="api" title="New API:" list={facts.newApi} testId="review-step-new-api" />]),
+    ...(facts.moduleLinks.places.length === 0
+      ? []
+      : [
+          <FactPlaces
+            key="links"
+            title={facts.moduleLinks.places.length + facts.moduleLinks.more === 1 ? "New link between modules:" : "New links between modules:"}
+            list={facts.moduleLinks}
+            testId="review-step-module-link"
+          />,
+        ]),
   ]
   return (
     <span className="max-w-prose text-xs text-muted-foreground" data-testid={testId}>
@@ -34,14 +44,15 @@ export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: str
   )
 }
 
-function FactPlaces({ title, places, testId }: { title: string; places: readonly FactPlace[]; testId: string }) {
+/** The names of a fact, a list in a sentence as `joinNames` writes one: "a, b and c", "a, b, c and 16 more" */
+function FactPlaces({ title, list: { places, more }, testId }: { title: string; list: FactList; testId: string }) {
   const navigator = useSelectReviewFile()
   return (
     <span>
       {title}
       {places.map((fact, index) => (
         <Fragment key={fact.key}>
-          {index > 0 ? ", " : " "}
+          {index === 0 ? " " : index === places.length - 1 && more === 0 ? " and " : ", "}
           <button
             type="button"
             // a declaration is code, as the story sets its names; a link between modules names its files
@@ -55,6 +66,7 @@ function FactPlaces({ title, places, testId }: { title: string; places: readonly
           </button>
         </Fragment>
       ))}
+      {more > 0 && ` and ${more} more`}
     </span>
   )
 }

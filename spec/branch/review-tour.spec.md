@@ -292,10 +292,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one short line: how
   many of the declarations of its code a test reaches ("Tests reach 2 of 3 declarations", "Tests reach all 2
   declarations"; which tests and which code, the change's and the others, the opening names), "Proven by …", "New API:
-  Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place; a step accio answered for
-  whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
-  calls" when the walk stopped with callers left, else "No test reaches paint"); a list of names in the facts names up
-  to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`); and each
+  Cache and Reader", "New link between modules: Reader.kt → Cache.kt", each name showing its place; a step accio
+  answered for whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint
+  within 3 calls" when the walk stopped with callers left, else "No test reaches paint"); a list of names in the facts
+  names up to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`), the
+  new API and the new links between modules too ("New API: Cache, Reader, Store and 16 more", each name its place),
+  which the opening names whole; and each
   "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
   tells the rest. Steps of the concerns and of the message say why, a muted line right under the count of the steps
@@ -311,6 +313,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - The opening of a step (`ChapterOpening`) must be a card of prose a gap above the card of its first section (each
   opening of a layer its own card), as tall as its words (the diffs measure it): "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows

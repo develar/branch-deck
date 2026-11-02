@@ -16,7 +16,7 @@ import type {
 } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
-import { joinNames } from "@/lib/text"
+import { cutList, joinNames } from "@/lib/text"
 import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
 import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 import type { EvidencePart } from "@/presenters/review-concerns"
@@ -207,14 +207,24 @@ export interface FactPlace {
   readonly place: ReviewPlace
 }
 
+/**
+ * The names of a fact of a step, each at its place, and how many more it has than it names: the contents cut a long
+ * list as every list is ("Cache, Reader, Store and 16 more", `cutList`), the opening names them all
+ */
+export interface FactList {
+  readonly places: readonly FactPlace[]
+  /** Its names left out of `places`; 0 for a list named whole */
+  readonly more: number
+}
+
 /** "Tests of this change reach allowed", "Proven by restart.json": the facts of a step, and its warning (`presentStepFacts`) */
 export interface StepFacts {
   /** The tests that reach its code and that nothing of it lands, apart in one line; null for none */
   readonly line: string | null
   /** The public declarations it adds ("New API:"), each at its declaration */
-  readonly newApi: readonly FactPlace[]
+  readonly newApi: FactList
   /** The links it adds between two modules ("New link between modules:"), each at its first use */
-  readonly moduleLinks: readonly FactPlace[]
+  readonly moduleLinks: FactList
   /**
    * Of a step none of whose code lands, the step of the later commit that took it out ("Nothing of it lands: step 5
    * took it out"): its words, the title of that commit in their hover, and the id of the step, which a click shows; null
@@ -235,6 +245,9 @@ export interface StepFacts {
 
 /** The names of a list in a sentence (`joinNames`): "run and create", "run, create, open and 2 more" */
 const names = joinNames
+
+/** The places of a list of facts the contents name before the count of the rest, as `joinNames` does */
+const NAMED_FACTS = 3
 
 /** The name of a file of a path: its last part */
 function fileName(path: string): string {
@@ -259,8 +272,8 @@ function formatReach(reached: number, total: number): string {
  * The facts of `step` (`StepFacts`): its code the tests of the change reach, the tests it did not touch that reach its
  * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
  * the links it adds between modules, and that nothing of it lands. In the contents (`form`) the tests are one count of
- * its declarations they reach, whose names wait for its opening; the warning of a step no test reaches names its code
- * in both
+ * its declarations they reach, and a long list of the new API or of the new links its first names and the count of
+ * the rest (`cutList`); the opening names them all. The warning of a step no test reaches names its code in both
  */
 export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "units">, form: FactsForm = "opening"): StepFacts {
   const { answered, reached, unreached, scenarios } = step.tests
@@ -296,10 +309,15 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
     none !== null && (contents ? reached.length === 0 && scenarios.length > 0 : reached.length > 0 || scenarios.length > 0) ? none : null,
     step.stops.length === 0 && step.shownElsewhere.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
   ].filter(part => part !== null)
+  // the contents name a long list as every list does: the opening names it whole
+  const list = (places: readonly FactPlace[]): FactList => {
+    const { shown, more } = contents ? cutList(places, NAMED_FACTS) : { shown: places, more: 0 }
+    return { places: shown, more }
+  }
   return {
     line: parts.length === 0 ? null : parts.join(" · "),
-    newApi: added,
-    moduleLinks: links,
+    newApi: list(added),
+    moduleLinks: list(links),
     takenOutBy,
     shownElsewhere,
     unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
@@ -556,15 +574,16 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
 function rangeFacts(plan: ReviewPlan): StepFacts | null {
   const all = plan.steps.steps.map(step => presentStepFacts(step, plan))
   const lines = all.flatMap(facts => (facts.line === null ? [] : [facts.line]))
+  // no step opens: every name is here
   const facts = {
     line: lines.length === 0 ? null : lines.join(" · "),
-    newApi: all.flatMap(it => it.newApi),
-    moduleLinks: all.flatMap(it => it.moduleLinks),
+    newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
+    moduleLinks: { places: all.flatMap(it => it.moduleLinks.places), more: 0 },
     takenOutBy: null,
     shownElsewhere: [],
     unproven: null,
   }
-  return facts.line === null && facts.newApi.length === 0 && facts.moduleLinks.length === 0 ? null : facts
+  return facts.line === null && facts.newApi.places.length === 0 && facts.moduleLinks.places.length === 0 ? null : facts
 }
 
 /** A commit of a step after the one that starts it, in its opening: one row each, the same form */

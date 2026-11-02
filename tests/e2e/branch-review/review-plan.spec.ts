@@ -197,11 +197,12 @@ test.describe("The review plan in the branch review", () => {
 
     // an entry selects its file and shows its declaration, the name selected
     await showHelperDeclaration(window, helper, store)
-    // the new API is a fact of the step that adds it, each name at its declaration
+    // the new API is a fact of the step that adds it, each name at its declaration, a list as every list is
     const newApi = overview.getByTestId("review-step-new-api")
     await expect
       .poll(() => newApi.evaluateAll(names => names.map(name => `${name.textContent}:${name.getAttribute("data-path")}`)))
       .toEqual(["Reader:src/a/Reader.kt", "Cache:src/b/Cache.kt"])
+    await expect(overview.getByText("New API: Reader and Cache", { exact: true })).toBeVisible()
     await newApi.filter({ hasText: "Cache" }).click()
     await expect(cache).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "Cache", path: "src/b/Cache.kt" })

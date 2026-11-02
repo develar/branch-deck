@@ -165,6 +165,36 @@ describe("the document of a review", () => {
     const rule = step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], ruleTests)
     expect(presentStepFacts(rule, plan([rule], [])).line).toBe("Tests of this change reach allowed · 2 tests it did not touch reach allowed and focus · No test reaches show")
     expect(presentStepFacts({ ...rule, tests: { ...rule.tests, unreached: [] } }, plan([rule], []), "contents").line).toBe("Tests reach all 2 declarations")
+    // the new API in the contents a list as every list: four whole, from five the first three and the count; the opening
+    // names it all
+    const added = (name: string): ReviewPlan["api"][number] => ({
+      path: `src/a/${name}.kt`,
+      line: 3,
+      name,
+      key: `a.${name}`,
+      kind: "added",
+      changes: [],
+      before: null,
+      after: null,
+      usages: null,
+    })
+    const apiOf = (count: number) => {
+      const api = ["Cache", "Reader", "Store", "Index", "Lock"].slice(0, count).map(added)
+      const adding = { ...rule, newApi: api.map(it => it.key) }
+      const of = (form: "contents" | "opening") => {
+        const { places, more } = presentStepFacts(adding, { ...plan([adding], []), api }, form).newApi
+        return [places.map(it => it.label), more]
+      }
+      return [of("contents"), of("opening")]
+    }
+    expect(apiOf(4)).toEqual([
+      [["Cache", "Reader", "Store", "Index"], 0],
+      [["Cache", "Reader", "Store", "Index"], 0],
+    ])
+    expect(apiOf(5)).toEqual([
+      [["Cache", "Reader", "Store"], 2],
+      [["Cache", "Reader", "Store", "Index", "Lock"], 0],
+    ])
     // a step none of whose code lands names the commit that took it out, which shows its step
     const tookOut = presentStepFacts(
       step("d", [commit("the try")], [], {}, { takenOutBy: "the paint" }),
@@ -423,9 +453,9 @@ describe("the document of a review", () => {
       ["Without a story", "wip", null],
     ])
     // a changed declaration is no new API
-    expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleLinks.map(({ label, place }) => [label, place])]).toEqual([
+    expect([rule.facts.line, rule.facts.newApi, rule.facts.moduleLinks.places.map(({ label, place }) => [label, place])]).toEqual([
       null,
-      [{ key: "a.Cache:src/a/Cache.kt:3", label: "Cache", place: { path: "src/a/Cache.kt", side: "new", line: 3, name: "Cache" } }],
+      { places: [{ key: "a.Cache:src/a/Cache.kt:3", label: "Cache", place: { path: "src/a/Cache.kt", side: "new", line: 3, name: "Cache" } }], more: 0 },
       // at its first use, in the file that uses
       [["Reader.kt → Cache.kt", { path: "src/a/Reader.kt", side: "new", line: 3, name: "Cache" }]],
     ])
