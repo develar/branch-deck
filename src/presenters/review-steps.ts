@@ -130,6 +130,37 @@ export interface CommitPlaces<T> {
 }
 
 /** The same commit by two ids, one maybe short: the plan names a commit as its input did */
+/**
+ * The titles Rust gives the commits the steps of a plan list (`StepCommit.title`: the subject without its `(prefix)` and
+ * the issue key of the brief), by id, added to `known`: a list of the commits (the commit column, the rail of a pull
+ * request) names each commit as the tree and the openings do, also while it shows the plan of one commit alone. `known`
+ * itself when the steps tell no new title
+ */
+export function withCommitTitles(known: ReadonlyMap<string, string>, steps: readonly Pick<ReviewStep, "commits">[]): ReadonlyMap<string, string> {
+  let titles: Map<string, string> | null = null
+  for (const commit of steps.flatMap(step => step.commits)) {
+    if (known.get(commit.id) !== commit.title && titles?.get(commit.id) !== commit.title) {
+      titles ??= new Map(known)
+      titles.set(commit.id, commit.title)
+    }
+  }
+  return titles ?? known
+}
+
+/** The title of `id` among `titles` (`withCommitTitles`), a short id or a full one alike */
+export function commitTitleOf(titles: ReadonlyMap<string, string>, id: string): string | undefined {
+  const exact = titles.get(id)
+  if (exact !== undefined) {
+    return exact
+  }
+  for (const [known, title] of titles) {
+    if (sameCommit(known, id)) {
+      return title
+    }
+  }
+  return undefined
+}
+
 function sameCommit(a: string, b: string): boolean {
   return a.length > 0 && b.length > 0 && (a.startsWith(b) || b.startsWith(a))
 }

@@ -19,6 +19,7 @@ import { isSingleCommit, storyCommits } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { ReviewPosition } from "@/lib/review-position"
+import { commitTitleOf, withCommitTitles } from "@/presenters/review-steps"
 
 export interface RangeReviewProps {
   /** The scopes, then the commits newest first */
@@ -29,6 +30,8 @@ export interface RangeReviewProps {
   /** What the shown item diffs: the range of a scope, or the commit */
   subject: DiffSubject
   initialPath: string | null
+  /** A link of the Overview tab that opened the changes, followed once they are read */
+  initialLink?: CommitReviewProps["initialLink"]
   onPositionChange: (position: ReviewPosition) => void
   /** The files of the chosen owner chip, marked in the whole story */
   ownerMarks?: CommitReviewProps["ownerMarks"]
@@ -66,6 +69,7 @@ export function RangeReview({
   onSelect,
   subject,
   initialPath,
+  initialLink = null,
   onPositionChange,
   ownerMarks,
   fileOwners,
@@ -78,6 +82,12 @@ export function RangeReview({
   planHeadline = true,
   planLead = null,
 }: RangeReviewProps) {
+  // the title Rust gives each commit, as the tree and the openings name it; kept while a commit is shown alone
+  const [titles, setTitles] = useState<ReadonlyMap<string, string>>(NO_TITLES)
+  const toldTitles = reviewFacts == null ? titles : withCommitTitles(titles, reviewFacts.steps.steps)
+  if (toldTitles !== titles) {
+    setTitles(toldTitles)
+  }
   const single = isSingleCommit(items)
   const shown = single ? items.find(item => item.kind === "commit") : items.find(item => item.key === selected)
   const index = items.findIndex(item => item.key === selected)
@@ -106,6 +116,7 @@ export function RangeReview({
       <CommitReview
         subject={subject}
         initialPath={initialPath}
+        initialLink={initialLink}
         onPositionChange={onPositionChange}
         ownerMarks={ownerMarks}
         fileOwners={fileOwners}
@@ -120,6 +131,7 @@ export function RangeReview({
                   selected={selected}
                   onSelect={onSelect}
                   commitMenu={commitMenu}
+                  titles={toldTitles}
                 />
               )
         }
@@ -152,11 +164,14 @@ function CommitColumn({
   selected,
   onSelect,
   commitMenu,
+  titles,
 }: {
   items: readonly RangeReviewItem[]
   selected: string
   onSelect: (key: string) => void
   commitMenu: RangeReviewProps["commitMenu"]
+  /** The title Rust gives each commit (`withCommitTitles`); its subject without one */
+  titles: ReadonlyMap<string, string>
 }) {
   const index = items.findIndex(item => item.key === selected)
   const shown = items[index]
@@ -201,6 +216,7 @@ function CommitColumn({
             selected={item.key === selected}
             onSelect={onSelect}
             commitMenu={commitMenu}
+            title={item.kind === "commit" ? commitTitleOf(titles, item.commit.id) : undefined}
             card={{
               open: card?.key === item.key,
               openedByKey: card?.key === item.key && card.byKey,
@@ -223,12 +239,15 @@ function ColumnItem({
   selected,
   onSelect,
   commitMenu,
+  title,
   card,
 }: {
   item: RangeReviewItem
   selected: boolean
   onSelect: (key: string) => void
   commitMenu: RangeReviewProps["commitMenu"]
+  /** The title of a commit, as the tree names it */
+  title: string | undefined
   /** The card of a commit with a body: one open at a time in the column */
   card: RowCardState
 }) {
@@ -282,6 +301,7 @@ function ColumnItem({
           <span className="flex min-w-0 flex-1 flex-col">
             <CommitRow
               subject={item.commit.subject}
+              title={title}
               hash={item.commit.id}
               facts={{ since: item.since, branch: item.branch }}
               card={
@@ -309,6 +329,8 @@ function withCommitMenu(commit: ReviewCommit, commitMenu: RangeReviewProps["comm
 function CommitMenu({ commit, commitMenu }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]> }) {
   return <MoreActionsMenu name={formatShortHash(commit.id)} menu={() => commitMenu(commit)} />
 }
+
+const NO_TITLES: ReadonlyMap<string, string> = new Map()
 
 function optionId(key: string): string {
   return `review-commit-${key}`

@@ -385,8 +385,8 @@ describe("the document of a review", () => {
     // a declaration by the heading of its unit, its line and its step, shown with its name; a file by its path; a name
     // that resolves nothing has no place
     const view = presentStory(rule, undefined, mentionWords(whole))
-    expect(view.mentions.map(it => [it.text, it.title, it.place])).toEqual([
-      ["Manager.allowed", "allowed — new · Manager.kt:6 · step 2", { path: "src/a/Manager.kt", side: "new", line: 6, name: "allowed" }],
+    expect(view.mentions.map(it => [it.text, it.description, it.place])).toEqual([
+      ["Manager.allowed", "New · Manager.kt:6 · in step 2", { path: "src/a/Manager.kt", side: "new", line: 6, name: "allowed" }],
       ["Layout", null, null],
       ["Frame.kt", "src/a/Frame.kt", { path: "src/a/Frame.kt", side: "new", line: null, name: null }],
     ])
@@ -398,8 +398,15 @@ describe("the document of a review", () => {
       mentionWords({ units: [fresh] })({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read"),
     ).toEqual({
       place: { path: "src/a/LayoutStore.kt", side: "new", line: 4, name: "read" },
-      title: "LayoutStore.read · LayoutStore.kt:4 · step 5",
+      description: "New file · LayoutStore.kt:4 · in step 5",
+      // the card of its hover: what it is and where, never the name again; its step, which is not the one read
+      card: { status: "New file", tone: "success", location: "LayoutStore.kt:4", step: "in step 5" },
     })
+    // read in its own step, the card names no step
+    expect(
+      mentionWords({ units: [fresh] }, 4)({ kind: "unit", unit: fresh.id, name: "read", path: "src/a/LayoutStore.kt", side: "new", line: 4, step: 4 }, "LayoutStore.read").card
+        .step,
+    ).toBeNull()
 
     // the section of the path in the step of the target, the one that holds the unit, not another of the same heading;
     // a file in any step
@@ -428,8 +435,8 @@ describe("the document of a review", () => {
     // the heading of its card: the place, then the label of the step, an identifier set as code
     expect(marks.get("file:src/a/Frame.kt")!.map(mark => [mark.place, mark.label, mark.code])).toEqual([["Step 2", "the rule", false]])
     // the quote of a mark links the code names of its line, worded as the story words them
-    expect(marks.get("file:src/a/Manager.kt#1")![0]!.mentions.map(it => [it.text, it.title])).toEqual([
-      ["Manager.allowed", "allowed — new · Manager.kt:6 · step 2"],
+    expect(marks.get("file:src/a/Manager.kt#1")![0]!.mentions.map(it => [it.text, it.description])).toEqual([
+      ["Manager.allowed", "New · Manager.kt:6 · in step 2"],
       ["Layout", null],
     ])
   })

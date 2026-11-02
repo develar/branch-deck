@@ -144,7 +144,8 @@ function PrologueSections({ view }: { view: PrologueView }) {
                   </FileButton>
                 </span>
                 {file.entries.map(entry => (
-                  <div key={entry.key} className="flex min-w-0 flex-col gap-0.5 pl-3">
+                  // under the chip of the kind, at its left edge: the heading of the section, then its prose
+                  <div key={entry.key} className="flex min-w-0 flex-col gap-0.5">
                     {(entry.heading !== null || entry.provenBy !== null) && (
                       <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
                         {entry.heading !== null && <span className="min-w-0 font-medium">{entry.heading}</span>}

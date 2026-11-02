@@ -60,6 +60,8 @@ export interface RowCardProps extends RowCardState {
    * element at its start (a row whose lines below the mark the card must not cover)
    */
   anchor?: (mark: HTMLElement) => Element | null
+  /** The side of the anchor the card opens on: below it by default; beside a row of a sidebar, so the rows stay in view */
+  side?: "bottom" | "right"
   /** The handlers of the card for the hover of the text of its row (`useRowCardHover`): the pointer may rest in it */
   popupHover?: RowCardHover["popup"]
 }
@@ -78,6 +80,7 @@ export function RowCard({
   children,
   focus = "firstButton",
   anchor,
+  side = "bottom",
   popupHover,
 }: RowCardProps) {
   // the trigger renders the mark, a `span` (`nativeButton` false): typed as the button of a trigger
@@ -146,6 +149,8 @@ export function RowCard({
         {icon}
       </PopoverTrigger>
       <PopoverContent
+        side={side}
+        sideOffset={side === "right" ? 8 : 4}
         align={anchor === undefined ? "end" : "start"}
         anchor={anchor === undefined ? undefined : () => (markElement.current === null ? null : (anchor(markElement.current) ?? markElement.current))}
         collisionPadding={8}

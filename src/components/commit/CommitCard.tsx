@@ -51,21 +51,16 @@ export function CommitCard({ commit, variant, addon, body, menu }: CommitCardPro
       </div>
     )
   }
-  return (
-    <div className="flex min-w-0 flex-col">
-      <div className="sticky top-0 z-10 bg-popover pt-4 pb-2">{header}</div>
-      {body ?? <CommitBodyView body={commit.body} size="card" fold />}
-      <ScrollFade />
-    </div>
-  )
+  return <ScrollingCard header={header} body={body ?? <CommitBodyView body={commit.body} size="card" fold />} />
 }
 
 /**
- * The end of a card that scrolls (the card of a mark, 24rem high at most): while more of the body is below, the
- * bottom of the card fades into the popover, so a body cut by the height never reads as the whole message
+ * The card of a mark, 24rem high at most, which scrolls: its header stays at the top, a rule under it while the body
+ * is scrolled under it, so no line is cut in half unseen; while more of the body is below, its bottom fades into the
+ * popover over 64px above a line "More below", so a body cut by the height never reads as the whole message
  */
-function ScrollFade() {
-  const [more, setMore] = useState(false)
+function ScrollingCard({ header, body }: { header: ReactNode; body: ReactNode }) {
+  const [edges, setEdges] = useState({ scrolled: false, more: false })
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const sentinel = end.current
@@ -77,8 +72,11 @@ function ScrollFade() {
     if (root === null || content === null) {
       return
     }
-    // the card scrolls, or grows as a fold opens and a popup places itself: the fade follows each
-    const update = () => setMore(root.scrollTop + root.clientHeight < root.scrollHeight - 1)
+    // the card scrolls, or grows as a fold opens and a popup places itself: the edges follow each
+    const update = () => {
+      const next = { scrolled: root.scrollTop > 0, more: root.scrollTop + root.clientHeight < root.scrollHeight - 1 }
+      setEdges(current => (current.scrolled === next.scrolled && current.more === next.more ? current : next))
+    }
     const observer = new ResizeObserver(update)
     observer.observe(root)
     observer.observe(content)
@@ -90,15 +88,25 @@ function ScrollFade() {
     }
   }, [])
   return (
-    <>
+    <div className="flex min-w-0 flex-col">
+      <div
+        className="sticky top-0 z-10 border-b border-transparent bg-popover pt-4 pb-2 transition-colors data-scrolled:border-border"
+        data-scrolled={edges.scrolled ? "" : undefined}
+        data-testid="commit-card-header"
+      >
+        {header}
+      </div>
+      {body}
       <div
         aria-hidden
         data-testid="commit-card-fade"
-        data-more={more ? "" : undefined}
-        className="pointer-events-none sticky bottom-0 -mt-10 h-10 shrink-0 bg-linear-to-t from-popover to-transparent opacity-0 transition-opacity data-more:opacity-100"
-      />
+        data-more={edges.more ? "" : undefined}
+        className="pointer-events-none sticky bottom-0 -mt-16 flex h-16 shrink-0 items-end justify-center bg-linear-to-t from-popover from-30% to-transparent pb-1 text-xs text-muted-foreground opacity-0 transition-opacity data-more:opacity-100"
+      >
+        More below
+      </div>
       {/* the bottom padding of the card: in view, the whole body is */}
       <div ref={end} className="h-4 shrink-0" />
-    </>
+    </div>
   )
 }

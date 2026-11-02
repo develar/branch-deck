@@ -22,7 +22,7 @@
             </span>
           </button>
         </span>
-        <div class="flex min-w-0 flex-col gap-0.5 pl-3">
+        <div class="flex min-w-0 flex-col gap-0.5">
           <span class="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
             <span class="min-w-0 font-medium">
               Requirements
@@ -63,7 +63,7 @@
         </span>
         <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
           <div data-testid="review-contents-step-lead">
-            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+            <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
                 <span>
                   No caller asks the hooks of the manager, so they go. The behaviour does not change.
@@ -84,12 +84,12 @@
         </span>
         <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
           <div data-testid="review-contents-step-lead">
-            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+            <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
                 <span>
                   Two startup steps showed the project view at each open, and none read the stored layout. One rule decides now:
                 </span>
-                <button class="rounded-xs font-mono leading-none [overflow-wrap:anywhere] underline decoration-muted-foreground/60 decoration-dotted underline-offset-3 outline-none hover:bg-accent hover:decoration-foreground hover:decoration-solid focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline bg-muted ring-2 ring-muted" data-base-ui-tooltip-trigger="" data-explicit="" data-path="src/a/Manager.kt" data-slot="tooltip-trigger" data-testid="review-story-mention" id="base-ui-[ID]" type="button">
+                <button aria-description="New · Manager.kt:6 · in step 2" aria-expanded="false" aria-haspopup="dialog" class="rounded-xs font-mono leading-none [overflow-wrap:anywhere] underline decoration-muted-foreground/60 decoration-dotted underline-offset-3 outline-none hover:bg-accent hover:decoration-foreground hover:decoration-solid focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline bg-muted ring-2 ring-muted" data-explicit="" data-path="src/a/Manager.kt" data-slot="popover-trigger" data-testid="review-story-mention" type="button">
                   Manager.allowed
                 </button>
                 <span>
@@ -123,7 +123,7 @@
         </span>
         <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
           <div data-testid="review-contents-step-lead">
-            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+            <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
                 <span>
                   The project view paints as soon as its tool windows are registered, in every frame.
@@ -147,7 +147,7 @@
         </span>
         <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
           <div data-testid="review-contents-step-lead">
-            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+            <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
                 <span>
                   The story restarts the window and checks that the stored layout is kept.
@@ -161,7 +161,7 @@
             </span>
           </span>
           <div data-testid="review-contents-step-look-closely">
-            <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+            <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-info/20 bg-info/10 text-foreground" data-slot="callout" data-testid="commit-body-look-closely" data-tone="info">
                 <span class="flex h-lh shrink-0 items-center">
                   <svg aria-hidden="true" class="lucide lucide-info size-4 text-info" />
@@ -173,7 +173,7 @@
                     </span>
                   </p>
                   <div class="flex flex-col gap-2 text-foreground">
-                    <div class="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight">
+                    <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
                       <p>
                         <span>
                           the story restarts the window alone, never the whole IDE.

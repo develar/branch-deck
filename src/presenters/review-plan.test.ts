@@ -95,7 +95,7 @@ describe("the possible breakage of the overview", () => {
           key: "a.open",
           path: "src/a/Api.kt",
           line: 3,
-          before: "fun open(path:String)",
+          before: "fun open(path: String)",
           usages: {
             inside: 0,
             outside: 7,
@@ -108,8 +108,8 @@ describe("the possible breakage of the overview", () => {
         }),
         change({
           changes: ["parameters", "reach"],
-          before: "fun helper(value:Int)",
-          after: "fun helper(value:Int, scale:Int)",
+          before: "fun helper(value: Int)",
+          after: "fun helper(value: Int, scale: Int)",
           usages: {
             ...usages(1, 2),
             outsideSites: [
@@ -133,7 +133,7 @@ describe("the possible breakage of the overview", () => {
         tone: "destructive",
         location: "src/a/Api.kt:3",
         changed: null,
-        before: "fun open(path:String)",
+        before: "fun open(path: String)",
         after: null,
         outside: "7 uses left outside",
         inside: null,
@@ -151,8 +151,8 @@ describe("the possible breakage of the overview", () => {
         tone: "warning",
         location: "src/Store.kt:34",
         changed: "parameters, visibility",
-        before: "fun helper(value:Int)",
-        after: "fun helper(value:Int, scale:Int)",
+        before: "fun helper(value: Int)",
+        after: "fun helper(value: Int, scale: Int)",
         outside: "2 uses left outside",
         inside: "1 use updated in this change",
         stillBound: null,

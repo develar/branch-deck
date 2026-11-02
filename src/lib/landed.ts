@@ -1,8 +1,7 @@
 import type { AppliedUpdate, LandedBranch, UpdateCheck } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
 import { updateResolvedWords } from "@/lib/resolved-by-words"
-import { capitalize } from "@/lib/text"
-import { joinNames } from "@/lib/text"
+import { capitalize, joinNames } from "@/lib/text"
 
 /*
  * The landed news has one grammar wherever it shows (the Update tooltip, the footer of the landing overview, the toast,

@@ -13,8 +13,8 @@ import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { SearchField } from "@/components/shared/SearchField"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
-import type { ReviewNavigator } from "@/hooks/useSelectReviewFile"
+import { SelectReviewFileContext, followLink } from "@/hooks/useSelectReviewFile"
+import type { ReviewLink, ReviewNavigator } from "@/hooks/useSelectReviewFile"
 import { StoryHighlightContext } from "@/hooks/useStoryHighlight"
 import type { StoryHighlight } from "@/hooks/useStoryHighlight"
 import type { CommitFile, DeclarationTarget, DiffRevisions, MechanicalKind } from "@/lib/bindings"
@@ -100,6 +100,12 @@ export interface CommitReviewProps {
   subject: DiffSubject
   /** The file shown first; the first file of the tree by default */
   initialPath: string | null
+  /**
+   * A link of a document beside the review (the Overview tab of a pull request) that opened it: followed once, as its
+   * link in the review would be, as soon as the review is read (the file at its line, the use outside, the opening of
+   * the step)
+   */
+  initialLink?: ReviewLink | null
   /** The selected file, for the footer ("File 3 / 12") and for a review that starts again at it */
   onPositionChange: (position: ReviewPosition) => void
   /** The files of the chosen owner chip: marked in the whole story, the keys move through them; none without */
@@ -147,6 +153,7 @@ export interface CommitReviewProps {
 export function CommitReview({
   subject,
   initialPath,
+  initialLink = null,
   onPositionChange,
   ownerMarks = null,
   fileOwners,
@@ -303,6 +310,7 @@ export function CommitReview({
         commitRows={commitRows}
         filesHeader={filesHeader}
         prologue={prologue}
+        initialLink={initialLink}
         search={isSearchShown ? { text: filterText, onTextChange: setFilterText } : null}
         onRevealHidden={revealHidden}
         filesRead={commitFiles !== undefined && commitFiles.files.length > 0}
@@ -396,6 +404,7 @@ interface ReviewLayoutProps {
   commitRows: CommitRows | null
   filesHeader: CommitReviewProps["filesHeader"]
   prologue: ReactNode
+  initialLink: ReviewLink | null
   search: FileSearch | null
   /** A link of a mark shows a place of a changed file that the search hides */
   onRevealHidden: (place: ReviewPlace) => void
@@ -572,6 +581,7 @@ function ReviewLayout({
   commitRows,
   filesHeader,
   prologue,
+  initialLink,
   search,
   onRevealHidden,
   filesRead,
@@ -781,12 +791,13 @@ function ReviewLayout({
   const selectInTree = useCallback(
     (file: CommitFile, key: string) => {
       select(file.path, key === file.path ? null : key)
+      // a file shown on purpose: the overview is no longer what the reader is at
+      setOverviewShown(false)
       const section = rows.sectionOf.get(key)
       if (section === undefined) {
         code.current?.scrollToFile(file.path)
       } else {
         setTopSection(section)
-        setOverviewShown(false)
         code.current?.scrollToSection(section, "card")
       }
     },
@@ -797,6 +808,8 @@ function ReviewLayout({
   // or its old path, and the diffs show its line; a file that the search hides is revealed
   const selectChangedFile = useCallback(
     (place: ReviewPlace) => {
+      // a file shown on purpose, also one a search hid: the overview is no longer what the reader is at
+      setOverviewShown(false)
       const file = files.find(it => it.path === place.path) ?? files.find(it => it.oldPath === place.path)
       if (file === undefined) {
         onRevealHidden(place)
@@ -849,6 +862,16 @@ function ReviewLayout({
     [showStep],
   )
   const navigator = useMemo<ReviewNavigator>(() => ({ show: selectChangedFile, showOutside, showStep, showStory }), [selectChangedFile, showOutside, showStep, showStory])
+  // the link that opened the review, once every diff is read and the sections are told (the story of the plan, else
+  // the diffs): followed once
+  const linkReady = diffsComplete && (reviewFacts === null || narrative !== null)
+  const followedLink = useRef<ReviewLink | null>(null)
+  useEffect(() => {
+    if (initialLink !== null && linkReady && followedLink.current !== initialLink) {
+      followedLink.current = initialLink
+      followLink(navigator, initialLink)
+    }
+  }, [initialLink, linkReady, navigator])
 
   // a commit row, and the row of a step of the commits (the commit that starts it): selected, its step's opening at the
   // top of the diffs, as a step of the overview; Enter and Show Commit Alone the commit alone
@@ -970,12 +993,28 @@ function ReviewLayout({
   const ownerLabel = ownerFiles === null ? null : (ownerMarks?.label ?? null)
   const ownerIndex = ownerFiles === null ? -1 : ownerFiles.findIndex(file => file.path === selectedPath)
   const ownerCount = ownerFiles?.length ?? 0
+  // the overview of the plan at the top is no file; else the step of the story at the top, then its file. The message
+  // of a commit shown without the plan heads its files as before: the first file is the one shown
+  const [planned, setPlanned] = useState(false)
+  if (reviewFacts !== null && !planned) {
+    // the window shows a plan: a read of it again (a sync) keeps the overview the overview
+    setPlanned(true)
+  }
+  const overviewAtTop = overviewShown && prologue !== undefined && prologue !== null && planned
+  const stepAtTop = topStep !== null && topStep.chapter.told ? topStep.chapter.number : undefined
   useEffect(() => {
     if (loadedKey !== null) {
       const owner = ownerLabel === null ? undefined : { label: ownerLabel, index: ownerIndex, count: ownerCount }
-      onPositionChange({ path: selectedPath, index: selectedIndex, count: files.length, ...(owner !== undefined && { owner }) })
+      onPositionChange({
+        path: selectedPath,
+        index: selectedIndex,
+        count: files.length,
+        ...(owner !== undefined && { owner }),
+        ...(overviewAtTop && { overview: true }),
+        ...(stepAtTop !== undefined && { step: stepAtTop }),
+      })
     }
-  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, ownerIndex, ownerCount])
+  }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, ownerIndex, ownerCount, overviewAtTop, stepAtTop])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (loaded === null || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
@@ -1004,6 +1043,8 @@ function ReviewLayout({
         const path = code.current?.moveChange(event.code === "KeyN" ? 1 : -1, accept)
         if (path !== undefined) {
           select(path, null)
+          // a change shown on purpose: the reader is at its file, also while the overview still shows above it
+          setOverviewShown(false)
         }
         break
       }
@@ -1058,7 +1099,8 @@ function ReviewLayout({
                     aria-label="Changed files"
                     collapsed={collapsed}
                     onToggleDirectory={toggleDirectory}
-                    selectedKey={selectedRow ?? selectedPath}
+                    // the overview at the top selects no row: no file is shown
+                    selectedKey={overviewAtTop ? null : (selectedRow ?? selectedPath)}
                     onSelectFile={selectInTree}
                     fileOwners={fileOwners}
                     badges={badges}

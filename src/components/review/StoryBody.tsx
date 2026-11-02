@@ -17,11 +17,6 @@ function storyText(story: StoryView, block: number): BodyTextRenderer {
   )
 }
 
-/** The one line of a label or a heading of a story, its code names links */
-export function StoryLine({ story, block, text }: { story: StoryView; block: number; text: string }) {
-  return storyText(story, block)(text, 0)
-}
-
 /**
  * The block a mark of a section showed once this story mounted (`useStoryHighlight`): a story that mounts later (the
  * subject shown again, a search that hid every file cleared) never plays a click before it again. `revealed` is the
@@ -62,7 +57,7 @@ function StoryAnchor({ story, index, told = true, revealed = null, children }: S
       key={shown ?? 0}
       data-story-block={told ? `${story.commit}:${index}` : undefined}
       data-highlight={shown === null ? undefined : ""}
-      className="min-w-0 rounded-sm outline-2 outline-offset-4 outline-transparent data-highlight:animate-story-highlight"
+      className="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight"
     >
       {children}
     </div>

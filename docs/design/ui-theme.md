@@ -263,6 +263,13 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
+- **The focus has two looks, one per kind of element**: an element inside text or a line (a link of a story, a title of
+  the contents, a toggle of a fold, a button of a name) `focus-visible:ring-3 focus-visible:ring-ring/30` around its
+  rounded box; a row of a list or a tree, which holds the selection or opens what it names (the files and the commits
+  of the rail of a pull request too), `ring-2 ring-ring/50 ring-inset`, inside its box so the rows around keep their
+  place. Nothing else draws a ring: the block a mark of a section showed in the story
+  is tinted (`animate-story-highlight`, the warning colour fading), never outlined like a focus. A description that
+  opens on hover opens on the focus from the keyboard too (the mark of a story, a row's card by `I`).
 - **A disclosure is a `Disclosure`** (`src/components/shared/Disclosure.tsx`): a chevron before its title at the size of
   the text around it, the content opening below, so it grows downward; a folded part of a body, a commit that follows
   a step up, what the overview folds. The folded parts of a body are one line, one chevron ("More: The cause, Tests"),

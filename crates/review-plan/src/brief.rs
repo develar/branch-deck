@@ -181,10 +181,13 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
             } else {
               heading_above(&old, block.old_start)
             };
-            changed.added = added;
-            changed.removed = removed;
+            // of a doc, only prose tells what changed: a line of a value (`dark: #88aaff`) says nothing beside the
+            // heading of its section, which names the change then
+            let doc = kind == ContractKind::Doc;
+            changed.added = added.into_iter().filter(|paragraph| !doc || reads_as_prose(paragraph)).collect();
+            changed.removed = removed.into_iter().filter(|paragraph| !doc || reads_as_prose(paragraph)).collect();
             changed.proven_by = proven_by;
-            if !changed.added.is_empty() || !changed.removed.is_empty() || !changed.proven_by.is_empty() {
+            if !changed.added.is_empty() || !changed.removed.is_empty() || !changed.proven_by.is_empty() || (doc && changed.heading.is_some()) {
               contract.push(changed);
             }
           }
@@ -250,6 +253,23 @@ fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
   }
   flush(&mut current);
   (paragraphs, proven_by)
+}
+
+/// Whether a paragraph reads as prose: three words or more of letters alone, its punctuation aside, that are no key
+/// (`primary:`) and no value right after one, so a line of values (`primary: #3366ff, secondary: #ff8800`, `color:
+/// red; background: blue`) is none
+fn reads_as_prose(paragraph: &str) -> bool {
+  let mut words = 0;
+  let mut after_key = false;
+  for token in paragraph.split_whitespace() {
+    let key = token.len() > 1 && token.ends_with(':');
+    let word = token.trim_matches(|c: char| !c.is_alphanumeric());
+    if !key && !after_key && !word.is_empty() && word.chars().all(char::is_alphabetic) {
+      words += 1;
+    }
+    after_key = key;
+  }
+  words >= 3
 }
 
 /// The description and the count of the rules of a new spec: the `description:` of its front matter, the items of its

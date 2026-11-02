@@ -675,7 +675,8 @@ function DirectoryRowContent({
           node.group === "concern" ? "line-clamp-2 font-medium [overflow-wrap:anywhere]" : "truncate",
           node.code === true && "font-mono text-xs leading-5",
         )}
-        title={groupTitle(node)}
+        // the card of a commit says its subject and hash: no native hover over it
+        title={titleHover === undefined ? groupTitle(node) : undefined}
         data-group={node.group}
         {...titleHover}
       >

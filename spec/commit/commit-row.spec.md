@@ -192,8 +192,9 @@ place that shows a commit shows the same way.
   opens its card.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark, of the subject and by I, with the menu of the commit, and give the focus back on Escape`)
 - A commit on a row of a sidebar of a review is one row (`CommitRow`, the `compact` header): the commit column, the
-  commits of a pull request and a commit row of the tree; its subject clamped to two lines, its hash in the hover of
-  the subject, what it is since the review ("New", "Rewritten", "Your review") and its branch, and the same mark and
+  commits of a pull request and a commit row of the tree; its subject clamped to two lines (the title Rust gives it,
+  as the tree and the openings name it, its subject without a plan), its subject and hash in its card, or in the
+  native hover of a commit without a body (never a native hover over a card), what it is since the review ("New", "Rewritten", "Your review") and its branch, and the same mark and
   card as the main window, which the hover of the mark or of the subject and `I` on the focused row open
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)

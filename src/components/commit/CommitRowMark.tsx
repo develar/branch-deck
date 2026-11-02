@@ -65,8 +65,10 @@ export function CommitRowMark({ commit, onOpen, size = "list", menu, popupHover,
       className="max-h-96 w-[min(36rem,var(--available-width))] overflow-y-auto px-4 py-0"
       data-testid="commit-card"
       focus="card"
-      // under the whole row, never over the meta line of the commit the reader was reading
+      // under the whole row of a list, never over the meta line of the commit the reader was reading; beside the row of
+      // a sidebar (the tree, the column, the rail), so the rows around it stay in view
       anchor={rowOfMark}
+      side={size === "tree" ? "right" : "bottom"}
       popupHover={popupHover}
     >
       {() => <CommitCard commit={commit} variant="card" menu={menu} />}

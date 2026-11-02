@@ -383,15 +383,20 @@ Safe Push it allows.
   ([Review Tour](../branch/review-tour.spec.md#in-the-review-window), `ReviewPrologue`) once the repository turns the
   plan on: the description (as a commit body) its lead, then What Changes, the steps and Possible Breakage of all
   changes, no second headline under the title of the island (the changes open on the same lead); a link of it reviews
-  all changes at its place. It is as wide as its reading column (52rem), the rail right after it:
+  all changes at its place, as the same link there shows it once the changes are read: a code name or an entry at its
+  declaration, its file selected and its name selected in the diffs, a use left outside opening its file over the
+  changes, a step at its opening. It is as wide as what it holds (its prose at the measure of 65ch, 52rem at most),
+  the rail right after it:
   "Files 4" with the muted sum of the line counts, then the files of the range (status letter, name, directory,
   `+a −d`; the name first, the directory giving way, as every list of changed files names a file; a click
   reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))
   and "Commits 4", newest first as in the list of commits of the changes, each the one commit row of a sidebar
-  ([Commit Row → Commit card](../commit/commit-row.spec.md#commit-card): its subject, its hash in the hover, the mark
+  ([Commit Row → Commit card](../commit/commit-row.spec.md#commit-card): its title as the changes name it, its hash in its card, the mark
   of its card; a click and Enter review the changes at that commit). Below `md` the rail goes under the description. The key hints below the islands: ↑↓
   Previous/next, Esc Close; Space scrolls.
   [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should preview the pull request, fetch it with progress, then review its range with the file tree`, `should tell the overview of the pull request as the document of its changes: its body the lead, no second headline under its title`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should review the changes of a pull request at the place of a breakage link of its overview: the declaration, a use outside over the changes`)
 - The fetch is the window's: it starts when the window shows the request, as an operation of the session of its
   repository (the intent `fetchReview { number }` of `execute`, `operations::review_fetch`: the head and the base as the
   review requests of the session name them, its review refs held, a second fetch of the same pull request joining it):
@@ -527,7 +532,7 @@ Safe Push it allows.
   confirmation of Approve and Safe Push…: "Counts for Design · You opened 1 of its 2 files" ("Design and Air Plugin
   · … of their 4 files"), the user's groups that still need an approval (`yours`, not `approved`), whatever chip is
   chosen, and how many of their files among all changes the window showed (the file on screen, as the footer counts
-  it) for the head it shows; a branch-wide group's files are all of them. "Counts for no group that still needs an
+  it; none while the overview of the plan is at the top or the plan is still read) for the head it shows; a branch-wide group's files are all of them. "Counts for no group that still needs an
   approval" when the user, known by the login of the sign-in, is in none of them; just "Counts for Design" when nobody
   tells their files; nothing without groups (also while a new head is fetched), while the sign-in names no login
   (nobody knows whose the groups are: the token of `gh` or the environment), and once the shown commit is approved.
@@ -536,7 +541,7 @@ Safe Push it allows.
   is never disabled by it.
   [@test] ../../src/lib/review-request-actions.test.ts (`says in Approve what it counts for after the reason it waits, never disabling it, and nothing once approved or in the row menu`)
   [@test] ../../src/presenters/reviews.test.ts (`names the user's groups that still need an approval and how many of their files the window showed`, `leaves out the groups of others and the approved ones`, `says when the approval counts for no group that still needs one`, `names the groups alone when their files are unknown or none here, and says nothing without groups`, `says nothing while the sign-in names no login, rather than no group`)
-  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`, `should count every file as the part of a branch-wide group, in the footer and in Approve`, `should say nothing of what Approve counts for while the GitHub sign-in names no login`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should count the chosen owner's part in the footer as J moves, and say in Approve what it counts for and what the user opened`, `should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one`, `should count every file as the part of a branch-wide group, in the footer and in Approve`, `should say nothing of what Approve counts for while the GitHub sign-in names no login`, `should count no file for Approve while the overview of the plan is at the top of the changes, and the first file J shows`)
 - Approve is one `POST repos/<owner>/<name>/pulls/<n>/reviews` with `{"event": "APPROVE", "commit_id": <id>}`
   (`SubmitReview`, its effect `submitReview`, the token of [Pull Requests](../branch/pull-requests.spec.md#the-token)),
   in the repository the requests were read from; anything but an object id is refused. Request Changes… opens a form below

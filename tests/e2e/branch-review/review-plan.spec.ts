@@ -8,6 +8,7 @@ import { findBranchRow, getUnassignedCommitRow } from "../helpers/branch-helpers
 import { pressCopyKey, readClipboard } from "../helpers/clipboard-helpers"
 import { openCommitPreview } from "../helpers/preview-helpers"
 import { openPlanWindow, reviewedPaths, turnOnReviewPlan } from "../helpers/review-plan-helpers"
+import { availableReviewRequests, openRequestReview, reviewRequest } from "../helpers/review-request-helpers"
 import { openReviewWindow } from "../helpers/review-window-helpers"
 import { clickContextMenuItem, openContextMenu, selectedInDiffs } from "../helpers/selection-helpers"
 import { getOpenedSubWindows, openLinkedSubWindow, openSubWindowPage } from "../helpers/sub-window-helpers"
@@ -121,6 +122,22 @@ function planRows(window: Page) {
   return { tree, reader: row("Reader.kt"), cache: row("Cache.kt"), store: row("Store.kt") }
 }
 
+/** The entry of `helper` shows its declaration: its file selected, the name selected in the diffs */
+async function showHelperDeclaration(window: Page, helper: Locator, store: Locator): Promise<void> {
+  await helper.getByTestId("review-plan-breakage-file").click()
+  await expect(store).toHaveAttribute("aria-selected", "true")
+  await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
+}
+
+/** The use of `helper` in src/Base.kt, left outside the change: its file at the head over the review, the name selected */
+async function showHelperUseOutside(window: Page, helper: Locator): Promise<Locator> {
+  const fileView = window.getByTestId("declaration-file-view")
+  await helper.getByTestId("review-plan-site").filter({ hasText: "src/Base.kt:1" }).click()
+  await expect(fileView).toContainText("outside the review")
+  await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Base.kt" })
+  return fileView
+}
+
 /** The card of the one mark of a row: the pointer leaves the card open before, then moves onto the mark of `row` */
 async function openFactsCard(window: Page, row: Locator): Promise<Locator> {
   const card = window.getByTestId("file-facts-card")
@@ -158,9 +175,9 @@ test.describe("The review plan in the branch review", () => {
     await expect(helper).toContainText("src/Store.kt:")
     await expect(helper.getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
     // the forms before and after on their own lines, then the uses left outside
-    await expect(helper.getByTestId("review-plan-before")).toContainText("value:Int")
+    await expect(helper.getByTestId("review-plan-before")).toContainText("value: Int")
     await expect(helper.getByTestId("review-plan-before")).not.toContainText("scale")
-    await expect(helper.getByTestId("review-plan-after")).toContainText("scale:Int")
+    await expect(helper.getByTestId("review-plan-after")).toContainText("scale: Int")
     for (const site of ["src/Base.kt:1", "src/Uses.kt:4", "src/main/App.kt:9"]) {
       await expect(helper.getByTestId("review-plan-sites")).toContainText(site)
     }
@@ -170,10 +187,7 @@ test.describe("The review plan in the branch review", () => {
 
     // a use left outside opens its file at the head over the review, the name selected, the overview under it until Back;
     // one the head lacks says so
-    const fileView = window.getByTestId("declaration-file-view")
-    await helper.getByTestId("review-plan-site").filter({ hasText: "src/Base.kt:1" }).click()
-    await expect(fileView).toContainText("outside the review")
-    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Base.kt" })
+    const fileView = await showHelperUseOutside(window, helper)
     await fileView.getByRole("button", { name: "Back" }).click()
     await expect(fileView).toBeHidden()
     await helper.getByTestId("review-plan-site").filter({ hasText: "src/main/App.kt:9" }).click()
@@ -182,9 +196,7 @@ test.describe("The review plan in the branch review", () => {
     await closeToast(missing)
 
     // an entry selects its file and shows its declaration, the name selected
-    await helper.getByTestId("review-plan-breakage-file").click()
-    await expect(store).toHaveAttribute("aria-selected", "true")
-    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Store.kt" })
+    await showHelperDeclaration(window, helper, store)
     // the new API is a fact of the step that adds it, each name at its declaration
     const newApi = overview.getByTestId("review-step-new-api")
     await expect
@@ -198,6 +210,28 @@ test.describe("The review plan in the branch review", () => {
     // the diffs are the story: Cache, which Reader reads, before Reader; the tree keeps its order, no order to choose
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/b/Cache.kt", "src/a/Reader.kt", "src/Store.kt"])
     await expect(window.getByRole("group", { name: "Order" })).toHaveCount(0)
+  })
+
+  test("should review the changes of a pull request at the place of a breakage link of its overview: the declaration, a use outside over the changes", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the branch `plan` as a pull request, its plan on
+    const repo = await setupRepo("symbol_navigation", { reviewRequests: availableReviewRequests([reviewRequest("plan", 301, 1, { title: "Scale the helper" })]) })
+    await setupPlan(repo, { experimental: true })
+    await syncAndWaitForBranches()
+    const { window, review } = await openRequestReview(page, 301)
+    const helper = review.getByTestId("review-overview").getByTestId("review-plan-breakage-entry")
+    const { store } = planRows(window)
+
+    // the entry: the changes of all of it at its declaration, the name selected
+    await showHelperDeclaration(window, helper, store)
+
+    // a use left outside: its file at the head over the changes, the name selected
+    await window.keyboard.press("Escape")
+    await showHelperUseOutside(window, helper)
+    await expect(review.getByTestId("commit-review")).toBeVisible()
   })
 
   test("should keep an API whose uses are unknown under Possible breakage, and say why", async ({ page, setupRepo, syncAndWaitForBranches }) => {
@@ -605,8 +639,8 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/guide.md", "docs/AGENTS.md", "AGENTS.md", "src/App.kt", "config/mcp.json", "dist/app.min.js", "pnpm-lock.yaml"])
     // the echo of the guide is no edit a person repeated: no group, no badge
     await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).not.toHaveAttribute("aria-description", /same edit/)
-    // the first file of the tree without the plan, a generated one, gave way to the first of the real work
-    await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).toHaveAttribute("aria-selected", "true")
+    // the overview at the top selects no row: no file is shown yet (the first of the real work is first in the story)
+    await expect(tree.locator("[role=treeitem][aria-selected=true]")).toHaveCount(0)
     const concern = tree.getByRole("treeitem", { name: "guide.md", exact: true })
     await expect(concern).toHaveAttribute("aria-expanded", "true")
     const renderings = tree.getByRole("treeitem", { name: "Generated (2)" })
@@ -895,6 +929,8 @@ test.describe("The review plan in the branch review", () => {
     const position = window.getByTestId("review-position")
     await window.getByRole("treeitem", { name: "Reader.kt" }).click()
     await expect(window.getByRole("treeitem", { name: "Reader.kt" })).toHaveAttribute("aria-selected", "true")
+    // the file a row shows ends the overview at the top
+    await expect(position).toHaveText(/ · File \d \/ 3$/)
     const shownPosition = await position.textContent()
     const shownPaths = await reviewedPaths(window)
 
@@ -939,7 +975,8 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(() => treeCommits(window)).toEqual(["read the cache twiceNew"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/a/Reader.kt"])
     await expect(window.getByTestId("review-plan-since")).toHaveText("Since your review: 1 new")
-    await expect(window.getByTestId("review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
+    // its own overview at the top of its document: no file yet
+    await expect(window.getByTestId("review-position")).toHaveText("Since Your Review · Overview")
 
     // the commit of nav joins plan below the reviewed ones: the new commits are not one range of the branch, so Since
     // Your Review is the diff from the reviewed change, both new commits together
@@ -993,7 +1030,8 @@ test.describe("The review plan in the branch review", () => {
     // Since Your Review: one diff from the reviewed version, the amend alone: the reviewed line against the new one,
     // never the line before the branch, under the card with that difference
     await window.getByTestId("range-review-commit").filter({ hasText: "Since Your Review" }).click()
-    await expect(window.getByTestId("review-position")).toHaveText(/^Since Your Review · File 1 \/ 1$/)
+    // its own overview at the top of its document: no file yet
+    await expect(window.getByTestId("review-position")).toHaveText("Since Your Review · Overview")
     await expect.poll(() => treeCommits(window)).toEqual(["scale the helperRewritten"])
     await expect.poll(() => reviewedPaths(window)).toEqual(["src/Store.kt"])
     const code = window.getByTestId("diff-view")

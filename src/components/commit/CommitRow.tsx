@@ -56,7 +56,7 @@ export interface CommitRowProps {
 /**
  * A commit on a row of a sidebar (spec/commit/commit-row.spec.md, "Commit card"): the commit column of a review, the
  * commits of a pull request, a commit row of the tree of a review; the compact header (`CommitHeader`), its subject
- * clamped to two lines with its hash in its hover, the facts of a review, the mark of its card, which its hover, the
+ * clamped to two lines with its hash in its native hover where it has no card, the facts of a review, the mark of its card, which its hover, the
  * hover of the subject and `I` on the row open. The row around it holds its focus, its selection and its click
  */
 export function CommitRow({ subject, title = subject, hash, facts = {}, card = null, subjectTestId }: CommitRowProps) {
@@ -66,7 +66,8 @@ export function CommitRow({ subject, title = subject, hash, facts = {}, card = n
       variant="compact"
       subject={title}
       hash={hash}
-      subjectProps={{ ...(card === null ? {} : hover.text), title: `${subject}\n${formatShortHash(hash)}`, "data-testid": subjectTestId }}
+      // the subject and the hash in the native hover of a commit without a card; the card of one says both
+      subjectProps={{ ...(card === null ? { title: `${subject}\n${formatShortHash(hash)}` } : hover.text), "data-testid": subjectTestId }}
       subjectAddon={
         <>
           <CommitRowBadges facts={facts} />

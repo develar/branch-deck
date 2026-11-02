@@ -229,13 +229,14 @@
   /* the block of a story a mark of a section of the diffs showed: outlined in the ring colour, then fading */
   --animate-story-highlight: story-highlight 1.6s ease-out;
 
+  /* the block a mark of a section showed: a tint of the warning colour that fades, never the ring of a focus */
   @keyframes story-highlight {
     0%,
     40% {
-      outline-color: var(--color-ring);
+      background-color: color-mix(in oklab, var(--color-warning) 22%, transparent);
     }
     100% {
-      outline-color: transparent;
+      background-color: transparent;
     }
   }
 

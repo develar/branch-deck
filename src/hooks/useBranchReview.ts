@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useFileOwners } from "@/hooks/useFileOwners"
 import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { useReviewPlan } from "@/hooks/useReviewPlan"
+import { useReviewPosition } from "@/hooks/useReviewPosition"
 import type { ReviewSegment, CommitFile, Interdiff, ReviewSubject } from "@/lib/bindings"
 import { focusRange, keepSegmentRange, moveView, segmentRangeSubject } from "@/lib/branch-review"
 import type { BranchReviewFocus, SegmentRange } from "@/lib/branch-review"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
 import { isTypingTarget } from "@/lib/preview-keys"
-import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, rangePosition, segmentItems, shownInterdiff } from "@/lib/range-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, keepCommit, localSinceReview, segmentItems, shownInterdiff } from "@/lib/range-review"
 import type { RangeReviewItem } from "@/lib/range-review"
 import { reviewFilterChips } from "@/lib/review-owners"
 import type { ReviewFilter } from "@/lib/review-owners"
@@ -17,7 +18,6 @@ import { markBranchReviewed } from "@/lib/review-plan"
 import { planFacts, planSettled, samePlanState } from "@/lib/review-plan-answer"
 import type { ReviewPlanState } from "@/lib/review-plan-answer"
 import type { ReviewPosition } from "@/lib/review-position"
-import { formatReviewPosition } from "@/lib/review-position"
 import { chainTarget, segmentsOf } from "@/lib/review-target"
 import { readReview } from "@/lib/review-window-reads"
 import { showToast } from "@/lib/toast-message"
@@ -159,14 +159,7 @@ export interface BranchReviewMove {
 export function useBranchReview(source: BranchReviewSource, focus: BranchReviewFocus, sync: BranchReviewSync, move?: BranchReviewMove): BranchReviewModel {
   const [state, setState] = useState<ReviewState>({ status: "loading" })
   // the file on screen: a review read again (a sync moved a tip, another commit, another filter) starts at it
-  const [position, setPosition] = useState<ReviewPosition | null>(null)
-  const [lastPath, setLastPath] = useState(focus.path ?? null)
-  const showPosition = useCallback((next: ReviewPosition) => {
-    setPosition(next)
-    if (next.path !== null) {
-      setLastPath(next.path)
-    }
-  }, [])
+  const { footer, lastPath, setLastPath, showPosition } = useReviewPosition(focus.path ?? null)
 
   const gone = sync.known ? source.chain.filter(name => sync.tips[name] === undefined) : []
   // a sync that moved a tip of the stack reads it again, once per set of heads (a branch that left keeps the last view)
@@ -315,7 +308,7 @@ export function useBranchReview(source: BranchReviewSource, focus: BranchReviewF
       files,
       owners,
       target: target.name,
-      position: formatReviewPosition({ file: position, ...rangePosition(items, selected) }),
+      position: footer(items, selected),
       // the document of a commit shown alone is of its own plan, its story, its steps and its facts; under Since Your
       // Review with what is new of the part (its interdiff)
       plan: !experimental ? null : commitId === null ? withInterdiff(shownPlan, interdiff) : sinceShown ? withInterdiff(shownCommitPlan, interdiff) : shownCommitPlan,

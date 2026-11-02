@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
-import { formatCommitRole, formatStepDivider, formatStepNumber, placeCommits, presentChapters, presentOwnerMarks, WITHOUT_A_STORY } from "@/presenters/review-steps"
+import {
+  commitTitleOf,
+  formatCommitRole,
+  formatStepDivider,
+  formatStepNumber,
+  placeCommits,
+  presentChapters,
+  presentOwnerMarks,
+  WITHOUT_A_STORY,
+  withCommitTitles,
+} from "@/presenters/review-steps"
 import { presentNarrative } from "@/presenters/review-units"
 import { reviewStep, stepCommit } from "@/test-support/review-step"
 
@@ -192,5 +202,18 @@ describe("review steps", () => {
       ["file:src/Manager.kt", "1 · drop the hooks", [], [[0, "hooks — removed · shown in step 2"]]],
       ["file:src/Manager.kt#1", "2 · the rule", [[0, "allowed — new · hooks — removed"]], []],
     ])
+  })
+})
+
+describe("withCommitTitles", () => {
+  it("keeps the titles Rust gives the commits of every plan told, by a short id or a full one, and the same map when none is new", () => {
+    const first = withCommitTitles(new Map(), [reviewStep("a", [{ id: "1111111111", title: "open takes a mode", role: "starts" }], [])])
+    expect(commitTitleOf(first, "1111111")).toBe("open takes a mode")
+    // the plan of one commit alone keeps the titles of the others
+    const second = withCommitTitles(first, [reviewStep("b", [{ id: "2222222222", title: "the rule names its flag again", role: "starts" }], [])])
+    expect(commitTitleOf(second, "1111111111")).toBe("open takes a mode")
+    expect(commitTitleOf(second, "2222222222")).toBe("the rule names its flag again")
+    expect(withCommitTitles(second, [reviewStep("b", [{ id: "2222222222", title: "the rule names its flag again", role: "starts" }], [])])).toBe(second)
+    expect(commitTitleOf(second, "3333333")).toBeUndefined()
   })
 })

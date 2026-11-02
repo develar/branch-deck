@@ -8,6 +8,7 @@ import { openPullRequest } from "@/lib/pull-request"
 import { getPullRequestRetarget, getPullRequestToastAction, getRetargetCommand } from "@/lib/pull-request-now"
 import type { BranchPush, PushNews } from "@/lib/push-summary"
 import { describePush, describeStackPush, formatPushedBranch } from "@/lib/push-summary"
+import { capitalize } from "@/lib/text"
 import type { ToastActionProps } from "@/lib/toast-message"
 import { formatWholeStackBranch, stackReadinessKey } from "@/lib/whole-stack"
 import type { Retargeted } from "@/presenters/pull-request-url"
@@ -65,7 +66,7 @@ function renderClauses(clauses: readonly Clause[]): ReactNode {
   // the clauses of one toast never change
   return clauses.map((clause, index) => (
     <Fragment key={index}>
-      {index === 0 ? clause.text.charAt(0).toUpperCase() + clause.text.slice(1) : ` · ${clause.text}`}
+      {index === 0 ? capitalize(clause.text) : ` · ${clause.text}`}
       {clause.name !== undefined && <span className="font-medium">{clause.name}</span>}
     </Fragment>
   ))

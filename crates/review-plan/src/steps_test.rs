@@ -477,6 +477,33 @@ fn the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests() {
   );
 }
 
+/// Of a doc the brief keeps only prose: a changed line of a value (`dark: #88aaff`) says nothing, the heading of its
+/// section names the change
+#[test]
+fn the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose() {
+  let repo = TestRepo::new();
+  let doc = "# Theme\n\n## Colours\n\ndark: #000000\nprimary: #3366ff, secondary: #ff8800\ncolor: red; background: blue; border: none\n\n## Why\n\nThe theme follows the system.\n";
+  let base = repo.create_commit_with_files("Add", &[("docs/theme.md", doc)]);
+  let head = repo.create_commit_with_files(
+    "The accent is blue
+
+The dark theme takes a blue accent, and the doc says why.",
+    &[(
+      "docs/theme.md",
+      "# Theme\n\n## Colours\n\ndark: #88aaff\nprimary: #3366ee, secondary: #ff8811\ncolor: navy; background: white; border: thin\n\n## Why\n\nThe theme follows the system, its accent blue as the logo is.\n",
+    )],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  let entries: Vec<(Option<&str>, &[String])> = plan.brief.contract.iter().map(|entry| (entry.heading.as_deref(), entry.added.as_slice())).collect();
+  assert_eq!(
+    entries,
+    [
+      (Some("Colours"), [].as_slice()),
+      (Some("Why"), ["The theme follows the system, its accent blue as the logo is.".to_string()].as_slice())
+    ]
+  );
+}
+
 /// A mechanical change follows the step of the commit that wrote it, at its end: the imports a step needs are in it
 #[test]
 fn a_mechanical_change_follows_the_step_that_wrote_it() {

@@ -203,8 +203,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   of Markdown, text, reStructuredText and AsciiDoc only. An entry per changed block: its paragraphs added and removed,
   each its lines joined without the marker of an item, the heading of its section of Markdown, the paths that the
   test links it adds name (`provenBy`); a new spec its `description:` and the count of the items of its
-  "Requirements"; a deleted file `deleted`.
-  [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`)
+  "Requirements"; a deleted file `deleted`. Of a doc only prose (three words or more of letters, no
+  key and no value after one) is quoted: a changed line of values (`dark: #88aaff`, `color: red; background: blue`)
+  says nothing, the heading of its section names the change; the spans of code of each
+  paragraph (`addedCode`, `removedCode`) as a body has them. The page sets each entry under the chip of its kind, at
+  its left edge.
+  [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`, `the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose`)
 
 ### In `bd`
 - `bd review-plan` must print `steps` and `brief` (`"schema": 14`), the ids of the commits of the steps and of the
@@ -300,7 +304,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   since the review ("New"/"Rewritten"), "Your review" on the reviewed commit of a pull request (the boundary of the
   column: the commits after it are those of Since Your Review), its branch (of the whole stack, and of a part of
   several branches, which the column heads by branch); the row of a step and a commit row their subject whole and
-  their hash in the hover of their title, never a box on the row that takes the width of the title; a title of a step,
+  their hash in their card (a commit without a body in the native hover of its title), never a box on the row that
+  takes the width of the title; a title of a step,
   of a task or of a commit wraps to a second line (its chevron, icon, mark and line counts on its first line), cut
   only past two at the width of the sidebar (24rem at first); a row of a file whose own row is in another step says
   where after its name ("in step 2", a task by its name), its hover in words; either, of a
@@ -355,9 +360,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 
 ### Anchors
 - A code name of a body that resolves (`Mention.target`) must be a link wherever the document shows its line (an
-  opening, the overview, the contents; a label, a heading and the title of a Look closely too): in the code font, a chip when the author wrote it in backticks, its hover
-  naming what it is, its file and line and its step ("allowed — new · Manager.kt:6 · step 2", a file by its path); a
-  click shows it as an entry of the overview does, its file selected, a declaration at the line of its name, the name
+  opening, the overview, the contents; a label, a heading and the title of a Look closely too): in the code font, a chip when the author wrote it in backticks, its dotted
+  underline the one mark of a link; its accessible name the name it shows, its description what its card says in one
+  line ("New · Manager.kt:6", "src/a/Frame.kt · in step 3"), its hover a card of the same look as the card of a story mark (`MentionCard`): the status of a
+  declaration as a badge ("New", "Removed", "Body changed", "Form changed", "New file"), its file and line, and "in
+  step 5" only when the step that shows it is not the one whose opening tells the line, never the name again; inside
+  the card of a story mark the name is only a link, no second card. A click shows it as an entry of the overview does, its file selected, a declaration at the line of its name, the name
   Rust resolved (`MentionTarget.name`) selected, a file at its header. A name that resolves nothing stays code; a plain word is never a link.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it`)
@@ -365,9 +373,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the section of the path of the target in the step of the target, the one that shows its unit (by its id) when one
   does. Its hover opens a card of the story (`bg-popover`, 28rem wide at most, 8px from the edges of the window):
   where it is told once as its heading ("Step 2 · The open keeps a stored layout", "Overview"), then each line that
-  names the section, quoted, its code names set and linked as the story sets them; a click shows the first of them where it is told, the opening of its step at the top (the
-  overview for a part told before the steps), its part opened when a fold held it, the block outlined for a moment
-  (a label or a heading too). The outline plays once: a story that shows later (the commit shown alone, the whole
+  names the section, quoted, its code names set and linked as the story sets them; the card opens above the header
+  (under the whole header where no room is above it), never over the header or the lines of its section, and on the
+  focus of the mark from the keyboard too, read and not entered (Escape closes it; Enter shows the story, whose names
+  are links there); a click shows the first of them where it is told, the opening of its step at the top (the
+  overview for a part told before the steps), its part opened when a fold held it, the block tinted for a moment (the
+  warning colour fading, never a ring like the focus; a label or a heading too). The tint plays once: a story that shows later (the commit shown alone, the whole
   story again, the files a search hid) outlines nothing and opens no fold.
   A body is told where the document shows it: the commit that starts a step in its opening, the concerns of one
   commit where `toldIn` says; a follow-up, folded under its step, marks nothing, and a copy of a lead in the contents

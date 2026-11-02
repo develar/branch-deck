@@ -64,15 +64,15 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
   assert_eq!(
     rows(&plan.api),
     [
-      (ApiChangeKind::Removed, "removedCall", path, 3, vec![], Some("fun removedCall(x:Int) : Int"), None),
+      (ApiChangeKind::Removed, "removedCall", path, 3, vec![], Some("fun removedCall(x: Int): Int"), None),
       (
         ApiChangeKind::Changed,
         "changedCall",
         path,
         3,
         vec![FormChange::Parameters],
-        Some("fun changedCall(x:Int) : Int"),
-        Some("fun changedCall(x:Int, y:Int) : Int")
+        Some("fun changedCall(x: Int): Int"),
+        Some("fun changedCall(x: Int, y: Int): Int")
       ),
       (
         ApiChangeKind::Changed,
@@ -80,8 +80,8 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
         path,
         4,
         vec![FormChange::Reach],
-        Some("fun narrowedCall() : Int"),
-        Some("fun narrowedCall() : Int")
+        Some("fun narrowedCall(): Int"),
+        Some("fun narrowedCall(): Int")
       ),
       // its constructor's property is the type's entry
       (ApiChangeKind::Added, "AddedType", path, 8, vec![], None, Some("Public(name:String)")),
@@ -244,15 +244,15 @@ fn a_public_declaration_of_a_short_name_is_listed() {
   assert_eq!(
     rows(&plan.api),
     [
-      (ApiChangeKind::Removed, "id", path, 4, vec![], Some("fun id() : Int"), None),
+      (ApiChangeKind::Removed, "id", path, 4, vec![], Some("fun id(): Int"), None),
       (
         ApiChangeKind::Changed,
         "of",
         path,
         3,
         vec![FormChange::Parameters],
-        Some("fun of(x:Int) : Int"),
-        Some("fun of(x:Int, y:Int) : Int")
+        Some("fun of(x: Int): Int"),
+        Some("fun of(x: Int, y: Int): Int")
       ),
     ]
   );
@@ -289,7 +289,7 @@ fn removed(plan: &ReviewPlan) -> Vec<Row<'_>> {
 #[test]
 fn a_removal_after_a_rename_names_the_path_its_line_is_of() {
   let without_removed = MOVED.replace("fun removedCall(x: Int): Int = x + 3\n", "");
-  let row = |path: &'static str| (ApiChangeKind::Removed, "removedCall", path, 5, vec![], Some("fun removedCall(x:Int) : Int"), None);
+  let row = |path: &'static str| (ApiChangeKind::Removed, "removedCall", path, 5, vec![], Some("fun removedCall(x: Int): Int"), None);
 
   let repo = TestRepo::new();
   let base = repo.create_commit("Add api", "src/a/Old.kt", MOVED);
@@ -738,11 +738,21 @@ fn a_promoted_declaration_is_new_api() {
         path,
         11,
         vec![FormChange::Parameters],
-        Some("fun narrowed(x:Int) : Int"),
-        Some("fun narrowed(x:Int, y:Int) : Int")
+        Some("fun narrowed(x: Int): Int"),
+        Some("fun narrowed(x: Int, y: Int): Int")
       ),
-      (ApiChangeKind::Added, "promoted", path, 5, vec![], None, Some("fun promoted(x:Int) : Int")),
+      (ApiChangeKind::Added, "promoted", path, 5, vec![], None, Some("fun promoted(x: Int): Int")),
       (ApiChangeKind::Added, "Registry", registry, 3, vec![], None, Some("Public()")),
     ]
   );
+}
+
+#[test]
+fn a_form_of_type_parameters_reads_as_code() {
+  // the header as code-symbols writes it, its tokens one space apart, the parameters after the name
+  let form = |tokens: &str| crate::api::as_written(tokens.split(' '));
+  assert_eq!(form("fun < T > first(items: List<T>) : T"), "fun <T> first(items: List<T>): T");
+  assert_eq!(form("fun < T > String . trim2() : T ?"), "fun <T> String.trim2(): T?");
+  assert_eq!(form("public static < T > List < T > of()"), "public static <T> List<T> of()");
+  assert_eq!(form("fun hooks() : Map < String , List < T > >"), "fun hooks(): Map<String, List<T>>");
 }

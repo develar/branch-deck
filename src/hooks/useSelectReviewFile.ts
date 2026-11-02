@@ -14,6 +14,44 @@ export interface ReviewNavigator {
   readonly showStory: (mark: StoryMark) => void
 }
 
+/**
+ * A link of a document beside the review it names (the Overview tab of a pull request), followed once the review is
+ * read: the call of `ReviewNavigator` it stands for
+ */
+export type ReviewLink =
+  | { readonly kind: "show"; readonly place: ReviewPlace }
+  | { readonly kind: "showOutside"; readonly place: ReviewPlace }
+  | { readonly kind: "showStep"; readonly step: string }
+  | { readonly kind: "showStory"; readonly mark: StoryMark }
+
+/** The navigator that keeps each link as a `ReviewLink` for `follow` */
+export function linkNavigator(follow: (link: ReviewLink) => void): ReviewNavigator {
+  return {
+    show: place => follow({ kind: "show", place }),
+    showOutside: place => follow({ kind: "showOutside", place }),
+    showStep: step => follow({ kind: "showStep", step }),
+    showStory: mark => follow({ kind: "showStory", mark }),
+  }
+}
+
+/** Shows the place of `link` in the review of `navigator` */
+export function followLink(navigator: ReviewNavigator, link: ReviewLink): void {
+  switch (link.kind) {
+    case "show":
+      navigator.show(link.place)
+      break
+    case "showOutside":
+      navigator.showOutside(link.place)
+      break
+    case "showStep":
+      navigator.showStep(link.step)
+      break
+    case "showStory":
+      navigator.showStory(link.mark)
+      break
+  }
+}
+
 /** The places of the review around the component, as a link of a badge shows them; null outside a review */
 export const SelectReviewFileContext = createContext<ReviewNavigator | null>(null)
 

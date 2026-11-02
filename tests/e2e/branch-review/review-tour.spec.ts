@@ -211,7 +211,11 @@ test.describe("Review tour", () => {
     const allowed = opening.getByTestId("commit-body-lead").getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })
     await expect(allowed).toHaveAttribute("data-path", "src/a/Manager.kt")
     await allowed.hover()
-    await expect(window.getByTestId("review-story-mention-tip")).toHaveText("allowed — new · Manager.kt:6 · step 2")
+    // its card says what it names, never the name again: the status and the place, and no step, the reader is in it
+    await expect(window.getByTestId("review-story-mention-tip")).toHaveText("NewManager.kt:6")
+    // its name is the name it shows, its description what the card says
+    await expect(allowed).toHaveAccessibleName("Manager.allowed")
+    await expect(allowed).toHaveAccessibleDescription("New · Manager.kt:6")
     // a click shows the declaration: its file selected, its name selected in the diffs
     await allowed.click()
     await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
@@ -232,6 +236,24 @@ test.describe("Review tour", () => {
     await expect(tip).toContainText("One rule decides now: Manager.allowed answers whether the open may show a tool window.")
     await expect(tip.getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })).toBeVisible()
     await expect.poll(async () => ((await tip.boundingBox())?.x ?? 0) + ((await tip.boundingBox())?.width ?? Infinity) <= window.viewportSize()!.width - 8).toBe(true)
+    // the focus from the keyboard opens it too, above the header of its section, or under it at the top of the diffs,
+    // never over it; it is read, not entered (Enter shows the story, whose names are links), and Escape closes it
+    await window.mouse.move(0, 0)
+    await expect(tip).toHaveCount(0)
+    await mark.focus()
+    await window.keyboard.press("Shift+Tab")
+    await window.keyboard.press("Tab")
+    await expect(mark).toBeFocused()
+    await expect(tip).toBeVisible()
+    const headerBox = (await manager.getByTestId("review-file-header").boundingBox())!
+    const clearsHeader = async () => {
+      const box = await tip.boundingBox()
+      return box !== null && (box.y + box.height <= headerBox.y + 1 || box.y >= headerBox.y + headerBox.height - 1)
+    }
+    await expect.poll(clearsHeader).toBe(true)
+    await window.keyboard.press("Escape")
+    await expect(tip).toHaveCount(0)
+    await expect(window.getByTestId("commit-review")).toBeVisible()
     // a click shows the opening of its step, the paragraph outlined
     await window.mouse.move(0, 0)
     await mark.click()
@@ -359,11 +381,18 @@ test.describe("Review tour", () => {
     await expect(commitRow("the open keeps a stored layout")).toHaveCount(0)
     await expect(commitRow("2 · the open keeps a stored layout")).toHaveAttribute("aria-description", /^4 files, \+\d+ −\d+, commit [0-9a-f]{7,}$/)
     await captureHtmlSnapshot(commitRow("2 · the open keeps a stored layout"), "review-tree-step-commit")
-    // the row of a step is its commit: the hash in the title of its name, as a commit row has it, no box of its own that
-    // takes the width of the title
+    // the row of a step is its commit: its hash in its card, no native hover over the card, and no box of its own that
+    // takes the width of the title: the title runs to the mark at the end of the row
     const stepRow = commitRow("2 · the open keeps a stored layout")
-    await expect(stepRow.locator("[data-group]")).toHaveAttribute("title", /^the open keeps a stored layout\n[0-9a-f]{7,}$/)
-    await expect(stepRow.getByTestId("review-commit-hash")).toHaveCount(0)
+    const stepTitle = stepRow.locator("[data-group]")
+    await expect(stepTitle).not.toHaveAttribute("title")
+    const titleRoom = await stepRow.evaluate(row => {
+      const title = row.querySelector("[data-group]")!.getBoundingClientRect()
+      const mark = row.querySelector("[data-testid=commit-row-mark]")!.getBoundingClientRect()
+      return { gap: mark.left - title.right, sameLine: Math.abs(mark.top - title.top) < 8 }
+    })
+    expect(titleRoom.sameLine).toBe(true)
+    expect(titleRoom.gap).toBeLessThan(12)
     // no title of a step or a commit is cut by the width: a title wraps to a second line, at 1440 and at 1024
     const cutTitles = () =>
       tree
@@ -395,14 +424,21 @@ test.describe("Review tour", () => {
     await expect(card.getByTestId("commit-message-body")).toHaveText("The review asked for the name of the flag to say what it holds.")
     await window.mouse.move(0, 0)
     await expect(card).toHaveCount(0)
-    // the card of the row of a step opens at the line of that row, not under the rows of its group
+    // the hover of its subject opens it too
+    await commitRow("the rule names its flag again").getByTestId("review-commit-subject").hover()
+    await expect(card.getByTestId("commit-message-body")).toHaveText("The review asked for the name of the flag to say what it holds.")
+    await window.mouse.move(0, 0)
+    await expect(card).toHaveCount(0)
+    // the card of the row of a step opens beside the tree at the line of that row, the rows around it in view
     const stepMark = commitRow("2 · the open keeps a stored layout").getByTestId("commit-row-mark")
     await stepMark.hover()
     await expect(card).toBeVisible()
+    await expect(card.getByTestId("commit-header-meta")).toContainText(/^[0-9a-f]{7,}/)
     const markBox = (await stepMark.boundingBox())!
+    const treeBox = (await tree.boundingBox())!
     const atTheLine = async () => {
       const box = await card.boundingBox()
-      return box !== null && (Math.abs(box.y - (markBox.y + markBox.height)) < 16 || Math.abs(box.y + box.height - markBox.y) < 16)
+      return box !== null && box.x >= treeBox.x + treeBox.width - 1 && Math.abs(box.y - markBox.y) < 24
     }
     await expect.poll(atTheLine).toBe(true)
     await window.mouse.move(0, 0)
@@ -453,8 +489,8 @@ test.describe("Review tour", () => {
     await commitRow("src/a/Frame.kt, also in 3 · the view paints with the first frame").press("ArrowUp")
     await expect(paint).toHaveAttribute("aria-selected", "true")
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 3 / 4")
-    // the copy key on the row copies the hash of its commit, whole: the one the title of its name shows short
-    const hash = (await paint.locator("[data-group]").getAttribute("title"))!.split("\n")[1]
+    // the copy key on the row copies the hash of its commit, whole: the one its description says short
+    const hash = /commit ([0-9a-f]{7,})$/.exec((await paint.getAttribute("aria-description"))!)![1]
     await pressCopyKey(window)
     await expect.poll(() => readClipboard(window)).toMatch(new RegExp(`^${hash}[0-9a-f]{32,}$`))
 

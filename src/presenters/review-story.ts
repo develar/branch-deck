@@ -1,4 +1,4 @@
-import type { CodeSpan, CommitBodyBlock, CommitRole, ContractKind, Mention, MentionTarget, ReviewPlan, ReviewStep, StoryCommit } from "@/lib/bindings"
+import type { CodeSpan, CommitBodyBlock, CommitRole, ContractKind, Mention, MentionTarget, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
@@ -9,7 +9,6 @@ import type { Breakage } from "@/presenters/review-plan"
 import { firstUse, formatPairState, formatRewrittenChanges, formatSinceReview, presentBreakage } from "@/presenters/review-plan"
 import { formatStepNumber, headOf, presentChapters } from "@/presenters/review-steps"
 import type { NarrativeSection } from "@/presenters/review-units"
-import { formatUnitHeading } from "@/presenters/review-units"
 
 /*
  * The words of the review as one document (spec/branch/review-tour.spec.md, "In the Review Window"): the overview at
@@ -20,16 +19,34 @@ import { formatUnitHeading } from "@/presenters/review-units"
 
 /**
  * A code name of a body (spec/branch/review-tour.spec.md, "Anchors"): its place in the diffs, which a click shows, and
- * the words of its hover ("allowed — new · Manager.kt:6 · step 2"); a name that resolves nothing has neither and stays
- * code in the text
+ * the words of its hover ("New · Manager.kt:6 · in step 2"); a name that resolves nothing has neither and stays code in
+ * the text
  */
 export interface StoryMention extends Mention {
   readonly place: ReviewPlace | null
-  readonly title: string | null
+  /**
+   * The card of its hover in one line, the description of the link for a screen reader, whose name is the name it shows:
+   * "New · Manager.kt:6", "· in step 2" when another step tells it
+   */
+  readonly description: string | null
+  /** The card of its hover: what the target is, where, and its step when another step tells it; null without a target */
+  readonly card: MentionCard | null
+}
+
+/**
+ * The card of the hover of a code name (spec/branch/review-tour.spec.md, "Anchors"): never the name again, which the
+ * link shows, but what it names: the status of a declaration ("New", "Removed", "Body changed"), its file and line,
+ * and "in step 5" when the step that shows it is not the one the reader is in
+ */
+export interface MentionCard {
+  readonly status: string | null
+  readonly tone: "success" | "destructive" | "secondary"
+  readonly location: string
+  readonly step: string | null
 }
 
 /** The words and the place of the target of a mention, by the units and the steps of the plan */
-export type MentionWords = (target: MentionTarget, text: string) => { readonly place: ReviewPlace; readonly title: string }
+export type MentionWords = (target: MentionTarget, text: string) => { readonly place: ReviewPlace; readonly description: string; readonly card: MentionCard }
 
 /** The body of a commit (or the blocks of it told at one place) as the document shows it: its parts, its code names */
 export interface StoryView extends BodyParts {
@@ -50,40 +67,61 @@ export function presentStory(commit: StoryCommit, told: (index: number) => boole
 function wordMentions(commit: StoryCommit, words: MentionWords): StoryMention[] {
   return commit.mentions.map(mention => ({
     ...mention,
-    ...(mention.target === null ? { place: null, title: null } : words(mention.target, mention.text)),
+    ...(mention.target === null ? { place: null, description: null, card: null } : words(mention.target, mention.text)),
   }))
 }
 
 /** The words of a target without the units: its file and line */
 function plainWords(target: MentionTarget): ReturnType<MentionWords> {
-  return target.kind === "file"
-    ? { place: fileTop(target.path), title: target.path }
-    : {
-        place: { path: target.path, side: target.side, line: target.line, name: null },
-        title: target.line === null ? fileName(target.path) : `${fileName(target.path)}:${target.line}`,
-      }
+  if (target.kind === "file") {
+    return withDescription(fileTop(target.path), { status: null, tone: "secondary", location: target.path, step: null })
+  }
+  const location = target.line === null ? fileName(target.path) : `${fileName(target.path)}:${target.line}`
+  return withDescription({ path: target.path, side: target.side, line: target.line, name: null }, { status: null, tone: "secondary", location, step: null })
+}
+
+/** The place and the card of a mention with its description, the card in one line: the screen reader hears what the hover shows */
+function withDescription(place: ReviewPlace, card: MentionCard): ReturnType<MentionWords> {
+  return { place, card, description: [card.status, card.location, card.step].filter(part => part !== null).join(" · ") }
+}
+
+/** What a unit is to the change, the badge of the card of a name: "New", "Removed", "Body changed", "Form changed" */
+function unitStatus(unit: ReviewUnit): Pick<MentionCard, "status" | "tone"> {
+  switch (unit.kind.kind) {
+    case "added":
+      return { status: "New", tone: "success" }
+    case "newFile":
+      return { status: "New file", tone: "success" }
+    case "removed":
+      return { status: "Removed", tone: "destructive" }
+    case "deletedFile":
+    case "deletedFiles":
+      return { status: "Deleted file", tone: "destructive" }
+    case "behaviour":
+      return { status: "Body changed", tone: "secondary" }
+    case "shape":
+      return { status: "Form changed", tone: "secondary" }
+    default:
+      return { status: null, tone: "secondary" }
+  }
 }
 
 /**
- * The words of the targets of the mentions of `plan`: a declaration by the heading of its unit, its file and line and
- * its step ("allowed — new · Manager.kt:6 · step 2"), the name Rust resolved selected once shown; a declaration of a new
- * or deleted file (whose unit is the file) by the name the body writes ("LayoutStore.read · LayoutStore.kt:4 · step
- * 5"); a file by its path and its step
+ * The words of the targets of the mentions of `plan`, the place a click shows (of a declaration the name Rust resolved
+ * selected once shown) and the card of the hover: the status of a declaration, its file and line, a file by its path,
+ * and the step only when it is not `current` (the place of the step whose opening tells the line, null for the
+ * overview); the description says the card in one line ("New file · LayoutStore.kt:4 · in step 5")
  */
-export function mentionWords(plan: Pick<ReviewPlan, "units">): MentionWords {
+export function mentionWords(plan: Pick<ReviewPlan, "units">, current: number | null = null): MentionWords {
   const units = new Map(plan.units.map(unit => [unit.id, unit]))
-  const step = (index: number | null) => (index === null ? [] : [`step ${index + 1}`])
-  return (target, text) => {
+  const elsewhere = (index: number | null) => (index === null || index === current ? null : `in step ${index + 1}`)
+  return target => {
     if (target.kind === "file") {
-      return { place: fileTop(target.path), title: [target.path, ...step(target.step)].join(" · ") }
+      return withDescription(fileTop(target.path), { status: null, tone: "secondary", location: target.path, step: elsewhere(target.step) })
     }
     const unit = units.get(target.unit)
-    const { place, title } = plainWords(target)
-    const ofFile = unit === undefined || unit.kind.kind === "newFile" || unit.kind.kind === "deletedFile"
-    return {
-      place: { ...place, name: target.name },
-      title: [ofFile ? text : formatUnitHeading(unit), title, ...step(target.step)].join(" · "),
-    }
+    const { place, card } = plainWords(target)
+    return withDescription({ ...place, name: target.name }, { ...card, ...(unit === undefined ? {} : unitStatus(unit)), step: elsewhere(target.step) })
   }
 }
 
@@ -339,6 +377,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
       contract.push({ key: entryView.key, path: entry.path, kind: CONTRACT_WORDS[entry.kind], entries: [entryView] })
     }
   })
+  const breakage = presentBreakage(plan.api, pending)
   return {
     issue: plan.brief.issue,
     title: plan.title,
@@ -353,7 +392,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
           ? "One commit: the steps are its tasks"
           : "The commits tell no story: the steps are the tasks of the range",
     facts: told ? null : rangeFacts(plan),
-    breakage: presentBreakage(plan.api, pending),
+    breakage,
     since:
       since === null || plan.interdiff === null
         ? null
@@ -367,7 +406,8 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
                 title: commit.subject,
               })),
           },
-    indexNote: plan.indexNote === null ? null : { text: `Uses unknown: ${plan.indexNote}`, underBreakage: plan.api.some(change => change.kind !== "added") },
+    // folded under Possible Breakage where the overview lists an entry of it, the uses it tells of
+    indexNote: plan.indexNote === null ? null : { text: `Uses unknown: ${plan.indexNote}`, underBreakage: breakage.entries.length > 0 },
   }
 }
 
@@ -416,16 +456,17 @@ export interface OpeningView {
 
 /** The opening of each step of `plan` by its id (`OpeningView`) */
 export function presentOpenings(plan: Pick<ReviewPlan, "steps" | "concerns" | "api" | "links" | "units">): Map<string, OpeningView> {
-  const words = mentionWords(plan)
   const chapters = presentChapters(plan)
   const concerns = new Map(plan.concerns.map(concern => [concern.id, concern]))
   const one = storyOfOneCommit(plan)
-  const commitOf = (id: string, title: string, role: CommitRole): OpeningCommit => {
-    const story = role === "noStory" ? undefined : storyOf(plan, id)
-    return { id, role: role === "followsUp" ? "Follows up" : "Without a story", title, story: story === undefined ? null : presentStory(story, undefined, words) }
-  }
   return new Map(
     plan.steps.steps.map((step, index): [string, OpeningView] => {
+      // the names of a story told in this step: their step is said only when it is another
+      const words = mentionWords(plan, index)
+      const commitOf = (id: string, title: string, role: CommitRole): OpeningCommit => {
+        const story = role === "noStory" ? undefined : storyOf(plan, id)
+        return { id, role: role === "followsUp" ? "Follows up" : "Without a story", title, story: story === undefined ? null : presentStory(story, undefined, words) }
+      }
       const chapter = chapters[index]!
       const concern = step.concern === null ? undefined : concerns.get(step.concern)
       const head = concern === undefined ? headOf(step) : undefined

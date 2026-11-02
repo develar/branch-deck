@@ -8,12 +8,25 @@ export interface ReviewPosition {
    * order of the tree (-1 for a file of another owner) and their number; none without such a chip
    */
   owner?: { label: string; index: number; count: number }
+  /** The overview of the plan is at the top: no file is, the footer says "Overview" */
+  overview?: boolean
+  /** The number of the step of the story at the top, from 1: "Step 2 · File 3 / 9" */
+  step?: number
+}
+
+/**
+ * The file a position shows the reader: none while the overview is at the top, though the tree keeps the first file for
+ * its keys; a review read again starts at it, and the review of a pull request counts it as opened for Approve
+ */
+export function shownPath(position: ReviewPosition): string | null {
+  return position.overview === true ? null : position.path
 }
 
 /**
  * The footer of a review: "File 3 / 12", after the commit ("Commit 2 / 5 · File 3 / 12") or the scope of a range
- * ("All Changes · File 3 / 12") when there is one, then the part of the chosen owner chip: "Design 2 / 5" on a file of
- * its own, "Design 5" on another; empty until the review reports its first file
+ * ("All Changes · File 3 / 12") when there is one, after the step of the story at the top ("Step 2 · File 3 / 12"),
+ * then the part of the chosen owner chip: "Design 2 / 5" on a file of its own, "Design 5" on another; "Overview" in
+ * place of the file while the overview is at the top; empty until the review reports its first file
  */
 export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosition | null; commit?: { index: number; count: number }; scope?: string }): string {
   const parts: string[] = []
@@ -22,7 +35,12 @@ export function formatReviewPosition({ file, commit, scope }: { file: ReviewPosi
   } else if (scope !== undefined) {
     parts.push(scope)
   }
-  if (file !== null && file.count > 0) {
+  if (file?.overview === true) {
+    parts.push("Overview")
+  } else if (file !== null && file.count > 0) {
+    if (file.step !== undefined) {
+      parts.push(`Step ${file.step}`)
+    }
     parts.push(`File ${file.index + 1} / ${file.count}`)
     const owner = file.owner
     if (owner !== undefined && owner.count > 0) {

@@ -116,8 +116,8 @@ fn prints_the_api_and_the_files_of_a_range() {
         "name": "open",
         "kind": "changed",
         "changes": ["parameters"],
-        "before": "fun open(path:String) : Int",
-        "after": "fun open(path:String, mode:Int) : Int",
+        "before": "fun open(path: String): Int",
+        "after": "fun open(path: String, mode: Int): Int",
         "usages": null,
       }]),
       &json!([

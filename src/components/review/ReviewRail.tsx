@@ -9,6 +9,7 @@ import { SectionLabel } from "@/components/shared/SectionLabel"
 import type { CommitFile, CommitFiles, ReviewCommit, ReviewRequest, TransferProgress } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
 import { toCardCommit } from "@/lib/commit"
+import { commitTitleOf } from "@/presenters/review-steps"
 
 export interface ReviewRailProps {
   request: ReviewRequest
@@ -21,6 +22,8 @@ export interface ReviewRailProps {
   onOpenFile: (path: string) => void
   /** Reviews the changes at the commit */
   onOpenCommit: (id: string) => void
+  /** The title Rust gives each commit of the plan (`withCommitTitles`), as the changes name it; its subject without one */
+  titles: ReadonlyMap<string, string>
 }
 
 /**
@@ -28,7 +31,7 @@ export interface ReviewRailProps {
  * newest first as in the commit column of the changes (a click reviews the changes at the commit); while it is fetched,
  * how far the fetch is
  */
-export function ReviewRail({ request, files, commits, progress, onOpenFile, onOpenCommit }: ReviewRailProps) {
+export function ReviewRail({ request, files, commits, progress, onOpenFile, onOpenCommit, titles }: ReviewRailProps) {
   if (commits === null) {
     return (
       <aside className="flex flex-col gap-2" aria-label="Commits" data-testid="review-commits">
@@ -46,7 +49,7 @@ export function ReviewRail({ request, files, commits, progress, onOpenFile, onOp
       </section>
       <section className="flex flex-col gap-1" aria-label="Commits" data-testid="review-commits">
         <SectionLabel title="Commits" count={commits.length} className="px-2" />
-        <CommitRows commits={commits} onOpen={onOpenCommit} />
+        <CommitRows commits={commits} onOpen={onOpenCommit} titles={titles} />
       </section>
     </aside>
   )
@@ -64,7 +67,7 @@ function FetchProgress({ request, progress }: { request: ReviewRequest; progress
 }
 
 const RAIL_ROW_CLASS =
-  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-sm outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
 
 /**
  * The files by path, the name first and its directory muted, giving way first; a click reviews the changes at it, the
@@ -115,7 +118,7 @@ function FileRows({ files, onOpen }: { files: readonly CommitFile[]; onOpen: (pa
  * sidebar (`CommitRow`): its subject, the mark of its card, which its hover, the hover of the subject and `I` on the row
  * open; a click and Enter review the commit
  */
-function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[]; onOpen: (id: string) => void }) {
+function CommitRows({ commits, onOpen, titles }: { commits: readonly ReviewCommit[]; onOpen: (id: string) => void; titles: ReadonlyMap<string, string> }) {
   // the one open card, by the commit: by the hover of its mark or subject, or by `I`
   const [card, setCard] = useState<{ id: string; byKey: boolean } | null>(null)
   const rows = useRef(new Map<string, HTMLElement>())
@@ -153,6 +156,7 @@ function CommitRows({ commits, onOpen }: { commits: readonly ReviewCommit[]; onO
             <span className="flex min-w-0 flex-1 flex-col">
               <CommitRow
                 subject={commit.subject}
+                title={commitTitleOf(titles, commit.id)}
                 hash={commit.id}
                 subjectTestId="review-commit-subject"
                 card={

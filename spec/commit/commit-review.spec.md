@@ -350,12 +350,17 @@ where a dialog would cover it.
   centred on the window of the view and kept inside the track. Its hover is a popover at its left, its middle at the height of the pointer: the file as a list names it (`FilePathLabel`), its step muted under it, in `text-xs`.
 - The review window ([Title Bar](../repository/title-bar.spec.md)) names the list and the commit in its title bar
   ("session › 11346cdf"), the toggle at its other end; the native title stays "Review 11346cdf <subject>".
-- The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits (the windows
+- The footer shows "File 3 / 12" on the left, "Commit 2 / 3 · File 3 / 12" in a list of several commits; with the
+  plan "Overview" while its overview is at the top (the tree then selects no row: no file is shown, none is the file a
+  review read again starts at) and the step of
+  the story at the top before the file ("All Changes · Step 2 · File 3 / 12"), one hook for every window of a review
+  (`useReviewPosition`) (the windows
   of a branch and of a pull request add the part of a chosen owner chip, "· Design 2 / 5", [Branch
   Review](../branch/branch-review.spec.md#code-owners); the window of a commit has no chips), and on the
   right the hints `J K Files`, `N P Changes`, `F Sidebar`, `I Details` while a row of the tree has the focus
   ([Review Plan](../branch/review-plan.spec.md)), `⌥↑ ⌥↓ Commits` (`Alt+↑ Alt+↓` off macOS, not for a list of one) and
   `Esc Close`.
+  [@test] ../../src/lib/review-position.test.ts (`says Overview while the overview is at the top, and the step of the story before the file`, `shows the file of the position, none while the overview is at the top`)
 - The preview's footer keeps `D Review Changes` (the window opens), `F Files`, `E Edit` and `Space Close`.
 
 ## Testing / Local Run

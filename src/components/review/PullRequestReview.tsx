@@ -22,8 +22,9 @@ import { useFileOwners } from "@/hooks/useFileOwners"
 import { useOperationWords } from "@/hooks/useOperationWords"
 import { useReviewOwnerFilter } from "@/hooks/useReviewOwnerFilter"
 import { useSubjectPlan } from "@/hooks/useReviewPlan"
-import { SelectReviewFileContext } from "@/hooks/useSelectReviewFile"
-import type { ReviewNavigator } from "@/hooks/useSelectReviewFile"
+import { useReviewPosition } from "@/hooks/useReviewPosition"
+import { SelectReviewFileContext, linkNavigator } from "@/hooks/useSelectReviewFile"
+import type { ReviewLink } from "@/hooks/useSelectReviewFile"
 import type { ReviewerGroupView, ReviewInvolvement, ReviewRange, ReviewRequest } from "@/lib/bindings"
 import type { DiffSubject } from "@/lib/commit-files"
 import { diffSubjectId, parseDiffSubjectId } from "@/lib/commit-files"
@@ -31,14 +32,13 @@ import { formatShortHash } from "@/lib/hash"
 import { FROM_MENU } from "@/lib/menu"
 import { handlePreviewNavigationKey, hasKeyModifier, isTypingTarget } from "@/lib/preview-keys"
 import type { ReviewSource } from "@/lib/pull-request-review"
-import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, rangePosition, shownKey } from "@/lib/range-review"
+import { ALL_CHANGES, SINCE_REVIEW, isSingleCommit, pullRequestItems, shownKey } from "@/lib/range-review"
 import { ownerPaths, reviewFilterChips, reviewOwnerMarks } from "@/lib/review-owners"
 import type { ReviewOwners } from "@/lib/review-owners"
 import { planFacts } from "@/lib/review-plan-answer"
-import type { ReviewPosition } from "@/lib/review-position"
-import { formatReviewPosition } from "@/lib/review-position"
 import type { ReviewedCommit, ReviewIntent, ReviewRequestActionContext } from "@/lib/review-request-actions"
 import { getReviewRequestActions } from "@/lib/review-request-actions"
+import { withCommitTitles } from "@/presenters/review-steps"
 import { presentApprovalScope } from "@/presenters/reviews"
 import { loadFilesOfSubject, useFilesOfCommit } from "@/stores/commit-files"
 import type { ReviewFetch } from "@/stores/review-fetch"
@@ -111,30 +111,29 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const [tab, setTab] = useState<ReviewTab>("overview")
   // the item of the commit column: all changes, since the user's review, a commit
   const [selected, setSelected] = useState(ALL_CHANGES)
-  // the file on screen, where the review starts again (another item, back from the overview)
-  const [lastPath, setLastPath] = useState<string | null>(null)
-  // a file chosen in the rail: the review starts over at it
+  // a file chosen in the rail, a link of the overview: the review starts over at it
   const [jump, setJump] = useState(0)
-  const [filePosition, setFilePosition] = useState<ReviewPosition | null>(null)
+  // the link of the overview the changes follow once read: the file at its line, the use outside, the step
+  const [link, setLink] = useState<ReviewLink | null>(null)
   // the files the window showed, for what Approve counts ("You opened 3 of its 5 files"), by request and head for the
   // life of the window: ↓ to another request and back keeps them, a new head of a request counts from zero; a report is
   // of the head of the render that made its callback
   const shownHead = fetch?.status === "fetched" ? fetch.range.head : null
   const shownNumber = request.number
   const [opened, setOpened] = useState<ReadonlyMap<number, OpenedFiles>>(NO_OPENED_FILES)
-  const showPosition = useCallback(
-    (next: ReviewPosition) => {
-      setFilePosition(next)
-      const path = next.path
-      if (path !== null) {
-        setLastPath(path)
-        if (shownHead !== null) {
-          setOpened(previous => withOpenedFile(previous, shownNumber, shownHead, path))
-        }
+  // each file the review shows counts for Approve
+  const countOpened = useCallback(
+    (path: string) => {
+      if (shownHead !== null) {
+        setOpened(previous => withOpenedFile(previous, shownNumber, shownHead, path))
       }
     },
     [shownNumber, shownHead],
   )
+  // the plan of what is shown, once read or known to be none: until then the first file is no file the reader opened,
+  // the overview of the plan will head the changes
+  const [planSettled, setPlanSettled] = useState(true)
+  const { footer: positionFooter, lastPath, setLastPath, showPosition } = useReviewPosition(null, countOpened, planSettled)
   const openedOfRequest = opened.get(shownNumber)
   const openedPaths = shownHead !== null && openedOfRequest?.head === shownHead ? openedOfRequest.paths : NOTHING_OPENED
   const [isRequestingChanges, setRequestingChanges] = useState(false)
@@ -174,6 +173,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     setAppliedView(openToken)
     setSelected(ALL_CHANGES)
     setLastPath(null)
+    setLink(null)
     setJump(jump + 1)
     setTab("changes")
   }
@@ -194,6 +194,10 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   // the plan of what the review shows (spec/branch/review-units.spec.md): its overview and the story of its diffs, unless the
   // repository turns the plan off; the overview tab tells the plan of all changes as the same document
   const plan = useSubjectPlan(repositoryPath, reviewing ? subject : range === null ? null : { kind: "range", base: range.base, head: range.head })
+  const settled = plan.disabled || plan.error !== null || (plan.plan !== null ? plan.current : !plan.loading)
+  if (settled !== planSettled) {
+    setPlanSettled(settled)
+  }
   // back in the overview, the keys go to its body again
   useEffect(() => {
     if (!reviewing) {
@@ -252,9 +256,23 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
     }
     if (at.path !== undefined) {
       setLastPath(at.path)
+      setLink(null)
       setJump(jump + 1)
     }
     setTab(next)
+  }
+
+  /** The changes of all of the pull request at the place of a link of the overview, as the link in them shows it */
+  const showLink = (next: ReviewLink) => {
+    if (range === null) {
+      return
+    }
+    setSelected(ALL_CHANGES)
+    // the file the diffs read first: of a changed file its own; the others start at the overview
+    setLastPath(next.kind === "show" ? next.place.path : null)
+    setLink(next)
+    setJump(jump + 1)
+    setTab("changes")
   }
 
   const showRequest = (next: number) => {
@@ -395,17 +413,15 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
 
   // what the author wrote: the lead of the document of the overview and of the changes
   const description = request.bodyText.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.bodyText}`} />
-  // a link of the overview shows its place in the changes, of all changes
-  const overviewNavigator: ReviewNavigator = {
-    show: place => showTab("changes", { path: place.path, item: ALL_CHANGES }),
-    showOutside: place => showTab("changes", { path: place.path, item: ALL_CHANGES }),
-    showStep: step => showTab("changes", { path: plan.plan?.steps.steps.find(it => it.id === step)?.paths[0], item: ALL_CHANGES }),
-    showStory: () => showTab("changes", { item: ALL_CHANGES }),
-  }
+  // the commits of the rail named as the changes name them, by the plan of all changes the overview tells
+  const railTitles = withCommitTitles(NO_TITLES, plan.plan?.steps.steps ?? [])
+  // a link of the overview shows its place in the changes of all of the pull request, as the same link there does
+  const overviewNavigator = linkNavigator(showLink)
 
   const overview = (
-    // the document as wide as its reading column, the rail right after it: no gap of the window between them
-    <div className="grid gap-x-10 gap-y-6 md:grid-cols-[minmax(0,52rem)_18rem]">
+    // the document as wide as what it holds (its prose at 65ch, 52rem at most), the rail right after it: no gap of the
+    // window between them
+    <div className="grid gap-x-10 gap-y-6 md:grid-cols-[fit-content(52rem)_18rem]">
       <div className="flex min-w-0 flex-col gap-5">
         {host.withdrawn && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">
@@ -445,6 +461,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           request={request}
           files={files}
           commits={range?.commits ?? null}
+          titles={railTitles}
           progress={fetch?.status === "fetching" ? fetch.progress : null}
           onOpenFile={path => showTab("changes", { path, item: ALL_CHANGES })}
           onOpenCommit={id => showTab("changes", { item: id })}
@@ -463,6 +480,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           onSelect={setSelected}
           subject={subject}
           initialPath={lastPath}
+          initialLink={link}
           onPositionChange={showPosition}
           ownerMarks={reviewOwnerMarks(ownerFilter, owners)}
           fileOwners={fileOwners}
@@ -485,7 +503,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
       start={
         reviewing && (
           <span className="tabular-nums" data-testid="review-file-position">
-            {formatReviewPosition({ file: filePosition, ...rangePosition(items, selectedKey) })}
+            {positionFooter(items, selectedKey)}
           </span>
         )
       }
@@ -538,6 +556,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
 }
 
 const NOTHING_OPENED: ReadonlySet<string> = new Set()
+const NO_TITLES: ReadonlyMap<string, string> = new Map()
 const NO_OPENED_FILES: ReadonlyMap<number, OpenedFiles> = new Map()
 
 /** The files the window showed of a request, of the head it showed them of */

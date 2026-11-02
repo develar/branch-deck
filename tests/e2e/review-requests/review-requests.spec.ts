@@ -9,6 +9,7 @@ import { openActivityWindow } from "../helpers/activity-helpers"
 import { findBranchRow, verifyBranchState } from "../helpers/branch-helpers"
 import { availableRobots, codeOwner, evaluatedGroup, robot } from "../helpers/patronus-helpers"
 import { availablePullRequests, getOpenedUrls, gitHubRequests, pullRequest, repoPath, reviewer } from "../helpers/pull-request-helpers"
+import { turnOnReviewPlan } from "../helpers/review-plan-helpers"
 import {
   NOW,
   availableReviewRequests,
@@ -20,6 +21,7 @@ import {
   routeReviewFetch,
 } from "../helpers/review-request-helpers"
 import { openedReview } from "../helpers/review-window-helpers"
+import { selectedInDiffs } from "../helpers/selection-helpers"
 import { expectSettingsOpened, openSettingsWindow } from "../helpers/settings-helpers"
 import type { SetupRepoOptions } from "../helpers/setup-options"
 import { getEmittedEvents, getOpenedSubWindows, openLinkedSubWindow, reopenLinkedSubWindow } from "../helpers/sub-window-helpers"
@@ -489,6 +491,73 @@ test.describe("Review window", () => {
     await expect(review.getByTestId("review-overview-reading")).toHaveCount(0)
     // the commits of the rail are commit rows, by their subjects
     await expect(review.getByTestId("review-commits").getByTestId("review-commit-subject")).toHaveCount(4)
+  })
+
+  test("should review all changes at the place of a link of the overview: a code name at its declaration, a step at its opening", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    // the branch `layout` of the `review_tour` template as a pull request, its plan on
+    const repo = await setupRepo("review_tour", { reviewRequests: availableReviewRequests([reviewRequest("layout", 201, 1, { title: "Keep the stored layout" })]) })
+    turnOnReviewPlan(repo)
+    await syncAndWaitForBranches()
+    const { window, review } = await openRequestReview(page, 201)
+    const overview = review.getByTestId("review-overview")
+    const tree = window.getByRole("tree", { name: "Changed files" })
+    const bar = window.getByTestId("review-step-bar")
+
+    // a code name of the contents: the changes of all of it, its file selected, its name selected in the diffs
+    await overview.getByTestId("review-contents-step").nth(1).getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" }).click()
+    await expect(tree.getByRole("treeitem", { name: "src/a/Manager.kt", exact: true })).toHaveAttribute("aria-selected", "true")
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "allowed", path: "src/a/Manager.kt" })
+    // the overview is no longer at the top
+    await expect(reviewPosition(window)).toHaveText(/^All Changes · Step \d · File \d \/ 6$/)
+
+    // back in the overview, the title of a step: its opening at the top of the changes, its place in the bar
+    await window.keyboard.press("Escape")
+    await overview.getByTestId("review-contents-step-title").filter({ hasText: "the restart story checks the layout" }).click()
+    await expect(bar.getByTestId("review-step-position")).toHaveText("Step 4 / 4")
+    await expect(tree.getByRole("treeitem", { name: "4 · the restart story checks the layout", exact: true })).toHaveAttribute("aria-selected", "true")
+
+    // one commit is named alike in the rail, the commit column and the tree: the title Rust gives it
+    const title = "the rule names its flag again"
+    await expect(tree.getByRole("treeitem", { name: title, exact: true })).toBeVisible()
+    await window.keyboard.press("Escape")
+    const rail = review.getByTestId("review-commits").getByTestId("review-commit")
+    await expect(rail.getByTestId("review-commit-subject")).toHaveText([title, ...(await rail.getByTestId("review-commit-subject").allTextContents()).slice(1)])
+    // the commit of the rail opens its card on the hover of its subject and by I, the focus in it; Escape gives it back
+    const card = window.getByTestId("commit-card")
+    const railRow = rail.filter({ hasText: title })
+    await window.mouse.move(0, 0)
+    await railRow.getByTestId("review-commit-subject").hover()
+    await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
+    await window.mouse.move(0, 0)
+    await expect(card).toHaveCount(0)
+    await railRow.focus()
+    await window.keyboard.press("i")
+    await expect(card).toBeFocused()
+    await window.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+    await expect(railRow).toBeFocused()
+
+    await railRow.click()
+    const column = window.getByTestId("range-review-commits").getByTestId("range-review-commit")
+    await expect(column.filter({ hasText: title })).toHaveAttribute("aria-selected", "true")
+    await expect(column.filter({ hasText: title }).getByText(title, { exact: true })).toBeVisible()
+    // so does the commit of the column: the hover of its subject, I on the column, Escape back to the column
+    await window.mouse.move(0, 0)
+    await column.filter({ hasText: title }).getByText(title, { exact: true }).hover()
+    await expect(card).toContainText("The review asked for the name of the flag to say what it holds.")
+    await window.mouse.move(0, 0)
+    await expect(card).toHaveCount(0)
+    const listbox = window.getByTestId("range-review-commits")
+    await listbox.focus()
+    await window.keyboard.press("i")
+    await expect(card).toBeFocused()
+    await window.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+    await expect(listbox).toBeFocused()
   })
 
   test("should list in the tree of Since Your Review only the commits after the user's review, and mark the reviewed one in All Changes", async ({
@@ -1187,6 +1256,25 @@ test.describe("Owner part and Approve", () => {
     await pressDecisionKey(window, review, "a")
     await expect(review.getByTestId("review-approve")).toHaveText("Approved")
     expect(await gitHubRequests(repo, "POST", "pulls", 7, "reviews")).toEqual([expect.objectContaining({ event: "APPROVE" })])
+  })
+
+  test("should count no file for Approve while the overview of the plan is at the top of the changes, and the first file J shows", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupOwnedRequests(setupRepo, syncAndWaitForBranches)
+    turnOnReviewPlan(repo)
+    await repo.setReviewAnswers({ answers: { "request:7": loginGroupsWithDesign(["README.md", "auth/token.js", "ui/login.css", "ui/login.js"]) } })
+    const { window, review } = await openOwnedChanges(page)
+    await expect(window.getByTestId("review-overview")).toBeVisible()
+    // the overview at the top: no file is shown, none counts, though the tree keeps the first one for J
+    await expect(reviewPosition(window)).toHaveText("All Changes · Overview")
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 0 of its 4 files")
+    await window.locator("[aria-label='Changes of the commit']").focus()
+    await window.keyboard.press("j")
+    await expect(reviewPosition(window)).toHaveText(/^All Changes · (Step \d+ · )?File \d \/ 4/)
+    expect(await approveDescription(window, review)).toBe("Counts for Design · You opened 1 of its 4 files")
   })
 
   test("should count the opened files again from zero on a new head, and say when the approval counts for no group that needs one", async ({

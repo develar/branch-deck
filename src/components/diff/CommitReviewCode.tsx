@@ -415,13 +415,17 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
       place.marks.push(mark)
     }
   }
+  // the card opens on the hover of the mark and on its focus from the keyboard, as the description of a control does
+  const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
   return (
-    <HoverDescription lazy>
+    <HoverDescription lazy open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         openOnHover
         delay={300}
         render={
           <Button
+            ref={trigger}
             variant="ghost"
             size="icon-xs"
             data-testid="review-story-mark"
@@ -429,13 +433,23 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
             disabled={navigator === null}
             className="text-muted-foreground"
             onClick={() => navigator?.showStory(first)}
+            onFocus={event => {
+              if (event.currentTarget.matches(":focus-visible")) {
+                setOpen(true)
+              }
+            }}
+            // the card is read from the keyboard, not entered: Enter shows the story, whose names are links there
+            onBlur={() => setOpen(false)}
           />
         }
       >
         <BookOpenTextIcon />
       </PopoverTrigger>
       <PopoverContent
-        side="bottom"
+        // above the header of its section, never over the lines of the section it tells of; below the whole header where
+        // no room is above it, never over the header
+        anchor={() => trigger.current?.closest<HTMLElement>("[data-testid=review-file-header]") ?? trigger.current}
+        side="top"
         align="end"
         collisionPadding={8}
         className="w-auto max-w-md gap-3 p-3"
@@ -457,7 +471,7 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
             </span>
             {place.marks.map(mark => (
               <p key={mark.key} className="border-l-2 border-border pl-2.5 [font-feature-settings:'ss04'] text-sm">
-                <StoryText text={mark.preview} spans={mark.spans} mentions={mark.mentions} />
+                <StoryText text={mark.preview} spans={mark.spans} mentions={mark.mentions} nested />
               </p>
             ))}
           </div>

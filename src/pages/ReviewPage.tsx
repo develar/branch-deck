@@ -20,6 +20,7 @@ import { useLinkedFeedback } from "@/hooks/useMainWindowLink"
 import { useReviewActions } from "@/hooks/useReviewActions"
 import type { ReviewActionItem } from "@/hooks/useReviewActions"
 import { useSubjectPlan } from "@/hooks/useReviewPlan"
+import { useReviewPosition } from "@/hooks/useReviewPosition"
 import { useSessionFactStores } from "@/hooks/useSessionFactStores"
 import { useSubWindowData } from "@/hooks/useSubWindowData"
 import { useWindowTitle } from "@/hooks/useWindowTitle"
@@ -32,10 +33,8 @@ import { FROM_MENU } from "@/lib/menu"
 import { isMac } from "@/lib/platform"
 import { openPullRequestUrl } from "@/lib/pull-request"
 import { showReviewToast } from "@/lib/pull-request-review"
-import { commitItems, isSingleCommit, rangePosition } from "@/lib/range-review"
+import { commitItems, isSingleCommit } from "@/lib/range-review"
 import { planFacts } from "@/lib/review-plan-answer"
-import type { ReviewPosition } from "@/lib/review-position"
-import { formatReviewPosition } from "@/lib/review-position"
 import { pushReviewHistory, restoredReview, reviewSubjectName, reviewWindowTitle, takeOpen } from "@/lib/review-reuse"
 import type { ReviewPlace, ShownReviewWindow } from "@/lib/review-reuse"
 import { askReviewRun } from "@/lib/review-runs"
@@ -536,20 +535,13 @@ function goneReason(branchName: string, kept: KeptReview | undefined): string {
 function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview; back: ReactNode; onPlace: ReportPlace }) {
   const items = commitItems(data.commits)
   const [selected, setSelected] = useState(data.commits[data.index]?.id ?? data.commits[0]?.id ?? "")
-  const [position, setPosition] = useState<ReviewPosition | null>(null)
-  const [lastPath, setLastPath] = useState(data.path)
+  const { footer, lastPath, showPosition } = useReviewPosition(data.path)
   const [movedAt, setMovedAt] = useState(data.openedAt)
   if (data.openedAt !== movedAt) {
     setMovedAt(data.openedAt)
     const commit = data.commits[data.index]
     if (data.move && commit !== undefined) {
       setSelected(commit.id)
-    }
-  }
-  const showPosition = (next: ReviewPosition) => {
-    setPosition(next)
-    if (next.path !== null) {
-      setLastPath(next.path)
     }
   }
   const index = data.commits.findIndex(it => it.id === selected)
@@ -588,7 +580,7 @@ function CommitsReviewWindow({ data, back, onPlace }: { data: ShownCommitsReview
           data-testid="review-window-footer"
           start={
             <span className="tabular-nums" data-testid="review-position">
-              {formatReviewPosition({ file: position, ...rangePosition(items, selected) })}
+              {footer(items, selected)}
             </span>
           }
         >

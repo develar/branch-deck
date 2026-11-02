@@ -245,11 +245,14 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../crates/review-plan/src/api_test.rs (`a_promoted_declaration_is_new_api`, `unstable_api_is_no_new_api_but_its_change_is_listed`, `the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`)
   [@test] ../../crates/review-plan/src/api_test.rs (`a_change_of_form_to_or_from_api_is_listed`)
 - Each entry must give its file and line, its name, its kind (`removed`, `changed`, `added`), the parts that
-  changed, and its form before and after: the header with the parameters after the name, a type by its constructors.
+  changed, and its form before and after: the header with the parameters after the name, a type by its constructors,
+  written as code is (`fun hooks(): List<String>`, `fun open(path: String): Int`), never its tokens spaced apart; the
+  type parameters of a declaration stand apart from its keyword (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`).
   The file and line are those after the commits, through every rename, also one that changes no declaration; of a
   removal, those before the first commit that touched the declaration, so `path:line` is of the same content: the old
   path when that commit also renamed the file. A range of no source file of a known language has an empty `api`.
   [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_form_of_type_parameters_reads_as_code`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Fan-in

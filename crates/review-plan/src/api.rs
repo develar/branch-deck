@@ -238,15 +238,74 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
 fn shown(declaration: &DeclarationForm) -> Option<String> {
   let form = &declaration.form;
   let Some(header) = &form.header else { return form.constructors.clone() };
-  let Some(parameters) = &form.parameters else { return Some(header.clone()) };
-  let parameters = format!("({})", parameters.replace(',', ", "));
+  let Some(parameters) = &form.parameters else {
+    return Some(as_written(header.split(' ')));
+  };
+  let parameters = format!("({})", parameters.replace(',', ", ").replace(':', ": "));
   let mut tokens: Vec<String> = header.split(' ').map(str::to_string).collect();
   match tokens.iter_mut().find(|token| **token == declaration.name) {
     Some(name) => name.push_str(&parameters),
     None => tokens.push(parameters),
   }
-  Some(tokens.join(" "))
+  Some(as_written(tokens.iter().map(String::as_str)))
 }
+
+/// The tokens of a form as code is written: no space before `>`, `,`, `)`, `.`, `?`, `:` and `[`, none after `<`, `(`,
+/// `.` and `[`, so a header reads `fun hooks(): List<String>`, never `fun hooks() : List < String >`. A `<` is glued only
+/// to the name of a type or a function before it (`List<T>`, `first<T>`): after a keyword or a modifier it opens the
+/// type parameters of the declaration (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`)
+pub(crate) fn as_written<'a>(tokens: impl Iterator<Item = &'a str>) -> String {
+  let mut text = String::new();
+  let mut previous = "";
+  for token in tokens.filter(|token| !token.is_empty()) {
+    let glued_before = if token.starts_with('<') {
+      previous.ends_with(|c: char| c.is_alphanumeric() || c == '_') && !DECLARATION_WORDS.contains(&previous)
+    } else {
+      token.starts_with(['>', ',', ')', '.', '?', ':', '[']) && token != "->" && token != "=>"
+    };
+    let glued_after = text.ends_with(['<', '(', '.', '[']);
+    if !text.is_empty() && !glued_before && !glued_after {
+      text.push(' ');
+    }
+    text.push_str(token);
+    previous = token;
+  }
+  text
+}
+
+/// The keywords and modifiers of a header that the type parameters of its declaration may follow (`fun <T>`, `public
+/// static <T>`): a `<` after them is no argument of a type
+const DECLARATION_WORDS: &[&str] = &[
+  "abstract",
+  "actual",
+  "class",
+  "data",
+  "default",
+  "expect",
+  "external",
+  "final",
+  "fun",
+  "infix",
+  "inline",
+  "interface",
+  "internal",
+  "native",
+  "open",
+  "operator",
+  "override",
+  "private",
+  "protected",
+  "public",
+  "sealed",
+  "static",
+  "strictfp",
+  "suspend",
+  "synchronized",
+  "tailrec",
+  "typealias",
+  "val",
+  "var",
+];
 
 /// A form of a key: the path its line is of, the path and the revision it was read at, the path of its file after the
 /// commits, the form
