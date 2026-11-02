@@ -226,56 +226,57 @@ mod platform {
   }
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(not(target_os = "macos"))]
 mod platform {
   use super::Entry;
+  use std::fs::Metadata;
+  #[cfg(unix)]
   use std::os::unix::fs::MetadataExt;
   use std::path::Path;
 
-  pub(super) fn file_bytes(_path: &Path, metadata: &std::fs::Metadata) -> u64 {
+  pub(super) fn file_bytes(_path: &Path, metadata: &Metadata) -> u64 {
+    size(metadata)
+  }
+
+  /// The entries of `dir` by `read_dir` and an `lstat` each, a file with its `size` and its `linked` id
+  pub(super) fn read_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+      let entry = entry?;
+      let Ok(metadata) = entry.path().symlink_metadata() else { continue };
+      let dir = metadata.is_dir();
+      entries.push(Entry {
+        name: entry.file_name(),
+        dir,
+        bytes: if dir { 0 } else { size(&metadata) },
+        linked: if dir { None } else { linked(&metadata) },
+      });
+    }
+    Ok(entries)
+  }
+
+  /// The blocks of a file on disk: nothing on Linux shares the blocks of a worktree
+  #[cfg(unix)]
+  fn size(metadata: &Metadata) -> u64 {
     metadata.blocks() * 512
   }
 
-  /// The entries of `dir` with their blocks on disk: nothing on Linux shares the blocks of a worktree
-  pub(super) fn read_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
-    let mut entries = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-      let entry = entry?;
-      let Ok(metadata) = entry.path().symlink_metadata() else { continue };
-      entries.push(Entry {
-        name: entry.file_name(),
-        dir: metadata.is_dir(),
-        bytes: if metadata.is_dir() { 0 } else { metadata.blocks() * 512 },
-        linked: (!metadata.is_dir() && metadata.nlink() > 1).then(|| metadata.ino()),
-      });
-    }
-    Ok(entries)
+  /// The inode of a file with more than one hard link
+  #[cfg(unix)]
+  fn linked(metadata: &Metadata) -> Option<u64> {
+    (metadata.nlink() > 1).then(|| metadata.ino())
   }
-}
 
-#[cfg(not(unix))]
-mod platform {
-  use super::Entry;
-  use std::path::Path;
-
-  pub(super) fn file_bytes(_path: &Path, metadata: &std::fs::Metadata) -> u64 {
+  /// The length of a file: Windows tells no blocks through std
+  #[cfg(not(unix))]
+  fn size(metadata: &Metadata) -> u64 {
     metadata.len()
   }
 
-  /// The entries of `dir` with their length: Windows tells no blocks through std
-  pub(super) fn read_entries(dir: &Path) -> std::io::Result<Vec<Entry>> {
-    let mut entries = Vec::new();
-    for entry in std::fs::read_dir(dir)? {
-      let entry = entry?;
-      let Ok(metadata) = entry.path().symlink_metadata() else { continue };
-      entries.push(Entry {
-        name: entry.file_name(),
-        dir: metadata.is_dir(),
-        bytes: if metadata.is_dir() { 0 } else { metadata.len() },
-        linked: None,
-      });
-    }
-    Ok(entries)
+  /// No file id: std tells no link count on Windows
+  #[cfg(not(unix))]
+  const fn linked(_metadata: &Metadata) -> Option<u64> {
+    None
   }
 }
 
