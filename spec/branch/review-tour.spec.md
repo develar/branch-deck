@@ -288,14 +288,18 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   file ("Spec rule", "Decision", "Agent guide", "Doc" and its path, which open the file), under it each changed block:
   the heading of its section, "Proven by restart.json", its paragraphs; then the Steps, each its number and its full
   title (the title Rust gives the commit that starts it; a step of the concerns
-  its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one line ("Tests of
-  this change reach allowed", "1 test it did not touch reaches focus", "Proven by …", "No test reaches show", "New API:
-  Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place); a step accio answered for
+  its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one short line: how
+  many of the declarations of its code a test reaches ("Tests reach 2 of 3 declarations", "Tests reach all 2
+  declarations"; which tests and which code, the change's and the others, the opening names), "Proven by …", "New API:
+  Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place; a step accio answered for
   whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
-  calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
+  calls" when the walk stopped with callers left, else "No test reaches paint"); a list of names in the facts names up
+  to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`); and each
+  "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
   tells the rest. Steps of the concerns and of the message say why, a muted line right under the count of the steps
-  ("One commit: the steps are its tasks", "One commit: the steps are the parts of its message"); a muted note is never pushed to the far end of the column, only a sum is; a range whose
+  ("One commit: the steps are its tasks", "One commit: the steps are the parts of its message"); a muted note is
+  never pushed to the far end of the column, only a sum is; a range whose
   only step is what no evidence joined, or one concern that covers it, lists no step, and its facts are the facts of the range. Then Possible
   Breakage (the uses left outside right after the name of an entry) and Since your review ([Review
   Plan](review-plan.spec.md#requirements)); why the uses are unknown is folded under Possible Breakage when it lists an
@@ -324,7 +328,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   of one form at the size of the text: a muted "Follows up" or "Without a story", its title wrapping at the width of
   the prose; a commit with a story a disclosure (`Disclosure`, one disclosure of the document: the folds of a body,
   these rows and what the overview folds) whose body is set `nested`, never larger than its row; then the facts of the
-  step in one muted line (of a task what joins its parts, its names code) and the warning of a step no test reaches,
+  step in one muted line, every name ("Tests of this change reach allowed · 1 test it did not touch reaches focus · No
+  test reaches show"; of a task what joins its parts, its names code) and the warning of a step no test reaches,
   and the group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)

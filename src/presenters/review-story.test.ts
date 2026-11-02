@@ -82,16 +82,18 @@ describe("the document of a review", () => {
   it("words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves", () => {
     const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
     const unreached = (name: string, within: number | null = null) => ({ name, within })
+    // the rule a test of the change reaches, a use two tests it did not touch reach, a use no test reaches
+    const ruleTests: Partial<ReviewStep["tests"]> = {
+      reached: [
+        { name: "allowed", tests: [test("allows", "u:test"), test("keeps", null, 9)] },
+        { name: "focus", tests: [test("focuses", null, 12), test("keeps", null, 9)] },
+      ],
+      unreached: [unreached("show")],
+    }
     const view = presentPrologue(
       plan(
         [
-          step("a", [commit("the rule"), commit("the rule again", "followsUp")], [["u:rule", "src/Rule.kt"]], {
-            reached: [
-              { name: "allowed", tests: [test("allows", "u:test"), test("keeps", null, 9)] },
-              { name: "focus", tests: [test("focuses", null, 12), test("keeps", null, 9)] },
-            ],
-            unreached: [unreached("show")],
-          }),
+          step("a", [commit("the rule"), commit("the rule again", "followsUp")], [["u:rule", "src/Rule.kt"]], ruleTests),
           step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]], {
             unreached: ["paint", "create", "run", "open"].map(name => unreached(name)).concat(unreached("close", 3)),
           }),
@@ -152,12 +154,17 @@ describe("the document of a review", () => {
       ["docs/b.md", "Spec rule", [["Why", ["Because."], null]]],
     ])
     expect(view.steps.map(it => [it.number, it.title, it.lead === null ? null : it.lead.block.block, it.facts.line, it.facts.unproven])).toEqual([
-      [1, "the rule", paragraph("One rule decides."), "Tests of this change reach allowed · 2 tests it did not touch reach allowed, focus · No test reaches show", null],
-      [2, "the paint", null, null, "No test reaches paint, create, run, open +1 within 3 calls"],
+      // the contents: how many of its declarations tests reach, the names in its opening
+      [1, "the rule", paragraph("One rule decides."), "Tests reach 2 of 3 declarations", null],
+      [2, "the paint", null, null, "No test reaches paint, create, run and 2 more within 3 calls"],
       [3, "the story", null, "Proven by restart.json · No test reaches load", null],
       [4, "the try", null, "Nothing of it lands: a later commit took it out", null],
       [5, "the wip", null, null, null],
     ])
+    // the opening names them: the tests of the change, the tests it did not touch, the code no test reaches
+    const rule = step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], ruleTests)
+    expect(presentStepFacts(rule, plan([rule], [])).line).toBe("Tests of this change reach allowed · 2 tests it did not touch reach allowed and focus · No test reaches show")
+    expect(presentStepFacts({ ...rule, tests: { ...rule.tests, unreached: [] } }, plan([rule], []), "contents").line).toBe("Tests reach all 2 declarations")
     // a step none of whose code lands names the commit that took it out, which shows its step
     const tookOut = presentStepFacts(
       step("d", [commit("the try")], [], {}, { takenOutBy: "the paint" }),
@@ -199,7 +206,7 @@ describe("the document of a review", () => {
     expect([shown.line, shown.shownElsewhere.map(it => [`${it.words} ${it.step}`, it.stepId])]).toEqual([
       null,
       [
-        ["Removes hooks, flags, shown in step 2", "b"],
+        ["Removes hooks and flags, shown in step 2", "b"],
         ["Adds passes, shown in step 1", "h"],
       ],
     ])

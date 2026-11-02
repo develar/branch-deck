@@ -16,6 +16,7 @@ import type {
 } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
+import { joinNames } from "@/lib/text"
 import type { BodyPart, BodyParts, PlacedBlock } from "@/presenters/commit-body"
 import { codeOf, presentBodyParts } from "@/presenters/commit-body"
 import type { EvidencePart } from "@/presenters/review-concerns"
@@ -206,7 +207,7 @@ export interface FactPlace {
   readonly place: ReviewPlace
 }
 
-/** "Tests of this change reach allowed", "Proven by restart.json": the facts of a step, and its warning */
+/** "Tests of this change reach allowed", "Proven by restart.json": the facts of a step, and its warning (`presentStepFacts`) */
 export interface StepFacts {
   /** The tests that reach its code and that nothing of it lands, apart in one line; null for none */
   readonly line: string | null
@@ -232,11 +233,8 @@ export interface StepFacts {
   readonly unproven: string | null
 }
 
-/** The names of a list, the first `shown` of them and how many more: "run, create +2" */
-function names(list: readonly string[], shown = 4): string {
-  const rest = list.length - shown
-  return rest > 0 ? `${list.slice(0, shown).join(", ")} +${rest}` : list.join(", ")
-}
+/** The names of a list in a sentence (`joinNames`): "run and create", "run, create, open and 2 more" */
+const names = joinNames
 
 /** The name of a file of a path: its last part */
 function fileName(path: string): string {
@@ -244,11 +242,27 @@ function fileName(path: string): string {
 }
 
 /**
+ * Where the facts of a step stand: the contents of the overview, one short line a reader scans ("Tests reach 3 of 5
+ * declarations"), or its opening, every name
+ */
+export type FactsForm = "contents" | "opening"
+
+/** How many of the declarations of the code of a step a test reaches: "Tests reach 3 of 5 declarations" */
+function formatReach(reached: number, total: number): string {
+  if (reached === total) {
+    return total === 1 ? "Tests reach its declaration" : `Tests reach all ${total} declarations`
+  }
+  return `Tests reach ${reached} of ${total} declarations`
+}
+
+/**
  * The facts of `step` (`StepFacts`): its code the tests of the change reach, the tests it did not touch that reach its
  * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
- * the links it adds between modules, and that nothing of it lands
+ * the links it adds between modules, and that nothing of it lands. In the contents (`form`) the tests are one count of
+ * its declarations they reach, whose names wait for its opening; the warning of a step no test reaches names its code
+ * in both
  */
-export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "units">): StepFacts {
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "units">, form: FactsForm = "opening"): StepFacts {
   const { answered, reached, unreached, scenarios } = step.tests
   const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
   const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
@@ -269,11 +283,17 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   })
   const takenOutBy = takenOutOf(step, plan)
   const shownElsewhere = shownElsewhereOf(step, plan)
+  const contents = form === "contents"
+  const tests = contents
+    ? [reached.length === 0 ? null : formatReach(reached.length, reached.length + unreached.length)]
+    : [
+        ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
+        untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
+      ]
   const parts = [
-    ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
-    untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
+    ...tests,
     scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
-    none !== null && (reached.length > 0 || scenarios.length > 0) ? none : null,
+    none !== null && (contents ? reached.length === 0 && scenarios.length > 0 : reached.length > 0 || scenarios.length > 0) ? none : null,
     step.stops.length === 0 && step.shownElsewhere.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
   ].filter(part => part !== null)
   return {
@@ -475,7 +495,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
       title: chapter.label,
       code: chapter.code,
       lead: view?.lead == null ? null : { story: view, block: view.lead },
-      facts: presentStepFacts(step, plan),
+      facts: presentStepFacts(step, plan, "contents"),
       // the author's question of a round too: its story is folded under the step's opening
       lookClosely: view !== null ? [view, ...followUpStories(step, plan, words)].flatMap(lookCloselyOf) : toldHere === null ? [] : lookCloselyOf(toldHere),
     }

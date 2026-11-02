@@ -92,10 +92,9 @@ test.describe("Review tour", () => {
     ])
     const step = (number: number) => overview.getByTestId("review-contents-step").nth(number - 1)
     await expect(step(2).getByTestId("review-contents-step-lead")).toContainText("Two startup steps showed the project view at each open")
-    // the rule a test of the change reaches, a use a test the change did not touch reaches, a use no test reaches
-    await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText(
-      "Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show · New API: allowed",
-    )
+    // of the rule a test of the change reaches, a use a test the change did not touch reaches and a use no test reaches,
+    // the contents count them; the opening names them
+    await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText("Tests reach 2 of 3 declarations · New API: allowed")
     // the paint no test reaches within the depth accio walked; the story proven by its scenario
     await expect(step(3).getByTestId("review-contents-step-unproven")).toHaveText("No test reaches paint within 3 calls")
     await expect(step(4).getByTestId("review-contents-step-facts")).toHaveText("Proven by restart.json")
