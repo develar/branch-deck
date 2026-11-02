@@ -6,6 +6,12 @@
 //! uses outside comments and strings (but inside interpolations), that is no declaration name, label or key, and is not
 //! bound in a local scope; resolving it to a declaration is the caller's job, by the imports, the package and the
 //! qualifier. Each grammar is a cargo feature, all on by default.
+//!
+//! Kotlin and Java move to psi-syntax's parsers, whose trees are the compiler's and IntelliJ's PSI: the summary, the
+//! highlighting and the navigation of those languages go through `psi_kotlin` and `psi_java` (one module per consumer,
+//! on the parser-neutral `summary_builder`, `highlight::lines`, `highlight::paint::paint_leaf` and the answers of
+//! `navigate`), which delegate to the tree-sitter code until their walks land; `examples/facts.rs` is the oracle of
+//! the move.
 
 #![cfg_attr(
   not(all(feature = "kotlin", feature = "java", feature = "rust", feature = "typescript")),
@@ -25,6 +31,10 @@ mod summary_builder;
 mod java;
 #[cfg(feature = "kotlin")]
 mod kotlin;
+#[cfg(feature = "java")]
+mod psi_java;
+#[cfg(feature = "kotlin")]
+mod psi_kotlin;
 #[cfg(feature = "rust")]
 mod rust_lang;
 #[cfg(feature = "typescript")]

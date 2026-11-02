@@ -19,6 +19,29 @@ pub(crate) fn fixture(name: &str) -> (String, Vec<u8>) {
   (name.to_string(), source)
 }
 
+/// The fixtures of `testdata/<directory>/` with this extension, by name
+pub(crate) fn fixtures(directory: &str, extension: &str) -> Vec<(String, Vec<u8>)> {
+  let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata").join(directory);
+  let mut names: Vec<String> = std::fs::read_dir(&path)
+    .unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+    .map(|it| it.unwrap().file_name().to_string_lossy().into_owned())
+    .filter(|it| std::path::Path::new(it).extension().is_some_and(|it| it == extension))
+    .collect();
+  names.sort();
+  names.iter().map(|it| fixture(&format!("{directory}/{it}"))).collect()
+}
+
+/// Asserts that the leaves of a psi-syntax tree tile its text, at the file's offsets
+#[cfg(any(feature = "kotlin", feature = "java"))]
+pub(crate) fn assert_leaves_tile<L: psi_builder::language::TreeLanguage>(tree: &psi_builder::Tree<L>) {
+  let mut end = 0;
+  for (_, range) in tree.leaves() {
+    assert_eq!(range.start, end);
+    end = range.end;
+  }
+  assert_eq!(end, tree.source().len());
+}
+
 pub(crate) fn summary_of(name: &str) -> FileSummary {
   let (path, source) = fixture(name);
   let language = language_of(&path).unwrap_or_else(|| panic!("no language for {path}"));

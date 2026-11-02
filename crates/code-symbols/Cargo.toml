@@ -3,9 +3,15 @@ name = "code-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Declarations, imports and references of one source file, on tree-sitter"
+description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java) and tree-sitter (Rust, TypeScript)"
 
 [dependencies]
+# Kotlin's and Java's parsers: psi-syntax's ports of the Kotlin compiler's and IntelliJ's own lexers and parsers, whose
+# trees are their PSI byte for byte; pure Rust, no C. A git revision, the one accio pins; `psi-builder` is the tree both
+# build, named directly for the code both languages share.
+java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "36222345d10cee7425d29da747b01fcbebc268e7", optional = true }
+kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "36222345d10cee7425d29da747b01fcbebc268e7", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "36222345d10cee7425d29da747b01fcbebc268e7", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
 tree-sitter-java = { version = "0.23.5", optional = true }
@@ -19,8 +25,8 @@ serde_json.workspace = true
 
 [features]
 default = ["kotlin", "java", "rust", "typescript"]
-kotlin = ["dep:tree-sitter-kotlin"]
-java = ["dep:tree-sitter-java"]
+kotlin = ["dep:kotlin-syntax", "dep:psi-builder", "dep:tree-sitter-kotlin"]
+java = ["dep:java-syntax", "dep:psi-builder", "dep:tree-sitter-java"]
 rust = ["dep:tree-sitter-rust"]
 typescript = ["dep:tree-sitter-typescript"]
 

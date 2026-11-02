@@ -146,6 +146,8 @@ impl Role {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Grammar {
   Kotlin,
+  /// A Kotlin script (`.kts`), whose top-level statements the compiler parses as a script's
+  KotlinScript,
   Java,
   Rust,
   TypeScript,
@@ -162,13 +164,14 @@ impl Grammar {
       Self::Rust => 2,
       Self::TypeScript => 3,
       Self::Tsx => 4,
+      Self::KotlinScript => 5,
     }
   }
 
   fn language(self) -> Option<tree_sitter::Language> {
     match self {
       #[cfg(feature = "kotlin")]
-      Self::Kotlin => Some(tree_sitter_kotlin::LANGUAGE.into()),
+      Self::Kotlin | Self::KotlinScript => Some(tree_sitter_kotlin::LANGUAGE.into()),
       #[cfg(feature = "java")]
       Self::Java => Some(tree_sitter_java::LANGUAGE.into()),
       #[cfg(feature = "rust")]
@@ -191,7 +194,8 @@ pub fn grammar_of(path: &str) -> Option<Grammar> {
   let file_name = path.rsplit(['/', '\\']).next().unwrap_or(path);
   let (_, extension) = file_name.rsplit_once('.')?;
   let grammar = match extension {
-    "kt" | "kts" => Grammar::Kotlin,
+    "kt" => Grammar::Kotlin,
+    "kts" => Grammar::KotlinScript,
     "java" => Grammar::Java,
     "rs" => Grammar::Rust,
     "ts" | "mts" | "cts" => Grammar::TypeScript,
@@ -229,16 +233,29 @@ pub(crate) fn parse_text(grammar: Grammar, text: &str) -> Option<tree_sitter::Tr
   crate::extract::parse_language(&language, text.as_bytes(), u32::try_from(budget).unwrap_or(u32::MAX))
 }
 
-/// The highlighting of a text; `None` when it is over `MAX_BYTES` or its parse ran out of budget
+/// The highlighting of a text; `None` when it is over `MAX_BYTES` or its parse ran out of budget. Kotlin and Java by
+/// psi-syntax's trees (`psi_kotlin`, `psi_java`), the others by tree-sitter's
 pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
   if text.len() > MAX_BYTES {
     return None;
   }
+  match grammar {
+    #[cfg(feature = "kotlin")]
+    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::highlight::highlight(crate::psi_kotlin::file_kind(grammar), text),
+    #[cfg(feature = "java")]
+    Grammar::Java => crate::psi_java::highlight::highlight(text),
+    _ => highlight_tree_sitter(grammar, text),
+  }
+}
+
+/// The highlighting of a text by its tree-sitter tree and the rules of its grammar; `None` when its parse ran out of
+/// budget
+pub(crate) fn highlight_tree_sitter(grammar: Grammar, text: &str) -> Option<LineRuns> {
   let tree = parse_text(grammar, text)?;
   let mut runs = LineRuns::builder(text);
   match grammar {
     #[cfg(feature = "kotlin")]
-    Grammar::Kotlin => paint::paint(&tree, text, &mut kotlin::Kotlin, &mut runs),
+    Grammar::Kotlin | Grammar::KotlinScript => paint::paint(&tree, text, &mut kotlin::Kotlin, &mut runs),
     #[cfg(feature = "java")]
     Grammar::Java => paint::paint(&tree, text, &mut java::Java, &mut runs),
     #[cfg(feature = "rust")]

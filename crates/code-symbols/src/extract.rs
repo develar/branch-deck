@@ -58,24 +58,35 @@ pub fn summarize(language: Language, source: &[u8]) -> FileSummary {
   summarize_with_budget(language, source, PARSE_BUDGET)
 }
 
+/// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`psi_kotlin`) and
+/// Java (`psi_java`), tree-sitter's with `budget` for the others
 pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u32) -> FileSummary {
   let mut summary = empty_summary(language, source);
-  let Some(spec) = spec_of(language) else {
-    return summary;
-  };
   let lines = summary.lines;
-  if source.len() > MAX_BYTES || lines > MAX_LINES || summary.total_bytes > lines.saturating_mul(MAX_AVERAGE_LINE) {
+  if !language.is_enabled() || source.len() > MAX_BYTES || lines > MAX_LINES || summary.total_bytes > lines.saturating_mul(MAX_AVERAGE_LINE) {
     return summary;
   }
-  let table = table_of(spec);
-  let Some(tree) = parse(table, source, budget) else {
-    return summary;
+  let read = match language {
+    #[cfg(feature = "kotlin")]
+    Language::Kotlin => crate::psi_kotlin::summary::summarize(source, &mut summary),
+    #[cfg(feature = "java")]
+    Language::Java => crate::psi_java::summary::summarize(source, &mut summary),
+    _ => summarize_tree_sitter(source, budget, &mut summary),
   };
+  summary.truncated = !read;
+  summary
+}
+
+/// Fills `summary` (`empty_summary` of the file) by one walk over the tree-sitter tree of `source`, within the parse
+/// budget; whether the file was read
+pub(crate) fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) -> bool {
+  let Some(spec) = spec_of(summary.language) else { return false };
+  let table = table_of(spec);
+  let Some(tree) = parse(table, source, budget) else { return false };
   let mut walk = Walk::new(spec, table, source);
   walk.run(tree.root_node());
-  walk.finish(&mut summary);
-  summary.truncated = false;
-  summary
+  walk.finish(summary);
+  true
 }
 
 /// A stable hash of the rules and the grammars of this build: a cached summary is valid only for the same value. FNV-1a

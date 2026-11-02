@@ -1293,7 +1293,10 @@ dependencies = [
 name = "code-symbols"
 version = "0.1.0"
 dependencies = [
+ "java-syntax",
+ "kotlin-syntax",
  "pretty_assertions",
+ "psi-builder",
  "serde",
  "serde_json",
  "tree-sitter",
@@ -3384,6 +3387,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "java-syntax"
+version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=36222345d10cee7425d29da747b01fcbebc268e7#36222345d10cee7425d29da747b01fcbebc268e7"
+dependencies = [
+ "psi-builder",
+]
+
+[[package]]
 name = "javascriptcore-rs"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3595,6 +3606,14 @@ checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
 dependencies = [
  "bitflags 2.13.2",
  "serde",
+]
+
+[[package]]
+name = "kotlin-syntax"
+version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=36222345d10cee7425d29da747b01fcbebc268e7#36222345d10cee7425d29da747b01fcbebc268e7"
+dependencies = [
+ "psi-builder",
 ]
 
 [[package]]
@@ -5005,6 +5024,11 @@ checksum = "f94967dc7688f3054c7fac87473ffae4cc4c3904800e2d9f5b857246d8963b0a"
 dependencies = [
  "prost",
 ]
+
+[[package]]
+name = "psi-builder"
+version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=36222345d10cee7425d29da747b01fcbebc268e7#36222345d10cee7425d29da747b01fcbebc268e7"
 
 [[package]]
 name = "pxfm"
