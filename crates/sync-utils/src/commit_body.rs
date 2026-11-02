@@ -227,7 +227,15 @@ pub fn story_lines(body: &CommitBody) -> u32 {
     .parts
     .iter()
     .map(|part| &body.blocks[part.start as usize..part.end as usize])
-    .filter(|blocks| !matches!(blocks.first(), Some(CommitBodyBlock::Label { kind: LabelKind::Verification, .. })))
+    .filter(|blocks| {
+      !matches!(
+        blocks.first(),
+        Some(CommitBodyBlock::Label {
+          kind: LabelKind::Verification,
+          ..
+        })
+      )
+    })
     .flatten()
     .map(lines_of)
     .sum()

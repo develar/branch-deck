@@ -335,12 +335,10 @@ pub(crate) fn tells_a_story(message: &str) -> bool {
 /// of a verification section count for nothing (`story_lines`): every round ends with how it was checked
 fn tells_its_own_story(message: &str) -> bool {
   let body = commit_body(split_message(message).1);
-  let labelled = body.blocks.iter().any(|block| {
-    matches!(
-      block,
-      CommitBodyBlock::Label { kind: LabelKind::Plain, .. } | CommitBodyBlock::Heading { .. }
-    )
-  });
+  let labelled = body
+    .blocks
+    .iter()
+    .any(|block| matches!(block, CommitBodyBlock::Label { kind: LabelKind::Plain, .. } | CommitBodyBlock::Heading { .. }));
   (body.lead && labelled) || story_lines(&body) > OWN_STORY_LINES
 }
 
