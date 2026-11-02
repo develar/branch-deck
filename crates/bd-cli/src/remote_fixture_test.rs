@@ -278,7 +278,8 @@ pub fn repo_with_remote(subjects: &[&str]) -> (TestRepo, TempDir) {
 fn repo_with_remote_at(commits: &[HistoryCommit], url: impl FnOnce(&std::path::Path) -> String) -> (TestRepo, TempDir) {
   let remote = tempfile::tempdir().unwrap();
   let (repo, _) = repo_on_baseline(&[("README.md", "readme\n")], commits, &url(remote.path()));
-  git(&repo, &["init", "--bare", "-q", remote.path().to_str().unwrap()]);
+  // no template: its sample hooks are 14 files of no use to a test (`receive_hook` makes the directory)
+  git(&repo, &["init", "--bare", "-q", "--template=", remote.path().to_str().unwrap()]);
   disable_background_maintenance(remote.path());
   (repo, remote)
 }

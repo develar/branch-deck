@@ -135,7 +135,7 @@ pub fn stack_ahead_of_bare_origin() -> TestRepo {
   repo.create_commit("Initial commit", "README.md", "# Test Project\n");
   let origin = repo.path().join(".git/origin.git");
   let origin = origin.to_str().expect("a UTF-8 path");
-  repo.git(&["init", "--bare", "-q", "--initial-branch=master", origin]);
+  repo.git(&["init", "--bare", "-q", "--template=", "--initial-branch=master", origin]);
   append_config(Path::new(origin), &BARE_ORIGIN_CONFIG);
   repo.git(&["remote", "add", "origin", origin]);
   repo.git(&["push", "-q", "origin", "master"]);

@@ -1354,7 +1354,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   impl EmptyGitTemplate {
     pub fn build(self, output_path: &Path) -> Result<()> {
       fs::create_dir_all(output_path)?;
-      run_git(output_path, &["init", "--quiet", "--initial-branch=master"])?;
+      run_git(output_path, &["init", "--quiet", "--template=", "--initial-branch=master"])?;
       disable_background_maintenance(output_path);
       run_git(output_path, &["config", "user.name", "Test User"])?;
       run_git(output_path, &["config", "user.email", "test@example.com"])?;
@@ -1373,7 +1373,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
   impl BareTemplate {
     pub fn build(self, output_path: &Path) -> Result<()> {
       fs::create_dir_all(output_path)?;
-      run_git(output_path, &["init", "--quiet", "--bare", "--initial-branch=master"])
+      run_git(output_path, &["init", "--quiet", "--bare", "--template=", "--initial-branch=master"])
     }
   }
 
@@ -1537,7 +1537,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       };
       let commit = |message: &str, files: &[(&str, &str)], timestamp: i64| commit_as("Test User <test@example.com>", message, files, (timestamp, timestamp));
 
-      git(&["init", "-q", "--initial-branch=master"], None)?;
+      git(&["init", "-q", "--template=", "--initial-branch=master"], None)?;
       append_config(
         output_path,
         &[
@@ -1559,7 +1559,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
       }
       commit("Initial commit", &initial_files, 1704117600)?;
 
-      git(&["init", "-q", "--bare", "--initial-branch=master", BARE_ORIGIN], None)?;
+      git(&["init", "-q", "--bare", "--template=", "--initial-branch=master", BARE_ORIGIN], None)?;
       disable_background_maintenance(&output_path.join(BARE_ORIGIN));
       // what `remote add origin` and `branch --set-upstream-to=origin/master` write, appended
       append_config(
@@ -1656,7 +1656,7 @@ Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.",
     pub fn build(self, output_path: &Path) -> Result<()> {
       // Initialize repo
       fs::create_dir_all(output_path)?;
-      git_command().args(["init", "--initial-branch=main"]).current_dir(output_path).output()?;
+      git_command().args(["init", "--template=", "--initial-branch=main"]).current_dir(output_path).output()?;
       disable_background_maintenance(output_path);
       git_command().args(["config", "user.name", "Test User"]).current_dir(output_path).output()?;
       git_command().args(["config", "user.email", "test@example.com"]).current_dir(output_path).output()?;

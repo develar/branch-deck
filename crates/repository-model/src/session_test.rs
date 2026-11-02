@@ -604,7 +604,7 @@ fn ahead_of_origin(subjects: &[&str]) -> TestRepo {
   repo.create_commit("Initial commit", "README.md", "# Test");
   let origin = repo.path().join(".git/origin.git");
   let origin = origin.to_str().unwrap();
-  repo.git(&["init", "--bare", "-q", "--initial-branch=master", origin]);
+  repo.git(&["init", "--bare", "-q", "--template=", "--initial-branch=master", origin]);
   repo.git(&["remote", "add", "origin", origin]);
   repo.git(&["push", "-q", "origin", "master"]);
   for (index, subject) in subjects.iter().enumerate() {
