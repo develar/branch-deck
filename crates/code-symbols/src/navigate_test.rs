@@ -163,3 +163,16 @@ fn finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it(
   assert_eq!(places(&usages_of(Grammar::TypeScript, text, "helper")), [(0, 9, Access::Import), (3, 18, Access::Call)]);
   assert_eq!(usages_of(Grammar::TypeScript, text, "absent"), []);
 }
+
+#[test]
+fn answers_the_usages_of_a_text_in_one_pass_as_one_by_one() {
+  // `\r\n`, a lone `\r`, a surrogate pair, a usage at the start and two on one line
+  let text = "ab\r\nx 𝔸 ab\rab ab\n\nab";
+  let starts: Vec<usize> = text.match_indices("ab").map(|(start, _)| start).collect();
+  let one_by_one: Vec<Usage> = starts.iter().map(|&start| crate::navigate::usage_answer(text, start, "ab", Access::Read)).collect();
+  assert_eq!(crate::navigate::usage_answers(text, "ab", starts.iter().map(|&start| (start, Access::Read))), one_by_one);
+  assert_eq!(
+    one_by_one.iter().map(|it| (it.start.line, it.start.column)).collect::<Vec<_>>(),
+    [(0, 0), (1, 5), (2, 0), (2, 3), (4, 0)]
+  );
+}
