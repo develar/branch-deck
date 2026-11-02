@@ -13,6 +13,7 @@ use git_ops::cat_file_batch::object_types;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{is_ancestor, is_object_id, merge_base};
 use std::time::Duration;
+use sync_utils::commit_body::has_body;
 use tracing::{instrument, warn};
 
 /// The namespace of the review refs; only the review fetch writes it and only pruning deletes from it
@@ -372,6 +373,7 @@ fn range_of(git: &GitCommandExecutor, params: &FetchReviewHeadParams, head: Stri
       author_time,
       committer_time,
       message,
+      has_body(message),
     ));
   }
   Ok(ReviewRange {

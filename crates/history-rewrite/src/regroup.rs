@@ -1600,6 +1600,7 @@ fn with_message(commit: &Commit, message: String) -> Commit {
   let mut changed = commit.clone();
   changed.subject = message.lines().next().unwrap_or_default().to_string();
   changed.stripped_subject.clone_from(&changed.subject);
+  changed.has_body = sync_utils::commit_body::has_body(&message);
   changed.message = message;
   changed
 }

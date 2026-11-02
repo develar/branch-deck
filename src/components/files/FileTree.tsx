@@ -4,13 +4,16 @@ import { cn } from "cn"
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon, GitCommitHorizontalIcon, LayersIcon, TargetIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { LineCounts } from "@/components/commit/CommitMetadata"
+import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { FileRowMark } from "@/components/files/FileRowMark"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
+import type { RowCardState } from "@/components/shared/RowCard"
 import type { CommitFile } from "@/lib/bindings"
 import { copyText, isCopyKey } from "@/lib/clipboard"
-import { formatCommitCount } from "@/lib/commit"
+import type { CardCommit } from "@/lib/commit"
+import { formatCommitCount, toCardCommit } from "@/lib/commit"
 import { formatCommitFilePath, formatFileCount, formatFileStatus } from "@/lib/commit-files"
 import { copiedText } from "@/lib/file-actions"
 import { fileActionTarget, getVisibleRows } from "@/lib/file-tree"
@@ -102,9 +105,9 @@ const CHEVRON_MIDDLE = "7px"
  * and ← closes or goes to the parent, Space and Enter toggle. The keys the tree handles are `preventDefault`ed, so the
  * dialog around it leaves them alone; the others (letters, keys with a modifier) reach it. A row's name comes first: the
  * path, the rename and the owner are in its hover, Copy Path in its right-click menu and on ⌘C. `I` opens the card of
- * the row's mark (`FileRowMark`). The group of a step of the commits is the commit that starts it
- * (`FileTreeDirectory.commit`): a click selects it as a commit row, its chevron, Space, → and ← fold it, Enter, ⌘C and
- * its menu are the commit's.
+ * the row's mark (`FileRowMark`, of a commit with a body `CommitRowMark`). The group of a step of the commits is the
+ * commit that starts it (`FileTreeDirectory.commit`): a click selects it as a commit row, its chevron, Space, → and ←
+ * fold it, Enter, ⌘C, `I` and its menu are the commit's.
  */
 export function FileTree(props: FileTreeProps) {
   const { nodes, "aria-label": label, collapsed, onToggleDirectory, mode, fileOwners, badges = null, marks = null, commitRows = null } = props
@@ -202,7 +205,7 @@ export function FileTree(props: FileTreeProps) {
     }
     // the physical key, in any keyboard layout: the card of the row's mark, a row without a mark leaves it alone
     if (event.code === "KeyI") {
-      if (markFacts(node, badges) !== null) {
+      if (markFacts(node, badges) !== null || cardCommitOf(node) !== null) {
         event.preventDefault()
         setCard({ key: node.key, byKey: true })
       }
@@ -321,6 +324,15 @@ function markFacts(node: FileTreeNode, badges: FileTreeBadges | null) {
 }
 
 /**
+ * The card of a commit row and of the group of a step of the commits, null for another row and for a commit without a
+ * body: the commit of the range it is
+ */
+function cardCommitOf(node: FileTreeNode): CardCommit | null {
+  const commit = isCommitRow(node) ? commitOf(node).commit.item?.commit : undefined
+  return commit?.hasBody === true ? toCardCommit(commit) : null
+}
+
+/**
  * A row the chosen owner chip plays down: one without its files; a commit of a step as its step, a commit of no step
  * never (it holds no file)
  */
@@ -421,6 +433,14 @@ const FileTreeRow = memo(function FileTreeRow({
 }: FileTreeRowProps) {
   const indent = `${node.depth * INDENT_REM}rem`
   const facts = presentRowFacts(fileBadges, dependencyBadge)
+  const cardCommit = cardCommitOf(node)
+  // the one card of the row's mark, of its facts or of its commit
+  const cardState: RowCardState = {
+    open: card !== null,
+    openedByKey: card === "key",
+    onOpenChange: open => onCardChange(node.key, open),
+    focusRow: () => rowElements.current.get(node.key)?.focus(),
+  }
   const counts = rowCounts(node)
   // the mark is no tab stop: the description says every fact of its card
   const described = facts === null || facts.description === "" ? counts : `${counts}, ${facts.description}`
@@ -507,15 +527,10 @@ const FileTreeRow = memo(function FileTreeRow({
         ) : (
           <FileRowContent node={node} owner={owner} />
         )}
-        {facts !== null && onSelectPlace !== undefined && (
-          <FileRowMark
-            facts={facts}
-            onSelectPlace={onSelectPlace}
-            open={card !== null}
-            openedByKey={card === "key"}
-            onOpenChange={open => onCardChange(node.key, open)}
-            focusRow={() => rowElements.current.get(node.key)?.focus()}
-          />
+        {facts !== null && onSelectPlace !== undefined ? (
+          <FileRowMark facts={facts} onSelectPlace={onSelectPlace} {...cardState} />
+        ) : (
+          cardCommit !== null && <CommitRowMark commit={cardCommit} size="tree" {...cardState} />
         )}
         {node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
       </RowMenu>

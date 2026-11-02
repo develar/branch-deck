@@ -61,6 +61,7 @@ describe("countPushedCommits", () => {
     strippedSubject: "",
     subjectParts: testSubject(""),
     message: "",
+    hasBody: false,
     author: "",
     authorTime: 0,
     committerTime: 0,

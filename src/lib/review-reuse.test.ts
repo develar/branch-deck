@@ -12,8 +12,8 @@ function openBranch(branchName: string, chain: string[], focus: BranchReviewFocu
 }
 
 const commits = [
-  { id: "a1a1a1a1a1", subject: "first", message: "first", author: "A", authorTime: 0, committerTime: 0 },
-  { id: "b2b2b2b2b2", subject: "second", message: "second", author: "A", authorTime: 0, committerTime: 0 },
+  { id: "a1a1a1a1a1", subject: "first", message: "first", hasBody: false, author: "A", authorTime: 0, committerTime: 0 },
+  { id: "b2b2b2b2b2", subject: "second", message: "second", hasBody: false, author: "A", authorTime: 0, committerTime: 0 },
 ]
 const list: ShownReview = { kind: "commits", repositoryPath: "/repo", listLabel: "Unassigned", ids: ["a1a1a1a1a1", "b2b2b2b2b2"], startedAt: 1 }
 

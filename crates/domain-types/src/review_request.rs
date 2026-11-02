@@ -285,6 +285,8 @@ pub struct ReviewCommit {
   pub subject: String,
   /// The full message, the subject included, without trailing newlines
   pub message: String,
+  /// Whether the message has a body a reader is shown (`Commit::has_body`)
+  pub has_body: bool,
   pub author: String,
   /// Unix seconds
   pub author_time: u32,
@@ -294,13 +296,14 @@ pub struct ReviewCommit {
 
 impl ReviewCommit {
   /// A commit from the text fields of a `log -z`: the times in unix seconds (0 when unreadable), the message without its
-  /// trailing newlines
+  /// trailing newlines; `has_body` as the grammar of a body reads the message (`sync_utils::commit_body::has_body`)
   #[must_use]
-  pub fn from_log_fields(id: &str, subject: &str, author: &str, author_time: &str, committer_time: &str, message: &str) -> Self {
+  pub fn from_log_fields(id: &str, subject: &str, author: &str, author_time: &str, committer_time: &str, message: &str, has_body: bool) -> Self {
     Self {
       id: id.to_string(),
       subject: subject.to_string(),
       message: message.trim_end_matches('\n').to_string(),
+      has_body,
       author: author.to_string(),
       author_time: author_time.parse().unwrap_or(0),
       committer_time: committer_time.parse().unwrap_or(0),

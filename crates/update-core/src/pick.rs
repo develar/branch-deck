@@ -519,6 +519,7 @@ fn copy_commit(commit: &PickedCommit) -> Commit {
     id: commit.new_id.clone(),
     stripped_subject: commit.subject.clone(),
     message: commit.subject.clone(),
+    has_body: false,
     author_name: String::new(),
     author_email: String::new(),
     author_timestamp: 0,

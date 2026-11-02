@@ -65,18 +65,21 @@ function isRowKeyTarget(target: EventTarget | null): boolean {
   return !(target instanceof Element) || keyOwner(target) === null
 }
 
-/** What a preview table does with the keys that look at a row: Space previews it, D reviews it (in its window) */
+/** What a preview table does with the keys that look at a row: Space previews it, D reviews it (in its window), I opens its card */
 export interface PreviewHotkeys {
   /** None for a table whose rows have no preview: Space is not theirs */
   preview?: (id: string) => void
   review?: (id: string) => void
+  /** The card of the row's mark (`CommitRowMark`), the focus in it; a row without a mark leaves it alone */
+  card?: (id: string) => void
 }
 
 /** Marks the tables that open a preview on Space, so the innermost one owns the focus inside it */
 const PREVIEW_TABLE_ATTRIBUTE = "data-space-preview"
 
 /**
- * The keys that look at a row, as Quick Look and ⌘O do: Space opens its preview, D its review in its window.
+ * The keys that look at a row, as Quick Look and ⌘O do: Space opens its preview, D its review in its window, I the card
+ * of its mark.
  * They act on a focused row while the pointer has not moved since the focus moved there (↑/↓ in the branch table), on
  * the row (`tr[data-row-id]`) under the pointer, otherwise on `getFallbackId()` (the last clicked row) while the focus
  * is in the table. The keys that act on a row (P, S, O, M) need its focus instead.
@@ -101,7 +104,7 @@ export function usePreviewHotkeys(tableRef: RefObject<HTMLTableElement | null>, 
       }
       const { hotkeys } = latestRef.current
       // the physical keys for the letters, in any keyboard layout
-      const action = event.key === " " ? hotkeys.preview : event.code === "KeyD" ? hotkeys.review : undefined
+      const action = event.key === " " ? hotkeys.preview : event.code === "KeyD" ? hotkeys.review : event.code === "KeyI" ? hotkeys.card : undefined
       const table = tableRef.current
       if (action === undefined || table === null || (event.key === " " ? ownsSpace(event.target) : !isRowKeyTarget(event.target)) || document.querySelector(OPEN_MENU) !== null) {
         return

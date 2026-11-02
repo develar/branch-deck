@@ -13,11 +13,11 @@ import { holdCommand, holdRewrites } from "../helpers/wait-helpers"
 const BRANCH = "JIRA-456"
 const SUBJECT = "Add connection retry logic"
 
-/** Expands the branch and returns the row of the commit with its full-message button. */
+/** Expands the branch and returns the row of the commit with the mark of its card. */
 async function findCommitRow(page: Page): Promise<{ commitRow: Locator; toggle: Locator }> {
   await expandBranch(page, findBranchRow(page, BRANCH))
   const commitRow = getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: SUBJECT })
-  return { commitRow, toggle: commitRow.getByTestId("commit-message-toggle") }
+  return { commitRow, toggle: commitRow.getByTestId("commit-row-mark") }
 }
 
 function getPreview(page: Page): Locator {
@@ -36,7 +36,6 @@ test.describe("Commit message", () => {
     // rows don't render the body
     await expect(commitRow.getByTestId("commit-message-body")).toHaveCount(0)
     await expect(toggle).toHaveAccessibleName("Show full commit message")
-    await expect(toggle).toHaveAttribute("aria-haspopup", "dialog")
 
     await toggle.click()
     const preview = getPreview(page)
@@ -176,11 +175,83 @@ test.describe("Commit message", () => {
     await expect(preview.getByTestId("commit-preview-position")).toHaveText("3 / 3")
   })
 
+  test("should open the commit card on the hover of the mark and by I, and give the focus back on Escape", { tag: "@webkit" }, async ({ page }) => {
+    const { commitRow, toggle } = await findCommitRow(page)
+    const card = page.getByTestId("commit-card")
+    const table = commitRow.locator("xpath=ancestor::table[1]")
+    // a commit of a subject alone has no mark
+    await expect(getBranchDetailsRow(page, BRANCH).locator("tr").filter({ hasText: "increase pool size to 50" }).getByTestId("commit-row-mark")).toHaveCount(0)
+
+    // the hover of the mark opens the card: the whole subject over the meta line, then the body; the pointer leaving closes it
+    await page.mouse.move(0, 0)
+    await toggle.hover()
+    await expect(card).toBeVisible()
+    await expect(card.getByText(SUBJECT, { exact: true })).toBeVisible()
+    await expect(card.getByTestId("commit-message-body").locator("p").first()).toHaveText(
+      "The pool gave up after the first failed connection attempt, so a short database restart surfaced as an error for every request that was in flight at that moment.",
+    )
+    await page.mouse.move(0, 0)
+    await expect(card).toHaveCount(0)
+
+    // I on the row Space would preview (the last clicked one) opens the card with the focus in it; Escape closes the
+    // card alone and gives the focus back to the list, whose keys go on from that row
+    await commitRow.getByText(SUBJECT).click()
+    await page.mouse.move(0, 0)
+    await page.keyboard.press("i")
+    await expect(card).toBeFocused()
+    await expect(card.getByTestId("commit-message-body").locator("ul > li")).toHaveCount(3)
+    await page.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+    await expect(table).toBeFocused()
+    await expect(commitRow).toHaveAttribute("data-selected", "true")
+
+    // the Escape of a card the hover opened, the focus on the list, closes the card alone: the selection stays
+    await toggle.hover()
+    await expect(card).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+    await expect(commitRow).toHaveAttribute("data-selected", "true")
+    await page.keyboard.press(" ")
+    const preview = getPreview(page)
+    await expect(preview.getByRole("heading", { level: 2 })).toHaveText(`${BRANCH} ${SUBJECT}`)
+    await expectPreviewFocused(preview)
+    await page.keyboard.press("Escape")
+    await expect(preview).toHaveCount(0)
+
+    // the window keeps one card: the hover of a mark in another list closes the card I opened in this one
+    await page.mouse.move(0, 0)
+    await page.keyboard.press("i")
+    await expect(card).toBeFocused()
+    await expect(card.getByText(SUBJECT, { exact: true })).toBeVisible()
+    await page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" }).getByTestId("commit-row-mark").hover()
+    await expect(card.getByText("Emergency fix for CRITICAL-111", { exact: true })).toBeVisible()
+    await expect(card).toHaveCount(1)
+  })
+
+  test("should say No description above the trailers of a body of trailers alone, which has no mark", async ({ page, issueLinksRepo: repo }) => {
+    await enableAutoSyncOnFocus(page)
+    const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
+    await expect(unassignedRow.getByTestId("commit-row-mark")).toBeVisible()
+    const hash = await unassignedRow.getAttribute("data-row-id")
+    const newHash = await repo.reword(hash!, "Emergency fix for CRITICAL-111\n\nCo-Authored-By: Jane Doe <jane@example.com>")
+    await syncOnWindowFocus(page)
+    await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
+    await expect(unassignedRow.getByTestId("commit-row-mark")).toHaveCount(0)
+
+    await unassignedRow.hover()
+    await page.keyboard.press(" ")
+    const preview = getPreview(page)
+    await expectPreviewFocused(preview)
+    const body = preview.getByTestId("commit-message-body")
+    await expect(body.getByText("No description")).toBeVisible()
+    await expect(body.getByText("Co-Authored-By: Jane Doe <jane@example.com>")).toBeVisible()
+  })
+
   test("should close the preview when a sync removes its commit", async ({ page, issueLinksRepo: repo }) => {
     await enableAutoSyncOnFocus(page)
     const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
     const hash = await unassignedRow.getAttribute("data-row-id")
-    await unassignedRow.getByTestId("commit-message-toggle").click()
+    await unassignedRow.getByTestId("commit-row-mark").click()
     const preview = getPreview(page)
     await expectPreviewFocused(preview)
 
@@ -191,7 +262,7 @@ test.describe("Commit message", () => {
     await expect(preview).toHaveCount(0)
     await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
     // the preview of the reworded commit shows the new body
-    await unassignedRow.getByTestId("commit-message-toggle").click()
+    await unassignedRow.getByTestId("commit-row-mark").click()
     await expect(preview.getByTestId("commit-message-body")).toHaveText("Skip the cache warm-up until CRITICAL-112 is fixed upstream.")
   })
 
@@ -206,7 +277,7 @@ test.describe("Commit message", () => {
     await syncOnWindowFocus(page)
     await expect(unassignedRow).toHaveAttribute("data-row-id", newHash)
 
-    await unassignedRow.getByTestId("commit-message-toggle").click()
+    await unassignedRow.getByTestId("commit-row-mark").click()
     const body = getPreview(page).getByTestId("commit-message-body")
     await expect(body).toBeVisible()
     await captureHtmlSnapshot(body, "commit-message-markdown")
@@ -464,7 +535,7 @@ test.describe("Commit message", () => {
     const unassignedRow = page.getByTestId("unassigned-commits-section").locator("tr").filter({ hasText: "Emergency fix for CRITICAL-111" })
     const body = getPreview(page).getByTestId("commit-message-body")
 
-    await unassignedRow.getByTestId("commit-message-toggle").click()
+    await unassignedRow.getByTestId("commit-row-mark").click()
     await expect(body).toHaveText("Skip the cache warm-up that hangs on startup until CRITICAL-112 is fixed.")
     await expect(unassignedRow).toHaveAttribute("data-selected", "false")
     // issue keys in the body are links, as in the subject

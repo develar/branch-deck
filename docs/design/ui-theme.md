@@ -297,13 +297,15 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   `text-[10px]`, `text-[0.875em]`):
   - `text-xs` (12/16px): meta lines, column headers, key hints, help popovers;
   - `text-sm` (13/20px, the IntelliJ UI font size): rows, controls, labels, short text, the commit subjects of the
-    lists and the hash popover body;
-  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitMessageBody`), at
-    most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs a user reads;
+    lists and the commit card of a row's mark (`CommitCard`, its body `CommitBodyView` at the size `card`);
+  - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitBodyView` at the
+    size `reading`), at most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs a
+    user reads;
   - `text-base` (16/24px): dialog titles, also the subject in the commit preview header, the branch name in the
     branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
-    preview); a commit as the heading of what follows it (`CommitHeading`: a commit of the branch preview, the commit
-    above its diffs in a review) is `text-md`, never smaller than its body. Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
+    preview); a commit as the heading of what follows it (`CommitHeader` `heading` in `CommitCard`: a commit of the
+    branch preview, the commit a review shows alone) is `text-md`, never smaller than its body. One header names a
+    commit everywhere, its size by its place (`CommitHeader`: `row`, `card`, `heading`, `title`). Island titles are `text-sm font-semibold` (`SectionCardHeader`). The one exception is the Welcome card title,
     `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
     never `text-lg`.
   - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour
@@ -387,14 +389,15 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - `font-semibold`: a card title (`SectionCardHeader`, the Landed header);
   - `font-medium`: a name, the identity of a row (the branch name in `BranchNameCell`, an issue key, a landed
     branch), the name of a file above its diff, and a commit subject only where it is a title (the commit preview
-    header, `CommitHeading`);
+    header, the commit card, a commit as a heading: every `CommitHeader` but a row's);
   - regular `text-foreground`: content, the commit subject of every list (`CommitSubject` in `CommitHeader`), as the
     IntelliJ Git log shows subjects;
   - `text-xs text-muted-foreground`: meta (the commit meta line, the subject next to a branch name, column headers).
 - **Two text colours**: `text-foreground` for text (a commit body too) and `text-muted-foreground` for what is secondary
-  (meta, directories, hashes, section labels, a label inside a message); no opacity steps between them
-  (`text-foreground/85`). Islands has one secondary grey (`text-secondary`, #73767C); ours is its `text-muted`
-  (#5F6269 light, #9FA2A8 dark), which keeps a 12px line readable on the dark card.
+  (meta, directories, hashes, section labels of a panel); no opacity steps between them (`text-foreground/85`). A label
+  inside a message is the author's words: `font-semibold` in the text colour, in a commit body as in the story of a
+  review. Islands has one secondary grey (`text-secondary`, #73767C); ours is its `text-muted` (#5F6269 light, #9FA2A8
+  dark), which keeps a 12px line readable on the dark card.
 - **One look per role** in the commit and review windows (the previews, the reviews of a commit, a branch and a pull
   request, the conflict windows, the uncommitted changes):
   - a changed file is a `FilePathLabel`: the status letter, the name in the colour of its status, "← old" of a rename,
@@ -404,13 +407,13 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - the status colours are the VCS colours of IntelliJ: added `success`, deleted muted and struck through, the rest
     `primary`, the one use of `primary` that is neither an action nor a selection; a file says its status once (no badge
     beside the letter);
-  - a commit as the heading of what follows it is a `CommitHeading` (above); a state with a commit in it ("“X” does not
+  - a commit as the heading of what follows it is a `CommitCard` with its `heading` header (above); a state with a commit in it ("“X” does not
     apply cleanly onto master", `ConflictCommitContext`) is a title of a state, `text-sm font-medium` as an
     `AlertTitle`;
   - the head of a section inside an island ("Files 4", "Commits 4", a branch of a stack in the commit column) is a
     `SectionLabel`, muted `text-xs font-medium` with its count, as `PopoverSectionTitle`;
   - line counts are coloured (`text-success`, `text-destructive`) for one file wherever it is listed and for a commit
-    or a pull request where it is the heading (the preview headers, `CommitHeading`, the chips of a pull request); a
+    or a pull request where it is the heading (every `CommitHeader` but a row's: the preview headers, the commit card, a commit as a heading; the chips of a pull request); a
     row of a list and a sum (a directory, a section) keeps them muted;
   - the time of a commit is absolute: the meta line says it with the committer time on hover (`TimeWithPopover`), a
     one-line list (the commits of a pull request) says it short (`formatCompactTimestamp`: "Today

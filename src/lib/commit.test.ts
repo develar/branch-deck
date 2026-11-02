@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { hasCommitMessageBody, splitSubjectPrefix } from "@/lib/commit"
+import { splitSubjectPrefix } from "@/lib/commit"
 
 describe("splitSubjectPrefix", () => {
   it.each([
@@ -18,23 +18,5 @@ describe("splitSubjectPrefix", () => {
 
   it.each(["Add connection retry logic", "Fix: a capitalised word is not a type", "http://example.com is down"])("keeps %j without a prefix", subject => {
     expect(splitSubjectPrefix(subject)).toEqual({ prefix: null, text: subject })
-  })
-})
-
-describe("hasCommitMessageBody", () => {
-  it("is true for a message with lines after the subject", () => {
-    expect(hasCommitMessageBody("Subject", "Subject\n\nBody")).toBe(true)
-  })
-
-  it("is false for a message that equals the subject", () => {
-    expect(hasCommitMessageBody("Subject", "Subject")).toBe(false)
-  })
-
-  it("is false for a one-line message that differs from a stripped subject", () => {
-    expect(hasCommitMessageBody("Add login", "(feature-auth) Add login")).toBe(false)
-  })
-
-  it("is false for an empty message", () => {
-    expect(hasCommitMessageBody("", "")).toBe(false)
   })
 })

@@ -106,7 +106,16 @@ export function emptyView(version: Version = { epoch: 1, seq: 0 }): RepositoryVi
 
 /** The one commit of the branch `name` as a grouping reports it: `<name>1` */
 export function fakeCommit(name: string): Commit {
-  return { originalHash: `${name}1`, strippedSubject: "subject", subjectParts: testSubject("subject"), message: "subject", author: "a", authorTime: 1, committerTime: 1 }
+  return {
+    originalHash: `${name}1`,
+    strippedSubject: "subject",
+    subjectParts: testSubject("subject"),
+    message: "subject",
+    hasBody: false,
+    author: "a",
+    authorTime: 1,
+    committerTime: 1,
+  }
 }
 
 export function fakeHead(name: string): BranchHead {

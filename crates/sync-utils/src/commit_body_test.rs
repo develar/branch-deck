@@ -1,4 +1,4 @@
-use crate::commit_body::{commit_body, message_body};
+use crate::commit_body::{commit_body, has_body, message_body};
 use domain_types::commit_body::{CommitBody, CommitBodyBlock, LabelKind};
 use pretty_assertions::assert_eq;
 
@@ -188,6 +188,30 @@ fn the_body_of_a_message_is_after_its_subject_line() {
   assert_eq!(message_body("Subject\n\nBody"), "\nBody");
   assert_eq!(blocks(message_body("Subject\n\n\nBody")), [paragraph(&["Body"])]);
   assert_eq!(message_body("Subject"), "");
+}
+
+#[test]
+fn a_message_has_a_body_with_a_block_after_its_subject_that_is_no_trailers() {
+  for message in [
+    "Subject\n\nWhy it changed",
+    "Subject\n\nWhy\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+    "Subject\n\n```\nlog\n```",
+    "Subject\r\n\r\nWhy",
+  ] {
+    assert!(has_body(message), "{message:?}");
+  }
+  for message in [
+    "",
+    "Subject",
+    "Subject\n",
+    "Subject\n\n  \n",
+    "Subject\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nSigned-off-by: A <a@b.c>",
+  ] {
+    assert!(!has_body(message), "{message:?}");
+  }
+  // a one-word token alone is prose, as `commit_body` reads it
+  assert!(has_body("Subject\n\nNote: read this"));
+  assert_eq!(blocks("Note: read this"), [run_in("Note"), paragraph(&["read this"])]);
 }
 
 #[test]

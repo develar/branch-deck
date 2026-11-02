@@ -4,14 +4,14 @@ import { Button } from "@/components/ui/button"
 import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { CommitsPreviewBody } from "@/components/preview/CommitsPreviewBody"
-import type { PreviewCommit } from "@/components/preview/CommitsPreviewBody"
 import { Callout } from "@/components/shared/Callout"
 import { LoadingLine } from "@/components/shared/LoadingLine"
 import { PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, PreviewDialogHeader, PreviewNavigationHints } from "@/components/shared/PreviewDialogFrame"
 import { useCommitFiles } from "@/hooks/useCommitFiles"
 import type { ReviewCommit } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
-import { formatCommitCount } from "@/lib/commit"
+import type { CardCommit } from "@/lib/commit"
+import { formatCommitCount, toCardCommit } from "@/lib/commit"
 import { handlePreviewNavigationKey, hasKeyModifier } from "@/lib/preview-keys"
 import { keptBranchName } from "@/lib/review-actions"
 import type { KeptKind } from "@/lib/review-target"
@@ -58,8 +58,9 @@ function useKeptCommits(name: string | null): KeptCommits {
 
 const LOADING: KeptCommits = { status: "loading" }
 
-function previewCommitOf(commit: ReviewCommit): PreviewCommit {
-  return { hash: commit.id, subject: commit.subject, message: commit.message, authorTime: commit.authorTime, committerTime: commit.committerTime }
+/** A commit of the branch as its preview reads it: the card without its author, as the preview of a branch */
+function previewCommitOf(commit: ReviewCommit): CardCommit {
+  return { ...toCardCommit(commit), author: undefined }
 }
 
 const NO_IDS: readonly string[] = []
@@ -159,7 +160,7 @@ export function KeptBranchPreviewDialog({
             ) : commits === null ? (
               <LoadingLine>Loading commits…</LoadingLine>
             ) : (
-              <CommitsPreviewBody commits={commits.map(previewCommitOf)} busy={isLoadingFiles} testId="kept-preview" onReview={commit => review(commit.hash)} />
+              <CommitsPreviewBody commits={commits.map(previewCommitOf)} busy={isLoadingFiles} testId="kept-preview" onReview={commit => review(commit.id)} />
             )}
           </PreviewDialogBody>
           <PreviewDialogFooter data-testid="kept-preview-footer" start={<span className="tabular-nums">{`${index + 1} / ${names.length}`}</span>}>

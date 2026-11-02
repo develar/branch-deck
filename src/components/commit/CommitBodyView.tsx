@@ -1,39 +1,10 @@
 import { Fragment } from "react"
-import type { MouseEvent, ReactNode } from "react"
-import { RectangleEllipsisIcon } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import type { ReactNode } from "react"
+import { cn } from "cn"
 import { LinkedText } from "@/components/commit/LinkedText"
+import { Callout } from "@/components/shared/Callout"
 import { useCommitBody } from "@/hooks/useCommitBody"
-import type { CommitBodyBlock } from "@/lib/bindings"
-
-/** Icon button that opens the full commit message in the commit preview; does not change the row selection. */
-export function CommitMessageButton({ onOpen }: { onOpen: () => void }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-haspopup="dialog"
-            aria-label="Show full commit message"
-            data-testid="commit-message-toggle"
-            // `-my-0.5`: the 24px button keeps the 20px line height of the subject
-            className="-my-0.5 shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={(event: MouseEvent) => {
-              event.stopPropagation()
-              onOpen()
-            }}
-          />
-        }
-      >
-        <RectangleEllipsisIcon />
-      </TooltipTrigger>
-      <TooltipContent>Show full commit message</TooltipContent>
-    </Tooltip>
-  )
-}
+import type { CommitBody, CommitBodyBlock } from "@/lib/bindings"
 
 /** The blocks under a label or a heading, or the ones before the first of them: a gap of 16px apart */
 interface CommitBodySection {
@@ -60,44 +31,41 @@ function sectionsOf(blocks: readonly CommitBodyBlock[]): CommitBodySection[] {
 }
 
 /**
- * Body of a commit message (the message without its subject line, as Rust reads it: `commit_body`), shown in the commit
- * preview, the branch preview and the review; rows don't render or read their bodies.
+ * The body of a commit message as Rust reads it (`commit_body`, `sync_utils::commit_body`): the message, whose body
+ * Rust reads once and keeps (`useCommitBody`), or the body it read already. One view for every place a body is shown:
+ * the card of a commit (`CommitCard`: the card of a row's mark, the previews, the commit a review shows alone) and the
+ * body of a pull request; the story a review tells reads its blocks the same way (`CommitBodyBlockView`).
  *
- * A label ("Why:", "What changed:") is a small heading above its blocks, a Markdown heading a stronger one. Code tokens
- * are set in the monospace font. The text is selectable, and a click in it does not change the row selection. The
- * 14/22 reading text, a preformatted block one step below it, a line at `max-w-prose` (65ch, about 80 characters).
+ * A label ("Why:", "What changed:") is a heading above its blocks, as the story of a review shows it, a "Look closely:"
+ * an info callout; a Markdown heading is set as strong. Code tokens are set in the monospace font. The text is
+ * selectable, and a click in it does not change the row selection. The reading text is 14/22 (`reading`), the card of a
+ * row's mark one step smaller (`card`); a preformatted block one step below it, a line at `max-w-prose` (65ch, about 80
+ * characters). A body of no blocks shows `empty` ("No description" in the commit preview, nothing by default) and its
+ * trailers still; a message of its subject alone shows nothing more.
  */
-export function CommitMessageBody({ message }: { message: string }) {
-  const body = useCommitBody(message)
+export function CommitBodyView({ body: source, size = "reading", empty }: { body: string | CommitBody; size?: "card" | "reading"; empty?: ReactNode }) {
+  const read = useCommitBody(typeof source === "string" ? source : null)
+  const body = typeof source === "string" ? read : source
   const sections = body === undefined ? [] : sectionsOf(body.blocks)
+  const isEmpty = body !== undefined && body.blocks.length === 0
+  if (isEmpty && body.trailers.length === 0 && empty === undefined) {
+    return null
+  }
   return (
     <div
       data-testid="commit-message-body"
+      data-size={size}
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
-      className="flex max-w-prose cursor-text flex-col gap-4 pb-1 [font-feature-settings:'ss04'] text-md text-foreground select-text"
+      className={cn(
+        "flex max-w-prose cursor-text flex-col pb-1 [font-feature-settings:'ss04'] text-foreground select-text",
+        size === "reading" ? "gap-4 text-md" : "gap-3 text-sm [&_pre]:text-xs",
+      )}
       onClick={event => event.stopPropagation()}
     >
+      {isEmpty && empty}
       {/* sections of the same message never reorder, so the index is a stable key */}
       {sections.map((section, index) => (
-        <div key={index} className="flex flex-col gap-1">
-          {section.head?.type === "label" && (
-            <div data-slot="commit-section-label" className="font-medium text-muted-foreground">
-              {section.head.text}
-            </div>
-          )}
-          {section.head?.type === "heading" && (
-            <div data-slot="commit-section-heading" className="font-semibold">
-              <LinkedText text={section.head.text} detectCode />
-            </div>
-          )}
-          {section.blocks.length > 0 && (
-            <div className="flex min-w-0 flex-col gap-2">
-              {section.blocks.map((block, blockIndex) => (
-                <CommitBodyBlockView key={blockIndex} block={block} />
-              ))}
-            </div>
-          )}
-        </div>
+        <CommitBodySectionView key={index} section={section} />
       ))}
       {body !== undefined && body.trailers.length > 0 && (
         <div className="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
@@ -108,6 +76,46 @@ export function CommitMessageBody({ message }: { message: string }) {
       )}
     </div>
   )
+}
+
+/** A section of a body: its label or heading above its blocks; a Look closely of the author an info callout, as the story of a review shows it */
+function CommitBodySectionView({ section: { head, blocks } }: { section: CommitBodySection }) {
+  const isLookClosely = head?.type === "label" && head.kind === "lookClosely"
+  const content = blocks.length > 0 && (
+    // the details of a callout are muted: the author's words are not
+    <div className={cn("flex min-w-0 flex-col gap-2", isLookClosely && "text-foreground")}>
+      {blocks.map((block, index) => (
+        <CommitBodyBlockView key={index} block={block} />
+      ))}
+    </div>
+  )
+  if (isLookClosely) {
+    return (
+      <Callout tone="info" title={head.text} data-testid="commit-section-look-closely" className="text-foreground">
+        {content}
+      </Callout>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {head?.type === "label" && (
+        <div data-slot="commit-section-label" className="font-semibold">
+          {head.text}
+        </div>
+      )}
+      {head?.type === "heading" && (
+        <div data-slot="commit-section-heading" className="font-semibold">
+          <LinkedText text={head.text} detectCode />
+        </div>
+      )}
+      {content}
+    </div>
+  )
+}
+
+/** What a preview says of a commit without a body */
+export function NoDescription() {
+  return <p className="text-sm text-muted-foreground">No description</p>
 }
 
 /** The text of a line of a block, by its item (the line of a paragraph, the item of a list): prose with its code and issue links */

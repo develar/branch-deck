@@ -21,7 +21,7 @@ describe("formatConflictTitle", () => {
 })
 
 function missing(hash: string, branch: string | null): MissingCommit {
-  return { hash, subject: hash, message: hash, authorTime: 0, committerTime: 0, author: "", filesTouched: [], branch, subjectParts: testSubject(hash) }
+  return { hash, subject: hash, message: hash, hasBody: false, authorTime: 0, committerTime: 0, author: "", filesTouched: [], branch, subjectParts: testSubject(hash) }
 }
 
 describe("getMissingCommitOwners", () => {

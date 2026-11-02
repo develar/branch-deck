@@ -22,6 +22,9 @@ pub struct Commit {
   pub id: String,
   pub stripped_subject: String, // Subject with prefix removed (or same as subject if no prefix)
   pub message: String,          // Full commit message (including subject)
+  /// Whether the message has a body a reader is shown, a block after the subject other than the trailers
+  /// (`sync_utils::commit_body::has_body`): the row marks it and its card shows it
+  pub has_body: bool,
   #[serde(rename = "author")]
   pub author_name: String,
   #[serde(skip)]
@@ -148,6 +151,7 @@ impl Commit {
     self.id == other.id
       && self.stripped_subject == other.stripped_subject
       && self.message == other.message
+      && self.has_body == other.has_body
       && self.author_name == other.author_name
       && self.author_timestamp == other.author_timestamp
       && self.committer_timestamp == other.committer_timestamp

@@ -21,13 +21,14 @@ function keep(message: string, body: CommitBody): void {
 /**
  * The body of `message` (the lines after its subject line) as Rust reads it (`commit_body`, the grammar the body of a
  * pull request is written from): its blocks with their labels and headings, its trailers, its lead and its fold. Asked
- * once per message, kept for the ones shown again; undefined until Rust answered, an empty body on a failed read
+ * once per message, kept for the ones shown again; undefined until Rust answered, an empty body on a failed read. A
+ * null message (a body Rust read already) asks nothing
  */
-export function useCommitBody(message: string): CommitBody | undefined {
+export function useCommitBody(message: string | null): CommitBody | undefined {
   const [answered, setAnswered] = useState<{ of: string; body: CommitBody } | null>(null)
-  const kept = bodyOf.get(message)
+  const kept = message === null ? undefined : bodyOf.get(message)
   useEffect(() => {
-    if (bodyOf.has(message)) {
+    if (message === null || bodyOf.has(message)) {
       return
     }
     let current = true
@@ -48,5 +49,5 @@ export function useCommitBody(message: string): CommitBody | undefined {
       current = false
     }
   }, [message])
-  return kept ?? (answered?.of === message ? answered.body : undefined)
+  return kept ?? (answered !== null && answered.of === message ? answered.body : undefined)
 }

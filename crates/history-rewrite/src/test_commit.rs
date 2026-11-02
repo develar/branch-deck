@@ -5,6 +5,7 @@ use domain_types::rewrite::RegroupPlan;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::notes::{MappingNote, write_commit_notes};
 use std::collections::BTreeMap;
+use sync_utils::commit_body::has_body;
 use sync_utils::commit_subject::subject_parts;
 
 /// A commit as the commit list reads it, with fixed metadata; the subject is the first line of `message`
@@ -15,6 +16,7 @@ pub fn commit(id: &str, message: &str) -> Commit {
     id: id.to_string(),
     stripped_subject: subject.clone(),
     message: message.to_string(),
+    has_body: has_body(message),
     author_name: "Test Author".to_string(),
     author_email: "test@example.com".to_string(),
     author_timestamp: 1_234_567_890,

@@ -18,6 +18,7 @@ fn commit(index: usize, subject: &str, email: &str) -> Commit {
     subject: subject.to_string(),
     stripped_subject: subject.to_string(),
     message: subject.to_string(),
+    has_body: false,
     author_name: "Test Author".to_string(),
     author_email: email.to_string(),
     author_timestamp: 1_700_000_000,

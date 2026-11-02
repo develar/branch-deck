@@ -254,8 +254,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the reviewed one, not those the user saw. A commit row, and the row of a step of the commits, shows what it is
   since the review ("New"/"Rewritten"), "Your review" on the reviewed commit of a pull request (the boundary of the
   column: the commits after it are those of Since Your Review), its branch (of the whole stack, and of a part of
-  several branches, which the column heads by branch) and its hash on hover, a commit row also its role; a commit row
-  is no file (no position, no count, no owner mark of its own: it is muted with its step). The column above the tree
+  several branches, which the column heads by branch) and its hash on hover, a commit row also its role; either, of a
+  commit with a body, the mark of its card, which its hover and `I` on the focused row open as in the main window
+  ([Commit Row](../commit/commit-row.spec.md#commit-card)), Escape giving the focus back to the row; a commit row is
+  no file (no position, no count, no owner mark of its own: it is muted with its step). The column above the tree
   then lists only the scopes; without the plan, for a range of one commit and for a commit shown alone the column
   lists every commit as before.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should make the row of a step its commit, its rounds rows of it, show the step on a click, fold it by its chevron, Space, Left and Right, show the commit alone on Enter, Show Commit Alone and Option+Down, and mark a step new since the review New`)

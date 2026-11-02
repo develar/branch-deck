@@ -15,6 +15,7 @@ pub(crate) fn commit(id: &str) -> Commit {
     id: id.to_string(),
     stripped_subject: format!("Subject of {id}"),
     message: format!("Subject of {id}"),
+    has_body: false,
     author_name: "Test User".to_string(),
     author_email: "test@example.com".to_string(),
     author_timestamp: 1_704_067_200,

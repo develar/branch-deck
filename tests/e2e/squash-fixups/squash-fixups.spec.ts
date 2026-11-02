@@ -75,7 +75,7 @@ test.describe("Squash fixups", () => {
     // the `squash!` was an unassigned commit; its body joins the message of the target
     await expect(unassignedRows(page)).toHaveCount(2)
     await expect(getUnassignedCommitRow(page, "Write the guide")).toHaveCount(0)
-    await expect(getBranchCommitRow(page, "docs", "Write the guide").getByTestId("commit-message-toggle")).toBeVisible()
+    await expect(getBranchCommitRow(page, "docs", "Write the guide").getByTestId("commit-row-mark")).toBeVisible()
 
     // the squash rewrote the unassigned commits: the menu offers "Squash into" once the plan of the new hashes is loaded,
     // which the marker shows with its target

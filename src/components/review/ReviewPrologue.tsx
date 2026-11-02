@@ -4,17 +4,15 @@ import { ChevronRightIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Spinner } from "@/components/ui/spinner"
-import { CommitHeading } from "@/components/commit/CommitHeading"
-import { CommitMessageBody } from "@/components/commit/CommitMessage"
+import { CommitCard } from "@/components/commit/CommitCard"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryLine } from "@/components/review/StoryBody"
 import { Callout } from "@/components/shared/Callout"
 import { SectionLabel } from "@/components/shared/SectionLabel"
-import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { ReviewCommit } from "@/lib/bindings"
-import { hasCommitMessageBody } from "@/lib/commit"
+import { toCardCommit } from "@/lib/commit"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
 import type { ReviewPlanState } from "@/lib/review-plan-answer"
@@ -100,15 +98,12 @@ function IssueHeadline({ issue }: { issue: string }) {
   )
 }
 
-/** The commit shown alone: its heading, its whole message (of the concerns of its plan, the story told before them), its actions */
+/** The commit shown alone: its card, its whole message (of the concerns of its plan, the story told before them), its actions */
 function CommitPart({ commit: { commit, action }, story }: { commit: PrologueCommit; story: StoryView | null }) {
-  const fileStats = useCommitFileStats(commit.id)
   return (
     <div className="flex min-w-0 items-start gap-2" data-testid="range-review-commit-header">
       <div className="min-w-0 flex-1">
-        <CommitHeading subject={commit.subject} hash={commit.id} author={commit.author} authorTime={commit.authorTime} committerTime={commit.committerTime} fileStats={fileStats}>
-          {story !== null ? <StoryBody story={story} /> : hasCommitMessageBody(commit.subject, commit.message) && <CommitMessageBody message={commit.message} />}
-        </CommitHeading>
+        <CommitCard commit={toCardCommit(commit)} variant="heading" body={story === null ? undefined : <StoryBody story={story} />} />
       </div>
       {action}
     </div>

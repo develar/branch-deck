@@ -173,6 +173,7 @@ fn commit(id: &str) -> Commit {
     id: id.to_owned(),
     stripped_subject: "IJPL-1 fix".to_owned(),
     message: "IJPL-1 fix".to_owned(),
+    has_body: false,
     author_name: "Test User".to_owned(),
     author_email: "test@example.com".to_owned(),
     author_timestamp: 1_704_067_200,

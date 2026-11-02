@@ -1469,6 +1469,11 @@ export type Commit = {
 	originalHash: string,
 	strippedSubject: string,
 	message: string,
+	/**
+	 *  Whether the message has a body a reader is shown, a block after the subject other than the trailers
+	 *  (`sync_utils::commit_body::has_body`): the row marks it and its card shows it
+	 */
+	hasBody: boolean,
 	author: string,
 	authorTime: number,
 	committerTime: number,
@@ -4270,6 +4275,8 @@ export type MissingCommit = {
 	hash: string,
 	subject: string,
 	message: string,
+	/**  Whether the message has a body a reader is shown (`Commit::has_body`) */
+	hasBody: boolean,
 	authorTime: number,
 	committerTime: number,
 	author: string,
@@ -6278,6 +6285,8 @@ export type ReviewCommit = {
 	subject: string,
 	/**  The full message, the subject included, without trailing newlines */
 	message: string,
+	/**  Whether the message has a body a reader is shown (`Commit::has_body`) */
+	hasBody: boolean,
 	author: string,
 	/**  Unix seconds */
 	authorTime: number,

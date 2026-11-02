@@ -18,7 +18,7 @@ import { disabled, enabled } from "@/test-support/actions"
 import { testSubject } from "@/test-support/subject-parts"
 
 function segment(name: string, base: string, head: string): ReviewSegment {
-  return { name, base, head, commits: [{ id: head, subject: name, message: name, author: "Test User", authorTime: 1, committerTime: 1 }] }
+  return { name, base, head, commits: [{ id: head, subject: name, message: name, hasBody: false, author: "Test User", authorTime: 1, committerTime: 1 }] }
 }
 
 const segments = [segment("auth", "b0", "a1"), segment("login", "a1", "l1"), segment("ui", "l1", "u1")]
@@ -91,6 +91,7 @@ describe("settledReviewTable", () => {
     strippedSubject: `Change ${name}`,
     subjectParts: testSubject(`Change ${name}`),
     message: `(${name}) Change ${name}`,
+    hasBody: false,
     author: "Test User",
     authorTime: 1,
     committerTime: 1,

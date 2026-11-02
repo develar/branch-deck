@@ -1,4 +1,4 @@
-import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useId, useRef, useState } from "react"
 import type { ComponentProps, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from "react"
 import { cn } from "cn"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LandedCommitMarker } from "@/components/branch/LandedChip"
 import { CommitHeader } from "@/components/commit/CommitHeader"
-import { CommitMessageButton } from "@/components/commit/CommitMessage"
+import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { PushUpToMark } from "@/components/commit/PushUpToMark"
 import { RobotCommitMarker } from "@/components/commit/RobotCommitMarker"
 import { ContextMenuItems } from "@/components/shared/ContextMenuItems"
@@ -20,13 +20,14 @@ import { getRewordMenuItem, REWORD_SURFACE, rewordCommit } from "@/hooks/useRewo
 import type { RowSelection } from "@/hooks/useRowSelection"
 import { describeFixupTarget, getFixupTarget } from "@/lib/autosquash"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitFileCount, getCommitHash, getCommitSubject, getShownSubject, hasCommitMessageBody, toReviewCommit } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getShownSubject, toCardCommit, toReviewCommit } from "@/lib/commit"
 import type { MenuItemGroups } from "@/lib/menu"
 import { resolvedNotice } from "@/lib/resolved-by-words"
 import { openCommitReviewWindow, reviewBranchCommit } from "@/lib/review-window"
 import type { RobotRailMark } from "@/lib/robot-coverage"
 import { robotRailAttributes } from "@/lib/robot-coverage"
 import { useAutosquashPlan } from "@/stores/branch-sync"
+import { isCommitCardOpen, openCommitCardByKey, setCommitCardOpen, useCommitCardOf } from "@/stores/commit-card"
 import { requestCommitForm, UNASSIGNED_SOURCE, useCommitFormRequest } from "@/stores/commit-move"
 import type { CommitFormRequest } from "@/stores/commit-move"
 
@@ -103,8 +104,10 @@ export interface CommitListProps<T extends CommitUnion> {
 
 /**
  * Commit table used by the branch tables, the unassigned commits card and the conflict views.
- * Space (over a row, or on the last clicked row of the focused table) and the row's message button open the commit preview;
- * D its review in its window (`usePreviewHotkeys`, and the first item of the row's menu).
+ * Space (over a row, or on the last clicked row of the focused table) and a click on the row's mark open the commit
+ * preview; D its review in its window (`usePreviewHotkeys`, and the first item of the row's menu). The hover of the mark
+ * of a commit with a body opens its card, and so does I on the row Space would preview (`CommitRowMark`); the window
+ * keeps one card open (`commit-card` store).
  * The files of the commits are loaded with one call when the list is shown; the meta lines show the counts once known.
  */
 export function CommitList<T extends CommitUnion>({
@@ -193,6 +196,18 @@ export function CommitList<T extends CommitUnion>({
   const followCommit = (from: string, to: string) => setPreview(current => (current?.hash === from ? { hash: from, nextHash: to } : current))
   const saveMessage = (commit: CommitUnion, message: string) => rewordCommit(commit, message, followCommit, REWORD_SURFACE)
   const tableRef = useRef<HTMLTableElement>(null)
+  // the one open card of a row's mark in the window, by its commit: by the hover of the mark or by I on the row
+  const listId = useId()
+  const card = useCommitCardOf(listId)
+  const changeCard = useCallback((hash: string, open: boolean) => setCommitCardOpen(listId, hash, open), [listId])
+  // the rows are no tab stops: the focus a card took goes back to the list, whose keys go on from that row
+  const focusList = useCallback(() => tableRef.current?.focus(), [])
+  const openCard = (hash: string) => {
+    // a row without a body has no mark, and no card
+    if (commits.some(commit => getCommitHash(commit) === hash && commit.hasBody)) {
+      openCommitCardByKey(listId, hash)
+    }
+  }
   // the commit the preview showed last (↑/↓ stepped): its close focuses the list, and the keys of a row (Space, D) act on
   // that commit while the pointer is on no row, until a click of a row
   const lastPreviewedRef = useRef<string | null>(null)
@@ -263,6 +278,7 @@ export function CommitList<T extends CommitUnion>({
   usePreviewHotkeys(tableRef, () => lastPreviewedRef.current ?? latestRef.current.selection?.getAnchorId() ?? null, {
     preview: openPreview,
     review: reviewHash,
+    card: openCard,
   })
   useEffect(() => {
     latestRef.current = {
@@ -287,6 +303,10 @@ export function CommitList<T extends CommitUnion>({
     // React bubbles events from portals (row context menus, popovers) through the component tree; only handle keys pressed in the table.
     // The preview takes the focus a frame after it opens; until then, its keys (Escape, arrows) must not reach the selection.
     if (isMenuOpenRef.current || previewIndex !== -1 || !event.currentTarget.contains(event.target as Node)) {
+      return
+    }
+    // the Escape of a card opened by the hover of a mark, the focus on the list, closes the card alone: the selection stays
+    if (event.key === "Escape" && isCommitCardOpen()) {
       return
     }
     onKeyDown?.(event)
@@ -335,6 +355,9 @@ export function CommitList<T extends CommitUnion>({
                   onDragEnd={handleDragEnd}
                   onMenuOpenChange={handleMenuOpenChange}
                   onOpenPreview={openPreview}
+                  card={card?.hash === hash ? (card.byKey ? "key" : "hover") : null}
+                  onCardChange={changeCard}
+                  focusList={focusList}
                   renderAfterCommit={renderAfterCommit as CommitRowProps["renderAfterCommit"]}
                   robotMark={robotMarks?.get(hash)}
                   offersPushUpTo={branchName !== undefined && pushUpTo?.has(hash) === true}
@@ -393,6 +416,12 @@ interface CommitRowProps {
   onDragEnd: () => void
   onMenuOpenChange: (open: boolean) => void
   onOpenPreview: (hash: string) => void
+  /** The card of the row's mark when it is open, and by what: the hover of the mark or I */
+  card: "hover" | "key" | null
+  /** Opens or closes the card of a row's mark; keeps its identity */
+  onCardChange: (hash: string, open: boolean) => void
+  /** Gives the focus back to the list; keeps its identity */
+  focusList: () => void
   renderAfterCommit: ((commit: CommitUnion, index: number) => ReactNode) | undefined
   robotMark: RobotRailMark | undefined
   /** The push arrow after the subject: the commit offers Push Up to Here */
@@ -485,6 +514,9 @@ function CommitCellContent({
   omitIssueKey,
   isAmendTarget,
   onOpenPreview,
+  card,
+  onCardChange,
+  focusList,
   robotMark,
   offersPushUpTo,
 }: CommitRowProps) {
@@ -495,12 +527,9 @@ function CommitCellContent({
   // a fixup shows its markers apart, with where it goes; Rust split the subject (`subjectParts`)
   const parts = commit.subjectParts
   const autosquash = parts.autosquash
-  const fullSubject = getCommitSubject(commit)
   const shownSubject = getShownSubject(commit)
   // the issue key the row shows already goes; a subject that is only the key keeps it
   const subject = (omitIssueKey !== null && parts.lead?.key === omitIssueKey ? parts.lead.text : "") || shownSubject
-  const hasBody = hasCommitMessageBody(fullSubject, commit.message)
-
   const statusHash = variant === "status" && "hash" in commit ? commit.hash : undefined
   const fileStats = useCommitFileStats(hash)
 
@@ -519,7 +548,16 @@ function CommitCellContent({
         subjectPrefix={autosquash !== "" && <FixupMarker marker={autosquash.trim()} commitId={hash} />}
         subjectAddon={
           <>
-            {hasBody && <CommitMessageButton onOpen={() => onOpenPreview(hash)} />}
+            {commit.hasBody && (
+              <CommitRowMark
+                commit={{ ...toCardCommit(toReviewCommit(commit)), newHash: statusHash }}
+                open={card !== null}
+                openedByKey={card === "key"}
+                onOpenChange={open => onCardChange(hash, open)}
+                focusRow={focusList}
+                onOpen={() => onOpenPreview(hash)}
+              />
+            )}
             {offersPushUpTo && branchName !== undefined && <PushUpToMark branchName={branchName} originalHash={hash} />}
             <LandedCommitMarker commitId={hash} />
             {robotMark?.change != null && branchName !== undefined && <RobotCommitMarker branchName={branchName} change={robotMark.change} />}

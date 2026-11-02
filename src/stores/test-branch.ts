@@ -53,6 +53,7 @@ export function testTip(name: string): SyncedCommit {
     strippedSubject: name,
     subjectParts: testSubject(name),
     message: name,
+    hasBody: false,
     author: "Ann",
     authorTime: 0,
     committerTime: 0,

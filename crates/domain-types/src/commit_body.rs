@@ -1,5 +1,5 @@
 //! The body of a commit message as Rust reads it (`sync_utils::commit_body::commit_body`), the one grammar of a body:
-//! what the commit preview renders (`commit_body`, `src/components/commit/CommitMessage.tsx`) and what the body of a
+//! what the page renders (`commit_body`, `src/components/commit/CommitBodyView.tsx`) and what the body of a
 //! pull request is written from (`remote_facts::pull_request_text`).
 
 use serde::{Deserialize, Serialize};

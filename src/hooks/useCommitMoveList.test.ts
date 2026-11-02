@@ -7,7 +7,7 @@ import { testSubject } from "@/test-support/subject-parts"
 /** A commit with this message, its subject split as Rust splits it: `(prefix)` and the issue key of the rest */
 function prefixed(message: string, prefix: string | null, issueKey: string | null): Commit {
   const subjectParts: SubjectParts = testSubject("", { prefix, issueKey })
-  return { originalHash: message, strippedSubject: message, subjectParts, message, author: "a", authorTime: 1, committerTime: 1 }
+  return { originalHash: message, strippedSubject: message, subjectParts, message, hasBody: false, author: "a", authorTime: 1, committerTime: 1 }
 }
 
 describe("getRemovePrefixLabel", () => {

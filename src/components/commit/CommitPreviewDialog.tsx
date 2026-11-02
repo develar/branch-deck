@@ -2,15 +2,13 @@ import { useRef, useState } from "react"
 import type { KeyboardEvent, ReactElement, ReactNode } from "react"
 import { cn } from "cn"
 import { Button } from "@/components/ui/button"
-import { DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { CommitBodyView, NoDescription } from "@/components/commit/CommitBodyView"
 import { CommitFilesSection } from "@/components/commit/CommitFilesSection"
-import { CommitMessageBody } from "@/components/commit/CommitMessage"
-import { CommitMetadata } from "@/components/commit/CommitMetadata"
-import { CommitSubject } from "@/components/commit/CommitSubject"
+import { CommitHeader } from "@/components/commit/CommitHeader"
 import { PrefixChangeHint } from "@/components/commit/PrefixChangeHint"
 import { DropdownMenuItems } from "@/components/shared/DropdownMenuItems"
 import { LockWaitNotice } from "@/components/shared/LockWaitNotice"
@@ -20,7 +18,7 @@ import { KeyHint, PreviewDialogBody, PreviewDialogFooter, PreviewDialogFrame, Pr
 import { useCommitFileStats } from "@/hooks/useCommitFiles"
 import { REWORD_SURFACE } from "@/hooks/useRewordCommit"
 import type { CommitUnion } from "@/lib/commit"
-import { getCommitFileCount, getCommitHash, getCommitSubject, hasCommitMessageBody } from "@/lib/commit"
+import { getCommitFileCount, getCommitHash, getCommitSubject } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 import type { MenuItemGroups } from "@/lib/menu"
 import { toPreviewMenu } from "@/lib/menu"
@@ -55,8 +53,8 @@ export interface CommitPreviewDialogProps {
 }
 
 /**
- * Centered preview of one commit of a list, as Quick Look shows a file: the whole subject, the meta line, the body and
- * the changed files. ↑/↓ show the previous or next commit of the list (⌥↑/⌥↓ also from the file tree), Space and Escape
+ * Centered preview of one commit of a list, as Quick Look shows a file: the header of its card as the title (the whole
+ * subject, the meta line), the body and the changed files. ↑/↓ show the previous or next commit of the list (⌥↑/⌥↓ also from the file tree), Space and Escape
  * close it, E edits the message, F shows or hides the files, D reviews the commit in its window (Enter on a file of the
  * tree at that file) and closes the preview once the window opened.
  *
@@ -221,10 +219,9 @@ export function CommitPreviewDialog({
               ) : undefined
             }
           >
-            <DialogTitle className="leading-6">
-              <CommitSubject subject={subject} clamp={false} className="text-base font-medium" />
-            </DialogTitle>
-            <CommitMetadata
+            <CommitHeader
+              variant="title"
+              subject={subject}
               hash={hash}
               newHash={showNewHash && "hash" in commit ? commit.hash : undefined}
               author={showAuthor ? commit.author : undefined}
@@ -232,7 +229,6 @@ export function CommitPreviewDialog({
               committerTime={commit.committerTime}
               fileCount={showFileCount ? getCommitFileCount(commit) : undefined}
               fileStats={fileStats}
-              coloredLineCounts
             />
           </PreviewDialogHeader>
 
@@ -251,7 +247,7 @@ export function CommitPreviewDialog({
               />
             ) : (
               <div className="flex flex-col gap-5">
-                {hasCommitMessageBody(subject, commit.message) ? <CommitMessageBody message={commit.message} /> : <p className="text-sm text-muted-foreground">No description</p>}
+                <CommitBodyView body={commit.message} empty={<NoDescription />} />
                 <CommitFilesSection commitId={hash} fileCount={fileStats?.count} onReviewFile={review} />
               </div>
             )}

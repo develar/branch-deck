@@ -2,21 +2,12 @@ import type { ReactNode } from "react"
 import { FileDiffIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { CommitHeading } from "@/components/commit/CommitHeading"
-import { CommitMessageBody } from "@/components/commit/CommitMessage"
-import { useCommitFileStats } from "@/hooks/useCommitFiles"
-import { hasCommitMessageBody } from "@/lib/commit"
+import { CommitCard } from "@/components/commit/CommitCard"
+import type { CardCommit } from "@/lib/commit"
 import { formatShortHash } from "@/lib/hash"
 
-/** A commit a preview reads: its subject, its whole message, its times; its copy in a virtual branch */
-export interface PreviewCommit {
-  readonly hash: string
-  /** The copy of the commit in its virtual branch, beside the hash */
-  readonly newHash?: string
-  readonly subject: string
-  readonly message: string
-  readonly authorTime: number
-  readonly committerTime: number
+/** A commit a preview reads: its card, its whole message; its copy in a virtual branch */
+export interface PreviewCommit extends CardCommit {
   /** Before its review button: "Merge conflict" */
   readonly badge?: ReactNode
 }
@@ -41,19 +32,19 @@ export function CommitsPreviewBody({
   return (
     <ol data-testid={`${testId}-commits`} aria-busy={busy || undefined} className="flex flex-col divide-y divide-border">
       {commits.map(commit => (
-        <PreviewCommitItem key={commit.hash} commit={commit} testId={testId} onReview={onReview === undefined ? undefined : () => onReview(commit)} />
+        <PreviewCommitItem key={commit.id} commit={commit} testId={testId} onReview={onReview === undefined ? undefined : () => onReview(commit)} />
       ))}
     </ol>
   )
 }
 
 function PreviewCommitItem({ commit, testId, onReview }: { commit: PreviewCommit; testId: string; onReview: (() => void) | undefined }) {
-  const fileStats = useCommitFileStats(commit.hash)
   return (
     <li data-testid={`${testId}-commit`} className="py-4 first:pt-0 last:pb-0">
-      <CommitHeading
-        subject={commit.subject}
-        badge={
+      <CommitCard
+        commit={commit}
+        variant="heading"
+        addon={
           <>
             {commit.badge}
             {/* the commit in its review, as D on its row opens it */}
@@ -65,7 +56,7 @@ function PreviewCommitItem({ commit, testId, onReview }: { commit: PreviewCommit
                       size="icon-xs"
                       variant="ghost"
                       className="ml-auto shrink-0 text-muted-foreground"
-                      aria-label={`Review Changes of ${formatShortHash(commit.hash)}`}
+                      aria-label={`Review Changes of ${formatShortHash(commit.id)}`}
                       data-testid={`${testId}-commit-review`}
                       onClick={onReview}
                     />
@@ -78,14 +69,7 @@ function PreviewCommitItem({ commit, testId, onReview }: { commit: PreviewCommit
             )}
           </>
         }
-        hash={commit.hash}
-        newHash={commit.newHash}
-        authorTime={commit.authorTime}
-        committerTime={commit.committerTime}
-        fileStats={fileStats}
-      >
-        {hasCommitMessageBody(commit.subject, commit.message) && <CommitMessageBody message={commit.message} />}
-      </CommitHeading>
+      />
     </li>
   )
 }

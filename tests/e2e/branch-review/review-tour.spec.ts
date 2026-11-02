@@ -346,6 +346,29 @@ test.describe("Review tour", () => {
     await expect(commitRow("2 · The open keeps a stored layout").getByTestId("review-commit-role")).toHaveCount(0)
     await captureHtmlSnapshot(commitRow("2 · The open keeps a stored layout"), "review-tree-step-commit")
 
+    // a commit with a body shows the mark of its card: its hover opens the card, I on the focused row too, the focus in
+    // it; Escape closes the card alone and gives the focus back to the row
+    const card = window.getByTestId("commit-card")
+    await window.mouse.move(0, 0)
+    await commitRow("The rule names its flag again").getByTestId("commit-row-mark").hover()
+    await expect(card.getByTestId("commit-message-body")).toHaveText("The review asked for the name of the flag to say what it holds.")
+    await window.mouse.move(0, 0)
+    await expect(card).toHaveCount(0)
+    await commitRow("The rule names its flag again").focus()
+    await window.keyboard.press("i")
+    await expect(card).toBeFocused()
+    await window.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+    await expect(commitRow("The rule names its flag again")).toBeFocused()
+    // the row of a step of the commits is its commit: I opens the card of that commit
+    await commitRow("2 · The open keeps a stored layout").focus()
+    await window.keyboard.press("i")
+    await expect(card).toBeFocused()
+    await expect(card.getByTestId("commit-message-body")).toContainText("The product decision is to keep the layout of the user.")
+    await window.keyboard.press("Escape")
+    await expect(card).toHaveCount(0)
+    await expect(commitRow("2 · The open keeps a stored layout")).toBeFocused()
+
     // a click selects the step and puts its opening at the top; the commit stays in the story
     await expect(bar.getByTestId("review-step-position")).toHaveText("Overview")
     await paint.click()

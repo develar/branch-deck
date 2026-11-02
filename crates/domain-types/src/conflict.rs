@@ -117,6 +117,8 @@ pub struct MissingCommit {
   pub hash: String,
   pub subject: String,
   pub message: String,
+  /// Whether the message has a body a reader is shown (`Commit::has_body`)
+  pub has_body: bool,
   pub author_time: u32,
   pub committer_time: u32,
   pub author: String,

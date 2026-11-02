@@ -1896,6 +1896,7 @@ fn listed_commit(id: &str, subject: &str) -> Commit {
     id: id.to_string(),
     stripped_subject: subject.to_string(),
     message: subject.to_string(),
+    has_body: false,
     author_name: "Test Author".to_string(),
     author_email: "test@example.com".to_string(),
     author_timestamp: 1_700_000_000,

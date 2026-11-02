@@ -1,6 +1,6 @@
 ---
 name: Commit Row
-description: Requirements for the commit row, the commit preview with the message body and its editing, and the commit hash popover.
+description: Requirements for the commit row, the commit card, the commit preview with the message body and its editing.
 style: plain-1
 targets:
   - ../../crates/file-diffs/src/merge.rs
@@ -11,7 +11,13 @@ targets:
   - ../../src/components/commit/CommitHeader.tsx
   - ../../src/components/commit/CommitSubject.tsx
   - ../../src/components/commit/CommitMetadata.tsx
-  - ../../src/components/commit/CommitMessage.tsx
+  - ../../src/components/commit/CommitBodyView.tsx
+  - ../../src/components/commit/CommitCard.tsx
+  - ../../src/components/commit/CommitRowMark.tsx
+  - ../../src/components/shared/RowCard.tsx
+  - ../../src/stores/commit-card.ts
+  - ../../src/components/preview/CommitsPreviewBody.tsx
+  - ../../crates/git-ops/src/commit_list.rs
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/shared/PreviewDialogFrame.tsx
   - ../../src/hooks/usePreviewHotkeys.ts
@@ -85,9 +91,10 @@ Date: 2026-10-13
 
 A commit row shows one commit in a branch table, in the unassigned commits card or in a conflict view.
 The row has a subject line above a meta line.
-Space or an icon button opens the full commit message in a centered preview, as Quick Look does.
+Space or a click on the mark of a row opens the full commit message in a centered preview, as Quick Look does.
 The preview also edits the message of a commit on the current branch.
-The commit hash popover shows the same header and body.
+The hover of the mark, or I, opens the commit card: the one card of a commit, its header and its body, which every
+place that shows a commit shows the same way.
 
 ## Goals
 
@@ -157,19 +164,42 @@ The commit hash popover shows the same header and body.
 - A row must show the stripped subject when the backend supplies one.
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should show branches with missing commits`, `should expand/collapse file accordions in missing commits details`)
 
+### Commit card
+
+- A row must show the mark of its card only when its message has a body, as Rust tells it (`hasBody` of a commit: a
+  block after the subject other than the trailers); a body of trailers alone (`Co-Authored-By:` of an agent) has no
+  mark. The page reads no grammar of its own.
+  [@test] ../../crates/sync-utils/src/commit_body_test.rs (`a_message_has_a_body_with_a_block_after_its_subject_that_is_no_trailers`)
+  [@test] ../../crates/git-ops/src/commit_list_test.rs (`a_commit_has_a_body_unless_its_message_is_its_subject_and_its_trailers`)
+- The mark must be named "Show full commit message", and a click on it must open the preview of its commit.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
+- The hover of the mark (300 ms, only after a move of the pointer) must open the commit card: the whole subject over
+  the meta line with its line counts, then the whole body, its trailers last; the pointer leaving the mark closes it.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark and by I, and give the focus back on Escape`)
+- I on the row Space would preview must open its card with the focus in it. Escape must close the card alone and give
+  the focus back to the list, whose keys go on from that row; a card opened by I that goes otherwise gives it back too.
+  The Escape of a card the hover opened closes it alone too: the selection of the list stays. The window keeps one card
+  open: a card that opens in one list closes the card of another. The mark is no tab stop: Space previews the row, I
+  opens its card.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the commit card on the hover of the mark and by I, and give the focus back on Escape`)
+- A commit row of the tree of a review shows the same mark and card, `I` on the focused row
+  ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
+- The card is one for every place a commit is shown (`CommitCard`: `CommitHeader` and `CommitBodyView`): the card of a
+  row's mark, the commits of the preview of a branch and of a kept branch, the commit a review shows alone; the commit
+  preview shows the same header as its title and the same body. The opening of a step in a review tells the body by
+  the same blocks ([Review Tour](../branch/review-tour.spec.md#in-the-review-window)).
+- The row must not render the body.
+
 ### Commit preview
 
-- A row must show the message button only when the message has more lines than the subject.
-- The message button must be an icon button with `aria-haspopup="dialog"`, the label "Show full commit message" and the
-  same text as its tooltip.
-- The message button must open the preview of its commit.
-- The row must not render the body.
 - The preview must show the whole subject, the meta line and the body, then the changed files
   ([Commit Files](commit-files.spec.md)).
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
 - Space must open the preview of the commit row under the pointer.
 - ↑ and ↓ must show the previous and the next commit of the same list, and the preview must show the position as `2 / 3`.
-- The preview of a commit without a body must show its subject and "No description".
+- The preview of a commit without a body must show its subject and "No description"; of a body of trailers alone,
+  "No description" above its trailers, which every place that shows the body lists last.
+  [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the hovered commit with Space and step through the list with the arrows`, `should say No description above the trailers of a body of trailers alone, which has no mark`)
 - Space and Escape must close the preview.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the preview of the hovered commit with Space and step through the list with the arrows`)
 - Without a row under the pointer, Space must open the preview of the last clicked row of the focused list.
@@ -298,7 +328,6 @@ for a message shown again, and only lays out what Rust read.
 
 - The body must start at the first line after the subject that is not blank.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should open the full message in a preview and reflow it into paragraphs, lists and code`)
-  [@test] ../../src/lib/commit.test.ts (`is true for a message with lines after the subject`, `is false for a message that equals the subject`, `is false for a one-line message that differs from a stripped subject`, `is false for an empty message`)
   [@test] ../../crates/sync-utils/src/commit_body_test.rs (`the_body_of_a_message_is_after_its_subject_line`)
 - The body must join hard-wrapped lines into one paragraph; a blank line must start a new block. A line after a hard
   break (two spaces or `\` at the end), a quote line and a table row must stay a line of their own. A Markdown heading
@@ -363,7 +392,7 @@ for a message shown again, and only lays out what Rust read.
 
 ### Selection
 
-- A click on the message button must not change the selection.
+- A click on the mark of a row or in its card must not change the selection.
 - A click in the preview body must not change the selection.
 - A click on another part of the row must select the row.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should not change the row selection`)
@@ -493,12 +522,13 @@ for a message shown again, and only lays out what Rust read.
   outweigh the branch names ([UI Theme](../../docs/design/ui-theme.md#rules-for-ui-changes), "Type hierarchy").
 - The prefix uses `font-mono text-xs text-muted-foreground`.
 - The meta line uses `text-xs text-muted-foreground`. The hashes use the monospace font.
-- The message button follows the subject as a ghost `icon-xs` button. It keeps the 20px line height of the subject.
-- The message button is muted. It becomes `text-foreground` on hover.
+- The mark follows the subject: a 24px box with a 12px muted `RectangleEllipsisIcon` that keeps the 20px line height
+  of the subject, `text-foreground` and `bg-muted` on hover; in the tree of a review a 16px box with a 14px icon, as
+  the mark of a file.
 - Issue links are muted and become `text-foreground` on hover.
-- The push arrow follows the message button: a 16px button with a 12px `ArrowUpIcon` in `text-primary`,
+- The push arrow follows the mark: a 16px button with a 12px `ArrowUpIcon` in `text-primary`,
   `bg-primary/10` on hover. A row its Push Up to Here sends is `bg-primary/5`; the selection tint wins over it.
-- Badges follow the message button: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `primary` Amend target (the target of the user's amend).
+- Badges follow the mark: `secondary` Pending with a spinner, `destructive` conflict or error, `warning` Blocked, `primary` Amend target (the target of the user's amend).
 
 ### Commit preview
 
@@ -527,8 +557,9 @@ for a message shown again, and only lays out what Rust read.
 
 - The body is at most `max-w-prose` (65ch, about 80 characters) wide.
 - The body text is `text-foreground` with the `ss04` font feature, the 14/22px reading text (`text-md`).
-- A section label is a small `font-medium text-muted-foreground` heading above its blocks; a Markdown heading of any
-  level is `font-semibold` at the size of the text; a rule is a `border-border` line of its own.
+- A section label is a `font-semibold` heading above its blocks in the text colour, as the story of a review sets it; a
+  "Look closely:" section is an info callout, its label the title; a Markdown heading of any level is `font-semibold`
+  at the size of the text; a rule is a `border-border` line of its own.
 - Sections have a 16px gap. Blocks in a section have an 8px gap.
 - Lists have a 20px indent and muted markers.
 - Preformatted text uses `font-mono` one step below the body (`text-sm`) on `bg-muted` and scrolls horizontally.
@@ -570,10 +601,15 @@ for a message shown again, and only lays out what Rust read.
 - The subjects start at the left edge of the branch name.
 - An archived branch uses the rail.
 
-### Commit hash popover
+### Commit card
 
-- The popover opens on hover over the monospace short hash.
-- The popover is at most 24rem high and 42rem wide, and at least 300px wide.
+- The card is a popover at the end of the mark, 36rem wide at most and 24rem high at most; its body scrolls under its
+  header, which stays at the top of the card.
+- The header shows the whole subject in `text-sm font-medium` above the meta line, the line counts coloured
+  (`success`, `destructive`), as every header but a row's (`CommitHeader`: `row`, `card`, `heading` in `text-md`, `title`
+  in `text-base`).
+- The body is `text-sm` (`card`), its sections 12px apart, preformatted text `text-xs`; the trailers below a rule as in
+  the preview.
 
 ### Dark theme
 
@@ -589,7 +625,10 @@ for a message shown again, and only lays out what Rust read.
 ## Open Questions / Risks
 
 - No test covers the Pending, Blocked and generic Error badges. No backend path in the mock server emits them.
-- No test covers the body, the height limit or a commit without a subject in the commit hash popover.
+- No test covers the height limit of the commit card, its header staying as the body scrolls, or a commit without a
+  subject in it.
+- The commit card and the preview show the whole body; the story of a review folds it at `shown` and folds its
+  verification sections. A p90 body (about 43 lines) scrolls in a card 24rem high: the card could fold as the story does.
 - No test checks that the subject does not detect code.
 - Base UI moves the focus into the preview a frame after it opens. Until then, the list ignores its keys, so a fast
   ↓ right after Space is lost.

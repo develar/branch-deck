@@ -1,4 +1,4 @@
-import type { Commit, MissingCommit, ReviewCommit } from "@/lib/bindings"
+import type { Commit, CommitBody, MissingCommit, ReviewCommit } from "@/lib/bindings"
 import type { SyncedCommit } from "@/stores/branch-sync"
 
 /** Any commit shape displayed by the commit list. */
@@ -34,11 +34,6 @@ export function getShownSubject(commit: CommitUnion): string {
   const autosquash = commit.subjectParts.autosquash
   const subject = getCommitSubject(commit)
   return autosquash !== "" && subject.startsWith(autosquash) ? subject.slice(autosquash.length) : subject
-}
-
-/** Whether the message has a body beyond its subject line. */
-export function hasCommitMessageBody(subject: string, message: string): boolean {
-  return !!message && message !== subject && message.includes("\n")
 }
 
 // conventional-commit prefix: "feat:", "feat(model):", "fix!:", or a type and one scope word ("docs air:")
@@ -88,6 +83,38 @@ export function toReviewCommit(commit: CommitUnion): ReviewCommit {
     id: getCommitHash(commit),
     subject: getCommitSubject(commit),
     message: commit.message,
+    hasBody: commit.hasBody,
+    author: commit.author,
+    authorTime: commit.authorTime,
+    committerTime: commit.committerTime,
+  }
+}
+
+/**
+ * A commit as its card shows it (`CommitCard`): the header of its subject and meta line, then its body. One shape for
+ * every place a commit is shown: a row of a list, the review, a preview
+ */
+export interface CardCommit {
+  readonly id: string
+  readonly subject: string
+  /**
+   * The message whose body Rust reads (`useCommitBody`), or the body it read already: its blocks, else nothing, and its
+   * trailers last. Whether a row shows the mark of its card is `hasBody` of the commit, as Rust tells it
+   */
+  readonly body: string | CommitBody
+  /** The copy of the commit in its virtual branch, named on the hover of its hash */
+  readonly newHash?: string
+  readonly author?: string
+  readonly authorTime?: number
+  readonly committerTime?: number
+}
+
+/** A commit of a review (or of a list, `toReviewCommit`) as its card shows it */
+export function toCardCommit(commit: ReviewCommit): CardCommit {
+  return {
+    id: commit.id,
+    subject: commit.subject,
+    body: commit.message,
     author: commit.author,
     authorTime: commit.authorTime,
     committerTime: commit.committerTime,

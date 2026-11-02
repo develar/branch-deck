@@ -186,7 +186,7 @@ export function BranchPreviewDialog({ names, name, onNameChange, onClose, render
                 commits={branch.commits.map(previewCommitOf)}
                 busy={isLoadingFiles}
                 testId="branch-preview"
-                onReview={canReview ? commit => review(branch.commits.find(it => getCommitHash(it) === commit.hash)) : undefined}
+                onReview={canReview ? commit => review(branch.commits.find(it => getCommitHash(it) === commit.id)) : undefined}
               />
             </div>
           </PreviewDialogBody>
@@ -349,10 +349,10 @@ function lowerFirst(text: string): string {
 /** A commit of the branch as its preview reads it: its copy beside it, a conflict in its badge */
 function previewCommitOf(commit: SyncedCommit): PreviewCommit {
   return {
-    hash: getCommitHash(commit),
+    id: getCommitHash(commit),
     ...(commit.hash !== undefined && { newHash: commit.hash }),
     subject: getCommitSubject(commit),
-    message: commit.message,
+    body: commit.message,
     authorTime: commit.authorTime,
     committerTime: commit.committerTime,
     ...(commit.error?.MergeConflict != null && { badge: <Badge variant="destructive">Merge conflict</Badge> }),

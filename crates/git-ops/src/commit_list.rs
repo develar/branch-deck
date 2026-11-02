@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow};
 use domain_types::commit::Commit;
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::ops::ControlFlow;
+use sync_utils::commit_body::has_body;
 use sync_utils::commit_subject::subject_parts;
 use tracing::{debug, instrument};
 
@@ -207,6 +208,7 @@ pub fn parse_single_commit(record: &str) -> Result<Commit> {
     id,
     subject: subject.clone(),
     stripped_subject: subject.clone(), // Will be updated by commit grouper if needed
+    has_body: has_body(&message),
     message,
     author_name: author_name_field.to_string(),
     author_email: author_email_field.to_string(),

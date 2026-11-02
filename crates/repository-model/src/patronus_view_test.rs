@@ -18,6 +18,7 @@ fn commit(id: &str, copy: &str) -> Commit {
     id: id.to_string(),
     stripped_subject: id.to_string(),
     message: id.to_string(),
+    has_body: false,
     author_name: "Test".to_string(),
     author_email: "test@example.com".to_string(),
     author_timestamp: 1,

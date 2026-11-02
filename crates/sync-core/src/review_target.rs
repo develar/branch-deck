@@ -23,6 +23,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use moka::sync::Cache;
 use std::collections::HashMap;
 use std::sync::Arc;
+use sync_utils::commit_body::has_body;
 use tracing::{debug, instrument};
 
 /// At most this many commits from the base to the head; a longer log is no reviewable change
@@ -278,7 +279,7 @@ fn parse_log(output: &str) -> Vec<LogCommit> {
       break;
     }
     log.push(LogCommit {
-      commit: ReviewCommit::from_log_fields(id, subject, author, author_time, committer_time, message),
+      commit: ReviewCommit::from_log_fields(id, subject, author, author_time, committer_time, message, has_body(message)),
       first_parent: parents.split_whitespace().next().map(str::to_string),
     });
   }

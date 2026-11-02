@@ -131,7 +131,7 @@ where a dialog would cover it.
   another list or an open at a file starts it over) is the one rule of the window
   ([Review Window](../review/review-window.spec.md#one-window)).
 - The window shows the commits of the list above its files (the commits of a range review, without a scope), the
-  commit at the top of the document of its diffs as the branch preview heads one (`CommitHeading`: the subject
+  commit at the top of the document of its diffs as the branch preview heads one (`CommitCard` with its `heading` header: the subject
   `text-md font-medium`, the meta line with the committer time on hover and the coloured line counts, the reading body
   whole), so it scrolls away with the overview of the plan below it; the footer "Commit 2 / 3 · File 1 / 1" and
   `Esc Close`. Its title bar names the list and the commit ("Unassigned › 11346cdf", `listLabel` of the window data: the

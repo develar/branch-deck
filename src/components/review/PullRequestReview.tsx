@@ -4,7 +4,7 @@ import { cn } from "cn"
 import { ExternalLinkIcon, InfoIcon, RotateCwIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { CommitMessageBody } from "@/components/commit/CommitMessage"
+import { CommitBodyView, NoDescription } from "@/components/commit/CommitBodyView"
 import { RangeReview } from "@/components/review/RangeReview"
 import type { ReviewTab } from "@/components/review/ReviewDecisions"
 import { ReviewDecisions, ReviewTabs } from "@/components/review/ReviewDecisions"
@@ -417,11 +417,7 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
         {range?.headState === "missing" && (
           <Callout tone="warning" data-testid="review-head-missing" title={`${sourceName(range)} has commits the pull request does not have yet; the review shows them.`} />
         )}
-        {request.bodyText.trim() === "" ? (
-          <p className="text-sm text-muted-foreground">No description</p>
-        ) : (
-          <CommitMessageBody message={`${request.title}\n\n${request.bodyText}`} />
-        )}
+        {request.bodyText.trim() === "" ? <NoDescription /> : <CommitBodyView body={`${request.title}\n\n${request.bodyText}`} />}
       </div>
       {fetch?.status !== "failed" && (
         <ReviewRail

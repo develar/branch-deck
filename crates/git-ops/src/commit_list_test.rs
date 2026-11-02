@@ -140,6 +140,21 @@ fn test_parse_commit_with_multiline_message() {
 }
 
 #[test]
+fn a_commit_has_a_body_unless_its_message_is_its_subject_and_its_trailers() {
+  let test_repo = repo_with_origin_master();
+  test_repo.create_commit("Subject only", "a.txt", "a");
+  test_repo.create_commit("Agent commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>", "b.txt", "b");
+  test_repo.create_commit("Told commit\n\nWhy it changed.\n\nCo-Authored-By: Claude <noreply@anthropic.com>", "c.txt", "c");
+
+  let commits = commits_ahead(&test_repo, "origin/master");
+
+  assert_eq!(
+    commits.iter().map(|commit| (commit.subject.as_str(), commit.has_body)).collect::<Vec<_>>(),
+    [("Subject only", false), ("Agent commit", false), ("Told commit", true)]
+  );
+}
+
+#[test]
 fn test_commit_with_notes() {
   // A note with the v-commit-v1: prefix
   let commits = single_commit_with_note("v-commit-v1:abc123def456");

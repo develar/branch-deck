@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow};
 use domain_types::conflict::{DivergenceSummary, MissingCommit};
 use git_executor::git_command_executor::GitCommandExecutor;
 use std::collections::{HashMap, HashSet};
+use sync_utils::commit_body::has_body;
 use sync_utils::commit_subject::subject_parts;
 use tracing::{debug, instrument};
 
@@ -73,6 +74,7 @@ fn parse_missing_commits(output: &str, conflicting: &HashSet<&str>) -> Vec<Missi
       hash: hash.to_string(),
       subject: subject.to_string(),
       message: message.trim().to_string(),
+      has_body: has_body(message),
       author_time: author_time.parse().unwrap_or(0),
       committer_time: committer_time.parse().unwrap_or(0),
       author: author.to_string(),

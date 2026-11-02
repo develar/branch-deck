@@ -128,7 +128,7 @@ describe("the commits a rewrite that waited in the queue acts on", () => {
   })
 
   function commitOf(originalHash: string, strippedSubject: string, authorTime: number, committerTime: number): Commit {
-    return { originalHash, strippedSubject, subjectParts: testSubject(strippedSubject), message: strippedSubject, author: "Ann", authorTime, committerTime }
+    return { originalHash, strippedSubject, subjectParts: testSubject(strippedSubject), message: strippedSubject, hasBody: false, author: "Ann", authorTime, committerTime }
   }
 
   function showCommits(commits: Commit[]): void {

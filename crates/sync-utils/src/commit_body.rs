@@ -40,6 +40,17 @@ pub fn message_body(message: &str) -> &str {
   message.split_once('\n').map_or("", |(_, body)| body)
 }
 
+/// Whether `message` has a body a reader is shown: a block after its subject line other than its trailers. The rows of a
+/// commit carry it (`Commit::has_body`), so the page marks a message worth opening without reading its grammar; one
+/// pass over the lines, without the blocks `commit_body` builds
+pub fn has_body(message: &str) -> bool {
+  match raw_blocks(message_body(message)).as_slice() {
+    [] => false,
+    [RawBlock::Lines(lines)] => trailers(lines).is_none(),
+    _ => true,
+  }
+}
+
 /// The body of a commit, `body` the message without its subject line
 pub fn commit_body(body: &str) -> CommitBody {
   let body = body.replace("\r\n", "\n");

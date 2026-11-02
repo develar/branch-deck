@@ -16,7 +16,7 @@ import {
 } from "@/lib/range-review"
 
 function commit(id: string, subject: string, authorTime = 1): ReviewCommit {
-  return { id, subject, message: subject, author: "Test User", authorTime, committerTime: authorTime }
+  return { id, subject, message: subject, hasBody: false, author: "Test User", authorTime, committerTime: authorTime }
 }
 
 function segment(name: string, commits: ReviewCommit[]): ReviewSegment {

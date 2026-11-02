@@ -13,6 +13,7 @@ function commit(name: string, subject: string): SyncedCommit {
     strippedSubject: subject,
     subjectParts: testSubject(subject),
     message: subject,
+    hasBody: false,
     author: "Ann",
     authorTime: 0,
     committerTime: 0,
