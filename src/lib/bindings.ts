@@ -6685,6 +6685,11 @@ export type ReviewStep = {
 	 *  step whose stop shows the first use, each in one step
 	 */
 	moduleLinks: number[],
+	/**
+	 *  Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
+	 *  its id; `None` for a step that shows something
+	 */
+	takenOutBy: string | null,
 };
 
 /**  The steps of a review */

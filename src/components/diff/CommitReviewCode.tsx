@@ -264,7 +264,7 @@ function openingOf(section: DiffSection, openings: ReadonlyMap<string, OpeningVi
       story: null,
       followUps: [],
       withoutStory: [],
-      facts: { line: null, newApi: [], moduleLinks: [], unproven: null },
+      facts: { line: null, newApi: [], moduleLinks: [], takenOutBy: null, unproven: null },
     }
   )
 }

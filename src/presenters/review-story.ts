@@ -180,6 +180,12 @@ export interface StepFacts {
   /** The links it adds between two modules ("New link between modules:"), each at its first use */
   readonly moduleLinks: readonly FactPlace[]
   /**
+   * Of a step none of whose code lands, the later commit that took it out ("Nothing of it lands: <title> took it
+   * out"): its subject and the step it is in, which a click shows; null otherwise, and for a step that lands nothing
+   * with no such commit known the line says "a later commit"
+   */
+  readonly takenOutBy: { readonly title: string; readonly step: string | null } | null
+  /**
    * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
    * reaches paint within 3 calls" when the walk stopped with callers left
    */
@@ -202,7 +208,7 @@ function fileName(path: string): string {
  * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
  * the links it adds between modules, and that nothing of it lands
  */
-export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links">): StepFacts {
+export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "brief">): StepFacts {
   const { answered, reached, unreached, scenarios } = step.tests
   const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
   const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
@@ -221,19 +227,32 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
     const link = plan.links[index]
     return link === undefined ? [] : [{ key: `${index}`, label: `${fileName(link.from)} → ${fileName(link.to)}`, place: firstUse(link) }]
   })
+  const takenOutBy = takenOutOf(step, plan)
   const parts = [
     ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
     untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
     scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
     none !== null && (reached.length > 0 || scenarios.length > 0) ? none : null,
-    step.stops.length === 0 ? "Nothing of it lands: a later commit took it out" : null,
+    step.stops.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
   ].filter(part => part !== null)
   return {
     line: parts.length === 0 ? null : parts.join(" · "),
     newApi: added,
     moduleLinks: links,
+    takenOutBy,
     unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
   }
+}
+
+/** The commit that took out the code of `step` (`ReviewStep.takenOutBy`) by its subject, and the step it is in */
+function takenOutOf(step: ReviewStep, plan: Pick<ReviewPlan, "steps" | "brief">): StepFacts["takenOutBy"] {
+  const id = step.stops.length === 0 ? step.takenOutBy : null
+  if (id === null) {
+    return null
+  }
+  const holder = plan.steps.steps.find(it => it.commits.some(commit => commit.id === id))
+  const subject = holder?.commits.find(commit => commit.id === id)?.subject ?? plan.steps.commits.find(commit => commit.id === id)?.subject
+  return subject === undefined ? null : { title: formatStepTitle(subject, plan.brief.issue), step: holder?.id ?? null }
 }
 
 /** A step in the contents of the overview */
@@ -245,7 +264,10 @@ export interface ContentsStep {
   /** The summary its commit's body opens with, with its code names; null without */
   readonly lead: { readonly story: StoryView; readonly block: PlacedBlock } | null
   readonly facts: StepFacts
-  /** The sections of its story where the author asks the reviewer to decide ("Look closely:"), each its first block */
+  /**
+   * The sections of its story where the author asks the reviewer to decide ("Look closely:"), each its first block:
+   * of the commit that starts it, then of each that follows it up
+   */
   readonly lookClosely: readonly { readonly story: StoryView; readonly part: StoryPart }[]
 }
 
@@ -311,6 +333,14 @@ function lookCloselyOf(story: StoryView): ContentsStep["lookClosely"] {
   return story.shown.filter(part => part.tone === "lookClosely").map(part => ({ story, part: { ...part, blocks: part.blocks.slice(0, 1) } }))
 }
 
+/** The stories of the commits that follow `step` up */
+function followUpStories(step: ReviewStep, plan: Pick<ReviewPlan, "steps">, words: MentionWords): StoryView[] {
+  return step.commits.flatMap(commit => {
+    const story = commit.role === "followsUp" ? storyOf(plan, commit.id) : undefined
+    return story === undefined ? [] : [presentStory(story, undefined, words)]
+  })
+}
+
 /** The story a step's commit tells: none for a commit of no story, whose few words tell no step */
 function storyOf(plan: Pick<ReviewPlan, "steps">, id: string | undefined): StoryCommit | undefined {
   return id === undefined ? undefined : plan.steps.commits.find(it => it.id === id)
@@ -338,7 +368,8 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
       title: chapter.label,
       lead: view?.lead == null ? null : { story: view, block: view.lead },
       facts: presentStepFacts(step, plan),
-      lookClosely: view !== null ? lookCloselyOf(view) : toldHere === null ? [] : lookCloselyOf(toldHere),
+      // the author's question of a round too: its story is folded under the step's opening
+      lookClosely: view !== null ? [view, ...followUpStories(step, plan, words)].flatMap(lookCloselyOf) : toldHere === null ? [] : lookCloselyOf(toldHere),
     }
   })
   const since = plan.interdiff === null ? null : formatSinceReview(plan.interdiff)
@@ -399,6 +430,7 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     line: lines.length === 0 ? null : lines.join(" · "),
     newApi: all.flatMap(it => it.newApi),
     moduleLinks: all.flatMap(it => it.moduleLinks),
+    takenOutBy: null,
     unproven: null,
   }
   return facts.line === null && facts.newApi.length === 0 && facts.moduleLinks.length === 0 ? null : facts

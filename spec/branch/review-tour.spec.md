@@ -79,8 +79,15 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 - A commit that tells a step must follow up the step of an earlier one (`followsUp`) when half of its changed lines of
   code on the old side or more were written by the commit that starts that step, when it owns no unit but a
   mechanical one (it joins the step that holds most of its lines), and when a later commit rewrote all it wrote (it
-  joins the step of the commit that rewrote the most of it). A chain of follow-ups ends at a step.
-  [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`, `a_commit_rewritten_whole_follows_the_step_of_the_commit_that_rewrote_it`)
+  joins the step of the commit that rewrote the most of it). A chain of follow-ups ends at a step. A commit whose body
+  tells a story of its own (a lead and a labelled part, or more than 5 lines as the fold counts them; a verification
+  section such as `Tests:` or `Evidence:` is no labelled part and its lines do not count, nor is a Look closely a
+  labelled part) must start its step however much of an earlier step's code it rewrites: its story, its Look closely included, is never folded
+  under another step. A step none of whose code lands must name the later commit that took out the most of what it
+  wrote (`takenOutBy`): "Nothing of it lands: <subject> took it out", the subject showing that commit's step.
+  [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`, `a_commit_rewritten_whole_follows_the_step_of_the_commit_that_rewrote_it`, `a_commit_with_a_story_of_its_own_starts_a_step_though_it_rewrites_the_code_of_another`)
+  [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should start a step at a commit with a story of its own though it rewrites the code of others, and name it in a step it took the code of, which shows its step`)
 - A commit without a body tells no step: it is listed in the step that holds most of its lines (`noStory`), and the
   units only such commits wrote are the step `no-story`, last.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines_are`)
@@ -206,7 +213,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   Cache", "New link between modules: Reader.kt → Cache.kt", each name showing its place); a step accio answered for
   whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint within 3
   calls" when the walk stopped with callers left, else "No test reaches paint"); and each "Look closely:" section of
-  its body as an info callout, its question alone (its first block): the opening tells the rest. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
+  its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
+  tells the rest. Steps of the concerns say why ("One commit: the steps are its tasks"); a range whose
   only step is what no evidence joined lists no step, and its facts are the facts of the range. Then Possible
   Breakage and Since your review ([Review Plan](review-plan.spec.md#requirements)). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
@@ -221,8 +229,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   muted text. A long body shows the parts Rust shows (`parts`), then one line that names the folded parts ("The
   cause · The fix · Tests · Evidence", a part of no label "More"), each its own disclosure, which opens below the
   line, so the text grows downward; a verification section (Tests, Evidence, Gates, Verified, Results, Proof, Left
-  out) is folded always, and the author's "Look closely:" shows always, in its place among the shown parts. Then the commits that follow it up, each "Follows up: <subject>" a disclosure of
-  its body, those without a story ("Without a story: …"), the facts of the step in one line and the warning of a step
+  out) is folded always, and the author's "Look closely:" shows always, in its place among the shown parts. Then
+  the commits that follow it up, each "Follows up: <subject>" a disclosure of its body, its subject wrapping at the
+  width of the prose, those without a story ("Without a story: …"), the facts of the step in one line and the warning of a step
   no test reaches, and the group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)

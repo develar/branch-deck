@@ -7,13 +7,15 @@
 //!   the commit that removed it. A block of the range belongs to the commit of most of its lines.
 //! - **Steps of the commits**, when the commits tell them: a commit with a body (`tells_a_story`) starts a step and owns
 //!   the units most of whose lines it wrote; only what lands is shown, the units of the range. A commit whose changed
-//!   code lines are mostly lines an earlier step head wrote follows that step up (a round of it), and so does a commit
-//!   that owns no unit; a commit without a body owns nothing, its lines show where they landed, and the units only such
+//!   code lines are mostly lines an earlier step head wrote follows that step up (a round of it), unless its body
+//!   tells a story of its own (`tells_its_own_story`: a lead and a labelled part, or more than `OWN_STORY_LINES`
+//!   lines, its verification sections counting for nothing), and so does a commit that owns no unit; a commit without a body owns nothing, its lines show where they landed, and the units only such
 //!   commits wrote are the step "Changes without a story". A unit of a file of no language is cut by its blocks.
 //! - **Steps of the concerns** when the commits tell no story: no body, or one commit, whose message is the brief. A
 //!   long branch is told by its commits too: measured on idea-1, its concerns were no shorter a list, and they lost
 //!   the words of the author (review-tour.spec.md, "Measurements").
-//! - **A step whose lines a later commit rewrote whole** shows nothing of its own: it follows the step of that commit.
+//! - **A step whose lines a later commit rewrote whole** shows nothing of its own: it follows the step of that commit,
+//!   and names the later commit that took out the most of what it wrote (`taken_out_by`).
 //! - **The order** of a step is that of the story, but a declaration the step adds or changes the form of comes first
 //!   and the uses of it in the step right after it (`uses`); a mechanical part follows the step its concern is in.
 //! - **The tests that reach it** (`add_tests`, after the plan): per declaration of the code of a step (no test code: a
@@ -33,13 +35,13 @@ use crate::story::{StoryCommit, add_step_facts, story_commits};
 use crate::units::{OtherReason, ReviewUnit, UnitKind, UnitSlice};
 use anyhow::Result;
 use code_symbols::language::language_of;
-use domain_types::commit_body::CommitBodyBlock;
+use domain_types::commit_body::{CommitBodyBlock, LabelKind};
 use file_diffs::accio::{DeclarationAt, ReachingTest, SymbolIndex};
 use object_cache::commit_diff::FileChange;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
-use sync_utils::commit_body::commit_body;
+use sync_utils::commit_body::{commit_body, story_lines};
 use sync_utils::commit_subject::stripped_subject;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::symbol_scan::SymbolInput;
@@ -52,6 +54,8 @@ const MIN_NAME: usize = 3;
 pub const TEST_DEPTH: u32 = 3;
 /// The fewest words of a body that tells a step
 const MIN_BODY_WORDS: usize = 3;
+/// The lines past which a body tells a story of its own (`tells_its_own_story`)
+const OWN_STORY_LINES: u32 = 5;
 /// The lines past the last one of a file a hunk names: the base goes on unchanged
 const TAIL: u64 = u64::MAX / 4;
 
@@ -142,6 +146,9 @@ pub struct ReviewStep {
   /// The links it adds between two modules, by their place in `ReviewPlan::links` (`new_between_modules`): in the
   /// step whose stop shows the first use, each in one step
   pub module_links: Vec<u32>,
+  /// Of a step of the commits none of whose lines lands: the later commit that took out the most of what it wrote, by
+  /// its id; `None` for a step that shows something
+  pub taken_out_by: Option<String>,
   /// The declarations of its code, which `add_tests` asks the tests of
   #[serde(skip)]
   pub code: Vec<StepCode>,
@@ -160,6 +167,7 @@ impl ReviewStep {
       tests: StepTests::default(),
       new_api: Vec::new(),
       module_links: Vec::new(),
+      taken_out_by: None,
       code: Vec::new(),
     }
   }
@@ -311,6 +319,21 @@ pub(crate) struct StepsInput<'a> {
 pub(crate) fn tells_a_story(message: &str) -> bool {
   let (subject, body) = split_message(message);
   !["fixup!", "squash!", "amend!"].iter().any(|mark| subject.starts_with(mark)) && body_words(body) >= MIN_BODY_WORDS
+}
+
+/// Whether a commit tells a story of its own, never a round of another step however much of that step's code it
+/// rewrites: its body opens with a lead and has a labelled part, or its story reads in more than `OWN_STORY_LINES`
+/// lines. A verification section (`Tests:`, `Evidence:`) and a Look closely are no part of a story here, and the lines
+/// of a verification section count for nothing (`story_lines`): every round ends with how it was checked
+fn tells_its_own_story(message: &str) -> bool {
+  let body = commit_body(split_message(message).1);
+  let labelled = body.blocks.iter().any(|block| {
+    matches!(
+      block,
+      CommitBodyBlock::Label { kind: LabelKind::Plain, .. } | CommitBodyBlock::Heading { .. }
+    )
+  });
+  (body.lead && labelled) || story_lines(&body) > OWN_STORY_LINES
 }
 
 /// The words of `body` with a letter, the trailers left out
@@ -620,11 +643,12 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
   let mut head_of: Vec<Option<usize>> = vec![None; input.commits.len()];
   for commit in (0..input.commits.len()).filter(|&commit| story[commit]) {
     let removed = rewrites.removed_code.get(&commit).copied().unwrap_or(0);
+    // a story of its own starts its step, though it rewrites the code of another
     let rewritten = (0..commit)
       .filter(|&earlier| head_of[earlier] == Some(earlier))
       .map(|earlier| (earlier, rewrites.of.get(&(commit, earlier)).copied().unwrap_or(0)))
       .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
-      .filter(|(_, lines)| removed > 0 && lines * 2 >= removed);
+      .filter(|(_, lines)| removed > 0 && lines * 2 >= removed && !tells_its_own_story(&input.commits[commit].1));
     head_of[commit] = Some(match rewritten {
       Some((earlier, _)) => earlier,
       None if !owns(commit) => {
@@ -721,6 +745,14 @@ fn commit_steps(input: &StepsInput<'_>, parts: &[(Part, BTreeMap<usize, u64>)], 
       .filter_map(|other| u32::try_from(other).ok())
       .collect();
     steps[step].stops.push(stop_of(input, part, also.into_iter().collect()));
+  }
+  // a step none of whose lines lands names the later commit that took out the most of what it wrote
+  for (step, &head) in steps.iter_mut().zip(&heads).filter(|(step, _)| step.stops.is_empty()) {
+    step.taken_out_by = (head + 1..input.commits.len())
+      .map(|later| (later, rewrites.any.get(&(later, head)).copied().unwrap_or(0)))
+      .filter(|(_, lines)| *lines > 0)
+      .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+      .map(|(later, _)| input.commits[later].0.clone());
   }
   if steps.last().is_some_and(|last| last.stops.is_empty() && last.commits.is_empty()) {
     steps.pop();

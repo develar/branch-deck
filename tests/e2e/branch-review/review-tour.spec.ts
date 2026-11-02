@@ -513,4 +513,38 @@ test.describe("Review tour", () => {
     await window.keyboard.press("j")
     await expect(row("spec/window.spec.md")).toHaveAttribute("aria-selected", "true")
   })
+
+  test("should start a step at a commit with a story of its own though it rewrites the code of others, and name it in a step it took the code of, which shows its step", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    // a story of its own, a lead and its labelled parts, that rewrites the focus of the welcome step 2 wrote and the
+    // paint of step 3
+    await repo.commit(
+      "(layout) the welcome keeps its own focus\n\nThe welcome asked the rule for its focus, so a stored layout took it away. Now the welcome focuses itself, and the frame paints as the manager opens.\n\nThe cause:\n- the rule answered for the welcome too\n\nTests:\n- `WelcomeTest` focuses the welcome",
+      {
+        "src/b/Welcome.kt": "package b\n\nimport a.Manager\n\nclass Welcome(val manager: Manager) {\n  fun focus(): Int = 1\n}\n",
+        "src/a/Frame.kt":
+          'package a\n\nclass Frame(val manager: Manager) {\n  fun show(): Int = if (manager.allowed("Project")) manager.open() else 0\n\n  fun paint(): Int = manager.open()\n}\n',
+      },
+      1704121200,
+    )
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const overview = window.getByTestId("review-overview")
+    await expect(overview.getByTestId("review-contents-step-title")).toHaveText([
+      "The manager drops the hooks nothing sets",
+      "The open keeps a stored layout",
+      "The view paints with the first frame",
+      "The restart story checks the layout",
+      "The welcome keeps its own focus",
+    ])
+    // the step that lands nothing names the commit that took its code out; the name shows the step of that commit
+    const paint = overview.getByTestId("review-contents-step").nth(2)
+    await expect(paint.getByTestId("review-contents-step-facts")).toHaveText("Nothing of it lands: The welcome keeps its own focus took it out")
+    await paint.getByTestId("review-step-taken-out-by").click()
+    await expect(window.getByTestId("review-step-bar").getByTestId("review-step-position")).toHaveText("Step 5 / 5")
+  })
 })

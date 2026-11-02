@@ -214,6 +214,25 @@ fn index(place: usize) -> u32 {
   u32::try_from(place).unwrap_or(u32::MAX)
 }
 
+/// The lines `body` reads in, as its fold counts them (`FOLD_LINES`): a line of prose or an item by `LINE_CHARS`
+/// characters, a line of code, a label or a heading one
+pub fn reading_lines(body: &CommitBody) -> u32 {
+  body.blocks.iter().map(lines_of).sum()
+}
+
+/// The lines the story of `body` reads in (`reading_lines`), its verification sections left out: how the author checked
+/// the change tells no story
+pub fn story_lines(body: &CommitBody) -> u32 {
+  body
+    .parts
+    .iter()
+    .map(|part| &body.blocks[part.start as usize..part.end as usize])
+    .filter(|blocks| !matches!(blocks.first(), Some(CommitBodyBlock::Label { kind: LabelKind::Verification, .. })))
+    .flatten()
+    .map(lines_of)
+    .sum()
+}
+
 /// The lines a block reads in: a line of prose or an item by `LINE_CHARS` characters, a line of code one
 fn lines_of(block: &CommitBodyBlock) -> u32 {
   let wrapped = |text: &String| u32::try_from(text.chars().count().div_ceil(LINE_CHARS).max(1)).unwrap_or(u32::MAX);

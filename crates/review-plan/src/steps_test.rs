@@ -98,7 +98,8 @@ fn the_commits_that_tell_their_steps_are_the_steps_each_with_the_code_it_wrote()
   assert_eq!((coverage.missing, coverage.twice, coverage.in_stops), (0, 0, 2), "{coverage:?}");
 }
 
-/// A commit that rewrites the code an earlier step wrote follows that step up, and so does one whose lines all landed
+/// A commit that rewrites the code an earlier step wrote follows that step up, its lead and how it was checked
+/// (`Tests:`) no story of its own, and so does one whose lines all landed
 /// in the changes of another; a commit without a body shows where its lines are, and the changes only such commits
 /// wrote are the step "Changes without a story"
 #[test]
@@ -112,7 +113,7 @@ fn a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines
   );
   let again = "fun open(path: String, mode: Int): Int {\n  val reading = mode == 1\n  val writing = mode == 2\n  return if (reading) 1 else 2\n}";
   repo.create_commit_with_files(
-    "Open names its flags again\n\nThe review asked for the names of the flags to say what they hold.",
+    "Open names its flags again\n\nThe review asked for the names of the flags to say what they hold.\n\nTests:\n- `ApiTest` opens to read\n- `ApiTest` opens to write\n- `ApiTest` opens in no mode",
     &[("src/a/Api.kt", &API.replace("fun open(path: String): Int = 1", again))],
   );
   let head = repo.create_commit_with_files("wip", &[("src/c/Other.kt", "package c\n\nfun other() = 2\n")]);
@@ -131,6 +132,35 @@ fn a_round_follows_its_step_up_and_a_commit_without_a_body_shows_where_its_lines
   // a commit without a body has no story
   let told: Vec<&str> = plan.steps.commits.iter().map(|commit| commit.subject.as_str()).collect();
   assert_eq!(told, ["Open takes a mode", "Open names its flags again"]);
+}
+
+/// A commit whose body tells a story of its own (a lead and a labelled part, or more than a few lines) starts its step,
+/// though it rewrites the code of an earlier one; the earlier step, none of whose lines lands, names the commit that
+/// took it out
+#[test]
+fn a_commit_with_a_story_of_its_own_starts_a_step_though_it_rewrites_the_code_of_another() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("src/a/Api.kt", API)]);
+  let first = "fun open(path: String, mode: Int): Int {\n  val read = mode == 1\n  val write = mode == 2\n  return if (read) 1 else 2\n}";
+  repo.create_commit_with_files(
+    "Open takes a mode\n\nThe open of a file names how it opens, so a caller can ask for a read alone.",
+    &[("src/a/Api.kt", &API.replace("fun open(path: String): Int = 1", first))],
+  );
+  let again = "fun open(path: String, mode: Int): Int {\n  val cached = mode == 1\n  val fresh = mode == 2\n  return if (cached) 3 else 4\n}";
+  let head = repo.create_commit_with_files(
+    "Open reads the cache first\n\nThe open asks the cache before the disk, so a second open is free.\n\nThe cause:\n- every open read the disk\n\nTests:\n- `ApiTest` opens twice",
+    &[("src/a/Api.kt", &API.replace("fun open(path: String): Int = 1", again))],
+  );
+  let plan = plan_of_range(&repo, &base, &head);
+  assert_eq!(
+    steps(&plan),
+    [
+      (commits(&[("Open takes a mode", CommitRole::Starts)]), names(&[])),
+      (commits(&[("Open reads the cache first", CommitRole::Starts)]), names(&["open"])),
+    ]
+  );
+  let taken_out: Vec<Option<&str>> = plan.steps.steps.iter().map(|step| step.taken_out_by.as_deref()).collect();
+  assert_eq!(taken_out, [Some(head.as_str()), None]);
 }
 
 /// Commits without a body make the concerns the steps, and so does a range of one commit

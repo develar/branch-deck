@@ -45,7 +45,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
               <span key={commit.id} className="text-sm" data-testid="review-opening-commit">{`Follows up: ${commit.title}`}</span>
             ) : (
               <Collapsible key={commit.id} className="flex flex-col gap-2" data-testid="review-opening-follow-up">
-                <CollapsibleTrigger className="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30">
+                <CollapsibleTrigger className="group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30">
                   <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
                   <span className="shrink-0 text-muted-foreground">Follows up:</span>
                   <span className="min-w-0 font-medium" data-testid="review-opening-commit">

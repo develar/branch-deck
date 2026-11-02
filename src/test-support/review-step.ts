@@ -17,6 +17,7 @@ export function reviewStep(id: string, commits: StepCommit[], stops: [string, st
     tests: { answered: true, reached: [], unreached: [], scenarios: [], ...tests },
     newApi: [],
     moduleLinks: [],
+    takenOutBy: null,
     ...more,
   }
 }

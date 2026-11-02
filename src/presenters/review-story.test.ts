@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
-import { MORE, mentionWords, presentOpenings, presentPrologue, presentStory, storyMarks } from "@/presenters/review-story"
+import { MORE, mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { reviewStep, stepCommit } from "@/test-support/review-step"
@@ -110,7 +110,7 @@ describe("the document of a review", () => {
             paragraph("Is a stored layout enough?"),
             paragraph("A layout of more tool windows may need more."),
           ]),
-          story("the rule again", [paragraph("Renamed.")]),
+          story("the rule again", [paragraph("Renamed."), label("Look closely", "lookClosely"), paragraph("Is the new name clear?")]),
           // a body of a few words is the story of its commit, but no lead of the step it is in
           story("the wip", [paragraph("Fixes it.")]),
         ],
@@ -146,9 +146,17 @@ describe("the document of a review", () => {
       [4, "The try", null, "Nothing of it lands: a later commit took it out", null],
       [5, "The wip", null, null, null],
     ])
+    // a step none of whose code lands names the commit that took it out, which shows its step
+    const tookOut = presentStepFacts(
+      step("d", [commit("the try")], [], {}, { takenOutBy: "the paint" }),
+      plan([step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]])], []),
+    )
+    expect([tookOut.line, tookOut.takenOutBy]).toEqual([null, { title: "The paint", step: "b" }])
     // where the author asks the reviewer to decide, in the contents too: its question alone, the opening tells the rest
     expect(view.steps[0]!.lookClosely.map(({ part }) => [part.head?.block.type === "label" && part.head.block.text, part.blocks.map(it => it.block)])).toEqual([
       ["Look closely", [paragraph("Is a stored layout enough?")]],
+      // of a round, whose story is folded in the opening
+      ["Look closely", [paragraph("Is the new name clear?")]],
     ])
 
     // the only step what no evidence joined: no step to tell; the issue is the headline, a range without a branch by its commits

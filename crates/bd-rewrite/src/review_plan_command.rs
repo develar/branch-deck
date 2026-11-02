@@ -18,7 +18,7 @@
 //! place of `updated`, version 13 the `reached` and `unreached` tests of a step, from accio, in place of `named` and
 //! `unnamed`, version 14 the story of each commit once (`steps.commits`: its body by blocks, its `mentions` of code
 //! resolved to the units and the files, `target: null` where a name in backticks resolves nothing, `toldIn`) in place
-//! of the `body` of each commit of a step, and the `newApi` and `moduleLinks` of a step
+//! of the `body` of each commit of a step, and the `newApi`, `moduleLinks` and `takenOutBy` of a step
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -153,7 +153,7 @@ pub struct ReviewPlanOutput {
   /// tests accio finds among the callers of its code (`tests`: `answered`, `reached` with each test's `unit` when the
   /// range adds or changes it, `unreached` with `within` when the walk stopped at the depth), the public declarations it
   /// adds (`newApi`, by the key of their `api` entry) and the links between modules it adds (`moduleLinks`, by their
-  /// place in `links`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
+  /// place in `links`); a step none of whose code lands, the later commit that took it out (`takenOutBy`). `coverage`: every block of the diff in one stop, else in a mechanical unit. `commits`: the story
   /// of each commit with a body once, oldest first: its `body` by blocks (paragraphs, lists, preformatted text,
   /// headings, labels with their `kind`, rules) with its `trailers` apart, the `lead` and its `parts` (a labelled
   /// section, a run of other blocks), each `folded` or not; its `mentions` of code, each with its block, its line or item, its UTF-16 range and its `target` (a `unit`
