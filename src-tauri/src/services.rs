@@ -283,6 +283,10 @@ impl AppHost for AppServices {
     Calendar::from_zone(jiff::tz::TimeZone::system())
   }
 
+  fn host_disks(&self, fresh: bool) -> Vec<app_api::app::disk::HostDisk> {
+    app_api::app::disk::bundled_host_disks(fresh)
+  }
+
   fn tool_environment(&self) -> ToolEnvironment {
     ToolEnvironment::from_process()
   }

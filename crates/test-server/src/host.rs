@@ -134,6 +134,16 @@ impl AppHost for TestHost {
     self.cli_tools.environment()
   }
 
+  /// The hosts of the fixture of the test (`POST /repositories/{id}/host-disks`), none by default
+  fn host_disks(&self, _fresh: bool) -> Vec<app_api::app::disk::HostDisk> {
+    self.state.upgrade().map_or_else(Vec::new, |state| {
+      state.repositories.get(&self.repository).map_or_else(Vec::new, |repository| {
+        let hosts = repository.host_disks.read().unwrap_or_else(PoisonError::into_inner);
+        hosts.iter().map(crate::disk_fixtures::HostDiskFixture::host_disk).collect()
+      })
+    })
+  }
+
   /// The releases of the fixture (`POST /repositories/{id}/cli-tools`)
   fn tool_releases(&self) -> Read<'_, HashMap<CliTool, String>> {
     Box::pin(async move { self.cli_tools.latest() })

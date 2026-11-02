@@ -63,13 +63,14 @@ names and reasons.
 - The groups, in this order (`paletteCommands`): Views (`MAIN_VIEWS` of `src/stores/main-view.ts`, Branches, Reviews
   and Landing: a view joins the palette by its entry there), Activity (Activity Panel, which toggles the side panel as the header button does, and
   Activity Window), Commands (Add Pull Request by Link…, which shows Reviews with the focus in its field and its text selected
-  ([Reviews](reviews.spec.md#links)); Open Repository…, the folder button of the repository selector, disabled with
+  ([Reviews](reviews.spec.md#links)); Show Disk Usage… with a repository selected, which opens Disk Usage ([Disk
+  Usage](disk-usage.spec.md)); Open Repository…, the folder button of the repository selector, disabled with
   "Wait for the sync to finish" while a sync runs, as the selector is; then the items Sync Branches, Update Project,
   Settings…, Install Agent CLI…, where the build updates itself Check for Updates… (on every platform and title bar, as
   the native menu has it: `checkForUpdates` of the title bar script), Getting Started and GitHub Repository of `mainMenus`,
   disabled with the reason where the menu disables them; never a view setting, Auto-sync on Focus or the zoom), the
   actions of the branch at hand (below) and Branches ("Go to <branch>" for every branch of the table, in its order).
-  [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the header and of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself`)
+  [@test] ../../src/lib/command-palette.test.ts (`lists the views, Activity, the commands of the header and of the app's menu and the branches, by namespaced ids`, `hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself`, `offers Show Disk Usage… with a repository, before Open Repository…`)
   [@test] ../../src-tauri/src/title_bar_test.rs (`the_page_gets_one_json_object`)
 - Actions of the branch at hand, between Commands and Branches, the group named by the branch: the branch whose row had
   the focus when the palette opened, else the one branch selected; none without one. Its commands are the items of its

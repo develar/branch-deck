@@ -16,8 +16,9 @@ import { kbdLabel } from "@/lib/menu"
 import { updatesItself } from "@/lib/title-bar"
 import { useBranchSync } from "@/stores/branch-sync"
 import { getSelectedBranches, requestReveal, selectBranches } from "@/stores/commit-move"
+import { openDiskUsageDialog } from "@/stores/disk-usage-dialog"
 import { MAIN_VIEWS, showMainView } from "@/stores/main-view"
-import { browseRepository } from "@/stores/repository"
+import { browseRepository, useSelectedProjectPath } from "@/stores/repository"
 import { requestLinkFieldFocus } from "@/stores/reviews"
 import { useAppSettings } from "@/stores/settings/appSettings"
 
@@ -96,6 +97,7 @@ export function CommandPalette() {
     }
   })
 
+  const repositoryPath = useSelectedProjectPath()
   const commands = open
     ? paletteCommands({
         views: MAIN_VIEWS,
@@ -110,6 +112,7 @@ export function CommandPalette() {
           requestLinkFieldFocus()
           showMainView("reviews")
         },
+        ...(repositoryPath !== undefined && repositoryPath !== "" && { showDiskUsage: () => openDiskUsageDialog(repositoryPath) }),
         openRepository: { reason: isSyncing ? "Wait for the sync to finish" : null, run: () => void browseRepository() },
       })
     : []

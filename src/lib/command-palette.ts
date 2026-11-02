@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react"
-import { AppWindowIcon, FolderSearchIcon, GitBranchIcon, HistoryIcon, LinkIcon } from "lucide-react"
+import { AppWindowIcon, FolderSearchIcon, GitBranchIcon, HardDriveIcon, HistoryIcon, LinkIcon } from "lucide-react"
 import { mainMenus } from "@/lib/main-menu"
 import type { MainMenuState } from "@/lib/main-menu"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
@@ -51,6 +51,8 @@ export interface PaletteSources {
   readonly branchMenu: { readonly name: string; readonly groups: MenuItemGroups } | null
   /** Shows Reviews with the focus in its field of a link: a pull request the author forgot to ask the user for */
   readonly addPullRequestByLink?: () => void
+  /** Opens Disk Usage: what the lease pools of this Mac and of the hosts hold; none without a repository */
+  readonly showDiskUsage?: () => void
   /**
    * The folder button of the repository selector: the folder dialog, and the repository picked in it; `reason` why it
    * waits, as the selector does while a sync runs
@@ -107,6 +109,7 @@ export function paletteCommands(sources: PaletteSources): PaletteCommand[] {
     ...(sources.addPullRequestByLink === undefined
       ? []
       : [{ id: "reviews:link", label: "Add Pull Request by Link…", group: "Commands" as const, icon: LinkIcon, run: sources.addPullRequestByLink }]),
+    ...(sources.showDiskUsage === undefined ? [] : [{ id: "disk:usage", label: "Show Disk Usage…", group: "Commands" as const, icon: HardDriveIcon, run: sources.showDiskUsage }]),
     {
       id: "repository:open",
       label: "Open Repository…",

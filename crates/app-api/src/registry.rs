@@ -77,6 +77,8 @@ pub enum AppReason {
   /// A session of an agent that the IDE starts on the consent of the user (Start in Air): nothing of the app or of a
   /// repository changes
   AgentLaunch,
+  /// The lease pools of this Mac, each written under its own pool lock (`lease_pool::trim`); no session reads them
+  LeasePools,
 }
 
 /// How a command runs and answers

@@ -161,6 +161,8 @@ publisher: choose More info → Run anyway.
   ([command palette](spec/repository/command-palette.spec.md)). Signed in to YouTrack, an issue key shows the issue on
   hover and marks it fixed once its work landed ([YouTrack](spec/repository/youtrack.spec.md)). Settings → Tools
   installs and updates the `teamcity` and `youtrack` CLIs your agents use, with their agent skills ([tools](spec/repository/cli-tools.spec.md)).
+  Disk Usage shows what the worktrees of your agents take on this Mac and on your build hosts, and trims them to their
+  limit ([disk usage](spec/repository/disk-usage.spec.md)).
 
 ## Agent CLI
 

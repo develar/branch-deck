@@ -9,6 +9,7 @@
 //! (`crates/test-server/src/host.rs`, `updater.rs`).
 
 use crate::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus};
+use crate::app::disk::HostDisk;
 use crate::app::windows::{OpenSubWindowParams, Shown};
 use cli_tools::environment::ToolEnvironment;
 use domain_types::branch_name_suggestion::{BranchNameSuggestionOutcome, SuggestBranchNamesParams};
@@ -138,8 +139,14 @@ pub trait AppHost: Send + Sync {
   fn calendar(&self) -> Calendar;
 
   /// Where the CLIs of Settings → Tools run (`cli_tools`): the app's are the user's, by the `PATH` and the home of the
-  /// process; a test repository's are its fakes (`test_utils::fake_cli_tools`)
+  /// process; a test repository's are its fakes (`test_utils::fake_cli_tools`). Its home is also the one of the lease
+  /// pools that the Disk window reports and trims (`disk`)
   fn tool_environment(&self) -> ToolEnvironment;
+
+  /// What the lease pools of each host of `bd-host` hold on disk (`disk`): the app runs `bd-host disk --json` of the
+  /// binary it bundles, none without one; a test repository has the hosts of its fixture. Blocking: call within
+  /// `run_blocking`
+  fn host_disks(&self, fresh: bool) -> Vec<HostDisk>;
 
   /// The newest release of each tool: the app asks GitHub at most once a day and keeps the answer in its data
   /// directory; a test repository has the releases of its fixture

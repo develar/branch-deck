@@ -30,6 +30,7 @@ import { tellReadFailures } from "@/model/auth-facts"
 import { setSessionWindowFocus } from "@/model/store"
 import { useAirLaunchDialogOpen } from "@/stores/air-launch-dialog"
 import { useCreatePullRequestBranch } from "@/stores/create-pull-request-dialog"
+import { useDiskUsageDialogOpen } from "@/stores/disk-usage-dialog"
 import { mainViewStore, showMainView, useMainView } from "@/stores/main-view"
 import { useSetupTracking } from "@/stores/setup"
 
@@ -54,6 +55,7 @@ const ReviewsView = lazy(() => import("@/components/reviews/ReviewsView").then(i
 // loaded on the first open, then kept mounted (a dialog animates and returns the focus when it closes)
 const CreatePullRequestDialog = lazy(() => import("@/components/branch/CreatePullRequestDialog").then(it => ({ default: it.CreatePullRequestDialog })))
 const StartInAirDialog = lazy(() => import("@/components/branch/StartInAirDialog").then(it => ({ default: it.StartInAirDialog })))
+const DiskUsageDialog = lazy(() => import("@/components/disk/DiskUsageDialog").then(it => ({ default: it.DiskUsageDialog })))
 
 /** The width of the Activity side panel until its divider is dragged: the search and a line of an entry */
 const ACTIVITY_PANEL_WIDTH = "24rem"
@@ -186,6 +188,12 @@ export function IndexPage() {
   if (airLaunchOpen && !isAirLaunchLoaded) {
     setAirLaunchLoaded(true)
   }
+  // "Show Disk Usage…" of the palette
+  const diskUsageOpen = useDiskUsageDialogOpen()
+  const [isDiskUsageLoaded, setDiskUsageLoaded] = useState(false)
+  if (diskUsageOpen && !isDiskUsageLoaded) {
+    setDiskUsageLoaded(true)
+  }
   return (
     <div className="flex h-dvh flex-col" data-testid="app-container">
       <ConfigurationHeader />
@@ -249,6 +257,7 @@ export function IndexPage() {
       <CommandPalette />
       <Suspense fallback={null}>{isCreatePullRequestLoaded && <CreatePullRequestDialog />}</Suspense>
       <Suspense fallback={null}>{isAirLaunchLoaded && <StartInAirDialog />}</Suspense>
+      <Suspense fallback={null}>{isDiskUsageLoaded && <DiskUsageDialog />}</Suspense>
     </div>
   )
 }

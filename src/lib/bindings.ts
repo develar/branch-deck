@@ -19,6 +19,13 @@ export const commands = {
 	 *  session (`TableHeader.prefix`). An inaccessible repository is an error
 	 */
 	resolveBranchPrefix: (params: GetBranchPrefixParams) => typedError<ResolvedBranchPrefix, ApiError>(__TAURI_INVOKE("resolve_branch_prefix", { params })),
+	/**
+	 *  What the lease pools of this Mac and of the hosts of `bd-host` hold on disk (the Disk window): per slot the bytes
+	 *  its builds wrote, which slots a trim deletes next, the free space and the minimum of each machine. This Mac is
+	 *  walked in process (the bytes of `disk.json` while they hold), the hosts answer through `bd-host disk`, side by
+	 *  side; a host that does not answer names why
+	 */
+	diskUsage: (params: DiskUsageParams) => typedError<DiskOverview, ApiError>(__TAURI_INVOKE("disk_usage", { params })),
 	/**  The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository */
 	getRepositoryConfig: (params: GetRepositoryConfigParams) => typedError<RepositoryConfig, ApiError>(__TAURI_INVOKE("get_repository_config", { params })),
 	/**  Get uncommitted changes with only file metadata (no content or diffs) */
@@ -286,6 +293,11 @@ export const commands = {
 	 *  has the snapshot of the app's start, a reload too); a sub-window's gets them with its load (`sub_window_loaded`)
 	 */
 	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>(__TAURI_INVOKE("get_settings_changes", { since })),
+	/**
+	 *  Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of this Mac with their Bazel output
+	 *  bases, and the output bases of gone slots, as `bd lease trim` does (the Disk window)
+	 */
+	trimPools: (params: TrimPoolsParams) => typedError<TrimSummary, ApiError>(__TAURI_INVOKE("trim_pools", { params })),
 	/**
 	 *  Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
 	 *  read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands
@@ -2165,6 +2177,18 @@ export type DiffSource =
 { kind: "range"; base: string; head: string } | 
 /**  The working tree with `HEAD`: staged, unstaged and untracked files */
 { kind: "uncommitted" };
+
+/**  What the Disk window shows: this Mac first, then each host */
+export type DiskOverview = {
+	machines: MachineDisk[],
+};
+
+export type DiskUsageParams = {
+	/**  A checkout of a repository: its pool is reported wherever it lives, and its config gives the minimum */
+	repositoryPath: string,
+	/**  Walk every slot again, whatever `disk.json` keeps */
+	fresh: boolean,
+};
 
 /**  Summary of how two branches have diverged from their common ancestor. */
 export type DivergenceSummary = {
@@ -4069,6 +4093,26 @@ export type LockHolderInfo = {
 	held_for: number,
 };
 
+/**  One machine and its pools */
+export type MachineDisk = {
+	/**  The alias of the host; `null` for this Mac */
+	alias: string | null,
+	/**  Why the host has no report (no agent answers, an agent without the feature `disk`); the rest is empty then */
+	error: string | null,
+	/**  MiB */
+	freeMib: number | null,
+	/**  `branchdeck.leaseMinFree` in MiB: below it a get trims the pools; `null` without one */
+	minFreeMib: number | null,
+	/**  The MiB of its slots and orphans */
+	mib: number,
+	pools: PoolDisk[],
+	/**  The Bazel output bases of gone slots, which a trim deletes */
+	orphans: number,
+	orphanMib: number,
+	/**  The free slots a trim deletes now, in every pool */
+	pastLimit: number,
+};
+
 export type MarkReviewedParams = {
 	repositoryPath: string,
 	/**
@@ -5365,6 +5409,20 @@ export type PlannedGroup = {
 	/**  The virtual branch the target is grouped into; `None` for an unassigned target */
 	branch: string | null,
 	folded: PlannedFixup[],
+};
+
+/**  A pool of a machine */
+export type PoolDisk = {
+	/**  The name of the repository: the directory of its main worktree */
+	name: string,
+	/**  The main worktree, else the common dir */
+	path: string,
+	maxSlots: number,
+	pastLimit: number,
+	mib: number,
+	/**  The Bazel output bases of the main worktree: no trim deletes them */
+	checkoutBasesMib: number,
+	slots: SlotDisk[],
 };
 
 export type PrefetchReviewParams = {
@@ -7425,6 +7483,29 @@ export type SignInEvent =
 /**  Who a sign-in runs with: one sign-in of each at a time, a second call joins it */
 export type SignInProvider = "gitHub" | "youTrack" | "youTrackCli";
 
+/**  A slot and the bytes its builds wrote */
+export type SlotDisk = {
+	/**  The number of its directory in the pool (`<pool>/<n>/<name>`), else its worktree id */
+	name: string,
+	path: string,
+	state: SlotDiskState,
+	holder: string | null,
+	mib: number,
+	/**  The directories its clean rules name (`target/`, `out/`) */
+	buildMib: number,
+	/**  Its Bazel output bases */
+	basesMib: number,
+	/**  A trim deletes it now */
+	trimsNext: boolean,
+};
+
+/**  What a slot is to the window */
+export type SlotDiskState = "free" | 
+/**  A session or a host run holds it */
+"leased" | 
+/**  A get, a return or a clean works on it now */
+"changing";
+
 /**
  *  A running robot of a branch built on this one, or of its whole stack, whose commit has commits of it: it lands them
  *  with it
@@ -8461,6 +8542,22 @@ export type TransferProgress = {
 	 *  (pid 4242, for 3 s)…", at 0 percent
 	 */
 	line: string,
+};
+
+export type TrimPoolsParams = {
+	/**  A checkout of a repository: its pool is trimmed wherever it lives, with every pool of `~/.branch-deck/pool` */
+	repositoryPath: string,
+};
+
+/**  What the trim of this Mac's pools did */
+export type TrimSummary = {
+	removedSlots: number,
+	orphans: number,
+	freedMib: number,
+	/**  The free slots past the limit that stayed, as a process works in them */
+	busy: number,
+	/**  What failed after a slot left its pool */
+	errors: string[],
 };
 
 /**  A branch an unapply kept: its commits are not in HEAD, it lands nothing until it is reapplied */

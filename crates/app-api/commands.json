@@ -10,6 +10,11 @@
     "transport": "json"
   },
   {
+    "name": "disk_usage",
+    "class": "read",
+    "transport": "json"
+  },
+  {
     "name": "get_repository_config",
     "class": "read",
     "transport": "json"
@@ -313,6 +318,11 @@
   {
     "name": "get_settings_changes",
     "class": "read",
+    "transport": "json"
+  },
+  {
+    "name": "trim_pools",
+    "class": "app",
     "transport": "json"
   },
   {

@@ -24,6 +24,12 @@ macro_rules! for_each_command {
       /// session (`TableHeader.prefix`). An inaccessible repository is an error
       read json resolve_branch_prefix(params: $crate::reads::repository::GetBranchPrefixParams) -> domain_types::settings::ResolvedBranchPrefix = $crate::reads::repository::resolve_branch_prefix;
 
+      /// What the lease pools of this Mac and of the hosts of `bd-host` hold on disk (the Disk window): per slot the bytes
+      /// its builds wrote, which slots a trim deletes next, the free space and the minimum of each machine. This Mac is
+      /// walked in process (the bytes of `disk.json` while they hold), the hosts answer through `bd-host disk`, side by
+      /// side; a host that does not answer names why
+      read json disk_usage(params: $crate::app::disk::DiskUsageParams) -> $crate::app::disk::DiskOverview = $crate::app::disk::disk_usage;
+
       /// The `branchdeck.*` settings of the repository with their scopes, and the detected GitHub repository
       read json get_repository_config(params: $crate::reads::repository::GetRepositoryConfigParams) -> sync_core::repository_config::RepositoryConfig = $crate::reads::repository::get_repository_config;
 
@@ -269,6 +275,10 @@ macro_rules! for_each_command {
       /// change made while the page loaded reached no listener. The main window's page asks once it listens (its init script
       /// has the snapshot of the app's start, a reload too); a sub-window's gets them with its load (`sub_window_loaded`)
       read window get_settings_changes(since: u32) -> Vec<domain_types::settings::SettingsChange> = $crate::app::settings::get_settings_changes;
+
+      /// Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of this Mac with their Bazel output
+      /// bases, and the output bases of gone slots, as `bd lease trim` does (the Disk window)
+      app(LeasePools) json trim_pools(params: $crate::app::disk::TrimPoolsParams) -> $crate::app::disk::TrimSummary = $crate::app::disk::trim_pools;
 
       /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
       /// read again. A write of the branch prefix keeps the git prefix the read found for the repository's later commands

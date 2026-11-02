@@ -42,6 +42,16 @@ describe("paletteCommands", () => {
     ])
   })
 
+  it("offers Show Disk Usage… with a repository, before Open Repository…", () => {
+    const showDiskUsage = vi.fn()
+    const commands = paletteCommands(sources({ showDiskUsage }))
+    const ids = commands.map(command => command.id)
+    expect(ids.indexOf("disk:usage")).toBe(ids.indexOf("repository:open") - 1)
+    expect(commands.find(command => command.id === "disk:usage")).toMatchObject({ label: "Show Disk Usage…", group: "Commands" })
+    commands.find(command => command.id === "disk:usage")?.run()
+    expect(showDiskUsage).toHaveBeenCalledOnce()
+  })
+
   it("hints only the keys of the window, disables Sync and Open Repository with the reason, offers updates where the build updates itself", () => {
     const commands = paletteCommands(
       sources({

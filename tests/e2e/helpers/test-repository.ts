@@ -121,6 +121,13 @@ export type PatronusLog = {
   statusReads: string[]
 }
 
+/** `POST /repositories/{id}/host-disks`: a host with the report of `bd-host disk --json` (snake case), or why it has none */
+export interface HostDiskFixture {
+  alias: string
+  report?: unknown
+  error?: string
+}
+
 /** `POST /repositories/{id}/cli-tools` */
 export interface CliToolsFixture {
   installed?: { tool: "teamcity" | "youtrack"; version: string; unmanaged?: boolean }[]
@@ -562,6 +569,19 @@ export class TestRepositoryBuilder {
    */
   async setCliTools(fixture: CliToolsFixture): Promise<void> {
     await this.setFixture("cli-tools", fixture)
+  }
+
+  /**
+   * `count` free slots in the lease pool of the repository in its fake home (`disk_fixtures.rs`), by real gets and
+   * returns, the first returned first: the paths in that order
+   */
+  async addLeaseSlots(count: number): Promise<string[]> {
+    return (await (await this.postFixture("lease-slots", { count })).json()) as string[]
+  }
+
+  /** The hosts of `bd-host` that the Disk Usage dialog shows (`AppHost::host_disks` of the e2e server): no test reaches another machine */
+  async setHostDisks(hosts: HostDiskFixture[]): Promise<void> {
+    await this.setFixture("host-disks", hosts)
   }
 
   /** What the fakes of the CLIs were asked, in order: `brew install jetbrains/utils/youtrack`, `teamcity --version` */

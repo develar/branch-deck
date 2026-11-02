@@ -95,6 +95,7 @@ testWithIssueLinks.describe("Command palette", () => {
       "Activity Panel",
       "Activity Window",
       "Add Pull Request by Link…",
+      "Show Disk Usage…",
       "Open Repository…",
       "Sync Branches",
       "Update Project",

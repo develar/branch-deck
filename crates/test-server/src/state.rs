@@ -205,6 +205,9 @@ pub struct TestRepository {
   pub review_readiness_calls: std::sync::Mutex<Vec<serde_json::Value>>,
   /// What `suggest_branch_names` answers (E2E never runs claude)
   pub branch_name_suggestions: RwLock<BranchNameSuggestionFixture>,
+  /// The hosts of `bd-host` that `host_disks` answers (`POST /repositories/{id}/host-disks`): no test reaches another
+  /// machine
+  pub host_disks: RwLock<Vec<crate::disk_fixtures::HostDiskFixture>>,
   /// How often the app asked for branch names: nothing may leave before the user enabled AI
   pub branch_name_suggestion_calls: AtomicU32,
   /// What the desktop of the app recorded (its windows, its window menus) and the folder its dialog picks (`host.rs`)

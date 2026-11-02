@@ -5,6 +5,8 @@
 //!   the sessions of each test repository)
 //! - `remote_host`, `remote_fixtures`, `remote_git_fixtures`, `review_fixtures`, `youtrack_fixtures`,
 //!   `cli_tools_fixtures`: the fakes of each test repository and the fixture routes that set and read them
+//! - `disk_fixtures`: the lease slots of the fake home of a test repository and the hosts of `bd-host` of the Disk
+//!   window
 //! - `templates`, `sync_overrides`, `updater`, `static_files`: the repositories a test copies, what it changes of the
 //!   next sync, the updater of its app, the built page
 
@@ -31,6 +33,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 pub mod cli_tools_fixtures;
+pub mod disk_fixtures;
 pub mod host;
 pub mod invoke;
 pub mod remote_fixtures;
@@ -288,6 +291,8 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     .route("/repositories/{id}/landing", post(remote_git_fixtures::set_landing).get(remote_git_fixtures::get_landing))
     .route("/repositories/{id}/github-answer", post(review_fixtures::set_github_answer))
     .route("/repositories/{id}/update", post(updater::set_update))
+    .route("/repositories/{id}/host-disks", post(disk_fixtures::set_host_disks))
+    .route("/repositories/{id}/lease-slots", post(disk_fixtures::add_lease_slots))
     .route(
       "/repositories/{id}/cli-tools",
       post(cli_tools_fixtures::set_cli_tools).get(cli_tools_fixtures::get_cli_tools),
@@ -705,6 +710,7 @@ fn insert_repository(state: &Arc<AppState>, id: &str, path: &str, values: &[(&st
     patronus_detail_calls: std::sync::atomic::AtomicU32::new(0),
     review_readiness_calls: std::sync::Mutex::default(),
     branch_name_suggestions: std::sync::RwLock::new(state::BranchNameSuggestionFixture::default()),
+    host_disks: std::sync::RwLock::default(),
     branch_name_suggestion_calls: std::sync::atomic::AtomicU32::new(0),
     desktop: hosts.desktop,
     updater: hosts.updater,
