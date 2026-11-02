@@ -878,6 +878,8 @@ test.describe("Branch review window", () => {
     const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
     const column = window.getByTestId("range-review-commit")
     const older = column.filter({ hasText: "Add the login form" })
+    // the actions of the main window came, those of the title bar and of the menus of the commits alike
+    await expect(window.getByTestId("branch-review-actions").getByRole("button", { name: /^Push / })).toBeVisible()
 
     // the right-click of a commit: the menu of its row, without key hints; Push Up to Here pushes in the main window
     await older.click({ button: "right" })
