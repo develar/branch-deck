@@ -224,9 +224,13 @@ test.describe("Review tour", () => {
     await expect(mark).toHaveCount(1)
     await expect(window.locator('[data-testid="diff-view-file"][data-path="src/a/Manager.kt"]').first().getByTestId("review-story-mark")).toHaveCount(0)
     await mark.hover()
+    // a card of the story: where it is told once, then the line that names the section, its code names links, inside
+    // the window
     const tip = window.getByTestId("review-story-mark-tip")
-    await expect(tip).toContainText("Step 2 · The open keeps a stored layout")
+    await expect(tip.getByText("Step 2 · The open keeps a stored layout", { exact: true })).toHaveCount(1)
     await expect(tip).toContainText("One rule decides now: Manager.allowed answers whether the open may show a tool window.")
+    await expect(tip.getByTestId("review-story-mention").filter({ hasText: "Manager.allowed" })).toBeVisible()
+    await expect.poll(async () => ((await tip.boundingBox())?.x ?? 0) + ((await tip.boundingBox())?.width ?? Infinity) <= window.viewportSize()!.width - 8).toBe(true)
     // a click shows the opening of its step, the paragraph outlined
     await window.mouse.move(0, 0)
     await mark.click()

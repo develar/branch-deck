@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
+import type { CommitBodyBlock, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, TestRef } from "@/lib/bindings"
 import { MORE } from "@/presenters/commit-body"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
 import type { StoryView } from "@/presenters/review-story"
@@ -13,38 +13,17 @@ const paragraph = (text: string): CommitBodyBlock => ({ type: "paragraph", lines
 const label = (text: string, kind: "plain" | "verification" | "lookClosely" = "plain"): CommitBodyBlock => ({ type: "label", text, kind, runIn: false })
 const list = (...items: string[]): CommitBodyBlock => ({ type: "list", ordered: false, start: 1, items })
 
-/**
- * The parts Rust cuts `blocks` into (`sync_utils::commit_body`), the fold at block `shown`: the lead alone, a labelled
- * section to the next label, a run of other blocks on one side of the fold; a verification folded and a Look closely
- * shown wherever it is
- */
-function partsOf(blocks: readonly CommitBodyBlock[], lead: boolean, shown: number): CommitBodyPart[] {
-  const heads = (block: CommitBodyBlock | undefined) => block?.type === "label" || block?.type === "heading"
-  const parts: CommitBodyPart[] = []
-  let start = 0
-  while (start < blocks.length) {
-    const block = blocks[start]!
-    let end = start + 1
-    if (heads(block)) {
-      while (end < blocks.length && !heads(blocks[end])) {
-        end++
-      }
-    } else if (!(lead && start === 0)) {
-      while (end < blocks.length && !heads(blocks[end]) && end !== shown) {
-        end++
-      }
-    }
-    const kind = block.type === "label" ? block.kind : "plain"
-    parts.push({ start, end, folded: kind === "verification" || (kind !== "lookClosely" && start >= shown) })
-    start = end
-  }
-  return parts
-}
+/** A part of a body as Rust cuts it (`sync_utils::commit_body`): its first block, the block after its last, folded or not */
+type Part = readonly [start: number, end: number, folded: boolean]
 
-/** The story of the commit of `subject`: its blocks, the fold after `shown` of them, the lead when it opens with prose */
-function story(subject: string, blocks: CommitBodyBlock[], shown = blocks.length, toldIn: (number | null)[] = []): StoryCommit {
+/**
+ * The story of the commit of `subject`: its blocks, the lead when it opens with prose, and its `parts` written out as
+ * Rust cuts that body (the TS tests never encode the grammar); one part of every block by default, a body of one block
+ * or of one section
+ */
+function story(subject: string, blocks: CommitBodyBlock[], parts: readonly Part[] = [[0, blocks.length, false]], toldIn: (number | null)[] = []): StoryCommit {
   const lead = blocks[0]?.type === "paragraph"
-  return { id: subject, subject, body: { blocks, trailers: [], lead, parts: partsOf(blocks, lead, shown) }, mentions: [], toldIn }
+  return { id: subject, subject, body: { blocks, trailers: [], lead, parts: parts.map(([start, end, folded]) => ({ start, end, folded })) }, mentions: [], toldIn }
 }
 
 function plan(steps: ReviewStep[], commits: StoryCommit[], more: Partial<ReviewPlan> = {}): ReviewPlan {
@@ -104,14 +83,29 @@ describe("the document of a review", () => {
           step("w", [commit("the wip", "noStory")], [["u:wip", "src/Wip.kt"]]),
         ],
         [
-          story("the rule", [
-            paragraph("One rule decides."),
-            paragraph("The product decision is to keep the layout."),
-            label("Look closely", "lookClosely"),
-            paragraph("Is a stored layout enough?"),
-            paragraph("A layout of more tool windows may need more."),
-          ]),
-          story("the rule again", [paragraph("Renamed."), label("Look closely", "lookClosely"), paragraph("Is the new name clear?")]),
+          story(
+            "the rule",
+            [
+              paragraph("One rule decides."),
+              paragraph("The product decision is to keep the layout."),
+              label("Look closely", "lookClosely"),
+              paragraph("Is a stored layout enough?"),
+              paragraph("A layout of more tool windows may need more."),
+            ],
+            [
+              [0, 1, false],
+              [1, 2, false],
+              [2, 5, false],
+            ],
+          ),
+          story(
+            "the rule again",
+            [paragraph("Renamed."), label("Look closely", "lookClosely"), paragraph("Is the new name clear?")],
+            [
+              [0, 1, false],
+              [1, 3, false],
+            ],
+          ),
           // a body of a few words is the story of its commit, but no lead of the step it is in
           story("the wip", [paragraph("Fixes it.")]),
         ],
@@ -193,8 +187,17 @@ describe("the document of a review", () => {
       label("Evidence, on the final code", "verification"),
       paragraph("All green."),
     ]
-    // Rust folds after the section of The cause
-    const view = presentStory(story("the open", body, 7))
+    // Rust folds after the section of The cause, and every verification section
+    const view = presentStory(
+      story("the open", body, [
+        [0, 1, false],
+        [1, 2, false],
+        [2, 4, true],
+        [4, 7, false],
+        [7, 9, true],
+        [9, 11, true],
+      ]),
+    )
     expect(textOf(view)).toEqual({
       lead: "The open keeps the stored layout.",
       shown: [
@@ -204,7 +207,21 @@ describe("the document of a review", () => {
       folded: ["Tests", "The fix", "Evidence, on the final code"],
     })
     // a run of no label the fold cuts is two parts, the second folded
-    expect(textOf(presentStory(story("prose", [paragraph("Lead."), paragraph("Two."), paragraph("Three."), paragraph("Four.")], 3)))).toEqual({
+    expect(
+      textOf(
+        presentStory(
+          story(
+            "prose",
+            [paragraph("Lead."), paragraph("Two."), paragraph("Three."), paragraph("Four.")],
+            [
+              [0, 1, false],
+              [1, 3, false],
+              [3, 4, true],
+            ],
+          ),
+        ),
+      ),
+    ).toEqual({
       lead: "Lead.",
       shown: [["", "Two.", "Three."]],
       folded: [MORE],
@@ -221,7 +238,18 @@ describe("the document of a review", () => {
       label("Tests", "verification"),
       list("ManagerTest"),
     ]
-    expect(textOf(presentStory(story("asks", asks, 1)))).toEqual({ lead: "Lead.", shown: [["Look closely:", "Is it enough?"]], folded: ["The cause", "Tests"] })
+    expect(
+      textOf(
+        presentStory(
+          story("asks", asks, [
+            [0, 1, false],
+            [1, 3, true],
+            [3, 5, false],
+            [5, 7, true],
+          ]),
+        ),
+      ),
+    ).toEqual({ lead: "Lead.", shown: [["Look closely:", "Is it enough?"]], folded: ["The cause", "Tests"] })
   })
 
   it("opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places", () => {
@@ -283,7 +311,12 @@ describe("the document of a review", () => {
         label("The paint"),
         paragraph("paint comes first."),
       ],
-      6,
+      [
+        [0, 1, false],
+        [1, 2, false],
+        [2, 4, false],
+        [4, 6, false],
+      ],
       [null, null, 0, 0, 1, 1],
     )
     const concerns = [concern("c1", "allowed"), concern("c2", "paint")]
@@ -331,7 +364,14 @@ describe("the document of a review", () => {
     const file: Mention = { block: 2, item: 1, start: 2, end: 12, text: "Frame.kt", target: { kind: "file", path: "src/a/Frame.kt", step: null } }
     const loose: Mention = { block: 0, item: 0, start: 50, end: 58, text: "Layout", target: null }
     const rule = {
-      ...story("the rule", [paragraph("One rule decides now: `Manager.allowed` answers, by `Layout`."), label("The uses"), list("one", "- `Frame.kt` asks it")]),
+      ...story(
+        "the rule",
+        [paragraph("One rule decides now: `Manager.allowed` answers, by `Layout`."), label("The uses"), list("one", "- `Frame.kt` asks it")],
+        [
+          [0, 1, false],
+          [1, 3, false],
+        ],
+      ),
       mentions: [named, loose, file],
     }
     const steps = [step("a", [commit("the hooks")], [["u:hooks", "src/a/Manager.kt"]]), step("b", [commit("the rule")], [[unit.id, "src/a/Manager.kt"]])]
@@ -379,6 +419,11 @@ describe("the document of a review", () => {
     expect([...marks].map(([key, list]) => [key, list.map(mark => [mark.commit, mark.block, mark.step, mark.title, mark.preview])])).toEqual([
       ["file:src/a/Manager.kt#1", [["the rule", 0, "b", "Step 2 · The rule", "One rule decides now: `Manager.allowed` answers, by `Layout`."]]],
       ["file:src/a/Frame.kt", [["the rule", 2, "b", "Step 2 · The rule", "- `Frame.kt` asks it"]]],
+    ])
+    // the quote of a mark links the code names of its line, worded as the story words them
+    expect(marks.get("file:src/a/Manager.kt#1")![0]!.mentions.map(it => [it.text, it.title])).toEqual([
+      ["Manager.allowed", "allowed — new · Manager.kt:6 · step 2"],
+      ["Layout", null],
     ])
   })
 })

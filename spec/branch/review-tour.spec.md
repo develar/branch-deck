@@ -322,8 +322,9 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../src/presenters/review-story.test.ts (`links a code name to its place, worded by its unit, its line and its step, and marks the section it names with the line that names it`)
 - Back: the header of a section a told body names must carry a small mark of the story at its end, its height kept:
   the section of the path of the target in the step of the target, the one that shows its unit (by its id) when one
-  does. Its hover shows each line that names the section, with where it is told ("Step 2 · The open keeps a stored
-  layout", "Overview"); a click shows the first of them where it is told, the opening of its step at the top (the
+  does. Its hover opens a card of the story (`bg-popover`, 28rem wide at most, 8px from the edges of the window):
+  where it is told once as its heading ("Step 2 · The open keeps a stored layout", "Overview"), then each line that
+  names the section, quoted, its code names set and linked as the story sets them; a click shows the first of them where it is told, the opening of its step at the top (the
   overview for a part told before the steps), its part opened when a fold held it, the block outlined for a moment
   (a label or a heading too). The outline plays once: a story that shows later (the commit shown alone, the whole
   story again, the files a search hid) outlines nothing and opens no fold.

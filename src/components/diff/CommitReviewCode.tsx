@@ -4,9 +4,9 @@ import { cn } from "cn"
 import { BookOpenTextIcon, UnfoldVerticalIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { LineCounts } from "@/components/commit/CommitMetadata"
-import { LinkedText } from "@/components/commit/LinkedText"
 import { DeclarationFileView } from "@/components/diff/DeclarationFileView"
 import { DiffView } from "@/components/diff/DiffView"
 import type { DeclarationPlace, DiffHeaderProps, DiffSection, DiffViewFile, DiffViewHandle } from "@/components/diff/DiffView"
@@ -16,6 +16,8 @@ import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FileHeaderChevron, FileHeaderCopyButton } from "@/components/files/FileHeaderParts"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { ChapterOpening } from "@/components/review/ChapterOpening"
+import { StoryText } from "@/components/review/StoryText"
+import { HoverDescription } from "@/components/shared/HoverDescription"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import { placeOf, useSymbolNavigation } from "@/hooks/useSymbolNavigation"
 import type { DeclarationTarget, DiffRevisions } from "@/lib/bindings"
@@ -396,15 +398,28 @@ function ReviewFileHeader({ file, section, notice, empty, folded, pending = fals
 
 /**
  * The mark of a section a body names (spec/branch/review-tour.spec.md, "Anchors"), at the end of its header, which keeps
- * its height: its hover shows the lines of the story that name the file, each with where it is told; a click shows the
- * first of them in its opening (or the overview), outlined
+ * its height: its hover opens a card of the story that names the file, where it is told once ("Step 5 · title"), then
+ * each line that names it, quoted as the story sets it, its code names links; a click shows the first of them in its
+ * opening (or the overview), outlined
  */
 function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: string }) {
   const navigator = useSelectReviewFile()
   const first = marks[0]!
+  // the marks of one place under one heading, in their order
+  const places: { title: string; marks: StoryMark[] }[] = []
+  for (const mark of marks) {
+    const place = places.find(it => it.title === mark.title)
+    if (place === undefined) {
+      places.push({ title: mark.title, marks: [mark] })
+    } else {
+      place.marks.push(mark)
+    }
+  }
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <HoverDescription lazy>
+      <PopoverTrigger
+        openOnHover
+        delay={300}
         render={
           <Button
             variant="ghost"
@@ -418,15 +433,28 @@ function StoryMarkButton({ marks, name }: { marks: readonly StoryMark[]; name: s
         }
       >
         <BookOpenTextIcon />
-      </TooltipTrigger>
-      <TooltipContent className="flex max-w-96 flex-col gap-2" data-testid="review-story-mark-tip">
-        {marks.map(mark => (
-          <span key={mark.key} className="flex flex-col gap-0.5">
-            <span className="opacity-70">{mark.title}</span>
-            <LinkedText text={mark.preview} detectCode />
-          </span>
+      </PopoverTrigger>
+      <PopoverContent
+        side="bottom"
+        align="end"
+        collisionPadding={8}
+        className="w-auto max-w-md gap-3 p-3"
+        data-testid="review-story-mark-tip"
+        // a card of words: the focus stays where it is
+        initialFocus={false}
+        finalFocus={false}
+      >
+        {places.map(place => (
+          <div key={place.title} className="flex min-w-0 flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">{place.title}</span>
+            {place.marks.map(mark => (
+              <p key={mark.key} className="border-l-2 border-border pl-2.5 [font-feature-settings:'ss04'] text-sm">
+                <StoryText text={mark.preview} mentions={mark.mentions} />
+              </p>
+            ))}
+          </div>
         ))}
-      </TooltipContent>
-    </Tooltip>
+      </PopoverContent>
+    </HoverDescription>
   )
 }

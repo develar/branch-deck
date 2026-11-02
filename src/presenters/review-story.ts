@@ -42,11 +42,15 @@ export interface StoryView extends BodyParts {
  * and folded them (`presentBodyParts`), its code names worded
  */
 export function presentStory(commit: StoryCommit, told: (index: number) => boolean = () => true, words: MentionWords = plainWords): StoryView {
-  const mentions = commit.mentions.map((mention): StoryMention => ({
+  return { commit: commit.id, mentions: wordMentions(commit, words), ...presentBodyParts(commit.id, commit.body, told) }
+}
+
+/** The mentions of code of the body of `commit`, each worded by `words` (`StoryMention`) */
+function wordMentions(commit: StoryCommit, words: MentionWords): StoryMention[] {
+  return commit.mentions.map(mention => ({
     ...mention,
     ...(mention.target === null ? { place: null, title: null } : words(mention.target, mention.text)),
   }))
-  return { commit: commit.id, mentions, ...presentBodyParts(commit.id, commit.body, told) }
 }
 
 /** The words of a target without the units: its file and line */
@@ -445,6 +449,8 @@ export interface StoryMark {
   readonly title: string
   /** The text of the line of the block that names the section, its backticks kept */
   readonly preview: string
+  /** The code names of that line, worded (`mentionWords`): the quote of a mark links them as the story does */
+  readonly mentions: readonly StoryMention[]
 }
 
 /** The text of the line `item` of a block: a line of a paragraph, an item of a list, a heading or a label */
@@ -469,8 +475,9 @@ function lineOf(block: CommitBodyBlock | undefined, item: number): string {
  * opening, the concerns of one commit where `toldIn` says, the rest in the overview; a follow-up is folded under its
  * step and marks nothing
  */
-export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief">, sections: readonly NarrativeSection[]): Map<string, StoryMark[]> {
+export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief" | "units">, sections: readonly NarrativeSection[]): Map<string, StoryMark[]> {
   const chapters = presentChapters(plan)
+  const words = mentionWords(plan)
   const steps = plan.steps.steps
   const told = chapters.some(chapter => !chapter.rest)
   const one = storyOfOneCommit(plan)
@@ -492,6 +499,8 @@ export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief"
     if (at === undefined) {
       continue
     }
+    // worded once per commit: a mark quotes the worded mentions of its line
+    const worded = wordMentions(commit, words)
     for (const mention of commit.mentions) {
       const target = mention.target
       if (target === null) {
@@ -513,6 +522,7 @@ export function storyMarks(plan: Pick<ReviewPlan, "steps" | "concerns" | "brief"
             step: where?.id ?? null,
             title: chapter === undefined ? "Overview" : `${formatStepNumber(chapter.number)} · ${chapter.label}`,
             preview: lineOf(commit.body.blocks[mention.block], mention.item),
+            mentions: worded.filter(it => it.block === mention.block && it.item === mention.item),
           })
           marks.set(section.key, list)
         }
