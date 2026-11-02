@@ -1,7 +1,8 @@
 use crate::extract::{MAX_AVERAGE_LINE, MAX_BYTES, MAX_LINES, RULES_VERSION, extractor_version, spec_of, summarize, summarize_with_budget};
 use crate::language::{Family, Language, language_of};
 use crate::summary::{DeclKind, FileSummary, Role};
-use crate::test_support::{check_golden, declaration, fixture, render, summary_of};
+use crate::summary_text::render;
+use crate::test_support::{check_golden, declaration, fixture, summary_of};
 
 /// The value for the grammars and rules of this build. A change of `RULES_VERSION` or of a grammar version changes it:
 /// replace it with the value the failure prints.
