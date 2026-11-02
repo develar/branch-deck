@@ -140,18 +140,19 @@ fn a_minified_file_is_not_parsed() {
 }
 
 #[test]
-#[cfg(feature = "kotlin")]
+#[cfg(feature = "rust")]
 fn the_parse_budget_truncates_deterministically() {
-  let (_, source) = fixture("kotlin/references.kt");
-  let full = summarize_with_budget(Language::Kotlin, &source, u32::MAX);
+  // the budget is tree-sitter's (Rust, TypeScript); psi-syntax bounds a parse by its nesting limit
+  let (_, source) = fixture("rust/references.rs");
+  let full = summarize_with_budget(Language::Rust, &source, u32::MAX);
   assert!(!full.truncated);
   assert_ne!(full.references.len(), 0);
-  let cut = summarize_with_budget(Language::Kotlin, &source, 1);
+  let cut = summarize_with_budget(Language::Rust, &source, 1);
   assert!(cut.truncated);
   assert_eq!((cut.declarations.len(), cut.references.len()), (0, 0));
-  assert_eq!(summarize_with_budget(Language::Kotlin, &source, 1), cut);
+  assert_eq!(summarize_with_budget(Language::Rust, &source, 1), cut);
   // the parser starts afresh after a cancelled parse
-  assert_eq!(summarize_with_budget(Language::Kotlin, &source, u32::MAX), full);
+  assert_eq!(summarize_with_budget(Language::Rust, &source, u32::MAX), full);
 }
 
 #[test]

@@ -170,8 +170,20 @@ fn with_name_at<T>(grammar: Grammar, text: &str, position: Position, answer: imp
   Some(answer(node, name, kind, qualifier))
 }
 
-/// The name at `position` of `text` and what its syntax says; `None` where no name is
+/// The name at `position` of `text` and what its syntax says; `None` where no name is. Kotlin and Java by psi-syntax's
+/// trees (`psi_kotlin`, `psi_java`), the others by tree-sitter's
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
+  match grammar {
+    #[cfg(feature = "kotlin")]
+    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::navigate::reference_at(crate::psi_kotlin::file_kind(grammar), text, position),
+    #[cfg(feature = "java")]
+    Grammar::Java => crate::psi_java::navigate::reference_at(text, position),
+    _ => reference_at_tree_sitter(grammar, text, position),
+  }
+}
+
+/// `reference_at` by the tree-sitter tree
+pub(crate) fn reference_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   with_name_at(grammar, text, position, |node, name, kind, qualifier| reference_of(node, name, kind, qualifier, text))
 }
 
@@ -211,6 +223,17 @@ pub(crate) fn usage_answer(text: &str, start: usize, name: &str, access: Access)
 /// The usages of the name at `position`: those of its declaration for a local, else those of every name of that text that
 /// no local binds; `None` where no name is
 pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
+  match grammar {
+    #[cfg(feature = "kotlin")]
+    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::navigate::usages_at(crate::psi_kotlin::file_kind(grammar), text, position),
+    #[cfg(feature = "java")]
+    Grammar::Java => crate::psi_java::navigate::usages_at(text, position),
+    _ => usages_at_tree_sitter(grammar, text, position),
+  }
+}
+
+/// `usages_at` by the tree-sitter tree
+pub(crate) fn usages_at_tree_sitter(grammar: Grammar, text: &str, position: Position) -> Option<UsagesAt> {
   with_name_at(grammar, text, position, |node, name, kind, _| usages_of_name(node, name, kind, text))
 }
 
@@ -234,6 +257,17 @@ fn usages_of_name(node: Node<'_>, name: String, kind: ReferenceKind, text: &str)
 
 /// The usages of `name` in a text that is not the one of the name: every name of that text that no local binds
 pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
+  match grammar {
+    #[cfg(feature = "kotlin")]
+    Grammar::Kotlin | Grammar::KotlinScript => crate::psi_kotlin::navigate::usages_of(crate::psi_kotlin::file_kind(grammar), text, name),
+    #[cfg(feature = "java")]
+    Grammar::Java => crate::psi_java::navigate::usages_of(text, name),
+    _ => usages_of_tree_sitter(grammar, text, name),
+  }
+}
+
+/// `usages_of` by the tree-sitter tree
+pub(crate) fn usages_of_tree_sitter(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
   // a cheap test first: most files of a review do not have the word
   if !text.contains(name) {
     return Vec::new();

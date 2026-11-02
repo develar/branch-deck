@@ -109,7 +109,7 @@ fn has_no_highlighting_over_the_limit() {
 
 #[test]
 fn chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest() {
-  let grammars: Vec<Option<Grammar>> = ["a.ts", "a.mts", "a.tsx", "a.js", "a.jsx", "a.mjs", "a.kts", "a.rs", "a.java", "a.md"]
+  let grammars: Vec<Option<Grammar>> = ["a.ts", "a.mts", "a.tsx", "a.js", "a.jsx", "a.mjs", "a.kt", "a.kts", "a.rs", "a.java", "a.md"]
     .into_iter()
     .map(grammar_of)
     .collect();
@@ -123,6 +123,7 @@ fn chooses_the_typescript_grammar_for_ts_and_tsx_for_the_rest() {
       Some(Grammar::Tsx),
       Some(Grammar::Tsx),
       Some(Grammar::Kotlin),
+      Some(Grammar::KotlinScript),
       Some(Grammar::Rust),
       Some(Grammar::Java),
       None
