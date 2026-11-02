@@ -113,3 +113,34 @@ fn a_script_declares_its_top_level_names_for_its_functions() {
   let reference = reference_at(Grammar::KotlinScript, text, Position { line: 1, column: 10 }).unwrap();
   assert_eq!((reference.kind, reference.local), (ReferenceKind::Value, Some(Position { line: 0, column: 4 })));
 }
+
+#[test]
+fn a_local_outside_a_function_is_a_local() {
+  // a catch of a property's initializer, a local of an `init` block and the subject of a `when` are seen by no other
+  // file, as a local of a function
+  let text = "class A {\n  val p = try { 1 } catch (t: Throwable) { t.hashCode() }\n  val q = try { 2 } catch (t: Throwable) { t.hashCode() }\n  init { val x = 1; println(x) }\n  val r = when (val s = p) { 1 -> s else -> 0 }\n}\nval s = 1\n";
+  let found = usages(text, "t:", 0);
+  assert!(found.local, "{found:?}");
+  assert_eq!(places(&found), [(1, 27, Access::Declaration), (1, 43, Access::Read)]);
+  assert!(usages_of(Grammar::Kotlin, text, "t").is_empty(), "a catch parameter is a local");
+  assert!(usages(text, "x)", 0).local);
+  let subject = usages(text, "s =", 0);
+  assert!(subject.local, "{subject:?}");
+  assert_eq!(places(&subject), [(4, 20, Access::Declaration), (4, 34, Access::Read)]);
+  // the property of the file is another declaration, which the `when` does not see past its end
+  assert_eq!(usages_of(Grammar::Kotlin, text, "s").len(), 1);
+}
+
+#[test]
+fn a_parameter_of_a_function_type_declares_nothing_the_code_sees() {
+  // `(event: String) -> Unit` names its parameter for documentation only: no scope sees it
+  let text = "class A(val event: Int) {\n  val listener: (event: String) -> Unit = {}\n  fun f(cb: (event: Int) -> Unit) = event\n}\n";
+  let used = at(text, "event\n", 0);
+  assert_eq!((used.kind, used.local), (ReferenceKind::Value, Some(Position { line: 0, column: 12 })));
+  let declared = at(text, "event: String", 0);
+  assert_eq!(declared.kind, ReferenceKind::Declaration);
+  let found = usages(text, "event: String", 0);
+  assert!(found.local, "{found:?}");
+  assert_eq!(places(&found), [(1, 17, Access::Declaration)]);
+  assert_eq!(places(&usages(text, "event", 0)), [(0, 12, Access::Declaration), (2, 36, Access::Read)]);
+}
