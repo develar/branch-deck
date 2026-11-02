@@ -11,6 +11,7 @@ const TEXT_CLOSE_MS = 150
 /** The handlers of the text of a row and of its card that open the card on the hover of the text (`useRowCardHover`) */
 export interface RowCardHover {
   readonly text: { onPointerMove: (event: PointerEvent) => void; onPointerLeave: () => void }
+  /** Of the card and of the mark of the row: the pointer that moves from the text onto either keeps the card */
   readonly popup: { onPointerEnter: () => void; onPointerLeave: () => void }
 }
 

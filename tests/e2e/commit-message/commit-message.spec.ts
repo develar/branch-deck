@@ -224,6 +224,18 @@ test.describe("Commit message", () => {
       await expect(card.getByTestId("commit-header-meta").getByRole("button", { name: /^More actions for / })).toBeVisible()
       await page.mouse.move(0, 0)
       await expect(card).toHaveCount(0)
+      // the pointer that moves from the subject onto the mark keeps the card the subject opened: the time stands still
+      // past the close of the subject (150 ms) and before the mark could open it again (300 ms)
+      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000)
+      await commitRow.getByText(SUBJECT).hover()
+      await page.clock.fastForward(700)
+      await expect(card).toBeVisible()
+      await toggle.hover()
+      await page.clock.fastForward(200)
+      await expect(card).toBeVisible()
+      await page.clock.resume()
+      await page.mouse.move(0, 0)
+      await expect(card).toHaveCount(0)
 
       // I on the row Space would preview (the last clicked one) opens the card with the focus in it; Escape closes the
       // card alone and gives the focus back to the list, whose keys go on from that row

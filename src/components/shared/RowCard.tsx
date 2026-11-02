@@ -62,7 +62,10 @@ export interface RowCardProps extends RowCardState {
   anchor?: (mark: HTMLElement) => Element | null
   /** The side of the anchor the card opens on: below it by default; beside a row of a sidebar, so the rows stay in view */
   side?: "bottom" | "right"
-  /** The handlers of the card for the hover of the text of its row (`useRowCardHover`): the pointer may rest in it */
+  /**
+   * The handlers of the card and of the mark for the hover of the text of its row (`useRowCardHover`): the pointer may
+   * move from the text onto the mark or into the card, and the card stays
+   */
   popupHover?: RowCardHover["popup"]
 }
 
@@ -145,7 +148,18 @@ export function RowCard({
         }
       }}
     >
-      <PopoverTrigger ref={markElement} openOnHover delay={300} nativeButton={false} tabIndex={-1} aria-label={label} render={mark} onClick={keepFromRow}>
+      <PopoverTrigger
+        ref={markElement}
+        openOnHover
+        delay={300}
+        nativeButton={false}
+        tabIndex={-1}
+        aria-label={label}
+        render={mark}
+        onClick={keepFromRow}
+        onPointerEnter={popupHover?.onPointerEnter}
+        onPointerLeave={popupHover?.onPointerLeave}
+      >
         {icon}
       </PopoverTrigger>
       <PopoverContent

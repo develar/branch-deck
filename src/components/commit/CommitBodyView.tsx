@@ -128,7 +128,8 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
           <ChevronRightIcon aria-hidden className="size-3.5 shrink-0 self-center" />
           <span>More:</span>
           {closed.map(({ part, name }, index) => (
-            <Fragment key={part.key}>
+            // the comma right after its name, as in a sentence
+            <span key={part.key}>
               <button
                 type="button"
                 aria-expanded={false}
@@ -139,7 +140,7 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
                 {name}
               </button>
               {index < closed.length - 1 && <span aria-hidden>,</span>}
-            </Fragment>
+            </span>
           ))}
         </div>
       )}
