@@ -428,11 +428,13 @@ session, a form of a row by the main window at that row; the footer holds the ke
   "From Root" has a tooltip that sizes the part as the branch table does: "auth to login
   on origin/master: 2 branches · 3 commits, what the Safe Push of login lands · Shift+click a branch to extend". A
   commit of the column is its subject, truncated, and its muted `font-mono` hash on hover
-  (`range-review-commit-hash`); a commit row of the tree the same after its `GitCommitHorizontalIcon`, its role in
-  `text-xs text-muted-foreground` (`review-commit-role`), its "New"/"Rewritten" an `info` `Badge`
-  (`review-commit-since`), "Your review" of a pull request an `outline` `Badge` (`review-commit-review`), its branch
-  muted (`review-commit-branch`), its hash on hover (`review-commit-hash`); the row of a step of the commits, its
-  commit, the same after its title. A
+  (`range-review-commit-hash`); a commit row of the tree its subject after its `GitCommitHorizontalIcon`
+  (`review-commit-subject`), which gets the width: no role word, its indent under the step says it and its
+  description (`aria-description`) words it, its hash in the title of the subject; its "New"/"Rewritten" an `info`
+  `Badge` (`review-commit-since`), "Your review" of a pull request an `outline` `Badge` (`review-commit-review`), its
+  branch muted (`review-commit-branch`); the row of a step of the commits, its commit, the same facts after its
+  title, and its hash in `font-mono` in place of its line counts on hover (`review-commit-hash`), so the title keeps
+  its width. A
   group chip starts with `ShieldAlertIcon` in `text-warning`; its tooltip says
   "Needs approval for a Safe Push".
 - In the Safe Push popover the groups are a list below the review line, a group per line in the foreground colour,

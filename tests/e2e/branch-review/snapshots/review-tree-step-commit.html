@@ -5,20 +5,22 @@
     <span class="min-w-0 flex-1 truncate font-medium" data-group="concern" title="2 · The open keeps a stored layout">
       2 · The open keeps a stored layout
     </span>
-    <span class="hidden font-mono text-xs text-muted-foreground group-hover/row:inline" data-testid="review-commit-hash">
-      [SHA]
-    </span>
     <span aria-expanded="false" aria-haspopup="dialog" aria-label="Show full commit message" class="flex shrink-0 cursor-default items-center justify-center rounded-md text-muted-foreground hover:text-foreground size-4" data-slot="popover-trigger" data-testid="commit-row-mark" role="button" tabindex="-1">
       <svg aria-hidden="true" class="lucide lucide-rectangle-ellipsis size-3.5" />
     </span>
-    <span class="shrink-0 text-xs text-muted-foreground" data-testid="directory-line-counts">
-      <span class="whitespace-nowrap tabular-nums">
-        <span class="">
-          +9
+    <span class="grid shrink-0 justify-items-end text-xs text-muted-foreground *:[grid-area:1/1]">
+      <span class="group-hover/row:invisible" data-testid="directory-line-counts">
+        <span class="whitespace-nowrap tabular-nums">
+          <span class="">
+            +9
+          </span>
+          <span class="">
+            −4
+          </span>
         </span>
-        <span class="">
-          −4
-        </span>
+      </span>
+      <span class="invisible font-mono group-hover/row:visible" data-testid="review-commit-hash">
+        [SHA]
       </span>
     </span>
   </div>

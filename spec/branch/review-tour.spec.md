@@ -253,8 +253,10 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 - The story must be the one list of the sidebar: with the plan, a scope of a range of two commits or more ("All
   Changes", "Since Your Review" of a branch, of a stack, of a pull request) lists its commits in the tree. The group
   row of a step of the commits is the commit that starts it ("2 · The open keeps a stored layout": no row of its own
-  repeats the title); under it the rows of the commits that follow it up ("follows up") and of those without a story
-  ("no story"), each by its subject without the issue key the brief names, then its files. A group of a step of the
+  repeats the title); under it the rows of the commits that follow it up and of those without a story, each by its
+  subject without the issue key the brief names, which gets the width of the row: the indent says what it is, the
+  description of the row says it in words ("follows up", "no story"), no word on the row; then its files, a file
+  of a group its directory after its name whole or not at all, never cut to its last letters. A group of a step of the
   concerns lists its commit rows as they are, the most lines first. A commit several concerns list is listed once, in
   the one that lists it first, the first of equal ones; a step that lands nothing keeps its group for its commits; the
   commits no group lists (of no step, of what no evidence joined) close the tree in "Other commits" ("Commits" when the
@@ -263,7 +265,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   the reviewed one, not those the user saw. A commit row, and the row of a step of the commits, shows what it is
   since the review ("New"/"Rewritten"), "Your review" on the reviewed commit of a pull request (the boundary of the
   column: the commits after it are those of Since Your Review), its branch (of the whole stack, and of a part of
-  several branches, which the column heads by branch) and its hash on hover, a commit row also its role; either, of a
+  several branches, which the column heads by branch); the row of a step its hash on hover in the place of its line
+  counts, so its title keeps its width, a commit row its hash in the title of its subject; either, of a
   commit with a body, the mark of its card, which its hover and `I` on the focused row open as in the main window
   ([Commit Row](../commit/commit-row.spec.md#commit-card)), Escape giving the focus back to the row; a commit row is
   no file (no position, no count, no owner mark of its own: it is muted with its step). The column above the tree

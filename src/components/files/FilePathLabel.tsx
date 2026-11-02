@@ -19,6 +19,11 @@ export interface FilePathLabelProps {
   emphasis?: boolean
   /** The letter in the `size-4` slot of a folder icon, so that the names of a tree align */
   letterSlot?: "inline" | "icon"
+  /**
+   * The directory whole or not at all (a row of a tree): it shows only where it fits after the name, never cut to its
+   * last letters ("…a"); the name truncates as the last resort
+   */
+  wholeDirectory?: boolean
   className?: string
 }
 
@@ -27,18 +32,28 @@ export interface FilePathLabelProps {
  * its directory muted, in the size around it. The name comes first, as IntelliJ lists a change; a long directory gives
  * way first and loses its start (`dir="rtl"`, the path itself kept left to right by `bdi`).
  */
-export function FilePathLabel({ path, oldPath = null, status, directory = true, emphasis = false, letterSlot = "inline", className }: FilePathLabelProps) {
+export function FilePathLabel({ path, oldPath = null, status, directory = true, emphasis = false, letterSlot = "inline", wholeDirectory = false, className }: FilePathLabelProps) {
   const label = formatTreeFileLabel({ path, oldPath })
   const parent = directory ? path.slice(0, path.length - label.name.length).replace(/\/$/, "") : ""
   const statusClass = status === undefined ? undefined : getFileStatusTextClass(status)
+  if (wholeDirectory && parent !== "") {
+    return (
+      // one line of a wrapping row: the directory that does not fit after the name wraps below it, out of sight
+      <span className={cn("flex h-[1lh] min-w-0 flex-wrap items-baseline gap-x-1.5 overflow-hidden", className)}>
+        <span className="flex max-w-full min-w-0 items-baseline gap-1.5">
+          {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
+          <span className={cn("min-w-0 truncate", statusClass)}>{label.name}</span>
+          {label.from !== null && <span className="min-w-0 shrink-[10] truncate text-muted-foreground">{`← ${label.from}`}</span>}
+        </span>
+        <span className="shrink-0 text-muted-foreground" data-testid="file-label-directory">
+          {parent}
+        </span>
+      </span>
+    )
+  }
   return (
     <span className={cn("flex min-w-0 items-baseline gap-1.5", className)}>
-      {status !== undefined && (
-        // the status class first: a deleted file strikes its name through, never its letter
-        <span aria-hidden className={cn("shrink-0 text-center font-mono text-xs", letterSlot === "icon" ? "w-4" : "w-3", statusClass, "no-underline")}>
-          {getFileStatusLetter(status)}
-        </span>
-      )}
+      {status !== undefined && <StatusLetter status={status} letterSlot={letterSlot} />}
       <span
         className={cn(
           "min-w-0 truncate",
@@ -67,5 +82,15 @@ function EmphasizedDirectory({ directory }: { directory: string }) {
       {directory.slice(0, slash + 1)}
       <span className="text-foreground">{directory.slice(slash + 1)}</span>
     </>
+  )
+}
+
+/** The letter of a status before the name */
+function StatusLetter({ status, letterSlot }: { status: FileStatus; letterSlot: "inline" | "icon" }) {
+  return (
+    // the status class first: a deleted file strikes its name through, never its letter
+    <span aria-hidden className={cn("shrink-0 text-center font-mono text-xs", letterSlot === "icon" ? "w-4" : "w-3", getFileStatusTextClass(status), "no-underline")}>
+      {getFileStatusLetter(status)}
+    </span>
   )
 }

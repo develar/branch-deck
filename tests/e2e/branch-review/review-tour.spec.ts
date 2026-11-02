@@ -347,11 +347,36 @@ test.describe("Review tour", () => {
     // it, its round a row of it without the issue key, which says so
     await expect(commitRow("The rule names its flag again")).toBeVisible()
     await expect(column).toHaveText([/^All Changes5 commits$/])
-    await expect(commitRow("The rule names its flag again").getByTestId("review-commit-role")).toHaveText("follows up")
+    // its role is its indent and its description, never a word that takes the width of its subject
+    await expect(commitRow("The rule names its flag again")).toHaveAttribute("aria-description", /^follows up, commit [0-9a-f]{7,}$/)
+    await expect(commitRow("The rule names its flag again").getByText("follows up")).toHaveCount(0)
     await expect(commitRow("the open keeps a stored layout")).toHaveCount(0)
     await expect(commitRow("2 · The open keeps a stored layout")).toHaveAttribute("aria-description", /^4 files, \+\d+ −\d+, commit [0-9a-f]{7,}$/)
-    await expect(commitRow("2 · The open keeps a stored layout").getByTestId("review-commit-role")).toHaveCount(0)
     await captureHtmlSnapshot(commitRow("2 · The open keeps a stored layout"), "review-tree-step-commit")
+    // the hover of the row of a step shows the hash of its commit where its line counts are: its title keeps its width
+    const stepRow = commitRow("2 · The open keeps a stored layout")
+    const titleWidth = () => stepRow.locator("[data-group]").evaluate(element => Math.round(element.getBoundingClientRect().width))
+    const width = await titleWidth()
+    await stepRow.hover()
+    await expect(stepRow.getByTestId("review-commit-hash")).toBeVisible()
+    await expect(stepRow.getByTestId("directory-line-counts")).toBeHidden()
+    expect(await titleWidth()).toBe(width)
+    await window.mouse.move(0, 0)
+    await expect(stepRow.getByTestId("review-commit-hash")).toBeHidden()
+    // a narrow window: the directory after the name of a file shows whole or not at all, never cut to its last letters
+    const wide = window.viewportSize()!
+    await window.setViewportSize({ width: 1024, height: 768 })
+    const cut = () =>
+      tree.getByTestId("file-label-directory").evaluateAll(
+        directories =>
+          directories.filter(directory => {
+            const box = directory.getBoundingClientRect()
+            const line = directory.parentElement!.getBoundingClientRect()
+            return box.top < line.bottom && box.right > line.right + 0.5
+          }).length,
+      )
+    await expect.poll(cut).toBe(0)
+    await window.setViewportSize(wide)
 
     // a commit with a body shows the mark of its card: its hover opens the card, I on the focused row too, the focus in
     // it; Escape closes the card alone and gives the focus back to the row

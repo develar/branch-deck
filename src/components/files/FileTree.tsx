@@ -532,7 +532,15 @@ const FileTreeRow = memo(function FileTreeRow({
         ) : (
           cardCommit !== null && <CommitRowMark commit={cardCommit} size="tree" {...cardState} />
         )}
-        {node.kind === "directory" ? node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} /> : node.kind === "file" && <FileLineCounts node={node} />}
+        {node.kind === "directory" ? (
+          node.commit !== undefined ? (
+            <StepRowEnd node={node} />
+          ) : (
+            node.group !== "commits" && node.fileCount > 0 && <DirectoryLineCounts node={node} />
+          )
+        ) : (
+          node.kind === "file" && <FileLineCounts node={node} />
+        )}
       </RowMenu>
       {content !== null && (
         <div className="my-1 overflow-hidden rounded-lg border border-border" style={{ marginLeft: indent }}>
@@ -604,29 +612,24 @@ function RowMenu({
 }
 
 /**
- * A commit in the group of its step: its subject, its role ("follows up", "no story"), what it is since the user's
- * review, the branch of a commit of the whole stack; the hash on hover
+ * A commit in the group of its step: its subject, which gets the width (its role, "follows up" or "no story", is its
+ * indent under the step, and the description of the row says it), what it is since the user's review, the branch of a
+ * commit of the whole stack; its hash in the title of the subject
  */
 function CommitRowContent({ node }: { node: FileTreeCommit }) {
   const { commit } = node
-  const role = formatCommitRole(commit.role)
   return (
     <>
       <GitCommitHorizontalIcon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate" title={commit.subject} data-testid="review-commit-subject">
+      <span className="min-w-0 flex-1 truncate" title={`${commit.subject}\n${formatShortHash(commit.id)}`} data-testid="review-commit-subject">
         {node.name}
       </span>
-      {role !== null && (
-        <span className="shrink-0 text-xs text-muted-foreground" data-testid="review-commit-role">
-          {role}
-        </span>
-      )}
       <CommitRowFacts node={node} />
     </>
   )
 }
 
-/** What a commit is since the user's review, the branch of a commit of the whole stack; the hash on hover */
+/** What a commit is since the user's review, the branch of a commit of the whole stack */
 function CommitRowFacts({ node: { commit } }: { node: FileTreeCommit }) {
   return (
     <>
@@ -645,11 +648,24 @@ function CommitRowFacts({ node: { commit } }: { node: FileTreeCommit }) {
           {commit.item.branch}
         </span>
       )}
-      {/* the subject gets the width: the hash shows on hover, and the heading of the commit alone has it */}
-      <span className="hidden font-mono text-xs text-muted-foreground group-hover/row:inline" data-testid="review-commit-hash">
-        {formatShortHash(commit.id)}
-      </span>
     </>
+  )
+}
+
+/**
+ * The end of the row of a step of the commits: its line counts, which its hover replaces with the hash of its commit
+ * in the same place, so the title keeps its width
+ */
+function StepRowEnd({ node }: { node: FileTreeDirectory }) {
+  return (
+    <span className="grid shrink-0 justify-items-end text-xs text-muted-foreground *:[grid-area:1/1]">
+      <span className="group-hover/row:invisible" data-testid="directory-line-counts">
+        {node.fileCount > 0 && <LineCounts additions={node.additions} deletions={node.deletions} colored={false} />}
+      </span>
+      <span className="invisible font-mono group-hover/row:visible" data-testid="review-commit-hash">
+        {formatShortHash(node.commit!.commit.id)}
+      </span>
+    </span>
   )
 }
 
@@ -695,7 +711,7 @@ function FileRowContent({ node, owner }: { node: FileTreeFile; owner: string | u
       {/* the letter where a directory has its folder icon, so the names align; the name keeps its width, the old name of a rename gives way first */}
       <span className="flex min-w-0 flex-1" title={owner === undefined ? path : `${path}\nOwned by ${owner}`}>
         {/* a file of a group is in no directory row: its directory follows its name */}
-        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup === true} letterSlot="icon" />
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup === true} letterSlot="icon" wholeDirectory />
       </span>
     </>
   )
@@ -708,7 +724,7 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-muted-foreground" title={`${owner === undefined ? path : `${path}\nOwned by ${owner}`}\n${node.home}`}>
       <span className="flex min-w-0">
-        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup} letterSlot="icon" />
+        <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup} letterSlot="icon" wholeDirectory />
       </span>
       <span className="shrink-0 text-xs">also</span>
     </span>
