@@ -12,6 +12,7 @@ targets:
   - ../../src/hooks/useSymbolNavigation.ts
   - ../../src/lib/diff/code-menu.ts
   - ../../crates/code-symbols/src/navigate.rs
+  - ../../crates/code-symbols/src/psi_kotlin/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
   - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
@@ -78,8 +79,11 @@ outside it.
   until the user presses or types in the view or selects elsewhere.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
-  declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere.
+  declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere. A
+  Kotlin name after a receiver and `::` (`Foo::bar`, `this::bar`) is a member of that receiver, as after a dot; a label
+  and a name in a doc comment are no names, but the `Outer` of `this@Outer` is a type.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_a_kotlin_local_a_parameter_that_shadows_a_property_and_a_member_declared_after_its_use`, `finds_a_java_field_a_local_and_tells_a_static_call_by_its_qualifier`, `finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`, `has_no_reference_outside_a_name`)
+  [@test] ../../crates/code-symbols/src/psi_kotlin/navigate_test.rs (`the_name_of_a_parameter_used_in_the_body_goes_to_the_parameter`, `the_parameter_of_a_catch_is_a_local_declaration`, `a_name_after_a_receiver_and_colons_is_its_member`, `the_subject_of_a_where_clause_is_the_type_parameter`, `a_label_and_a_doc_comment_have_no_names_but_the_label_of_this`, `a_script_declares_its_top_level_names_for_its_functions`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_to_a_local_by_the_scopes_and_nowhere_from_a_declaration`)
 - Else the declarations of the name in the files of the review, on the side of the name, in a language that sees it,
   ranked by what the name says of its owner: a member reached through a type, `this` or `self`, or a property of a
@@ -120,6 +124,7 @@ outside it.
   file; those of any other name are the names of that text that no local binds, in its file and in the same side of
   the other files of the review in a language that sees it, from the texts the diffs read: no git process.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows`, `tells_a_java_write_an_increment_and_an_import`, `finds_the_usages_of_a_rust_binding_and_of_an_imported_function`, `finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it`)
+  [@test] ../../crates/code-symbols/src/psi_kotlin/navigate_test.rs (`the_name_of_a_package_of_one_segment_is_one_usage`, `the_qualifier_of_an_assigned_member_is_its_whole_receiver`, `a_call_with_type_arguments_is_a_call_and_an_increment_a_write`)
   [@test] ../../crates/file-diffs/src/usages_test.rs (`finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only`)
 - The usages outside the review must come from the index of accio at the commit of the side (100 at most), only in the
   files the review lacks and in a language that sees the name; one `cat-file --batch-check` and one `cat-file --batch`

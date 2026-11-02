@@ -37,7 +37,6 @@ thread_local! {
 }
 
 /// The tree of a Kotlin file of `kind` from its bytes, every body expanded: the one Kotlin parse of the crate
-#[cfg_attr(not(test), expect(dead_code, reason = "for the walks of summary, highlight and navigate, which delegate to tree-sitter yet"))]
 pub(crate) fn parse(source: &[u8], kind: FileKind) -> Tree {
   let text = kotlin_syntax::document_text(source);
   PARSER.with_borrow_mut(|parser| parser.parse(&*text, kind))
