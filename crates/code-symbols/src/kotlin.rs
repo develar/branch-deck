@@ -6,11 +6,12 @@
 
 // jscpd:ignore-start: every language module implements one `Spec` with the same vocabulary
 use crate::extract::{
-  Binder, CallArguments, Child, Context, DeclRule, Header, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TEST_ANNOTATIONS, TYPE_IDENTIFIER,
-  Traits, ValueType, Walk, binder, decl, function_decl, line_of, type_decl,
+  Binder, CallArguments, Child, Context, DeclRule, Header, Holder, JvmFields, JvmHooks, LINE_COMMENT, Modality, Opens, Rule, SCOPE, Spec, TYPE_IDENTIFIER, Traits, ValueType, Walk,
+  binder, decl, function_decl, line_of, type_decl,
 };
 use crate::language::Language;
 use crate::summary::{Argument, Constructor, DeclKind, MemberKind, Parameter, Reach, Role, Signature};
+use crate::summary_builder::TEST_ANNOTATIONS;
 use tree_sitter::Node;
 // jscpd:ignore-end
 

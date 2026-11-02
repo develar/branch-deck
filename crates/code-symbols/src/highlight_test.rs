@@ -172,3 +172,27 @@ fn colours_a_javascript_name_by_its_declaration_as_intellij_does() {
     assert!(rendered.contains(expected), "{expected}\n{rendered}");
   }
 }
+
+#[test]
+fn leaves_that_tile_the_text_paint_as_the_walk_paints_its_leaf_nodes() {
+  use crate::highlight::paint::{Paint, comment_paint, paint_leaf};
+  let text = "val x // c\n/** @param a */";
+  let mut runs = LineRuns::builder(text);
+  let mut offset = 0;
+  for (leaf, paint) in [
+    ("val", Paint::Leaf(Role::Keyword.style())),
+    (" ", Paint::Inherit),
+    ("x", Paint::Opaque),
+    (" ", Paint::Inherit),
+    ("// c", comment_paint("// c")),
+    ("\n", Paint::Inherit),
+    ("/** @param a */", comment_paint("/** @param a */")),
+  ] {
+    paint_leaf(&mut runs, offset, leaf, paint, 0);
+    offset += leaf.len();
+  }
+  let runs = runs.finish();
+  let named = |line: usize| runs.line(line).chunks(2).map(|it| format!("{}:{}", it[0], style_name(it[1]))).collect::<Vec<_>>();
+  assert_eq!(named(0), ["0:keyword", "3:plain", "6:comment"]);
+  assert_eq!(named(1), ["0:docComment", "4:docTag", "10:docComment", "11:docTagValue", "12:docComment"]);
+}

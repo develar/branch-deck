@@ -68,9 +68,30 @@ pub(crate) fn function(scopes: &mut Scopes, cx: &mut Cx<'_, '_>, node: Node<'_>,
 
 /// A comment; a doc comment (`/**`, Rust's `///` and `//!`) has a colour of its own and its tags
 pub(crate) fn comment(cx: &Cx<'_, '_>, node: Node<'_>) -> Paint {
-  let text = cx.text_of(node);
+  comment_paint(cx.text_of(node))
+}
+
+/// The paint of a comment of this text, of any parser (`comment`)
+pub(crate) fn comment_paint(text: &str) -> Paint {
   let doc = (text.starts_with("/**") && text != "/**/") || (text.starts_with("///") && !text.starts_with("////")) || text.starts_with("//!");
   if doc { Paint::Lexed(Role::DocComment.style(), Lex::Doc) } else { Paint::Leaf(COMMENT) }
+}
+
+/// Paints one leaf of a tree whose leaves tile the text (psi-syntax's `Tree::leaves`), the text `text` at byte `start`,
+/// as `paint` paints a leaf node: the gap before it and an `Inherit` or `Opaque` leaf in `around` (the style of the node
+/// around it), a `Style` or `Leaf` in its style, a `Lexed` one in the pieces its lexer finds
+#[cfg_attr(not(test), expect(dead_code, reason = "for the highlighting of psi_kotlin and psi_java, which delegate to tree-sitter yet"))]
+pub(crate) fn paint_leaf(out: &mut Builder<'_>, start: usize, text: &str, paint: Paint, around: u32) {
+  out.push(start, around);
+  let end = start + text.len();
+  match paint {
+    Paint::Inherit | Paint::Opaque => out.push(end, around),
+    Paint::Style(style) | Paint::Leaf(style) => out.push(end, style),
+    Paint::Lexed(base, kind) => {
+      lex(kind, text, start, base, &mut |end, style| out.push(end, style));
+      out.push(end, base);
+    }
+  }
 }
 
 /// A type parameter: its name in its style, and in scope for its uses
