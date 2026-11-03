@@ -333,7 +333,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
           data-testid="review-contents-step-title"
           onClick={() => onShow?.()}
         >
-          {step.code ? <BreakableCode text={step.title} /> : step.title}
+          {step.code ? <BreakableCode text={step.title} humps /> : step.title}
         </button>
       </span>
       <div className="flex min-w-0 flex-col gap-1">
@@ -371,7 +371,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
         </Badge>
         <FileButton place={entry.place} title={entry.location} testId="review-plan-breakage-file">
           <code className="font-mono [overflow-wrap:anywhere]">
-            <BreakableCode text={entry.name} />
+            <BreakableCode text={entry.name} humps />
           </code>
         </FileButton>
       </div>
@@ -398,7 +398,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
             <button
               key={site.label}
               type="button"
-              className="flex min-w-0 items-baseline gap-1.5 self-start rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
+              className="flex max-w-full min-w-0 items-baseline gap-1.5 self-start rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
               title={site.label}
               disabled={navigator === null}
               data-testid="review-plan-site"

@@ -39,7 +39,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium", opening.titleInBody && "sr-only")}
           data-testid="review-opening-title"
         >
-          {opening.code ? <BreakableCode text={opening.title} /> : opening.title}
+          {opening.code ? <BreakableCode text={opening.title} humps /> : opening.title}
         </span>
       </button>
       {opening.subjectBefore !== null && <SubjectBefore subject={opening.subjectBefore} />}

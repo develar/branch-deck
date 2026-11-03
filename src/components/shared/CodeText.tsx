@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { InlineCode } from "@/components/shared/InlineCode"
 import type { CodeSpan } from "@/lib/bindings"
-import { codeWritten, glueAfter, glueBefore, isCodeChip, splitCodeAtBreaks } from "@/lib/inline-code"
+import { codeBreakParts, codeWritten, glueAfter, glueBefore, isCodeChip, splitCodeAtBreaks } from "@/lib/inline-code"
 
 /**
  * A line of prose with its spans of code as Rust found them (`sync_utils::code_spans`: a commit body, the prose of a
@@ -45,24 +45,29 @@ export function CodeText({ text, spans, code }: { text: string; spans: readonly 
 /**
  * Code and the punctuation that touches it, one unit of a line: "(Frame.paint)," never breaks before its comma or after
  * its parenthesis (a link of code is a button, an atomic inline a line may break around). The code inside breaks as it
- * would alone, at its slashes and dots (`BreakableCode`)
+ * would alone, at its slashes and dots (`BreakableCode`): its elements wrap again, the punctuation, text of this span,
+ * does not. No span between them: WebKit breaks around a button by the `white-space` of its parent
  */
 export function CodeGlue({ before = "", after = "", children }: { before?: string; after?: string; children: ReactNode }) {
   if (before === "" && after === "") {
     return <>{children}</>
   }
   return (
-    <span className="whitespace-nowrap">
+    <span className="whitespace-nowrap [&_*]:whitespace-normal">
       {before}
-      <span className="whitespace-normal">{children}</span>
+      {children}
       {after}
     </span>
   )
 }
 
-/** A name or a path of code, breakable only at its own boundaries (`splitCodeAtBreaks`): `Terminal.rightEdge`, never `Termi`/`nal` */
-export function BreakableCode({ text }: { text: string }) {
-  return splitCodeAtBreaks(text).map((part, index) => (
+/**
+ * A name or a path of code, breakable only at its own boundaries: `Terminal.rightEdge`, never `Termi`/`nal`. A name set
+ * apart (`humps`: the title of a step in the tree, its opening, the contents, an entry of Possible Breakage) breaks a
+ * part too long for its line at its humps too (`codeBreakParts`); inside a sentence it moves to the next line instead
+ */
+export function BreakableCode({ text, humps = false }: { text: string; humps?: boolean }) {
+  return (humps ? codeBreakParts(text) : splitCodeAtBreaks(text)).map((part, index) => (
     <Fragment key={index}>
       {index > 0 && <wbr />}
       {part}

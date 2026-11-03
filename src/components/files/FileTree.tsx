@@ -669,6 +669,8 @@ function DirectoryRowContent({
   return (
     <>
       <Icon className="my-0.5 size-4 shrink-0 text-muted-foreground" />
+      {/* the number of a step hangs before its title, which wraps under its own start with the whole width left */}
+      {node.lead !== undefined && <span className="shrink-0 font-medium tabular-nums">{node.lead.trimEnd()}</span>}
       <span
         className={cn(
           "min-w-0 flex-1",
@@ -682,15 +684,8 @@ function DirectoryRowContent({
         data-group={node.group}
         {...titleHover}
       >
-        {/* the number of a step in the font of the text; a code name wraps at its dots, never inside a word */}
-        {node.code === true ? (
-          <>
-            {node.lead !== undefined && <span className="font-sans">{node.lead}</span>}
-            <BreakableCode text={node.name.slice(node.lead?.length ?? 0)} />
-          </>
-        ) : (
-          node.name
-        )}
+        {/* a code name wraps at its dots, never inside a word but one wider than the row */}
+        {node.code === true ? <BreakableCode text={node.name.slice(node.lead?.length ?? 0)} humps /> : node.name.slice(node.lead?.length ?? 0)}
       </span>
       {ownerMark !== null && (
         <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">

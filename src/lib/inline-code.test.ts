@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { glueAfter, glueBefore, splitCodeAtBreaks } from "@/lib/inline-code"
+import { codeBreakParts, glueAfter, glueBefore, splitCodeAtBreaks } from "@/lib/inline-code"
 
 describe("splitCodeAtBreaks", () => {
   it("breaks a path before each slash", () => {
@@ -39,5 +39,13 @@ describe("the punctuation glued to code", () => {
   it("keeps an opening mark before code on its line, never the words before it", () => {
     expect(glueBefore("the output model (")).toBe("(")
     expect(glueBefore("travels in ")).toBe("")
+  })
+})
+
+describe("codeBreakParts", () => {
+  it("breaks a part too long for a line at its humps, a shorter one only at its dots", () => {
+    expect(codeBreakParts("TerminalContentUpdatedEvent.rightEdgeLineEnds")).toEqual(["Terminal", "Content", "Updated", "Event", ".rightEdgeLineEnds"])
+    expect(codeBreakParts("TerminalOutputModel.getRightEdgeLineEnds")).toEqual(["TerminalOutputModel", ".getRightEdgeLineEnds"])
+    expect(codeBreakParts("BOX_DRAWING_CODE_POINTS_OF_THE_TERMINAL")).toEqual(["BOX_DRAWING_CODE_POINTS_OF_THE_TERMINAL"])
   })
 })

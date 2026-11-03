@@ -267,7 +267,8 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   `bg-muted` whose halo (`ring-2 ring-muted`) takes no width, so the punctuation around it keeps its place; at
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code: a code name in a row of `text-sm` is `text-sm` too. Code
-  breaks only at its own boundaries (`/`, a non-final `.`; `BreakableCode`), never inside a word, and the punctuation
+  breaks only at its own boundaries (`/`, a non-final `.`; `BreakableCode`; a name set apart, too long for its line,
+  at its camelCase humps), never inside a word, and the punctuation
   that touches it stays on its line (`CodeGlue`: a link of code is a button, an atomic inline a line breaks around).
   A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).

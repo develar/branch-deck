@@ -434,9 +434,10 @@ for a message shown again, and only lays out what Rust read.
   [@test] ../../crates/sync-utils/src/code_spans_test.rs (`the_punctuation_around_a_token_stays_prose_and_tokens_one_space_apart_are_one_span`, `the_offsets_are_utf16_code_units`)
 - A long path must break before a `/` or a non-final `.`, never before a short final extension, and never inside a
   word: a code name set apart (the title of a step, a link of a story, a name of a fact) breaks there too
-  (`BreakableCode`). The punctuation that touches code must stay on its line (`CodeGlue`): a line never starts with
+  (`BreakableCode`); a title of a step or an entry of Possible Breakage breaks a part of 24 characters or more at its
+  camelCase humps too, so a name wider than its line breaks between words. The punctuation that touches code must stay on its line (`CodeGlue`): a line never starts with
   the comma or the period after code, a link of code too, nor ends with the parenthesis before it.
-  [@test] ../../src/lib/inline-code.test.ts (`breaks a path before each slash`, `does not break before a short final extension`, `breaks before a dot that is not the final extension`, `does not break inside a leading ./`, `does not break inside // or ...`, `keeps a CONSTANT_CASE name whole`, `keeps the closing marks and the end of a sentence after code on its line, never the words after them`, `keeps an opening mark before code on its line, never the words before it`)
+  [@test] ../../src/lib/inline-code.test.ts (`breaks a path before each slash`, `does not break before a short final extension`, `breaks before a dot that is not the final extension`, `does not break inside a leading ./`, `does not break inside // or ...`, `keeps a CONSTANT_CASE name whole`, `keeps the closing marks and the end of a sentence after code on its line, never the words after them`, `keeps an opening mark before code on its line, never the words before it`, `breaks a part too long for a line at its humps, a shorter one only at its dots`)
 - The subject must not detect code.
 
 ### Selection

@@ -20,6 +20,21 @@ export function splitCodeAtBreaks(content: string): string[] {
   return content.split(CODE_BREAK)
 }
 
+/** A part of a name past which a line of the sidebar or of a column may not hold it: its humps are its breaks too */
+const LONG_PART = 24
+
+// a hump of camelCase: a capital after a lowercase letter or a digit
+const HUMP = /(?<=[\p{Ll}\d])(?=\p{Lu})/u
+
+/**
+ * The parts of a code token a line may break between: at its slashes and dots (`splitCodeAtBreaks`), and inside a part
+ * of `LONG_PART` characters or more at its humps (`TerminalContent`, `Updated`, `Event`), so a name wider than its line
+ * breaks between words, never inside one; a shorter part stays whole, so a dot is the break while one exists
+ */
+export function codeBreakParts(content: string): string[] {
+  return splitCodeAtBreaks(content).flatMap(part => (part.length >= LONG_PART ? part.split(HUMP) : [part]))
+}
+
 // the punctuation that touches code and must not start a line without it (closing marks, the end of a sentence) or end
 // a line before it (opening marks)
 const GLUE_AFTER = /^[,.;:!?)\]}”’»…]+/

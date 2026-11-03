@@ -419,7 +419,7 @@ test.describe("Branch review window", () => {
     await segments.first().click()
     await expect(segments.first()).toHaveAttribute("aria-pressed", "true")
     await expect.poll(() => rangeFiles.calls.length).toBe(1)
-    expect(await reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
+    await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js", "ui/login.css", "ui/login.js", "README.md"])
     await expect(page.getByTestId("branch-review-body")).toHaveAttribute("aria-busy", "true")
     rangeFiles.release()
     await expect.poll(() => reviewedPaths(page)).toEqual(["auth/token.js"])
