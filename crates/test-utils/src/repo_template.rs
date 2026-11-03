@@ -807,6 +807,20 @@ pub mod templates {
       .commit_with_timestamp("fixup! (docs) Write the guide", &[("guide.md", "# Guide\n\n## Setup\n")], Some(1704124800))
   }
 
+  /// Commits to drop: `auth` with two commits, `docs` with one, an unassigned revert of the docs commit (a git revert
+  /// has no prefix of its own), and an unassigned commit on top
+  pub fn drop_commits() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("drop_commits")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial commit", &[("README.md", "# Accounts\n")], Some(1704117600))
+      .commit_with_timestamp("(auth) Check the password", &[("password.js", "export function check() {}\n")], Some(1704119400))
+      .commit_with_timestamp("(docs) Describe the accounts", &[("accounts.md", "# Accounts\n")], Some(1704121200))
+      .commit_with_timestamp("(auth) Lock the account", &[("lock.js", "export function lock() {}\n")], Some(1704123000))
+      .commit_deleting("Revert \"(docs) Describe the accounts\"", &[], &["accounts.md"], Some(1704124800))
+      .commit_with_timestamp("Bump the version", &[("version.txt", "2\n")], Some(1704126600))
+  }
+
   /// Stacked branches on: `auth` begins first and has the newest commit but one, a fixup of its oldest commit, `session`
   /// stacks on `auth`, `docs` and `search` begin after them; a squash of the fixup gives every commit above the oldest a
   /// new committer time

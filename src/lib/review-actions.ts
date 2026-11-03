@@ -159,7 +159,7 @@ export function wholeStackScopeOf(chain: readonly string[], baselineBranch: stri
 
 /**
  * The menu of a commit of a branch for the review, from the builder of its row's (`getCommitMenuGroups`) and
- * "Reword…": the forms (Move to…, the squash, the reword in the preview) open at the row (`requestCommitForm`), the
+ * "Reword…": the forms (Move to…, the squash, the drop, the reword in the preview) open at the row (`requestCommitForm`), the
  * copies are the window's own
  */
 export function getReviewCommitMenu(branch: Branch, commit: SyncedCommit): MenuItemGroups {
@@ -170,6 +170,7 @@ export function getReviewCommitMenu(branch: Branch, commit: SyncedCommit): MenuI
   const groups = getCommitMenuGroups(branch.name, [commit], {
     openTarget: formOf("move"),
     openSquash: formOf("squash"),
+    openDrop: formOf("drop"),
     removePrefix: commits => void moveCommits(commits, null),
   })
   const reword = getRewordMenuItem(commit, it => formOf("reword")([it as SyncedCommit]))

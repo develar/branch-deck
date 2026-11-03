@@ -32,6 +32,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("fixups", |path| templates::fixups().build(path)),
   ("fixup_order", |path| templates::fixup_order().build(path)),
   ("fixup_cancels", |path| templates::fixup_cancels().build(path)),
+  ("drop_commits", |path| templates::drop_commits().build(path)),
   ("long_subjects", |path| templates::long_subjects().build(path)),
   ("commit_tree", |path| templates::commit_tree().build(path)),
   ("commit_deleted", |path| templates::commit_deleted().build(path)),

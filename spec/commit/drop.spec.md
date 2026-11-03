@@ -18,6 +18,12 @@ targets:
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../src/presenters/rewrite.ts
   - ../../src/presenters/operations.ts
+  - ../../src/presenters/drop.ts
+  - ../../src/hooks/useDropCommits.ts
+  - ../../src/hooks/useCommitMoveList.ts
+  - ../../src/components/commit/InlineDropConfirm.tsx
+  - ../../src/components/commit/MovableCommitList.tsx
+  - ../../src/lib/review-actions.ts
 ---
 
 # Drop Commits
@@ -107,6 +113,22 @@ own commit with `bd drop`; a commit its lease already picked onto the shared bra
   (`already_undone`). The token of a drop is `drop:` with two full ids, and only the undo of a drop takes it.
   [@test] ../../crates/history-rewrite/src/drop_commits_test.rs (`a_drop_takes_the_commits_and_their_files_out_and_names_what_the_next_sync_builds_anew`, `a_drop_token_names_two_full_ids`)
   [@test] ../../crates/git-ops/src/unapply_test.rs (`a_drop_takes_the_commits_and_their_files_out_of_head_and_its_undo_brings_them_back`)
+
+### App
+
+- The context menu of commits (a branch, the unassigned commits, the preview, the review window) must offer "Drop
+  Commit…", "Drop N Commits…" for a selection, its key Backspace or Delete (⌫ on a Mac, Del elsewhere), which opens the
+  same with rows selected. It must open a confirmation below the lead row of the commits, as "Move to…" does: the
+  commits, "This removes N commits and their changes from HEAD" with what follows (the files, a commit and its revert,
+  local changes, the Undo, a pushed branch), "Drop Commit" ("Drop Commits") focused, so Enter drops, Escape and Cancel
+  close it.
+  [@test] ../../tests/e2e/drop-commits/drop-commits.spec.ts (`should drop a commit and its file from its menu and bring them back with the Undo of its toast`, `should drop the selected commit with the key, and say which branch it leaves without a commit`)
+- Success must show "Dropped N commits" with Undo, which brings them back with their files, its description saying
+  that the files did not change (a commit and its revert) and which branches have no commits left.
+  [@test] ../../tests/e2e/drop-commits/drop-commits.spec.ts (`should drop a commit and its file from its menu and bring them back with the Undo of its toast`, `should drop the selected commit with the key, and say which branch it leaves without a commit`)
+  [@test] ../../src/presenters/drop.test.ts (`says that the files stayed and names the branches left without a commit`)
+- A refusal must keep the commits and show "Cannot drop the commits" with why.
+  [@test] ../../tests/e2e/drop-commits/drop-commits.spec.ts (`should keep the commits and say why when the drop is refused`)
 
 ### `bd drop`
 

@@ -420,6 +420,8 @@ pub enum RepositoryTemplate {
   FixupOrder,
   #[serde(rename = "fixup_cancels")]
   FixupCancels,
+  #[serde(rename = "drop_commits")]
+  DropCommits,
   #[serde(rename = "long_subjects")]
   LongSubjects,
   #[serde(rename = "commit_tree")]
@@ -522,6 +524,7 @@ impl RepositoryTemplate {
       Self::Fixups => "fixups",
       Self::FixupOrder => "fixup_order",
       Self::FixupCancels => "fixup_cancels",
+      Self::DropCommits => "drop_commits",
       Self::LongSubjects => "long_subjects",
       Self::CommitTree => "commit_tree",
       Self::CommitDeleted => "commit_deleted",

@@ -1,0 +1,45 @@
+<div class="border-b border-border bg-muted/50 bd-padding-content" data-testid="drop-commits-form">
+  <div class="flex max-w-3xl flex-col gap-4">
+    <div class="flex flex-col gap-1">
+      <h2 class="text-sm font-medium" id="[ID]">
+        Drop commit
+      </h2>
+    </div>
+    <ul class="flex max-h-32 flex-col gap-1 overflow-y-auto" data-testid="drop-commits">
+      <li class="flex min-w-0 items-baseline gap-2">
+        <span class="shrink-0 font-mono text-xs text-muted-foreground">
+          [SHA]
+        </span>
+        <span class="min-w-0 truncate">
+          <span class="text-sm text-pretty text-foreground">
+            <span>
+              Check the password
+            </span>
+          </span>
+        </span>
+      </li>
+    </ul>
+    <div class="flex items-start gap-2 rounded-lg border p-3 text-sm border-warning/20 bg-warning/10" data-slot="callout" data-tone="warning">
+      <span class="flex h-lh shrink-0 items-center">
+        <svg aria-hidden="true" class="lucide lucide-triangle-alert size-4 text-warning" />
+      </span>
+      <div class="flex min-w-0 flex-1 flex-col gap-1.5 text-muted-foreground">
+        <p class="font-medium text-warning">
+          This removes 1 commit and its changes from HEAD
+        </p>
+        <p>
+          The files they changed go back to how they are without them, unless the commits cancel each other (a commit and its revert); uncommitted changes to those files stop the drop. Undo brings them back. A pushed branch needs a push again, and its open pull request keeps the commits until then.
+        </p>
+      </div>
+    </div>
+    <div class="flex items-center justify-end gap-2 pt-2">
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 font-normal hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+        Cancel
+      </button>
+      <button class="group/button inline-flex shrink-0 items-center justify-center rounded-2xl border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:bd-focus active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 bg-destructive/10 text-destructive hover:bg-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3" data-slot="button" tabindex="0" type="button">
+        <svg aria-hidden="true" class="lucide lucide-trash" data-icon="inline-start" />
+        Drop Commit
+      </button>
+    </div>
+  </div>
+</div>

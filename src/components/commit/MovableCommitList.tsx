@@ -3,6 +3,7 @@ import { CombineIcon, FolderInputIcon, UndoDotIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CommitList } from "@/components/commit/CommitList"
 import type { CommitListProps } from "@/components/commit/CommitList"
+import { InlineDropConfirm } from "@/components/commit/InlineDropConfirm"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
 import type { CommitMoveList } from "@/hooks/useCommitMoveList"
 import type { Commit } from "@/lib/bindings"
@@ -18,8 +19,8 @@ export interface MovableCommitListProps<T extends Commit> extends Omit<
 }
 
 /**
- * Commit list whose commits can be selected, moved to another branch ("Move to…" form, context menu, drag) and
- * squashed. The selection's actions sit at the end of the meta line of its lead row and the "Move to…" form opens right
+ * Commit list whose commits can be selected, moved to another branch ("Move to…" form, context menu, drag),
+ * squashed and dropped (the confirmation below the lead row, as the form). The selection's actions sit at the end of the meta line of its lead row and the "Move to…" form opens right
  * below that row, so selecting a commit adds no line and moves no row.
  */
 export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: MovableCommitListProps<T>) {
@@ -56,7 +57,16 @@ export function MovableCommitList<T extends Commit>({ moveList, ...listProps }: 
         onDragEnd={endCommitDrag}
         leadActions={<CommitSelectionActions moveList={moveList} />}
         leadForm={
-          isTargetOpen ? (
+          moveList.dropCommits !== null ? (
+            <InlineDropConfirm
+              commits={moveList.dropCommits}
+              onCancel={moveList.closeDrop}
+              onDropped={() => {
+                moveList.closeDrop()
+                selection.clearSelection()
+              }}
+            />
+          ) : isTargetOpen ? (
             <div ref={targetRef}>
               <InlineBranchTarget
                 commits={selection.selectedItems}

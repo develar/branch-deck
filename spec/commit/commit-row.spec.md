@@ -464,6 +464,9 @@ for a message shown again, and only lays out what Rust read.
 - The context menu of a row that is not selected must act on that commit only.
 - The context menu must not change the selection.
   [@test] ../../tests/e2e/unassigned-commits/unassigned-commits.spec.ts (`should select a range of rows with Shift+click`, `should select all rows with Cmd/Ctrl+A and clear the selection with Escape`, `should act on all selected commits from the context menu of a selected row`, `should act on that commit only from the context menu of a row that is not selected`)
+- The context menu of commits must offer "Drop Commit…" ("Drop N Commits…" for a selection), and Backspace or Delete
+  with rows selected must open the same confirmation below the lead row ([Drop Commits](drop.spec.md)).
+  [@test] ../../tests/e2e/drop-commits/drop-commits.spec.ts (`should drop a commit and its file from its menu and bring them back with the Undo of its toast`, `should drop the selected commit with the key, and say which branch it leaves without a commit`)
 - While the inline "Move to…" form is open, the card header must show "N selected" alone, as the line above the
   commits of a branch does ([Move Commits](../branch/move-commits.spec.md)).
   [@test] ../../tests/e2e/move-commits/move-commits.spec.ts (`should keep the rows in place as commits are selected and deselected`)
@@ -599,7 +602,7 @@ for a message shown again, and only lays out what Rust read.
   the preview ([Commit Review](commit-review.spec.md)), and `F Files`, which shows or hides the changed files.
 - An editable preview ends the footer with a ghost `xs` button `E Edit`, enabled during a sync too; "D Review Changes"
   of a commit without files is disabled with "The commit changes no files". A preview of a list with a row menu has "⋯" in its header, before the close button: the menu of the row (Move to…, Squash into, Push Up to
-  Here, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
+  Here, Drop Commit…, the copies), its key hints only for the keys of the preview; an item that opens a form of the row closes the
   preview first, a copy keeps it (`toPreviewMenu`). One builder lists the menu of commits for the row, its preview and
   the commit in the review window of its branch (`getCommitMenuGroups`), every item by a stable id
   ([Branch Review](../branch/branch-review.spec.md#title-bar-footer-and-actions)).

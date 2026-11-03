@@ -282,10 +282,11 @@ session, a form of a row by the main window at that row; the footer holds the ke
   tree after Show Commit Alone ([Review Tour](review-tour.spec.md#in-the-review-window)), and "⋯" at the end of its
   heading (a part of one commit has no column, its heading has it), built when it opens, without key hints and
   without submenus: "Reword…", "Move to…", the way back ("Move to Unassigned", "Move Back to …"), the squash into its
-  target, "Push Up to Here" (`getCommitMenuGroups`, the one builder of the menus of commits, every item by a stable
+  target, "Push Up to Here", "Drop Commit…" (`getCommitMenuGroups`, the one builder of the menus of commits, every item by a stable
   id), which the window builds from its own session by the id of the commit in the virtual branch and asks the main
   window to run (`review/run` with `commitIds`): it comes to the front, reveals the row, and a form opens at the row
-  (`requestCommitForm`: Move to… and the squash in the list, Reword… in the preview of the commit), a push pushes. The copies
+  (`requestCommitForm`: Move to…, the squash and the confirmation of the drop in the list, Reword… in the preview of
+  the commit), a push pushes. The copies
   ("Copy Commit Hash", "Copy Commit Message", "Copy Changed Paths") run in the window, of the commit as it shows it.
   The review of the whole stack has the copies only: "Review side-fix" leads to the menu.
   [@test] ../../tests/e2e/branch-review/branch-review.spec.ts (`should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window`)

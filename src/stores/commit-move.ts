@@ -41,12 +41,12 @@ export interface RevealRequest {
 
 /**
  * A form of commits a list opens for another window (the menu of a commit in the review window): "Move to…", the
- * squash dialog or the reword of the commit in its preview; the list of `branchName` consumes it once it has them
+ * squash dialog, the confirmation of a drop or the reword of the commit in its preview; the list of `branchName` consumes it once it has them
  */
 export interface CommitFormRequest {
   branchName: string
   commitIds: readonly string[]
-  form: "move" | "squash" | "reword"
+  form: "move" | "squash" | "drop" | "reword"
 }
 
 export interface CommitMoveState {

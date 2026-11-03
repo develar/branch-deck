@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, UndoDotIcon, UploadIcon } from "lucide-react"
+import { CombineIcon, FolderInputIcon, GitBranchIcon, GitBranchPlusIcon, Trash2Icon, UndoDotIcon, UploadIcon } from "lucide-react"
 import { getCommitCopyMenuItems } from "@/hooks/useCommitCopyActions"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { useRowSelection } from "@/hooks/useRowSelection"
@@ -10,6 +10,7 @@ import { getFixupTarget } from "@/lib/autosquash"
 import type { Commit } from "@/lib/bindings"
 import { getCommitHash } from "@/lib/commit"
 import type { MenuItem, MenuItemGroups } from "@/lib/menu"
+import { isMac } from "@/lib/platform"
 import { hasKeyModifier } from "@/lib/preview-keys"
 import { pushUpTo } from "@/lib/push-run"
 import { describePushUpTo, pushUpToIn } from "@/presenters/push"
@@ -46,6 +47,11 @@ export interface CommitMoveList<T extends Commit> {
   /** Opens the squash dialog for the selection, or for `commits` (which then become the selection); needs two commits */
   openSquash: (commits?: readonly T[]) => void
   closeSquash: () => void
+  /** The commits of the open confirmation of a drop, in list order; null while it is closed */
+  dropCommits: readonly T[] | null
+  /** Opens the confirmation of a drop for the selection, or for `commits` (which then become the selection) */
+  openDrop: (commits?: readonly T[]) => void
+  closeDrop: () => void
   contextMenuItems: (commits: T[]) => MenuItemGroups
   onKeyDown: (event: KeyboardEvent<HTMLTableElement>) => void
   onDragCommits: (commits: readonly T[]) => void
@@ -115,13 +121,17 @@ function getPushUpToItems(branchName: string, commit: Commit): MenuItem[] {
 export interface CommitMenuForms<T extends Commit> {
   readonly openTarget: (commits: readonly T[]) => void
   readonly openSquash: (commits: readonly T[]) => void
+  readonly openDrop: (commits: readonly T[]) => void
   readonly removePrefix: (commits: readonly T[]) => void
 }
+
+/** The key of Drop Commit as the menu shows it: ⌫ on a Mac, Del elsewhere; Backspace and Delete both drop */
+const DROP_KBD = isMac ? "⌫" : "Del"
 
 /**
  * The menu of commits of a list (of `sourceBranch`, null for the unassigned ones), every item by a stable id, one
  * builder for the menu of a row, of its preview and of a commit in the review window: "Move to…", "Move to Existing ›",
- * the way back ("Remove Prefix", "Move Back to …"), the squash, "Push Up to Here", the copies
+ * the way back ("Remove Prefix", "Move Back to …"), the squash, "Push Up to Here", the drop, the copies
  */
 export function getCommitMenuGroups<T extends Commit>(sourceBranch: string | null, menuCommits: readonly T[], forms: CommitMenuForms<T>): MenuItemGroups {
   if (menuCommits.length === 0) {
@@ -159,14 +169,24 @@ export function getCommitMenuGroups<T extends Commit>(sourceBranch: string | nul
     ? [{ id: "squash", label: `Squash ${menuCommits.length} Commits…`, icon: CombineIcon, kbds: ["s"], onSelect: () => forms.openSquash(menuCommits) }]
     : getSquashIntoItems(menuCommits[0]!)
   const pushItems = isMultiple || sourceBranch === null ? [] : getPushUpToItems(sourceBranch, menuCommits[0]!)
-  // a move or a squash during another rewrite goes to the session at once and waits there in the queue
-  return [moveItems, squashItems, pushItems, getCommitCopyMenuItems(menuCommits)]
+  const dropItems: MenuItem[] = [
+    {
+      id: "drop",
+      label: isMultiple ? `Drop ${menuCommits.length} Commits…` : "Drop Commit…",
+      icon: Trash2Icon,
+      kbds: [DROP_KBD],
+      onSelect: () => forms.openDrop(menuCommits),
+    },
+  ]
+  // a move, a squash or a drop during another rewrite goes to the session at once and waits there in the queue
+  return [moveItems, squashItems, pushItems, dropItems, getCommitCopyMenuItems(menuCommits)]
 }
 
 export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = false, sourceBranch }: CommitMoveListOptions<T>): CommitMoveList<T> {
   const sourceKey = sourceBranch ?? UNASSIGNED_SOURCE
   const [isTargetOpen, setIsTargetOpen] = useState(false)
   const [squashCommits, setSquashCommits] = useState<readonly T[] | null>(null)
+  const [dropCommits, setDropCommits] = useState<readonly T[] | null>(null)
 
   const selection = useRowSelection<T>({
     items: commits,
@@ -231,6 +251,21 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
   }
   const closeSquash = useCallback(() => setSquashCommits(null), [])
 
+  // the confirmation opens below the lead row of the commits, which it selects
+  const openDrop = (targetCommits?: readonly T[]) => {
+    const dropped = targetCommits ?? selectedItems
+    if (dropped.length === 0) {
+      return
+    }
+    if (targetCommits !== undefined) {
+      selectIds(targetCommits.map(getCommitHash))
+      claimSelection(sourceKey)
+    }
+    setIsTargetOpen(false)
+    setDropCommits(dropped)
+  }
+  const closeDrop = useCallback(() => setDropCommits(null), [])
+
   const removePrefixFrom = (targetCommits: readonly T[]) => {
     void moveCommits(targetCommits, null).then(success => {
       if (success) {
@@ -241,7 +276,7 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
 
   // no menu while the form is open
   const contextMenuItems = (menuCommits: T[]): MenuItemGroups =>
-    isTargetOpen ? [] : getCommitMenuGroups(sourceBranch, menuCommits, { openTarget, openSquash, removePrefix: removePrefixFrom })
+    isTargetOpen || dropCommits !== null ? [] : getCommitMenuGroups(sourceBranch, menuCommits, { openTarget, openSquash, openDrop, removePrefix: removePrefixFrom })
 
   // a form another window asked for (the menu of a commit in the review window), once the list has its commits: the
   // form opens in this render, the selection and the store follow in an effect
@@ -253,6 +288,9 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
       setOpenedForm(formRequest)
       if (formRequest.form === "move") {
         setIsTargetOpen(true)
+      } else if (formRequest.form === "drop") {
+        setIsTargetOpen(false)
+        setDropCommits(requested)
       } else if (requested.length > 1) {
         setIsTargetOpen(false)
         setSquashCommits(oldestFirst ? requested.toReversed() : requested)
@@ -270,7 +308,7 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
 
   const onKeyDown = (event: KeyboardEvent<HTMLTableElement>) => {
     // the open form handles Escape; the selection must not be cleared
-    if (isTargetOpen && event.key === "Escape") {
+    if ((isTargetOpen || dropCommits !== null) && event.key === "Escape") {
       event.preventDefault()
       return
     }
@@ -281,6 +319,9 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     } else if (event.code === "KeyS" && !hasKeyModifier(event) && selectedCount > 1) {
       event.preventDefault()
       openSquash()
+    } else if ((event.key === "Backspace" || event.key === "Delete") && !hasKeyModifier(event) && selectedCount > 0 && !isTargetOpen) {
+      event.preventDefault()
+      openDrop()
     }
   }
 
@@ -299,6 +340,9 @@ export function useCommitMoveList<T extends Commit>({ commits, oldestFirst = fal
     squashCommits,
     openSquash,
     closeSquash,
+    dropCommits,
+    openDrop,
+    closeDrop,
     contextMenuItems,
     onKeyDown,
     onDragCommits,

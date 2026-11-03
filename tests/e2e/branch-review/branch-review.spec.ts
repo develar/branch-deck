@@ -888,6 +888,7 @@ test.describe("Branch review window", () => {
       "Move to…",
       "Move to Unassigned",
       "Push Up to Here",
+      "Drop Commit…",
       "Copy Commit Hash",
       "Copy Commit Message",
       "Copy Changed Paths",
@@ -916,6 +917,14 @@ test.describe("Branch review window", () => {
     await expect(getBranchCommitRow(page, "login", "Add the login form")).toHaveAttribute("data-selected", "true")
     await page.keyboard.press("Escape")
     await expect(window.getByRole("menu")).toHaveCount(0)
+
+    // Drop Commit…: the confirmation below the row in the main window, at the commit
+    await older.click({ button: "right" })
+    await window.getByRole("menuitem", { name: "Drop Commit…" }).click()
+    await expect(page.getByTestId("drop-commits-form").getByRole("button", { name: "Drop Commit" })).toBeFocused()
+    await expect(getBranchCommitRow(page, "login", "Add the login form")).toHaveAttribute("data-selected", "true")
+    await page.keyboard.press("Escape")
+    await expect(page.getByTestId("drop-commits-form")).toHaveCount(0)
 
     // Reword…: the preview of the commit in the main window, its message in edit
     await older.click({ button: "right" })
