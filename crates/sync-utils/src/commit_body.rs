@@ -220,7 +220,12 @@ fn parts(blocks: &[CommitBodyBlock], raw_of: &[usize], lead: bool) -> Vec<Commit
       } => {
         let question = (start + 2).min(blocks.len());
         let raw = raw_of.get(start).copied();
-        question + blocks[question..].iter().zip(&raw_of[question..]).take_while(|(block, of)| !heads(block) && Some(**of) == raw).count()
+        question
+          + blocks[question..]
+            .iter()
+            .zip(&raw_of[question..])
+            .take_while(|(block, of)| !heads(block) && Some(**of) == raw)
+            .count()
       }
       _ if headed => blocks[start + 1..].iter().position(heads).map_or(blocks.len(), |next| start + 1 + next),
       _ => start + 1,
