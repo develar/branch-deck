@@ -471,6 +471,60 @@ fn nested_deletes_keep_only_the_whitelist() {
   assert!(root.join("out/dev-run/jar-cache/j").exists());
 }
 
+/// Every path under `dir`, sorted, symlinks not followed
+#[cfg(unix)]
+fn tree(dir: &Path) -> Vec<PathBuf> {
+  let mut paths = Vec::new();
+  for entry in std::fs::read_dir(dir).unwrap().flatten() {
+    paths.push(entry.path());
+    if entry.file_type().unwrap().is_dir() {
+      paths.extend(tree(&entry.path()));
+    }
+  }
+  paths.sort();
+  paths
+}
+
+/// What one rule of a pair did in a clean through the trash
+#[cfg(unix)]
+struct RuleRun {
+  freed_bytes: u64,
+  /// The paths it moved into the trash
+  trashed: usize,
+}
+
+/// The rules `delete` and `cargo` in either order, each time on a new checkout that `setup` fills: a dry run changes
+/// nothing and measures per rule what a clean through the trash then frees, byte for byte, without an error; `check`
+/// reads the checkout after the clean and what the delete and the cargo rule did
+#[cfg(unix)]
+fn clean_in_either_order(delete: &str, cargo: &str, setup: impl Fn(&Path), check: impl Fn(&Path, &RuleRun, &RuleRun)) {
+  for order in [[delete, cargo], [cargo, delete]] {
+    let (checkout, git) = git_checkout();
+    let root = checkout.path();
+    setup(root);
+    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
+    assert!(rules.iter().all(Result::is_ok), "{rules:?}");
+    let checkout = root.to_str().unwrap();
+    let before = tree(root);
+    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
+    assert_eq!(tree(root), before, "{order:?}: a dry run deletes nothing");
+    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
+    let trash = Trash::new(trash_root.path());
+    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
+    let trashed: Vec<usize> = cleaned.iter().map(|rule| rule.trashed.len()).collect();
+    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+    assert!(cleaned.iter().all(|rule| rule.error.is_none()), "{order:?}: {cleaned:?}");
+    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
+    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
+    let run = |index: usize| RuleRun {
+      freed_bytes: cleaned[index].freed_bytes,
+      trashed: trashed[index],
+    };
+    let (delete_index, cargo_index) = if order[0] == delete { (0, 1) } else { (1, 0) };
+    check(root, &run(delete_index), &run(cargo_index));
+  }
+}
+
 /// A `delete` of a target dir with `except` and the cargo rule of that dir, in either order: the stray entries of the
 /// target dir go whole (a nested target dir with a profile dir of its own, scratch dirs, a patch, a link as the link),
 /// the kept entries stay, and the cargo rule prunes only the profile dirs it keeps. The two never take the same path,
@@ -481,11 +535,7 @@ fn a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule() {
   let hour = Duration::from_hours(1);
   let outside = tempfile::tempdir().unwrap();
   std::fs::write(outside.path().join("kept"), "kept").unwrap();
-  let delete = "{ delete = \"target\", except = [\"debug\", \"release\", \"tools\", \"CACHEDIR.TAG\"] }";
-  let cargo = "{ cargo = \"target\", keep = 1, age = \"1h\" }";
-  for order in [[delete, cargo], [cargo, delete]] {
-    let (checkout, git) = git_checkout();
-    let root = checkout.path();
+  let setup = |root: &Path| {
     let target = root.join("target");
     for (profile, units) in [
       ("debug", [("h0", 10 * hour), ("h1", 9 * hour), ("h2", hour / 6)].as_slice()),
@@ -504,27 +554,21 @@ fn a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule() {
       std::fs::write(target.join(file), vec![1u8; 8192]).unwrap();
     }
     std::os::unix::fs::symlink(outside.path(), target.join("scratch")).unwrap();
-    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
-    let (delete_index, cargo_index) = if order[0] == delete { (0, 1) } else { (1, 0) };
-    let checkout = root.to_str().unwrap();
-
-    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
-    assert!(target.join("base40-target/debug/build/git-ops/h0").exists(), "a dry run deletes nothing");
-    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
-    let trash = Trash::new(trash_root.path());
-    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
-    assert_eq!(cleaned[cargo_index].trashed.len(), 3, "the stale units of debug and release alone: {cleaned:?}");
-    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
-
-    assert!(cleaned.iter().all(|rule| rule.error.is_none() && rule.freed_bytes > 0), "{order:?}: {cleaned:?}");
-    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
-    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
-    assert!(cleaned[delete_index].freed_bytes >= 3 * 8192 + 2 * 4096, "{order:?}: {cleaned:?}");
-    assert_eq!(entry_names(&target), ["CACHEDIR.TAG", "debug", "release"], "{order:?}");
-    assert_eq!(entry_names(&target.join("debug/build/git-ops")), ["h2"], "{order:?}");
-    assert_eq!(entry_names(&target.join("release/build/git-ops")), ["h1"], "{order:?}");
-    assert!(target.join("debug/.cargo-lock").exists() && outside.path().join("kept").exists(), "{order:?}");
-  }
+  };
+  clean_in_either_order(
+    "{ delete = \"target\", except = [\"debug\", \"release\", \"tools\", \"CACHEDIR.TAG\"] }",
+    "{ cargo = \"target\", keep = 1, age = \"1h\" }",
+    setup,
+    |root, delete, cargo| {
+      let target = root.join("target");
+      assert_eq!(cargo.trashed, 3, "the stale units of debug and release alone");
+      assert!(cargo.freed_bytes > 0 && delete.freed_bytes >= 3 * 8192 + 2 * 4096);
+      assert_eq!(entry_names(&target), ["CACHEDIR.TAG", "debug", "release"]);
+      assert_eq!(entry_names(&target.join("debug/build/git-ops")), ["h2"]);
+      assert_eq!(entry_names(&target.join("release/build/git-ops")), ["h1"]);
+      assert!(target.join("debug/.cargo-lock").exists() && outside.path().join("kept").exists());
+    },
+  );
 }
 
 /// An `except` entry of that delete names an entry byte for byte, for the cargo rule as for the delete: `Debug` keeps no
@@ -534,33 +578,26 @@ fn a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule() {
 #[test]
 fn a_kept_entry_of_a_target_dir_is_its_exact_name() {
   let hour = Duration::from_hours(1);
-  let delete = "{ delete = \"target\", except = [\"Debug\", \"release\"] }";
-  let cargo = "{ cargo = \"target\", keep = 1, age = \"1h\" }";
-  for order in [[delete, cargo], [cargo, delete]] {
-    let (checkout, git) = git_checkout();
-    let root = checkout.path();
-    let target = root.join("target");
+  let setup = |root: &Path| {
     for profile in ["debug", "release"] {
-      std::fs::create_dir_all(target.join(profile)).unwrap();
-      std::fs::write(target.join(profile).join(".cargo-lock"), "").unwrap();
-      unit(&target.join(profile).join("build/git-ops/h0"), 10 * hour);
-      unit(&target.join(profile).join("build/git-ops/h1"), 9 * hour);
+      let profile = root.join("target").join(profile);
+      std::fs::create_dir_all(&profile).unwrap();
+      std::fs::write(profile.join(".cargo-lock"), "").unwrap();
+      unit(&profile.join("build/git-ops/h0"), 10 * hour);
+      unit(&profile.join("build/git-ops/h1"), 9 * hour);
     }
-    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
-    let (delete_index, cargo_index) = if order[0] == delete { (0, 1) } else { (1, 0) };
-    let checkout = root.to_str().unwrap();
-    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
-    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
-    let trash = Trash::new(trash_root.path());
-    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
-    assert_eq!(cleaned[cargo_index].trashed.len(), 1, "the stale unit of release alone: {cleaned:?}");
-    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
-    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
-    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
-    assert!(cleaned[delete_index].freed_bytes >= 2 * 4096, "{order:?}: {cleaned:?}");
-    assert_eq!(entry_names(&target), ["release"], "{order:?}");
-    assert_eq!(entry_names(&target.join("release/build/git-ops")), ["h1"], "{order:?}");
-  }
+  };
+  clean_in_either_order(
+    "{ delete = \"target\", except = [\"Debug\", \"release\"] }",
+    "{ cargo = \"target\", keep = 1, age = \"1h\" }",
+    setup,
+    |root, delete, cargo| {
+      assert_eq!(cargo.trashed, 1, "the stale unit of release alone");
+      assert!(delete.freed_bytes >= 2 * 4096);
+      assert_eq!(entry_names(&root.join("target")), ["release"]);
+      assert_eq!(entry_names(&root.join("target/release/build/git-ops")), ["h1"]);
+    },
+  );
 }
 
 /// The dir of the cargo rule may be a profile dir itself (`target/debug`), its delete a whitelist that drops the
@@ -570,35 +607,27 @@ fn a_kept_entry_of_a_target_dir_is_its_exact_name() {
 #[test]
 fn a_delete_of_a_profile_dir_keeps_its_unit_dirs_for_the_cargo_rule() {
   let hour = Duration::from_hours(1);
-  let delete = "{ delete = \"target/debug\", except = [\"deps\", \"build\", \"incremental\", \".cargo-lock\"] }";
-  let cargo = "{ cargo = \"target/debug\", keep = 1, age = \"1h\" }";
   let (old, newest) = ("1111111111111111", "3333333333333333");
-  for order in [[delete, cargo], [cargo, delete]] {
-    let (checkout, git) = git_checkout();
-    let root = checkout.path();
+  let setup = |root: &Path| {
     let profile = root.join("target/debug");
     std::fs::create_dir_all(&profile).unwrap();
     std::fs::write(profile.join(".cargo-lock"), "").unwrap();
     std::fs::write(profile.join("aho-corasick"), vec![1u8; 8192]).unwrap();
     classic_unit(&profile, old, 10 * hour);
     classic_unit(&profile, newest, 2 * hour);
-    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
-    assert!(rules.iter().all(Result::is_ok), "{rules:?}");
-    let cargo_index = usize::from(order[0] == delete);
-    let checkout = root.to_str().unwrap();
-    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
-    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
-    let trash = Trash::new(trash_root.path());
-    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
-    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
-    assert!(cleaned.iter().all(|rule| rule.error.is_none() && rule.freed_bytes > 0), "{order:?}: {cleaned:?}");
-    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
-    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
-    assert!(cleaned[cargo_index].freed_bytes >= 6 * 4096, "{order:?}: the old unit in deps and build: {cleaned:?}");
-    assert_eq!(entry_names(&profile), [".cargo-lock", "build", "deps"], "{order:?}");
-    assert!(entry_names(&profile.join("deps")).iter().all(|name| name.contains(newest)), "{order:?}");
-    assert_eq!(entry_names(&profile.join("build")), [format!("aho-corasick-{newest}")], "{order:?}");
-  }
+  };
+  clean_in_either_order(
+    "{ delete = \"target/debug\", except = [\"deps\", \"build\", \"incremental\", \".cargo-lock\"] }",
+    "{ cargo = \"target/debug\", keep = 1, age = \"1h\" }",
+    setup,
+    |root, delete, cargo| {
+      let profile = root.join("target/debug");
+      assert!(delete.freed_bytes >= 8192 && cargo.freed_bytes >= 6 * 4096, "the old unit in deps and build");
+      assert_eq!(entry_names(&profile), [".cargo-lock", "build", "deps"]);
+      assert!(entry_names(&profile.join("deps")).iter().all(|name| name.contains(newest)));
+      assert_eq!(entry_names(&profile.join("build")), [format!("aho-corasick-{newest}")]);
+    },
+  );
 }
 
 /// A process that works in a stale unit or in an entry of a `delete` (a shell or a build of an agent) keeps it: on Windows
