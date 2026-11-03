@@ -1480,8 +1480,8 @@ enum FreeSpace {
   /// (`shrink_for_get`), never under the clones lock
   Shrink,
   /// Below the minimum after the shrink, and the get evicted no slot yet: free slots of every pool go below
-  /// `branchdeck.leaseMaxSlots`, one at a time, the ones returned longest ago first, until the volume has the minimum and
-  /// its margin (`evict_for_get`), never under the clones lock
+  /// `branchdeck.leaseMaxSlots`, one at a time, the ones returned longest ago first, until the volume has the minimum
+  /// (`evict_for_get`), never under the clones lock
   Evict,
 }
 
@@ -1623,9 +1623,10 @@ fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>
 }
 
 /// The eviction of free slots of the pools of the machine below `branchdeck.leaseMaxSlots` (`trim::evict_core`), told as
-/// a step, up to the minimum and its margin (`shrink_target`) of the volume of `pool_dir`. After the shrink a free slot
-/// holds little but its worktree, which a later get clones again; a refusal instead would leave the user to delete
-/// slots by hand
+/// a step, up to the minimum of the volume of `pool_dir`, without the margin of the shrink: a slot is a whole worktree,
+/// and with slots of 15 GiB and a margin of 20 GiB a margin would delete one more slot after the volume is already
+/// above the minimum. After the shrink a free slot holds little but its worktree, which a later get clones again; a
+/// refusal instead would leave the user to delete slots by hand
 fn evict_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, (pool_dir, min_free): (&Path, u64), report: &dyn Fn(GetStep)) -> Trimmed {
   report(GetStep::Evict);
   let available = |path: &Path| params.available(path);
@@ -1642,7 +1643,7 @@ fn evict_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>,
         lock_timeout: params.lock_timeout,
       },
       volume: pool_dir,
-      target: shrink_target(min_free),
+      target: min_free,
       available: &available,
     },
   )

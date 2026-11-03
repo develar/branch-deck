@@ -13,7 +13,7 @@
 //!
 //! A get that the trim and the shrink (`shrink`) leave below the minimum evicts free slots below the limit as well
 //! (`evict_core`): the same removal of a slot, in the order of the shrink across every pool, each deleted before the
-//! next one is chosen, until the volume has the minimum and its margin; only the slots on the volume of the get.
+//! next one is chosen, until the volume has the minimum; only the slots on the volume of the get.
 
 use crate::bazel_servers::child_dirs;
 use crate::free_space::{AvailableBytes, Volume};
@@ -336,7 +336,7 @@ pub struct EvictParams<'a> {
   pub trim: TrimParams<'a>,
   /// The volume whose free space the eviction raises: the pool directory of the get
   pub volume: &'a Path,
-  /// The free bytes at which it stops: the minimum and its margin (`lease::shrink_target`)
+  /// The free bytes at which it stops: the minimum, without the margin of the shrink
   pub target: u64,
   /// The free bytes of the volume of a path (`free_space::available_bytes`; a test tells a volume of its own)
   pub available: &'a AvailableBytes<'a>,

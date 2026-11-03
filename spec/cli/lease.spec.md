@@ -213,7 +213,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `branchdeck.leaseMaxSlots` once (`deleting free slots below …`), never under the clones lock: in the order of the
   shrink across every pool of the machine, each as the trim deletes a slot (the `cleaning` marker, its Bazel servers
   stopped, its directory and its output bases through the trash, its registration and its entry dropped), deleted
-  before the next is chosen, one `statfs` before each, until the volume has the minimum and a tenth of it. Only the
+  before the next is chosen, one `statfs` before each, until the volume has the minimum, without the margin of the
+  shrink: a slot is a whole worktree, and with slots of 15 GiB a margin of 20 GiB would delete one more after the
+  volume is already above the minimum. Only the
   slots on the volume the get measures are candidates, as for the shrink. A slot with a lease of any state (a host slot
   too) and one with a process in it but its Bazel servers stay, and so do three free slots: the one the get takes next
   in its own pool, which it reuses warm where an eviction would make it clone the same worktree again; one marked
@@ -230,7 +232,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_limit_returned_longest_ago_first`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`, `a_get_below_the_minimum_free_space_refuses_and_names_it`)
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_eviction_keeps_dirty_and_never_returned_free_slots`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_eviction_keeps_dirty_and_never_returned_free_slots`, `the_eviction_stops_at_the_minimum_without_the_margin_of_the_shrink`)
   [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty; later gets must try a dirty slot

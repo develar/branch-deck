@@ -301,7 +301,7 @@ pub struct LeaseGetOutput {
   pub shrunk: Option<crate::trim_command::ShrunkOutput>,
   /// The free space was still below the minimum after the shrink: the free slots below `branchdeck.leaseMaxSlots` that
   /// the get deleted with their Bazel output bases, the ones returned longest ago first, one at a time until the volume
-  /// had the minimum and a tenth of it (as `bd lease trim` prints them)
+  /// had the minimum (as `bd lease trim` prints them)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub evicted: Option<crate::trim_command::TrimmedOutput>,
 }

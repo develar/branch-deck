@@ -1421,8 +1421,8 @@ fn evicted_paths(got: &lease_pool::lease::LeaseGot) -> Vec<String> {
 }
 
 /// A get that the shrink leaves below the minimum deletes free slots below `branchdeck.leaseMaxSlots` (3 of 10 here),
-/// the one returned longest ago first, one at a time, until the volume has the minimum and a tenth of it, and leases
-/// the slot that is left
+/// the one returned longest ago first, one at a time, until the volume has the minimum, and leases the slot that is
+/// left
 #[test_log::test]
 fn a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_limit_returned_longest_ago_first() {
   let shrink = ShrinkFixture::new();
@@ -1450,6 +1450,32 @@ fn a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_l
   assert_eq!((&got.slot.path, got.free_bytes), (third, Some(113 * GIB)));
   assert_eq!(kinds(&steps)[..4], ["trim", "shrink", "evict", "reserve"]);
   assert_eq!(states(&shrink.fixture.status()), [(third.clone(), "ready".to_string())]);
+}
+
+/// The eviction stops at the minimum itself, not at the margin of the shrink: a slot is a whole worktree, and the one
+/// that lifts the volume past the minimum is the last to go
+#[test_log::test]
+fn the_eviction_stops_at_the_minimum_without_the_margin_of_the_shrink() {
+  let shrink = ShrinkFixture::new();
+  let [first, second, third] = &shrink.slots;
+  let steps = std::sync::Mutex::new(Vec::new());
+  // 53 GiB after the shrink, 101 once the first slot is gone: past the minimum of 100, below the 110 of its margin
+  let got = shrink
+    .get(
+      Volume {
+        base: 50,
+        per_unit: 1,
+        per_slot: 48,
+      },
+      &steps,
+    )
+    .unwrap();
+  assert_eq!(evicted_paths(&got), std::slice::from_ref(first));
+  assert_eq!((&got.slot.path, got.free_bytes), (third, Some(101 * GIB)));
+  assert_eq!(
+    states(&shrink.fixture.status()),
+    [(second.clone(), "free".to_string()), (third.clone(), "ready".to_string())]
+  );
 }
 
 /// A get that the trim, the shrink and the eviction leave below the minimum refuses, with nothing leased, and names
