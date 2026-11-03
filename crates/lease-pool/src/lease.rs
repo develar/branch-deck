@@ -18,7 +18,7 @@ use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
-use crate::shrink::{ShrinkParams, Shrunk, shrink_core};
+use crate::shrink::{ShrinkParams, Shrunk, lock_pressure, shrink_core};
 use crate::state_file::StateFile;
 use crate::trim::{EvictParams, TrimParams, Trimmed, evict_core, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
@@ -753,6 +753,11 @@ impl Pool {
     self.state.read()
   }
 
+  /// The directory of its state and its locks, `$GIT_COMMON_DIR/branch-deck`
+  pub fn state_dir(&self) -> &Path {
+    self.state.dir()
+  }
+
   /// The trash of the returns and the cleans (`lease_clean::Trash`)
   pub fn trash_dir(&self) -> PathBuf {
     self.state.dir().join(TRASH_DIR)
@@ -907,6 +912,9 @@ pub enum GetStep {
   /// `branchdeck.leaseMaxSlots` are deleted with their Bazel output bases, the ones returned longest ago first, one at a
   /// time (`trim::evict_core`), without the clones lock
   Evict,
+  /// The shrink or the eviction waits for the one of another get of the machine (`shrink::lock_pressure`), told when
+  /// its holder changes; after its turn the get measures again
+  WaitForPressure { pid: u32, command: String },
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -949,6 +957,10 @@ impl fmt::Display for GetStep {
       ),
       Self::Evict => f.write_str(
         "deleting free slots below `branchdeck.leaseMaxSlots` of the pools of this machine, returned longest ago first, with their Bazel output bases: the free space is below the minimum after the shrink",
+      ),
+      Self::WaitForPressure { pid, command } => write!(
+        f,
+        "waiting for the shrink or the eviction of another get ({command}, pid {pid}): the free space is measured again after it"
       ),
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
@@ -1515,10 +1527,38 @@ impl Relief {
         self.swept = true;
       }
       FreeSpace::Trim => self.trimmed = Some(trim_for_get(git_executor, params, report)),
-      FreeSpace::Shrink => self.shrunk = Some(shrink_for_get(git_executor, params, (pool_dir, min_free), report)),
-      FreeSpace::Evict => self.evicted = Some(evict_for_get(git_executor, params, (pool_dir, min_free), report)),
+      FreeSpace::Shrink => {
+        report(GetStep::Shrink);
+        let _pressure = pressure_turn(params, pool, report);
+        self.shrunk = Some(shrink_for_get(git_executor, params, (pool_dir, min_free)));
+      }
+      FreeSpace::Evict => {
+        report(GetStep::Evict);
+        let _pressure = pressure_turn(params, pool, report);
+        self.evicted = Some(evict_for_get(git_executor, params, (pool_dir, min_free)));
+      }
     }
   }
+}
+
+/// The turn of the get at the shrink and the eviction of the machine (`shrink::lock_pressure`), which the core measures
+/// after first: a get that waited for one beside it usually finds the volume above its target and deletes nothing. A
+/// lock that can't be taken leaves the get to go on without it, as the gets did before the lock. The wait is told once
+/// per holder (`GetStep::WaitForPressure`)
+fn pressure_turn(params: &LeaseGetParams<'_>, pool: &Pool, report: &dyn Fn(GetStep)) -> Option<RepositoryLock> {
+  let mut told = None;
+  let mut on_holder = |holder: &LockHolder| {
+    if told != Some(holder.pid) {
+      told = Some(holder.pid);
+      report(GetStep::WaitForPressure {
+        pid: holder.pid,
+        command: holder.command.clone(),
+      });
+    }
+  };
+  lock_pressure(params.home, pool, params.lock_timeout, &mut on_holder)
+    .inspect_err(|error| warn!(error = %format!("{error:#}"), "cannot take the lock of the shrink and the eviction of the machine"))
+    .ok()
 }
 
 /// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs` (`LeaseGetParams::space`),
@@ -1606,8 +1646,7 @@ pub const fn shrink_target(min_free: u64) -> u64 {
 
 /// The shrink of the pools of the machine below the minimum free space (`shrink::shrink_core`), told as a step, up to
 /// the minimum and its margin (`shrink_target`) of the volume of `pool_dir`
-fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, (pool_dir, min_free): (&Path, u64), report: &dyn Fn(GetStep)) -> Shrunk {
-  report(GetStep::Shrink);
+fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, (pool_dir, min_free): (&Path, u64)) -> Shrunk {
   let available = |path: &Path| params.available(path);
   shrink_core(
     git_executor,
@@ -1627,8 +1666,7 @@ fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>
 /// and with slots of 15 GiB and a margin of 20 GiB a margin would delete one more slot after the volume is already
 /// above the minimum. After the shrink a free slot holds little but its worktree, which a later get clones again; a
 /// refusal instead would leave the user to delete slots by hand
-fn evict_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, (pool_dir, min_free): (&Path, u64), report: &dyn Fn(GetStep)) -> Trimmed {
-  report(GetStep::Evict);
+fn evict_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, (pool_dir, min_free): (&Path, u64)) -> Trimmed {
   let available = |path: &Path| params.available(path);
   evict_core(
     git_executor,

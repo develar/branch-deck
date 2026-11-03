@@ -1950,7 +1950,9 @@ delete of a trash of tens of GB took minutes with every get behind it waiting, s
 run there releases the lock, deletes it, and takes its turn again, once per wait. The locks of the pool are taken in
 one order, `clones.lock`, `leases.lock`, `worktrees.lock`: a get takes the other two under the clones lock, one at a
 time, and nothing is taken under the pool lock or under `worktrees.lock` (the move of an adopt holds only the
-latter); a return and a clean take only the pool lock, so neither waits for a clone.
+latter); a return and a clean take only the pool lock, so neither waits for a clone. The shrink and the eviction of a
+get take `~/.branch-deck/pressure.lock`, one for the machine (`shrink::lock_pressure`), never under the clones lock,
+and the pool locks of the slots they mark under it.
 
 0. Free space: with `branchdeck.leaseMinFree` (or `--min-free`), a get whose pool volume has less free space
    (`f_bavail` of one `statfs`, no git) refuses as `low_disk_space` before it reserves anything, and a get that adds a
@@ -1981,7 +1983,10 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    get count, as the one `statfs` measures that volume alone: without it a get whose pool lives on another disk
    (`branchdeck.leasePool`) cleaned and then deleted every free slot of the home disk and still refused. Two APFS
    volumes of one container share their free space and not their device, a case that frees less than it could and
-   deletes nothing for nothing. A slot with a process in it stays. After each slot one
+   deletes nothing for nothing. A slot with a process in it stays. The shrink and the eviction of every get of the
+   machine run under one lock, `~/.branch-deck/pressure.lock`: each measures only before its own next slot, so the
+   gets of a `bd-host` fill below the minimum, threads side by side, cleaned or deleted up to one slot more each than
+   the volume needed; a get that waited measures first and usually finds the volume past its target. After each slot one
    `statfs`; the shrink stops at the minimum and a tenth of it, a margin that keeps the next gets, whose leases build,
    from cleaning one more slot each, smaller than a whole slot, which would clean two where one lifts the volume over
    the minimum. The trim comes first: the slots past the limit go anyway, and a clean of them would be work for

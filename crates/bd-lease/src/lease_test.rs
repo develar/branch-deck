@@ -1304,6 +1304,11 @@ impl ShrinkFixture {
 
   /// `bd lease get` on `volume`, each step recorded in `steps`
   fn get(&self, volume: Volume, steps: &std::sync::Mutex<Vec<GetStep>>) -> anyhow::Result<lease_pool::lease::LeaseGot> {
+    self.get_reporting(volume, &|step| steps.lock().unwrap().push(step))
+  }
+
+  /// `bd lease get` on `volume`, each step told to `progress`
+  fn get_reporting(&self, volume: Volume, progress: &(dyn Fn(GetStep) + Sync)) -> anyhow::Result<lease_pool::lease::LeaseGot> {
     let environment = self.fixture.environment(self.fixture.repo.path());
     let context = LeaseContext::resolve(&environment, None).map_err(|error| anyhow::anyhow!("{}", error.message))?;
     let space = |_: &Path| {
@@ -1324,7 +1329,7 @@ impl ShrinkFixture {
         server_timeout: context.server_stop_timeout,
         bazel: None,
         lock_timeout: context.lock_timeout,
-        progress: Some(&|step| steps.lock().unwrap().push(step)),
+        progress: Some(progress),
         space: Some(&space),
       },
     )
@@ -1411,6 +1416,47 @@ fn a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot() {
   assert_eq!(shrunk_paths(&got), std::slice::from_ref(&shrink.slots[0]));
   assert_eq!(shrink.units(), [false, true, true]);
   assert_eq!(got.slot.path, shrink.slots[2]);
+}
+
+/// The shrink and the eviction of the gets of the machine take turns (`lock_pressure`): a get below the minimum that
+/// waits for the shrink of another tells the wait, measures after its turn, finds the volume past the target that one
+/// left, and cleans nothing
+#[test_log::test]
+fn a_get_that_waited_for_the_shrink_of_another_cleans_nothing_once_the_volume_has_the_target() {
+  let shrink = ShrinkFixture::new();
+  let environment = shrink.fixture.environment(shrink.fixture.repo.path());
+  let pool = lease_pool::lease::Pool::new(&shrink.fixture.repo.path().join(".git"));
+  let held = lease_pool::shrink::lock_pressure(environment.home.as_deref(), &pool, Duration::from_secs(10), &mut |_| {}).unwrap();
+  let (waiting, waits) = std::sync::mpsc::channel();
+  let shrink = &shrink;
+  let got = std::thread::scope(|scope| {
+    let get = scope.spawn(move || {
+      // dropped with the get: a get that never waits ends the test's wait with an error
+      let waiting = std::sync::Mutex::new(waiting);
+      shrink.get_reporting(
+        Volume {
+          base: 99,
+          per_unit: 6,
+          per_slot: 0,
+        },
+        &|step| {
+          if let GetStep::WaitForPressure { pid, .. } = step {
+            waiting.lock().unwrap().send(pid).unwrap();
+          }
+        },
+      )
+    });
+    assert_eq!(waits.recv().unwrap(), std::process::id());
+    // what the shrink of the get that holds the turn deletes: 111 GiB, past the 110 of the minimum and its margin
+    for slot in &shrink.slots[..2] {
+      std::fs::remove_file(ShrinkFixture::unit(slot)).unwrap();
+    }
+    drop(held);
+    get.join().unwrap().unwrap()
+  });
+  assert_eq!(shrunk_paths(&got), Vec::<String>::new());
+  assert_eq!(shrink.units(), [false, false, true]);
+  assert_eq!((&got.slot.path, got.free_bytes), (&shrink.slots[2], Some(111 * GIB)));
 }
 
 /// The paths of the slots the eviction of a get deleted, in its order

@@ -196,7 +196,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   another disk, whose deletes would not raise that free space; two APFS volumes of one container share their free
   space but not their device, so their slots are passed over too. A free slot with a process in it stays (`busy`), as
   does one without rules. A free slot marked dirty and one never returned are cleaned as well: their rules name build
-  output, never the changes in their worktree. Before each slot the get measures (one `statfs`) and stops once the volume has the minimum and a
+  output, never the changes in their worktree. The shrinks and the evictions of the gets of the machine take turns
+  under one lock (`~/.branch-deck/pressure.lock`; without a home, beside the state of the pool): a get that waits
+  tells it (`waiting for the shrink or the eviction of another get …`) and measures again after its turn, so gets side
+  by side clean no slot that the volume did not need. Before each slot the get measures (one `statfs`) and stops once the volume has the minimum and a
   tenth of it: without the margin every later get would find the volume just below the minimum again and clean one
   more slot. Its answer names each slot it cleaned with what its rules freed (`shrunk`), and a `low_disk_space` after
   it names how many slots it cleaned and the bytes they freed. On 2026-11-03 each free slot of branch-deck held 50 to
@@ -208,6 +211,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`)
   [@test] ../../crates/lease-pool/src/shrink_test.rs (`the_shrink_takes_the_free_slots_returned_longest_ago_across_pools_and_each_pools_next_one_last`, `the_next_slot_of_a_pool_is_the_one_its_get_would_take`)
   [@test] ../../crates/lease-pool/src/free_space_test.rs (`a_volume_holds_the_paths_of_its_own_device_only`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_that_waited_for_the_shrink_of_another_cleans_nothing_once_the_volume_has_the_target`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
 - A get whose volume is still below the minimum free space after the shrink must evict free slots below
   `branchdeck.leaseMaxSlots` once (`deleting free slots below …`), never under the clones lock: in the order of the

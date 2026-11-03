@@ -10,19 +10,39 @@
 //! A slot is cleaned only while it is free, under the `cleaning` marker that keeps every get off it, as `bd lease clean`
 //! cleans one; what the rules remove goes into the trash of its pool and is deleted once the marker is gone, and the
 //! free space is measured after each slot (one `statfs`).
+//!
+//! The shrink and the eviction (`trim::evict_core`) of a get run under one lock of the machine (`lock_pressure`): each
+//! measures only before its own next slot, so N gets below the minimum at once, as the threads of a `bd-host` fill
+//! start, cleaned or deleted up to N - 1 slots more than the volume needed.
 
 use crate::free_space::{AvailableBytes, Volume};
 use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, release_marker};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, read_clean_rules};
 use crate::trim::{machine_pools, mark_free};
+use anyhow::{Context, Result};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::RepositoryDirs;
+use history_rewrite::repository_lock::{LockHolder, RepositoryLock, lock_file_while_held};
 use std::cmp::Reverse;
 use std::path::Path;
 use std::time::Duration;
 use sync_utils::paths::display_path;
 use sync_utils::process_scan::ProcessScan;
 use tracing::{debug, instrument, warn};
+
+/// The lock of the shrink and the eviction of the gets of this machine, under `~/.branch-deck`
+const PRESSURE_LOCK_FILE: &str = "pressure.lock";
+
+/// Take the lock of the shrink and the eviction of the gets of this machine: `~/.branch-deck/pressure.lock` of `home`,
+/// the pools the shrink and the eviction walk, else (no home) beside the state of `pool`. The wait lasts while the
+/// record of the holder names a live process (`lock_file_while_held`), as the shrink of another get takes minutes; one
+/// no record names a live holder of refuses after `unknown_timeout`. The threads of one process take it in turn too.
+/// `on_holder` hears the holder while the wait lasts
+pub fn lock_pressure(home: Option<&Path>, pool: &Pool, unknown_timeout: Duration, on_holder: &mut dyn FnMut(&LockHolder)) -> Result<RepositoryLock> {
+  let dir = home.map_or_else(|| pool.state_dir().to_path_buf(), |home| home.join(".branch-deck"));
+  std::fs::create_dir_all(&dir).with_context(|| format!("Cannot create {}", dir.display()))?;
+  lock_file_while_held(dir.join(PRESSURE_LOCK_FILE), unknown_timeout, on_holder, &|| false)
+}
 
 /// The parameters of every cargo rule of a shrink: no unit of a free slot is kept, whatever its age
 const DEEP: CleanOverrides = CleanOverrides {
