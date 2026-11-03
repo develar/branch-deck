@@ -26,6 +26,10 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
 - **Radii** come only from `--radius` (`0.25rem`) in `src/index.css`. Never add radius classes to `src/components/ui/*`
   or hardcode `rounded-[…]`. To change the feel, change the token. Prefer a coherent token-driven scale over copying
   IntelliJ pixel values.
+- **Focus**: one token, `focus-visible:bd-focus` (a solid outline of the ring colour), `bd-focus-inset` on a row, a
+  header and a field; never a ring, an outline or a shadow of its own under a focus variant, never the ring colour
+  (`pnpm lint:arch`, `focus-ring`); the background is the hover and the selection, never the focus
+  ([UI Theme](../design/ui-theme.md)).
 - **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
 - **Prose in a wide pane** is a `ReadingColumn` (one measure, `max-w-measure`, in the middle, `text-md`); a block in
   it sets no width of its own ([UI Theme → Reading column](../design/ui-theme.md)).
@@ -82,8 +86,9 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   the CLI with `npx shadcn@latest …` (`add <component>`, `docs`, `init --preset`), then adapt the files.
   `pnpm dlx shadcn@latest` crashes with `o.deepPartial is not a function`: `@shadcn/registry` uses the zod 3 API and
   pnpm dlx resolves zod 4.
-- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `chart`, `checkbox`, `context-menu`,
-  `dropdown-menu`, `input`, `popover`, `select`, `spinner`, `tabs`, `textarea`, `tooltip`, `toast` in
+- **Locally customised ui files**: `alert`, `badge`, `button`, `card`, `chart`, `checkbox`, `combobox`,
+  `context-menu`, `dropdown-menu`, `input`, `input-group`, `popover`, `resizable`, `select`, `spinner`, `switch`,
+  `tabs`, `textarea`, `toggle`, `toggle-group`, `tooltip`, `toast` in
   `src/components/ui/` carry a `// local customisation: …` header naming the edits. After `add --overwrite` (e.g. a
   style switch), re-apply them; `git diff HEAD -- src/components/ui` shows what was lost.
 - **Toolchain** (Vite+, `vite-plus`, the `vp` CLI): one pinned toolchain of Vite 8, Vitest, Oxlint and Oxfmt,

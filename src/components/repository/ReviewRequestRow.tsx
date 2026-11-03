@@ -159,7 +159,7 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({
             data-unread={unread || undefined}
             tabIndex={tabStop ? 0 : -1}
             aria-label={`Review #${request.number} ${request.title}`}
-            className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset sm:px-6"
+            className="group flex h-9 animate-in cursor-pointer items-center gap-2 px-4 text-sm duration-150 fade-in-0 outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6"
             onClick={onClick}
           />
         }
@@ -316,7 +316,7 @@ export const ReturnedPullRequestRow = memo(function ReturnedPullRequestRow({ ite
             data-returned-branch={branchName}
             tabIndex={tabStop ? 0 : -1}
             aria-label={`Show ${branchName}: #${pullRequest.number} ${pullRequest.title}, changes requested`}
-            className="group flex h-9 cursor-pointer items-center gap-2 px-4 text-sm outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset sm:px-6"
+            className="group flex h-9 cursor-pointer items-center gap-2 px-4 text-sm outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus sm:px-6"
             onClick={event => {
               if (isMac ? event.metaKey : event.ctrlKey) {
                 openPullRequest(pullRequest)

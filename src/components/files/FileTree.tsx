@@ -495,7 +495,7 @@ const FileTreeRow = memo(function FileTreeRow({
           <div
             className={cn(
               // a title of a step or a commit wraps to a second line: the row grows, its chevron, icon and end stay on the first
-              "group/row relative flex min-h-6 cursor-default items-start gap-1.5 rounded-md py-0.5 pr-1 text-sm transition-colors select-none group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-ring/50 group-focus-visible/tree-item:ring-inset hover:bg-muted",
+              "group/row relative flex min-h-6 cursor-default items-start gap-1.5 rounded-md py-0.5 pr-1 text-sm transition-colors select-none bd-focus-inset group-focus-visible/tree-item:bd-focus hover:bg-muted",
               isSelected && "bg-primary/15 hover:bg-primary/15",
               // its parts fade, not the row: the selection and the hover keep their colour
               muted && "*:opacity-60",

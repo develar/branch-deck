@@ -56,7 +56,7 @@ export function RankedList({
               ) : (
                 <button
                   type="button"
-                  className={`${row} hover:bg-muted focus-visible:bg-muted focus-visible:outline-none`}
+                  className={`${row} bd-focus-inset hover:bg-muted focus-visible:bd-focus`}
                   aria-label={`${item.name}, ${item.value}: open the newest robot where it ${item.robot ?? "ran"}`}
                   onClick={() => openRobotUrl(url)}
                 >

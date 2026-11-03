@@ -24,7 +24,7 @@ export function HelpPopover({ title, "data-testid": testId, children }: HelpPopo
         openOnHover
         aria-label={`About ${title}`}
         data-testid={testId}
-        className="inline-flex shrink-0 cursor-help rounded-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+        className="inline-flex shrink-0 cursor-help rounded-sm text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:bd-focus"
       >
         <InfoIcon className="size-3.5" />
       </PopoverTrigger>

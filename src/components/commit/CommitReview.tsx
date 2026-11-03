@@ -1295,7 +1295,7 @@ function StepBar({ chapter, count, overview, onShow }: { chapter: Chapter; count
       data-testid="review-step-bar"
       data-step={chapter.id}
       title={overview ? undefined : chapter.label}
-      className="flex min-w-0 shrink-0 items-baseline gap-1.5 bg-canvas px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+      className="flex min-w-0 shrink-0 items-baseline gap-1.5 bg-canvas px-3 py-1.5 text-left text-xs outline-none hover:bg-muted focus-visible:bd-focus"
       onClick={() => onShow(chapter.id)}
     >
       <span className="shrink-0 text-muted-foreground tabular-nums" data-testid="review-step-position">

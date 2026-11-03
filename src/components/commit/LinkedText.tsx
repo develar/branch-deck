@@ -39,7 +39,7 @@ function renderLinks(text: string, patterns: readonly CompiledIssuePattern[], li
         data-issue-key={youTrackUrl === null || segment.href === undefined ? undefined : (youTrackKeyOf(segment.href, youTrackUrl) ?? undefined)}
         target="_blank"
         rel="noopener noreferrer"
-        className={cn("rounded-sm transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30", linkClassName)}
+        className={cn("rounded-sm transition-colors outline-none hover:text-foreground focus-visible:bd-focus", linkClassName)}
       >
         {segment.content}
       </a>

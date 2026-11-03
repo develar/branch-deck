@@ -39,7 +39,7 @@ export function StoryText({ text, spans, mentions, nested = false }: { text: str
             disabled={navigator === null}
             data-explicit={span.explicit ? "" : undefined}
             className={cn(
-              "rounded-xs font-mono leading-none [overflow-wrap:anywhere] underline decoration-muted-foreground/60 decoration-dotted underline-offset-3 outline-none hover:bg-accent hover:decoration-foreground hover:decoration-solid focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline",
+              "rounded-xs font-mono leading-none [overflow-wrap:anywhere] underline decoration-muted-foreground/60 decoration-dotted underline-offset-3 outline-none hover:bg-accent hover:decoration-foreground hover:decoration-solid focus-visible:bd-focus disabled:no-underline",
               isCodeChip(span) && "bg-muted ring-2 ring-muted",
             )}
             onClick={() => navigator?.show(place)}

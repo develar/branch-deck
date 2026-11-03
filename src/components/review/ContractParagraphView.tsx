@@ -47,8 +47,7 @@ function runsOf(paragraph: ContractParagraph, inserted: readonly TextRange[], de
 /** A link of a paragraph: a changed file it shows in the review, a page it opens; text where it goes nowhere */
 function LinkRun({ link, children }: { link: ProseLinkView; children: ReactNode }) {
   const navigator = useSelectReviewFile()
-  const className =
-    "rounded-sm underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+  const className = "rounded-sm underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:bd-focus"
   if (link.href !== null) {
     return (
       <a href={link.href} target="_blank" rel="noopener noreferrer" className={className} data-testid="review-brief-link">
@@ -100,7 +99,7 @@ export function ContractParagraphView({ paragraph }: { paragraph: ContractParagr
     <button
       type="button"
       aria-label="Show the whole paragraph"
-      className="rounded-sm px-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+      className="rounded-sm px-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:bd-focus"
       data-testid="review-brief-more"
       onClick={() => setWhole(true)}
     >

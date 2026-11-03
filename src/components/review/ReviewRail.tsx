@@ -66,8 +66,7 @@ function FetchProgress({ request, progress }: { request: ReviewRequest; progress
   )
 }
 
-const RAIL_ROW_CLASS =
-  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+const RAIL_ROW_CLASS = "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-sm outline-none hover:bg-muted bd-focus-inset focus-visible:bd-focus"
 
 /**
  * The files by path, the name first and its directory muted, giving way first; a click reviews the changes at it, the

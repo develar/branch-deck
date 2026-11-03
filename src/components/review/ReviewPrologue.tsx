@@ -158,7 +158,7 @@ function CommitPart({ commit: { commit, action, menu }, story }: { commit: Prolo
       aria-label={commit.subject}
       tabIndex={commit.hasBody ? 0 : undefined}
       // the ring of the focus a little off the text
-      className="-m-1.5 flex min-w-0 flex-col rounded-md p-1.5 outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+      className="-m-1.5 flex min-w-0 flex-col rounded-md p-1.5 outline-none focus-visible:bd-focus"
       data-testid="range-review-commit-header"
       onKeyDown={handleKeyDown}
     >
@@ -320,10 +320,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
         <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{step.number}</span>
         <button
           type="button"
-          className={cn(
-            "min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline",
-            step.code && "font-mono",
-          )}
+          className={cn("min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:bd-focus disabled:no-underline", step.code && "font-mono")}
           disabled={onShow === null}
           data-testid="review-contents-step-title"
           onClick={() => onShow?.()}
@@ -390,7 +387,7 @@ function BreakageItem({ entry }: { entry: BreakageEntry }) {
               <button
                 key={site.label}
                 type="button"
-                className="rounded-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
+                className="rounded-sm outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
                 disabled={navigator === null}
                 data-testid="review-plan-site"
                 data-path={site.place.path}
@@ -422,7 +419,7 @@ function FileButton({ place, title, testId = "review-plan-file", children }: { p
   return (
     <button
       type="button"
-      className="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
+      className="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
       title={title}
       disabled={navigator === null}
       data-testid={testId}

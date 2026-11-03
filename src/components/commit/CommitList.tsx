@@ -345,7 +345,7 @@ export function CommitList<T extends CommitUnion>({
     <div>
       <table
         ref={tableRef}
-        className="w-full rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+        className="w-full rounded-lg outline-none focus-visible:bd-focus"
         tabIndex={selectable ? 0 : -1}
         // the meta lines get their file counts
         aria-busy={isLoadingFiles || undefined}

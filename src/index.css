@@ -192,6 +192,36 @@
   line-height: 1;
 }
 
+/*
+ * The focus, one look for every focusable element (docs/design/ui-theme.md, "Focus"): a solid outline of the ring
+ * colour 2px wide, 2px off the box, ≥ 3:1 against the card and the selection in both themes, kept by forced colors
+ * where a box-shadow ring vanishes. `bd-focus` draws it under the state variant of the caller
+ * (`focus-visible:bd-focus`, `group-focus-visible/tree-item:bd-focus`, `focus-visible:after:bd-focus`);
+ * `bd-focus-inset` only moves it inside the box, for a row, a header and a field, so the rows around keep their place
+ * and no `overflow` cuts it. The offset is not inherited: a button in an inset row keeps its outline outside.
+ * `[--bd-focus-color:var(--destructive)]` colours it for an invalid field. A `focus-visible:outline-none` beside the
+ * token wins (Tailwind sorts it later): an element with both has none.
+ */
+@property --bd-focus-offset {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 2px;
+}
+
+:root {
+  --bd-focus-color: var(--ring);
+  --bd-focus-width: 2px;
+}
+
+@utility bd-focus {
+  outline: var(--bd-focus-width) solid var(--bd-focus-color);
+  outline-offset: var(--bd-focus-offset);
+}
+
+@utility bd-focus-inset {
+  --bd-focus-offset: calc(-1 * var(--bd-focus-width));
+}
+
 /* the initials in a 20px avatar circle (the asker of a review request): a glyph inside a shape, below the type scale */
 @utility bd-avatar-initials {
   font-size: 0.625rem;
@@ -580,7 +610,11 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+    /* the outline of the token before it shows: a `transition-all` of a control then animates no width or offset */
+    outline-color: var(--bd-focus-color);
+    outline-width: var(--bd-focus-width);
+    outline-offset: var(--bd-focus-offset);
   }
   body {
     /* Islands layering: the window is the canvas, top-level blocks are `Card` islands */

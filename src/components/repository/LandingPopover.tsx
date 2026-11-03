@@ -291,7 +291,7 @@ function LandingRow({ name, node, subject = { kind: "branch", name }, size, step
                 render={
                   <button
                     type="button"
-                    className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+                    className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:bd-focus"
                     onClick={() => onReveal(name)}
                   />
                 }

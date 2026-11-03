@@ -44,7 +44,7 @@ export function CommitFilesSection({ commitId, fileCount, onReviewFile }: Commit
             aria-expanded={isOpen}
             aria-controls={isOpen ? contentId : undefined}
             data-testid="commit-files-header"
-            className="-ml-1 flex min-w-0 cursor-pointer items-center gap-1 rounded-md py-0.5 pr-1.5 pl-1 text-left outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30"
+            className="-ml-1 flex min-w-0 cursor-pointer items-center gap-1 rounded-md py-0.5 pr-1.5 pl-1 text-left outline-none hover:bg-muted focus-visible:bd-focus"
             onClick={toggleCommitFilesSection}
           >
             <ChevronRightIcon className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-150", isOpen && "rotate-90")} />

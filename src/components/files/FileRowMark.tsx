@@ -151,7 +151,7 @@ function PopoverFile({
   return (
     <button
       type="button"
-      className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1 text-left hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+      className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1 text-left bd-focus-inset hover:bg-muted focus-visible:bd-focus"
       title={path}
       onClick={onSelect}
       data-testid={testId}

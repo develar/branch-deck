@@ -56,7 +56,7 @@ function FactPlaces({ title, list: { places, more }, testId }: { title: string; 
           <button
             type="button"
             // a declaration is code, as the story sets its names; a link between modules names its files
-            className="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline"
+            className="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline"
             disabled={navigator === null}
             data-testid={testId}
             data-path={fact.place.path}
@@ -109,7 +109,7 @@ function StepLink({
         type="button"
         disabled={!enabled}
         title={title ?? undefined}
-        className="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30 disabled:text-muted-foreground disabled:no-underline"
+        className="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:bd-focus disabled:text-muted-foreground disabled:no-underline"
         data-testid={testId}
         onClick={show}
       >

@@ -1,3 +1,4 @@
+// local customisation: the focus is the `bd-focus` token of src/index.css, an outline (no ring, no `border-ring`)
 // local customisation: typed `data.secondaryAction`, a body with the actions below the text when there are two (the
 // primary one, then the secondary one, e.g. "Open in Patronus") or a description (the text keeps the width); the viewport `z-[60]` above the dialog overlays (`z-50`); the toast text `select-text`; the title
 // and description `wrap-break-word`, so a path or branch name wider than the text column breaks instead of running
@@ -41,7 +42,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-2xl! border bg-popover text-popover-foreground shadow-lg will-change-transform outline-none select-text focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "group/toast pointer-events-auto absolute right-0 bottom-0 z-[calc(1000-var(--toast-index))] w-full origin-bottom rounded-2xl! border bg-popover text-popover-foreground shadow-lg will-change-transform outline-none select-text focus-visible:bd-focus",
         "[--gap:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--offset-y:calc(var(--toast-offset-y)*-1+calc(var(--toast-index)*var(--gap)*-1)+var(--toast-swipe-movement-y))] [--peek:0.75rem] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))]",
         "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)-(var(--toast-index)*var(--peek))-(var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_500ms,height_150ms]",
         "after:absolute after:top-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",

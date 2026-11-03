@@ -88,7 +88,7 @@ export function BranchRowElement({
       draggable={onDragStart === undefined ? undefined : true}
       className={cn(
         group && "group",
-        "cursor-pointer transition-all outline-none hover:bg-muted focus-visible:bg-muted focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:ring-inset",
+        "cursor-pointer transition-[background-color,opacity] outline-none bd-focus-inset hover:bg-muted focus-visible:bd-focus",
         selected === true && "bg-primary/15 hover:bg-primary/20",
         dimmed && "opacity-55 hover:opacity-100 focus-visible:opacity-100",
         className,

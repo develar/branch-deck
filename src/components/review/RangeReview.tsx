@@ -210,7 +210,7 @@ function CommitColumn({
         aria-label="Commits"
         tabIndex={0}
         aria-activedescendant={shown === undefined ? undefined : optionId(shown.key)}
-        className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+        className={cn("group/commit-column flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2 outline-none", shown === undefined && "bd-focus-inset focus-visible:bd-focus")}
         data-testid="range-review-commits"
         onKeyDown={handleKeyDown}
       >
@@ -265,7 +265,7 @@ function ColumnItem({
       className={cn(
         // a subject wraps to a second line, as a commit row of the tree
         "group/commit flex min-h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-muted",
-        selected && "bg-primary/15 hover:bg-primary/15",
+        selected && "bg-primary/15 bd-focus-inset group-focus-visible/commit-column:bd-focus hover:bg-primary/15",
       )}
       // the column keeps the focus: a click chooses, the keys go on from there
       onMouseDown={event => event.preventDefault()}

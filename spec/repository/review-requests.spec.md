@@ -653,8 +653,8 @@ Safe Push it allows.
 
 ## User Experience
 
-- The card is a `Card` island (`CollapsibleCard`), its rows `divide-y`, the hover `bg-muted`; the focus ring of a row is
-  inset. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. The status line of a failure is
+- The card is a `Card` island (`CollapsibleCard`), its rows `divide-y`, the hover `bg-muted`; the focus outline of a row is
+  inside it (`bd-focus-inset`), without the hover tint. The unread dot is `size-1.5 bg-primary`, the checks dots are `StatusChipDot`. The status line of a failure is
   the footer, `text-xs`.
 - `UserCheckIcon` means "a review for the user" (the card, the Activity entry, the Review menu item).
 - The decisions on the pull request are in the title bar, as the actions of every review window are on its object

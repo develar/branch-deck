@@ -142,7 +142,7 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
                 type="button"
                 aria-expanded={false}
                 data-testid="commit-body-fold"
-                className="rounded-sm text-foreground underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+                className="rounded-sm text-foreground underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:bd-focus"
                 onClick={() => fold.toggle(part.key)}
               >
                 {name}
@@ -236,7 +236,7 @@ export function BodyPartView({
         aria-expanded
         data-testid="commit-body-unfold"
         data-slot={head?.block.type === "heading" ? "commit-body-heading" : "commit-body-label"}
-        className="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left font-semibold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+        className="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left font-semibold outline-none hover:underline focus-visible:bd-focus"
         onClick={unfolded.close}
       >
         <DisclosureChevron />

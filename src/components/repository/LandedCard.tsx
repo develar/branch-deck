@@ -122,7 +122,7 @@ export function LandedBranchRow({ branch, showCommitter, compact = false, render
       <div className={cn("flex items-center gap-3", compact ? "px-3 py-2" : "px-4 py-2.5 sm:px-6")}>
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg text-left outline-none focus-visible:bd-focus"
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
           onKeyDown={reviewKey(onReview === undefined ? undefined : () => onReview(0))}
@@ -177,7 +177,7 @@ function LandedCommitRow({ commit, compact, onReview }: { commit: LandedCommit; 
   const upstream = commit.upstream
   return (
     <li
-      className="group flex items-center gap-3 rounded-md text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+      className="group flex items-center gap-3 rounded-md text-xs outline-none focus-visible:bd-focus"
       data-testid="landed-commit"
       tabIndex={onReview === undefined ? undefined : 0}
       onKeyDown={reviewKey(onReview)}

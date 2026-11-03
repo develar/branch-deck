@@ -25,7 +25,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         type="button"
         data-testid="review-concern-heading"
         data-step={opening.id}
-        className="flex min-w-0 flex-col items-start gap-0.5 self-start rounded-sm text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30 [&:hover>span:last-child]:underline"
+        className="flex min-w-0 flex-col items-start gap-0.5 self-start rounded-sm text-left outline-none focus-visible:bd-focus [&:hover>span:last-child]:underline"
         onClick={() => onShowStep?.(opening.id)}
       >
         <span className="text-xs font-medium text-muted-foreground" data-testid="review-opening-number">

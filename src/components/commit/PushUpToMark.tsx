@@ -53,7 +53,7 @@ export function PushUpToMark({ branchName, originalHash }: PushUpToMarkProps) {
         render={
           <button
             type="button"
-            className="flex size-4 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/10 focus-visible:ring-3 focus-visible:ring-ring/30"
+            className="flex size-4 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/10 focus-visible:bd-focus"
             aria-label="Push Up to Here…"
             data-testid="commit-push-mark"
             // a click on the row selects its commit

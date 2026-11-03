@@ -365,11 +365,7 @@ function formatProgress(progress: PatronusRobotProgress): ReactNode {
 /** "#1078" in a sentence, a link that opens the pull request the robot was started from */
 function PullRequestLink({ pullRequest }: { pullRequest: { readonly number: number; readonly url: string } }) {
   return (
-    <button
-      type="button"
-      className="rounded-sm underline-offset-2 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
-      onClick={() => openPullRequestUrl(pullRequest.url)}
-    >
+    <button type="button" className="rounded-sm underline-offset-2 outline-none hover:underline focus-visible:bd-focus" onClick={() => openPullRequestUrl(pullRequest.url)}>
       {`#${pullRequest.number}`}
     </button>
   )

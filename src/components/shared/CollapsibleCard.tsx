@@ -81,7 +81,7 @@ export function CollapsibleCard({
         <CollapsibleTrigger
           data-state={state}
           onKeyDown={onHeaderKeyDown}
-          className="group flex min-w-0 cursor-pointer items-start gap-2 text-left outline-none after:absolute after:inset-0 after:-z-10 after:rounded-lg focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset"
+          className="group flex min-w-0 cursor-pointer items-start gap-2 text-left outline-none after:absolute after:inset-0 after:-z-10 after:rounded-t-4xl after:bd-focus-inset focus-visible:after:bd-focus data-[state=closed]:after:rounded-b-4xl"
         >
           <span className="flex h-5 shrink-0 items-center">
             <ChevronRightIcon aria-hidden className="size-4 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-90" />

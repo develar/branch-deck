@@ -31,7 +31,7 @@ function AIErrorDetails({ error }: { error: AIError }) {
   return (
     <HelpPopoverContent title="AI suggestions failed" tone="destructive" description={error.message}>
       <Collapsible>
-        <CollapsibleTrigger className="group flex items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30">
+        <CollapsibleTrigger className="group flex items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:bd-focus">
           <ChevronRightIcon className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
           Full details
         </CollapsibleTrigger>

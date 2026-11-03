@@ -13,7 +13,7 @@ export interface CollapsibleHintProps {
 export function CollapsibleHint({ icon, title, children }: CollapsibleHintProps) {
   return (
     <Collapsible className="text-sm text-muted-foreground">
-      <CollapsibleTrigger className="group flex items-center gap-1.5 rounded-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/30">
+      <CollapsibleTrigger className="group flex items-center gap-1.5 rounded-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:bd-focus">
         <ChevronRightIcon className="size-4 transition-transform group-data-[panel-open]:rotate-90" />
         {icon}
         {title}

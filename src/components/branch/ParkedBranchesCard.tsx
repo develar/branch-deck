@@ -21,7 +21,10 @@ export function ParkedBranchesCard({ count, children }: { count: number; childre
   return (
     <CollapsibleCard
       data-testid="parked-branches-card"
-      className={cn(dropTarget.canDrop && "ring-1 ring-primary/40", dropTarget.canDrop && dropTarget.isOver && "bg-primary/5 ring-2 ring-primary")}
+      className={cn(
+        dropTarget.canDrop && "outline-2 outline-offset-0 outline-primary/40 outline-dashed",
+        dropTarget.canDrop && dropTarget.isOver && "bg-primary/5 outline-primary",
+      )}
       dropProps={dropTarget.dropProps}
       dropTarget={dropTargetState(dropTarget)}
       open={!collapsed}

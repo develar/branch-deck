@@ -14,7 +14,7 @@ export function TimeWithPopover({ authorTime, committerTime }: TimeWithPopoverPr
 
   return (
     <Popover>
-      <PopoverTrigger openOnHover className="rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
+      <PopoverTrigger openOnHover className="rounded-sm outline-none focus-visible:bd-focus">
         {formatTimestamp(authorTime)}
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3">

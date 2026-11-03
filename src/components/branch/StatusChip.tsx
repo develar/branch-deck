@@ -44,7 +44,7 @@ export function StatusChip({ label, color, data, children, details, detailsTestI
             {...data}
             aria-label={label}
             className={cn(
-              "inline-flex h-5 shrink-0 items-center gap-1 rounded-2xl px-1 text-xs tabular-nums outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
+              "inline-flex h-5 shrink-0 items-center gap-1 rounded-2xl px-1 text-xs tabular-nums outline-none hover:underline focus-visible:bd-focus",
               statusChipTextColors[color],
               className,
             )}

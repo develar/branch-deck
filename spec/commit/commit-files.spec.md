@@ -391,8 +391,8 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   (`size-3.5` muted, turned down when open, as a tree row's) and the label "Files 4", muted `text-xs font-medium`
   (`SectionLabel` with the count, as the files of a review), `hover:bg-muted rounded-md`, `aria-expanded`; the
   `Split`/`Unified`/`Inline` toggle on its right while it is open.
-- The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, a `ring-2 ring-ring/50`
-  inset on the focused row. A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
+- The tree rows are `h-6 rounded-md text-sm`, `hover:bg-muted`, indented by 0.75rem per level, the focus outline
+  inside the focused row (`bd-focus-inset`). A row starts with a `ChevronRightIcon` (`size-3.5` muted, turned down when open). A 1px
   `border` guide per level runs under the chevron of each parent, on the rows only (not on a diff under a row).
 - A directory shows `FolderIcon` (`FolderOpenIcon` when open, `size-4` muted), its name (truncated, the full path in
   its title) and its counts muted in `text-xs`.

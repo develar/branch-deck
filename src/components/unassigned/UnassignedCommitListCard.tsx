@@ -32,7 +32,11 @@ export function UnassignedCommitListCard({ commits }: UnassignedCommitListCardPr
 
   return (
     <Card
-      className={cn("gap-0 overflow-hidden py-0", dropTarget.canDrop && "ring-1 ring-primary/40", dropTarget.canDrop && dropTarget.isOver && "bg-primary/5 ring-2 ring-primary")}
+      className={cn(
+        "gap-0 overflow-hidden py-0",
+        dropTarget.canDrop && "outline-2 outline-offset-0 outline-primary/40 outline-dashed",
+        dropTarget.canDrop && dropTarget.isOver && "bg-primary/5 outline-primary",
+      )}
       data-testid="unassigned-commits-section"
       data-drop-target={dropTargetState(dropTarget)}
       {...dropTarget.dropProps}

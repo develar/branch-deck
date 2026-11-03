@@ -31,7 +31,7 @@ export function CollapsibleFileHeader({ path, oldPath = null, status, actions }:
     >
       <AccordionPrimitive.Trigger
         aria-label={path}
-        className="flex min-w-0 cursor-pointer items-center gap-2 text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/30 focus-visible:after:ring-inset"
+        className="flex min-w-0 cursor-pointer items-center gap-2 text-left outline-none after:absolute after:inset-0 after:bd-focus-inset focus-visible:after:bd-focus"
       >
         {/* where the chevron button of a review header is */}
         <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">

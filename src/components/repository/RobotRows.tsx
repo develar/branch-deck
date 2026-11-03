@@ -108,7 +108,7 @@ export function RobotRow({ entry, onReveal }: { entry: RobotOverviewEntry; onRev
                   render={
                     <button
                       type="button"
-                      className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+                      className="min-w-0 truncate rounded-sm text-left text-sm outline-none hover:underline focus-visible:bd-focus"
                       onClick={() => onReveal(reveal)}
                     />
                   }
@@ -154,7 +154,7 @@ function RobotModeLink({ robot, mode }: { robot: PatronusRobot; mode: string }) 
         render={
           <button
             type="button"
-            className="rounded-sm outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+            className="rounded-sm outline-none hover:text-foreground hover:underline focus-visible:bd-focus"
             data-testid="robots-row-mode"
             onClick={() => openRobot(robot)}
           />

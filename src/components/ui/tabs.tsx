@@ -1,3 +1,5 @@
+// local customisation: the focus is the `bd-focus` token of src/index.css, an outline (no ring, no `border-ring`):
+// inside a tab of a vertical list (`bd-focus-inset`), a row of the sidebar
 // local customisation: `orientation` reaches Base UI's Root (it only wrote `data-orientation`, so the arrows of a vertical
 // list stayed ←/→); the `list` variant of `TabsList`, a sidebar on the canvas whose selected tab is the selected row of
 // the tables (`bg-primary/15`)
@@ -34,7 +36,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
       className={cn(
-        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-transparent! px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-3 group-data-vertical/tabs:py-0.5 group-data-vertical/tabs:bd-focus-inset hover:text-foreground focus-visible:bd-focus disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
         "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground",
         "group-data-[variant=list]/tabs-list:h-7 group-data-[variant=list]/tabs-list:flex-none group-data-[variant=list]/tabs-list:rounded-lg group-data-[variant=list]/tabs-list:px-2 group-data-[variant=list]/tabs-list:font-normal group-data-[variant=list]/tabs-list:text-foreground group-data-[variant=list]/tabs-list:hover:bg-muted group-data-[variant=list]/tabs-list:data-active:bg-primary/15 group-data-[variant=list]/tabs-list:data-active:hover:bg-primary/20",

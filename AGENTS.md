@@ -40,7 +40,8 @@ Hard rules in one place; the linked section says why and what to do instead.
 - Never a rule of the domain in TS: the page words the view, sends intents (`src/model/intents.ts`) and its demand,
   reads the selected project before the first `await`; `pnpm lint:arch` fails on the rest ([Code Style](#code-style)).
 - Never `#[allow]` (`#[expect(lint, reason = "…")]`), never `pub use`, never a `../` import in the frontend (`@/`).
-- Never a `dark:` variant, a colour outside the semantic tokens, or a radius class in `src/components/ui/*`.
+- Never a `dark:` variant, a colour outside the semantic tokens, a focus but `bd-focus`, or a radius class in
+  `src/components/ui/*`.
 - Never a read or write of the operations registry or its journal beside `operations::registry_file` and
   `operations::journal`, never a fetch of the baseline but `sync_core::baseline::fetch_baseline`, never a clean rule
   that deletes their locks ([Git Operations](#git-operations)).

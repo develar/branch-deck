@@ -50,6 +50,12 @@
 // - `e2e-expect`: a file of tests/e2e but `fixtures/base-test.ts` that imports `expect` from "@playwright/test", whose
 //   `poll` waits up to a second between its tries; the `expect` of `fixtures/base-test.ts` (or `test-fixtures.ts`) asks
 //   every 50 ms.
+// The focus is one token, `bd-focus` of src/index.css (docs/design/ui-theme.md, "Focus"), never a look of its own:
+// - `focus-ring`: a class of src (its tests aside) whose variants name a focus (`focus:`, `focus-visible:`,
+//   `focus-within:`, `group-focus-visible/…:`, `has-[…:focus-visible]:`) and whose utility draws a ring, an outline, a
+//   shadow or the ring colour (`ring-3`, `ring-ring/30`, `outline-1`, `shadow-md`, `border-ring`), or the ring colour
+//   or a ring offset under any variant (`ring-ring`, `outline-ring/50`, `ring-offset-background`); `outline-none` and
+//   `outline-hidden` under a focus take the outline away and pass.
 // Scanned: src/**/*.ts(x) and tests/e2e/**/*.ts, comments left out. An exception is an entry of ALLOWLIST with its
 // file, its rule and the reason it holds, only of a timer of the UI (`poll-timer`, `EXCEPTED_RULES`): every other rule
 // holds without exceptions; an entry that matches nothing fails, so the list never outlives its code.
@@ -349,6 +355,50 @@ const TIMER = /(?<![\w$])(?:window\.)?set(?:Timeout|Interval)\(/
 /** The sources whose timers are polls unless they say otherwise: the stores and the hooks, their tests aside */
 const TIMED = /^src\/(?:stores|hooks)\/(?!.*\.test\.tsx?$)/
 
+/** The sources whose classes draw the focus only through the token: the page, its tests aside */
+const FOCUSING = /^src\/(?!.*\.test\.tsx?$)/
+/** A class: the text between spaces and quotes, `focus-visible:ring-3`, `has-[[data-slot=x]:focus-visible]:ring-3` */
+const CLASS_TOKEN = /[^\s"'`{}(),;]+/g
+/** A utility that draws a focus of its own under a focus variant: a ring, an outline, a shadow, a border of the ring colour */
+const FOCUS_DRAWING = /^-?(?:ring|inset-ring|outline|shadow)(?:-|$)|^border(?:-[trblxyse])?-ring(?:\/|$)/
+/** The utilities that take the outline away: what a control inside a group that draws the focus uses */
+const FOCUS_REMOVING = /^outline-(?:none|hidden)$/
+/** The ring colour or a ring offset under any variant: the colour of the focus is the token's */
+const RING_COLOUR = /^(?:ring|inset-ring|outline|border(?:-[trblxyse])?|bg|text|shadow|decoration|fill|stroke)-ring(?:\/|$)|^ring-offset-/
+
+/** The variants and the utility of a class, split at the colons outside its brackets: `has-[a:b]:c` is `has-[a:b]`, `c` */
+function classParts(token) {
+  const parts = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < token.length; index++) {
+    const char = token[index]
+    if (char === "[") {
+      depth++
+    } else if (char === "]") {
+      depth--
+    } else if (char === ":" && depth === 0) {
+      parts.push(token.slice(start, index))
+      start = index + 1
+    }
+  }
+  parts.push(token.slice(start))
+  return parts
+}
+
+/** Whether a class draws a focus of its own instead of the token (`focus-ring`) */
+function ownFocus(token) {
+  const parts = classParts(token)
+  const utility = parts.pop().replace(/^!|!$/g, "")
+  if (utility === "" || utility.startsWith("[")) {
+    return false
+  }
+  if (RING_COLOUR.test(utility)) {
+    return true
+  }
+  return parts.some(variant => variant.includes("focus")) && FOCUS_DRAWING.test(utility) && !FOCUS_REMOVING.test(utility)
+}
+
 /** The text of a source without its comments: a line or block comment becomes spaces, so columns and lines stay */
 function withoutComments(text) {
   return text.replace(/\/\*[\s\S]*?\*\/|(?<![:"'`\w])\/\/[^\n]*/g, comment => comment.replace(/[^\n]/g, " "))
@@ -464,6 +514,9 @@ export function findProblems(file, source, { registry = OWN_REGISTRY, callers = 
     if (PRESENTING.test(file) && STATE_READ.test(line)) {
       problems.push({ ...at, rule: "presenter-state" })
     }
+    if (FOCUSING.test(file) && (line.match(CLASS_TOKEN) ?? []).some(ownFocus)) {
+      problems.push({ ...at, rule: "focus-ring" })
+    }
   })
   if (PRESENTING.test(file)) {
     for (const found of text.matchAll(STORE_IMPORT)) {
@@ -558,7 +611,7 @@ if (import.meta.main) {
   if (problems.length > 0) {
     console.error(problems.join("\n"))
     console.error(
-      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation, reads nothing before its subscription, calls the engine only through its intents and a command of the app from one module, presents what the caller selected and reads the selected project before it waits (scripts/lint-arch.mjs)`,
+      `${problems.length} architecture problem(s): the page acts on the code of an error, never on its words, polls on no timer of its own, decides no rule of the domain, admits no operation, reads nothing before its subscription, calls the engine only through its intents and a command of the app from one module, presents what the caller selected, reads the selected project before it waits and draws the focus only with the bd-focus token (scripts/lint-arch.mjs)`,
     )
     process.exit(1)
   }

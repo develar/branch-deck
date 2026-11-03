@@ -385,3 +385,40 @@ test("the first await of an async function is its own: of a nested function or i
     ["13 late-project-read", "18 late-project-read"],
   )
 })
+
+test("a focus of its own is refused: a ring, an outline or a shadow under a focus variant, the ring colour anywhere", () => {
+  const source = [
+    'const inline = "outline-none focus-visible:ring-3 focus-visible:ring-ring/30"',
+    'const row = "group-focus-visible/tree-item:ring-2 group-focus-visible/tree-item:ring-inset"',
+    'const header = "focus-visible:after:ring-3 focus-visible:after:ring-inset"',
+    'const field = "has-[[data-slot=input-group-control]:focus-visible]:ring-3"',
+    'const within = "focus-within:border-ring focus-within:ring-[3px]"',
+    'const outlined = "focus-visible:outline-1 focus-visible:outline-ring"',
+    'const shadowed = "focus:shadow-md"',
+    'const important = "focus-visible:!ring-2"',
+    'const colour = "ring-1 ring-ring ring-offset-background"',
+    'const base = "outline-ring/50"',
+  ].join("\n")
+  assert.deepEqual(
+    findProblems("src/components/Example.tsx", source).map(problem => `${problem.line} ${problem.rule}`),
+    Array.from({ length: 10 }, (_, index) => `${index + 1} focus-ring`),
+  )
+})
+
+test("the focus token, a removed outline, a ring that is no focus and a test are no focus of their own", () => {
+  const source = [
+    'const inline = "outline-none focus-visible:bd-focus"',
+    'const row = "bd-focus-inset group-focus-visible/tree-item:bd-focus focus-visible:after:bd-focus"',
+    'const control = "ring-0 focus-visible:outline-none focus:outline-hidden"',
+    'const card = "ring-1 ring-foreground/5 aria-invalid:ring-3 aria-invalid:ring-destructive/20 has-aria-invalid:ring-3"',
+    'const drop = "ring-2 ring-primary outline-2 outline-dashed outline-primary/40"',
+    'const chip = "bg-muted ring-2 ring-muted"',
+    'const copy = "has-focus-visible:opacity-100 focus-visible:z-10 focus:bg-accent"',
+    'const invalid = "aria-invalid:[--bd-focus-color:var(--destructive)] [--bd-focus-color:var(--ring)]"',
+    "const asked = { focus: data.asked, onFocus: () => {} }",
+    "// focus-visible:ring-3 in a comment",
+  ].join("\n")
+  assert.deepEqual(findProblems("src/components/Example.tsx", source), [])
+  assert.deepEqual(findProblems("src/components/Example.test.tsx", 'const ring = "focus-visible:ring-3"'), [])
+  assert.deepEqual(findProblems("tests/e2e/example.spec.ts", 'const ring = "focus-visible:ring-3"'), [])
+})

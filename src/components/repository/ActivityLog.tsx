@@ -153,7 +153,7 @@ function BranchLinks({ text, branches, onReveal }: { text: string; branches: Rea
         {match[1]}
         <button
           type="button"
-          className="rounded-sm font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30"
+          className="rounded-sm font-medium outline-none hover:underline focus-visible:bd-focus"
           title={`Show ${name}`}
           data-testid="activity-branch"
           onClick={() => onReveal(name)}

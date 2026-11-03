@@ -646,6 +646,10 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   they focus is the one Space falls back on.
   [@test] ../../src/lib/branch-row-keys.test.ts (`moves to the next or the previous branch row, from the table to the first or the last, and stops at the ends`)
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
+- The row the keys focused must show the focus outline of the app inside its box (`bd-focus-inset`, [UI Theme](../../docs/design/ui-theme.md)),
+  the rows around in their place; a button of that row draws its outline outside its own box, the inset is not
+  inherited; a click shows no outline.
+  [@test] ../../tests/e2e/branch-row-layout/focus-outline.spec.ts (`should outline the row the arrows focused inside it, a button of the row outside it, and nothing a click focused`)
 - Space must open the preview of the focused row while the pointer hasn't moved since the focus moved there, else of
   the row under the pointer ([Branch Preview](branch-preview.spec.md)).
   [@test] ../../tests/e2e/branch-filter/branch-filter.spec.ts (`should walk the branch rows with the arrows and preview the focused one with Space`)
@@ -988,7 +992,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   strongest fact inside a `size-4` target (`row-status-mark`), its lines in its tooltip and in the hover of the node
   (`lane-node-also`, muted).
 - A chip (`StatusChip`) is `h-5`, `text-xs` with tabular figures and a `size-3.5` icon, `rounded-2xl` as buttons and
-  badges (its focus ring), without a border or an outline, and underlined on hover. The pull request chip colours its
+  badges (its focus outline), without a border or an outline, and underlined on hover. The pull request chip colours its
   icon alone; its number is muted ([Pull Requests](pull-requests.spec.md#chip)). A dot is `size-1.5 rounded-full
   shrink-0`. The details popover is `w-80` with `p-3`.
 - The colours: `info` merged and landed; `warning` attention (blocked, a pull request or a robot behind the branch,
@@ -1028,8 +1032,9 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The title is `text-sm font-medium`, the description below it `text-sm text-muted-foreground`; the progress row keeps
   the title for the screen reader only.
 - An input is `max-w-md`, followed by Cancel and the submit button (`xs`); the submit of a delete is `destructive`.
-- A focused row is `bg-muted` with an inset `ring-3 ring-ring/30` (`focus-visible`, also when the arrows moved the
-  focus there). A dimmed row is `opacity-55`, full on hover or focus.
+- A focused row has the focus outline inside it (`bd-focus-inset focus-visible:bd-focus`, also when the arrows moved
+  the focus there) and no tint of its own: `bg-muted` is the hover, `bg-primary/15` the selection, so a row under
+  the pointer and the row of the keys never look the same. A dimmed row is `opacity-55`, full on hover or focus.
 
 ### Archived table
 
@@ -1063,7 +1068,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - The SVG units assume the 36px row: a taller row (a cell that wraps) stretches the fork curve, and the lines end a
   little off the edge of the node.
 - The lane of a branch without children ends at its last commit through a line that starts far above it and is cut
-  by the vertical clip of the rail (`clip-path: inset(0 -100vw)`), which also cuts a focus ring above or below it.
+  by the vertical clip of the rail (`clip-path: inset(0 -100vw)`), which also cuts a focus outline above or below it.
 - The commit subjects start at the name from `sm` up only: below it the commit rows have `px-4`, the name cell `px-6`.
 - No E2E test clicks the row itself (only its folder button) or checks the hover tint and the drop outlines' colours.
 - A branch without commits has no folder button, so its name starts 2rem further left than the others.

@@ -268,13 +268,39 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
   the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
-- **The focus has two looks, one per kind of element**: an element inside text or a line (a link of a story, a title of
-  the contents, a toggle of a fold, a button of a name) `focus-visible:ring-3 focus-visible:ring-ring/30` around its
-  rounded box; a row of a list or a tree, which holds the selection or opens what it names (the files and the commits
-  of the rail of a pull request too), `ring-2 ring-ring/50 ring-inset`, inside its box so the rows around keep their
-  place. Nothing else draws a ring: the block a mark of a section showed in the story
-  is tinted (`animate-story-highlight`, the warning colour fading), never outlined like a focus. A description that
-  opens on hover opens on the focus from the keyboard too (the mark of a story, a row's card by `I`).
+- **The focus is one look, the `bd-focus` token** (`src/index.css`): a solid 2px outline of the ring colour, 2px off
+  the box, in every window and on every focusable element, so "where the keys are" reads the same in the main window,
+  a review and Settings. It is drawn under the state variant of the caller (`focus-visible:bd-focus`,
+  `group-focus-visible/tree-item:bd-focus`, `focus-visible:after:bd-focus`, `focus-within:bd-focus`); `bd-focus-inset`
+  only moves it inside the box (`--bd-focus-offset`, not inherited, so a button of an inset row keeps its outline
+  outside). Where each element draws it:
+  - inside text or a line (a link of a story, a title of the contents, a toggle of a fold, a button, a chip): outside
+    its rounded box;
+  - a row of a list or a tree, which holds the selection or opens what it names (a branch row, the files and the
+    commits of the rail of a pull request, a review request, a file mark, a ranked row of Landing), a header of a card
+    (with the corners of the card), a vertical tab, an item of a joined toggle group: inside, so the rows around keep
+    their place and no `overflow` cuts it;
+  - a field (input, textarea, select, combobox, input group): inside, so its border becomes a 2px border of the ring
+    colour; an invalid field draws it in the destructive colour (`[--bd-focus-color:var(--destructive)]`);
+  - a list whose keys move an active option (`aria-activedescendant`, the commits of a range review): on that option;
+    a list without arrows (the commit table of a branch): on the list itself.
+
+  **Why an outline of the ring colour**: the old halo (`ring-ring/30`) stood at about 1.5:1 against the card and 1.4:1
+  on a selected row, below the 3:1 of WCAG 1.4.11; the solid ring colour is about 4.5:1 on the card and 3.7:1 on a
+  selected row (more in the dark theme). An outline, not a `box-shadow` ring: Windows' forced colors keeps it, it
+  follows the radius, and it never mixes with the rings of a card, of an invalid field or of a drop target.
+
+  **Focus, hover and selection are three marks**: the outline is the focus only, `bg-muted` the hover, `bg-primary/15`
+  the selection; a focused row has no tint of its own, so the row under the pointer and the row of the keys never
+  look the same. A menu, the options of a combobox and the symbol chooser are the exception: the pointer and the keys
+  share one highlight there (`focus:bg-accent`, `data-highlighted`), as in every menu. A drop target is dashed
+  (`outline-dashed outline-primary`), never the solid outline of the focus. The block a mark of a section showed in
+  the story is tinted (`animate-story-highlight`, the warning colour fading), never outlined like a focus.
+
+  `pnpm lint:arch` (`focus-ring`) refuses a ring, an outline or a shadow under a focus variant and the ring colour
+  anywhere; `focus-visible:outline-none` passes, and beside the token it wins (Tailwind sorts it later), so an element
+  has one or the other. A description that opens on hover opens on the focus from the keyboard too (the mark of a
+  story, a row's card by `I`).
 - **A disclosure is a `Disclosure`** (`src/components/shared/Disclosure.tsx`): a chevron before its title at the size of
   the text around it, the content opening below, so it grows downward; a folded part of a body, a commit that follows
   a step up, what the overview folds. The folded parts of a body are one line, one chevron ("More: The cause, Tests"),
@@ -404,8 +430,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
 - **Anything that opens on hover or click is a button**: a help icon, a hash or a time with a popover, the AI toggle.
   Base UI triggers render a `button` by default; never a `span` trigger with `nativeButton={false}`, which the keyboard
   cannot reach.
-- **Focus ring**: `outline-none focus-visible:ring-3 focus-visible:ring-ring/30` with a radius (`rounded-sm` on inline
-  text, `rounded-lg` on a row or a header), as the shadcn controls draw it.
+- **Focus**: `outline-none focus-visible:bd-focus` with a radius (`rounded-sm` on inline text, `rounded-lg` on a row or a
+  header), `bd-focus-inset` on a row, a header and a field; the shadcn controls draw the same token (their
+  `// local customisation` header says so).
 - **`data-state` is Base UI's open/closed vocabulary** (set by hand where E2E reads it); the domain state of a component
   is `data-status` (`data-status="upToDate"` on Update Project, `data-status="force"` on an outgoing row).
 - **One busy indicator per operation**: the control that started it shows the spinner and the progress (Update
