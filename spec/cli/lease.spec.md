@@ -595,6 +595,16 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_rules_are_cargo_and_delete_with_their_defaults`, `the_cargo_rule_keeps_the_newest_and_the_young_units`, `the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash`, `a_classic_unit_is_its_name_and_its_hash`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`, `nested_deletes_keep_only_the_whitelist`)
   [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`remove_entry_removes_a_directory_link_as_the_link_and_keeps_its_target`, `remove_entry_removes_a_file_an_empty_directory_and_a_file_symlink_as_themselves`)
+- A `delete` of the dir of a `cargo` rule must name what it keeps in `except`
+  (`{ delete = "target", except = ["debug", "release", "CACHEDIR.TAG"] }`): it removes every other entry of the target
+  dir whole (the scratch an agent puts there: a second target dir, a log, a patch, a link as the link), which the cargo
+  rule at most prunes, never removes. The cargo rule of that dir then prunes only the profile dirs at and
+  below the kept entries that are directories, not links (with two such `delete` rules, the entries both keep), at
+  most 4 levels below the target dir as before: the two rules never take the same path, whatever their order in the
+  file. Each is a rule of its own in `cleaned`, its `freed_bytes` its own paths, which a dry run measures as the clean
+  then frees them. Both go through the trash of the run, under the `cleaning` marker of a free slot, also in the shrink
+  of a get, where the cargo rule keeps no unit of the kept profile dirs; a get leaves the removed entries out of a clone.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`)
 - A `delete` must remove a link (a symlink, a junction or a directory symlink of Windows) in place, as the link and
   never its target, also in a return and `bd lease clean`, which move every other path into the trash: a link is no
   cheaper to move than to delete, and a junction moved there stayed ("Access is denied"). It goes only once every
@@ -611,9 +621,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
   `..`, names `.git`, names the checkout itself, has a symlink on its way (a `cargo` dir that is one too), holds a file
   that git tracks (one `ls-files -z` of the paths of all rules), or has an `except` entry that is no name of an entry;
-  and a `delete` whose path holds the dir of a `cargo` rule without naming the entry on its way in `except`, which
-  would remove what the cargo rule keeps. The walk of a rule never follows a symlink.
-  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`, `a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules`)
+  and a `delete` whose path holds the dir of a `cargo` rule without naming the entry on its way in `except`, or is that
+  dir without `except` (no key or an empty array), which would remove what the cargo rule keeps. The walk of a rule
+  never follows a symlink.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`, `a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`an_unsafe_rule_is_skipped_and_reported`)
 - The return must read the file once, from the source checkout that the lease recorded (the slot's own when the
   source is gone), and apply the rules after all its checks passed, before it frees the slot: `cleaned` [{`rule`,

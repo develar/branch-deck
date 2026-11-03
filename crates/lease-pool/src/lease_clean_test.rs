@@ -98,6 +98,28 @@ fn a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules() {
   }
 }
 
+/// A `delete` of the dir of a cargo rule itself is a whitelist of that dir: with `except` it is a rule, without (no key
+/// or an empty array) it would delete what the cargo rule keeps and is reported, never applied
+#[test]
+fn a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries() {
+  let rules = parse_clean_rules(
+    "[lease]\nclean = [\n  { cargo = \"target\" },\n  { delete = \"target\", except = [\"debug\", \"release\", \"CACHEDIR.TAG\"] },\n  { delete = \"target\" },\n  { delete = \"./target/\", except = [] },\n]\n",
+  )
+  .unwrap();
+  let outcome: Vec<Result<String, String>> = rules.into_iter().map(|rule| rule.map(|rule| rule.describe()).map_err(|(_, reason)| reason)).collect();
+  assert_eq!(
+    outcome[..2],
+    [Ok("cargo target".to_string()), Ok("delete target except debug, release, CACHEDIR.TAG".to_string())]
+  );
+  for index in [2, 3] {
+    let reason = outcome[index].as_ref().unwrap_err();
+    assert!(
+      reason.contains("target, the dir of a cargo rule") && reason.contains("name the entries it keeps"),
+      "{outcome:?}"
+    );
+  }
+}
+
 /// The free space a message names is in GiB
 #[test]
 fn a_free_space_is_named_in_gib() {
@@ -126,6 +148,18 @@ fn git_checkout() -> (tempfile::TempDir, GitCommandExecutor) {
   let git = GitCommandExecutor::new();
   git.execute_command(&["init", "-q"], checkout.path().to_str().unwrap()).unwrap();
   (checkout, git)
+}
+
+/// The names of the entries of `dir`, sorted
+#[cfg(unix)]
+fn entry_names(dir: &Path) -> Vec<String> {
+  let mut names: Vec<String> = std::fs::read_dir(dir)
+    .unwrap()
+    .flatten()
+    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+    .collect();
+  names.sort();
+  names
 }
 
 /// In every profile dir (`.cargo-lock`, also two levels down), the cargo rule keeps the `keep` newest units of each
@@ -159,15 +193,7 @@ fn the_cargo_rule_keeps_the_newest_and_the_young_units() {
   let cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Delete);
   assert_eq!((cleaned[0].freed_bytes, &cleaned[0].error), (dry_run[0].freed_bytes, &None));
   for profile in ["target/debug", "target/aarch64-apple-darwin/release"] {
-    let left = |dir: &str| -> Vec<String> {
-      let mut names: Vec<String> = std::fs::read_dir(root.join(profile).join(dir))
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect();
-      names.sort();
-      names
-    };
+    let left = |dir: &str| entry_names(&root.join(profile).join(dir));
     assert_eq!(left("build/git-ops"), ["h2", "h3", "h4"], "{profile}");
     assert_eq!(left("incremental"), ["git_ops-mid", "git_ops-new"], "{profile}");
   }
@@ -270,19 +296,10 @@ fn the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash() {
   let rules = parse_clean_rules("[lease]\nclean = [{ cargo = \"target\", keep = 1, age = \"1h\" }]\n").unwrap();
   let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
   assert!(cleaned[0].freed_bytes > 0 && cleaned[0].error.is_none(), "{cleaned:?}");
-  let names = |dir: &Path| -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-      .unwrap()
-      .flatten()
-      .map(|entry| entry.file_name().to_string_lossy().into_owned())
-      .collect();
-    names.sort();
-    names
-  };
   for profile in classic {
     let profile = root.join(profile);
     assert_eq!(
-      names(&profile.join("deps")),
+      entry_names(&profile.join("deps")),
       [
         format!("aho_corasick-{newest}"),
         format!("aho_corasick-{newest}.aho_corasick.4f50d93f3af7ef9a-cgu.0.rcgu.o"),
@@ -294,14 +311,14 @@ fn the_cargo_rule_prunes_the_classic_layout_by_units_of_name_and_hash() {
       "{}",
       profile.display()
     );
-    assert_eq!(names(&profile.join(".fingerprint")), [format!("aho-corasick-{newest}")]);
-    assert_eq!(names(&profile.join("build")), [format!("aho-corasick-{newest}")]);
+    assert_eq!(entry_names(&profile.join(".fingerprint")), [format!("aho-corasick-{newest}")]);
+    assert_eq!(entry_names(&profile.join("build")), [format!("aho-corasick-{newest}")]);
     assert!(profile.join(format!("build/aho-corasick-{newest}/out/generated.rs")).exists());
     for kept in [".cargo-lock", "libaho_corasick.rlib", "aho-corasick"] {
       assert!(profile.join(kept).exists(), "{kept}");
     }
   }
-  assert_eq!(names(&release.join("build/git-ops")), ["h1"]);
+  assert_eq!(entry_names(&release.join("build/git-ops")), ["h1"]);
 }
 
 /// A `delete` with `except` removes every entry of its directory but the kept ones, a symlink at its end as the link (the
@@ -425,15 +442,65 @@ fn nested_deletes_keep_only_the_whitelist() {
     parse_clean_rules("[lease]\nclean = [\n  { delete = \"out\", except = [\"dev-run\", \".mark\"] },\n  { delete = \"out/dev-run\", except = [\"jar-cache\"] },\n]\n").unwrap();
   let cleaned = apply_clean_rules(&git, root.to_str().unwrap(), &rules, CleanMode::Delete);
   assert!(cleaned.iter().all(|rule| rule.error.is_none()), "{cleaned:?}");
-  let mut left: Vec<String> = std::fs::read_dir(root.join("out"))
-    .unwrap()
-    .flatten()
-    .map(|entry| entry.file_name().to_string_lossy().into_owned())
-    .collect();
-  left.sort();
-  assert_eq!(left, [".mark", "dev-run"]);
+  assert_eq!(entry_names(&root.join("out")), [".mark", "dev-run"]);
   assert_eq!(std::fs::read_dir(root.join("out/dev-run")).unwrap().count(), 1);
   assert!(root.join("out/dev-run/jar-cache/j").exists());
+}
+
+/// A `delete` of a target dir with `except` and the cargo rule of that dir, in either order: the stray entries of the
+/// target dir go whole (a nested target dir with a profile dir of its own, scratch dirs, a patch, a link as the link),
+/// the kept entries stay, and the cargo rule prunes only the profile dirs it keeps. The two never take the same path,
+/// so a dry run measures what each rule then frees through the trash, byte for byte
+#[cfg(unix)]
+#[test]
+fn a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule() {
+  let hour = Duration::from_hours(1);
+  let outside = tempfile::tempdir().unwrap();
+  std::fs::write(outside.path().join("kept"), "kept").unwrap();
+  let delete = "{ delete = \"target\", except = [\"debug\", \"release\", \"tools\", \"CACHEDIR.TAG\"] }";
+  let cargo = "{ cargo = \"target\", keep = 1, age = \"1h\" }";
+  for order in [[delete, cargo], [cargo, delete]] {
+    let (checkout, git) = git_checkout();
+    let root = checkout.path();
+    let target = root.join("target");
+    for (profile, units) in [
+      ("debug", [("h0", 10 * hour), ("h1", 9 * hour), ("h2", hour / 6)].as_slice()),
+      ("release", [("h0", 10 * hour), ("h1", 2 * hour)].as_slice()),
+      ("base40-target/debug", [("h0", 10 * hour), ("h1", 9 * hour)].as_slice()),
+    ] {
+      let profile = target.join(profile);
+      std::fs::create_dir_all(&profile).unwrap();
+      std::fs::write(profile.join(".cargo-lock"), "").unwrap();
+      for (hash, built) in units {
+        unit(&profile.join("build/git-ops").join(hash), *built);
+      }
+    }
+    for file in ["CACHEDIR.TAG", ".rustc_info.json", "ab1/notes.md", "issue-138.patch"] {
+      std::fs::create_dir_all(target.join(file).parent().unwrap()).unwrap();
+      std::fs::write(target.join(file), vec![1u8; 8192]).unwrap();
+    }
+    std::os::unix::fs::symlink(outside.path(), target.join("scratch")).unwrap();
+    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
+    let (delete_index, cargo_index) = if order[0] == delete { (0, 1) } else { (1, 0) };
+    let checkout = root.to_str().unwrap();
+
+    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
+    assert!(target.join("base40-target/debug/build/git-ops/h0").exists(), "a dry run deletes nothing");
+    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
+    let trash = Trash::new(trash_root.path());
+    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
+    assert_eq!(cleaned[cargo_index].trashed.len(), 3, "the stale units of debug and release alone: {cleaned:?}");
+    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+
+    assert!(cleaned.iter().all(|rule| rule.error.is_none() && rule.freed_bytes > 0), "{order:?}: {cleaned:?}");
+    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
+    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
+    assert!(cleaned[delete_index].freed_bytes >= 3 * 8192 + 2 * 4096, "{order:?}: {cleaned:?}");
+    assert_eq!(entry_names(&target), ["CACHEDIR.TAG", "debug", "release"], "{order:?}");
+    assert_eq!(entry_names(&target.join("debug/build/git-ops")), ["h2"], "{order:?}");
+    assert_eq!(entry_names(&target.join("release/build/git-ops")), ["h1"], "{order:?}");
+    assert!(target.join("debug/.cargo-lock").exists() && outside.path().join("kept").exists(), "{order:?}");
+  }
 }
 
 /// A process that works in a stale unit or in an entry of a `delete` (a shell or a build of an agent) keeps it: on Windows

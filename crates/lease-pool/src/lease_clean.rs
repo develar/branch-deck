@@ -11,6 +11,11 @@
 //! ]
 //! ```
 //!
+//! A `delete` of the dir of a `cargo` rule needs `except` (`{ delete = "target", except = ["debug", "release"] }`):
+//! it removes every other entry of the target dir (the scratch an agent puts there), and the cargo rule then prunes only
+//! the profile dirs at and below the kept entries (`cargo_scope`), so the two rules never take the same path, whatever
+//! their order: a dry run counts each byte once, and the trash gets each path from one rule.
+//!
 //! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way
 //! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
 //! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink and
@@ -138,8 +143,9 @@ pub fn parse_clean_rules(text: &str) -> Result<Vec<ParsedRule>> {
   Ok(refuse_deletes_of_cargo_dirs(rules))
 }
 
-/// A `delete` whose path holds the dir of a `cargo` rule, without the entry on its way in `except`, would remove what
-/// the cargo rule keeps: it is reported, never applied
+/// A `delete` whose path holds the dir of a `cargo` rule, without the entry on its way in `except`, or that is the dir
+/// itself without `except`, would remove what the cargo rule keeps: it is reported, never applied. One of the dir with
+/// `except` removes the other entries, and the cargo rule prunes the kept ones (`cargo_scope`)
 fn refuse_deletes_of_cargo_dirs(rules: Vec<ParsedRule>) -> Vec<ParsedRule> {
   let cargo_dirs: Vec<String> = rules
     .iter()
@@ -153,15 +159,20 @@ fn refuse_deletes_of_cargo_dirs(rules: Vec<ParsedRule>) -> Vec<ParsedRule> {
     .map(|rule| match rule {
       Ok(CleanRule::Delete { path, except }) => {
         let covered = cargo_dirs.iter().find(|dir| {
-          *dir == &path
+          (*dir == &path && except.is_empty())
             || dir
               .strip_prefix(&format!("{path}/"))
               .is_some_and(|rest| !except.iter().any(|kept| rest.split('/').next() == Some(kept.as_str())))
         });
         match covered {
           Some(dir) => {
+            let fix = if *dir == path {
+              "name the entries it keeps (its profile dirs) in `except`"
+            } else {
+              "name its entry in `except`"
+            };
             let rule = CleanRule::Delete { path, except };
-            Err((rule.describe(), format!("it would delete {dir}, the dir of a cargo rule; name its entry in `except`")))
+            Err((rule.describe(), format!("it would delete {dir}, the dir of a cargo rule; {fix}")))
           }
           None => Ok(CleanRule::Delete { path, except }),
         }
@@ -373,7 +384,7 @@ pub fn apply_tracked_rules(checkout: &str, rules: &[ParsedRule], tracked: &Track
           let mut trashed = Vec::new();
           let result = match &tracked {
             Err(error) => Err(anyhow!("cannot tell what git tracks: {error}")),
-            Ok(tracked) => check_path(Path::new(checkout), rule, tracked).and_then(|target| run_rule(rule, &target, mode, &mut trashed)),
+            Ok(tracked) => check_path(Path::new(checkout), rule, tracked).and_then(|target| run_rule(rule, cargo_scope(rules, rule).as_deref(), &target, mode, &mut trashed)),
           };
           let (freed_bytes, error) = match result {
             Ok(removals) => (removals.freed, removals.error()),
@@ -434,7 +445,27 @@ impl Removals {
   }
 }
 
-fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<Removals> {
+/// The entries of the dir of a cargo rule whose profile dirs it prunes, `None` for the whole dir: with a `delete` of the
+/// same dir (`except` is not empty there, `refuse_deletes_of_cargo_dirs`), the entries every such rule keeps, since the
+/// delete removes the others whole. So the two rules never take the same path, in whatever order the file has them
+fn cargo_scope<'a>(rules: &'a [ParsedRule], rule: &CleanRule) -> Option<Vec<&'a str>> {
+  let CleanRule::Cargo { dir, .. } = rule else { return None };
+  rules
+    .iter()
+    .filter_map(|other| match other {
+      Ok(CleanRule::Delete { path, except }) if path == dir => Some(except),
+      _ => None,
+    })
+    .fold(None, |scope: Option<Vec<&str>>, except| {
+      Some(match scope {
+        None => except.iter().map(String::as_str).collect(),
+        Some(kept) => kept.into_iter().filter(|name| except.iter().any(|other| other == name)).collect(),
+      })
+    })
+}
+
+/// Apply `rule` at `target`; `scope` names the entries of a cargo rule's dir it prunes (`cargo_scope`)
+fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, mode: CleanMode<'_>, trashed: &mut Vec<PathBuf>) -> Result<Removals> {
   let mut removals = Removals::default();
   let Ok(metadata) = target.symlink_metadata() else { return Ok(removals) };
   match rule {
@@ -455,7 +486,17 @@ fn run_rule(rule: &CleanRule, target: &Path, mode: CleanMode<'_>, trashed: &mut 
         return Ok(removals);
       }
       let cutoff = SystemTime::now().checked_sub(*age).unwrap_or(SystemTime::UNIX_EPOCH);
-      for profile in profile_dirs(target, PROFILE_DEPTH) {
+      let profiles = match scope {
+        None => profile_dirs(target, PROFILE_DEPTH),
+        // a kept entry that is a directory, not a link to one, and the profile dirs at and below it
+        Some(kept) => kept
+          .iter()
+          .map(|name| target.join(name))
+          .filter(|entry| entry.symlink_metadata().is_ok_and(|metadata| metadata.is_dir()))
+          .flat_map(|entry| profile_dirs(&entry, PROFILE_DEPTH - 1))
+          .collect(),
+      };
+      for profile in profiles {
         let mut groups = classic_units(&profile);
         add_build_dir_units(&mut groups, &profile.join("build"));
         add_incremental_units(&mut groups, &profile.join("incremental"));
