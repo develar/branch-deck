@@ -65,7 +65,8 @@ tree and the index are not touched, and an undo is a move of the branch back.
   - fewer than two commits, a commit given twice, or a message without a subject line;
   - a commit that is not on the first-parent line of HEAD;
   - a squashed commit conflicts with a commit in between;
-  - the result has no changes, or a later commit would become empty;
+  - the result has no changes (the commits cancel each other: a squash gives one commit, so they are dropped instead,
+    "drop them instead"), or a later commit would become empty;
   - a rebase, merge, cherry-pick or revert is in progress, HEAD is detached, or the range contains a merge commit;
   - the branch moved meanwhile.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`validates_the_groups`, `refuses_a_range_with_merges`)

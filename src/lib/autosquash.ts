@@ -1,4 +1,4 @@
-import type { AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedGroup } from "@/lib/bindings"
+import type { AutosquashPlan, AutosquashScope, FixupKind, OrphanFixup, PlannedGroup, SquashedTarget } from "@/lib/bindings"
 
 /** The fixups of one list: a branch, or the unassigned commits (null) */
 export interface ListFixups {
@@ -69,7 +69,23 @@ export function describeSquashFixups(count: number): string | null {
     return null
   }
   const folded = count === 1 ? "It is folded into its target" : "Each one is folded into its target"
-  return `${folded}, as with rebase --autosquash. Your files are not touched.`
+  const cancelled = count === 1 ? "A target it cancels" : "A target they cancel"
+  return `${folded}, as with rebase --autosquash. ${cancelled} leaves the history; your files are not touched.`
+}
+
+/**
+ * The targets of a squash of fixups that left the history, as its toast says it: their fixups cancel them (Rust left
+ * them without a `newId`); null when every target stays
+ */
+export function describeDroppedTargets(squashed: readonly SquashedTarget[]): string | null {
+  const dropped = squashed.filter(target => target.newId === null).map(target => `“${target.subject}”`)
+  if (dropped.length === 0) {
+    return null
+  }
+  if (dropped.length === 1) {
+    return `${dropped[0]} left the history: its fixups cancel it`
+  }
+  return `${dropped.slice(0, -1).join(", ")} and ${dropped.at(-1)} left the history: their fixups cancel them`
 }
 
 /** "1 fixup", "3 fixups" */

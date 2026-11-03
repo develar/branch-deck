@@ -96,6 +96,27 @@ test.describe("Squash fixups", () => {
     await expect(unassignedRows(page)).toHaveCount(1)
     await expect(page.getByTestId("unassigned-commits-section").getByTestId("squash-fixups-button")).toHaveCount(0)
   })
+  test("should drop a target its fixup cancels, say so in the toast and bring it back with Undo", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("fixup_cancels")
+    await syncAndWaitForBranches()
+    const authRow = findBranchRow(page, "auth")
+    await verifyCommitCount(authRow, 2)
+    await authRow.getByTestId("branch-fixup-count").click()
+    const confirm = popover(page)
+    await expect(confirm).toHaveAccessibleDescription(
+      "It is folded into its target, as with rebase --autosquash. A target it cancels leaves the history; your files are not touched.",
+    )
+    await runAndWaitForSync(page, () => confirm.getByTestId("squash-fixups-confirm").click())
+
+    const toast = page.locator("[data-slot=toast]").filter({ hasText: "Squashed 1 fixup" })
+    await expect(toast).toContainText("“(auth) Rename the title” left the history: its fixups cancel it")
+    // the branch had no other commit: it is gone, the fixup of docs is still there
+    await expect(authRow).toHaveCount(0)
+    await expect(findBranchRow(page, "docs").getByTestId("branch-fixup-count")).toHaveText("1 fixup")
+
+    await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
+    await verifyCommitCount(findBranchRow(page, "auth"), 2)
+  })
   // spec/branch/stacked-branches.spec.md: a rewrite of the commits of a branch moves no row
   test("should keep every row in its place when the fixup of the branch that began first is squashed", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("fixup_order")
@@ -109,7 +130,9 @@ test.describe("Squash fixups", () => {
     const confirm = popover(page)
     // one fixup reads as one
     await expect(confirm).toHaveAccessibleName("Squash 1 fixup")
-    await expect(confirm).toHaveAccessibleDescription("It is folded into its target, as with rebase --autosquash. Your files are not touched.")
+    await expect(confirm).toHaveAccessibleDescription(
+      "It is folded into its target, as with rebase --autosquash. A target it cancels leaves the history; your files are not touched.",
+    )
     // below the first row, so a header that the facts of the sync move moves both
     const offset = async () => (await authRow.boundingBox())!.y - (await findBranchRow(page, "search").boundingBox())!.y
     const before = await offset()

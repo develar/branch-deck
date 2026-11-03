@@ -1,6 +1,6 @@
 // @spec spec/commit/fixups.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { describeFixupTarget, describeSquashFixups, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
+import { describeDroppedTargets, describeFixupTarget, describeSquashFixups, formatSquashFixupsLabel, getFixupTarget, getListFixups } from "@/lib/autosquash"
 import type { AutosquashPlan, PlannedGroup } from "@/lib/bindings"
 import { testSubject } from "@/test-support/subject-parts"
 
@@ -54,8 +54,20 @@ describe("formatSquashFixupsLabel", () => {
 
 describe("describeSquashFixups", () => {
   it("says what the squash does in the number of its fixups, one as one", () => {
-    expect(describeSquashFixups(1)).toBe("It is folded into its target, as with rebase --autosquash. Your files are not touched.")
-    expect(describeSquashFixups(3)).toBe("Each one is folded into its target, as with rebase --autosquash. Your files are not touched.")
+    expect(describeSquashFixups(1)).toBe("It is folded into its target, as with rebase --autosquash. A target it cancels leaves the history; your files are not touched.")
+    expect(describeSquashFixups(3)).toBe("Each one is folded into its target, as with rebase --autosquash. A target they cancel leaves the history; your files are not touched.")
     expect(describeSquashFixups(0)).toBeNull()
+  })
+})
+
+describe("describeDroppedTargets", () => {
+  const target = (subject: string, newId: string | null) => ({ target: subject, subject, newId, fixups: [] })
+
+  it("names the targets their fixups cancel, none when every target stays", () => {
+    expect(describeDroppedTargets([target("Add a", "a1"), target("Add b", null)])).toBe("“Add b” left the history: its fixups cancel it")
+    expect(describeDroppedTargets([target("Add a", null), target("Add b", null), target("Add c", null)])).toBe(
+      "“Add a”, “Add b” and “Add c” left the history: their fixups cancel them",
+    )
+    expect(describeDroppedTargets([target("Add a", "a1")])).toBeNull()
   })
 })

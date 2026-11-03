@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { showSquashedToast } from "@/hooks/useSquashCommits"
 import type { ListFixups } from "@/lib/autosquash"
-import { formatFixupCount, getListFixups } from "@/lib/autosquash"
+import { describeDroppedTargets, formatFixupCount, getListFixups } from "@/lib/autosquash"
 import type { AutosquashScope } from "@/lib/bindings"
 import { runRewriteIntent, witnessed } from "@/lib/rewrite-run"
 import { getAutosquashPlan, useAutosquashPlan } from "@/stores/branch-sync"
@@ -37,7 +37,8 @@ export async function squashFixups(scope: AutosquashScope, options: SquashFixups
   if (done === null || done.result.rewrite !== "fixupsSquashed") {
     return false
   }
-  showSquashedToast(repositoryPath, `Squashed ${formatFixupCount(done.result.answer.squashedCount)}`, done)
+  const { answer } = done.result
+  showSquashedToast(repositoryPath, `Squashed ${formatFixupCount(answer.squashedCount)}`, done, describeDroppedTargets(answer.squashed) ?? undefined)
   return true
 }
 

@@ -1088,11 +1088,19 @@ target of the scope (see "Rewrite history"), once the plan names the targets. Th
 fixups` and a CAS on that head; Undo is the squash undo. The core plans and writes the squashed commits and the
 carried notes before the repository lock and holds it for the witness of HEAD and the move, as the squash does, and answers what it squashed
 (`SquashFixupsResult`: each target with its subject, its new id and its fixups, the orphans of the scope).
+Fixups that cancel their target, the target as they leave it having no changes, take it out of the history with them
+(`IfEmpty::Drop` of the fold's groups: the plan writes no commit for it and replays the commits after it onto its
+parent), HEAD's tree kept; its entry has no new id, so a queued rewrite that names it finds it gone. A root target
+is refused all the same (`squash_empty`), and so is a later commit that becomes empty. A squash of commits the user
+selected refuses commits that cancel each other (`IfEmpty::Refuse`): it gives one commit with the user's message, and
+commits that cancel each other are dropped instead. `bd fold --dry-run` builds the fold and drops it
+(`check_fold`: no `ready`, so no note, the temporary refs deleted) to name the targets it would drop.
 `bd fold` passes its `--expect-head`, its lock timeout and the range its plan was made of (`FoldRange`: HEAD, the
 commits ahead and the grouping inputs, one listing) to it (`squash_fixup_commits_on`) and prints that answer: the first
 plan of the core is made of that range, so a HEAD another process moved after bd read it fails the read of the history
-and is folded as the core finds it under the lock. bd's own plan answers only `--dry-run`, an unknown `--branch` and
-nothing to fold; a `NothingToSquash` of the core (another process folded them) is nothing to fold too.
+and is folded as the core finds it under the lock. bd's own plan answers only an unknown `--branch` and
+nothing to fold, and `check_fold` its `--dry-run` with fixups; a `NothingToSquash` of the core (another process folded
+them) is nothing to fold too.
 
 Code: `crates/history-rewrite/src/autosquash.rs`, `crates/git-ops/src/autosquash_targets.rs` (the target of each
 fixup), `crates/sync-utils/src/commit_subject.rs` (`parse_subject`), `crates/history-rewrite/src/commit_grouper.rs`

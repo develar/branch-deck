@@ -75,6 +75,9 @@ pub struct PreparedRewrite {
   pub(crate) written: Vec<WrittenCommits>,
   /// `(replaced commit, its replacement)` of every `Replace` step, oldest first
   pub(crate) replacements: Vec<(String, String)>,
+  /// The replaced commits of the `Replace` steps that their folded commits cancel (`IfEmpty::Drop`), oldest first: they
+  /// left the history with their folded commits
+  pub(crate) dropped: Vec<String>,
   /// `(replayed commit, its mapping lines)`: the notes of the commits whose trees the replay kept
   pub(crate) carried_notes: Vec<(String, String)>,
   /// The committer of the new commits, for the notes commit
@@ -104,6 +107,13 @@ impl PreparedRewrite {
   #[must_use]
   pub fn replacement_of(&self, commit_id: &str) -> Option<&str> {
     self.replacements.iter().find(|(old, _)| old == commit_id).map(|(_, new)| new.as_str())
+  }
+
+  /// Whether the folded commits of the `Replace` step of `commit_id` cancel it, so it left the history
+  /// (`IfEmpty::Drop`)
+  #[must_use]
+  pub fn is_dropped(&self, commit_id: &str) -> bool {
+    self.dropped.iter().any(|dropped| dropped == commit_id)
   }
 
   /// The replayed commits that keep the mapping notes of their originals, newest first
@@ -208,6 +218,18 @@ pub struct Replacement {
   /// The message of the new commit, stored as UTF-8; `None` keeps the message and the encoding of the replaced commit
   /// byte for byte
   pub message: Option<Vec<u8>>,
+  /// What a replacement without changes does: the folded commits cancel the replaced one
+  pub if_empty: IfEmpty,
+}
+
+/// What a replacement whose folded commits cancel the replaced one does
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IfEmpty {
+  /// Refuse the rewrite as `RefusalKind::Empty`: a squash the user asked for gives one commit
+  Refuse,
+  /// Leave the replaced commit out with its folded ones (a fold of fixups that cancel their target): HEAD's tree stays.
+  /// The root commit is refused all the same, no history would be left below the later commits
+  Drop,
 }
 
 /// Steps by History position
@@ -254,6 +276,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     committer: String::new(),
     written: Vec::new(),
     replacements: Vec::new(),
+    dropped: Vec::new(),
     carried_notes: Vec::new(),
   };
   let outcome = writer.write(&roles, oldest_position, checks).and_then(|new_head| {
@@ -263,6 +286,7 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
   let PlanWriter {
     written,
     replacements,
+    dropped,
     merger,
     carried_notes,
     committer,
@@ -286,6 +310,8 @@ pub fn prepare_plan(git_executor: &GitCommandExecutor, repo_path: &str, history:
     index_update: IndexUpdate::TwoWay { old_tree, new_tree },
     written,
     replacements,
+    // oldest first, as the replacements
+    dropped: dropped.iter().rev().map(|&position| history.id(position).to_string()).collect(),
     carried_notes,
     committer,
   })
@@ -344,6 +370,8 @@ struct PlanWriter<'a> {
   /// The replacements, each on its temporary ref
   written: Vec<WrittenCommits>,
   replacements: Vec<(String, String)>,
+  /// The positions of the replaced commits that their folded commits cancel (`IfEmpty::Drop`), newest first
+  dropped: Vec<usize>,
   /// The notes the replayed commits keep, found by the listing of the new history
   carried_notes: Vec<(String, String)>,
 }
@@ -370,7 +398,12 @@ impl PlanWriter<'_> {
           return Err(refusal(format!("Cannot drop the root commit {}", short_id(self.history.id(position)))));
         }
         Role::Drop | Role::Folded => {}
-        Role::Replace(replacement) => new_tip = Some(self.write_replacement(new_tip.as_deref(), position, replacement)?),
+        Role::Replace(replacement) => {
+          // a replacement its folded commits cancel leaves the tip where it is
+          if let Some(new_id) = self.write_replacement(new_tip.as_deref(), position, replacement)? {
+            new_tip = Some(new_id);
+          }
+        }
       }
       previous = Some((position, role));
     }
@@ -396,7 +429,7 @@ impl PlanWriter<'_> {
       ));
     }
     if let Some(chain) = chain {
-      let removed = roles.values().filter(|role| !matches!(role, Role::Replace(_))).count();
+      let removed = roles.values().filter(|role| !matches!(role, Role::Replace(_))).count() + self.dropped.len();
       let expected = oldest_position + 1 - removed;
       if chain.len() != expected {
         return Err(refused(
@@ -427,7 +460,7 @@ impl PlanWriter<'_> {
   /// a kept commit whose new tree and parent tree are the source its note records, so a sync reuses its virtual copy.
   /// The replacements and the commits whose trees changed (between a target and its folded commits) keep none
   fn notes_to_carry(&self, roles: &BTreeMap<usize, Role<'_>>, oldest_position: usize, chain: &[(String, String)], base_tree: &str) -> Vec<(String, String)> {
-    let kept = (0..=oldest_position).filter(|position| !matches!(roles.get(position), Some(Role::Drop | Role::Folded)));
+    let kept = (0..=oldest_position).filter(|position| !matches!(roles.get(position), Some(Role::Drop | Role::Folded)) && !self.dropped.contains(position));
     kept
       .zip(chain.iter().enumerate())
       .filter(|(position, _)| !roles.contains_key(position))
@@ -487,8 +520,9 @@ impl PlanWriter<'_> {
     Ok(())
   }
 
-  /// Write the replacement of the commit at `position` onto `new_tip`; returns its id
-  fn write_replacement(&mut self, new_tip: Option<&str>, position: usize, replacement: &Replacement) -> Result<String, CopyCommitError> {
+  /// Write the replacement of the commit at `position` onto `new_tip`; returns its id, or `None` when its folded commits
+  /// cancel it and it leaves the history (`IfEmpty::Drop`)
+  fn write_replacement(&mut self, new_tip: Option<&str>, position: usize, replacement: &Replacement) -> Result<Option<String>, CopyCommitError> {
     let (history, target) = (self.history, self.target);
     let commit_id = history.id(position);
     let base_tree = match new_tip {
@@ -523,11 +557,19 @@ impl PlanWriter<'_> {
       })?;
     }
     if tree == base_tree {
+      if replacement.if_empty == IfEmpty::Drop && new_tip.is_some() {
+        debug!(commit = %commit_id, "its folded commits cancel it: it leaves the history");
+        self.dropped.push(position);
+        return Ok(None);
+      }
       return Err(refused(
         RefusalKind::Empty,
         vec![commit_id.to_string()],
         Vec::new(),
-        format!("Squashing into commit {} leaves no changes", short_id(commit_id)),
+        format!(
+          "Squashing into commit {} leaves no changes: the commits cancel each other, drop them instead",
+          short_id(commit_id)
+        ),
       ));
     }
 
@@ -555,7 +597,7 @@ impl PlanWriter<'_> {
     self.written.push(written);
     self.replacements.push((commit_id.to_string(), new_id.clone()));
     self.trees.insert(new_id.clone(), tree);
-    Ok(new_id)
+    Ok(Some(new_id))
   }
 
   /// A merge of the plan's `merge-tree --stdin`, refused with `conflict_message` on a conflict

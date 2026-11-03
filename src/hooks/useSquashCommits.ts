@@ -37,13 +37,13 @@ export async function squashCommits(commits: readonly Commit[], message: string,
  * `undo` of its `squash` token moves the branch back to the commit before the squash, which kept the files, so nothing
  * else changes
  */
-export function showSquashedToast(repositoryPath: string, title: string, done: RewriteDone): void {
+export function showSquashedToast(repositoryPath: string, title: string, done: RewriteDone, description?: string): void {
   const token = done.undo
   if (token === null) {
-    showToast({ title })
+    showToast({ title, description })
     return
   }
-  showUndoToast(repositoryPath, title, () => undoSquash(repositoryPath, token), undefined, done.outcome)
+  showUndoToast(repositoryPath, title, () => undoSquash(repositoryPath, token), description, done.outcome)
 }
 
 /** The Undo of a squash in `repositoryPath`, the repository it was made in: a rewrite of its own, queued as any */

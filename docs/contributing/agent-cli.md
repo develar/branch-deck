@@ -1157,8 +1157,11 @@ tree stay as they are.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
 - `bd undo <undo_token>` restores the previous head.
+- Fixups that cancel their target (the target as they leave it has no changes) take it out of the history with them,
+  HEAD's tree kept: its entry says `"dropped": true` and has no `new_id`. `--dry-run` builds the fold and drops it, so
+  it says `dropped` too.
 - A fixup that conflicts with a commit between it and its target or after it is `squash_conflict` (exit 4, `commits`,
-  `paths`), one that leaves its target or a later commit empty `squash_empty`; nothing is folded.
+  `paths`), one that leaves a later commit empty `squash_empty`; nothing is folded.
 
 ### `bd squash <into> <commit>… [--subject <s> | --message <m> | --message-file <f>] [--expect-head <id>] [--dry-run | --sync]`
 
@@ -1183,8 +1186,9 @@ are.
 - `--dry-run` builds the squash and drops it (`check_squash_commits_core`): a conflict shows before the user approves.
 - Refused with nothing changed: `not_ahead_of_baseline`; `invalid_arguments` for an ambiguous id, fewer than two
   commits, an `<into>` that is not the oldest, a commit of another branch, a message that moves the commit to another
-  branch; `squash_conflict` (exit 4, `commits`, `paths`), `squash_empty` (exit 4); `head_moved`, `locked`,
-  `operation_in_progress`.
+  branch; `squash_conflict` (exit 4, `commits`, `paths`), `squash_empty` (exit 4: the commits cancel each other, or a
+  later commit would become empty; a squash gives one commit, so commits that cancel each other are dropped instead);
+  `head_moved`, `locked`, `operation_in_progress`.
 - `bd undo <undo_token>` restores the previous head.
 
 ### `bd move-hunk <from> <to> <path> [--block <id>]… [--expect-head <id>] [--dry-run | --sync]`

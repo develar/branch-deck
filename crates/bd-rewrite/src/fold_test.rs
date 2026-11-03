@@ -77,6 +77,32 @@ fn fold_of_one_branch_and_a_dry_run() {
   assert_eq!((exit_code, &output["folded"], output.get("undo_token")), (0, &json!([]), None), "{output}");
 }
 
+/// A fixup that cancels its target takes it out of the history with it: the dry run says so (`dropped`), the fold
+/// leaves both out and keeps HEAD's tree, and the target has no `new_id`
+#[test_log::test]
+fn a_fixup_that_cancels_its_target_drops_it_and_the_dry_run_says_so() {
+  let mut commits = file_commits(&[("(auth) Add a", "a.txt", "a\n"), ("(ui) Add b", "b.txt", "b\n")]);
+  commits.push(HistoryCommit::new("fixup! (auth) Add a", &[]).deleting(&["a.txt"]).at(1_700_000_300));
+  let (repo, ids) = repo_on_baseline(&[("README.md", "readme\n")], &commits, ".");
+  let head = repo.head();
+  let tree = git(&repo, &["rev-parse", "HEAD^{tree}"]);
+  let dropped = json!([{ "commit": short_id(&ids[0]), "subject": "(auth) Add a", "dropped": true, "fixups": [short_id(&ids[2])] }]);
+
+  let (exit_code, output) = run_in(&repo, &["fold", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_dry_run(&output, &head);
+  assert_eq!(output["folded"], dropped);
+  assert_eq!(repo.head(), head);
+  assert_eq!(git(&repo, &["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "");
+
+  let (exit_code, output) = run_in(&repo, &["fold"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["folded"], dropped);
+  assert_eq!(subjects(&repo), "(ui) Add b");
+  assert_eq!(git(&repo, &["rev-parse", "HEAD^{tree}"]), tree);
+  assert_undo_restores(&repo, &output, &head);
+}
+
 #[test_log::test]
 fn fold_is_refused_on_another_head_or_while_the_lock_is_held() {
   let (repo, ids) = repo_with_fixups();

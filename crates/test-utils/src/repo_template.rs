@@ -794,6 +794,19 @@ pub mod templates {
       .commit_with_timestamp("fixup! Add build script", &[("build.js", "export function build(target) {}\n")], Some(1704130200))
   }
 
+  /// A fixup that cancels its target (`auth` renames the title, its fixup puts it back) and one that changes its target
+  /// (`docs`): a fold leaves `auth`'s commit out with its fixup and folds the other
+  pub fn fixup_cancels() -> RepoTemplate {
+    // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
+    RepoTemplate::new("fixup_cancels")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# Login\n")], Some(1704117600))
+      .commit_with_timestamp("(auth) Rename the title", &[("README.md", "# Sign in\n")], Some(1704119400))
+      .commit_with_timestamp("(docs) Write the guide", &[("guide.md", "# Guide\n")], Some(1704121200))
+      .commit_with_timestamp("fixup! (auth) Rename the title", &[("README.md", "# Login\n")], Some(1704123000))
+      .commit_with_timestamp("fixup! (docs) Write the guide", &[("guide.md", "# Guide\n\n## Setup\n")], Some(1704124800))
+  }
+
   /// Stacked branches on: `auth` begins first and has the newest commit but one, a fixup of its oldest commit, `session`
   /// stacks on `auth`, `docs` and `search` begin after them; a squash of the fixup gives every commit above the oldest a
   /// new committer time

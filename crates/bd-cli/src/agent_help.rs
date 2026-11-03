@@ -665,9 +665,10 @@ why robots of the last 14 days failed and which checks passed only on a retry (`
 /// `bd fold --help`: folding the fixups
 pub const FOLD_HELP: &str = "\
 `bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
-targets and keeps HEAD's tree. A fold whose fixup conflicts with a commit in between or after it (`squash_conflict`,
-`commits`, `paths`) or that would leave its target or a later commit empty (`squash_empty`) folds nothing: tell the
-user.
+targets and keeps HEAD's tree. Fixups that cancel their target take it out of the history with them (`dropped: true`,
+no `new_id`; --dry-run says it too). A fold whose fixup conflicts with a commit in between or after it
+(`squash_conflict`, `commits`, `paths`) or that would leave a later commit empty (`squash_empty`) folds nothing: tell
+the user.
 ";
 
 /// `bd squash --help`: the squash the user asked for
@@ -684,8 +685,8 @@ branch of `<into>`, else `invalid_arguments` (move them first with `bd group`).
   approve, with --expect-head <previous_head>; --sync syncs after it.
 - Prints `new_id`, `previous_head`, `new_head` and an `undo_token`: `bd undo <undo_token>` takes it back.
 - `squash_conflict` (exit 4): a squashed commit and a commit in between or after it change the same lines (`commits`,
-  `paths`); `squash_empty` (exit 4): the squashed commit would have no changes, or a later commit would become empty.
-  Both change nothing: tell the user, never squash another way.
+  `paths`); `squash_empty` (exit 4): the commits cancel each other (a squash gives one commit: they are dropped
+  instead), or a later commit would become empty. Both change nothing: tell the user, never squash another way.
 ";
 
 /// `bd reword --help`: the change of a message

@@ -325,7 +325,8 @@ impl RewriteResult {
         moved.commits.iter().filter_map(|commit| changed((&commit.old_id, &commit.new_id))).collect()
       }
       Self::Reworded(reworded) => reworded.new_commit_ids.iter().filter_map(changed).collect(),
-      Self::FixupsSquashed(squashed) => squashed.squashed.iter().filter_map(|target| changed((&target.target, &target.new_id))).collect(),
+      // a target its fixups cancel has no new id: a queued rewrite that names it finds it gone
+      Self::FixupsSquashed(squashed) => squashed.squashed.iter().filter_map(|target| changed((&target.target, target.new_id.as_ref()?))).collect(),
       Self::IssueReferenceAdded(added) => added.new_commit_ids.iter().filter_map(changed).collect(),
       _ => BTreeMap::new(),
     }
@@ -584,7 +585,8 @@ pub struct SquashedTarget {
   /// The target before the squash
   pub target: String,
   pub subject: String,
-  pub new_id: String,
+  /// The target after the squash; `None` when its fixups cancel it: it left the history with them, HEAD's tree kept
+  pub new_id: Option<String>,
   /// The fixups folded into it, oldest first
   pub fixups: Vec<String>,
 }
@@ -596,7 +598,7 @@ pub struct SquashedTarget {
 pub struct SquashFixupsResult {
   /// One entry per target, oldest first
   pub squashed: Vec<SquashedTarget>,
-  /// Number of fixup commits folded into their targets
+  /// Number of fixup commits folded into their targets, those that cancel their target included
   pub squashed_count: u32,
   /// Fixups of the scope left as they are: no target in this range
   pub orphans: Vec<OrphanFixup>,

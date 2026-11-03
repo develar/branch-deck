@@ -4,7 +4,7 @@ use super::notes::{MappingNote, notes_ref, read_notes, write_commit_notes};
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
 use super::rewrite_guard::HeadMoved;
-use super::rewrite_plan::PreparedRewrite;
+use super::rewrite_plan::{IfEmpty, PreparedRewrite};
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, worktree_snapshot, write_file};
 use super::squash_commits::{SquashGroup, SquashMessage, prepare_squash, restore_branch_head, restore_branch_head_with};
 use anyhow::Result;
@@ -17,6 +17,7 @@ fn group(target: &str, folded: &[&str], message: SquashMessage) -> SquashGroup {
     target: target.to_string(),
     folded: folded.iter().map(|id| (*id).to_string()).collect(),
     message,
+    if_empty: IfEmpty::Refuse,
   }
 }
 
@@ -433,4 +434,53 @@ fn undo_takes_only_full_commit_ids() -> Result<()> {
     assert_eq!(repo.head(), new_head);
   }
   Ok(())
+}
+
+/// `Add k`, then `fixup! Add a`, which deletes `a.txt` again; returns the fixup
+fn add_k_and_cancel_a(repo: &TestRepo) -> String {
+  repo.create_commit("Add k", "k.txt", "k");
+  repo.git(&["rm", "-q", "a.txt"]);
+  repo.git(&["commit", "-q", "-m", "fixup! Add a"]);
+  repo.head()
+}
+
+/// A group whose folded commits cancel its target leaves the history with them when it says `IfEmpty::Drop` (a fold of
+/// fixups): HEAD keeps its tree, the commits in between stay; a squash the user asked for refuses it; the root stays
+#[test]
+fn a_group_its_folded_commits_cancel_leaves_the_history_only_when_it_says_so() -> Result<()> {
+  let repo = TestRepo::new();
+  repo.create_commit("Base", "base.txt", "base");
+  let target = repo.create_commit("Add a", "a.txt", "a");
+  let fixup = add_k_and_cancel_a(&repo);
+  let head_tree = git(&repo, &["rev-parse", "HEAD^{tree}"])?;
+  let history = History::read_to_with_notes(repo.git_executor(), repo_path(&repo), &[&target, &fixup])?;
+
+  let refused = prepare_squash(repo.git_executor(), repo_path(&repo), &history, &[group(&target, &[&fixup], SquashMessage::Target)]).unwrap_err();
+  assert!(refused.to_string().contains("the commits cancel each other, drop them instead"), "{refused}");
+  assert_no_temp_refs(&repo)?;
+
+  let dropping = SquashGroup {
+    if_empty: IfEmpty::Drop,
+    ..group(&target, &[&fixup], SquashMessage::Target)
+  };
+  let prepared = prepare_squash(repo.git_executor(), repo_path(&repo), &history, &[dropping])?.ready(repo.git_executor(), repo_path(&repo))?;
+  assert!(prepared.is_dropped(&target));
+  assert_eq!(prepared.replacement_of(&target), None);
+  prepared.apply(repo.git_executor(), repo_path(&repo), RefTransaction::new(), "squash fixups")?;
+  assert_eq!(git(&repo, &["log", "--format=%s"])?, "Add k\nBase\n");
+  assert_eq!(git(&repo, &["rev-parse", "HEAD^{tree}"])?, head_tree);
+  assert_no_temp_refs(&repo)?;
+
+  // the root commit is refused all the same: no history would be left below the later commits
+  let repo = TestRepo::new();
+  let root = repo.create_commit("Add a", "a.txt", "a");
+  let fixup = add_k_and_cancel_a(&repo);
+  let history = History::read_to_with_notes(repo.git_executor(), repo_path(&repo), &[&root, &fixup])?;
+  let root_group = SquashGroup {
+    if_empty: IfEmpty::Drop,
+    ..group(&root, &[&fixup], SquashMessage::Target)
+  };
+  let error = prepare_squash(repo.git_executor(), repo_path(&repo), &history, &[root_group]).unwrap_err();
+  assert!(error.to_string().contains("leaves no changes"), "{error}");
+  assert_no_temp_refs(&repo)
 }

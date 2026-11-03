@@ -14,7 +14,7 @@ use domain_types::operation::Intent;
 use domain_types::rewrite::{AutosquashScope, RewriteIntent};
 use git_ops::revs::{DetachedHead, current_branch};
 use git_ops::rewrite_guard::{HeadMoved, ensure_no_operation_in_progress};
-use history_rewrite::autosquash::{FoldRange, NothingToSquash, SquashFixupsParams, squash_fixup_commits_on};
+use history_rewrite::autosquash::{FoldRange, NothingToSquash, SquashFixupsParams, check_fold, squash_fixup_commits_on};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions, ensure_expected_head};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -27,7 +27,7 @@ pub struct FoldArgs {
   /// Fold only if HEAD is still this commit (the `head` that `bd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
-  /// Print what would be folded; write nothing
+  /// Print what would be folded: the fold is built and dropped (`dropped` targets too); no ref moves
   #[arg(long)]
   pub dry_run: bool,
 }
@@ -57,9 +57,12 @@ pub struct FoldedTarget {
   /// The target before the fold
   pub commit: String,
   pub subject: String,
-  /// The target after the fold; omitted for a dry run
+  /// The target after the fold; omitted for a dry run and for a target its fixups cancel
   #[serde(skip_serializing_if = "Option::is_none")]
   pub new_id: Option<String>,
+  /// The fixups cancel the target: it leaves the history with them, HEAD's tree stays (a dry run says it too)
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub dropped: bool,
   /// The fixups folded into it, oldest first
   pub fixups: Vec<String>,
 }
@@ -96,6 +99,7 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
       target: &group.target,
       subject: &group.target_subject,
       new_id: None,
+      dropped: false,
       fixups: group.folded.iter().map(|fixup| fixup.commit_id.as_str()).collect(),
     })
     .collect();
@@ -105,7 +109,7 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
     .filter(|orphan| in_scope(&orphan.branch))
     .map(|orphan| orphan.commit_id.as_str())
     .collect();
-  if args.dry_run || groups.is_empty() {
+  if groups.is_empty() {
     return Ok(fold_output(context, args.dry_run, (&plan.head, &plan.head), &groups, &orphans));
   }
 
@@ -118,6 +122,18 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
     lock_wait: LockWait::Bounded(context.lock_timeout),
     held_lock: None,
   };
+  if args.dry_run {
+    // the fold built and dropped: it says which targets their fixups cancel
+    let dropped = check_fold(&context.git, &params, &options, Some(range)).map_err(squash_error)?;
+    let groups: Vec<Folded<'_>> = groups
+      .into_iter()
+      .map(|group| Folded {
+        dropped: dropped.iter().any(|target| target == group.target),
+        ..group
+      })
+      .collect();
+    return Ok(fold_output(context, true, (&plan.head, &plan.head), &groups, &orphans));
+  }
   let result = match squash_fixup_commits_on(&context.git, &params, &options, Some(range)) {
     Ok(result) => result,
     // another process folded them on the HEAD the core read: nothing to fold there, no rewrite
@@ -135,7 +151,8 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
     .map(|squashed| Folded {
       target: &squashed.target,
       subject: &squashed.subject,
-      new_id: Some(&squashed.new_id),
+      new_id: squashed.new_id.as_deref(),
+      dropped: squashed.new_id.is_none(),
       fixups: squashed.fixups.iter().map(String::as_str).collect(),
     })
     .collect();
@@ -144,11 +161,12 @@ fn folded(context: &RepoContext, args: &FoldArgs) -> Result<FoldOutput, CliError
 }
 
 /// A target and the fixups folded into it, oldest first, as the plan of the command or the core names them; `new_id`
-/// once folded
+/// once folded, `dropped` when its fixups cancel it
 struct Folded<'a> {
   target: &'a str,
   subject: &'a str,
   new_id: Option<&'a str>,
+  dropped: bool,
   fixups: Vec<&'a str>,
 }
 
@@ -183,6 +201,7 @@ fn fold_output(context: &RepoContext, dry_run: bool, (previous_head, new_head): 
         commit: short.get(group.target).to_string(),
         subject: group.subject.to_string(),
         new_id: group.new_id.map(|id| short.get(id).to_string()),
+        dropped: group.dropped,
         fixups: group.fixups.iter().map(|fixup| short.get(fixup).to_string()).collect(),
       })
       .collect(),

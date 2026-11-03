@@ -8,7 +8,7 @@ use crate::history::History;
 use crate::ref_transaction::RefTransaction;
 use crate::revs::{is_object_id, short_id};
 use crate::rewrite_guard::{HeadMoved, RewriteTarget, check_rewrite_range};
-use crate::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
+use crate::rewrite_plan::{IfEmpty, PlanChecks, PlanStep, PreparedRewrite, Replacement, RewritePlan, prepare_plan};
 use anyhow::anyhow;
 use domain_types::BranchError;
 use git_executor::git_command_executor::GitCommandExecutor;
@@ -24,6 +24,9 @@ pub struct SquashGroup {
   /// history. Not empty.
   pub folded: Vec<String>,
   pub message: SquashMessage,
+  /// What a group whose folded commits cancel the target does: a fold of fixups drops the target with them, a squash
+  /// the user asked for is refused
+  pub if_empty: IfEmpty,
 }
 
 /// The message of the squashed commit
@@ -37,7 +40,8 @@ pub enum SquashMessage {
 
 /// Prepare squashing every group, with ids on the first-parent line of `history` (HEAD). The new commits are written,
 /// the branch is not moved: `PreparedRewrite::apply` does it. Refused, with nothing changed, if a group conflicts with
-/// the commits in between, leaves no changes or empties a later commit, or if the rewrite would change HEAD's tree.
+/// the commits in between, leaves no changes (unless its `IfEmpty::Drop` leaves it out) or empties a later commit, or if
+/// the rewrite would change HEAD's tree.
 #[instrument(skip(git_executor, history))]
 pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, history: &History, groups: &[SquashGroup]) -> Result<PreparedRewrite, CopyCommitError> {
   if groups.is_empty() {
@@ -80,7 +84,14 @@ pub fn prepare_squash(git_executor: &GitCommandExecutor, repo_path: &str, histor
         Some(complete_line(text))
       }
     };
-    plan.steps.insert(position, PlanStep::Replace(Replacement { folded, message }));
+    plan.steps.insert(
+      position,
+      PlanStep::Replace(Replacement {
+        folded,
+        message,
+        if_empty: group.if_empty,
+      }),
+    );
   }
 
   let checks = PlanChecks {

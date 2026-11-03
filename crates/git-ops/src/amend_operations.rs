@@ -112,6 +112,7 @@ pub fn prepare_amend(git_executor: &GitCommandExecutor, repo_path: &str, history
     index_update: IndexUpdate::FromWorktree(files),
     written: vec![written],
     replacements: vec![(original_commit_id.clone(), amended_commit_id.clone())],
+    dropped: Vec::new(),
     // an amend changes the trees of every later commit: no note stays
     carried_notes: Vec::new(),
     committer: String::new(),

@@ -1,5 +1,5 @@
 use crate::autosquash::{
-  AutosquashPlan, FixupKind, NothingToSquash, PlannedFixup, PlannedGroup, SquashFixupsParams, build_fixup_message, get_autosquash_plan_core, plan_autosquash,
+  AutosquashPlan, FixupKind, NothingToSquash, PlannedFixup, PlannedGroup, SquashFixupsParams, build_fixup_message, check_fold, get_autosquash_plan_core, plan_autosquash,
   squash_fixup_commits_core,
 };
 use crate::commit_grouper::GroupingInputs;
@@ -265,6 +265,37 @@ fn interleaved_repo() -> (TestRepo, String) {
   (test_repo, head)
 }
 
+/// A fixup that cancels its target takes it out of the history with it, the other groups folded as always, HEAD's
+/// tree kept; the result names it without a new id, and its check says so before the fold
+#[test]
+fn a_target_its_fixups_cancel_leaves_the_history_with_them() {
+  let test_repo = TestRepo::new();
+  test_repo.create_commit("Initial", "README.md", "readme");
+  let cancelled = test_repo.create_commit("(a) Add a", "a.txt", "a");
+  let kept = test_repo.create_commit("(b) Add b", "b.txt", "b");
+  test_repo.git(&["rm", "-q", "a.txt"]);
+  test_repo.git(&["commit", "-q", "-m", "fixup! (a) Add a"]);
+  let head = test_repo.create_commit("fixup! (b) Add b", "b.txt", "b fixed");
+  let tree = test_repo.git(&["rev-parse", "HEAD^{tree}"]);
+  let params = SquashFixupsParams {
+    repository_path: repo_path(&test_repo),
+    scope: AutosquashScope::All,
+  };
+  let dropped = check_fold(test_repo.git_executor(), &params, &RewriteOptions::default(), None).unwrap();
+  assert_eq!(dropped, std::slice::from_ref(&cancelled));
+  // the check moves nothing and leaves no temporary ref
+  assert_eq!(test_repo.head(), head);
+  assert_eq!(test_repo.git(&["for-each-ref", "--format=%(refname)", "refs/branch-deck/"]), "");
+
+  let result = squash_fixups(&test_repo, &head, AutosquashScope::All).unwrap();
+
+  assert_eq!(messages(&test_repo), "(b) Add b\n--\nInitial\n--");
+  assert_eq!(test_repo.git(&["rev-parse", "HEAD^{tree}"]), tree);
+  assert_eq!(result.squashed_count, 2);
+  let targets: Vec<_> = result.squashed.iter().map(|target| (target.target.clone(), target.new_id.clone())).collect();
+  assert_eq!(targets, [(cancelled, None), (kept, Some(test_repo.head()))]);
+}
+
 #[test]
 fn squashes_interleaved_groups_in_one_rewrite() {
   let (test_repo, head) = interleaved_repo();
@@ -279,8 +310,8 @@ fn squashes_interleaved_groups_in_one_rewrite() {
   assert_eq!(result.previous_head, head);
   assert_eq!(result.new_head, test_repo.head());
   assert_eq!(result.squashed.len(), 2);
-  assert_eq!(result.squashed[0].new_id, test_repo.rev_parse("HEAD~2").unwrap());
-  assert_eq!(result.squashed[1].new_id, test_repo.rev_parse("HEAD~1").unwrap());
+  assert_eq!(result.squashed[0].new_id, Some(test_repo.rev_parse("HEAD~2").unwrap()));
+  assert_eq!(result.squashed[1].new_id, Some(test_repo.rev_parse("HEAD~1").unwrap()));
   // what it squashed, as the plan names it
   let squashed: Vec<_> = result
     .squashed

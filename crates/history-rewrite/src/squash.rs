@@ -14,7 +14,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::with_dirs_of;
-use git_ops::rewrite_plan::PreparedRewrite;
+use git_ops::rewrite_plan::{IfEmpty, PreparedRewrite};
 use git_ops::squash_commits::{SquashGroup, SquashMessage, check_restore, prepare_squash};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashSet};
@@ -281,6 +281,8 @@ fn prepare_squash_commits(git_executor: &GitCommandExecutor, params: &SquashComm
     target: target.clone(),
     folded: ids.collect(),
     message: SquashMessage::Text(message.to_string()),
+    // a squash gives one commit with the user's message: commits that cancel each other are dropped instead
+    if_empty: IfEmpty::Refuse,
   };
   let rewrite = prepare_squash(git_executor, repo_path, &history, &[group])?;
   Ok(PreparedSquash { rewrite, target })

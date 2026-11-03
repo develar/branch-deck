@@ -15,7 +15,7 @@ use git_ops::history::History;
 use git_ops::ref_transaction::RefTransaction;
 use git_ops::revs::{checked_out_branch, short_id, with_dirs_of};
 use git_ops::rewrite_guard::HeadMoved;
-use git_ops::rewrite_plan::PreparedRewrite;
+use git_ops::rewrite_plan::{IfEmpty, PreparedRewrite};
 use git_ops::squash_commits::{SquashGroup, SquashMessage, prepare_squash};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -245,8 +245,8 @@ pub fn squash_fixup_commits_on(git_executor: &GitCommandExecutor, params: &Squas
   let repo_path = &params.repository_path;
   // the guards and the lock take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo_path)?;
-  let first = prepare_fold(git_executor, params, options, range);
-  let prepare = || prepare_fold(git_executor, params, options, None);
+  let first = prepare_fold(git_executor, params, options, range).and_then(|fold| fold.ready(git_executor, repo_path));
+  let prepare = || prepare_fold(git_executor, params, options, None).and_then(|fold| fold.ready(git_executor, repo_path));
   let (prepared, _lock) = options.lock_prepared(git_executor, repo_path, first, prepare)?;
   let PreparedFold { rewrite, groups, orphans } = prepared;
   rewrite.apply(git_executor, repo_path, RefTransaction::new(), "squash fixups")?;
@@ -256,12 +256,14 @@ pub fn squash_fixup_commits_on(git_executor: &GitCommandExecutor, params: &Squas
     .map(|group| SquashedTarget {
       target: group.target.clone(),
       subject: group.target_subject.clone(),
-      new_id: rewrite.replacement_of(&group.target).unwrap_or_else(|| rewrite.new_head()).to_string(),
+      // a target its fixups cancel left the history: `replacement_of` has none
+      new_id: rewrite.replacement_of(&group.target).map(str::to_string),
       fixups: group.folded.iter().map(|fixup| fixup.commit_id.clone()).collect(),
     })
     .collect();
   let squashed_count = groups.iter().map(|group| group.folded.len()).sum::<usize>();
-  info!(squashed_count, targets = squashed.len(), "Squashed fixup commits");
+  let dropped = squashed.iter().filter(|target| target.new_id.is_none()).count();
+  info!(squashed_count, targets = squashed.len(), dropped, "Squashed fixup commits");
   Ok(SquashFixupsResult {
     squashed,
     squashed_count: u32::try_from(squashed_count)?,
@@ -278,6 +280,36 @@ struct PreparedFold {
   orphans: Vec<OrphanFixup>,
 }
 
+impl PreparedFold {
+  /// The fold `ready` to move: its index preflight and its carried notes, before the lock
+  fn ready(self, git_executor: &GitCommandExecutor, repo_path: &str) -> Result<Self> {
+    let Self { rewrite, groups, orphans } = self;
+    Ok(Self {
+      rewrite: rewrite.ready(git_executor, repo_path)?,
+      groups,
+      orphans,
+    })
+  }
+}
+
+/// The targets of `params` whose fixups cancel them, so that the fold leaves them out of the history with their
+/// fixups, oldest first: the fold computed on HEAD as `range` read it (or as it reads it) and dropped, for a dry run.
+/// Nothing is written but git objects and the temporary refs of the fold, deleted again; no lock, no mapping note
+#[instrument(skip(git_executor, options, range))]
+pub fn check_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<Vec<String>> {
+  let repo_path = &params.repository_path;
+  let git_executor = &with_dirs_of(git_executor, repo_path)?;
+  let fold = prepare_fold(git_executor, params, options, range)?;
+  let dropped = fold
+    .groups
+    .iter()
+    .filter(|group| fold.rewrite.is_dropped(&group.target))
+    .map(|group| group.target.clone())
+    .collect();
+  fold.rewrite.discard(git_executor, repo_path);
+  Ok(dropped)
+}
+
 impl Prepared for PreparedFold {
   fn witness(&self) -> Witness {
     self.rewrite.witness()
@@ -289,7 +321,7 @@ impl Prepared for PreparedFold {
 }
 
 /// The plan of `params` on HEAD as it reads it (or as `range` read it), the one `options` expects, and the squashed
-/// commits written on temporary refs (`prepare_squash`): the branch is not moved
+/// commits written on temporary refs (`prepare_squash`), not `ready` yet: the branch is not moved
 fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<PreparedFold> {
   let repo_path = &params.repository_path;
   let FoldRange { head, commits, grouping } = match range {
@@ -340,6 +372,8 @@ fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, 
       target: group.target.clone(),
       folded: group.folded.iter().map(|fixup| fixup.commit_id.clone()).collect(),
       message,
+      // fixups that cancel their target leave the history with it, as the target as they leave it is nothing
+      if_empty: IfEmpty::Drop,
     });
   }
   if !combined_ids.is_empty() {
@@ -350,8 +384,8 @@ fn prepare_fold(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, 
     }
   }
 
-  // ready before the lock: the carried mapping notes are written there
-  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups)?.ready(git_executor, repo_path)?;
+  // `ready` before the lock: the carried mapping notes are written there; a dry run does not
+  let rewrite = prepare_squash(git_executor, repo_path, &history, &squash_groups)?;
   Ok(PreparedFold { rewrite, groups, orphans })
 }
 

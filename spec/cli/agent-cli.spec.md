@@ -695,9 +695,13 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   worktree.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_cherry_pick_in_another_worktree_does_not_refuse_the_fold`)
 - A fixup that conflicts with a commit between it and its target or after it must be `squash_conflict` (exit 4) with
-  the commits and the files the merge names, one that leaves its target or a later commit empty `squash_empty`
-  (exit 4); both fold nothing.
+  the commits and the files the merge names, one that leaves a later commit empty `squash_empty` (exit 4); both fold
+  nothing.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict`)
+- Fixups that cancel their target must take it out of the history with them, HEAD's tree kept: its entry of `folded`
+  says `"dropped": true` and has no `new_id`. `--dry-run` must build the fold and drop it, with no ref, note or
+  temporary ref left, and say `dropped` as the fold would.
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fixup_that_cancels_its_target_drops_it_and_the_dry_run_says_so`)
 
 ### `bd squash`
 

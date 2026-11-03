@@ -7728,7 +7728,7 @@ export type SquashCommitsResult = {
 export type SquashFixupsResult = {
 	/**  One entry per target, oldest first */
 	squashed: SquashedTarget[],
-	/**  Number of fixup commits folded into their targets */
+	/**  Number of fixup commits folded into their targets, those that cancel their target included */
 	squashedCount: number,
 	/**  Fixups of the scope left as they are: no target in this range */
 	orphans: OrphanFixup[],
@@ -7741,7 +7741,8 @@ export type SquashedTarget = {
 	/**  The target before the squash */
 	target: string,
 	subject: string,
-	newId: string,
+	/**  The target after the squash; `None` when its fixups cancel it: it left the history with them, HEAD's tree kept */
+	newId: string | null,
 	/**  The fixups folded into it, oldest first */
 	fixups: string[],
 };

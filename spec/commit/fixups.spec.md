@@ -8,6 +8,9 @@ targets:
   - ../../crates/history-rewrite/src/commit_grouper.rs
   - ../../crates/sync-utils/src/commit_subject.rs
   - ../../crates/git-ops/src/autosquash_targets.rs
+  - ../../crates/git-ops/src/rewrite_plan.rs
+  - ../../crates/git-ops/src/squash_commits.rs
+  - ../../crates/bd-rewrite/src/fold_command.rs
   - ../../crates/app-api/src/reads/commits.rs
   - ../../crates/operations/src/rewrite.rs
   - ../../src/lib/autosquash.ts
@@ -107,11 +110,19 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   reads it, once more under the lock when HEAD moved meanwhile, and answers what it folded (each target with its
   subject, its new id and its fixups, and the orphans), which `bd fold` prints.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`, `a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
-- A fixup that conflicts with the commits between it and its target or after it, or that leaves its target or a later
-  commit empty, refuses the squash as the squash of a selection does ([Squash Commits](squash.spec.md)):
-  `squash_conflict` with the commits and files it names, `squash_empty`; the commits after the folded ones keep their
-  mapping notes.
+- A fixup that conflicts with the commits between it and its target or after it, or that leaves a later commit empty,
+  refuses the squash as the squash of a selection does ([Squash Commits](squash.spec.md)): `squash_conflict` with the
+  commits and files it names, `squash_empty`; the commits after the folded ones keep their mapping notes.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict`)
+- Fixups that cancel their target (the target as they leave it has no changes, as an agent's fixup that undoes its own
+  commit) must take it out of the history with them, the commits in between replayed onto its parent and HEAD's tree
+  kept; the other groups of the scope fold as always. The result names the target without a new id, so a queued
+  rewrite that names it finds it gone. A root target is refused (`squash_empty`): no history would be left below the
+  later commits. `git rebase --autosquash` would leave an empty commit or stop there; the target as the fixups leave it
+  is nothing, so nothing stays.
+  [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_target_its_fixups_cancel_leaves_the_history_with_them`)
+  [@test] ../../crates/git-ops/src/squash_commits_test.rs (`a_group_its_folded_commits_cancel_leaves_the_history_only_when_it_says_so`)
+  [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fixup_that_cancels_its_target_drops_it_and_the_dry_run_says_so`)
 
 ### UI
 
@@ -134,15 +145,19 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
   "Won't be squashed: no target in this range"; Squash runs it, Cancel, Escape or a click outside closes it. Nothing
   closes it while the squash runs (as the squash dialog): it closes when the squash is done or failed.
 - Its title "Squash N fixups" ("Squash 1 fixup") must say in the number of the fixups what the squash does: "It is
-  folded into its target, as with rebase --autosquash. Your files are not touched." for one, "Each one is folded…"
-  for more; "No fixups to squash" has no such sentence.
+  folded into its target, as with rebase --autosquash. A target it cancels leaves the history; your files are not
+  touched." for one, "Each one is folded… A target they cancel…" for more; "No fixups to squash" has no such
+  sentence.
   [@test] ../../src/lib/autosquash.test.ts (`says what the squash does in the number of its fixups, one as one`)
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should keep every row in its place when the fixup of the branch that began first is squashed`)
 - The menu of a fixup commit with a target offers "Squash into “X”", which squashes that fixup only.
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should squash from the branch menu and one fixup from the commit menu`)
 - Success shows "Squashed N fixups" with Undo, as for a squash of selected commits (the rewrite `undo` of its
-  `squash` token).
+  `squash` token). A target that left the history is named in its description: "“X” left the history: its fixups
+  cancel it" ("“X” and “Y” left the history: their fixups cancel them").
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from the fixup badge of its row and undo it`)
+  [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should drop a target its fixup cancels, say so in the toast and bring it back with Undo`)
+  [@test] ../../src/lib/autosquash.test.ts (`names the targets their fixups cancel, none when every target stays`)
 
 ## Testing / Local Run
 

@@ -2,7 +2,7 @@ use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
-use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, prepare_plan, refused_in};
+use super::rewrite_plan::{IfEmpty, PlanChecks, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, prepare_plan, refused_in};
 use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, status, write_file};
 use anyhow::Result;
 use test_log::test;
@@ -21,6 +21,7 @@ fn squash_plan(repo: &TestRepo, target: &str, folded: &[&str], message: &str) ->
   let replacement = Replacement {
     folded: folded.iter().map(|id| history.position(id)).collect::<Result<_, _>>()?,
     message: Some(message.as_bytes().to_vec()),
+    if_empty: IfEmpty::Refuse,
   };
   plan.steps.insert(history.position(target)?, PlanStep::Replace(replacement));
   Ok((history, plan))
