@@ -219,10 +219,29 @@ export interface FactList {
   readonly more: number
 }
 
-/** "Tests of this change reach allowed", "Proven by restart.json": the facts of a step, and its warning (`presentStepFacts`) */
+/**
+ * A fact of the tests of a step in its opening, a line of its own: its words and every declaration of the step it names,
+ * each at its place ("New or changed tests reach allowed", "1 existing test reaches focus", "No test reaches show")
+ */
+export interface TestFact {
+  /** "change": the tests the range adds or changes; "existing": the tests it did not touch; "none": the code no test reaches */
+  readonly key: "change" | "existing" | "none"
+  readonly words: string
+  readonly names: FactList
+}
+
+/** "Tests reach 2 of 3 declarations", "Proven by restart.json": the facts of a step, and its warning (`presentStepFacts`) */
 export interface StepFacts {
-  /** The tests that reach its code and that nothing of it lands, apart in one line; null for none */
+  /**
+   * Its facts in one line: in the contents how many of its declarations the tests reach, the scenarios that prove it and
+   * that nothing of it lands; in the opening the scenarios and that nothing lands, its tests in `tests`; null for none
+   */
   readonly line: string | null
+  /**
+   * The tests that reach its code and its code none reaches, each name at its place: in the opening a line each, every
+   * name; in the contents only its code none reaches beside code a test reaches, a long list cut
+   */
+  readonly tests: readonly TestFact[]
   /** The public declarations it adds ("New API:"), each at its declaration */
   readonly newApi: FactList
   /** The links it adds between two modules ("New link between modules:"), each at its first use */
@@ -240,9 +259,10 @@ export interface StepFacts {
   readonly shownElsewhere: readonly { readonly key: string; readonly words: string; readonly step: string; readonly stepId: string }[]
   /**
    * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
-   * reaches paint within 3 calls" when the walk stopped with callers left
+   * reaches paint within 3 calls" when the walk stopped with callers left (`within`), each name at its place, a long
+   * list in the contents cut as every list is
    */
-  readonly unproven: string | null
+  readonly unproven: { readonly names: FactList; readonly within: number | null } | null
 }
 
 /** The names of a list in a sentence (`joinNames`): "run and create", "run, create, open and 2 more" */
@@ -281,17 +301,16 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   const { answered, reached, unreached, scenarios } = step.tests
   const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
   const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
-  const coveredNames = reached.filter(declaration => declaration.tests.some(test => test.unit === null)).map(it => it.name)
+  const covered = reached.filter(declaration => declaration.tests.some(test => test.unit === null))
   const within = Math.max(0, ...unreached.map(declaration => declaration.within ?? 0))
-  const none = unreached.length === 0 ? null : `No test reaches ${names(unreached.map(it => it.name))}`
   const newApi = new Set(step.newApi)
-  const added = plan.api
-    .filter(change => change.kind === "added" && newApi.has(change.key))
-    .map(change => ({
-      key: `${change.key}:${change.path}:${change.line}`,
-      label: change.name,
-      place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
-    }))
+  const addedChanges = plan.api.filter(change => change.kind === "added" && newApi.has(change.key))
+  const added = addedChanges.map(change => ({
+    key: `${change.key}:${change.path}:${change.line}`,
+    // a name two of them share is led by its owner, as the code of a step is: "Event.rightEdge and Update.rightEdge"
+    label: addedChanges.filter(other => other.name === change.name).length > 1 ? ownerLed(change.key, change.name) : change.name,
+    place: { path: change.path, side: "new" as const, line: change.line, name: change.name },
+  }))
   const links = step.moduleLinks.flatMap(index => {
     const link = plan.links[index]
     return link === undefined ? [] : [{ key: `${index}`, label: `${fileName(link.from)} → ${fileName(link.to)}`, place: firstUse(link) }]
@@ -299,30 +318,67 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   const takenOutBy = takenOutOf(step, plan)
   const shownElsewhere = shownElsewhereOf(step, plan)
   const contents = form === "contents"
-  const tests = contents
-    ? [reached.length === 0 ? null : formatReach(reached.length, reached.length + unreached.length)]
-    : [
-        ofChange.length === 0 ? null : `Tests of this change reach ${names(ofChange.map(it => it.name))}`,
-        untouched.size === 0 ? null : `${untouched.size === 1 ? "1 test it did not touch reaches" : `${untouched.size} tests it did not touch reach`} ${names(coveredNames)}`,
-      ]
-  const parts = [
-    ...tests,
-    scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
-    none !== null && (contents ? reached.length === 0 && scenarios.length > 0 : reached.length > 0 || scenarios.length > 0) ? none : null,
-    step.stops.length === 0 && step.shownElsewhere.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
-  ].filter(part => part !== null)
+  // the code no test reaches, beside code a test reaches or a scenario proves; alone it is the warning (`unproven`)
+  const noneBeside = unreached.length > 0 && (contents ? reached.length === 0 && scenarios.length > 0 : reached.length > 0 || scenarios.length > 0)
   // the contents name a long list as every list does: the opening names it whole
   const list = (places: readonly FactPlace[]): FactList => {
     const { shown, more } = contents ? cutList(places, NAMED_FACTS) : { shown: places, more: 0 }
     return { places: shown, more }
   }
+  const noneFact = (): TestFact => {
+    const fact = testFact("none", "No test reaches", unreached)
+    return { ...fact, names: list(fact.names.places) }
+  }
+  // the contents count the declarations the tests reach; the opening names the tests and what they reach
+  const tests: TestFact[] = (
+    contents
+      ? [noneBeside ? noneFact() : null]
+      : [
+          ofChange.length === 0 ? null : testFact("change", "New or changed tests reach", ofChange),
+          untouched.size === 0 ? null : testFact("existing", untouched.size === 1 ? "1 existing test reaches" : `${untouched.size} existing tests reach`, covered),
+          noneBeside ? noneFact() : null,
+        ]
+  ).filter(fact => fact !== null)
+  const parts = [
+    contents && reached.length > 0 ? formatReach(reached.length, reached.length + unreached.length) : null,
+    scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
+    step.stops.length === 0 && step.shownElsewhere.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
+  ].filter(part => part !== null)
   return {
     line: parts.length === 0 ? null : parts.join(" · "),
+    tests,
     newApi: list(added),
     moduleLinks: list(links),
     takenOutBy,
     shownElsewhere,
-    unproven: answered && none !== null && reached.length === 0 && scenarios.length === 0 ? (within > 0 ? `${none} within ${within} calls` : none) : null,
+    unproven: answered && unreached.length > 0 && reached.length === 0 && scenarios.length === 0 ? { names: noneFact().names, within: within > 0 ? within : null } : null,
+  }
+}
+
+/**
+ * The name of a declaration led by its owner, the type before it in its key ("a.Event.rightEdge" → "Event.rightEdge"),
+ * as Rust leads the code of a step (`steps::code_of`); the name alone in no type (a package is no owner)
+ */
+function ownerLed(key: string, name: string): string {
+  const containers = key.endsWith(`.${name}`) ? key.slice(0, -name.length - 1) : ""
+  const owner = containers.slice(containers.lastIndexOf(".") + 1)
+  return /^[A-Z]/.test(owner) ? `${owner}.${name}` : name
+}
+
+/** A line of the tests of an opening: its words and each declaration it names at the line of its name at the head, the name selected */
+function testFact(key: TestFact["key"], words: string, declarations: readonly { readonly name: string; readonly path: string; readonly line: number }[]): TestFact {
+  return {
+    key,
+    words,
+    names: {
+      places: declarations.map(declaration => ({
+        key: `${declaration.path}:${declaration.line}:${declaration.name}`,
+        label: declaration.name,
+        // a name led by its owner ("Event.rightEdge") selects the name itself
+        place: { path: declaration.path, side: "new" as const, line: declaration.line, name: declaration.name.slice(declaration.name.lastIndexOf(".") + 1) },
+      })),
+      more: 0,
+    },
   }
 }
 
@@ -633,13 +689,14 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
   // no step opens: every name is here
   const facts = {
     line: lines.length === 0 ? null : lines.join(" · "),
+    tests: all.flatMap(it => it.tests),
     newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
     moduleLinks: { places: all.flatMap(it => it.moduleLinks.places), more: 0 },
     takenOutBy: null,
     shownElsewhere: [],
     unproven: null,
   }
-  return facts.line === null && facts.newApi.places.length === 0 && facts.moduleLinks.places.length === 0 ? null : facts
+  return facts.line === null && facts.tests.length === 0 && facts.newApi.places.length === 0 && facts.moduleLinks.places.length === 0 ? null : facts
 }
 
 /** A commit of a step after the one that starts it, in its opening: one row each, the same form */

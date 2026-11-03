@@ -344,6 +344,10 @@ pub struct StepTests {
 #[serde(rename_all = "camelCase")]
 pub struct ReachedDeclaration {
   pub name: String,
+  /// The file of its name at the head
+  pub path: String,
+  /// The line of its name at the head, from 1
+  pub line: u32,
   pub tests: Vec<TestRef>,
 }
 
@@ -354,6 +358,10 @@ pub struct ReachedDeclaration {
 #[serde(rename_all = "camelCase")]
 pub struct UnreachedDeclaration {
   pub name: String,
+  /// The file of its name at the head
+  pub path: String,
+  /// The line of its name at the head, from 1
+  pub line: u32,
   /// The calls the walk went: accio stopped there with callers left (`TEST_DEPTH`); `None` when it walked every
   /// caller
   pub within: Option<u32>,
@@ -1195,11 +1203,15 @@ pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &
       if reach.tests.is_empty() {
         tests.unreached.push(UnreachedDeclaration {
           name: code.name.clone(),
+          path: code.at.path.clone(),
+          line: code.at.line,
           within: reach.cut.map(|_| TEST_DEPTH),
         });
       } else {
         tests.reached.push(ReachedDeclaration {
           name: code.name.clone(),
+          path: code.at.path.clone(),
+          line: code.at.line,
           tests: reach.tests.iter().map(|test| test_ref(test, range_tests)).collect(),
         });
       }

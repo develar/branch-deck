@@ -5934,6 +5934,10 @@ export type RangeScope = {
 /**  A declaration of a step and the tests that reach it */
 export type ReachedDeclaration = {
 	name: string,
+	/**  The file of its name at the head */
+	path: string,
+	/**  The line of its name at the head, from 1 */
+	line: number,
 	tests: TestRef[],
 };
 
@@ -9047,6 +9051,10 @@ export type UnlinkPullRequestParams = {
 /**  A declaration of a step no test reaches */
 export type UnreachedDeclaration = {
 	name: string,
+	/**  The file of its name at the head */
+	path: string,
+	/**  The line of its name at the head, from 1 */
+	line: number,
 	/**
 	 *  The calls the walk went: accio stopped there with callers left (`TEST_DEPTH`); `None` when it walked every
 	 *  caller

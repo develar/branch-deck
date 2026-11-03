@@ -141,9 +141,13 @@ test.describe("Review tour", () => {
     const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
     await expect(opening.getByTestId("commit-body-lead").first()).toContainText("Two startup steps showed the project view at each open")
     await expect(opening).toContainText("The product decision is to keep the layout of the user.")
-    await expect(opening.getByTestId("review-opening-facts")).toHaveText(
-      "Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show · New API: allowed",
-    )
+    // its facts a line each, every name: the tests of the change, a test it did not touch, the code none reaches
+    await expect(opening.getByTestId("review-opening-facts").getByTestId("review-step-fact")).toHaveText([
+      "New or changed tests reach allowed",
+      "1 existing test reaches focus",
+      "No test reaches show",
+      "New API: allowed",
+    ])
     const round = opening.getByTestId("review-opening-follow-up")
     await expect(round).toContainText("Follows upthe rule names its flag again")
     await expect(round).not.toContainText("The review asked for the name of the flag")
@@ -195,6 +199,9 @@ test.describe("Review tour", () => {
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
     await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => topOf(second)).toBe(10)
+    // a name of its tests shows its declaration in the diffs, the name selected
+    await opening.getByTestId("review-step-tested").filter({ hasText: "focus" }).click()
+    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "focus", path: "src/b/Welcome.kt" })
   })
 
   test("should open a step whose code another step's card shows above the opening of that step, with no card, its unit named in that card, J and K through both openings", async ({

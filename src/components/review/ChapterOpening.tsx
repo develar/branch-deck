@@ -1,6 +1,6 @@
 import { Fragment } from "react"
 import { cn } from "cn"
-import { StepFactsLine } from "@/components/review/StepFactsLine"
+import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBody, SubjectBefore } from "@/components/review/StoryBody"
 import { BreakableCode } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
@@ -65,11 +65,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           ))}
         </ul>
       )}
-      {facts.unproven !== null && (
-        <span className="text-xs text-warning" data-testid="review-opening-unproven">
-          {facts.unproven}
-        </span>
-      )}
+      {facts.unproven !== null && <UnprovenFact unproven={facts.unproven} testId="review-opening-unproven" />}
       {opening.evidence.length > 0 && (
         <p className="text-xs text-muted-foreground" data-testid="review-opening-evidence">
           {opening.evidence.map((part, index) => (
@@ -86,7 +82,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           ))}
         </p>
       )}
-      <StepFactsLine facts={facts} testId="review-opening-facts" />
+      <StepFactsLine facts={facts} testId="review-opening-facts" lines />
       {group !== null && (
         <span data-testid="review-section-heading" className="text-xs text-muted-foreground">
           {group}

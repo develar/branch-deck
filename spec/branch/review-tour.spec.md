@@ -283,7 +283,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_link_reads_as_its_text_with_its_target`, `a_long_paragraph_changed_in_one_sentence_shows_it_first`)
 
 ### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 16`), the ids of the commits of the steps and of the
+- `bd review-plan` must print `steps` and `brief` (`"schema": 17`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -307,13 +307,15 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   title (the title Rust gives the commit that starts it; a step of the concerns
   its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one short line: how
   many of the declarations of its code a test reaches ("Tests reach 2 of 3 declarations", "Tests reach all 2
-  declarations"; which tests and which code, the change's and the others, the opening names), "Proven by …", "New API:
+  declarations"; which tests and which code, the change's and the others, the opening names), the code no test
+  reaches beside code a test reaches ("No test reaches load"), "Proven by …", "New API:
   Cache and Reader", "New link between modules: Reader.kt → Cache.kt", each name showing its place; a step accio
   answered for whose code no test reaches and no scenario proves says so in the warning tone ("No test reaches paint
   within 3 calls" when the walk stopped with callers left, else "No test reaches paint"); a list of names in the facts
   names up to four and from five on the first three and the count ("paint, create, run and 2 more", `joinNames`), the
   new API and the new links between modules too ("New API: Cache, Reader, Store and 16 more", each name its place),
-  which the opening names whole; and each
+  which the opening names whole; a name two new declarations share led by its type ("Event.rightEdge and
+  Update.rightEdge"), as the code of a step is; every name of a fact in the code font; and each
   "Look closely:" section of
   its body and of the bodies of its rounds as an info callout, its question alone (its first block): the opening
   tells the rest. Steps of the concerns and of the message say why, a muted line right under the count of the steps
@@ -352,11 +354,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   of one form at the size of the text: a muted "Follows up" or "Without a story", its title wrapping at the width of
   the prose; a commit with a story a disclosure (`Disclosure`, one disclosure of the document: the folds of a body,
   these rows and what the overview folds) whose body is set `nested`, never larger than its row; then the facts of the
-  step in one muted line, every name ("Tests of this change reach allowed · 1 test it did not touch reaches focus · No
-  test reaches show"; of a task what joins its parts, its names code) and the warning of a step no test reaches,
-  and the group its section starts.
+  step, muted, each fact a line of its own and every name, each declaration in the code font showing its place in the
+  diffs, the name selected ("New or changed tests reach allowed", "1 existing test reaches focus", "No test reaches
+  show", "New API: allowed"; of a task what joins its parts, its names code), the warning of a step no test reaches,
+  its names code too, and the group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
-  [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+  [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - A step of the concerns of one commit must open with the parts of the body of that commit told in it (`told`), the
   label Rust made its title (`titled`) not shown again, and say what joins its parts in the line of its facts
   ("Joined by the identifier `accio`"); the lead and the parts told before the steps are in

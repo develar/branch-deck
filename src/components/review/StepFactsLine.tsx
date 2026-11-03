@@ -1,20 +1,20 @@
 import { Fragment } from "react"
+import { BreakableCode, CodeGlue } from "@/components/shared/CodeText"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { FactList, StepFacts } from "@/presenters/review-story"
 
 /**
- * The facts of a step in one muted line (spec/branch/review-tour.spec.md, "In the Review Window"): the tests that reach
- * its code, "New API: Cache and Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its
- * place in the diffs (a declaration, the first use of a link), its file selected, a list the contents cut ending with
- * the count of the rest ("Cache, Reader, Store and 16 more"); of a step none of whose code lands, the commit that took
- * it out, which shows its step; its units the section of another step shows, which shows that step; nothing without a
- * fact
+ * The facts of a step, muted (spec/branch/review-tour.spec.md, "In the Review Window"): the tests that reach its code,
+ * "New API: Cache and Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its place in the
+ * diffs (a declaration, the first use of a link), its file selected, a list the contents cut ending with the count of
+ * the rest ("Cache, Reader, Store and 16 more"); of a step none of whose code lands, the commit that took it out, which
+ * shows its step; its units the section of another step shows, which shows that step; nothing without a fact. The
+ * contents set them in one line, " · " apart; an opening (`lines`) each fact on a line of its own, its tests first, a
+ * line each ("New or changed tests reach allowed"), every name in the code font
  */
-export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: string }) {
-  if (facts.line === null && facts.newApi.places.length === 0 && facts.moduleLinks.places.length === 0 && facts.takenOutBy === null && facts.shownElsewhere.length === 0) {
-    return null
-  }
+export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFacts; testId: string; lines?: boolean }) {
   const parts = [
+    ...facts.tests.map((fact, index) => <FactPlaces key={`tests:${fact.key}:${index}`} title={fact.words} list={fact.names} testId="review-step-tested" kind={fact.key} />),
     ...(facts.line === null ? [] : [<span key="line">{facts.line}</span>]),
     ...(facts.takenOutBy === null ? [] : [<TakenOutBy key="taken" commit={facts.takenOutBy} />]),
     ...facts.shownElsewhere.map(shown => (
@@ -32,6 +32,20 @@ export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: str
           />,
         ]),
   ]
+  if (parts.length === 0) {
+    return null
+  }
+  if (lines) {
+    return (
+      <ul className="flex flex-col gap-1 text-xs text-muted-foreground" data-testid={testId}>
+        {parts.map(part => (
+          <li key={part.key} data-testid="review-step-fact">
+            {part}
+          </li>
+        ))}
+      </ul>
+    )
+  }
   return (
     <span className="text-xs text-muted-foreground" data-testid={testId}>
       {parts.map((part, index) => (
@@ -44,28 +58,38 @@ export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: str
   )
 }
 
-/** The names of a fact, a list in a sentence as `joinNames` writes one: "a, b and c", "a, b, c and 16 more" */
-function FactPlaces({ title, list: { places, more }, testId }: { title: string; list: FactList; testId: string }) {
+/**
+ * The names of a fact, a list in a sentence as `joinNames` writes one: "a, b and c", "a, b, c and 16 more"; each name in
+ * the code font, breakable at its dots, its comma on its line (`CodeGlue`)
+ */
+function FactPlaces({ title, list: { places, more }, testId, kind }: { title: string; list: FactList; testId: string; kind?: string }) {
   const navigator = useSelectReviewFile()
   return (
-    <span>
+    <span data-kind={kind}>
       {title}
-      {places.map((fact, index) => (
-        <Fragment key={fact.key}>
-          {index === 0 ? " " : index === places.length - 1 && more === 0 ? " and " : ", "}
-          <button
-            type="button"
-            // a declaration is code, as the story sets its names; a link between modules names its files
-            className="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline"
-            disabled={navigator === null}
-            data-testid={testId}
-            data-path={fact.place.path}
-            onClick={() => navigator?.show(fact.place)}
-          >
-            {fact.label}
-          </button>
-        </Fragment>
-      ))}
+      {places.map((fact, index) => {
+        const last = index === places.length - 1
+        // "a, b and c": a comma after each name but the last two; "a, b, c and 16 more": after each but the last
+        const comma = !last && !(more === 0 && index === places.length - 2)
+        return (
+          <Fragment key={fact.key}>
+            {index > 0 && last && more === 0 ? " and " : " "}
+            <CodeGlue after={comma ? "," : ""}>
+              <button
+                type="button"
+                // a declaration is code, as the story sets its names; a link between modules names its files
+                className="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline"
+                disabled={navigator === null}
+                data-testid={testId}
+                data-path={fact.place.path}
+                onClick={() => navigator?.show(fact.place)}
+              >
+                <BreakableCode text={fact.label} />
+              </button>
+            </CodeGlue>
+          </Fragment>
+        )
+      })}
       {more > 0 && ` and ${more} more`}
     </span>
   )
@@ -116,6 +140,19 @@ function StepLink({
         {words}
       </button>
       {after}
+    </span>
+  )
+}
+
+/**
+ * The warning of a step no test reaches and no scenario proves: "No test reaches paint", "… within 3 calls" when the walk
+ * stopped with callers left, each name at its place in the code font
+ */
+export function UnprovenFact({ unproven, testId }: { unproven: NonNullable<StepFacts["unproven"]>; testId: string }) {
+  return (
+    <span className="text-xs text-warning" data-testid={testId}>
+      <FactPlaces title="No test reaches" list={unproven.names} testId="review-step-unreached" />
+      {unproven.within !== null && ` within ${unproven.within} calls`}
     </span>
   )
 }

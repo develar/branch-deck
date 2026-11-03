@@ -17,7 +17,7 @@ import type {
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
-import type { StoryView } from "@/presenters/review-story"
+import type { FactList, StepFacts, StoryView } from "@/presenters/review-story"
 import type { NarrativeSection } from "@/presenters/review-units"
 import { reviewPlan, reviewStep, stepCommit } from "@/test-support/review-step"
 
@@ -159,15 +159,19 @@ describe("the document of a review", () => {
 
   it("words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves", () => {
     const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
-    const unreached = (name: string, within: number | null = null) => ({ name, within })
+    const unreached = (name: string, within: number | null = null) => ({ name, path: "src/Frame.kt", line: 4, within })
     // the rule a test of the change reaches, a use two tests it did not touch reach, a use no test reaches
     const ruleTests: Partial<ReviewStep["tests"]> = {
       reached: [
-        { name: "allowed", tests: [test("allows", "u:test"), test("keeps", null, 9)] },
-        { name: "focus", tests: [test("focuses", null, 12), test("keeps", null, 9)] },
+        { name: "allowed", path: "src/Rule.kt", line: 6, tests: [test("allows", "u:test"), test("keeps", null, 9)] },
+        { name: "Welcome.focus", path: "src/Welcome.kt", line: 8, tests: [test("focuses", null, 12), test("keeps", null, 9)] },
       ],
       unreached: [unreached("show")],
     }
+    // a fact as the page words it: its words, its names, the count of the rest
+    const worded = (words: string, list: FactList) => [words, ...list.places.map(it => it.label), ...(list.more > 0 ? [`and ${list.more} more`] : [])].join(" ")
+    const unproven = (facts: StepFacts) =>
+      facts.unproven === null ? null : `${worded("No test reaches", facts.unproven.names)}${facts.unproven.within === null ? "" : ` within ${facts.unproven.within} calls`}`
     const view = presentPrologue(
       plan(
         [
@@ -231,17 +235,37 @@ describe("the document of a review", () => {
       ],
       ["docs/b.md", "Spec rule", [["Why", ["Because."], null]]],
     ])
-    expect(view.steps.map(it => [it.number, it.title, it.lead === null ? null : it.lead.block.block, it.facts.line, it.facts.unproven])).toEqual([
+    expect(
+      view.steps.map(it => [
+        it.number,
+        it.title,
+        it.lead === null ? null : it.lead.block.block,
+        it.facts.line,
+        it.facts.tests.map(fact => worded(fact.words, fact.names)),
+        unproven(it.facts),
+      ]),
+    ).toEqual([
       // the contents: how many of its declarations tests reach, the names in its opening
-      [1, "the rule", paragraph("One rule decides."), "Tests reach 2 of 3 declarations", null],
-      [2, "the paint", null, null, "No test reaches paint, create, run and 2 more within 3 calls"],
-      [3, "the story", null, "Proven by restart.json · No test reaches load", null],
-      [4, "the try", null, "Nothing of it lands: a later commit took it out", null],
-      [5, "the wip", null, null, null],
+      [1, "the rule", paragraph("One rule decides."), "Tests reach 2 of 3 declarations", [], null],
+      [2, "the paint", null, null, [], "No test reaches paint create run and 2 more within 3 calls"],
+      [3, "the story", null, "Proven by restart.json", ["No test reaches load"], null],
+      [4, "the try", null, "Nothing of it lands: a later commit took it out", [], null],
+      [5, "the wip", null, null, [], null],
     ])
-    // the opening names them: the tests of the change, the tests it did not touch, the code no test reaches
+    // the opening names them, a line each: the tests of the change, the tests it did not touch, the code no test
+    // reaches; each name at the line of its name at the head, the name of a name led by its owner selected alone
     const rule = step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], ruleTests)
-    expect(presentStepFacts(rule, plan([rule], [])).line).toBe("Tests of this change reach allowed · 2 tests it did not touch reach allowed and focus · No test reaches show")
+    const opening = presentStepFacts(rule, plan([rule], []))
+    expect(opening.line).toBeNull()
+    expect(opening.tests.map(fact => [fact.key, worded(fact.words, fact.names)])).toEqual([
+      ["change", "New or changed tests reach allowed"],
+      ["existing", "2 existing tests reach allowed Welcome.focus"],
+      ["none", "No test reaches show"],
+    ])
+    expect(opening.tests[1]!.names.places.map(it => it.place)).toEqual([
+      { path: "src/Rule.kt", side: "new", line: 6, name: "allowed" },
+      { path: "src/Welcome.kt", side: "new", line: 8, name: "focus" },
+    ])
     expect(presentStepFacts({ ...rule, tests: { ...rule.tests, unreached: [] } }, plan([rule], []), "contents").line).toBe("Tests reach all 2 declarations")
     // the new API in the contents a list as every list: four whole, from five the first three and the count; the opening
     // names it all
@@ -272,6 +296,16 @@ describe("the document of a review", () => {
     expect(apiOf(5)).toEqual([
       [["Cache", "Reader", "Store"], 2],
       [["Cache", "Reader", "Store", "Index", "Lock"], 0],
+    ])
+    // two new declarations of one name, each led by its type: a package leads none
+    const field = (key: string): ReviewPlan["api"][number] => ({ ...added("rightEdge"), key })
+    const twins = [field("t.Event.rightEdge"), field("t.Update.rightEdge"), field("t.rightEdge"), added("Cache")]
+    const twinStep = { ...rule, newApi: twins.map(it => it.key) }
+    expect(presentStepFacts(twinStep, { ...plan([twinStep], []), api: twins }).newApi.places.map(it => it.label)).toEqual([
+      "Event.rightEdge",
+      "Update.rightEdge",
+      "rightEdge",
+      "Cache",
     ])
     // a step none of whose code lands names the commit that took it out, which shows its step
     const tookOut = presentStepFacts(

@@ -320,7 +320,7 @@ fn reached_and_unreached(plan: &ReviewPlan) -> ReachedAndUnreached<'_> {
 
 /// The tests that reach a declaration of the code of a step, as accio answers by its place at the head: a test the
 /// range adds or changes by its unit, one the change did not touch apart; a declaration no test reaches says how far the
-/// walk went. Without accio no step knows its tests, and the plan says why
+/// walk went; each declaration at the line of its name at the head. Without accio no step knows its tests, and the plan says why
 #[test]
 fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   let repo = TestRepo::new();
@@ -380,6 +380,19 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
     plan.steps
   );
   assert_eq!(unreached, [("isEmpty", Some(TEST_DEPTH))]);
+  // each at the line of its name at the head, which the review shows
+  let mut places: Vec<(&str, &str, u32)> = plan
+    .steps
+    .steps
+    .iter()
+    .flat_map(|step| {
+      let tests = &step.tests;
+      let reached = tests.reached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line));
+      reached.chain(tests.unreached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line))).collect::<Vec<_>>()
+    })
+    .collect();
+  places.sort_unstable();
+  assert_eq!(places, [("allowed", "src/a/Manager.kt", 8), ("isEmpty", "src/a/Manager.kt", 6), ("open", "src/a/Manager.kt", 4)]);
   assert!(plan.steps.steps.iter().all(|step| step.tests.answered));
   assert_eq!(plan.index_note, None);
 

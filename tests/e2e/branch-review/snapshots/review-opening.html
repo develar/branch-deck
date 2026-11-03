@@ -70,16 +70,38 @@
       </div>
     </li>
   </ul>
-  <span class="text-xs text-muted-foreground" data-testid="review-opening-facts">
-    <span>
-      Tests of this change reach allowed · 1 test it did not touch reaches focus · No test reaches show
-    </span>
-    ·
-    <span>
-      New API:
-      <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/a/Manager.kt" data-testid="review-step-new-api" type="button">
-        allowed
-      </button>
-    </span>
-  </span>
+  <ul class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="review-opening-facts">
+    <li data-testid="review-step-fact">
+      <span data-kind="change">
+        New or changed tests reach
+        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/a/Manager.kt" data-testid="review-step-tested" type="button">
+          allowed
+        </button>
+      </span>
+    </li>
+    <li data-testid="review-step-fact">
+      <span data-kind="existing">
+        1 existing test reaches
+        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/b/Welcome.kt" data-testid="review-step-tested" type="button">
+          focus
+        </button>
+      </span>
+    </li>
+    <li data-testid="review-step-fact">
+      <span data-kind="none">
+        No test reaches
+        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="src/a/Frame.kt" data-testid="review-step-tested" type="button">
+          show
+        </button>
+      </span>
+    </li>
+    <li data-testid="review-step-fact">
+      <span>
+        New API:
+        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/a/Manager.kt" data-testid="review-step-new-api" type="button">
+          allowed
+        </button>
+      </span>
+    </li>
+  </ul>
 </div>

@@ -8,7 +8,7 @@ import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
 import { ContractParagraphView } from "@/components/review/ContractParagraphView"
 import { MessageChangeView } from "@/components/review/MessageChangeView"
-import { StepFactsLine } from "@/components/review/StepFactsLine"
+import { StepFactsLine, UnprovenFact } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
 import { BreakableCode } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
@@ -248,7 +248,7 @@ function PrologueSections({ view }: { view: PrologueView }) {
           </ol>
         </div>
       )}
-      {view.facts !== null && <StepFactsLine facts={view.facts} testId="review-overview-facts" />}
+      {view.facts !== null && <StepFactsLine facts={view.facts} testId="review-overview-facts" lines />}
       {view.indexNote !== null && !view.indexNote.underBreakage && (
         <p className="text-xs text-muted-foreground" data-testid="review-plan-index-note">
           {view.indexNote.text}
@@ -335,11 +335,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
             <StoryBlock story={step.lead.story} placed={step.lead.block} told={false} />
           </div>
         )}
-        {step.facts.unproven !== null && (
-          <span className="text-xs text-warning" data-testid="review-contents-step-unproven">
-            {step.facts.unproven}
-          </span>
-        )}
+        {step.facts.unproven !== null && <UnprovenFact unproven={step.facts.unproven} testId="review-contents-step-unproven" />}
         <StepFactsLine facts={step.facts} testId="review-contents-step-facts" />
         {step.lookClosely.map(({ story, part }) => (
           <div key={part.key} data-testid="review-contents-step-look-closely">
