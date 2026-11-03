@@ -10,13 +10,19 @@
 //! admin directory dropped (`git_ops::lease_slot::forget_slot`), its entry dropped from the state, its output bases
 //! renamed into the trash too. The deletes run after every pool is done, side by side, so the slot of the next get
 //! never waits for them.
+//!
+//! A get that the trim and the shrink (`shrink`) leave below the minimum evicts free slots below the limit as well
+//! (`evict_core`): the same removal of a slot, in the order of the shrink across every pool, each deleted before the
+//! next one is chosen, until the volume has the minimum and its margin.
 
 use crate::bazel_servers::child_dirs;
+use crate::free_space::AvailableBytes;
 use crate::lease::{
-  Lease, LeaseState, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
+  Lease, LeaseState, LeaseStore, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
 };
 use crate::lease_clean::{Trash, remove_measured};
 use crate::output_bases::{OutputBase, orphans, output_bases, output_user_roots};
+use crate::shrink::shrink_order;
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{forget_slot, lease_config};
@@ -123,6 +129,21 @@ impl RemovedSlot {
   pub fn freed_bytes(&self) -> u64 {
     self.dir_freed_bytes + self.output_bases.iter().map(|base| base.freed_bytes).sum::<u64>()
   }
+
+  /// What the delete of `what`, moved into the trash at `path`, freed or why it failed
+  fn record(&mut self, what: &Moved, path: &Path, result: std::io::Result<u64>) {
+    match what {
+      Moved::Dir => match result {
+        Ok(freed) => self.dir_freed_bytes = freed,
+        Err(error) => self.errors.push(delete_error(path, &error)),
+      },
+      Moved::Base(index) => self.output_bases[*index].record(path, result),
+    }
+  }
+}
+
+fn delete_error(path: &Path, error: &std::io::Error) -> String {
+  format!("cannot delete {} in the trash: {error}", path.display())
 }
 
 /// An output base the trim deleted
@@ -136,6 +157,15 @@ pub struct RemovedBase {
 }
 
 impl RemovedBase {
+  /// What the delete of the output base, moved into the trash at `path`, freed or why it failed; an error of its move
+  /// comes first
+  fn record(&mut self, path: &Path, result: std::io::Result<u64>) {
+    match result {
+      Ok(freed) => self.freed_bytes = freed,
+      Err(error) => self.error = self.error.take().or_else(|| Some(delete_error(path, &error))),
+    }
+  }
+
   fn of(base: &OutputBase) -> Self {
     Self {
       path: display_path(&base.path),
@@ -184,10 +214,8 @@ impl Machine {
 
 /// What the trim moved into a trash and deletes at the end, with the report it adds the freed bytes to
 enum Trashed {
-  /// The directory of the slot `slot` of the pool `pool`
-  SlotDir { pool: usize, slot: usize },
-  /// An output base of the slot `slot` of the pool `pool`
-  SlotBase { pool: usize, slot: usize, base: usize },
+  /// What the removal of the slot `slot` of the pool `pool` moved
+  Slot { pool: usize, slot: usize, what: Moved },
   /// The orphan `index`
   Orphan(usize),
 }
@@ -224,102 +252,36 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
       config_error,
     };
     let excess = present.len().saturating_sub(max_slots);
+    let removal = SlotRemoval {
+      git_common_dir: &machine_pool.git_common_dir,
+      pool: &pool,
+      trash: &trash,
+      bases: &bases,
+      scan: &scan,
+      params,
+    };
     for slot in free {
       if report.removed.len() >= excess {
         break;
       }
-      let (servers, others) = slot_servers(&scan, Path::new(&slot.path));
-      if !others.is_empty() {
-        report.skipped.push(SkippedSlot {
-          name: slot.name.clone(),
-          path: slot.path.clone(),
-          reason: SkipReason::Busy {
-            processes: busy_processes(&others),
-          },
-        });
-        continue;
-      }
-      let slot_bases: Vec<&OutputBase> = bases.iter().filter(|base| base.is_in(Path::new(&slot.path))).collect();
-      let dir = slot_dir(Path::new(&slot.path));
-      let mut removed = RemovedSlot {
-        name: slot.name.clone(),
-        path: slot.path.clone(),
-        returned: slot.returned,
-        dir: display_path(&dir),
-        output_bases: slot_bases.iter().map(|base| RemovedBase::of(base)).collect(),
-        dir_freed_bytes: 0,
-        errors: Vec::new(),
-      };
-      if !params.apply {
-        report.removed.push(removed);
-        continue;
-      }
-      let marker = Lease::marker("trim", "bd lease trim", LeaseState::Cleaning);
-      match mark_free(&pool, params.lock_timeout, &slot.path, &marker) {
-        Ok(true) => {}
-        Ok(false) => {
-          debug!(slot = %slot.path, "a slot the trim chose was leased meanwhile");
-          continue;
+      match removal.remove(git_executor, slot) {
+        Removal::Removed(removed, moved) => {
+          let slot_index = report.removed.len();
+          trashed.extend(moved.into_iter().map(|(path, what)| {
+            (
+              path,
+              Trashed::Slot {
+                pool: pool_index,
+                slot: slot_index,
+                what,
+              },
+            )
+          }));
+          report.removed.push(*removed);
         }
-        Err(error) => {
-          warn!(slot = %slot.path, error = %format!("{error:#}"), "cannot mark a slot for the trim");
-          continue;
-        }
+        Removal::Skipped(skipped) => report.skipped.push(*skipped),
+        Removal::Passed => {}
       }
-      let servers: Vec<_> = servers.iter().collect();
-      let ServerStop { running, .. } = stop_servers(&servers, params.bazel, params.server_timeout);
-      if !running.is_empty() {
-        release_marker(&pool, params.lock_timeout, &slot.path, &marker.id);
-        report.skipped.push(SkippedSlot {
-          name: slot.name.clone(),
-          path: slot.path.clone(),
-          reason: SkipReason::Busy { processes: running },
-        });
-        continue;
-      }
-      let slot_index = report.removed.len();
-      match trash.move_in(&dir) {
-        Ok(moved) => trashed.push((
-          moved,
-          Trashed::SlotDir {
-            pool: pool_index,
-            slot: slot_index,
-          },
-        )),
-        Err(error) => {
-          // the slot stays as it was, free
-          release_marker(&pool, params.lock_timeout, &slot.path, &marker.id);
-          warn!(slot = %slot.path, error = %error, "cannot move a slot into the trash");
-          report.skipped.push(SkippedSlot {
-            name: slot.name.clone(),
-            path: slot.path.clone(),
-            reason: SkipReason::Busy { processes: Vec::new() },
-          });
-          continue;
-        }
-      }
-      let git_common_dir = display_path(&machine_pool.git_common_dir);
-      if let Err(error) = pool.worktree_command(params.lock_timeout, || forget_slot(git_executor, &git_common_dir, Path::new(&slot.path))) {
-        // the directory is gone: git's own `worktree prune` drops the admin directory later
-        removed.errors.push(format!("{error:#}"));
-      }
-      if let Err(error) = drop_slot(&pool, params.lock_timeout, &slot.path, &marker.id) {
-        removed.errors.push(format!("{error:#}"));
-      }
-      for (base_index, base) in slot_bases.iter().enumerate() {
-        match trash.move_in(&base.path) {
-          Ok(moved) => trashed.push((
-            moved,
-            Trashed::SlotBase {
-              pool: pool_index,
-              slot: slot_index,
-              base: base_index,
-            },
-          )),
-          Err(error) => removed.output_bases[base_index].error = Some(format!("cannot move it into the trash: {error}")),
-        }
-      }
-      report.removed.push(removed);
     }
     trimmed.pools.push(report);
     trashes.push(trash);
@@ -356,24 +318,9 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
   trashes.push(own_trash);
 
   for ((path, target), result) in trashed.iter().zip(remove_all(&trashed.iter().map(|(path, _)| path.as_path()).collect::<Vec<_>>())) {
-    let error = result.as_ref().err().map(|error| format!("cannot delete {} in the trash: {error}", path.display()));
-    let freed = result.unwrap_or(0);
-    match *target {
-      Trashed::SlotDir { pool, slot } => {
-        let removed = &mut trimmed.pools[pool].removed[slot];
-        removed.dir_freed_bytes = freed;
-        removed.errors.extend(error);
-      }
-      Trashed::SlotBase { pool, slot, base } => {
-        let base = &mut trimmed.pools[pool].removed[slot].output_bases[base];
-        base.freed_bytes = freed;
-        base.error = base.error.take().or(error);
-      }
-      Trashed::Orphan(index) => {
-        let base = &mut trimmed.orphans[index];
-        base.freed_bytes = freed;
-        base.error = base.error.take().or(error);
-      }
+    match target {
+      Trashed::Slot { pool, slot, what } => trimmed.pools[*pool].removed[*slot].record(what, path, result),
+      Trashed::Orphan(index) => trimmed.orphans[*index].record(path, result),
     }
   }
   for trash in &trashes {
@@ -381,6 +328,193 @@ pub fn trim_core(git_executor: &GitCommandExecutor, params: &TrimParams<'_>) -> 
     let _ = fs_retry::remove_dir(trash.dir());
   }
   Ok(trimmed)
+}
+
+/// What `evict_core` deletes
+pub struct EvictParams<'a> {
+  /// The repository, the home, the timeouts of a trim; `max_slots` is not read, and nothing is deleted without `apply`
+  pub trim: TrimParams<'a>,
+  /// The volume whose free space the eviction raises: the pool directory of the get
+  pub volume: &'a Path,
+  /// The free bytes at which it stops: the minimum and its margin (`lease::shrink_target`)
+  pub target: u64,
+  /// The free bytes of the volume of a path (`free_space::available_bytes`; a test tells a volume of its own)
+  pub available: &'a AvailableBytes<'a>,
+}
+
+/// Delete free slots of the pools of this machine below their limit, as the trim deletes a slot past it, in the order of
+/// the shrink (`shrink::shrink_order`: the ones returned longest ago first across every pool, the slot each pool's next
+/// get would take after every other), one at a time until the volume has `params.target` free: each slot is deleted with
+/// its output bases before the next `statfs`, so no slot goes that the volume did not need. A get runs it only below the
+/// minimum after the trim and the shrink, whose clean rules left the free slots only their worktrees. A slot with a lease
+/// of any state stays, as does one with a process in it but its Bazel servers, which are stopped
+#[instrument(skip_all, fields(repository = %params.trim.repository.top_level, target = params.target))]
+pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -> Trimmed {
+  let Machine { pools, bases, .. } = Machine::read(params.trim.repository, params.trim.home);
+  let scan = ProcessScan::scan();
+  let stores: Vec<(&MachinePool, LeaseStore)> = pools
+    .iter()
+    .filter_map(|pool| match Pool::new(&pool.git_common_dir).read() {
+      Ok(store) => Some((pool, store)),
+      Err(error) => {
+        warn!(pool = %pool.git_common_dir.display(), error = %format!("{error:#}"), "cannot read the state of a pool to evict its slots");
+        None
+      }
+    })
+    .collect();
+  let slots: Vec<&[Slot]> = stores.iter().map(|(_, store)| store.slots.as_slice()).collect();
+  let order = shrink_order(&slots, |slot| Path::new(&slot.path).is_dir() && slot_servers(&scan, Path::new(&slot.path)).1.is_empty());
+  // the report of each pool, made as its first slot goes
+  let mut reports: Vec<Option<TrimmedPool>> = stores.iter().map(|_| None).collect();
+  for (index, slot) in order {
+    if (params.available)(params.volume).is_none_or(|available| available >= params.target) {
+      break;
+    }
+    let (machine_pool, store) = &stores[index];
+    let pool = Pool::new(&machine_pool.git_common_dir);
+    let trash = Trash::new(&pool.trash_dir());
+    let report = reports[index].get_or_insert_with(|| {
+      let (max_slots, config_error) = max_slots(git_executor, None, &machine_pool.git_common_dir);
+      TrimmedPool {
+        git_common_dir: display_path(&machine_pool.git_common_dir),
+        max_slots,
+        slots: trim_order(&store.slots).0.len(),
+        removed: Vec::new(),
+        skipped: Vec::new(),
+        config_error,
+      }
+    });
+    let removal = SlotRemoval {
+      git_common_dir: &machine_pool.git_common_dir,
+      pool: &pool,
+      trash: &trash,
+      bases: &bases,
+      scan: &scan,
+      params: &params.trim,
+    };
+    match removal.remove(git_executor, slot) {
+      Removal::Removed(mut removed, moved) => {
+        let paths: Vec<&Path> = moved.iter().map(|(path, _)| path.as_path()).collect();
+        for ((path, what), result) in moved.iter().zip(remove_all(&paths)) {
+          removed.record(what, path, result);
+        }
+        let _ = fs_retry::remove_dir(trash.dir());
+        debug!(slot = %removed.path, freed = removed.freed_bytes(), "a free slot below the limit is deleted");
+        report.removed.push(*removed);
+      }
+      Removal::Skipped(skipped) => report.skipped.push(*skipped),
+      Removal::Passed => {}
+    }
+  }
+  Trimmed {
+    pools: reports.into_iter().flatten().collect(),
+    orphans: Vec::new(),
+    process_scan: scan.is_available(),
+  }
+}
+
+/// What the removal of a free slot moved into the trash of its pool
+enum Moved {
+  /// Its directory (`slot_dir`)
+  Dir,
+  /// Its output base of this index (`RemovedSlot::output_bases`)
+  Base(usize),
+}
+
+/// What became of a free slot the trim or the eviction chose
+enum Removal {
+  /// It left the pool: its report, and what went into the trash, which the caller deletes
+  Removed(Box<RemovedSlot>, Vec<(PathBuf, Moved)>),
+  /// A process works in it, its Bazel server did not exit, or its directory could not be moved: it stays, free
+  Skipped(Box<SkippedSlot>),
+  /// Leased meanwhile, or the marker could not be set: it stays as it is
+  Passed,
+}
+
+/// The removal of the free slots of one pool: its state, its trash, the output bases of the machine and the processes
+struct SlotRemoval<'a> {
+  git_common_dir: &'a Path,
+  pool: &'a Pool,
+  trash: &'a Trash,
+  bases: &'a [OutputBase],
+  scan: &'a ProcessScan,
+  params: &'a TrimParams<'a>,
+}
+
+impl SlotRemoval<'_> {
+  /// Remove the free `slot` under the `cleaning` marker: its Bazel servers stopped, its directory and its output bases
+  /// moved into the trash, its admin directory dropped, its entry dropped from the state. Without `apply` it only says
+  /// what would go
+  fn remove(&self, git_executor: &GitCommandExecutor, slot: &Slot) -> Removal {
+    let busy = |processes| {
+      Box::new(SkippedSlot {
+        name: slot.name.clone(),
+        path: slot.path.clone(),
+        reason: SkipReason::Busy { processes },
+      })
+    };
+    let (servers, others) = slot_servers(self.scan, Path::new(&slot.path));
+    if !others.is_empty() {
+      return Removal::Skipped(busy(busy_processes(&others)));
+    }
+    let slot_bases: Vec<&OutputBase> = self.bases.iter().filter(|base| base.is_in(Path::new(&slot.path))).collect();
+    let dir = slot_dir(Path::new(&slot.path));
+    let mut removed = RemovedSlot {
+      name: slot.name.clone(),
+      path: slot.path.clone(),
+      returned: slot.returned,
+      dir: display_path(&dir),
+      output_bases: slot_bases.iter().map(|base| RemovedBase::of(base)).collect(),
+      dir_freed_bytes: 0,
+      errors: Vec::new(),
+    };
+    if !self.params.apply {
+      return Removal::Removed(Box::new(removed), Vec::new());
+    }
+    let (pool, timeout) = (self.pool, self.params.lock_timeout);
+    let marker = Lease::marker("trim", "bd lease trim", LeaseState::Cleaning);
+    match mark_free(pool, timeout, &slot.path, &marker) {
+      Ok(true) => {}
+      Ok(false) => {
+        debug!(slot = %slot.path, "a slot the trim chose was leased meanwhile");
+        return Removal::Passed;
+      }
+      Err(error) => {
+        warn!(slot = %slot.path, error = %format!("{error:#}"), "cannot mark a slot for the trim");
+        return Removal::Passed;
+      }
+    }
+    let servers: Vec<_> = servers.iter().collect();
+    let ServerStop { running, .. } = stop_servers(&servers, self.params.bazel, self.params.server_timeout);
+    if !running.is_empty() {
+      release_marker(pool, timeout, &slot.path, &marker.id);
+      return Removal::Skipped(busy(running));
+    }
+    let mut moved = match self.trash.move_in(&dir) {
+      Ok(moved) => vec![(moved, Moved::Dir)],
+      Err(error) => {
+        // the slot stays as it was, free
+        release_marker(pool, timeout, &slot.path, &marker.id);
+        warn!(slot = %slot.path, error = %error, "cannot move a slot into the trash");
+        return Removal::Skipped(busy(Vec::new()));
+      }
+    };
+    let git_common_dir = display_path(self.git_common_dir);
+    if let Err(error) = pool.worktree_command(timeout, || forget_slot(git_executor, &git_common_dir, Path::new(&slot.path))) {
+      // the directory is gone: git's own `worktree prune` drops the admin directory later
+      removed.errors.push(format!("{error:#}"));
+    }
+    if let Err(error) = drop_slot(pool, timeout, &slot.path, &marker.id) {
+      removed.errors.push(format!("{error:#}"));
+    }
+    for (index, base) in slot_bases.iter().enumerate() {
+      match self.trash.move_in(&base.path) {
+        Ok(path) => moved.push((path, Moved::Base(index))),
+        Err(error) => removed.output_bases[index].error = Some(format!("cannot move it into the trash: {error}")),
+      }
+    }
+    Removal::Removed(Box::new(removed), moved)
+  }
 }
 
 /// The slots of a pool as a trim counts them (`present`: a lease, or a directory that is there) and its free slots in

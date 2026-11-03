@@ -33,7 +33,8 @@
 //! - `shrink`: the free slots of the pools of the machine that a get below the minimum free space deep-cleans, in the
 //!   order it takes them
 //! - `trim`: the delete of the free slots past `branchdeck.leaseMaxSlots` of each pool of the machine, with their output
-//!   bases, and of the output bases of gone workspaces, once the free space is low (a get) or on demand (`bd lease trim`)
+//!   bases, and of the output bases of gone workspaces, once the free space is low (a get) or on demand (`bd lease trim`),
+//!   and below the limit once the shrink left the free space low (`evict_core`)
 
 pub mod agent_workspace;
 mod bazel_servers;

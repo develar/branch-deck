@@ -56,6 +56,7 @@ pub(crate) fn kinds(steps: &Mutex<Vec<GetStep>>) -> Vec<&'static str> {
       GetStep::DeleteTrash => "delete trash",
       GetStep::Trim => "trim",
       GetStep::Shrink => "shrink",
+      GetStep::Evict => "evict",
       GetStep::StopServers { .. } => "stop servers",
       GetStep::Status { .. } => "status",
       GetStep::Clone { .. } => "clone",
@@ -319,8 +320,9 @@ fn a_get_that_waited_for_a_failed_return_adds_a_slot() {
 }
 
 /// The minimum free space is checked again under the clones lock, so a queue of gets never adds slots past it: a get
-/// that waited reads `branchdeck.leaseMinFree` and the free space as its turn finds them, trims and shrinks the pools
-/// without the lock, each followed by its turn again, and refuses with nothing reserved once the space is still too low
+/// that waited reads `branchdeck.leaseMinFree` and the free space as its turn finds them, trims, shrinks and evicts the
+/// free slots of the pools without the lock, each followed by its turn again, and refuses with nothing reserved once the
+/// space is still too low
 #[cfg(unix)]
 #[test_log::test]
 fn a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it() {
@@ -332,7 +334,7 @@ fn a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it(
   assert!(error.message.contains("1048576.0 GiB"), "{}", error.message);
   assert_eq!(
     kinds(&steps),
-    ["reserve", "wait", "trim", "reserve", "shrink", "reserve"],
+    ["reserve", "wait", "trim", "reserve", "shrink", "reserve", "evict", "reserve"],
     "refused before its reserve under the lock"
   );
   assert_eq!(states(&fixture.status()), [(path_of(&beside.first.1), "ready".to_string())]);
@@ -340,8 +342,8 @@ fn a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it(
 
 /// A get whose turn at the clones lock finds the volume below the minimum and a trash of a gone run deletes that trash
 /// without the lock, which the gets behind it take meanwhile: it releases the lock (its next reserve is one of a free
-/// slot), deletes the trash, takes its turn again, trims and shrinks the pools without the lock as well, and refuses
-/// once the space is still too low, the trash deleted
+/// slot), deletes the trash, takes its turn again, trims, shrinks and evicts without the lock as well, and refuses once
+/// the space is still too low, the trash deleted
 #[cfg(unix)]
 #[test_log::test]
 fn a_get_deletes_the_trash_without_the_clones_lock() {
@@ -357,7 +359,10 @@ fn a_get_deletes_the_trash_without_the_clones_lock() {
   let error = beside.second.unwrap_err();
   assert_eq!(error.code, ErrorCode::LowDiskSpace, "{}", error.message);
   assert!(!gone.exists(), "the trash of the gone run is deleted");
-  assert_eq!(kinds(&steps), ["reserve", "wait", "delete trash", "reserve", "trim", "reserve", "shrink", "reserve"]);
+  assert_eq!(
+    kinds(&steps),
+    ["reserve", "wait", "delete trash", "reserve", "trim", "reserve", "shrink", "reserve", "evict", "reserve"]
+  );
   assert_eq!(
     GetStep::DeleteTrash.to_string(),
     "deleting the trash of runs that are gone: the free space is below the minimum"

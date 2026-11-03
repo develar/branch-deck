@@ -1,6 +1,6 @@
 ---
 name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space before it deletes the build output of the free slots of every pool by their clean rules, the ones returned longest ago first, disk reports what the pools hold on disk; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of bd-host drives in process.
+description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space before it deletes the build output of the free slots of every pool by their clean rules, the ones returned longest ago first, and then free slots below the limit, disk reports what the pools hold on disk; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of bd-host drives in process.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
@@ -79,7 +79,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   never carries the build output of the checkout it was cloned from.
 - A pool gives its space back: it grows while sessions need slots, and below the minimum free space it shrinks to
   `branchdeck.leaseMaxSlots` by itself, with the Bazel output bases outside its slots, then deletes the build output
-  that its free slots keep for leases that rarely come, the slot returned longest ago first. On 2026-11-02 the pools of this
+  that its free slots keep for leases that rarely come, the slot returned longest ago first, and only then free slots
+  below the limit. On 2026-11-02 the pools of this
   machine held 12 slots of idea-1, 11 of branch-deck and 6 of accio, all free; the output bases of the idea-1 slots
   took 380 GB and the `target/` dirs of the branch-deck slots 410 GB, and nothing ever deleted a slot.
 - A session that died costs the pool no clone: its lease goes to the next get once every commit of it is on its home
@@ -200,9 +201,21 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   returned last, and no trim deleted a slot of pools within their limit; `bd lease clean --free --keep 0 --age 1m`
   freed about 600 GiB.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots_returned_longest_ago_first`, `a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot`)
-  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_refuses_and_names_what_it_freed`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`)
   [@test] ../../crates/lease-pool/src/shrink_test.rs (`the_shrink_takes_the_free_slots_returned_longest_ago_across_pools_and_each_pools_next_one_last`, `the_next_slot_of_a_pool_is_the_one_its_get_would_take`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
+- A get whose volume is still below the minimum free space after the shrink must evict free slots below
+  `branchdeck.leaseMaxSlots` once (`deleting free slots below …`), never under the clones lock: in the order of the
+  shrink across every pool of the machine, each as the trim deletes a slot (the `cleaning` marker, its Bazel servers
+  stopped, its directory and its output bases through the trash, its registration and its entry dropped), deleted
+  before the next is chosen, one `statfs` before each, until the volume has the minimum and a tenth of it. A slot with
+  a lease of any state (a host slot too) and one with a process in it but its Bazel servers stay. Its answer names the
+  slots it deleted (`evicted`, as `bd lease trim` prints them), and a `low_disk_space` after it names how many and the
+  bytes they freed. A free slot is pool property: after its build output, what is left of it is its worktree, which a
+  later get clones again, and the user, told only `low_disk_space`, would delete the slots by hand.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_limit_returned_longest_ago_first`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`, `a_get_below_the_minimum_free_space_refuses_and_names_it`)
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty; later gets must try a dirty slot
   after the clean ones. With no free slot left, the get must add a new slot (`reused: false`). The verdict is

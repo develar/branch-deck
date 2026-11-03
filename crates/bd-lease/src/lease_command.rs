@@ -299,6 +299,11 @@ pub struct LeaseGetOutput {
   /// output the get deleted by their clean rules with keep 0, the ones returned longest ago first
   #[serde(skip_serializing_if = "Option::is_none")]
   pub shrunk: Option<crate::trim_command::ShrunkOutput>,
+  /// The free space was still below the minimum after the shrink: the free slots below `branchdeck.leaseMaxSlots` that
+  /// the get deleted with their Bazel output bases, the ones returned longest ago first, one at a time until the volume
+  /// had the minimum and a tenth of it (as `bd lease trim` prints them)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub evicted: Option<crate::trim_command::TrimmedOutput>,
 }
 
 /// Where the commits of a lease land
@@ -781,6 +786,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
     trimmed: got.trimmed.as_ref().map(crate::trim_command::TrimmedOutput::of),
     shrunk: got.shrunk.as_ref().map(crate::trim_command::ShrunkOutput::of),
+    evicted: got.evicted.as_ref().map(crate::trim_command::TrimmedOutput::of),
   })
 }
 
