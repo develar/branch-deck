@@ -991,6 +991,16 @@ fn leased_slot(environment: &bd_core::context::Environment) -> std::path::PathBu
   std::path::PathBuf::from(lease_get(&context, environment, &LeaseGetArgs::default()).unwrap().path)
 }
 
+/// `count` slots of the pool of `environment`, each leased beside the others, then returned
+fn free_slots(environment: &bd_core::context::Environment, count: usize) -> Vec<String> {
+  let slots: Vec<String> = (0..count).map(|_| leased_slot(environment).to_string_lossy().into_owned()).collect();
+  for slot in &slots {
+    let context = LeaseContext::resolve(environment, Some(std::path::Path::new(slot))).unwrap();
+    lease_return(&context, &LeaseReturnArgs::default()).unwrap();
+  }
+  slots
+}
+
 /// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
 /// `status` and the HEAD of the slot, which is at the source HEAD already, so no move; the return reads whether a resolve session of the slot is open, the
 /// unlanded commits, the untracked mode of the config, the `status` and HEAD. No `status` of another slot, no full checkout
@@ -1150,12 +1160,7 @@ fn a_lease_reclaim() {
 fn a_lease_trim() {
   let repo = repo_with_branches();
   let (_home, environment) = lease_environment(&repo);
-  let context = LeaseContext::resolve(&environment, None).unwrap();
-  let slots: Vec<String> = (0..2).map(|_| lease_get(&context, &environment, &LeaseGetArgs::default()).unwrap().path).collect();
-  for slot in &slots {
-    let context = LeaseContext::resolve(&environment, Some(std::path::Path::new(slot))).unwrap();
-    lease_return(&context, &LeaseReturnArgs::default()).unwrap();
-  }
+  free_slots(&environment, 2);
   let context = LeaseContext::resolve(&environment, None).unwrap();
   let trimmed = lease_trim(
     &context,
@@ -1184,11 +1189,7 @@ fn a_lease_get_that_shrinks_and_evicts() {
     &[(".gitignore", "/target/\n"), (".branchdeck.toml", "[lease]\nclean = [{ cargo = \"target\" }]\n")],
   );
   let (_home, environment) = lease_environment(&repo);
-  let slots: Vec<String> = (0..3).map(|_| leased_slot(&environment).to_string_lossy().into_owned()).collect();
-  for slot in &slots {
-    let context = LeaseContext::resolve(&environment, Some(std::path::Path::new(slot))).unwrap();
-    lease_return(&context, &LeaseReturnArgs::default()).unwrap();
-  }
+  let slots = free_slots(&environment, 3);
   let context = LeaseContext::resolve(&environment, None).unwrap();
   // 50 GiB, 110 once a slot is gone: past the minimum of 100
   let space = |_: &std::path::Path| {

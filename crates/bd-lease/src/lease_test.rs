@@ -1335,6 +1335,20 @@ impl ShrinkFixture {
     )
   }
 
+  /// A get on `volume` that refuses as `low_disk_space`, each step recorded in `steps`
+  fn refused(&self, volume: Volume, steps: &std::sync::Mutex<Vec<GetStep>>) -> Refused {
+    let error = self.get(volume, steps).unwrap_err();
+    let refusal = error.downcast_ref::<lease_pool::lease::LeaseRefusal>().unwrap_or_else(|| panic!("{error:#}"));
+    let lease_pool::lease::LeaseRefusal::LowDiskSpace { available, freed, .. } = refusal else {
+      panic!("{refusal}");
+    };
+    Refused {
+      available: *available,
+      freed: **freed,
+      message: refusal.to_string(),
+    }
+  }
+
   /// The output of `got` as bd prints it, checked against `bd schema`
   fn printed(&self, got: &lease_pool::lease::LeaseGot) -> Value {
     let environment = self.fixture.environment(self.fixture.repo.path());
@@ -1346,6 +1360,20 @@ impl ShrinkFixture {
   fn units(&self) -> Vec<bool> {
     self.slots.iter().map(|slot| Self::unit(slot).exists()).collect()
   }
+}
+
+/// 99 GiB, 111 once one slot lost its unit: past the 110 of the minimum and its margin
+const ONE_SLOT_LIFTS: Volume = Volume {
+  base: 99,
+  per_unit: 12,
+  per_slot: 0,
+};
+
+/// What a `ShrinkFixture` get that refused saw and freed
+struct Refused {
+  available: u64,
+  freed: lease_pool::lease::FreedBy,
+  message: String,
 }
 
 /// The free space a `ShrinkFixture` get sees, in GiB: `base`, `per_unit` more for each slot whose unit is gone and
@@ -1415,16 +1443,7 @@ fn a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules()
   let _busy = Killed(busy_in(first));
   std::fs::remove_file(Path::new(second).join(".branchdeck.toml")).unwrap();
   let steps = std::sync::Mutex::new(Vec::new());
-  let got = shrink
-    .get(
-      Volume {
-        base: 99,
-        per_unit: 12,
-        per_slot: 0,
-      },
-      &steps,
-    )
-    .unwrap();
+  let got = shrink.get(ONE_SLOT_LIFTS, &steps).unwrap();
   assert_eq!(shrunk_paths(&got), std::slice::from_ref(third));
   assert_eq!(shrink.units(), [true, true, false]);
   assert_eq!(got.slot.path, *third);
@@ -1446,16 +1465,7 @@ fn a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules()
 fn a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot() {
   let shrink = ShrinkFixture::new();
   let steps = std::sync::Mutex::new(Vec::new());
-  let got = shrink
-    .get(
-      Volume {
-        base: 99,
-        per_unit: 12,
-        per_slot: 0,
-      },
-      &steps,
-    )
-    .unwrap();
+  let got = shrink.get(ONE_SLOT_LIFTS, &steps).unwrap();
   assert_eq!(shrunk_paths(&got), std::slice::from_ref(&shrink.slots[0]));
   assert_eq!(shrink.units(), [false, true, true]);
   assert_eq!(got.slot.path, shrink.slots[2]);
@@ -1579,23 +1589,16 @@ fn the_eviction_stops_at_the_minimum_without_the_margin_of_the_shrink() {
 fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed() {
   let shrink = ShrinkFixture::new();
   let steps = std::sync::Mutex::new(Vec::new());
-  let error = shrink
-    .get(
-      Volume {
-        base: 50,
-        per_unit: 1,
-        per_slot: 0,
-      },
-      &steps,
-    )
-    .unwrap_err();
-  let refusal = error.downcast_ref::<lease_pool::lease::LeaseRefusal>().unwrap_or_else(|| panic!("{error:#}"));
-  let lease_pool::lease::LeaseRefusal::LowDiskSpace { available, freed, .. } = refusal else {
-    panic!("{refusal}");
-  };
-  assert_eq!((*available, freed.trim.slots, freed.shrink.slots, freed.evict.slots), (53 * GIB, 0, 3, 2), "{refusal}");
-  assert!(freed.shrink.bytes >= 3 * UNIT_BYTES as u64 && freed.evict.bytes > 0, "{refusal}");
-  let message = refusal.to_string();
+  let Refused { available, freed, message } = shrink.refused(
+    Volume {
+      base: 50,
+      per_unit: 1,
+      per_slot: 0,
+    },
+    &steps,
+  );
+  assert_eq!((available, freed.trim.slots, freed.shrink.slots, freed.evict.slots), (53 * GIB, 0, 3, 2), "{message}");
+  assert!(freed.shrink.bytes >= 3 * UNIT_BYTES as u64 && freed.evict.bytes > 0, "{message}");
   assert!(
     message.contains("the get deleted the build output of 3 free slot(s) of the pools of this machine")
       && message.contains("then it deleted 2 free slot(s) below `branchdeck.leaseMaxSlots`"),
@@ -1619,21 +1622,15 @@ fn the_eviction_keeps_dirty_and_never_returned_free_slots() {
   adopted.remove("returned_at");
   std::fs::write(shrink.fixture.state_file(), state.to_string()).unwrap();
   let steps = std::sync::Mutex::new(Vec::new());
-  let error = shrink
-    .get(
-      Volume {
-        base: 50,
-        per_unit: 1,
-        per_slot: 30,
-      },
-      &steps,
-    )
-    .unwrap_err();
-  let refusal = error.downcast_ref::<lease_pool::lease::LeaseRefusal>().unwrap_or_else(|| panic!("{error:#}"));
-  let lease_pool::lease::LeaseRefusal::LowDiskSpace { freed, .. } = refusal else {
-    panic!("{refusal}");
-  };
-  assert_eq!((freed.shrink.slots, freed.evict.slots), (3, 0), "{refusal}");
+  let Refused { freed, message, .. } = shrink.refused(
+    Volume {
+      base: 50,
+      per_unit: 1,
+      per_slot: 30,
+    },
+    &steps,
+  );
+  assert_eq!((freed.shrink.slots, freed.evict.slots), (3, 0), "{message}");
   assert_eq!(kinds(&steps), ["trim", "shrink", "evict"]);
   assert_eq!(states(&shrink.fixture.status()).len(), 3);
 }

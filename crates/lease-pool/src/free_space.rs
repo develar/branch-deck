@@ -75,18 +75,23 @@ fn device(path: &Path) -> Option<u64> {
   std::fs::metadata(path).ok().map(|metadata| metadata.dev())
 }
 
+/// `path` as the C string of a system call
+#[cfg(unix)]
+fn c_path(path: &Path) -> Option<std::ffi::CString> {
+  use std::os::unix::ffi::OsStrExt;
+  std::ffi::CString::new(path.as_os_str().as_bytes()).ok()
+}
+
 #[cfg(target_os = "macos")]
 #[expect(unsafe_code, reason = "statfs(2), which std does not wrap")]
 mod platform {
   use super::VolumeSpace;
-  use std::ffi::CString;
   use std::mem::MaybeUninit;
-  use std::os::unix::ffi::OsStrExt;
   use std::path::Path;
 
   /// `statfs(2)`: its block counts are 64 bits, unlike the ones of `statvfs` on macOS
   pub(super) fn volume_space(path: &Path) -> Option<VolumeSpace> {
-    let path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    let path = super::c_path(path)?;
     let mut stat = MaybeUninit::<libc::statfs>::zeroed();
     // SAFETY: a NUL-terminated path and a buffer of the struct the call fills
     if unsafe { libc::statfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 {
@@ -105,13 +110,11 @@ mod platform {
 #[expect(unsafe_code, reason = "statvfs(3), which std does not wrap")]
 mod platform {
   use super::VolumeSpace;
-  use std::ffi::CString;
   use std::mem::MaybeUninit;
-  use std::os::unix::ffi::OsStrExt;
   use std::path::Path;
 
   pub(super) fn volume_space(path: &Path) -> Option<VolumeSpace> {
-    let path = CString::new(path.as_os_str().as_bytes()).ok()?;
+    let path = super::c_path(path)?;
     let mut stat = MaybeUninit::<libc::statvfs>::zeroed();
     // SAFETY: a NUL-terminated path and a buffer of the struct the call fills
     if unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 {
