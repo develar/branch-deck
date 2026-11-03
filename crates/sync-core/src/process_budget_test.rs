@@ -22,6 +22,7 @@ use domain_types::robot_landing::RobotLandingRequest;
 use domain_types::{BranchError, RemoteStatusUpdate, SyncEvent};
 use git_executor::git_command_executor::GitCommandExecutor;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::drop_commits::{DropCommitsParams, drop_commits_core};
 use history_rewrite::parked::{ParkLine, park_core, unpark_core};
 use history_rewrite::regroup::RegroupOptions;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
@@ -481,6 +482,40 @@ async fn a_drop() {
       ("replay", 2),
       ("rev-list", 1),
       ("rev-parse", 3), // the directories, read once for the lock, the guards, the mark and the index: 1
+      ("symbolic-ref", 2),
+      ("update-index", 2),
+      ("update-ref", 2),
+    ],
+  );
+}
+
+/// The drop of the commits of beta for good (`drop_commits_core`): before the lock the commits ahead (`log`), the grouping
+/// inputs (`cat-file`), the drop (`git replay` per kept run, one `log` of the new history, the reflog read of the guards)
+/// and the dry run of the files (`diff-tree`, `read-tree`); under it the witness (`for-each-ref`) and the move with its
+/// mark (`update-ref`, `read-tree`), no virtual branch and no free name, which an unapply reads
+#[tokio::test]
+async fn a_drop_of_commits() {
+  let (repo, commits) = alpha_and_beta_on_origin();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let git = counting();
+  let params = DropCommitsParams {
+    repository_path: path(&repo),
+    commit_ids: vec![commits[1].clone(), commits[3].clone(), commits[5].clone()],
+    dry_run: false,
+  };
+  drop_commits_core(&git, &params, &RewriteOptions::default()).unwrap();
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("for-each-ref", 2),
+      ("log", 3),
+      ("read-tree", 2),
+      ("remote", 1),
+      ("replay", 2),
+      ("rev-parse", 3),
       ("symbolic-ref", 2),
       ("update-index", 2),
       ("update-ref", 2),

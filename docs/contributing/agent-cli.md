@@ -106,12 +106,12 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `robot-stats`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `squash --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `squash --dry-run`, `drop --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`, the
   squashed commit of `squash --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
-- The working tree: only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update of
+- The working tree: only `bd update`, `bd pick`, `bd unapply`, `bd reapply`, `bd drop` and their undo write the working tree, through the guarded update of
   the app's Update Project: only the files the move changes, and in a resolve session only at the finish. `bd lease`
   writes only the slots of its pool, which are not the user's working tree (see `bd lease`).
 
@@ -781,6 +781,31 @@ through the guarded update of Update Project, so a local change on a path it wri
   remote head the sync saw or `--expect-remote`, with no pull request draft (`pushed_over` over a remote that moved
   without commits it lacks, `lease_rejected` when the remote moved otherwise); a remote branch with commits it lacks
   is `push_refused` until `--force`, as the app's push of it asks first.
+
+### `bd drop <commit>… [--expect-head <id>] [--dry-run]`
+
+Takes commits ahead of the baseline and their files out of the checked out branch for good, as the app's Drop Commit
+does (`history_rewrite::drop_commits`, the contract [Drop Commits](../../spec/commit/drop.spec.md)): an agent's own
+commit that must not land, never a `git revert`, which lands both into master; a commit and its revert together. The
+same check and guarded move as `bd unapply`: computed before the repository lock, which holds only its witness and the
+move.
+
+```json
+{"schema":2,…,"dry_run":false,"dropped":[{"commit":"1a2b3c4d","subject":"(docs) Add f0","branch":"docs"}],
+ "previous_head":"9c0d1e2f","new_head":"3a4b5c6d","files_changed":true,"rebuilt_branches":["docs","ui"],
+ "emptied_branches":["docs"],"undo_token":"drop:<full previous>..<full new>"}
+```
+
+- `--dry-run` builds the drop and drops it; `files_changed` is false when the commits cancel each other;
+  `rebuilt_branches` the next sync builds anew (a pushed one needs a push again, its open pull request keeps the
+  commits until then); `emptied_branches` are left without a commit, archived by the next sync.
+- `drop_conflict` (exit 4): a later commit depends on a dropped one, holds only its changes (it would become empty), or
+  the root would go. `uncommitted_overlap` (exit 4, `paths`), `not_ahead_of_baseline` (exit 2, `commits`),
+  `head_moved`, `locked`, `operation_in_progress`; all change nothing.
+- In a lease, a commit its home branch has (the pick landed it) is `drop_in_home` (exit 4) with two `next_steps`:
+  `bd -C <checkout> drop <commit>`, then `bd -C <lease> lease pick`, which lands nothing and moves the lease past it.
+- `bd undo <undo_token>` brings the commits and their files back (`undo_stale` once the branch moved on); a repeated
+  undo exits 0 with `already_undone: true`.
 
 ### `bd reapply <name> [--dry-run] [--expect-head <id>]`
 

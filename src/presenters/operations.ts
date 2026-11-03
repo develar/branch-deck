@@ -157,7 +157,7 @@ export interface RowLookup {
 
 /**
  * The rows a rewrite works on, the one that shows it first: of a move the branches of its commits, then the branch it
- * goes to; of a squash and a reword the branches of their commits; of the others the branches they name (a fix of a
+ * goes to; of a squash, a drop and a reword the branches of their commits; of the others the branches they name (a fix of a
  * conflict and an undo name none)
  */
 function rewriteRows(rewrite: RewriteIntent, lookup: RowLookup): readonly string[] {
@@ -165,6 +165,7 @@ function rewriteRows(rewrite: RewriteIntent, lookup: RowLookup): readonly string
     case "move":
       return [...lookup.branchesOf(rewrite.commitIds), ...(rewrite.targetBranch === null ? [] : [rewrite.targetBranch])]
     case "squash":
+    case "drop":
       return lookup.branchesOf(rewrite.commitIds)
     case "reword":
       return lookup.branchesOf(rewrite.rewords.map(reword => reword.commit))

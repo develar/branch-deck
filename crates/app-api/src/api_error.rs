@@ -21,6 +21,7 @@ use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, NotAnUpdate, PendingUpdate, RefLocked, UndoBlocked};
 use github::device_flow::DeviceFlowError;
 use history_rewrite::baseline::NoBaseline;
+use history_rewrite::drop_commits::DropSelectionRefused;
 use history_rewrite::parked::ParkError;
 use history_rewrite::regroup::RegroupError;
 use history_rewrite::repository_lock::{LockWaitCanceled, RepositoryLocked};
@@ -276,10 +277,13 @@ fn is_canceled(error: &anyhow::Error) -> bool {
     || error.is::<SearchCanceled>()
 }
 
-/// An unapply, a reapply or the move of the files under them: a refusal of the core, local changes in the way, a drop
-/// or a commit that conflicts
+/// An unapply, a reapply, a drop of commits or the move of the files under them: a refusal of the core, local changes
+/// in the way, a drop or a commit that conflicts
 fn classify_branch_moves(error: &anyhow::Error) -> Option<Classified> {
   let paths = |paths: &[String]| Some((ErrorCode::UncommittedOverlap, Some(ErrorDetails::Paths { paths: paths.to_vec() })));
+  if let Some(refusal) = error.downcast_ref::<DropSelectionRefused>() {
+    return Some((refusal.code(), None));
+  }
   if let Some(refusal) = error.downcast_ref::<UnapplyRefusal>() {
     return Some((refusal.code(), None));
   }

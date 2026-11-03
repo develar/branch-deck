@@ -1,6 +1,7 @@
-//! The codes of the mappers of bd for the typed errors of a move, an update, an unapply, a reapply and their undo
-//! (`core_error`, `unapply_error`, `reapply_error`, `undo_core_error`): the codes of `update_core::error_cases`, which
+//! The codes of the mappers of bd for the typed errors of a move, an update, an unapply, a reapply, a drop and their undo
+//! (`core_error`, `unapply_error`, `reapply_error`, `drop_error`, `undo_core_error`): the codes of `update_core::error_cases`, which
 //! the app's `api_error` answers too (`app-api/src/api_error_test.rs`)
+use crate::drop_command::drop_error;
 use crate::unapply_command::{reapply_error, unapply_error};
 use crate::update_command::{core_error, undo_core_error};
 use anyhow::anyhow;
@@ -27,6 +28,8 @@ fn bd_answers_the_code_of_each_refusal_of_a_move_an_unapply_and_a_reapply_that_t
   let (expected, actual) = answered(&[CaseOf::Move, CaseOf::Unapply], |error| unapply_error(error).code, |case| Some(case.code));
   assert_eq!(actual, expected);
   let (expected, actual) = answered(&[CaseOf::Move, CaseOf::Reapply], |error| reapply_error(error).code, |case| Some(case.code));
+  assert_eq!(actual, expected);
+  let (expected, actual) = answered(&[CaseOf::Move, CaseOf::Drop], |error| drop_error(error).code, |case| Some(case.code));
   assert_eq!(actual, expected);
 }
 

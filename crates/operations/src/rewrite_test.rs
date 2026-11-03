@@ -535,6 +535,40 @@ async fn an_unapply_a_reapply_and_the_delete_of_the_unapplied_branch_run_through
   assert!(fixture.repo.rev_parse("refs/heads/test/unapplied/beta").is_err(), "the unapplied branch is gone");
 }
 
+/// Drop Commit is a rewrite of the engine: it asks the sync that shows it, with its undo (a `drop:` token), which brings
+/// the commit back; a drop queued behind a reword of its commit names it through the new id the reword answered
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drop_and_its_undo_run_through_the_engine_and_a_queued_drop_follows_a_reword() {
+  let fixture = fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let drop = |commit: &str, witness: &TableWitness| RewriteIntent::Drop {
+    commit_ids: vec![commit.to_owned()],
+    witness: witness.clone(),
+  };
+  let dropped = fixture.rewrite(&drop(&beta, &witness)).await.unwrap();
+  assert_eq!(undo_and_sync(&dropped), (Some(UndoKind::Drop), true));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha"]);
+  let OperationResult::Rewrite(result) = &dropped.result else {
+    panic!("not a rewrite: {dropped:?}");
+  };
+  let RewriteResult::Dropped(result) = result.as_ref() else {
+    panic!("not a drop: {result:?}");
+  };
+  assert_eq!(result.emptied_branches, ["beta"]);
+  let undone = fixture.rewrite(&RewriteIntent::Undo { token: dropped.undo.unwrap() }).await.unwrap();
+  assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
+  assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha"]);
+
+  let fixture = self::fixture(true).await;
+  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  let (reworded, dropped) = fixture
+    .one_after_another(&reword(&beta, "(alpha/beta) Beta, reworded", &witness), &drop(&beta, &witness))
+    .await;
+  reworded.unwrap();
+  assert_eq!(undo_and_sync(&dropped.unwrap()), (Some(UndoKind::Drop), true));
+  assert_eq!(fixture.subjects(), ["(alpha) Alpha"]);
+}
+
 impl Fixture {
   /// `rewrite` started while another process holds the lock; once it waits for it, that process changes HEAD by
   /// `change` (a commit on top, a squash under the lock it holds) and releases the lock; its answer

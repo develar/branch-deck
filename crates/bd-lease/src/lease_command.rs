@@ -9,7 +9,7 @@ use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::lease_config;
-use git_ops::revs::{RepositoryDirs, ref_exists, repository_dirs, short_id};
+use git_ops::revs::{RepositoryDirs, is_ancestor, ref_exists, repository_dirs, resolve_commit, short_id};
 use git_ops::update_resolve::session_ref;
 use history_rewrite::repository_lock::RepositoryLocked;
 use lease_pool::check_record::{NAMED_PATHS, TreeCheck, check_tree};
@@ -427,16 +427,20 @@ pub fn refuse_reclaimed(git_common_dir: &Path, top_level: &str, mutates: bool, l
   }
 }
 
+/// The lease of a session at `top_level`, a worktree of the pool; none elsewhere and for a host slot of `bd-host`, which
+/// is no session's lease
+fn session_lease_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Lease>, CliError> {
+  let lease = ready_slot_at(git_common_dir, top_level).map_err(lease_error)?.and_then(|slot| slot.lease);
+  Ok(lease.filter(|lease| !lease.holder.starts_with(HOST_HOLDER_PREFIX)))
+}
+
 /// `bd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
 /// branch it was cut from, not the baseline: an update onto the baseline would move it past that branch, and its pick
 /// would refuse it (`source_on_newer_baseline`). A host slot of `bd-host` is no session's lease
 pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<(), CliError> {
-  let Some(lease) = ready_slot_at(git_common_dir, top_level).map_err(lease_error)?.and_then(|slot| slot.lease) else {
+  let Some(lease) = session_lease_at(git_common_dir, top_level)? else {
     return Ok(());
   };
-  if lease.holder.starts_with(HOST_HOLDER_PREFIX) {
-    return Ok(());
-  }
   let home = lease.home();
   let branch = home.branch.as_deref().unwrap_or("its branch");
   Err(CliError::new(
@@ -448,6 +452,50 @@ pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<
       lease = shell_word(top_level),
     ),
   ))
+}
+
+/// `bd drop` in the worktree at `top_level`: in a lease of the pool, a commit that its home branch has already (a pick
+/// landed it) is refused as `drop_in_home`: a drop in the lease would come back with the next pick, which moves the lease
+/// onto the tip of that branch. The drop runs in the shared checkout, then `bd lease pick` moves the lease past it
+/// (`next_steps`). Commits only the lease has drop there as anywhere. One `rev-parse` and one `merge-base --is-ancestor`
+/// per named commit, only in a lease; a host slot of `bd-host` is no session's lease
+pub fn refuse_drop_of_home_commits(git: &GitCommandExecutor, git_common_dir: &Path, top_level: &str, commits: &[String]) -> Result<(), CliError> {
+  let Some(lease) = session_lease_at(git_common_dir, top_level)? else {
+    return Ok(());
+  };
+  let home = lease.home();
+  let Some(branch) = home.branch.as_deref() else {
+    return Ok(());
+  };
+  let branch_ref = format!("refs/heads/{branch}");
+  let mut landed = Vec::new();
+  for commit in commits {
+    // an id that names no commit is the core's refusal, as everywhere
+    let Some(full) = resolve_commit(git, top_level, commit)? else {
+      continue;
+    };
+    if ref_exists(git, top_level, &branch_ref) && is_ancestor(git, top_level, &full, &branch_ref)? {
+      landed.push(commit.clone());
+    }
+  }
+  if landed.is_empty() {
+    return Ok(());
+  }
+  let named = landed.iter().map(|commit| shell_word(commit)).collect::<Vec<_>>().join(" ");
+  let checkout = shell_word(&home.checkout);
+  Err(CliError {
+    commits: landed.clone(),
+    ..CliError::new(
+      ErrorCode::DropInHome,
+      format!(
+        "{} on {branch} of {}: the pick landed it there, and a drop in the lease would come back with the next pick. Drop it in the shared checkout, then move the lease onto the new tip",
+        if landed.len() == 1 { "The commit is" } else { "The commits are" },
+        home.checkout,
+      ),
+    )
+  }
+  .with_next_step(format!("bd -C {checkout} drop {named}"), false)
+  .with_next_step(format!("bd -C {} lease pick", shell_word(top_level)), false))
 }
 
 #[derive(Debug, Serialize, JsonSchema)]

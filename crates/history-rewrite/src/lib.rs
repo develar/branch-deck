@@ -27,12 +27,14 @@
 //!   with its undo, and the writes of every regroup
 //! - `fixup_targets`: the fixups a rewrite of messages may not fold elsewhere
 //! - `squash`: commits into the oldest of them, and the undo
+//! - `drop_commits`: commits ahead of the baseline out of HEAD for good, the files following, and the undo
 //! - `autosquash`: the `fixup!`, `squash!` and `amend!` commits into their targets (`bd fold`)
 
 pub mod autosquash;
 pub mod baseline;
 pub mod commit_grouper;
 pub mod commit_ids;
+pub mod drop_commits;
 mod fixup_targets;
 pub mod issue_groups;
 pub mod move_commits;

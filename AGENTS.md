@@ -215,7 +215,7 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
 - **Who writes the refs of Branch Deck**: every ref of `refs/branch-deck/`, `{prefix}/unapplied/` and `{prefix}/stack/`
   has its named writers, with CAS; a sync mostly only reads them.
 - **Repository lock** (`$GIT_COMMON_DIR/branch-deck.lock`, `repository_lock.rs`): a rewrite of the checked-out branch,
-  a push, Update Project, `bd pick`, unapply and reapply read and compute before it and hold it only for the witness of
+  a push, Update Project, `bd pick`, unapply, reapply and drop read and compute before it and hold it only for the witness of
   their refs and the CAS write (`lock_prepared`; [Lock spans](docs/design/git-operations.md#lock-spans)); a sync and a
   fetch never wait for it.
 - **Operations registry**: only `operations::registry_file` touches `operations.json` and `operations.lock`, only

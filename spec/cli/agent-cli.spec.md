@@ -666,6 +666,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   unapply:`, `bd undo reapply:`:
   [Unapply and Reapply](../branch/unapply.spec.md).
 
+### `bd drop`
+
+- `bd drop` (commits and their files out of the checked out branch for good, a commit of a lease's home branch as
+  `drop_in_home`) and `bd undo drop:`: [Drop Commits](../commit/drop.spec.md).
+
 ### `bd lease`
 
 - `bd lease get`, `pick`, `return`, `status` and `adopt` (the pool of worktrees that agent sessions lease):

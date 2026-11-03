@@ -5,7 +5,8 @@ macro_rules! read_only {
 `bd version`, `bd describe <branch>` without a setter, `bd update --status` without
 --materialize, `bd lease status`, `bd workspace`, and
 `bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
-(also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd move-hunk --dry-run` and `bd reword --dry-run`
+(also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd drop --dry-run`, `bd move-hunk --dry-run` and
+`bd reword --dry-run`
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
 object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
 `bd push --dry-run`, `bd safe-push --check` and `bd request-review --check` sync first."
@@ -47,17 +48,16 @@ Rules
   refuse an unapplied name (`unapplied`); `bd push --unapplied <name>` keeps a copy on the remote when the user asks.
   `branch_not_built` (sync first), `branch_checked_out`, `drop_conflict`, `reapply_conflict` and `nothing_to_reapply`
   change nothing: tell the user.
-- Never reorder, squash or drop commits yourself (`bd fold` folds fixup!, squash! and amend!; `bd update` drops
-  landed ones); move a change only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
+- Never reorder or squash commits yourself (`bd fold` folds fixup!, squash! and amend!; `bd update` drops landed
+  ones); move a change only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
-- Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree (a guarded update).
+- Only `bd update`, `bd pick`, `bd unapply`, `bd reapply`, `bd drop` and their undo write the working tree.
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
   arguments or the plan. 3 stale (`head_moved`, `locked`, `busy`, `plan_changed`): read again and retry. 4 refused:
   do what the table below or the `--help` of the command says for the code, else stop and show `message` to the user.
   5 git or network error: show it. Retry only when `retryable` is true, whatever the exit code. A `git_error` \"not
-  updating refs/branch-deck/tmp/chain (… does not contain …)\": a ref of Branch Deck 0.21 or older; `git update-ref -d
-  refs/branch-deck/tmp/chain`, then retry.
+  updating refs/branch-deck/tmp/chain\": a ref of bd 0.21 or older; `git update-ref -d` that ref, then retry.
 - An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"processes\",
   \"next_steps\",\"retryable\"}}; `paths`, `branches`, `review`, `blocks`, `processes` and `next_steps` only where they
   apply.
@@ -126,7 +126,8 @@ Other tasks
 - Several sessions on one branch: `bd lease get` leases a worktree, `bd lease pick` in it lands its commits where it
   was cut from, `bd lease return` gives it back; `bd pick --from <worktree> --follow` (or `bd pick <rev>`,
   `<a>..<b>`, --remote; --expect-head, --dry-run: `bd pick --help`), never `git cherry-pick` (`bd help worktrees`).
-- Squash: `bd fold --help` (fixups), `bd squash --help` (the commits the user asked to squash).
+- Squash: `bd fold --help` (fixups), `bd squash --help` (what the user names). Your commit that must not land:
+  `bd drop --help`, never `git revert`.
 - A message to change: `bd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
   or plumbing for it (`bd reword --help`).
 - A change in the wrong commit: `bd move-hunk <from> <to> <path>` (`bd move-hunk --help`).
@@ -229,7 +230,7 @@ bd help worktrees: several sessions on one branch. Each session commits in a wor
 worktree, often a detached HEAD, sharing the git dir); its work counts once it is on the shared branch of the shared
 checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `bd rename`, `bd reword`. Every other
 session only adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared
-checkout; the one rewrite it may run is a `bd reword` of its own landed commit (step 4).
+checkout; the rewrites it may run are a `bd reword` and a `bd drop` of its own landed commit (step 4).
 
 0. Lease your worktree when `bd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
    command): `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
@@ -320,8 +321,11 @@ checkout; the one rewrite it may run is a `bd reword` of its own landed commit (
    `head_moved` (exit 3), and `bd group --allow-append` does not help, the old HEAD is gone: read the status again.
    To fix the message of your own commit after it landed, run `bd reword <commit> --expect-head <head> --subject
    '...'` from your worktree with -C <shared checkout>, without --sync (the owner syncs); your worktree needs nothing,
-   a later pick or return finds the commit landed by content. A reword of a commit that
-   another session made is the user's to approve. The user reviews what the sessions landed: `bd mark-reviewed
+   a later pick or return finds the commit landed by content. To drop your own commit after it landed (one that must
+   not land, never a revert), `bd drop <commit>` in your lease refuses it as `drop_in_home` and names the two steps:
+   `bd -C <shared checkout> drop <commit> --expect-head <head>`, whose files follow there (`uncommitted_overlap` when
+   the user's files are in the way: ask), then `bd lease pick`, which moves your lease onto the new tip. A reword or a
+   drop of a commit that another session made is the user's to approve. The user reviews what the sessions landed: `bd mark-reviewed
    <branch>` (experimental, no rewrite) keeps the base and the tip of a branch as reviewed, so that the next review
    starts there (`mark-reviewed --base <parent>` for a stacked branch: only its own commits); run it only when the
    user says they reviewed the branch. `bd review-plan <branch> --since-reviewed` (moves no ref; `review-plan --base
@@ -671,6 +675,25 @@ no `new_id`; --dry-run says it too). A fold whose fixup conflicts with a commit 
 the user.
 ";
 
+/// `bd drop --help`: the commits out of HEAD for good
+pub const DROP_HELP: &str = "\
+`bd drop <commit>...` takes commits ahead of the baseline out of the checked out branch with their files, as the app's
+Drop Commit does; the commits after them are replayed. For a commit of yours that must not land, never a revert, which
+lands both into master; with a revert of it, drop both. A commit of another session or of the user, or one on a branch
+that is pushed or under a robot (`bd status`): ask the user first.
+- Run `bd drop --dry-run` first: it builds the drop and drops it. `dropped` (each `commit`, `subject`, `branch`),
+  `files_changed` (false when the commits cancel each other, a commit and its revert), `rebuilt_branches` (the next
+  sync builds them anew: a pushed one needs a push again, its open pull request keeps the commits until then) and
+  `emptied_branches` (left without a commit, archived by the next sync). Drop with --expect-head <previous_head>.
+- Prints `previous_head`, `new_head` and an `undo_token`: `bd undo <undo_token>` brings the commits and their files
+  back.
+- `drop_conflict` (exit 4): a later commit depends on a dropped one, or holds only its changes (name it too), or the
+  root would go. `uncommitted_overlap` (exit 4): local changes on files the drop writes (`paths`): ask the user.
+  `not_ahead_of_baseline`: the commit landed; a revert of it is the user's to decide. `drop_in_home` (exit 4, in a
+  lease): the pick landed the commit on the shared branch; run its `next_steps`: the drop there, then `bd lease pick`.
+  All change nothing.
+";
+
 /// `bd squash --help`: the squash the user asked for
 pub const SQUASH_HELP: &str = "\
 `bd squash <into> <commit>...` squashes commits into `<into>`, the oldest of them, as the app's Squash does: the
@@ -685,8 +708,8 @@ branch of `<into>`, else `invalid_arguments` (move them first with `bd group`).
   approve, with --expect-head <previous_head>; --sync syncs after it.
 - Prints `new_id`, `previous_head`, `new_head` and an `undo_token`: `bd undo <undo_token>` takes it back.
 - `squash_conflict` (exit 4): a squashed commit and a commit in between or after it change the same lines (`commits`,
-  `paths`); `squash_empty` (exit 4): the commits cancel each other (a squash gives one commit: they are dropped
-  instead), or a later commit would become empty. Both change nothing: tell the user, never squash another way.
+  `paths`); `squash_empty` (exit 4): the commits cancel each other (a squash gives one commit: `bd drop` them), or a
+  later commit would become empty. Both change nothing: tell the user, never squash another way.
 ";
 
 /// `bd reword --help`: the change of a message
@@ -726,7 +749,7 @@ name: branch-deck
 description: Use before the first edit or commit in a Git repository: `bd workspace` of Branch Deck says whether to \
 work in a leased worktree of your own and how to write the commit subject. Also use to group, split or stack the \
 commits of a branch into virtual branches and pull requests, to sync or push them, to fold fixup commits, to change \
-the message of a commit or move a hunk into another commit, to update or rebase a branch onto master or main and \
+the message of a commit or move a hunk into another commit, to drop a commit that must not land, to update or rebase a branch onto master or main and \
 resolve its conflicts, to land the commits of a worktree onto a shared branch, to lease or return a worktree, to start \
 a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a pull request, or when the \
 user mentions Branch Deck.
@@ -740,8 +763,8 @@ bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` st
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
 virtual branches, pushes them and starts their Patronus Safe Push. Only `bd update` (the branch onto its baseline),
-`bd pick` (the commits of another worktree onto the branch), `bd unapply` and `bd reapply` (a branch out of it and back) and their undo write the working tree, through the
-guarded update.
+`bd pick` (the commits of another worktree onto the branch), `bd unapply` and `bd reapply` (a branch out of it and back),
+`bd drop` (commits out of it for good) and their undo write the working tree, through the guarded update.
 
 Before the first edit or commit in a repository, run `bd workspace` and follow it; what the user says in the session
 wins over it:
@@ -788,8 +811,10 @@ command prints and what each of its refusals asks.
   entry). Branch on `error.code` and the exit code, never on the message;
   `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
 - Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits with `bd fold`;
-  squash the commits the user asked to squash with `bd squash`, after showing its --dry-run. Never
-  drop a commit yourself: `bd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
+  squash the commits the user asked to squash with `bd squash`, after showing its --dry-run. A commit of yours that
+  must not land leaves with `bd drop <commit>...` after its --dry-run, never with `git revert`, which lands both into
+  master (a commit and its revert: drop both); a commit of another session or of the user only when the user asks.
+  `bd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
   Move a change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
   Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
   for that approval too.

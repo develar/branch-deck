@@ -2248,6 +2248,27 @@ export type DivergenceSummary = {
 	commonAncestorDistance: number,
 };
 
+/**  What a drop of commits did: the commits that left HEAD with their files, for good */
+export type DropCommitsResult = {
+	/**  The commits that left HEAD, oldest first */
+	dropped: RemovedCommit[],
+	/**  HEAD before the drop */
+	previousHead: string,
+	/**  HEAD after it; `previous_head` for a dry run */
+	newHead: string,
+	/**  Whether the files followed: false when the dropped commits cancel each other (a commit and its revert) */
+	filesChanged: boolean,
+	/**
+	 *  The branches whose virtual branch the next sync builds anew: those of the dropped commits and of the later commits
+	 *  whose files change (a pushed one needs a push again)
+	 */
+	rebuiltBranches: string[],
+	/**  The branches the drop leaves without a commit: the next sync archives them */
+	emptiedBranches: string[],
+	/**  The undo: `drop:<previous>..<new>`; `None` for a dry run */
+	undoToken?: string | null,
+};
+
 /**  A commit of the remote branch whose content the local branch lacks: a push drops it */
 export type DroppedCommit = {
 	id: string,
@@ -2358,8 +2379,9 @@ export type ErrorCode =
 /**  `bd unapply`: a worktree has the virtual branch checked out (the message names it); nothing was changed */
 "branch_checked_out" | 
 /**
- *  `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
- *  was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
+ *  `bd unapply` and `bd drop`: a later commit depends on the changes of a dropped commit or holds only its changes (it
+ *  would become empty), the root would go, or the range holds a merge; nothing was changed. For an unapply move that
+ *  commit into the branch first (`bd group`); for a drop name it too, or leave the commits as they are
  */
 "drop_conflict" | 
 /**
@@ -2369,8 +2391,9 @@ export type ErrorCode =
  */
 "squash_conflict" | 
 /**
- *  `bd squash` and `bd fold`: the squashed commit would have no changes, or a later commit would become empty
- *  (`commits`); nothing was changed
+ *  `bd squash`: the squashed commits cancel each other (a squash gives one commit: drop them with `bd drop`); `bd squash`
+ *  and `bd fold`: a later commit would become empty, or a root target its fixups cancel (`commits`); nothing was
+ *  changed
  */
 "squash_empty" | 
 /**
@@ -2450,6 +2473,12 @@ export type ErrorCode =
  *  pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
  */
 "lease_follows_home" | 
+/**
+ *  `bd drop` in a lease of the pool of a commit its home branch has: the pick landed it there, so the drop runs in the
+ *  shared checkout (`next_steps`: `bd -C <checkout> drop …`, then `bd lease pick`, which moves the lease onto the new
+ *  tip); nothing was changed
+ */
+"drop_in_home" | 
 /**
  *  Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
  *  them. Nothing was changed; never stash them, ask the user
@@ -6245,6 +6274,15 @@ export type RemoteStatusUpdate = {
 	action: PushAction,
 };
 
+/**  A commit a drop takes out of HEAD */
+export type RemovedCommit = {
+	/**  Its full id */
+	commit: string,
+	subject: string,
+	/**  The branch it grouped into; `None` for an unassigned one */
+	branch: string | null,
+};
+
 /**  Files that get the same edit: one hunk with the same removed and added lines, without whitespace */
 export type RepeatedEditGroup = {
 	/**  At their last paths, in tree order; 3 or more */
@@ -7150,6 +7188,8 @@ export type RewriteIntent =
  *  showed, which it must still have
  */
 { rewrite: "unapply"; branchName: string; originalCommitIds: string[] | null; witness: TableWitness } | 
+/**  The commits (original ids) and their files leave HEAD for good (Drop Commit, `bd drop`) */
+{ rewrite: "drop"; commitIds: string[]; witness: TableWitness } | 
 /**  The unapplied branch of that name comes back on top of HEAD */
 { rewrite: "reapply"; branchName: string; witness: TableWitness } | 
 /**  The commits become one with `message`, in place of the oldest of them */
@@ -7191,7 +7231,7 @@ export type RewriteResult =
 /**  A move, an ungroup, a rename, a restack, an unstack: the commits that moved and the branch they are in */
 { rewrite: "moved"; answer: MoveCommitsResult } | 
 /**  A park or an unpark */
-{ rewrite: "parked"; answer: ParkResult } | { rewrite: "unapplied"; answer: UnapplyBranchResult } | { rewrite: "reapplied"; answer: ReapplyBranchResult } | { rewrite: "squashed"; answer: SquashCommitsResult } | { rewrite: "fixupsSquashed"; answer: SquashFixupsResult } | { rewrite: "reworded"; answer: RewordResult } | { rewrite: "amended"; answer: AmendCommandResult } | { rewrite: "issueReferenceAdded"; answer: AddIssueReferenceResult } | { rewrite: "conflictFixApplied"; answer: AppliedConflictFix } | { rewrite: "picked"; answer: PickRemoteCommitsResult } | 
+{ rewrite: "parked"; answer: ParkResult } | { rewrite: "unapplied"; answer: UnapplyBranchResult } | { rewrite: "reapplied"; answer: ReapplyBranchResult } | { rewrite: "dropped"; answer: DropCommitsResult } | { rewrite: "squashed"; answer: SquashCommitsResult } | { rewrite: "fixupsSquashed"; answer: SquashFixupsResult } | { rewrite: "reworded"; answer: RewordResult } | { rewrite: "amended"; answer: AmendCommandResult } | { rewrite: "issueReferenceAdded"; answer: AddIssueReferenceResult } | { rewrite: "conflictFixApplied"; answer: AppliedConflictFix } | { rewrite: "picked"; answer: PickRemoteCommitsResult } | 
 /**  An archived or an unapplied branch is gone */
 { rewrite: "deleted" } | 
 /**  An undo; `already_undone`: an undo before had done it, nothing changed now (of an unapply, a reapply, a pick) */
@@ -8924,6 +8964,8 @@ export type UndoKind =
 "unapply" | 
 /**  A reapply (`reapply:…`) */
 "reapply" | 
+/**  A drop of commits (`drop:<previous>..<new>`): the branch and the files back */
+"drop" | 
 /**  Pick Remote Commits (`pick:…`) */
 "pick" | 
 /**  Update Project (`update:<previous>..<new>`): the branch and the files back, as `bd undo` does */

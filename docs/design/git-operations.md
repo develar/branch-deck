@@ -303,6 +303,7 @@ taken and deletes it before the release), then runs the real git.
 | Add issue reference (`add_issue_reference_to_commits_core`) | `for-each-ref`, `update-ref` | the same test |
 | `bd move-hunk` (`move_hunk_core`) | `for-each-ref`, `update-ref` | `a_move_hunk_locks_only_the_witness_and_the_write` (`crates/bd-rewrite/src/move_hunk_test.rs`) |
 | Unapply and its undo (`unapply_branch_core`, `undo_unapply_core`) | `for-each-ref`, `read-tree`, `symbolic-ref`, `update-index`, `update-ref` (`MOVE_UNDER_THE_LOCK`) | `an_unapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/unapply_branch_test.rs`) |
+| Drop of commits and its undo (`drop_commits_core`, `undo_drop_core`; the carried mapping notes before the lock) | the same five | `a_drop_and_its_undo_lock_only_the_witness_and_the_move` (`crates/history-rewrite/src/drop_commits_test.rs`) |
 | Reapply and its undo (`reapply_branch_core`, `undo_reapply_core`) | the same five | `a_reapply_and_its_undo_lock_only_the_witness_and_the_move` (`crates/sync-core/src/reapply_branch_test.rs`) |
 | Update Project of the app (`update_project_core`, after its fetch) | `read-tree`, `rev-parse`, `symbolic-ref`, `update-index`, `update-ref` (the witness, the local changes, the move; one `update-index`, the refresh the dry run and the move share) | `the_lock_of_the_apps_update_spans_only_the_witness_the_local_changes_and_the_move` (`crates/update-core/src/update_project_test.rs`) |
 | `bd update` (`update_and_resolve`, an update that applies) | the same five | `the_check_of_an_update_runs_before_the_lock` (`crates/bd-update/src/update_test.rs`) |
@@ -1003,8 +1004,21 @@ ids and their mapping notes, so the next sync reuses the copies. The check runs 
 and the mark and the move under it (`lock_checked_undo`, as every undo of a move); an undo done before takes no lock,
 unless the mark says that its files have not followed yet.
 
+The drop of commits for good ([Drop Commits](../../spec/commit/drop.spec.md), `bd drop`, the rewrite `Drop` of the
+engine) is the same check and the same move without a branch to keep: the commits ahead of the baseline (one `log`)
+and the grouping inputs name the commits and their branches, `check_drop` with `DropKind::Drop` replays the kept runs,
+counts the new history and dry-runs the files, the carried mapping notes are written before the lock, and under it the
+witness of HEAD and the mark and the guarded move (`branch-deck: drop`), no other ref. The answer names the dropped
+commits, whether the files changed (a commit and its revert: no file moves), the branches the next sync builds anew and
+those it leaves without a commit. Its undo (`drop:<previous head>..<new head>`) is the undo of an unapply without the
+branch refs (`check_drop_undo`, `branch-deck: undo drop`). In a lease of the pool, `bd drop` of a commit its home
+branch has (a pick landed it) is refused as `drop_in_home` before the core runs (`refuse_drop_of_home_commits`: one
+`rev-parse` and one `merge-base --is-ancestor` per commit): the drop runs in the shared checkout, and the next
+`bd lease pick` lands nothing and moves the lease onto the new tip, its fork point being the tip it followed before.
+
 Code: `crates/git-ops/src/rewrite_plan.rs`, `crates/git-ops/src/unapply.rs`, `crates/sync-core/src/unapply_branch.rs`,
-`crates/branch-integration/src/archive.rs`, `crates/bd-update/src/unapply_command.rs`.
+`crates/history-rewrite/src/drop_commits.rs`, `crates/branch-integration/src/archive.rs`,
+`crates/bd-update/src/unapply_command.rs`, `crates/bd-update/src/drop_command.rs`.
 
 #### Squash
 

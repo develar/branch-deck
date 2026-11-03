@@ -6,8 +6,8 @@ pub mod install;
 pub mod schema;
 
 use crate::agent_help::{
-  AGENT_HELP, CHECK_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP, ROBOT_STATS_HELP,
-  SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
+  AGENT_HELP, CHECK_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP,
+  ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
 use crate::install::{InstallArgs, install};
 use crate::schema::{SchemaArgs, schema};
@@ -19,7 +19,7 @@ use bd_core::sync_command::sync;
 use bd_core::version::{VERSION, version};
 use bd_lease::lease_command::{
   LeaseAdoptOutput, LeaseArgs, LeaseCommand, LeaseContext, LeasePickArgs, lease_adopt, lease_clean, lease_get, lease_home, lease_reclaim, lease_return, lease_status,
-  lease_tree_check, pick_requires_check, refuse_reclaimed, refuse_update_in_lease, unchecked_tree,
+  lease_tree_check, pick_requires_check, refuse_drop_of_home_commits, refuse_reclaimed, refuse_update_in_lease, unchecked_tree,
 };
 use bd_lease::workspace_command::workspace;
 use bd_remote::land_command::{LandArgs, land};
@@ -43,6 +43,7 @@ use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, Uns
 use bd_rewrite::squash_command::{SquashArgs, SquashOutput, squash};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
+use bd_update::drop_command::{DropArgs, drop_commits};
 use bd_update::pick_command::{CheckRecordOutput, HomePick, LeasePickOutput, PickArgs, PickOutcome, PickOutput, TreeCheckOutput, TreeCheckState, pick, pick_into};
 use bd_update::unapply_command::{ReapplyArgs, UnapplyArgs, reapply, unapply};
 use bd_update::undo_command::{UndoArgs, undo};
@@ -241,6 +242,14 @@ enum Command {
   /// A commit whose subject groups elsewhere gets its `(name)` prefix back; one HEAD has is left out. `reapply_conflict`
   /// and `uncommitted_overlap` (exit 4) change nothing; `bd undo` of its `undo_token` takes it out again
   Reapply(ReapplyArgs),
+  /// Drop commits ahead of the baseline and their files from the checked out branch, for good: your own commits that
+  /// must not land, never `git revert` for them
+  ///
+  /// The commits after them are replayed; `drop_conflict` when a later commit depends on a dropped one,
+  /// `uncommitted_overlap` (exit 4) when local changes sit on files it writes, `drop_in_home` in a lease for a commit
+  /// already picked. `bd undo` of its `undo_token` brings them back with their files
+  #[command(after_help = "Outputs and refusals: `bd drop --help`", after_long_help = DROP_HELP)]
+  Drop(DropArgs),
   /// The JSON Schema of the output of a command: `bd schema status`; without a name, the index of the commands
   ///
   /// `bd schema <command>...` prints the schema of every output of those commands (`bd schema group`: `rewrite`, the
@@ -635,6 +644,13 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::ReviewPlan(args) => context().and_then(|context| review_plan(&context, args)).and_then(|output| printed(out, &output)),
     Command::Unapply(args) => context().and_then(|context| unapply(&context, args)).and_then(|output| printed(out, &output)),
     Command::Reapply(args) => context().and_then(|context| reapply(&context, args)).and_then(|output| printed(out, &output)),
+    Command::Drop(args) => {
+      let run = |context: RepoContext| {
+        refuse_drop_of_home_commits(&context.git, &context.git_common_dir, &context.repository, &args.commits)?;
+        drop_commits(&context, args)
+      };
+      context().and_then(run).and_then(|output| printed(out, &output))
+    }
     Command::Workspace => workspace(environment, options.repo).and_then(|output| printed(out, &output)),
     Command::Schema(args) => schema(args).and_then(|output| printed(out, &output)),
     Command::Version => printed(out, &version(environment)),
@@ -693,6 +709,7 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Reword(RewordArgs { rewrite, .. }) => rewrite.dry_run,
     Command::Fold(args) => args.dry_run,
     Command::Squash(args) => args.dry_run,
+    Command::Drop(args) => args.dry_run,
     Command::MoveHunk(args) => args.dry_run,
     Command::Pick(args) => args.dry_run,
     Command::Lease(LeaseArgs {

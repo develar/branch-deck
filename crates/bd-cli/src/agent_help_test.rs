@@ -233,7 +233,6 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     | ErrorCode::PlanChanged
     | ErrorCode::BranchNotBuilt
     | ErrorCode::BranchCheckedOut
-    | ErrorCode::DropConflict
     | ErrorCode::NothingToReapply
     | ErrorCode::ReapplyConflict
     | ErrorCode::Unapplied
@@ -243,6 +242,8 @@ const fn documented_in(code: ErrorCode) -> &'static [&'static str] {
     ErrorCode::RobotRunning => &["help agent", "push", "safe-push"],
     ErrorCode::DanglingReference | ErrorCode::MissingDeclaration => &["help agent", "check", "safe-push"],
     ErrorCode::SquashConflict | ErrorCode::SquashEmpty => &["squash", "fold"],
+    ErrorCode::DropConflict => &["help agent", "drop"],
+    ErrorCode::DropInHome => &["drop", "help worktrees"],
     ErrorCode::UncommittedOverlap => &["help agent", "help update", "help worktrees"],
     ErrorCode::NothingToPick => &["pick"],
     ErrorCode::OperationInProgress
@@ -383,6 +384,7 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
     &["rename", "a", "renamed", "--dry-run"],
     &["describe", "a"],
     &["fold", "--dry-run"],
+    &["drop", &change, "--dry-run"],
     &["move-hunk", &change, &first, "shared.txt", "--dry-run"],
     &["reword", &change, "--subject", "ABC-1 Change the shared file", "--dry-run"],
     &["lease", "status"],

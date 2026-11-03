@@ -29,6 +29,12 @@ describe("presentRewrite", () => {
     expect(presentRewrite({ rewrite: "undo", token: { kind: "regroup", token: "h0..h1" } }).failure).toBe("Cannot undo")
     expect(presentRewrite({ rewrite: "moveHunk", from: "a1", to: "b2", path: "src/app.ts", witness: WITNESS }).label).toBe("Moving a hunk of src/app.ts")
     expect(presentRewrite({ rewrite: "group", plan: { branches: { auth: ["a1"] } }, witness: WITNESS }).done).toBe("Regrouped the commits")
+    expect(presentRewrite({ rewrite: "drop", commitIds: ["a1", "b2"], witness: WITNESS })).toEqual({
+      label: "Dropping 2 commits",
+      phrase: "a drop of 2 commits",
+      failure: "Cannot drop 2 commits",
+      done: "Dropped 2 commits",
+    })
   })
 
   it("names the rewrite of another process on its row", () => {

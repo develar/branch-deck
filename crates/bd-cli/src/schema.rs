@@ -27,6 +27,7 @@ use bd_rewrite::review_plan_command::ReviewPlanOutput;
 use bd_rewrite::rewrite::RewriteOutput;
 use bd_rewrite::squash_command::SquashOutput;
 use bd_rewrite::suggest::SuggestOutput;
+use bd_update::drop_command::DropOutput;
 use bd_update::pick_command::{LeasePickOutput, PickOutput};
 use bd_update::unapply_command::{ReapplyOutput, UnapplyOutput};
 use bd_update::undo_command::UndoOutput;
@@ -45,6 +46,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("check", &["check"]),
   ("commits", &["commits", "commits_brief"]),
   ("describe", &["describe"]),
+  ("drop", &["drop"]),
   ("fold", &["fold"]),
   ("group", &["rewrite"]),
   ("install", &["install"]),
@@ -186,6 +188,7 @@ pub fn every_output() -> BTreeMap<String, Schema> {
     ("review_plan".to_string(), schema_for!(ReviewPlanOutput)),
     ("push".to_string(), schema_for!(PushOutput)),
     ("reapply".to_string(), schema_for!(ReapplyOutput)),
+    ("drop".to_string(), schema_for!(DropOutput)),
     ("rewrite".to_string(), schema_for!(RewriteOutput)),
     ("robot_stats".to_string(), schema_for!(RobotStatsOutput)),
     ("request_review".to_string(), schema_for!(RequestReviewOutput)),

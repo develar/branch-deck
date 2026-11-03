@@ -52,6 +52,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::landed_pairing::CommitKey;
 use git_ops::revs::short_id;
 use history_rewrite::autosquash::{SquashFixupsParams, squash_fixup_commits_core};
+use history_rewrite::drop_commits::{DropCommitsParams, DropUndoToken, drop_commits_core, undo_drop_core};
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core, move_result};
 use history_rewrite::parked::{PARKED_REF, ParkLine, ParkOutcome, park_core, unpark_core};
@@ -153,7 +154,7 @@ fn rewrite_plan(state: &TableState, rewrite: &RewriteIntent) -> RewritePlan {
 /// showed); of an ungroup every commit of its branch as `state` has it
 fn named_commits(state: &TableState, rewrite: &RewriteIntent) -> Vec<String> {
   match rewrite {
-    RewriteIntent::Move { commit_ids, .. } | RewriteIntent::Squash { commit_ids, .. } => commit_ids.clone(),
+    RewriteIntent::Move { commit_ids, .. } | RewriteIntent::Squash { commit_ids, .. } | RewriteIntent::Drop { commit_ids, .. } => commit_ids.clone(),
     RewriteIntent::Reword { rewords, .. } => rewords.iter().map(|reword| reword.commit.clone()).collect(),
     RewriteIntent::AddIssueReference { commits, .. } => commits.iter().map(|commit| commit.hash.clone()).collect(),
     RewriteIntent::Amend { original_commit_id, .. } => vec![original_commit_id.clone()],
@@ -534,7 +535,7 @@ fn named_commits_of(rewrite: &RewriteIntent) -> Vec<String> {
 fn with_commits(rewrite: &RewriteIntent, ids: &[String]) -> RewriteIntent {
   let mut rewrite = rewrite.clone();
   match &mut rewrite {
-    RewriteIntent::Move { commit_ids, .. } | RewriteIntent::Squash { commit_ids, .. } => commit_ids.clone_from(&ids.to_vec()),
+    RewriteIntent::Move { commit_ids, .. } | RewriteIntent::Squash { commit_ids, .. } | RewriteIntent::Drop { commit_ids, .. } => commit_ids.clone_from(&ids.to_vec()),
     RewriteIntent::Reword { rewords, .. } => rewords.iter_mut().zip(ids).for_each(|(reword, id)| reword.commit.clone_from(id)),
     RewriteIntent::AddIssueReference { commits, .. } => commits.iter_mut().zip(ids).for_each(|(commit, id)| commit.hash.clone_from(id)),
     RewriteIntent::Amend { original_commit_id, .. } => {
@@ -787,6 +788,16 @@ impl Core {
         let token = result.undo_token.clone();
         Ran::of(RewriteResult::Reapplied(result), UndoKind::Reapply, token)
       }
+      RewriteIntent::Drop { commit_ids, .. } => {
+        let params = DropCommitsParams {
+          repository_path: path.to_owned(),
+          commit_ids: commit_ids.clone(),
+          dry_run: false,
+        };
+        let result = drop_commits_core(git, &params, &options).map_err(failed)?;
+        let token = result.undo_token.clone();
+        Ran::of(RewriteResult::Dropped(result), UndoKind::Drop, token)
+      }
       RewriteIntent::Squash { commit_ids, message, .. } => {
         let params = SquashCommitsParams {
           repository_path: path.to_owned(),
@@ -915,6 +926,7 @@ impl Core {
       }
       UndoKind::Unapply => undo_unapply_core(git, path, &UnapplyUndoToken::parse(text).ok_or_else(not_a_token)?, lock_wait)?.already_undone,
       UndoKind::Reapply => undo_reapply_core(git, path, &ReapplyUndoToken::parse(text).ok_or_else(not_a_token)?, lock_wait)?.already_undone,
+      UndoKind::Drop => undo_drop_core(git, path, &DropUndoToken::parse(text).ok_or_else(not_a_token)?, lock_wait)?.already_undone,
       UndoKind::Pick => {
         let params = UndoPickRemoteCommitsParams {
           repository_path: path.to_owned(),

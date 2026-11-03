@@ -158,7 +158,8 @@ write. The regroup (`regroup.rs`: the move, rename, restack, unstack and the con
 `bd reword` and the app's reword through `reword.rs`) and its undo, park and unpark, the squash (the app's and
 `bd squash`) and its undo,
 squash fixups (also `bd fold`), amend, add issue reference, the move of a hunk (`bd move-hunk`), unapply, reapply,
-the undo of an update, of a pick, of an unapply and of a reapply read and compute before it, on the oids they read
+the drop of commits (the app's and `bd drop`), the undo of an update, of a pick, of an unapply, of a reapply and of a
+drop read and compute before it, on the oids they read
 once (the snapshot or the history, merge-tree, replay, the dry run of the files on a copy of the index, the
 `fast-import` of the new objects on temporary refs), and hold it only for the witness of those refs and the CAS
 write (`lock_prepared`: HEAD, its branch and the refs they computed on in one `for-each-ref`; a move that the files
@@ -181,7 +182,7 @@ with the app's other pushes; only a push of the same remote ref waits, in the re
 Update Project (the app and `bd update`: after the fetch and the check, for the witness, the local changes and
 the move; a conflict that starts a resolve session computes its first round before the lock too and holds it for the
 witness, the state with the session ref and the copies of the round; the landed report after the release), `bd pick` (after its check:
-the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
+the witness and the moves of both worktrees under one hold, its landing report after it), `bd unapply`, `bd reapply`, `bd drop` and their undo, and `bd update --continue` (not its `--dry-run`) and `--abort` hold
 `$GIT_COMMON_DIR/branch-deck.lock`
 (`bd`: `LockWait::Bounded`, then `locked`; the app's rewrites, pushes and Update Project: `LockWait::WhileHeld`, as
 long as the holder record names a live process: an operation of the engine, every rewrite of `operations::rewrite`,

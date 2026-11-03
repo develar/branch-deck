@@ -18,7 +18,7 @@ use git_ops::reword_commits::PreparedReword;
 use git_ops::rewrite_guard::HeadMoved;
 use git_ops::rewrite_plan::PreparedRewrite;
 use git_ops::squash_commits::CheckedRestore;
-use git_ops::unapply::MoveBlocked;
+use git_ops::unapply::{DropPlan, MoveBlocked};
 use git_ops::update_branch::{FilesBlocked, UndoBlocked, UndoCheck, finish_pending_update, index_held, pending_mark, pending_update, wait_for_index};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -1105,6 +1105,27 @@ impl Prepared for UndoCheck {
 
   fn moves_files(&self) -> bool {
     matches!(self, Self::Ready(undo) if undo.files_change())
+  }
+}
+
+/// A checked drop of commits (`git_ops::unapply::check_drop`) with what its core read for its answer (`facts`)
+pub struct WithFacts<P, T> {
+  pub prepared: P,
+  pub facts: T,
+}
+
+/// HEAD and its branch, the temporary refs of the drop, the files it moves
+impl<T> Prepared for WithFacts<DropPlan, T> {
+  fn witness(&self) -> Witness {
+    Witness::of_head(self.prepared.head(), self.prepared.branch())
+  }
+
+  fn discard(&self, git_executor: &GitCommandExecutor, repository_path: &str) {
+    self.prepared.discard(git_executor, repository_path);
+  }
+
+  fn moves_files(&self) -> bool {
+    self.prepared.files_change()
   }
 }
 

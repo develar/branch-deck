@@ -64,6 +64,11 @@ pub enum RewriteIntent {
     original_commit_ids: Option<Vec<String>>,
     witness: TableWitness,
   },
+  /// The commits (original ids) and their files leave HEAD for good (Drop Commit, `bd drop`)
+  Drop {
+    commit_ids: Vec<String>,
+    witness: TableWitness,
+  },
   /// The unapplied branch of that name comes back on top of HEAD
   Reapply {
     branch_name: String,
@@ -158,6 +163,7 @@ impl RewriteIntent {
       | Self::Unpark { witness, .. }
       | Self::Unapply { witness, .. }
       | Self::Reapply { witness, .. }
+      | Self::Drop { witness, .. }
       | Self::Squash { witness, .. }
       | Self::SquashFixups { witness, .. }
       | Self::Reword { witness, .. }
@@ -181,7 +187,7 @@ impl RewriteIntent {
   }
 
   /// The branch it is about, as the view keys a row: the target of a move, the branch of the others; none for a move
-  /// back, a squash, a reword, a fix, an undo, a regroup of a plan, a move of a hunk
+  /// back, a squash, a drop, a reword, a fix, an undo, a regroup of a plan, a move of a hunk
   #[must_use]
   pub fn subject(&self) -> Option<&str> {
     match self {
@@ -203,9 +209,14 @@ impl RewriteIntent {
       | Self::DeleteArchived { branch_name, .. }
       | Self::DeleteUnapplied { branch_name, .. }
       | Self::PickRemote { branch_name, .. } => Some(branch_name),
-      Self::Squash { .. } | Self::SquashFixups { .. } | Self::Reword { .. } | Self::ApplyConflictFix { .. } | Self::Undo { .. } | Self::Group { .. } | Self::MoveHunk { .. } => {
-        None
-      }
+      Self::Squash { .. }
+      | Self::SquashFixups { .. }
+      | Self::Drop { .. }
+      | Self::Reword { .. }
+      | Self::ApplyConflictFix { .. }
+      | Self::Undo { .. }
+      | Self::Group { .. }
+      | Self::MoveHunk { .. } => None,
     }
   }
 }
@@ -245,6 +256,8 @@ pub enum UndoKind {
   Unapply,
   /// A reapply (`reapply:…`)
   Reapply,
+  /// A drop of commits (`drop:<previous>..<new>`): the branch and the files back
+  Drop,
   /// Pick Remote Commits (`pick:…`)
   Pick,
   /// Update Project (`update:<previous>..<new>`): the branch and the files back, as `bd undo` does
@@ -262,6 +275,7 @@ pub enum RewriteResult {
   Parked(ParkResult),
   Unapplied(UnapplyBranchResult),
   Reapplied(ReapplyBranchResult),
+  Dropped(DropCommitsResult),
   Squashed(SquashCommitsResult),
   FixupsSquashed(SquashFixupsResult),
   Reworded(RewordResult),
@@ -284,6 +298,7 @@ impl RewriteResult {
     match self {
       Self::Moved(moved) | Self::ConflictFixApplied(AppliedConflictFix::Applied { result: moved }) => Some(&moved.head),
       Self::Unapplied(unapplied) => Some(&unapplied.new_head),
+      Self::Dropped(dropped) => Some(&dropped.new_head),
       Self::Reapplied(reapplied) => Some(&reapplied.new_head),
       Self::Squashed(squashed) => Some(&squashed.new_head),
       Self::FixupsSquashed(squashed) => Some(&squashed.new_head),
@@ -311,7 +326,7 @@ impl RewriteResult {
       Self::ConflictFixApplied(AppliedConflictFix::Stale) => false,
       Self::Picked(picked) => picked.new_head != picked.previous_head,
       Self::Undone { already_undone } => !already_undone,
-      Self::Unapplied(_) | Self::Reapplied(_) | Self::Squashed(_) | Self::Deleted => true,
+      Self::Unapplied(_) | Self::Reapplied(_) | Self::Dropped(_) | Self::Squashed(_) | Self::Deleted => true,
     }
   }
 
@@ -496,6 +511,50 @@ pub struct UnapplyBranchResult {
   pub new_head: String,
   /// The undo: `UnapplyUndoToken` as it prints
   pub undo_token: String,
+}
+
+/// What a drop of commits did: the commits that left HEAD with their files, for good
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DropCommitsResult {
+  /// The commits that left HEAD, oldest first
+  pub dropped: Vec<RemovedCommit>,
+  /// HEAD before the drop
+  pub previous_head: String,
+  /// HEAD after it; `previous_head` for a dry run
+  pub new_head: String,
+  /// Whether the files followed: false when the dropped commits cancel each other (a commit and its revert)
+  pub files_changed: bool,
+  /// The branches whose virtual branch the next sync builds anew: those of the dropped commits and of the later commits
+  /// whose files change (a pushed one needs a push again)
+  pub rebuilt_branches: Vec<String>,
+  /// The branches the drop leaves without a commit: the next sync archives them
+  pub emptied_branches: Vec<String>,
+  /// The undo: `drop:<previous>..<new>`; `None` for a dry run
+  #[cfg_attr(feature = "specta", specta(optional))]
+  pub undo_token: Option<String>,
+}
+
+/// A commit a drop takes out of HEAD
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedCommit {
+  /// Its full id
+  pub commit: String,
+  pub subject: String,
+  /// The branch it grouped into; `None` for an unassigned one
+  pub branch: Option<String>,
+}
+
+/// What the undo of a drop did
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct UndoneDrop {
+  /// It was undone before: nothing changed now
+  pub already_undone: bool,
 }
 
 /// What the undo of an unapply did

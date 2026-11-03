@@ -61,6 +61,10 @@ export function presentRewrite(rewrite: RewriteIntent): RewriteWords {
       const count = formatCommitCount(rewrite.commitIds.length)
       return words(`Squashing ${count}`, `a squash of ${count}`, `Cannot squash ${count}`, `Squashed ${count}`)
     }
+    case "drop": {
+      const count = formatCommitCount(rewrite.commitIds.length)
+      return words(`Dropping ${count}`, `a drop of ${count}`, `Cannot drop ${count}`, `Dropped ${count}`)
+    }
     case "squashFixups":
       return words("Squashing the fixups", "a squash of the fixups", "Cannot squash the fixups", "Squashed the fixups")
     case "reword":

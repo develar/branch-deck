@@ -63,15 +63,17 @@ pub enum ErrorCode {
   BranchNotBuilt,
   /// `bd unapply`: a worktree has the virtual branch checked out (the message names it); nothing was changed
   BranchCheckedOut,
-  /// `bd unapply`: a later commit depends on the changes of a commit of the branch, or the range holds a merge; nothing
-  /// was changed. Move that commit into the branch first (`bd group`), or leave the branch applied
+  /// `bd unapply` and `bd drop`: a later commit depends on the changes of a dropped commit or holds only its changes (it
+  /// would become empty), the root would go, or the range holds a merge; nothing was changed. For an unapply move that
+  /// commit into the branch first (`bd group`); for a drop name it too, or leave the commits as they are
   DropConflict,
   /// `bd squash` and `bd fold`: a squashed commit and a commit in between or after it change the same lines
   /// (`commits`, `paths` when a merge named them); nothing was changed. The user decides: squash other commits, or
   /// leave them as they are
   SquashConflict,
-  /// `bd squash` and `bd fold`: the squashed commit would have no changes, or a later commit would become empty
-  /// (`commits`); nothing was changed
+  /// `bd squash`: the squashed commits cancel each other (a squash gives one commit: drop them with `bd drop`); `bd squash`
+  /// and `bd fold`: a later commit would become empty, or a root target its fixups cancel (`commits`); nothing was
+  /// changed
   SquashEmpty,
   /// `bd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
   /// user decides: resolve it in the branch elsewhere, or leave it unapplied
@@ -124,6 +126,10 @@ pub enum ErrorCode {
   /// `bd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `bd lease
   /// pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
   LeaseFollowsHome,
+  /// `bd drop` in a lease of the pool of a commit its home branch has: the pick landed it there, so the drop runs in the
+  /// shared checkout (`next_steps`: `bd -C <checkout> drop …`, then `bd lease pick`, which moves the lease onto the new
+  /// tip); nothing was changed
+  DropInHome,
   /// Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
   /// them. Nothing was changed; never stash them, ask the user
   UncommittedOverlap,
@@ -376,6 +382,7 @@ impl ErrorCode {
       | Self::BranchNotBuilt
       | Self::BranchCheckedOut
       | Self::DropConflict
+      | Self::DropInHome
       | Self::SquashConflict
       | Self::SquashEmpty
       | Self::Unapplied

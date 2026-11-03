@@ -10,6 +10,7 @@ use git_ops::rewrite_guard::HeadMoved;
 use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{BranchSwitched, FilesBlocked, GuardRefusal, HeadAttached, NotAnUpdate, PendingUpdate, RefLocked, UndoBlocked};
 use history_rewrite::baseline::NoBaseline;
+use history_rewrite::drop_commits::DropSelectionRefused;
 use history_rewrite::parked::ParkError;
 use history_rewrite::repository_lock::RepositoryLocked;
 use history_rewrite::store_lines::StoreMoved;
@@ -18,13 +19,15 @@ use std::time::Duration;
 use sync_core::reapply_branch::ReapplyRefusal;
 use sync_core::unapply_branch::UnapplyRefusal;
 
-/// The command whose mapper of `bd` answers a case: any move of HEAD (`core_error`, also under an unapply or a reapply,
-/// and its undo), an unapply (`unapply_error`), a reapply (`reapply_error`) or a park (`park_error`)
+/// The command whose mapper of `bd` answers a case: any move of HEAD (`core_error`, also under an unapply, a reapply or
+/// a drop, and its undo), an unapply (`unapply_error`), a reapply (`reapply_error`), a drop of commits (`drop_error`) or
+/// a park (`park_error`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaseOf {
   Move,
   Unapply,
   Reapply,
+  Drop,
   Park,
 }
 
@@ -193,8 +196,8 @@ fn move_cases() -> Vec<ErrorCase> {
 }
 
 fn refusal_cases() -> Vec<ErrorCase> {
-  use CaseOf::{Reapply, Unapply};
-  use ErrorCode::{BranchCheckedOut, BranchNotBuilt, DropConflict, HeadMoved, NothingToReapply, ReapplyConflict, UnknownBranch};
+  use CaseOf::{Drop, Reapply, Unapply};
+  use ErrorCode::{BranchCheckedOut, BranchNotBuilt, DropConflict, HeadMoved, InvalidArguments, NotAheadOfBaseline, NothingToReapply, ReapplyConflict, UnknownBranch};
   vec![
     case(
       "unapply_unknown_branch",
@@ -234,6 +237,27 @@ fn refusal_cases() -> Vec<ErrorCase> {
       None,
     ),
     case("unapply_drop_conflict", Unapply, || DropRefused("src/auth.rs".to_string()).into(), DropConflict, None),
+    case(
+      "drop_conflict",
+      Drop,
+      || DropRefused("Removing commit 3333333 conflicts with later commits on master: they depend on its changes".to_string()).into(),
+      DropConflict,
+      None,
+    ),
+    case(
+      "drop_not_ahead",
+      Drop,
+      || DropSelectionRefused::NotAhead(vec!["3333333".to_string()]).into(),
+      NotAheadOfBaseline,
+      None,
+    ),
+    case(
+      "drop_ambiguous",
+      Drop,
+      || DropSelectionRefused::Ambiguous(vec!["3333".to_string()]).into(),
+      InvalidArguments,
+      None,
+    ),
     case(
       "reapply_unknown_branch",
       Reapply,

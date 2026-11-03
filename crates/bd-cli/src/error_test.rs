@@ -49,6 +49,7 @@ const CODES: &[(ErrorCode, i32, bool)] = &[
   (ErrorCode::NoHomeBranch, 4, false),
   (ErrorCode::UncheckedTree, 4, false),
   (ErrorCode::LeaseFollowsHome, 4, false),
+  (ErrorCode::DropInHome, 4, false),
   (ErrorCode::ResolveInProgress, 4, false),
   (ErrorCode::UncommittedOverlap, 4, false),
   (ErrorCode::NoSession, 2, false),

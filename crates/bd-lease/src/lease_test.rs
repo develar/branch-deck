@@ -852,6 +852,47 @@ fn a_session_rewords_its_landed_commit_from_its_lease() {
   assert_eq!(returned.get("given_up"), None, "{returned}");
 }
 
+/// A session drops its own commit after the pick landed it: `bd drop` in the lease refuses it as `drop_in_home` and names
+/// the two steps; the drop in the shared checkout takes it and its file out there, and the next pick lands nothing,
+/// moves the lease past it and lets the lease go back
+#[test_log::test]
+fn a_session_drops_its_landed_commit_in_the_shared_checkout_and_its_lease_follows() {
+  let fixture = Fixture::new();
+  let path = path_of(&fixture.get(&[]));
+  let base = fixture.repo.head();
+  commit_in(&path, "(lane) Add a", "lane-a.txt");
+  let (exit_code, picked) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  assert_eq!(exit_code, 0, "{picked}");
+  let shared = fixture.repo.path_str();
+  let head = fixture.repo.head();
+
+  let (exit_code, refused) = fixture.run_in(Path::new(&path), &["--prefix", PREFIX, "drop", &head]);
+  assert_error(&refused, exit_code, (4, "drop_in_home"));
+  let steps: Vec<&str> = refused["error"]["next_steps"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .map(|step| step["command"].as_str().unwrap())
+    .collect();
+  assert_eq!(steps.len(), 2, "{refused}");
+  assert!(steps[0].ends_with(&format!("drop {head}")) && steps[1].ends_with("lease pick"), "{refused}");
+  assert_eq!(fixture.repo.head(), head, "nothing changed");
+
+  let (exit_code, dropped) = fixture.run_in(Path::new(&path), &["-C", shared, "--prefix", PREFIX, "drop", &head, "--expect-head", &head]);
+  assert_eq!(exit_code, 0, "{dropped}");
+  assert_eq!(fixture.repo.head(), base);
+  assert!(!fixture.repo.path().join("lane-a.txt").exists());
+
+  // nothing to land: the lease moves past the dropped commit, its file with it
+  let (exit_code, output) = bd_cli::fixture_test::run_in(&fixture.repo, &["pick", "--from", &path, "--follow"]);
+  assert_eq!((exit_code, &output["state"]), (0, &json!("up_to_date")), "{output}");
+  assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), base);
+  assert!(!Path::new(&path).join("lane-a.txt").exists());
+
+  let returned = fixture.give_back(&path);
+  assert_eq!(returned.get("given_up"), None, "{returned}");
+}
+
 /// A worktree that did not follow its pick still has its own commit: after a reword of the copy on the shared branch,
 /// a pick finds it present by its patch, never an empty commit, and the return passes by content
 #[test_log::test]

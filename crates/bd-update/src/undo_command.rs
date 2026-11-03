@@ -1,8 +1,10 @@
-//! `bd undo`: the undo of a token a rewrite, `bd update`, `bd pick` or `bd unapply` printed. A rewrite token goes to
-//! `history_rewrite::regroup::undo_regroup_core`; `update:`, `pick:` and `unapply:` tokens to the undo of their command,
+//! `bd undo`: the undo of a token a rewrite, `bd update`, `bd pick`, `bd unapply` or `bd drop` printed. A rewrite token
+//! goes to `history_rewrite::regroup::undo_regroup_core`; `update:`, `pick:`, `unapply:` and `drop:` tokens to the undo of
+//! their command,
 //! which moves the files back too. Each is recorded in the operations registry of the repository before the lock, as the
 //! undo of its kind (`RewriteIntent::Undo`)
 
+use crate::drop_command::undo_drop;
 use crate::pick_command::undo_pick;
 use crate::unapply_command::{undo_reapply, undo_unapply};
 use crate::update_command::undo_update;
@@ -15,6 +17,7 @@ use domain_types::operation::Intent;
 use domain_types::rewrite::{RewriteIntent, UndoKind, UndoToken as DomainUndoToken};
 use git_ops::revs::read_head;
 use history_rewrite::baseline::NoBaseline;
+use history_rewrite::drop_commits::DropUndoToken;
 use history_rewrite::regroup::{UndoToken, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use schemars::JsonSchema;
@@ -28,8 +31,8 @@ use update_core::update_project::UpdateUndoToken;
 pub struct UndoArgs {
   /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
   /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update`, the
-  /// `pick:…[+follow:…]` of `bd pick`, the `unapply:…` of `bd unapply` or the `reapply:…` of `bd reapply`, which move the
-  /// files back too
+  /// `pick:…[+follow:…]` of `bd pick`, the `unapply:…` of `bd unapply`, the `reapply:…` of `bd reapply` or the `drop:…`
+  /// of `bd drop`, which move the files back too
   pub token: String,
 }
 
@@ -53,7 +56,7 @@ pub struct UndoOutput {
   /// For an `update:` token: whether the report of the landed commits is the one from before the update again
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub landed_restored: Option<bool>,
-  /// For an `update:`, `pick:`, `unapply:` or `reapply:` token: it was undone before, and nothing changed now; a repeated undo is
+  /// For an `update:`, `pick:`, `unapply:`, `reapply:` or `drop:` token: it was undone before, and nothing changed now; a repeated undo is
   /// no error
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub already_undone: Option<bool>,
@@ -112,6 +115,8 @@ fn undo_kind(token: &str) -> UndoKind {
     UndoKind::Pick
   } else if UpdateUndoToken::is_update_token(token) {
     UndoKind::Update
+  } else if DropUndoToken::is_drop_token(token) {
+    UndoKind::Drop
   } else {
     UndoKind::Regroup
   }
@@ -126,6 +131,13 @@ fn undone(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError
   if let Some(result) = undo_unapply(context, &args.token) {
     let (token, undone) = result?;
     return Ok(moved_back(context, (&token.previous_head, &token.new_head), undone.already_undone, token.virtual_branch));
+  }
+  if let Some(result) = undo_drop(context, &args.token) {
+    let (token, undone) = result?;
+    return Ok(UndoOutput {
+      restored_branch: None,
+      ..moved_back(context, (&token.previous_head, &token.new_head), undone.already_undone, String::new())
+    });
   }
   if let Some(result) = undo_pick(context, &args.token) {
     let (token, undone) = result?;
