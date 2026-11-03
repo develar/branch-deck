@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.46.0](https://github.com/develar/branch-deck/compare/v0.45.0...v0.46.0) (2026-11-03)
+
+
+### Features
+
+* **bd:** `bd drop` takes a commit and its files out of HEAD for good, instead of a revert that lands both ([5d61bac](https://github.com/develar/branch-deck/commit/5d61bac319994b05ea513467d1897f54959607e6))
+* **commit:** Drop Commit… in the menu of commits, with a confirmation at the row and an Undo ([da7abcd](https://github.com/develar/branch-deck/commit/da7abcdd2747490f416b146686ad059ce8099357))
+* **fold:** fixups that cancel their target take it out of the history ([0cc5791](https://github.com/develar/branch-deck/commit/0cc579132fd2e1188d5cfd455977adfcbf72dfcf))
+* **ui:** one focus token, bd-focus, for every focusable element ([30c2a9b](https://github.com/develar/branch-deck/commit/30c2a9bb582c637838077c02dfaf95dee5815020)), closes [#168](https://github.com/develar/branch-deck/issues/168)
+
+
+### Bug Fixes
+
+* **code-symbols:** a Java member's reach and overriding by IntelliJ's implicit modifiers ([b849e32](https://github.com/develar/branch-deck/commit/b849e325075ff6441801c8c5edcd94b7454f5f8d))
+* **code-symbols:** a Kotlin type past the annotations of a nullable one, an annotation name without backticks ([656b82f](https://github.com/develar/branch-deck/commit/656b82f739515091c51860d0bf9645c7e696c198))
+* **operations:** a queued rewrite follows the newest chain of rewrites to HEAD, past one an undo took back ([271ab61](https://github.com/develar/branch-deck/commit/271ab61514fc1c554b3ceceaf46cfce850c65b46))
+* **review:** a range whose commits cancel each other out says so and shows its first commit ([ce02cd4](https://github.com/develar/branch-deck/commit/ce02cd4103382f0e780ca6f5c2efaa972fa87c43))
+* **review:** code breaks only at its dots and slashes, the punctuation after it stays on its line ([eb2d440](https://github.com/develar/branch-deck/commit/eb2d4407f071bdaf2d87d22a6b7aa56c03ebcba7))
+* **review:** Possible Breakage reads as code, its name whole, every line inside the column ([a347bb1](https://github.com/develar/branch-deck/commit/a347bb12bfd0194a691875f803cdc05be94b0a46))
+* **review:** the facts of a step a line each, every name its declaration in the code font ([c9aaf4f](https://github.com/develar/branch-deck/commit/c9aaf4fddf7990295b903d334dc7932fa58cbe37))
+* **review:** the glue of code holds in WebKit, a name wider than its line breaks between words ([223a830](https://github.com/develar/branch-deck/commit/223a830baf3bfbf14bf86e2fc4e0b70ca08b3eda))
+* **review:** the heading of a change in a diff sets its name in the code font, what changed in Inter ([ceed9e1](https://github.com/develar/branch-deck/commit/ceed9e168f604956aca23e2df5c51a1ea28cee53))
+* **review:** the tree numbers every step the overview tells, a row of another step says "in step 2" ([b9a0040](https://github.com/develar/branch-deck/commit/b9a004071dd8247d41405f4aa9ee1c938cf5ddc9))
+* **unapply:** the drop counts its commits and carries the mapping notes, one check builds every drop ([e8f823c](https://github.com/develar/branch-deck/commit/e8f823cb04a8c5e68302737e316e0d4aa36d6a9e))
+
 ## [0.45.0](https://github.com/develar/branch-deck/compare/v0.44.0...v0.45.0) (2026-11-03)
 
 
