@@ -286,8 +286,10 @@ group at the end. The overview at the top of the document of the review, before 
 - The place of an entry must be the line of its name in the last commit that touched it, `<commit>:<path>:<line>`;
   of a removal, the line before the commit that first touched it, at that commit's parent. accio answers only that
   declaration: a member of its own type, a top-level function of its own module, a name every type declares too.
-  Two entries of one place must share it.
-  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_entry_is_asked_by_its_place_once`)
+  Two entries of one place must share it. A place accio finds no declaration at (`unavailable`: a line it does not
+  index, such as a Kotlin primary-constructor `val`, JetBrains/accio#189) must leave the entry's `usages` null,
+  unknown, never "none left outside" (JetBrains/accio#215: `references --at` still answers it as complete with no hit).
+  [@test] ../../crates/review-plan/src/fan_in_test.rs (`an_entry_is_asked_by_its_place_once`, `a_place_with_no_declaration_leaves_its_usages_unknown`)
   [@test] ../../crates/review-plan/src/api_test.rs (`a_member_is_asked_by_its_place_and_an_override_is_no_entry`, `a_rust_constructor_is_asked_by_its_place`, `the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
 - Only a hit in code that a type or an import ties to the declaration must count as a usage: not the declaration
   itself, an `import` or a `doc` hit (`NOT_USES`). A hit only the name ties (`resolved: name`: a receiver nothing

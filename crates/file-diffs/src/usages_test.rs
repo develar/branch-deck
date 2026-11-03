@@ -59,6 +59,7 @@ impl SymbolIndex for FakeReferences {
     Ok(Some(References {
       hits: self.hits.clone(),
       complete: false,
+      unavailable: false,
     }))
   }
   /// Find Usages asks no place

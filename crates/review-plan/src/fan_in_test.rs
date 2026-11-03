@@ -23,6 +23,8 @@ pub(crate) struct Counts {
   queries: Mutex<Vec<(&'static str, Vec<String>, String)>>,
   /// The place -> the tests that reach it
   tests: HashMap<String, TestReach>,
+  /// The places accio finds no declaration at
+  unavailable: Vec<String>,
 }
 
 /// The usages an answer holds at most, as accio's `--limit`
@@ -109,6 +111,7 @@ impl Counts {
       canceled: false,
       queries: Mutex::default(),
       tests: HashMap::new(),
+      unavailable: Vec::new(),
     }
   }
 
@@ -116,6 +119,14 @@ impl Counts {
   pub(crate) fn with_tests<'a>(self, tests: impl IntoIterator<Item = (&'a str, TestReach)>) -> Self {
     Self {
       tests: tests.into_iter().map(|(place, reach)| (place.to_string(), reach)).collect(),
+      ..self
+    }
+  }
+
+  /// Finds no declaration at `places`
+  fn without_declarations(self, places: &[&str]) -> Self {
+    Self {
+      unavailable: places.iter().map(ToString::to_string).collect(),
       ..self
     }
   }
@@ -189,6 +200,12 @@ impl SymbolIndex for Counts {
     let answers = declarations
       .iter()
       .map(|declaration| {
+        if self.unavailable.contains(&declaration.argument()) {
+          return References {
+            unavailable: true,
+            ..References::default()
+          };
+        }
         let answer = self.answers.get(&declaration.argument()).cloned().unwrap_or_default();
         // the declaration itself is a hit too, which no usage counts
         let hits: Vec<ReferenceHit> = std::iter::once(typed(&declaration.path, declaration.line, "declaration"))
@@ -198,6 +215,7 @@ impl SymbolIndex for Counts {
         References {
           hits,
           complete: answer.len() < LIMIT,
+          unavailable: false,
         }
       })
       .collect();
@@ -289,6 +307,16 @@ fn the_entries_are_sorted_by_their_usages_left_outside() {
     (note, index.places(), index.revisions()),
     (None, vec![place("few"), place("many")], vec!["head".to_string()])
   );
+}
+
+/// A place accio finds no declaration at (a line it does not index) answers no usages: unknown, never "none left
+/// outside"; the other entries of the query keep theirs
+#[test]
+fn a_place_with_no_declaration_leaves_its_usages_unknown() {
+  let index = Counts::of(&[(&place("kept"), 2)]).without_declarations(&[&place("unplaced")]);
+  let mut api = vec![change("kept", ApiChangeKind::Changed), change("unplaced", ApiChangeKind::Changed)];
+  assert_eq!(add(Some(&index), &mut api).unwrap(), None);
+  assert_eq!(counts(&api), [("kept", Some((0, 2))), ("unplaced", None)]);
 }
 
 /// Two entries of one place are asked once; a removal is asked at the revision its place is of

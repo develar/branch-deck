@@ -171,8 +171,10 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   its callers, only by calls a type or an import ties. A declaration a test reaches is `reached` with its tests, each
   with the name it reads as, its depth and the callers on the way, and its unit when the range adds or changes it
   (the test whose lines hold the line accio gives); one no test reaches is `unreached`, `within: 3` when accio stopped
-  at the depth with callers left. `answered` says accio answered; without accio, or without a usable index, no step
-  is reached or unreached, and `index_note` says why.
+  at the depth with callers left. A declaration accio finds no declaration at (`unavailable`: a line it does not index,
+  such as a Kotlin primary-constructor `val`, JetBrains/accio#189) is neither: accio answered nothing of it. `answered`
+  says accio answered; without accio, or without a usable index, no step is reached or unreached, and `index_note`
+  says why.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches`, `a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of`)
 - A step that adds or changes a rule of a spec must list the tests its test links name (`scenarios`): a scenario
   that names no declaration proves it.

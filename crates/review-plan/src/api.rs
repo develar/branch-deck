@@ -120,8 +120,8 @@ pub struct ApiChange {
   pub before: Option<String>,
   /// Its form after the commits, of a change or an addition
   pub after: Option<String>,
-  /// Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked (a name of
-  /// `fan_in::STOP_NAMES`, past `fan_in::MAX_USAGE_QUERIES`) or not answered (no accio, no index, a failed query)
+  /// Of a removal or a change: its usages at the head (`fan_in`); `None` when not answered (no accio, no index, a
+  /// failed query, no declaration accio finds at its place)
   pub usages: Option<Usages>,
   /// The place its usages are asked by: the line of its name at the last commit that touched it, of a removal at the
   /// parent of the commit that first touched it; asked at the head

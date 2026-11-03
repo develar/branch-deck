@@ -6,7 +6,8 @@
 //!   commit that first touched it; accio answers only that declaration, every place of a plan in one process. Additions
 //!   are never asked. Never an index build: an index that fails fails no plan (`Lenient`), and the answer of
 //!   `add_usages` says why, as it does when accio is missing or has no usable index of the repository
-//!   (`IndexUnavailable`). The caller's index cancels the query (`SearchCanceled`, a newer request of the window).
+//!   (`IndexUnavailable`). The caller's index cancels the query (`SearchCanceled`, a newer request of the window). A
+//!   place accio finds no declaration at (`References::unavailable`) keeps its usages unknown.
 //! - **A usage** is a hit in code tied to the declaration by a type or an import: no declaration, `import` or `doc`
 //!   hit (`NOT_USES`). A hit only the name ties (`Resolved::Name`: a receiver nothing typed, another language, a
 //!   namesake's) is no use and no proof of none: those left outside are counted apart (`Usages::by_name`). Of a type
@@ -222,6 +223,10 @@ pub fn add_usages(
   let changed = changed()?;
   let entries: Vec<Vec<usize>> = asked.into_values().collect();
   for (positions, references) in entries.into_iter().zip(&answers) {
+    // a place accio found no declaration at: its uses stay unknown, never "none left outside"
+    if references.unavailable {
+      continue;
+    }
     for position in positions {
       api[position].usages = Some(usages_of(&api[position], references, &changed));
     }

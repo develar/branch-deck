@@ -345,7 +345,7 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
       ),
     ],
   );
-  let tests = |tests: Vec<ReachingTest>, cut: Option<WalkCut>| TestReach { tests, cut };
+  let tests = |tests: Vec<ReachingTest>, cut: Option<WalkCut>| TestReach { tests, cut, unavailable: false };
   let index = Counts::of(&[]).with_tests([
     ("src/a/Manager.kt:4", tests(vec![reaching("test/a/ManagerTest.kt", 6, "opens", 1, &[])], None)),
     (
@@ -401,6 +401,17 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   assert!(plan.steps.steps.iter().all(|step| step.tests.answered));
   assert_eq!(plan.index_note, None);
 
+  // a place accio finds no declaration at (a line it does not index) answers nothing: no "no test reaches"
+  let index = Counts::of(&[]).with_tests([(
+    "src/a/Manager.kt:6",
+    TestReach {
+      unavailable: true,
+      ..TestReach::default()
+    },
+  )]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  assert!(!reached_and_unreached(&plan).1.iter().any(|(name, _)| *name == "isEmpty"), "{:?}", plan.steps);
+
   // without accio: no step knows its tests
   let plan = plan_of_range(&repo, &base, &head);
   assert_eq!(reached_and_unreached(&plan), (vec![], vec![]));
@@ -428,6 +439,7 @@ fn a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of() {
     TestReach {
       tests: vec![reaching("src/store.rs", 14, "size is right", 1, &[])],
       cut: None,
+      unavailable: false,
     },
   )]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();

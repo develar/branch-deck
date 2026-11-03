@@ -1199,7 +1199,8 @@ pub fn add_tests(index: Option<&dyn SymbolIndex>, repository_path: &str, head: &
     let tests = &mut step.tests;
     tests.answered = true;
     for code in &step.code {
-      let Some(reach) = reach_of.get(&code.at) else { continue };
+      // a place accio found no declaration at is neither reached nor unreached: it answered nothing of it
+      let Some(reach) = reach_of.get(&code.at).filter(|reach| !reach.unavailable) else { continue };
       if reach.tests.is_empty() {
         tests.unreached.push(UnreachedDeclaration {
           name: code.name.clone(),

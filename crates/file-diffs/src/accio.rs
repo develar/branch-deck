@@ -175,15 +175,23 @@ pub struct TestReach {
   /// Why the walk stopped short; `None` when it walked every caller within the depth
   #[serde(default)]
   pub cut: Option<WalkCut>,
+  /// accio found no declaration at the place asked (a line that names none, a declaration it does not index): no answer,
+  /// never "no test"
+  #[serde(default)]
+  pub unavailable: bool,
 }
 
 /// The usages of a name an index answered
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct References {
+  #[serde(default)]
   pub hits: Vec<ReferenceHit>,
   /// False when the limit cut the answer
   #[serde(default = "complete_by_default")]
   pub complete: bool,
+  /// Of a query by place: accio found no declaration there, as `TestReach::unavailable`; never "no use"
+  #[serde(default)]
+  pub unavailable: bool,
 }
 
 const fn complete_by_default() -> bool {
@@ -499,6 +507,7 @@ impl SymbolIndex for FixtureIndex {
     Ok(Self::read(repository_root)?.map(|mut fixture| References {
       hits: fixture.references.remove(name).unwrap_or_default(),
       complete: true,
+      unavailable: false,
     }))
   }
 
@@ -509,6 +518,7 @@ impl SymbolIndex for FixtureIndex {
         .map(|declaration| References {
           hits: fixture.references.remove(&fixture_place(declaration)).unwrap_or_default(),
           complete: true,
+          unavailable: false,
         })
         .collect()
     }))
