@@ -673,8 +673,27 @@ export class DiffPainter {
   private note(file: number, note: NoteRow): HTMLElement {
     if (note.tone === "unit") {
       const heading = element("span", "dv-note-label")
-      heading.textContent = note.label
       heading.dataset.testid = "diff-unit-heading"
+      // the name of a declaration in the code font, what changed and the marks between them in the font of the text
+      const words = (text: string, alone = false) => {
+        const span = element("span", alone ? "dv-note-words dv-note-alone" : "dv-note-words")
+        span.textContent = text
+        heading.append(span)
+      }
+      for (const [index, part] of (note.heading ?? [{ name: null, words: note.label }]).entries()) {
+        if (index > 0) {
+          words(" · ")
+        }
+        if (part.name !== null) {
+          const name = element("span", "dv-note-name")
+          name.textContent = part.name
+          heading.append(name)
+        }
+        if (part.words !== "") {
+          // a heading of no declaration ("Changes outside a declaration") is the heading itself, in the text colour
+          words(part.name === null ? part.words : ` — ${part.words}`, part.name === null)
+        }
+      }
       return heading
     }
     const button = element("button", "dv-note-button")

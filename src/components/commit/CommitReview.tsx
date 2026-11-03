@@ -25,7 +25,7 @@ import type { FileDiff } from "@/lib/diff/file-diff-model"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
 import { PROLOGUE_KEY } from "@/lib/diff/layout"
 import type { LayoutPart } from "@/lib/diff/layout"
-import type { SectionUnits } from "@/lib/diff/rows"
+import type { HeadingPart, SectionUnits } from "@/lib/diff/rows"
 import { withEngineCounts } from "@/lib/diff/view-files"
 import { FILE_FILTER_MIN_FILES, filterFilesByText, formatNoFileMatch } from "@/lib/file-filter"
 import {
@@ -575,12 +575,13 @@ function stepHeadingOf(section: NarrativeSection, chapterOf: ReadonlyMap<string,
  * undefined) around its line, the lines before and after it as context, a heading before the line; no change, so N
  * and P pass it (an empty block played down as the imports are)
  */
-function ghostFile(key: string, path: string, ghost: { line: number; heading: string }, target: DeclarationTarget | undefined): DiffViewFile {
+function ghostFile(key: string, path: string, ghost: { line: number; heading: HeadingPart }, target: DeclarationTarget | undefined): DiffViewFile {
   const blobId = target?.outside?.blobId ?? null
   const lineCount = target?.outside?.lineCount ?? 0
   const at = ghost.line - 1
   const file: CommitFile = { path, status: "modified", oldPath: null, additions: 0, deletions: 0, binary: false, oldId: blobId, newId: blobId, submodule: false }
-  const section = { key, units: { marks: new Map([[0, ghost.heading]]), elsewhere: new Map() }, targets: new Map(), heading: "Left outside", step: null, stepHeading: null }
+  const units: SectionUnits = { marks: new Map([[0, [ghost.heading]]]), elsewhere: new Map() }
+  const section = { key, units, targets: new Map(), heading: "Left outside", step: null, stepHeading: null }
   if (target === undefined || blobId === null) {
     return { file, diff: undefined, pending: true, section }
   }

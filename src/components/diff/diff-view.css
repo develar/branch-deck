@@ -566,8 +566,9 @@
 }
 
 /*
- * A note of a section of a review: the heading of the change a block starts, in the font of the code and the weight of a
- * label; a block another section shows, a button to it, as quiet as a fold
+ * A note of a section of a review: the heading of the change a block starts, the name of its declaration in the font of
+ * the code and the weight of a label, what changed in the font of the text, muted ("open — body changed"); a block
+ * another section shows, a button to it, as quiet as a fold
  */
 .dv-note {
   display: flex;
@@ -582,9 +583,23 @@
 
 .dv-note-label {
   overflow: hidden;
-  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--foreground);
+}
+
+.dv-note-name {
+  font-weight: 600;
+}
+
+/* the words at the size of the code beside them: Inter has the x-height of JetBrains Mono (docs/design/ui-theme.md) */
+.dv-note-words {
+  font-family: var(--font-sans);
+  white-space: pre;
+  color: var(--muted-foreground);
+}
+
+.dv-note-alone {
   color: var(--foreground);
 }
 

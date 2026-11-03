@@ -897,7 +897,7 @@ test.describe("The review plan in the branch review", () => {
     // the plan of that commit alone: the change of `helper` under its heading, its uses left outside in the overview
     // below the commit
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
-    await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
+    await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — parameters changed")
     const overview = window.getByTestId("review-overview")
     await expect(overview.getByTestId("range-review-commit-header")).toContainText("scale the helper")
     await expect(overview.getByTestId("review-plan-breakage-entry")).toHaveCount(1)
@@ -919,7 +919,7 @@ test.describe("The review plan in the branch review", () => {
     await expect.poll(async () => (await getOpenedSubWindows(page)).map(opened => opened.windowId)).toEqual(["review"])
     const window = await openLinkedSubWindow(page, (await getOpenedSubWindows(page))[0]!)
     const store = window.locator('[data-testid="diff-view-file"][data-section="file:src/Store.kt"]')
-    await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — form changed: parameters")
+    await expect(store.getByTestId("diff-unit-heading")).toHaveText("helper — parameters changed")
     await expect(window.getByTestId("review-overview").getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
   })
 

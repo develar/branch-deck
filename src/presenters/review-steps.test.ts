@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { Concern, ReviewPlan, ReviewStep, ReviewUnit, StepCommit } from "@/lib/bindings"
+import { headingText } from "@/lib/diff/rows"
 import {
   commitTitleOf,
   formatCommitRole,
@@ -218,9 +219,15 @@ describe("review steps", () => {
       ]),
     )
     const sections = presentNarrative(units, [{ path: "src/Manager.kt", blocks: [block] }], [], [], chapters)
-    expect(sections.map(section => [section.key, section.concernHeading, [...(section.units?.marks ?? [])], [...(section.units?.elsewhere ?? [])], [...section.unitIds]])).toEqual([
-      ["file:src/Manager.kt", "2 · the rule", [[0, "allowed — new · hooks — removed in step 1 · passes — new"]], [], ["u:allowed", "u:hooks", "u:passes"]],
-    ])
+    expect(
+      sections.map(section => [
+        section.key,
+        section.concernHeading,
+        [...(section.units?.marks ?? [])].map(([block, heading]) => [block, headingText(heading)]),
+        [...(section.units?.elsewhere ?? [])],
+        [...section.unitIds],
+      ]),
+    ).toEqual([["file:src/Manager.kt", "2 · the rule", [[0, "allowed — new · hooks — removed in step 1 · passes — new"]], [], ["u:allowed", "u:hooks", "u:passes"]]])
   })
 })
 
@@ -251,7 +258,7 @@ describe("the units Rust joined in the steps of the concerns", () => {
     const of = plan(steps, concerns)
     const chapters = presentChapters({ ...of, steps: { ...of.steps, source: { kind: "concerns", reason: "oneCommit" }, told } })
     return presentNarrative(units, [{ path: "src/Manager.kt", blocks: [block] }], [], [], chapters).map(section => [
-      [...(section.units?.marks ?? [])],
+      [...(section.units?.marks ?? [])].map(([block, heading]) => [block, headingText(heading)]),
       [...section.unitIds],
       section.story,
     ])

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test"
 import type { MergeBlock } from "@/lib/diff/file-merge-model"
 import { buildLineTable, lineText } from "@/lib/diff/line-table"
 import { buildFileRows, buildMergeRows, EXPANDED, getFoldLevels, LEFT, MIDDLE, nextFoldLevel, RIGHT, rowAt, rowOfLine, setFoldLevels } from "@/lib/diff/rows"
-import type { FileRows, LineRow, Row } from "@/lib/diff/rows"
+import type { FileRows, Heading, LineRow, Row } from "@/lib/diff/rows"
 import type { DiffViewMode } from "@/stores/settings/diff-view-settings"
 import { block, mergeBlock, NESTED_SCOPES, textDiff, textMerge } from "@/test-support/diff-blocks"
 
@@ -194,7 +194,7 @@ describe("buildFileRows", () => {
 
   it("makes the rows of a section of a review: a heading before each change it marks, one row for a block another section shows", () => {
     const diff = textDiff(40, 40, [block(2, 3, 2, 3), block(20, 21, 20, 21), block(30, 31, 30, 31)])
-    const units = { marks: new Map([[1, "Policy.check — body changed"]]), elsewhere: new Map([[2, "Imports — in Imports (3 files)"]]) }
+    const units = { marks: new Map([[1, [{ name: "Policy.check", words: "body changed" }]]]), elsewhere: new Map([[2, "Imports — in Imports (3 files)"]]) }
     const rows = buildFileRows(diff, "unified", [EXPANDED, EXPANDED, EXPANDED, EXPANDED], false, units)
     const all = outline(rows)
     const heading = all.indexOf("unit Policy.check — body changed")
@@ -215,7 +215,7 @@ describe("buildFileRows", () => {
 
   it("makes a section of no change of its own the rows of the blocks other sections show, alone", () => {
     const diff = textDiff(40, 40, [block(5, 7, 5, 9)])
-    const units = { marks: new Map<number, string>(), elsewhere: new Map([[0, "hooks — removed · shown in step 2"]]) }
+    const units = { marks: new Map<number, Heading>(), elsewhere: new Map([[0, "hooks — removed · shown in step 2"]]) }
     const rows = buildFileRows(diff, "unified", [], false, units)
     expect(outline(rows)).toEqual(["elsewhere hooks — removed · shown in step 2"])
     expect(rows.changeStarts).toEqual([])

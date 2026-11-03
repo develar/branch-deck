@@ -64,13 +64,35 @@ export interface FoldRow {
 }
 
 /**
+ * A change of the heading of a block: the name of its declaration, set in the code font, and the words of what the
+ * change did to it, in the font of the text ("open" and "body changed"); a heading of no declaration its words alone
+ * ("Changes outside a declaration"), a declaration of no words its name alone
+ */
+export interface HeadingPart {
+  readonly name: string | null
+  readonly words: string
+}
+
+/** The heading of a block, a part for each change it starts */
+export type Heading = readonly HeadingPart[]
+
+/** The heading as one line of text: "open — body changed · close — new", what a screen reader and a test read */
+export function headingText(heading: Heading): string {
+  return heading.map(part => (part.name === null ? part.words : part.words === "" ? part.name : `${part.name} — ${part.words}`)).join(" · ")
+}
+
+/**
  * A row of words between the lines of a section of a review: `unit` the heading of the change a block starts
- * (`SectionUnits.marks`), `elsewhere` a block another section shows (`SectionUnits.elsewhere`), which a click opens
+ * (`SectionUnits.marks`, its parts in `heading`), `elsewhere` a block another section shows (`SectionUnits.elsewhere`),
+ * which a click opens
  */
 export interface NoteRow {
   kind: "note"
   tone: "unit" | "elsewhere"
+  /** Its words as one line (`headingText` of a heading) */
   label: string
+  /** Of a heading, its parts: the names in the code font, the words in the font of the text */
+  heading: Heading | null
   /** The block it stands before or for */
   block: number
   /** The lines of each side the row stands for: [start, end), empty for the heading of a change */
@@ -89,8 +111,8 @@ export function isLineRow(row: Row): row is LineRow {
  * the heading of the change each one starts, and a row for each block another section shows
  */
 export interface SectionUnits {
-  /** The heading before a block: the change it starts */
-  readonly marks: ReadonlyMap<number, string>
+  /** The heading before a block: the changes it starts */
+  readonly marks: ReadonlyMap<number, Heading>
   /** The blocks another section shows, each with where: a row of words stands for its lines */
   readonly elsewhere: ReadonlyMap<number, string>
 }
@@ -246,7 +268,7 @@ function itemRowCount(item: Item, mode: RowsMode): number {
 function itemRow(item: Item, row: number, mode: RowsMode): LineRow | NoteRow {
   if (item.kind === "elsewhere") {
     const { block, index, label } = item
-    return { kind: "note", tone: "elsewhere", label, block: index, lines: blockLines(block) }
+    return { kind: "note", tone: "elsewhere", label, heading: null, block: index, lines: blockLines(block) }
   }
   if (item.kind === "equal") {
     return { kind: "context", lines: item.starts.map(start => start + row), block: -1, blockRow: 0, blockRows: 0, tint: "full" }
@@ -362,10 +384,11 @@ interface Labels {
 export function buildFileRows(diff: TextDiff, mode: DiffViewMode, levels: ArrayLike<number> = [], quietImports = false, units: SectionUnits | null = null): FileRows {
   const quiet = new Set(quietImports ? diff.importBlocks : [])
   const items = itemsOf(diff, quiet, units?.elsewhere ?? NO_LABELS)
-  return rowsOf(items, mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] }, units?.marks ?? NO_LABELS)
+  return rowsOf(items, mode, levels, { scopes: [diff.oldScopes, diff.newScopes], order: [NEW, OLD] }, units?.marks ?? NO_MARKS)
 }
 
 const NO_LABELS: ReadonlyMap<number, string> = new Map()
+const NO_MARKS: ReadonlyMap<number, Heading> = new Map()
 
 /** The rows of a file's merge in three columns: left, the middle (`middle`), right. The gaps between the blocks fold as in a diff. */
 export function buildMergeRows(merge: TextMerge, middle: MergeMiddle, levels: ArrayLike<number> = []): FileRows {
@@ -374,7 +397,7 @@ export function buildMergeRows(merge: TextMerge, middle: MergeMiddle, levels: Ar
   return rowsOf(mergeItemsOf(merge, middle), "merge", levels, { scopes: [merge.leftScopes, middleScopes, merge.rightScopes], order: [MIDDLE, LEFT, RIGHT] })
 }
 
-function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number>, labels: Labels, marks: ReadonlyMap<number, string> = NO_LABELS): FileRows {
+function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number>, labels: Labels, marks: ReadonlyMap<number, Heading> = NO_MARKS): FileRows {
   const { gaps, changes } = gapsOf(items, mode)
   const segments: Segment[] = []
   const starts: number[] = []
@@ -408,7 +431,7 @@ function rowsOf(items: readonly Item[], mode: RowsMode, levels: ArrayLike<number
           [change.block.oldStart, change.block.oldStart],
           [change.block.newStart, change.block.newStart],
         ]
-        push({ kind: "note", row: { kind: "note", tone: "unit", label: mark, block: change.index, lines: at } }, 1)
+        push({ kind: "note", row: { kind: "note", tone: "unit", label: headingText(mark), heading: mark, block: change.index, lines: at } }, 1)
       }
       if (change !== undefined) {
         // N and P pass a block of the imports alone

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ApiChange, Concern, ConcernName, ConcernPart, FileFacts, GeneratedBy, ReviewUnit, UnitBlock, UnitKind } from "@/lib/bindings"
+import { headingText } from "@/lib/diff/rows"
 import { concernChapters } from "@/presenters/review-steps"
 import { formatUnitHeading, presentNarrative } from "@/presenters/review-units"
 import type { NarrativeFile } from "@/presenters/review-units"
@@ -31,9 +32,10 @@ function file(path: string, lines: number[] | null): NarrativeFile {
 
 describe("the story of a review", () => {
   it("words a change by its kind", () => {
-    expect(formatUnitHeading(unit({ kind: "shape", changes: ["parameters", "reach"] }, "open", []))).toBe("open — form changed: parameters, visibility")
-    expect(formatUnitHeading(unit({ kind: "behaviour" }, "close", []))).toBe("close — body changed")
-    expect(formatUnitHeading(unit({ kind: "other", reason: "outside" }, "Store.kt", []))).toBe("Changes outside a declaration")
+    // the name of the declaration set apart from the words of what changed: the code font for the name alone
+    expect(formatUnitHeading(unit({ kind: "shape", changes: ["parameters", "reach"] }, "open", []))).toEqual({ name: "open", words: "parameters and visibility changed" })
+    expect(headingText([formatUnitHeading(unit({ kind: "behaviour" }, "close", []))])).toBe("close — body changed")
+    expect(formatUnitHeading(unit({ kind: "other", reason: "outside" }, "Store.kt", []))).toEqual({ name: null, words: "Changes outside a declaration" })
   })
 
   it("makes a run of changes of one file one section with a heading per change, and a group a section per file", () => {
@@ -58,8 +60,8 @@ describe("the story of a review", () => {
     ])
     const api = sections[0]!
     // the removed declaration whose block another unit holds joins the heading before it
-    expect([...api.units!.marks]).toEqual([
-      [1, "open — form changed: parameters"],
+    expect([...api.units!.marks].map(([block, heading]) => [block, headingText(heading)])).toEqual([
+      [1, "open — parameters changed"],
       [2, "close — body changed · gone — removed"],
     ])
     // the units each section shows, a mention of a declaration marks its section by them
@@ -76,7 +78,7 @@ describe("the story of a review", () => {
   })
 
   it("shows a deleted file whole in its place, and the files deleted from one directory as a group, each collapsed", () => {
-    expect(formatUnitHeading(unit({ kind: "deletedFile" }, "config.toml", []))).toBe("config.toml — deleted file")
+    expect(headingText([formatUnitHeading(unit({ kind: "deletedFile" }, "config.toml", []))])).toBe("config.toml — deleted file")
     const units = [
       unit({ kind: "deletedFile" }, "config.toml", [{ path: "dotnet/.codex/config.toml", blocks: [], whole: true }]),
       unit({ kind: "deletedFiles", directory: "old/a" }, null, [
@@ -151,7 +153,7 @@ describe("the uses a change left outside in the story", () => {
     const units = [unit({ kind: "shape", changes: ["parameters"] }, "open", [{ path: "src/Api.kt", blocks: [block(0, 3)] }])]
     const sections = presentNarrative(units, [file("src/Api.kt", [3])], [change], [], [])
     expect(sections.map(section => section.key)).toEqual(["file:src/Api.kt", ...[1, 2, 3, 4, 5].map(line => `ghost:shape:open:src/Use.kt:${line}`)])
-    expect(sections[1]!.ghost).toEqual({ line: 1, name: "open", heading: "open — left outside: src/Use.kt:1" })
+    expect(sections[1]!.ghost).toEqual({ line: 1, name: "open", heading: { name: "open", words: "left outside: src/Use.kt:1" } })
   })
 })
 

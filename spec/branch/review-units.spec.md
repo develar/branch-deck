@@ -144,9 +144,10 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 - With the plan, the diffs of All Changes and of Since Your Review must be the story of the units, in their order
   (`presentNarrative`), by the steps of its story, each step's parts together
   ([Review Tour](review-tour.spec.md#in-the-review-window), a step of the concerns as
-  [Review Concerns](review-concerns.spec.md#in-the-review-window) lays it out): a run of units of one file is one section, each change under its heading ("open — form
-  changed: parameters", "close — body changed", "fresh — new", "Changes outside a declaration"; none over a block of a file of no language the review parses, whose header names
-  it), a unit with no block
+  [Review Concerns](review-concerns.spec.md#in-the-review-window) lays it out): a run of units of one file is one section, each change under its heading ("open — parameters
+  changed", "close — body changed", "fresh — new", "Changes outside a declaration"; none over a block of a file of no
+  language the review parses, whose header names it), the name of its declaration in the code font and what changed
+  in the font of the text, muted, a heading of no declaration in the text colour, a unit with no block
   of its own beside the heading before it; a group is a section per file of it.
   [@test] ../../src/presenters/review-units.test.ts (`makes a run of changes of one file one section with a heading per change, and a group a section per file`, `words a change by its kind`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`)
@@ -198,7 +199,8 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 ]
 ```
 
-The section of a run: `diff-unit-heading` before a change (the font of the code, bold, a top border), and a block of
+The section of a run: `diff-unit-heading` before a change (the name in the font of the code, bold, the words in Inter,
+muted, a top border), and a block of
 another section one `diff-unit-elsewhere` row in the tint of a fold. The first file of a group has the group on the
 divider above its card, in `text-xs text-muted-foreground` (`review-section-heading`), never in its header: "Same edit
 in 4 files", "Imports only (2)", "Left outside".

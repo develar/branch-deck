@@ -1,5 +1,7 @@
 import type { ApiChange, FileFacts, GeneratedBy, JoinedUnit, ReviewUnit, StoryRef, UnitBlock } from "@/lib/bindings"
-import type { SectionUnits } from "@/lib/diff/rows"
+import { headingText } from "@/lib/diff/rows"
+import type { Heading, HeadingPart, SectionUnits } from "@/lib/diff/rows"
+import { joinNames } from "@/lib/text"
 import { FOLDED_WORDS, FORM_WORDS, formatGenerated, MECHANICAL_WORDS } from "@/presenters/review-plan"
 import { formatStepNumber } from "@/presenters/review-steps"
 import type { Chapter } from "@/presenters/review-steps"
@@ -41,7 +43,7 @@ export interface NarrativeSection {
   /** Why it starts collapsed: a mechanical change, a file of a repeated edit after the first */
   readonly folded: string | null
   /** A use of the change before it that the change left outside: its file at the head around its line (from 1) */
-  readonly ghost: { readonly line: number; readonly name: string; readonly heading: string } | null
+  readonly ghost: { readonly line: number; readonly name: string; readonly heading: HeadingPart } | null
 }
 
 /** The uses left outside that the story shows of a change at most, as the card lists them */
@@ -51,30 +53,34 @@ function fileName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1)
 }
 
-/** "open — form changed: parameters", "close — body changed", "Fresh — new", "Changes outside a declaration" */
-export function formatUnitHeading(unit: ReviewUnit): string {
+/**
+ * The change of `unit` as the heading of its block words it: its name in the code font and what changed ("open" and
+ * "parameters changed", "close" and "body changed", "Fresh" and "new"); "Changes outside a declaration" of no name
+ */
+export function formatUnitHeading(unit: ReviewUnit): HeadingPart {
   const name = unit.name ?? ""
+  const named = (words: string): HeadingPart => ({ name, words })
   switch (unit.kind.kind) {
     case "shape":
-      return `${name} — form changed: ${unit.kind.changes.map(change => FORM_WORDS[change]).join(", ")}`
+      return named(`${joinNames(unit.kind.changes.map(change => FORM_WORDS[change]))} changed`)
     case "behaviour":
-      return `${name} — body changed`
+      return named("body changed")
     case "added":
-      return `${name} — new`
+      return named("new")
     case "removed":
-      return `${name} — removed`
+      return named("removed")
     case "newFile":
-      return `${name} — new file`
+      return named("new file")
     case "deletedFile":
-      return `${name} — deleted file`
+      return named("deleted file")
     case "deletedFiles":
-      return `Deleted from ${unit.kind.directory}/`
+      return { name: null, words: `Deleted from ${unit.kind.directory}/` }
     case "mechanical":
-      return MECHANICAL_WORDS[unit.kind.mechanical]
+      return { name: null, words: MECHANICAL_WORDS[unit.kind.mechanical] }
     case "repeatedEdit":
-      return "Repeated edit"
+      return { name: null, words: "Repeated edit" }
     case "other":
-      return unit.kind.reason === "outside" ? "Changes outside a declaration" : name
+      return unit.kind.reason === "outside" ? { name: null, words: "Changes outside a declaration" } : { name, words: "" }
   }
 }
 
@@ -87,7 +93,7 @@ function groupHeading(unit: ReviewUnit): string {
   if (unit.kind.kind === "deletedFiles") {
     return `Deleted from ${unit.kind.directory}/ (${count})`
   }
-  return unit.kind.kind === "mechanical" ? `${MECHANICAL_WORDS[unit.kind.mechanical]} (${count})` : formatUnitHeading(unit)
+  return unit.kind.kind === "mechanical" ? `${MECHANICAL_WORDS[unit.kind.mechanical]} (${count})` : headingText([formatUnitHeading(unit)])
 }
 
 function isGroup(unit: ReviewUnit): boolean {
@@ -126,7 +132,7 @@ interface Draft {
   path: string
   /** The blocks it shows, null for the whole file */
   blocks: Set<number> | null
-  marks: Map<number, string>
+  marks: Map<number, Heading>
   /** The units it shows */
   unitIds?: Set<string>
   /** The lines of the told bodies that name what it shows */
@@ -376,13 +382,13 @@ export function presentNarrative(
       // joins the others to the stop of their block): no block to name it at, so its words join the heading before it
       const before = [...draft.marks.keys()].at(-1)
       if (before !== undefined && heading !== null) {
-        draft.marks.set(before, `${draft.marks.get(before)} · ${heading}`)
+        draft.marks.set(before, [...draft.marks.get(before)!, heading])
         own(draft, unit.id)
       }
     } else {
       own(draft, unit.id)
       if (heading !== null) {
-        draft.marks.set(first.index, heading)
+        draft.marks.set(first.index, [heading])
       }
       for (const block of slice.blocks) {
         draft.blocks!.add(block.index)
@@ -397,12 +403,12 @@ export function presentNarrative(
         own(draft, other.id)
         // another told step by its number, what no evidence joined by its name; in a story of no told step, none
         const of = concerns[it.step]
-        const words =
+        const part = formatUnitHeading(other)
+        const words: HeadingPart =
           of === undefined || of === step.concern || step.concern === null
-            ? formatUnitHeading(other)
-            : `${formatUnitHeading(other)} in ${of.told ? formatStepNumber(of.number).toLowerCase() : of.reference}`
-        const mark = draft.marks.get(it.block)
-        draft.marks.set(it.block, mark === undefined ? words : `${mark} · ${words}`)
+            ? part
+            : { ...part, words: `${part.words} in ${of.told ? formatStepNumber(of.number).toLowerCase() : of.reference}`.trimStart() }
+        draft.marks.set(it.block, [...(draft.marks.get(it.block) ?? []), words])
       }
     }
     last = { draft, unit: unit.id }
@@ -429,6 +435,11 @@ export function presentNarrative(
   return drafts.flatMap(draft => [sectionOf(draft, owners), ...draft.ghosts])
 }
 
+/** The first heading of a section as one line, else the name of its file */
+function headingOrName(heading: Heading | undefined, path: string): string {
+  return heading === undefined ? fileName(path) : headingText(heading)
+}
+
 /** The uses `unit` left outside, from its entry of `api` (a removal or a change of a form, by key and file) */
 function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): NarrativeSection[] {
   if (unit.kind.kind !== "shape" && unit.kind.kind !== "removed") {
@@ -447,7 +458,7 @@ function ghostsOf(unit: ReviewUnit, path: string, api: readonly ApiChange[]): Na
     concern: null,
     concernHeading: null,
     folded: null,
-    ghost: { line: site.line, name: change!.name, heading: `${change!.name} — left outside: ${site.path}:${site.line}` },
+    ghost: { line: site.line, name: change!.name, heading: { name: change!.name, words: `left outside: ${site.path}:${site.line}` } },
   }))
 }
 
@@ -478,7 +489,7 @@ function sectionOf(draft: Draft, owners: ReadonlyMap<string, ReadonlyMap<number,
         const where =
           owner.concern !== draft.concern && owner.concernName !== null
             ? owner.concernName
-            : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : (owner.marks.values().next().value ?? fileName(owner.path))))
+            : (owner.heading ?? (owner.folded !== null ? `${owner.folded} · ${fileName(owner.path)}` : headingOrName(owner.marks.values().next().value, owner.path)))
         elsewhere.set(block, `Shown in ${where}`)
         targets.set(block, owner.key)
       }
