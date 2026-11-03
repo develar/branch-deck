@@ -242,6 +242,7 @@ fn a_member_knows_whether_it_is_jvm_static() {
     fun plain() = 2
     @JvmName(\"other\") fun renamed() = 3
     @JvmStatic() fun called() = 4
+    @`JvmName`(\"quoted\") fun quoted() = 5
   }
 }
 ";
@@ -252,6 +253,19 @@ fn a_member_knows_whether_it_is_jvm_static() {
   assert_eq!(modalities(&summary, "plain"), ["Companion"]);
   assert_eq!(modalities(&summary, "renamed"), ["Companion jvm_name"], "another annotation");
   assert_eq!(modalities(&summary, "called"), ["Companion jvm_static"], "with parentheses");
+  assert_eq!(modalities(&summary, "quoted"), ["Companion jvm_name"], "a name in backticks is the name");
+}
+
+#[test]
+fn an_annotated_nullable_type_is_its_inner_type() {
+  let source = b"val (@Suppress(\"x\") Foo)?.nick: String get() = \"\"
+class Use(val held: (@Suppress(\"x\") Bar)?) {
+  fun run() = held.go()
+}
+";
+  let summary = summarize(Language::Kotlin, source);
+  assert_eq!(declaration(&summary, "nick").receiver.map(|it| summary.name(it)), Some("Foo"), "a receiver");
+  assert_eq!(refs(&summary, "go"), ["3 <Bar>held.go()"], "the type of a property");
 }
 
 #[test]

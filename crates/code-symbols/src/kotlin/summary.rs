@@ -1595,13 +1595,10 @@ impl<'t> Walk<'t> {
     self.type_names(user_type).last().and_then(|it| self.identifier_text(*it))
   }
 
-  /// The `USER_TYPE` a `TYPE_REFERENCE` holds, also inside a `NULLABLE_TYPE` (`a.Foo<T>?`, `Foo??`, `(Foo?)?`); none
-  /// for a function type
+  /// The `USER_TYPE` a `TYPE_REFERENCE` holds, also inside a `NULLABLE_TYPE` (`a.Foo<T>?`, `Foo??`, `(Foo?)?`, past the
+  /// annotations of `(@A Foo)?`: `KtTypeElement.unwrapNullability`); none for a function type
   fn simple_user_type(&self, type_reference: NodeId) -> Option<NodeId> {
-    let mut element = psi::kt_type_reference_get_type_element(self.tree, type_reference)?;
-    while self.is(element, N::NULLABLE_TYPE) {
-      element = self.first_composite(element)?;
-    }
+    let element = psi::unwrap_nullability(self.tree, psi::kt_type_reference_get_type_element(self.tree, type_reference)?)?;
     self.is(element, N::USER_TYPE).then_some(element)
   }
 
@@ -1610,11 +1607,15 @@ impl<'t> Walk<'t> {
     psi::get_annotation_entries(self.tree, id).filter_map(|it| self.annotation_path(it)).collect()
   }
 
-  /// The segments of the type of an annotation entry, as written
+  /// The segments of the type of an annotation entry, each without its backticks (`KtPsiUtil.unquoteIdentifier`): the
+  /// annotation `` @`JvmName` `` is `JvmName`, as the compiler reads it
   fn annotation_path(&self, entry: NodeId) -> Option<Vec<&'t str>> {
     let tree = self.tree;
     let user_type = psi::kt_type_reference_get_type_element(tree, psi::kt_annotation_entry_get_type_reference(tree, entry)?)?;
-    self.is(user_type, N::USER_TYPE).then(|| self.type_path(user_type)).flatten()
+    if !self.is(user_type, N::USER_TYPE) {
+      return None;
+    }
+    Some(self.type_path(user_type)?.into_iter().map(psi::unquote_identifier).collect())
   }
 
   /// The header of a function or a value (`Declaration::header`): the tokens of its node before its body, initializer,

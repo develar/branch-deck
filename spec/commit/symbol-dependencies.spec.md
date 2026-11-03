@@ -77,9 +77,9 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type, `?`,
   a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any type),
   whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`,
-  `@JvmField`, `lateinit`, renamed by `@JvmName` (also `@get:` and `@set:`) or `@JvmSynthetic`, the reach of the setter
-  of a `var` (`private set`), the `@file:JvmName` of a Kotlin file, and the direct supertypes of each type without type
-  arguments, a Kotlin function type as an empty path. An `override` or `@Override` member must be one `Override`
+  `@JvmField`, `lateinit`, renamed by `@JvmName` (also `@get:` and `@set:`, and a name in backticks, `` @`JvmName` ``)
+  or `@JvmSynthetic`, the reach of the setter of a `var` (`private set`), the `@file:JvmName` of a Kotlin file, and the
+  direct supertypes of each type without type arguments, a Kotlin function type as an empty path. An `override` or `@Override` member must be one `Override`
   reference per direct supertype of the class around it (an object expression, an anonymous class and the body of an
   enum entry included, also on one line), qualified by the path of the supertype, with its kind, receiver and
   parameter types as its shape.
@@ -112,16 +112,17 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   [@test] ../../crates/code-symbols/src/kotlin_test.rs (`an_unstable_annotation_marks_a_declaration`, `a_bare_internal_without_the_import_of_api_status_is_stable`, `a_file_annotation_marks_the_top_level_declarations_unstable`, `a_member_knows_whether_it_overrides_and_can_be_overridden`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`an_unstable_annotation_marks_a_declaration`)
 - The summary of a Kotlin or Java file must hold the type of each property and field (`value_type`), as written without
-  type arguments or the type its initializer constructs (a capitalized Kotlin call, a Java `new` without a body), and on
-  a member reference the type of its receiver (`receiver_type`): of a parameter, a local or a typed lambda parameter
-  whose name is the whole receiver (`m.foo()`, `m?.foo()`, `m!!.foo()`), or of a property or field `m` (`m!!` too) or
-  `this.m` of a class around a reference that is not enclosed, not past a class with a supertype, a nested class that
-  isn't inner, a companion or an extension of another receiver; a parameter of a primary constructor only in the
+  type arguments (a Kotlin nullable one as its inner type, past its annotations: `(@A Foo)?` is `Foo`, as is the
+  receiver of an extension) or the type its initializer constructs (a capitalized Kotlin call, a Java `new` without a
+  body), and on a member reference the type of its receiver (`receiver_type`): of a parameter, a local or a typed lambda
+  parameter whose name is the whole receiver (`m.foo()`, `m?.foo()`, `m!!.foo()`), or of a property or field `m` (`m!!`
+  too) or `this.m` of a class around a reference that is not enclosed, not past a class with a supertype, a nested class
+  that isn't inner, a companion or an extension of another receiver; a parameter of a primary constructor only in the
   initializers of the class; and whether a constructor call gave the type. A type parameter, a function type, a vararg,
   a Java array after the name (`Foo a[]`), a delegate, a destructuring declaration, an inferred expression, a Java
   anonymous class and a name that its scope or function casts (Kotlin `is`, `!is`, `as`, an `is` branch of its `when`,
   Java `instanceof` and casts; not `in`) must give none.
-  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`, `an_extension_receiver_or_a_function_hides_the_type`)
+  [@test] ../../crates/code-symbols/src/kotlin_test.rs (`a_bound_name_carries_its_declared_type`, `a_property_knows_its_type`, `a_smart_cast_drops_the_type`, `an_extension_receiver_or_a_function_hides_the_type`, `an_annotated_nullable_type_is_its_inner_type`)
   [@test] ../../crates/code-symbols/src/kotlin/summary_test.rs (`a_not_null_assertion_names_its_receiver_as_a_safe_call_does`, `a_context_parameter_of_a_property_is_a_name_of_the_property_alone`)
   [@test] ../../crates/code-symbols/src/java_test.rs (`a_bound_name_carries_its_declared_type`, `a_smart_cast_drops_the_type`, `an_anonymous_class_initializer_has_no_type`)
   [@test] ../../crates/code-symbols/src/java/summary_test.rs (`an_array_after_the_name_has_no_type`)
