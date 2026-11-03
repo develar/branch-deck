@@ -1053,7 +1053,8 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   less first trims the pools of the machine (`trimmed`, as `bd lease trim` prints it: the free slots past
   `branchdeck.leaseMaxSlots`, default 10, with their Bazel output bases), then deletes the build output of the free
   slots of every pool by their clean rules with keep 0, the ones returned longest ago first, until the volume has the
-  minimum and a tenth of it (`shrunk`), then free slots below the limit in the same order (`evicted`), and still less
+  minimum and a tenth of it (`shrunk`), then free slots below the limit in the same order (`evicted`; neither for a
+  minimum past the size of the volume), and still less
   is `low_disk_space` (exit 4), the message naming both sizes, what the trim and the eviction deleted and the shrink
   freed, the free slots and the leases whose holder process is gone. `bd lease trim [--max <n>] [--plan]` trims on demand; `bd lease disk [--fresh]` reports what the pools hold
   (per slot the bytes of its build directories and its Bazel output bases, kept in `disk.json` while they hold). It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch

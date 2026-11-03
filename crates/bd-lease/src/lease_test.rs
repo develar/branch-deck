@@ -1222,8 +1222,9 @@ fn a_return_starts_the_maintenance_that_branchdeck_lease_maintenance_asks_for() 
 }
 
 /// A get refuses below the free space that `--min-free` or `branchdeck.leaseMinFree` asks, naming both and the free
-/// slots, with nothing leased; the free slot, whose build output and worktree could not lift a volume to a minimum
-/// none has, went first; `--min-free 0` checks nothing; a size that does not parse is an invalid argument
+/// slots, with nothing leased; a minimum past the size of the volume deletes no build output and no free slot for it,
+/// as nothing could reach it, and the message says so; `--min-free 0` checks nothing; a size that does not parse is an
+/// invalid argument
 #[cfg(unix)]
 #[test_log::test]
 fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
@@ -1235,12 +1236,12 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
     message.contains("1048576.0 GiB")
-      && message.contains("0 free slot(s)")
-      && message.contains("then it deleted 1 free slot(s) below `branchdeck.leaseMaxSlots`")
+      && message.contains("1 free slot(s)")
+      && message.contains("in all, less than the minimum, so the get deleted no build output and no free slot below `branchdeck.leaseMaxSlots` for it")
       && message.contains("never pass `--min-free 0` on your own"),
     "{output}"
   );
-  assert_eq!(states(&fixture.status()), Vec::<(String, String)>::new());
+  assert_eq!(states(&fixture.status()), [(first, "free".to_string())]);
 
   git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
   let (exit_code, output) = fixture.run(&["lease", "get"]);
@@ -1258,6 +1259,8 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
 }
 
 const GIB: u64 = 1 << 30;
+/// The size of the volume of a `ShrinkFixture`, which holds its minimum of 100 GiB
+const VOLUME_BYTES: u64 = 1024 * GIB;
 /// The bytes of the cargo unit each free slot of a `ShrinkFixture` keeps
 const UNIT_BYTES: usize = 64 * 1024;
 
@@ -1303,9 +1306,12 @@ impl ShrinkFixture {
   fn get(&self, volume: Volume, steps: &std::sync::Mutex<Vec<GetStep>>) -> anyhow::Result<lease_pool::lease::LeaseGot> {
     let environment = self.fixture.environment(self.fixture.repo.path());
     let context = LeaseContext::resolve(&environment, None).map_err(|error| anyhow::anyhow!("{}", error.message))?;
-    let available = |_: &Path| {
+    let space = |_: &Path| {
       let gone = |path: fn(&str) -> PathBuf| self.slots.iter().filter(|slot| !path(slot).exists()).count() as u64;
-      Some((volume.base + volume.per_unit * gone(Self::unit) + volume.per_slot * gone(|slot| PathBuf::from(slot))) * GIB)
+      Some(lease_pool::free_space::VolumeSpace {
+        available: (volume.base + volume.per_unit * gone(Self::unit) + volume.per_slot * gone(|slot| PathBuf::from(slot))) * GIB,
+        total: VOLUME_BYTES,
+      })
     };
     lease_pool::lease::lease_get_core(
       &context.git,
@@ -1319,7 +1325,7 @@ impl ShrinkFixture {
         bazel: None,
         lock_timeout: context.lock_timeout,
         progress: Some(&|step| steps.lock().unwrap().push(step)),
-        available: Some(&available),
+        space: Some(&space),
       },
     )
   }

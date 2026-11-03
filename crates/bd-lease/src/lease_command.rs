@@ -716,7 +716,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     bazel: None,
     lock_timeout: context.lock_timeout,
     progress: Some(progress),
-    available: None,
+    space: None,
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
   let lease = got

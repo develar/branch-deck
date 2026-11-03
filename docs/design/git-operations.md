@@ -1989,7 +1989,8 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    shrink, each removed as the trim removes one and deleted at once, one `statfs` before each, up to the same margin:
    what the shrink left of a free slot is its worktree (14 to 16 GB of files of its own in a slot of idea-1, rewritten
    since its clone), which a later get clones again; the other way out was a refusal that leaves the user only the
-   deletes by hand.
+   deletes by hand. Neither runs for a minimum past the size of the volume (`f_blocks` of the same `statfs`), which no
+   delete reaches: one mistaken `branchdeck.leaseMinFree` would empty every pool and refuse anyway.
 1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots

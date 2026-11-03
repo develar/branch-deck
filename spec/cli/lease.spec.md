@@ -218,6 +218,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   slots it deleted (`evicted`, as `bd lease trim` prints them), and a `low_disk_space` after it names how many and the
   bytes they freed. A free slot is pool property: after its build output, what is left of it is its worktree, which a
   later get clones again, and the user, told only `low_disk_space`, would delete the slots by hand.
+- A get whose minimum free space is more than the volume holds in all (`f_blocks` of the same `statfs`) must neither
+  shrink nor evict: nothing they delete could reach it, and one mistaken `branchdeck.leaseMinFree` or `--min-free`
+  would delete every free slot of every pool. Its `low_disk_space` says that the volume holds less than the minimum.
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_refuses_and_names_it`)
+  [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)
+  [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_limit_returned_longest_ago_first`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`, `a_get_below_the_minimum_free_space_refuses_and_names_it`)
   [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)

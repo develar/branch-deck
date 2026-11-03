@@ -163,8 +163,9 @@ fn a_free_slot_with_a_process_in_it_stays_and_the_next_one_goes() {
   assert_eq!(states(&trim.fixture.status()), [(first.clone(), "free".to_string())]);
 }
 
-/// Below a minimum no volume has, the trim deletes the slots past the limit first, the orphans with them, then the
-/// eviction the slot within it with its output base, and the get refuses naming both
+/// Below a minimum no volume has, the trim deletes the slots past the limit first, the orphans with them, and the get
+/// refuses naming them; the slot within the limit stays with its output base, as no shrink and no eviction runs for a
+/// minimum past the size of the volume
 #[test_log::test]
 fn a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted() {
   let trim = TrimFixture::new();
@@ -175,11 +176,12 @@ fn a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_de
   assert_error(&output, exit_code, (4, "low_disk_space"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("the get deleted 2 free slot(s) past `branchdeck.leaseMaxSlots`"), "{message}");
-  assert!(message.contains("then it deleted 1 free slot(s) below `branchdeck.leaseMaxSlots`"), "{message}");
-  assert_eq!(states(&fixture.status()), Vec::<(String, String)>::new());
-  for gone in ["slot-1", "gone", "slot-3"] {
+  assert!(!message.contains("below `branchdeck.leaseMaxSlots`,"), "{message}");
+  assert_eq!(states(&fixture.status()), [(trim.slots[2].clone(), "free".to_string())]);
+  for gone in ["slot-1", "gone"] {
     assert!(!trim.base(gone).exists(), "{gone}");
   }
+  assert!(trim.base("slot-3").is_dir());
   assert!(trim.base("main").join("DO_NOT_BUILD_HERE").is_file());
 }
 

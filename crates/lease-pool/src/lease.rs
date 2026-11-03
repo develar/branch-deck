@@ -14,7 +14,7 @@
 
 use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
-use crate::free_space::{AvailableBytes, Volume, available_bytes};
+use crate::free_space::{SpaceOf, Volume, VolumeSpace, volume_space};
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
@@ -532,10 +532,11 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `bd lease trim` free space); never pass `--min-free 0` on your own",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}{}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `bd lease trim` free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
     describe_trimmed(.freed.trim),
+    describe_past_the_volume(*.total, *.required),
     describe_shrunk(.freed.shrink),
     describe_evicted(.freed.evict),
     describe_idle(.idle),
@@ -545,6 +546,8 @@ pub enum LeaseRefusal {
     pool: String,
     available: u64,
     required: u64,
+    /// The bytes the volume holds in all: a minimum past it deletes no build output and no slot below the limit
+    total: u64,
     free_slots: usize,
     idle: Vec<IdleLease>,
     /// The trash a process still running keeps
@@ -686,6 +689,17 @@ fn describe_trimmed(Freed { slots, bytes }: Freed) -> String {
     format!(
       "; the get deleted {slots} free slot(s) past `branchdeck.leaseMaxSlots` and the Bazel output bases of gone slots first, {}",
       describe_size(bytes)
+    )
+  }
+}
+
+fn describe_past_the_volume(total: u64, required: u64) -> String {
+  if required <= total {
+    String::new()
+  } else {
+    format!(
+      "; the volume holds {} in all, less than the minimum, so the get deleted no build output and no free slot below `branchdeck.leaseMaxSlots` for it",
+      describe_size(total)
     )
   }
 }
@@ -853,14 +867,19 @@ pub struct LeaseGetParams<'a> {
   pub lock_timeout: Duration,
   /// Hears each step as it starts
   pub progress: Option<&'a dyn Fn(GetStep)>,
-  /// The free bytes of the volume of a path; `None`: `free_space::available_bytes`. A test tells a volume of its own
-  pub available: Option<&'a AvailableBytes<'a>>,
+  /// The space of the volume of a path; `None`: `free_space::volume_space`. A test tells a volume of its own
+  pub space: Option<&'a SpaceOf<'a>>,
 }
 
 impl LeaseGetParams<'_> {
-  /// The free bytes of the volume of `path` (`available`)
+  /// The space of the volume of `path` (`space`)
+  fn space(&self, path: &Path) -> Option<VolumeSpace> {
+    self.space.map_or_else(|| volume_space(path), |space| space(path))
+  }
+
+  /// The free bytes of the volume of `path` (`space`)
   fn available(&self, path: &Path) -> Option<u64> {
-    self.available.map_or_else(|| available_bytes(path), |available| available(path))
+    self.space(path).map(|space| space.available)
   }
 }
 
@@ -1502,15 +1521,16 @@ impl Relief {
   }
 }
 
-/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs` (`LeaseGetParams::available`),
+/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs` (`LeaseGetParams::space`),
 /// and below the minimum the names in the trash. Below it with no trash of a gone run, or one the get deleted since its
-/// last wait (`swept`), the trim of the pools, their shrink, then the eviction of their free slots, each once. Below it
-/// after all: `LowDiskSpace`, naming what the trim and the eviction deleted, what the shrink freed and what the trash
-/// keeps
+/// last wait (`swept`), the trim of the pools, their shrink, then the eviction of their free slots, each once; the
+/// shrink and the eviction only for a minimum the volume can hold (`VolumeSpace::total`): past it every free slot of
+/// the volume would go and the get refuse anyway. Below it after all: `LowDiskSpace`, naming what the trim and the
+/// eviction deleted, what the shrink freed and what the trash keeps
 fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_free: u64, relief: &Relief) -> Result<FreeSpace> {
-  let available = params.available(pool_dir);
-  let Some(available) = available.filter(|&available| available < min_free) else {
-    return Ok(FreeSpace::Enough(available));
+  let space = params.space(pool_dir);
+  let Some(VolumeSpace { available, total }) = space.filter(|space| space.available < min_free) else {
+    return Ok(FreeSpace::Enough(space.map(|space| space.available)));
   };
   if !relief.swept && holds_gone_runs(&pool.trash_dir()) {
     return Ok(FreeSpace::Trash);
@@ -1518,17 +1538,27 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
   let Some(trimmed) = &relief.trimmed else {
     return Ok(FreeSpace::Trim);
   };
-  let Some(shrunk) = &relief.shrunk else {
+  let reachable = min_free <= total;
+  if reachable && relief.shrunk.is_none() {
     return Ok(FreeSpace::Shrink);
-  };
-  let Some(evicted) = &relief.evicted else {
+  }
+  if reachable && relief.evicted.is_none() {
     return Ok(FreeSpace::Evict);
-  };
+  }
+  let shrink = relief.shrunk.as_ref().map_or_else(Freed::default, |shrunk| Freed {
+    slots: shrunk.slots.len(),
+    bytes: shrunk.freed_bytes(),
+  });
+  let evict = relief.evicted.as_ref().map_or_else(Freed::default, |evicted| Freed {
+    slots: evicted.removed_slots(),
+    bytes: evicted.freed_bytes(),
+  });
   let store = pool.read()?;
   bail!(LeaseRefusal::LowDiskSpace {
     pool: display_path(pool_dir),
     available,
     required: min_free,
+    total,
     free_slots: store.slots.iter().filter(|slot| slot.lease.is_none()).count(),
     idle: idle_leases(&store),
     trash: pool.trash_bytes(),
@@ -1537,14 +1567,8 @@ fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_fre
         slots: trimmed.removed_slots(),
         bytes: trimmed.freed_bytes(),
       },
-      shrink: Freed {
-        slots: shrunk.slots.len(),
-        bytes: shrunk.freed_bytes(),
-      },
-      evict: Freed {
-        slots: evicted.removed_slots(),
-        bytes: evicted.freed_bytes(),
-      },
+      shrink,
+      evict,
     }),
   });
 }
