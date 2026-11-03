@@ -2298,7 +2298,8 @@ together; a dry run on the idea-1 checkout found 27.9 of the 33 GB of `community
 `delete` (a path, a link as the link, or with `except` the entries of a directory but the named ones); no command, as a
 return must not run arbitrary code. A path is normalized and relative, stays in the slot, names no `.git`, crosses no
 symlink on its way, and git tracks nothing under it (one `ls-files -z` of all paths): a rule that breaks one is
-reported and skipped, and so is a `delete` that would remove the dir of a `cargo` rule. A `delete` of that dir with
+reported and skipped, and so is a `delete` that would remove the dir of a `cargo` rule, and a second `delete` of one
+path (a path has one whitelist, which a dry run and a clone read once). A `delete` of the dir of a cargo rule with
 `except` (`{ delete = "target", except = ["debug", "release", "CACHEDIR.TAG"] }`) is a whitelist of the target dir:
 agents put their scratch under `target/` (a second target dir of a bisect, an A/B build, logs, patches; about 20 GiB in
 one accio slot), which a cargo rule never removes, and so no return and no shrink reached it. It removes the other

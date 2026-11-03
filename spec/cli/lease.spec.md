@@ -598,11 +598,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - A `delete` of the dir of a `cargo` rule must name what it keeps in `except`
   (`{ delete = "target", except = ["debug", "release", "CACHEDIR.TAG"] }`): it removes every other entry of the target
   dir whole (the scratch an agent puts there: a second target dir, a log, a patch, a link as the link), which the cargo
-  rule at most prunes, never removes. The cargo rule of that dir then prunes only the profile dirs at and
-  below the kept entries that are directories, not links (with two such `delete` rules, the entries both keep), at
-  most 4 levels below the target dir as before. When that dir is a profile dir itself (`{ cargo = "target/debug" }`
-  with `{ delete = "target/debug", except = ["deps", "build", ".fingerprint", "incremental", ".cargo-lock"] }`, which
-  drops the uplifted artifacts), the cargo rule prunes the units in its kept dirs alone; the except keeps `.cargo-lock`,
+  rule at most prunes, never removes. The cargo rule of that dir then prunes only the profile dirs at and below the
+  kept entries that are directories, not links, at most 4 levels below the target dir as before. When that dir is a
+  profile dir itself (`{ cargo = "target/debug" }` with
+  `{ delete = "target/debug", except = ["deps", "build", ".fingerprint", "incremental", ".cargo-lock"] }`, which drops
+  the uplifted artifacts), the cargo rule prunes the units in its kept dirs alone; the except keeps `.cargo-lock`,
   without which the dir is no profile dir once the delete ran. The two rules never take the same path, whatever their
   order in the file. A kept entry is the one whose name is the `except` name byte for byte, for both rules: on a volume
   that ignores case (APFS, NTFS) `Debug` keeps no `debug`, so the delete removes it whole and the cargo rule prunes
@@ -628,9 +628,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   `..`, names `.git`, names the checkout itself, has a symlink on its way (a `cargo` dir that is one too), holds a file
   that git tracks (one `ls-files -z` of the paths of all rules), or has an `except` entry that is no name of an entry;
   and a `delete` whose path holds the dir of a `cargo` rule without naming the entry on its way in `except`, or is that
-  dir without `except` (no key or an empty array), which would remove what the cargo rule keeps. The walk of a rule
-  never follows a symlink.
-  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`, `a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`)
+  dir without `except` (no key or an empty array), which would remove what the cargo rule keeps; and a `delete` of a
+  path that an earlier `delete` has (normalized), since a path has one whitelist: two would both measure in a dry run
+  an entry that the first then removes, and a clone would keep what the last one keeps. The walk of a rule never
+  follows a symlink.
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`an_unsafe_path_is_a_rule_that_is_reported`, `a_delete_names_its_kept_entries_and_keeps_the_dirs_of_cargo_rules`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`, `a_second_delete_of_a_path_is_reported`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`an_unsafe_rule_is_skipped_and_reported`)
 - The return must read the file once, from the source checkout that the lease recorded (the slot's own when the
   source is gone), and apply the rules after all its checks passed, before it frees the slot: `cleaned` [{`rule`,

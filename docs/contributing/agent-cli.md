@@ -1157,10 +1157,11 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   [{`rule`, `freed_bytes`, `ms`, `error`}], `trash_left`. What a process keeps (on Windows: works in it, has a file of
   it open) stays whole, and the rule's `error` names the path and says that a process holds it; the next clean deletes
   it once it is free. A rule with an unsafe path (out of the slot, `.git`, tracked, a symlink on its way, a `delete` of
-  a cargo rule's dir without `except`) is skipped with its `error`; `{ delete = "target", except = ["debug", "release"] }`
-  beside `{ cargo = "target" }` removes the other entries of `target/` (an agent's scratch) and the cargo rule prunes
-  the kept profile dirs; `clean_error` when the file does not parse, the return succeeds
-  anyway; `--no-clean` applies none. A get leaves out of a cloned slot what the `delete` rules delete.
+  a cargo rule's dir without `except`, a second `delete` of a path) is skipped with its `error`;
+  `{ delete = "target", except = ["debug", "release"] }` beside `{ cargo = "target" }` removes the other entries of
+  `target/` (an agent's scratch) and the cargo rule prunes the kept profile dirs; `clean_error` when the file does not
+  parse, the return succeeds anyway; `--no-clean` applies none. A get leaves out of a cloned slot what the `delete`
+  rules delete.
   `bd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
   the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`); `freed_bytes`
   counts blocks an APFS clone shares too, `volume_freed_bytes` is what the volume gained; a slot with a

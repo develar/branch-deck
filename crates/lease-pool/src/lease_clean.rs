@@ -30,7 +30,7 @@
 use anyhow::{Result, anyhow, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::tracked_under;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -141,7 +141,25 @@ pub fn parse_clean_rules(text: &str) -> Result<Vec<ParsedRule>> {
     .enumerate()
     .map(|(index, rule)| parse_rule(rule).map_err(|error| error.context(format!("lease.clean[{index}]"))))
     .collect::<Result<_>>()?;
-  Ok(refuse_deletes_of_cargo_dirs(rules))
+  Ok(refuse_repeated_deletes(refuse_deletes_of_cargo_dirs(rules)))
+}
+
+/// A `delete` of a path that an earlier one has is reported, never applied: a path has one whitelist, so a dry run
+/// measures each of its entries once (two deletes of one path would both measure an entry that the first then removes),
+/// a clone leaves out what the clean removes (`clone_skips`, one `except` a path), and a cargo rule of that dir prunes
+/// the entries of one `except` (`cargo_scope`)
+fn refuse_repeated_deletes(rules: Vec<ParsedRule>) -> Vec<ParsedRule> {
+  let mut deleted = HashSet::new();
+  rules
+    .into_iter()
+    .map(|rule| match rule {
+      Ok(CleanRule::Delete { path, except }) if !deleted.insert(path.clone()) => {
+        let reason = format!("an earlier rule deletes {path}; name what it keeps in the `except` of that one");
+        Err((CleanRule::Delete { path, except }.describe(), reason))
+      }
+      other => other,
+    })
+    .collect()
 }
 
 /// A `delete` whose path holds the dir of a `cargo` rule, without the entry on its way in `except`, or that is the dir
@@ -446,24 +464,16 @@ impl Removals {
   }
 }
 
-/// The entries of the dir of a cargo rule whose profile dirs it prunes, `None` for the whole dir: with a `delete` of the
-/// same dir (`except` is not empty there, `refuse_deletes_of_cargo_dirs`), the entries every such rule keeps, since the
-/// delete removes the others whole; of a dir that is a profile dir itself, the dirs of its units among them (`run_rule`).
-/// So the two rules never take the same path, in whatever order the file has them
+/// The entries of the dir of a cargo rule whose profile dirs it prunes, `None` for the whole dir: with the `delete` of the
+/// same dir (one, `refuse_repeated_deletes`; `except` is not empty there, `refuse_deletes_of_cargo_dirs`), the entries it
+/// keeps, since it removes the others whole; of a dir that is a profile dir itself, the dirs of its units among them
+/// (`run_rule`). So the two rules never take the same path, in whatever order the file has them
 fn cargo_scope<'a>(rules: &'a [ParsedRule], rule: &CleanRule) -> Option<Vec<&'a str>> {
   let CleanRule::Cargo { dir, .. } = rule else { return None };
-  rules
-    .iter()
-    .filter_map(|other| match other {
-      Ok(CleanRule::Delete { path, except }) if path == dir => Some(except),
-      _ => None,
-    })
-    .fold(None, |scope: Option<Vec<&str>>, except| {
-      Some(match scope {
-        None => except.iter().map(String::as_str).collect(),
-        Some(kept) => kept.into_iter().filter(|name| except.iter().any(|other| other == name)).collect(),
-      })
-    })
+  rules.iter().find_map(|other| match other {
+    Ok(CleanRule::Delete { path, except }) if path == dir => Some(except.iter().map(String::as_str).collect()),
+    _ => None,
+  })
 }
 
 /// Apply `rule` at `target`; `scope` names the entries of a cargo rule's dir it prunes (`cargo_scope`)

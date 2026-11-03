@@ -120,6 +120,30 @@ fn a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries() {
   }
 }
 
+/// A path has one `delete`: a later one of the same path (normalized) is reported, never applied, so a dry run measures
+/// each entry once, and a clone and a cargo rule of the dir see the `except` of the first
+#[test]
+fn a_second_delete_of_a_path_is_reported() {
+  let rules = parse_clean_rules(
+    "[lease]\nclean = [\n  { cargo = \"target\" },\n  { delete = \"target\", except = [\"debug\", \"release\"] },\n  { delete = \"./target/\", except = [\"debug\"] },\n  { delete = \"out\" },\n  { delete = \"out\", except = [\"a\"] },\n  { delete = \"out/a\" },\n]\n",
+  )
+  .unwrap();
+  let outcome: Vec<Result<String, String>> = rules.iter().cloned().map(|rule| rule.map(|rule| rule.describe()).map_err(|(_, reason)| reason)).collect();
+  for index in [0, 1, 3, 5] {
+    assert!(outcome[index].is_ok(), "{outcome:?}");
+  }
+  assert!(outcome[2].as_ref().unwrap_err().contains("an earlier rule deletes target"), "{outcome:?}");
+  assert!(outcome[4].as_ref().unwrap_err().contains("an earlier rule deletes out"), "{outcome:?}");
+  assert_eq!(
+    crate::lease_clean::clone_skips(&rules),
+    [
+      ("target".to_string(), vec!["debug".to_string(), "release".to_string()]),
+      ("out".to_string(), Vec::new()),
+      ("out/a".to_string(), Vec::new())
+    ]
+  );
+}
+
 /// The free space a message names is in GiB
 #[test]
 fn a_free_space_is_named_in_gib() {
