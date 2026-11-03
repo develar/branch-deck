@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.47.0](https://github.com/develar/branch-deck/compare/v0.46.0...v0.47.0) (2026-11-03)
+
+
+### Features
+
+* **review:** the tree shows its warning always, a muted mark only where the reader is ([1830b33](https://github.com/develar/branch-deck/commit/1830b33e78dad35297f2a7ba8139819e6b59365c))
+* **review:** what the author left out shows always, a label of its own ([fddf7f1](https://github.com/develar/branch-deck/commit/fddf7f15469e0fd2ae73fa74da1166b395c71170))
+
+
+### Bug Fixes
+
+* **diff:** the name a reveal waits to select survives the caret of the search it clears ([b3e99de](https://github.com/develar/branch-deck/commit/b3e99deb799c7c9e44c7416e954dce66584d7226))
+* **review:** a place accio finds no declaration at is no test and no use, but unknown ([bb216a7](https://github.com/develar/branch-deck/commit/bb216a75dd482b1654a4a481093c034cda80fa43))
+* **review:** the menu of a commit's heading stays open as the diffs come, four races of the review tests ([8c13fdc](https://github.com/develar/branch-deck/commit/8c13fdc0c13cddfeab66c29d7d7457062c2ec034))
+* **review:** the review of a pull request says its plan is being read, no overview that moves as it comes ([f24108f](https://github.com/develar/branch-deck/commit/f24108fe629852037ea7466a235dfb696b22ca3d))
+
 ## [0.46.0](https://github.com/develar/branch-deck/compare/v0.45.0...v0.46.0) (2026-11-03)
 
 
