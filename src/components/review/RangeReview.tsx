@@ -9,6 +9,7 @@ import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import type { RowCardState } from "@/components/shared/RowCard"
 import { SectionLabel } from "@/components/shared/SectionLabel"
+import { useHeadingMenu } from "@/hooks/useHeadingCard"
 import type { ReviewCommit } from "@/lib/bindings"
 import { toCardCommit } from "@/lib/commit"
 import type { DiffSubject } from "@/lib/commit-files"
@@ -332,7 +333,9 @@ function withCommitMenu(commit: ReviewCommit, commitMenu: RangeReviewProps["comm
 
 /** "⋯" at the end of the meta line of the shown commit and of the card of a commit: the menu its right-click opens in the column */
 function CommitMenu({ commit, commitMenu }: { commit: ReviewCommit; commitMenu: NonNullable<RangeReviewProps["commitMenu"]> }) {
-  return <MoreActionsMenu name={formatShortHash(commit.id)} menu={() => commitMenu(commit)} />
+  // the heading moves as the diffs load: its menu stays open across the move
+  const kept = useHeadingMenu(commit.id)
+  return <MoreActionsMenu name={formatShortHash(commit.id)} menu={() => commitMenu(commit)} {...kept} />
 }
 
 const NO_TITLES: ReadonlyMap<string, string> = new Map()

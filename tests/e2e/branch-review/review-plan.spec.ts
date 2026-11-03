@@ -91,7 +91,10 @@ function commitRow(page: Page, subject: string): Locator {
  */
 async function openPlanCommits(page: Page, repo: TestRepositoryBuilder, syncAndWaitForBranches: () => Promise<unknown>): Promise<Page> {
   await setupPlan(repo, { experimental: true })
+  // the plan the window asks as it opens, however long its read takes: the tree lists the commits by it
+  const planRead = page.context().waitForEvent("requestfinished", { predicate: request => request.url().endsWith("/invoke/get_review_plan"), timeout: 0 })
   const window = await openPlanWindow(page, syncAndWaitForBranches)
+  await planRead
   await expect.poll(() => treeCommits(window)).toEqual(["add the cache", "scale the helper"])
   await expect.poll(() => commitColumn(window)).toEqual(["All Changes2 commits"])
   return window
@@ -1037,7 +1040,8 @@ test.describe("The review plan in the branch review", () => {
     await syncAndWaitForBranches()
     await openContextMenu(page, findBranchRow(page, "plan"))
     await clickContextMenuItem(page, "Squash 1 Fixup…")
-    await page.getByTestId("squash-fixups-confirm").click()
+    // the squash of the main window, then the plan the window reads of the new head: their answers, however long
+    await runAndWaitForAnswer(window, "get_review_plan", () => runAndWaitForAnswer(page, "execute", () => page.getByTestId("squash-fixups-confirm").click()))
     await expect(page.getByText("Squashed 1 fixup")).toBeVisible()
 
     // the amended commit is Rewritten, the one above it, replayed with the same changes, is not

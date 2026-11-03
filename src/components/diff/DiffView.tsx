@@ -1343,6 +1343,8 @@ export function DiffView({
       ref={scroller}
       role="region"
       aria-label={label}
+      // busy while the diff of a file is read: its card says "Loading…", N and P find no change in it yet
+      aria-busy={prepared.some(file => file.pending) || undefined}
       tabIndex={scroll === "own" ? 0 : undefined}
       className={cn(scroll === "own" ? "dv-scroller min-h-0 min-w-0 flex-1" : "dv-embedded", cards && "dv-cards")}
       data-ligatures={ligatures ? undefined : "off"}

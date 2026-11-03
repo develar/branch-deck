@@ -145,10 +145,13 @@ test.describe("Opening the review", () => {
     expect((await openedReview(page, 4)).title).toBe("Review login")
     await expect(preview).toBeHidden()
 
-    // in the window P is the previous change, not a push: J moves to the next file, P back
+    // in the window P is the previous change, not a push: J moves to the next file, P back to the change of the first
+    // once the diffs are read (before, N and P find no change)
     await showReviewWindow(page, byKey)
     const position = page.getByTestId("review-position")
     await expect(position).toHaveText(/File 1 \/ \d+$/)
+    await expect(page.getByTestId("diff-view")).toBeVisible()
+    await expect(page.getByTestId("diff-view")).not.toHaveAttribute("aria-busy")
     await page.locator("[aria-label='Changes of the commit']").focus()
     await page.keyboard.press("j")
     await expect(position).toHaveText(/File 2 \/ \d+$/)
@@ -871,7 +874,7 @@ test.describe("Branch review window", () => {
     await expect(reviewPage.getByTestId("range-review-commit-header")).toContainText("Add the login form")
   })
 
-  test("should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  test("should push up to a commit of the review from its menu in the main window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // the `stacked_ownership` template: login, two commits, stacked on auth
     const repo = await setupRepo("stacked_ownership")
     await syncAndWaitForBranches()
@@ -893,10 +896,18 @@ test.describe("Branch review window", () => {
       "Copy Commit Message",
       "Copy Changed Paths",
     ])
-    await window.getByRole("menuitem", { name: "Push Up to Here" }).click()
+    // the main window pushes: its answer, however long the push takes
+    await runAndWaitForAnswer(page, "execute", () => window.getByRole("menuitem", { name: "Push Up to Here" }).click())
     // one push of the stack: login up to the copy of that commit, its newer commit left out
     await expect.poll(() => remotePushes(repo)).toEqual([["auth", "login"]])
     expect((await repo.getRemoteBranches())[virtualBranch("login")]).toBe(await repo.revision(`${virtualBranch("login")}~1`))
+  })
+
+  test("should run the menu of a commit of the review in the main window, its forms at the row, its copies in the window", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    await setupRepo("stacked_ownership")
+    await syncAndWaitForBranches()
+    const window = await openLinkedSubWindow(page, await openReviewWindow(page, "login"))
+    const older = window.getByTestId("range-review-commit").filter({ hasText: "Add the login form" })
 
     // the copies run in the window: the message of the commit as it shows it, in the virtual branch
     await setupClipboardPermissions(page.context())
@@ -906,12 +917,19 @@ test.describe("Branch review window", () => {
     // the menu fades out: its items are there until it is gone, beside those of the next menu
     await expect(window.getByRole("menu")).toHaveCount(0)
 
-    // "⋯" of the heading of the shown commit: Move to… opens the form of the row in the main window, at the commit
+    // "⋯" of the heading of the shown commit: Move to… opens the form of the row in the main window, at the commit. The
+    // menu opened while the diffs of the commit load stays open as they come and the heading moves into the diffs
+    const diffs = await holdCommandCalls(window, "get_file_diffs")
     await older.click()
     await window
       .getByTestId("range-review-commit-header")
       .getByRole("button", { name: /^More actions for / })
       .click()
+    await expect(window.getByRole("menuitem", { name: "Move to…" })).toBeVisible()
+    await expect.poll(() => diffs.calls.length).toBeGreaterThan(0)
+    diffs.release()
+    await expect(window.getByTestId("diff-view")).not.toHaveAttribute("aria-busy")
+    await expect(window.getByRole("menuitem", { name: "Move to…" })).toBeVisible()
     await window.getByRole("menuitem", { name: "Move to…" }).click()
     await expect(page.getByTestId("inline-branch-target")).toBeVisible()
     await expect(getBranchCommitRow(page, "login", "Add the login form")).toHaveAttribute("data-selected", "true")

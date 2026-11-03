@@ -33,6 +33,12 @@ export interface MoreActionsMenuProps {
    * (`presentStopWaiting`): the spinner opens a menu of it
    */
   stopWaiting?: MenuItem | null
+  /**
+   * The menu open, kept by its owner: a button that mounts anew in the place of one whose menu was open (the heading of
+   * a commit the review moves as its diffs load) opens it again; uncontrolled without
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 /**
@@ -43,15 +49,16 @@ export interface MoreActionsMenuProps {
  * for another holder of the lock: its menu is Stop Waiting), so the button keeps its element, its focus and its hover
  * as the action runs, waits and ends; disabled, it keeps the focus (`aria-disabled`).
  */
-export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null }: MoreActionsMenuProps) {
-  const root = useLazyRoot(true)
+export function MoreActionsMenu({ name, menu, disabled = false, busy = null, stopWaiting = null, open, onOpenChange }: MoreActionsMenuProps) {
+  // a menu its owner keeps open mounts its root at once
+  const root = useLazyRoot(true, open === true)
   // the plain button and the one of the roots are one control for the hover
   const controlKey = `more-actions:${name}`
   const plainRef = useControlRef<HTMLButtonElement>(undefined, controlKey)
   // the popup of the menu, kept after it unmounts: its `finalFocus` asks as the popup goes whether the focus is in it
   const popup = useRef<HTMLDivElement | null>(null)
-  // the groups of a builder, built as the menu opens
-  const [built, setBuilt] = useState<MenuItemGroups>([])
+  // the groups of a builder, built as the menu opens, and at once for a menu that mounts open
+  const [built, setBuilt] = useState<MenuItemGroups>(() => (open === true && typeof menu === "function" ? menu() : []))
   const running = busy !== null
   // a menu unless an action runs without Stop Waiting, or an operation works on the row
   const opensMenu = running ? stopWaiting !== null : !disabled
@@ -76,14 +83,16 @@ export function MoreActionsMenu({ name, menu, disabled = false, busy = null, sto
   return (
     <DropdownMenu
       controlKey={controlKey}
-      onOpenChange={(open, details) => {
-        if (open && !opensMenu) {
+      {...(open !== undefined && { open })}
+      onOpenChange={(next, details) => {
+        if (next && !opensMenu) {
           details.cancel()
           return
         }
-        if (open && typeof menu === "function") {
+        if (next && typeof menu === "function") {
           setBuilt(menu())
         }
+        onOpenChange?.(next)
       }}
     >
       <Tooltip controlKey={controlKey}>

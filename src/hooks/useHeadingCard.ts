@@ -16,6 +16,9 @@ interface HeadingCardState {
 interface HeadingCard {
   readonly card: HeadingCardState
   readonly setCard: (card: HeadingCardState) => void
+  /** The commit whose heading has its "⋯" menu open, which a move keeps open too; null for none */
+  readonly menu: string | null
+  readonly setMenu: (commit: string | null) => void
   /** The heading leaves the document, holding the focus or not */
   readonly leave: (focused: boolean) => void
   /** Whether the heading that left last held the focus, which a heading that mounts takes back once */
@@ -29,6 +32,7 @@ export const HeadingCardContext = createContext<HeadingCard | null>(null)
 /** The value of `HeadingCardContext`, for the view that mounts the overview */
 export function useHeadingCardState(): HeadingCard {
   const [card, setCard] = useState<HeadingCardState>(CLOSED)
+  const [menu, setMenu] = useState<string | null>(null)
   // stable across renders: a heading's effect depends on them, not on its card
   const [focus] = useState(() => {
     let focused = false
@@ -43,7 +47,23 @@ export function useHeadingCardState(): HeadingCard {
       },
     }
   })
-  return { card, setCard, leave: focus.leave, takeFocus: focus.takeFocus }
+  return { card, setCard, menu, setMenu, leave: focus.leave, takeFocus: focus.takeFocus }
+}
+
+/**
+ * The "⋯" menu of the heading of `commit`: open as the view keeps it across a move of the overview
+ * (`HeadingCardContext`), so a menu opened while the diffs load stays open as the heading mounts in its new place;
+ * uncontrolled outside such a view
+ */
+export function useHeadingMenu(commit: string): { open?: boolean; onOpenChange?: (open: boolean) => void } {
+  const shared = use(HeadingCardContext)
+  if (shared === null) {
+    return {}
+  }
+  return {
+    open: shared.menu === commit,
+    onOpenChange: open => shared.setMenu(open ? commit : shared.menu === commit ? null : shared.menu),
+  }
 }
 
 /**
