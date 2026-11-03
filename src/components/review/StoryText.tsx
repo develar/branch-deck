@@ -2,7 +2,7 @@ import { cloneElement } from "react"
 import { cn } from "cn"
 import { Badge } from "@/components/ui/badge"
 import { PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CodeText } from "@/components/shared/CodeText"
+import { BreakableCode, CodeText } from "@/components/shared/CodeText"
 import { HoverDescription } from "@/components/shared/HoverDescription"
 import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { CodeSpan } from "@/lib/bindings"
@@ -45,13 +45,15 @@ export function StoryText({ text, spans, mentions, nested = false }: { text: str
             onClick={() => navigator?.show(place)}
           />
         )
+        // a long name wraps at its dots, never inside a word
+        const words = <BreakableCode text={written} />
         if (nested) {
-          return cloneElement(link, {}, written)
+          return cloneElement(link, {}, words)
         }
         return (
           <HoverDescription lazy>
             <PopoverTrigger openOnHover delay={300} nativeButton render={link}>
-              {written}
+              {words}
             </PopoverTrigger>
             <PopoverContent
               side="top"

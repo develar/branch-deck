@@ -1,6 +1,6 @@
 // @spec spec/commit/commit-row.spec.md
 import { describe, expect, it } from "vite-plus/test"
-import { splitCodeAtBreaks } from "@/lib/inline-code"
+import { glueAfter, glueBefore, splitCodeAtBreaks } from "@/lib/inline-code"
 
 describe("splitCodeAtBreaks", () => {
   it("breaks a path before each slash", () => {
@@ -25,5 +25,19 @@ describe("splitCodeAtBreaks", () => {
 
   it("keeps a CONSTANT_CASE name whole", () => {
     expect(splitCodeAtBreaks("POOL_RETRY_LIMIT")).toEqual(["POOL_RETRY_LIMIT"])
+  })
+})
+
+describe("the punctuation glued to code", () => {
+  it("keeps the closing marks and the end of a sentence after code on its line, never the words after them", () => {
+    expect(glueAfter(", the output model")).toBe(",")
+    expect(glueAfter("), the model state")).toBe("),")
+    expect(glueAfter(". Each new field")).toBe(".")
+    expect(glueAfter(" and the rest")).toBe("")
+  })
+
+  it("keeps an opening mark before code on its line, never the words before it", () => {
+    expect(glueBefore("the output model (")).toBe("(")
+    expect(glueBefore("travels in ")).toBe("")
   })
 })

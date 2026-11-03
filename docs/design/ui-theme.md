@@ -266,7 +266,10 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   found, `CodeText`): a name the grammar found only in the code font, a span in backticks or of tokens Rust joined (`CodeSpan.joined`) a chip of
   `bg-muted` whose halo (`ring-2 ring-muted`) takes no width, so the punctuation around it keeps its place; at
   the size of its text: JetBrains Mono has the x-height and cap height of Inter (0.55 and 0.73 em), so the same size is
-  the same height, and a smaller one only shrinks the code. A command on its own line is a `pre` block,
+  the same height, and a smaller one only shrinks the code: a code name in a row of `text-sm` is `text-sm` too. Code
+  breaks only at its own boundaries (`/`, a non-final `.`; `BreakableCode`), never inside a word, and the punctuation
+  that touches it stays on its line (`CodeGlue`: a link of code is a button, an atomic inline a line breaks around).
+  A command on its own line is a `pre` block,
   `rounded-lg bg-muted px-3 py-2 font-mono`, one step below its text (`text-xs` below `text-sm`).
 - **The focus is one look, the `bd-focus` token** (`src/index.css`): a solid 2px outline of the ring colour, 2px off
   the box, in every window and on every focusable element, so "where the keys are" reads the same in the main window,
@@ -370,8 +373,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     and drops it next to `text-foreground` (`src/lib/type-scale.test.ts`). A size outside the scale is a `bd-` utility
     (`bd-window-control-glyph`, the 10px Windows caption glyph; `bd-avatar-initials`, the initials in a 20px avatar
     circle).
-- **Fonts**: Inter for text, JetBrains Mono for `font-mono` (hashes, paths, code), with `calt` off so `->` stays two
-  characters; `body` is `antialiased`. JetBrains Mono, not the system `ui-monospace`: it is the same on every platform,
+- **Fonts**: Inter for text, JetBrains Mono for `font-mono` (hashes, paths, code) and never for the words around
+  code: "New API: getRightEdgeLineEnds" sets the name in the code font and its label in Inter. `calt` is off so `->`
+  stays two characters; `body` is `antialiased`. JetBrains Mono, not the system `ui-monospace`: it is the same on every platform,
   matches Inter's metrics (SF Mono is 4% lower and exists only on macOS), and is the font of the IntelliJ editor the
   code comes from.
 - **Density** is the IntelliJ list density:

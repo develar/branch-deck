@@ -10,6 +10,7 @@ import { ContractParagraphView } from "@/components/review/ContractParagraphView
 import { MessageChangeView } from "@/components/review/MessageChangeView"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
+import { BreakableCode } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
 import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { RowCardState } from "@/components/shared/RowCard"
@@ -325,7 +326,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
           data-testid="review-contents-step-title"
           onClick={() => onShow?.()}
         >
-          {step.title}
+          {step.code ? <BreakableCode text={step.title} /> : step.title}
         </button>
       </span>
       <div className="flex min-w-0 flex-col gap-1">

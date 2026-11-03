@@ -2,6 +2,7 @@ import { Fragment } from "react"
 import { cn } from "cn"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBody, SubjectBefore } from "@/components/review/StoryBody"
+import { BreakableCode } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
 import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { OpeningView } from "@/presenters/review-story"
@@ -38,7 +39,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium", opening.titleInBody && "sr-only")}
           data-testid="review-opening-title"
         >
-          {opening.title}
+          {opening.code ? <BreakableCode text={opening.title} /> : opening.title}
         </span>
       </button>
       {opening.subjectBefore !== null && <SubjectBefore subject={opening.subjectBefore} />}

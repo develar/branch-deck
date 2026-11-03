@@ -10,6 +10,7 @@ import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { FileContextMenu } from "@/components/files/FileContextMenu"
 import { FilePathLabel } from "@/components/files/FilePathLabel"
 import { FileRowMark } from "@/components/files/FileRowMark"
+import { BreakableCode } from "@/components/shared/CodeText"
 import { LazyContextMenu } from "@/components/shared/LazyContextMenu"
 import { MoreActionsMenu } from "@/components/shared/MoreActionsMenu"
 import type { RowCardState } from "@/components/shared/RowCard"
@@ -673,14 +674,16 @@ function DirectoryRowContent({
           "min-w-0 flex-1",
           // the title of a step or a task wraps to a second line, never cut at the width of the sidebar; a path is cut
           node.group === "concern" ? "line-clamp-2 font-medium [overflow-wrap:anywhere]" : "truncate",
-          node.code === true && "font-mono text-xs leading-5",
+          // a code name at the size of the row: JetBrains Mono has the x-height of Inter (docs/design/ui-theme.md)
+          node.code === true && "font-mono",
         )}
         // the card of a commit says its subject and hash: no native hover over it
         title={titleHover === undefined ? groupTitle(node) : undefined}
         data-group={node.group}
         {...titleHover}
       >
-        {node.name}
+        {/* a code name wraps at its dots, never inside a word */}
+        {node.code === true ? <BreakableCode text={node.name} /> : node.name}
       </span>
       {ownerMark !== null && (
         <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">

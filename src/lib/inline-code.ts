@@ -19,3 +19,18 @@ const CODE_BREAK = /(?<=[^/.])(?=\/)|(?<=[^.])(?=\.(?![./]|\w{1,4}$))/
 export function splitCodeAtBreaks(content: string): string[] {
   return content.split(CODE_BREAK)
 }
+
+// the punctuation that touches code and must not start a line without it (closing marks, the end of a sentence) or end
+// a line before it (opening marks)
+const GLUE_AFTER = /^[,.;:!?)\]}”’»…]+/
+const GLUE_BEFORE = /[([{“‘«]+$/
+
+/** The punctuation the prose after a span of code starts with, which stays on the line of the code: `), ` → `),` */
+export function glueAfter(prose: string): string {
+  return GLUE_AFTER.exec(prose)?.[0] ?? ""
+}
+
+/** The opening marks the prose before a span of code ends with, which stay on the line of the code: ` (` → `(` */
+export function glueBefore(prose: string): string {
+  return GLUE_BEFORE.exec(prose)?.[0] ?? ""
+}
