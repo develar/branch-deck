@@ -7,12 +7,14 @@ import type {
   Mention,
   MentionTarget,
   MessageChange,
+  ProseChange,
   ReviewPlan,
   ReviewStep,
   ReviewUnit,
   StepSource,
   StoryCommit,
   StoryPart,
+  TextRange,
 } from "@/lib/bindings"
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
@@ -396,28 +398,46 @@ export interface ContentsStep {
   readonly lookClosely: readonly { readonly story: StoryView; readonly part: BodyPart }[]
 }
 
-/** A file of What Changes: its kind and path once, then each changed block of it */
+/** A file of What Changes: its kind and path once, then each section of it the change touches */
 export interface ContractFile {
   readonly key: string
   readonly path: string
   /** "Spec rule", "Decision", "Agent guide", "Doc" */
   readonly kind: string
+  /** Its sections, each its heading once with the paragraphs the change adds, removes or changes under it */
   readonly entries: readonly {
     readonly key: string
     /** The heading of its section of Markdown */
     readonly heading: string | null
-    /** Its paragraphs, each with its spans of code as Rust found them */
-    readonly paragraphs: readonly ProseParagraph[]
-    readonly removed: readonly ProseParagraph[]
+    readonly paragraphs: readonly ContractParagraph[]
     /** "Proven by restart.json" */
     readonly provenBy: string | null
   }[]
 }
 
-/** A paragraph of prose with its spans of code as Rust found them (`sync_utils::code_spans`) */
-export interface ProseParagraph {
+/**
+ * A paragraph of What Changes, whole (`ProseParagraph`): its text with its spans of code and its links as Rust found
+ * them, what the change did to it (`null` for a note of the brief: "Deleted", the description of a new spec without
+ * one), and of a long one changed in a few places the sentences shown until it opens whole
+ */
+export interface ContractParagraph {
+  readonly key: string
   readonly text: string
   readonly code: readonly CodeSpan[]
+  readonly links: readonly ProseLinkView[]
+  readonly change: ProseChange | null
+  readonly excerpt: TextRange | null
+}
+
+/**
+ * A link of a paragraph of prose: the range of its text and where a click goes, a changed file of the review at its top
+ * (`place`) or a page (`href`); neither for a file the review does not show, which stays text
+ */
+export interface ProseLinkView {
+  readonly start: number
+  readonly end: number
+  readonly place: ReviewPlace | null
+  readonly href: string | null
 }
 
 /** A commit the overview says was rewritten or reworded since the review */
@@ -519,27 +539,7 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     }
   })
   const since = plan.interdiff === null ? null : formatSinceReview(plan.interdiff)
-  const contract: { key: string; path: string; kind: string; entries: ContractFile["entries"][number][] }[] = []
-  plan.brief.contract.forEach((entry, index) => {
-    const entryView = {
-      key: `${entry.unit}:${entry.block ?? "file"}:${index}`,
-      heading: entry.heading,
-      paragraphs:
-        entry.newSpec !== null
-          ? [{ text: entry.newSpec.description ?? `A new spec of ${entry.newSpec.rules} rules`, code: [] }]
-          : entry.deleted
-            ? [{ text: "Deleted", code: [] }]
-            : entry.added.map((text, index) => ({ text, code: entry.addedCode[index] ?? [] })),
-      removed: entry.removed.map((text, index) => ({ text, code: entry.removedCode[index] ?? [] })),
-      provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}`,
-    }
-    const last = contract.at(-1)
-    if (last?.path === entry.path) {
-      last.entries.push(entryView)
-    } else {
-      contract.push({ key: entryView.key, path: entry.path, kind: CONTRACT_WORDS[entry.kind], entries: [entryView] })
-    }
-  })
+  const contract = presentContract(plan)
   const breakage = presentBreakage(plan.api, pending)
   return {
     issue: plan.brief.issue,
@@ -568,6 +568,62 @@ export function presentPrologue(plan: ReviewPlan, pending: boolean): PrologueVie
     // folded under Possible Breakage where the overview lists an entry of it, the uses it tells of
     indexNote: plan.indexNote === null ? null : { text: `Uses unknown: ${plan.indexNote}`, underBreakage: breakage.entries.length > 0 },
   }
+}
+
+/** A note of the brief in place of paragraphs: of a spec the commits add, of a file they delete */
+function contractNote(key: string, text: string): ContractParagraph {
+  return { key, text, code: [], links: [], change: null, excerpt: null }
+}
+
+/**
+ * What Changes of `plan` (`ReviewBrief.contract`): one header per file, under it each section the change touches, its
+ * heading once (the entries of one section, which Rust tells apart by their blocks, one), its paragraphs whole; a link
+ * of a paragraph shows a changed file of the review or opens a page
+ */
+function presentContract(plan: Pick<ReviewPlan, "brief" | "files">): ContractFile[] {
+  const shown = new Set(plan.files.flatMap(file => (file.oldPath === null ? [file.path] : [file.path, file.oldPath])))
+  const files: { key: string; path: string; kind: string; entries: { key: string; heading: string | null; paragraphs: ContractParagraph[]; provenBy: string[] }[] }[] = []
+  plan.brief.contract.forEach((entry, index) => {
+    const key = `${entry.unit}:${entry.blocks[0] ?? "file"}:${index}`
+    const paragraphs =
+      entry.newSpec !== null
+        ? [
+            entry.newSpec.description === null
+              ? contractNote(`${key}:0`, `A new spec of ${entry.newSpec.rules} rules`)
+              : { ...contractNote(`${key}:0`, entry.newSpec.description), change: { kind: "added" as const } },
+          ]
+        : entry.deleted
+          ? [contractNote(`${key}:0`, "Deleted")]
+          : entry.paragraphs.map((paragraph, at): ContractParagraph => ({
+              key: `${key}:${at}`,
+              text: paragraph.text,
+              code: paragraph.code,
+              links: paragraph.links.map(link => ({
+                start: link.start,
+                end: link.end,
+                place: shown.has(link.target) ? fileTop(link.target) : null,
+                href: link.target.includes("://") || link.target.startsWith("mailto:") ? link.target : null,
+              })),
+              change: paragraph.change,
+              excerpt: paragraph.excerpt,
+            }))
+    let file = files.at(-1)
+    if (file?.path !== entry.path) {
+      file = { key, path: entry.path, kind: CONTRACT_WORDS[entry.kind], entries: [] }
+      files.push(file)
+    }
+    const section = file.entries.at(-1)
+    if (section !== undefined && section.heading === entry.heading) {
+      section.paragraphs.push(...paragraphs)
+      section.provenBy.push(...entry.provenBy.filter(test => !section.provenBy.includes(test)))
+    } else {
+      file.entries.push({ key, heading: entry.heading, paragraphs, provenBy: [...entry.provenBy] })
+    }
+  })
+  return files.map(file => ({
+    ...file,
+    entries: file.entries.map(entry => ({ ...entry, provenBy: entry.provenBy.length === 0 ? null : `Proven by ${names(entry.provenBy.map(fileName))}` })),
+  }))
 }
 
 /** The facts of every step of `plan` as one: of a range whose contents list no step; null without a fact */

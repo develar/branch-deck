@@ -92,7 +92,8 @@ export interface BodyPartsViewProps {
  * a verification section always, the author's Look closely never. The text is the foreground's: no part of the
  * author's words is muted, but what a story's body removed since the review, struck through where Rust placed it
  * beside the blocks it added (`PlacedBlock.added`, `BodyPart.removed`). Code tokens are set in the monospace font; the text is selectable, and a click in it does
- * not change the row selection; a line at `max-w-prose` (65ch, about 80 characters)
+ * not change the row selection; a line of a card or a preview at `max-w-prose` (65ch, about 80 characters), of a story
+ * at the measure of the column of its document (`ReadingColumn`)
  */
 export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = [], empty, testId = "commit-message-body", commit }: BodyPartsViewProps) {
   const text = rendering.text ?? codeTextOf(parts)
@@ -106,10 +107,12 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
       data-commit={commit}
       // ss04: distinct I, l and 1 in identifiers, without ss02's slashed zero in prose numbers
       className={cn(
-        "flex max-w-prose min-w-0 cursor-text flex-col [font-feature-settings:'ss04'] text-foreground select-text",
-        size === "reading" ? "gap-4 pb-1 text-md" : "gap-3 text-sm",
-        size === "nested" && "gap-2.5",
-        size === "card" && "pb-1 [&_pre]:text-xs",
+        "flex min-w-0 cursor-text flex-col [font-feature-settings:'ss04'] text-foreground select-text",
+        // a story is read in the column of its document, which measures it; a card and a preview measure themselves
+        size === "reading" && "max-w-prose gap-4 pb-1 text-md",
+        size === "story" && "gap-4 text-md",
+        size === "nested" && "gap-2.5 text-md",
+        size === "card" && "max-w-prose gap-3 pb-1 text-sm [&_pre]:text-xs",
       )}
       // the opening of a step is no row
       onClick={size === "story" || size === "nested" ? undefined : event => event.stopPropagation()}
@@ -117,7 +120,8 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
       {empty}
       {lead !== null && (
         // a removed lead stands with the lead that replaced it: a column only then, so a body as it was stays as it was
-        <div data-testid="commit-body-lead" className={cn(parts.leadRemoved !== undefined && "flex min-w-0 flex-col gap-2", size === "story" && "text-md") || undefined}>
+        // the lead of a story a step larger than its text: a title read in its paragraph (`titleInBody`) reads as one
+        <div data-testid="commit-body-lead" className={cn(parts.leadRemoved !== undefined && "flex min-w-0 flex-col gap-2", size === "story" && "text-base") || undefined}>
           {removedAt(parts.leadRemoved, lead.index)}
           {place(lead.index, null, <PlacedBlockView placed={lead} text={text(lead.index)} />)}
           {removedAt(parts.leadRemoved, null)}

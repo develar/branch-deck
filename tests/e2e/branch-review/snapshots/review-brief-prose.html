@@ -1,0 +1,132 @@
+<div class="flex flex-col gap-2" data-testid="review-brief-contract">
+  <div class="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+    <span class="truncate">
+      What Changes
+    </span>
+  </div>
+  <ul class="flex flex-col gap-5">
+    <li class="flex min-w-0 flex-col gap-3" data-path="spec/focus.spec.md" data-testid="review-brief-contract-entry">
+      <span class="flex min-w-0 items-center gap-2 text-xs">
+        <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
+          Spec rule
+        </span>
+        <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="spec/focus.spec.md" data-testid="review-brief-contract-file" title="spec/focus.spec.md" type="button">
+          <span class="text-muted-foreground">
+            spec/focus.spec.md
+          </span>
+        </button>
+      </span>
+      <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+        <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <h3 class="min-w-0 font-semibold">
+            Requirements
+          </h3>
+        </div>
+        <p class="-ml-3 border-l-2 border-success pl-2.5" data-change="added" data-testid="review-brief-paragraph">
+          <span class="sr-only">
+            Added:
+          </span>
+          <span>
+            <span>
+              The focus survives a restart.
+            </span>
+          </span>
+        </p>
+      </div>
+    </li>
+    <li class="flex min-w-0 flex-col gap-3" data-path="spec/window.spec.md" data-testid="review-brief-contract-entry">
+      <span class="flex min-w-0 items-center gap-2 text-xs">
+        <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
+          Spec rule
+        </span>
+        <button class="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline" data-path="spec/window.spec.md" data-testid="review-brief-contract-file" title="spec/window.spec.md" type="button">
+          <span class="text-muted-foreground">
+            spec/window.spec.md
+          </span>
+        </button>
+      </span>
+      <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+        <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <h3 class="min-w-0 font-semibold">
+            Storage
+          </h3>
+        </div>
+        <p data-change="changed" data-testid="review-brief-paragraph">
+          <span>
+            <span>
+              The window keeps its layout in a file of the IDE in the config directory, not in the project, so a checkout of another branch never changes it. The file holds the tool windows of each project: their side, their size
+            </span>
+          </span>
+          <span>
+            <del class="me-0.5 text-muted-foreground decoration-destructive/70" data-testid="review-brief-deleted">
+              and
+            </del>
+            <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
+              <span>
+                ,
+              </span>
+            </ins>
+          </span>
+          <span>
+            <span>
+              their order
+            </span>
+          </span>
+          <span>
+            <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
+              <span>
+                and the tool window in focus
+              </span>
+            </ins>
+          </span>
+          <span>
+            <span>
+              . It is written when the window closes, and read once when it opens. A file that cannot be read is renamed aside, and the window opens with the default layout.
+            </span>
+          </span>
+        </p>
+        <p data-change="changed" data-testid="review-brief-paragraph">
+          <span>
+            <span>
+              The store keeps at most 500 projects. A write above the bound drops the layouts of the projects with the oldest open
+            </span>
+          </span>
+          <span>
+            <ins class="rounded-xs bg-success/15 no-underline ring-1 ring-success/15" data-testid="review-brief-inserted">
+              <span>
+                that pin no tool window
+              </span>
+            </ins>
+          </span>
+          <span>
+            <span>
+              .
+            </span>
+          </span>
+        </p>
+        <p class="-ml-3 border-l-2 border-success pl-2.5" data-change="added" data-testid="review-brief-paragraph">
+          <span class="sr-only">
+            Added:
+          </span>
+          <span>
+            <span>
+              The focus of a tool window is a fact the window derives from the last click.
+            </span>
+          </span>
+          <span>
+            <button class="rounded-sm underline decoration-muted-foreground/50 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30 text-left" data-path="spec/focus.spec.md" data-testid="review-brief-link" type="button">
+              <span>
+                Window Focus
+              </span>
+            </button>
+          </span>
+          <span>
+            <span>
+              owns its rules.
+            </span>
+          </span>
+        </p>
+      </div>
+    </li>
+  </ul>
+</div>

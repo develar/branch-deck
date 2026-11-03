@@ -1914,14 +1914,17 @@ export type ConflictFix = {
 	trials: number,
 };
 
-/**  A change of a file of prose: one block of it, or the file added or deleted whole */
+/**  A change of a file of prose: the paragraphs of one place of it, or the file added or deleted whole */
 export type ContractEntry = {
 	kind: ContractKind,
 	/**  `ReviewUnit::id`, to open it */
 	unit: string,
 	path: string,
-	/**  The block of the unit's slice it is, `None` for a file added or deleted whole */
-	block: number | null,
+	/**
+	 *  The blocks of the unit's slice it holds (the blocks whose paragraphs meet are one entry), none for a file added or
+	 *  deleted whole
+	 */
+	blocks: number[],
 	/**  The heading of the section of Markdown above it (`#`), after the commits, before them for a removal alone */
 	heading: string | null,
 	/**  A spec the commits add: its `description:` and its rules */
@@ -1929,17 +1932,11 @@ export type ContractEntry = {
 	/**  The commits delete the file */
 	deleted: boolean,
 	/**
-	 *  Its paragraphs after the commits that the block adds or changes, each its lines joined, without the markers of
-	 *  a list and the `[@test]` lines
+	 *  The whole paragraphs its blocks add, remove or change, in their order, without the markers of a list and the
+	 *  `[@test]` lines (`prose::prose_changes`): a paragraph wrapped anew is none
 	 */
-	added: string[],
-	/**  The spans of code of each paragraph of `added` (`sync_utils::code_spans`), the grammar the page sets code by */
-	addedCode: CodeSpan[][],
-	/**  Its paragraphs before the commits that the block removes or changes */
-	removed: string[],
-	/**  The spans of code of each paragraph of `removed` */
-	removedCode: CodeSpan[][],
-	/**  The tests the `[@test]` lines it adds name, by the path they give */
+	paragraphs: ProseParagraph[],
+	/**  The tests the `[@test]` lines its blocks add name, by the path they give */
 	provenBy: string[],
 };
 
@@ -5565,6 +5562,54 @@ export type ProfileChoice =
 /**  The default checks of the target */
 { kind: "none" };
 
+/**  What the commits did to a paragraph */
+export type ProseChange = 
+/**  A paragraph the commits add */
+{ kind: "added" } | 
+/**  A paragraph the commits remove */
+{ kind: "removed" } | 
+/**
+ *  A paragraph the commits change in places, the rest of its words kept: the ranges of `text` they wrote and the
+ *  words they removed, each at the offset of `text` it stood before
+ */
+{ kind: "changed"; inserted: TextRange[]; deleted: ProseDeletion[] };
+
+/**  Words the commits removed from a changed paragraph */
+export type ProseDeletion = {
+	/**  The offset of `ProseParagraph::text` they stood before */
+	at: number,
+	text: string,
+};
+
+/**
+ *  A link of Markdown in a paragraph: the range of its text and its target, a path of the repository resolved against
+ *  the file of the paragraph (its `#anchor` dropped) or a URL as written
+ */
+export type ProseLink = {
+	start: number,
+	end: number,
+	target: string,
+};
+
+/**  A paragraph of prose the commits add, remove or change */
+export type ProseParagraph = {
+	/**
+	 *  Its text after the commits, its lines joined, without the marker of its item, a link as its text; of a removed
+	 *  paragraph its text before them
+	 */
+	text: string,
+	/**  Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by */
+	code: CodeSpan[],
+	/**  Its links of Markdown (`[text](target)`), each the range of its text in `text` */
+	links: ProseLink[],
+	change: ProseChange,
+	/**
+	 *  Of a long paragraph changed in a few places, the range of `text` of the sentences that hold its changes, which the
+	 *  page shows until the reader opens the paragraph whole; `None` shows it whole
+	 */
+	excerpt: TextRange | null,
+};
+
 /**  A GitHub pull request of a virtual branch, as the search of the user's pull requests reports it */
 export type PullRequest = {
 	number: number,
@@ -8727,6 +8772,12 @@ export type TextMerge = {
 	leftScopes: Scope[],
 	baseScopes: Scope[],
 	rightScopes: Scope[],
+};
+
+/**  A range of a text: UTF-16 code units, the end excluded, as the spans of code count */
+export type TextRange = {
+	start: number,
+	end: number,
 };
 
 /**  Where the user's robot time went, seconds */

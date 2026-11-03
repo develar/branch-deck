@@ -50,6 +50,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use sync_utils::commit_body::{commit_body, story_lines};
 use sync_utils::commit_subject::stripped_subject;
+use sync_utils::issue_pattern::leading_issue_keys;
 use trial_check::diff_scan::CommitDiff;
 use trial_check::symbol_scan::SymbolInput;
 
@@ -454,10 +455,19 @@ fn body_words(body: &str) -> usize {
 
 /// The title of a commit wherever the review names it (the row of its step, the opening, the contents, a card): its
 /// subject without the `(prefix)` that groups it and, before what is left, the issue key the brief names already, with
-/// a `:`, `,` or dash after it; in the case its author wrote it, never capitalised. A subject of the key alone keeps it
+/// a `:`, `,` or dash after it, also from among the keys the subject starts with (`IJAI-1184 IJAI-5640 Air …` keeps
+/// `IJAI-1184`); in the case its author wrote it, never capitalised. A subject of the key alone keeps it
 pub(crate) fn commit_title(subject: &str, issue: Option<&str>) -> String {
   let stripped = stripped_subject(subject);
   let subject = stripped.trim();
+  // the issue among the keys the subject starts with, not the first of them: it goes with the space after it
+  let keys = leading_issue_keys(subject);
+  if let Some(issue) = issue
+    && let Some(&(start, end)) = keys.iter().skip(1).find(|(start, end)| &subject[*start..*end] == issue)
+  {
+    let after = subject[end..].trim_start_matches([' ', ',']);
+    return format!("{}{after}", &subject[..start]);
+  }
   let rest = issue
     .and_then(|issue| subject.strip_prefix(issue))
     .filter(|rest| rest.is_empty() || rest.starts_with([' ', ':', ',', '-', '\u{2013}', '\u{2014}']))
@@ -1128,10 +1138,11 @@ fn code_of(input: &StepsInput<'_>, step: &ReviewStep) -> (Vec<StepCode>, Vec<Str
     .contract
     .iter()
     .filter(|entry| {
-      step
-        .stops
-        .iter()
-        .any(|stop| stop.unit == entry.unit && stop.path == entry.path && entry.block.is_none_or(|block| stop.blocks.as_ref().is_none_or(|blocks| blocks.contains(&block))))
+      step.stops.iter().any(|stop| {
+        stop.unit == entry.unit
+          && stop.path == entry.path
+          && (entry.blocks.is_empty() || stop.blocks.as_ref().is_none_or(|blocks| entry.blocks.iter().any(|block| blocks.contains(block))))
+      })
     })
     .flat_map(|entry| entry.proven_by.iter().cloned())
     .collect::<BTreeSet<String>>()

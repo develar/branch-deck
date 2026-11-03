@@ -4,12 +4,11 @@
 //! process: the texts of these files are in the memory of the plan.
 
 use crate::files::{ChangedFile, blob_lines, lines_in};
+use crate::prose::{ProseParagraph, paragraph_spans, paragraphs, prose_changes};
 use crate::units::{OtherReason, ReviewUnit, UnitKind};
-use domain_types::commit_body::CodeSpan;
 use serde::Serialize;
 use std::collections::HashMap;
-use sync_utils::code_spans::code_spans;
-use sync_utils::issue_pattern::find_issue_number;
+use sync_utils::issue_pattern::leading_issue_keys;
 
 /// The brief of a review
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -39,7 +38,7 @@ pub enum ContractKind {
   Doc,
 }
 
-/// A change of a file of prose: one block of it, or the file added or deleted whole
+/// A change of a file of prose: the paragraphs of one place of it, or the file added or deleted whole
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -49,24 +48,19 @@ pub struct ContractEntry {
   /// `ReviewUnit::id`, to open it
   pub unit: String,
   pub path: String,
-  /// The block of the unit's slice it is, `None` for a file added or deleted whole
-  pub block: Option<u32>,
+  /// The blocks of the unit's slice it holds (the blocks whose paragraphs meet are one entry), none for a file added or
+  /// deleted whole
+  pub blocks: Vec<u32>,
   /// The heading of the section of Markdown above it (`#`), after the commits, before them for a removal alone
   pub heading: Option<String>,
   /// A spec the commits add: its `description:` and its rules
   pub new_spec: Option<NewSpec>,
   /// The commits delete the file
   pub deleted: bool,
-  /// Its paragraphs after the commits that the block adds or changes, each its lines joined, without the markers of
-  /// a list and the `[@test]` lines
-  pub added: Vec<String>,
-  /// The spans of code of each paragraph of `added` (`sync_utils::code_spans`), the grammar the page sets code by
-  pub added_code: Vec<Vec<CodeSpan>>,
-  /// Its paragraphs before the commits that the block removes or changes
-  pub removed: Vec<String>,
-  /// The spans of code of each paragraph of `removed`
-  pub removed_code: Vec<Vec<CodeSpan>>,
-  /// The tests the `[@test]` lines it adds name, by the path they give
+  /// The whole paragraphs its blocks add, remove or change, in their order, without the markers of a list and the
+  /// `[@test]` lines (`prose::prose_changes`): a paragraph wrapped anew is none
+  pub paragraphs: Vec<ProseParagraph>,
+  /// The tests the `[@test]` lines its blocks add name, by the path they give
   pub proven_by: Vec<String>,
 }
 
@@ -82,21 +76,22 @@ pub struct NewSpec {
   pub rules: u32,
 }
 
-/// The issue key the subjects of `messages` name (`ReviewBrief::issue`)
+/// The issue key the subjects of `messages` name (`ReviewBrief::issue`): of the keys a subject starts with
+/// (`leading_issue_keys`: `IJAI-1184 IJAI-5640 …` names both), the one every subject that starts with a key names,
+/// named by half of the subjects at least; the first such key of the first subject when several are
 pub(crate) fn shared_issue<'a>(messages: impl Iterator<Item = &'a str>) -> Option<String> {
-  let (mut count, mut keyed, mut key): (usize, usize, Option<&str>) = (0, 0, None);
-  for message in messages {
-    count += 1;
-    let Some(found) = find_issue_number(message.lines().next().unwrap_or_default()) else {
-      continue;
-    };
-    if key.is_some_and(|key| key != found) {
-      return None;
-    }
-    key = Some(found);
-    keyed += 1;
-  }
-  key.filter(|_| keyed * 2 >= count).map(str::to_string)
+  let subjects: Vec<&str> = messages.map(|message| message.lines().next().unwrap_or_default()).collect();
+  let keys: Vec<Vec<&str>> = subjects
+    .iter()
+    .map(|subject| leading_issue_keys(subject).into_iter().map(|(start, end)| &subject[start..end]).collect())
+    .filter(|keys: &Vec<&str>| !keys.is_empty())
+    .collect();
+  let first = keys.first()?;
+  first
+    .iter()
+    .find(|key| keys.iter().all(|named| named.contains(key)))
+    .filter(|_| keys.len() * 2 >= subjects.len())
+    .map(|key| (*key).to_string())
 }
 
 /// The kind of the file of prose at `path`, `None` for another file
@@ -138,56 +133,58 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
         slice.path.rsplit_once('.').map(|(_, extension)| extension.to_ascii_lowercase()).as_deref(),
         Some("md" | "markdown")
       );
-      let entry = |block: Option<u32>| ContractEntry {
+      let entry = |blocks: Vec<u32>| ContractEntry {
         kind,
         unit: unit.id.clone(),
         path: slice.path.clone(),
-        block,
+        blocks,
         heading: None,
         new_spec: None,
         deleted: false,
-        added: Vec::new(),
-        added_code: Vec::new(),
-        removed: Vec::new(),
-        removed_code: Vec::new(),
+        paragraphs: Vec::new(),
         proven_by: Vec::new(),
       };
       match unit.kind {
         UnitKind::NewFile => {
-          let mut added = entry(None);
+          let mut added = entry(Vec::new());
           if kind == ContractKind::Spec {
             added.new_spec = Some(new_spec(&new));
           } else {
-            let (paragraphs, proven_by) = paragraphs(&new);
-            added.added = paragraphs.into_iter().take(1).collect();
+            let (texts, proven_by) = paragraphs(&new);
+            added.paragraphs = prose_changes(&[], &texts[..texts.len().min(1)], &slice.path, |_| true);
             added.proven_by = proven_by;
           }
           contract.push(added);
         }
         UnitKind::DeletedFile => {
-          let mut deleted = entry(None);
+          let mut deleted = entry(Vec::new());
           deleted.deleted = true;
           contract.push(deleted);
         }
         _ => {
-          for block in &slice.blocks {
-            let mut changed = entry(Some(block.index));
-            let (added, proven_by) = paragraphs(&lines_in(&new, block.new_start..block.new_end));
-            let (removed, _) = paragraphs(&lines_in(&old, block.old_start..block.old_end));
+          // of a doc, only prose tells what changed: a line of a value (`dark: #88aaff`) says nothing beside the
+          // heading of its section, which names the change then
+          let doc = kind == ContractKind::Doc;
+          for (old_range, new_range, blocks) in paragraph_spans(&old, &new, &slice.blocks) {
+            let mut changed = entry(blocks.clone());
+            let (before, _) = paragraphs(&old[old_range.clone()]);
+            let (after, _) = paragraphs(&new[new_range.clone()]);
             changed.heading = if !markdown {
               None
-            } else if block.new_end > block.new_start {
-              heading_above(&new, block.new_start)
+            } else if !new_range.is_empty() {
+              heading_above(&new, u32::try_from(new_range.start).unwrap_or(u32::MAX))
             } else {
-              heading_above(&old, block.old_start)
+              heading_above(&old, u32::try_from(old_range.start).unwrap_or(u32::MAX))
             };
-            // of a doc, only prose tells what changed: a line of a value (`dark: #88aaff`) says nothing beside the
-            // heading of its section, which names the change then
-            let doc = kind == ContractKind::Doc;
-            changed.added = added.into_iter().filter(|paragraph| !doc || reads_as_prose(paragraph)).collect();
-            changed.removed = removed.into_iter().filter(|paragraph| !doc || reads_as_prose(paragraph)).collect();
-            changed.proven_by = proven_by;
-            if !changed.added.is_empty() || !changed.removed.is_empty() || !changed.proven_by.is_empty() || (doc && changed.heading.is_some()) {
+            changed.paragraphs = prose_changes(&before, &after, &slice.path, |text| !doc || reads_as_prose(text));
+            // the tests of the `[@test]` lines the blocks add, not of the ones the widened paragraphs kept
+            changed.proven_by = slice
+              .blocks
+              .iter()
+              .filter(|it| blocks.contains(&it.index))
+              .flat_map(|it| paragraphs(&lines_in(&new, it.new_start..it.new_end)).1)
+              .collect();
+            if !changed.paragraphs.is_empty() || !changed.proven_by.is_empty() || (doc && changed.heading.is_some()) {
               contract.push(changed);
             }
           }
@@ -197,10 +194,6 @@ pub(crate) fn review_brief<'a>(messages: impl Iterator<Item = &'a str>, units: &
   }
   // by rank; the order of the units, the story, within one
   contract.sort_by_key(|entry| entry.kind);
-  for entry in &mut contract {
-    entry.added_code = entry.added.iter().map(|paragraph| code_spans(paragraph)).collect();
-    entry.removed_code = entry.removed.iter().map(|paragraph| code_spans(paragraph)).collect();
-  }
   ReviewBrief {
     issue: shared_issue(messages),
     contract,
@@ -215,44 +208,6 @@ fn heading_above(lines: &[&str], line: u32) -> Option<String> {
     .rev()
     .find(|text| text.starts_with('#'))
     .map(|text| text.trim_start_matches('#').trim().to_string())
-}
-
-/// The paragraphs of `lines`: a blank line, a heading and the start of an item of a list end one; each its lines
-/// joined by a space, without the marker of its item; the `[@test]` lines apart, as the paths they name
-fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
-  let (mut paragraphs, mut proven_by) = (Vec::new(), Vec::new());
-  let mut current = String::new();
-  let mut flush = |current: &mut String| {
-    if !current.is_empty() {
-      paragraphs.push(std::mem::take(current));
-    }
-  };
-  for line in lines {
-    let trimmed = line.trim();
-    if let Some(test) = trimmed.strip_prefix("[@test]") {
-      if let Some(path) = test.split_whitespace().next() {
-        proven_by.push(path.trim_start_matches("../").to_string());
-      }
-      continue;
-    }
-    let item = ["- ", "* ", "+ "].iter().find_map(|marker| trimmed.strip_prefix(marker)).or_else(|| {
-      let digits = trimmed.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
-      (digits > 0).then(|| trimmed[digits..].strip_prefix(". ")).flatten()
-    });
-    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("```") || item.is_some() {
-      flush(&mut current);
-    }
-    let text = item.unwrap_or(trimmed);
-    if text.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("```") {
-      continue;
-    }
-    if !current.is_empty() {
-      current.push(' ');
-    }
-    current.push_str(text);
-  }
-  flush(&mut current);
-  (paragraphs, proven_by)
 }
 
 /// Whether a paragraph reads as prose: three words or more of letters alone, its punctuation aside, that are no key

@@ -3,6 +3,7 @@ import { cn } from "cn"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBody, SubjectBefore } from "@/components/review/StoryBody"
 import { Disclosure } from "@/components/shared/Disclosure"
+import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { OpeningView } from "@/presenters/review-story"
 
 /**
@@ -19,12 +20,12 @@ import type { OpeningView } from "@/presenters/review-story"
 export function ChapterOpening({ opening, group, onShowStep }: { opening: OpeningView; group: string | null; onShowStep: ((step: string) => void) | undefined }) {
   const { facts } = opening
   return (
-    <div className="flex min-w-0 flex-col gap-3 px-1" data-testid="review-opening" data-step={opening.id}>
+    <ReadingColumn className="gap-3 px-1" data-testid="review-opening" data-step={opening.id}>
       <button
         type="button"
         data-testid="review-concern-heading"
         data-step={opening.id}
-        className="flex max-w-prose min-w-0 flex-col items-start gap-0.5 self-start rounded-sm text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30 [&:hover>span:last-child]:underline"
+        className="flex min-w-0 flex-col items-start gap-0.5 self-start rounded-sm text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/30 [&:hover>span:last-child]:underline"
         onClick={() => onShowStep?.(opening.id)}
       >
         <span className="text-xs font-medium text-muted-foreground" data-testid="review-opening-number">
@@ -48,7 +49,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
             <li key={commit.id} data-testid={commit.story === null ? "review-opening-commit-row" : "review-opening-follow-up"}>
               {commit.story === null ? (
                 // no story to open: no chevron, its title in the place of the title of a disclosure
-                <span className="flex max-w-prose min-w-0 items-baseline gap-1 pl-[1.125rem]">
+                <span className="flex min-w-0 items-baseline gap-1 pl-[1.125rem]">
                   <span className="shrink-0 text-muted-foreground">{commit.role}</span>
                   <span className="min-w-0" data-testid="review-opening-commit">
                     {commit.title}
@@ -69,7 +70,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         </span>
       )}
       {opening.evidence.length > 0 && (
-        <p className="max-w-prose text-xs text-muted-foreground" data-testid="review-opening-evidence">
+        <p className="text-xs text-muted-foreground" data-testid="review-opening-evidence">
           {opening.evidence.map((part, index) => (
             <Fragment key={part.words}>
               {index > 0 && " · "}
@@ -90,6 +91,6 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
           {group}
         </span>
       )}
-    </div>
+    </ReadingColumn>
   )
 }

@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 15` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 16` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -28,7 +28,11 @@
 //! of the told bodies that name it), the `shownElsewhere` units of a step, the state `reworded` of a commit whose lines
 //! are as reviewed and whose message is not, the `message_change` of a reworded or rewritten commit, the `change` of a
 //! story and the `removals` of its parts, the source `message` of the steps of one commit whose body tells its parts by
-//! their code, and the `titleSource` of a step
+//! their code, and the `titleSource` of a step;
+//! version 16 (after 0.44.0) the `paragraphs` of an entry of the brief (`review_plan::prose`: whole paragraphs, each
+//! `added`, `removed` or `changed` by word with its `inserted` and `deleted` words, its `code`, its `links` and the
+//! `excerpt` of a long one) in place of its `added`, `addedCode`, `removed` and `removedCode`, and its `blocks` in place
+//! of its `block`
 
 use crate::mark_reviewed_command::refused;
 use bd_core::context::RepoContext;
@@ -53,7 +57,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 15;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 16;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]

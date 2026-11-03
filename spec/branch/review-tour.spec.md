@@ -7,6 +7,7 @@ targets:
   - ../../crates/review-plan/src/message_steps.rs
   - ../../crates/review-plan/src/story.rs
   - ../../crates/review-plan/src/brief.rs
+  - ../../crates/review-plan/src/prose.rs
   - ../../crates/review-plan/src/interdiff.rs
   - ../../crates/review-plan/src/lib.rs
   - ../../crates/bd-rewrite/src/review_plan_command.rs
@@ -14,6 +15,8 @@ targets:
   - ../../src/presenters/review-story.ts
   - ../../src/components/review/ReviewPrologue.tsx
   - ../../src/components/review/ChapterOpening.tsx
+  - ../../src/components/review/ContractParagraphView.tsx
+  - ../../src/components/shared/ReadingColumn.tsx
   - ../../src/components/review/StoryBody.tsx
   - ../../src/presenters/commit-body.ts
   - ../../src/components/review/StepFactsLine.tsx
@@ -100,7 +103,8 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
   with its title; its body is told once, in the story of the commits ([The Story of a Commit](#the-story-of-a-commit)).
   Rust titles every commit it names (`StepCommit.title`, `StoryCommit.title`) and a step of the commits by the commit
   that starts it (`ReviewStep.title`): its subject without the `(prefix)` and the issue key the brief names, with a
-  `:`, `,` or dash after it, in the case its author wrote it, never capitalised, so the tree, the contents, the
+  `:`, `,` or dash after it, also from among the keys the subject starts with, the others kept (`IJAI-1184 IJAI-5640
+  Air records…` is `IJAI-1184 Air records…`), in the case its author wrote it, never capitalised, so the tree, the contents, the
   opening, the bar and the card of one commit write it alike. The plan names what is reviewed (`ReviewPlan.title`): a
   branch of the prefix as the title bar does (`layout`), another branch by its full name, a range by its short ids.
   [@test] ../../crates/review-plan/src/steps_test.rs (`a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_case_of_its_author`)
@@ -254,24 +258,32 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Brief
-- `issue` must be the issue key the subjects of the commits name: one key, named by half of them at least, and none
-  naming another.
+- `issue` must be the issue key the subjects of the commits name: of the keys each subject starts with (`IJAI-1184
+  IJAI-5640 Air records…` names both), the one every subject that starts with a key names, named by half of them at
+  least; the first such key of the first subject when several are.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_issue_is_one_key_half_the_commits_name_and_none_contradicts`)
 - `contract` must hold the prose the change adds, removes or changes, by the rank of its kind, then in the order of
   the story: a spec (`*.spec.md`, a file below `spec/` or `specs/`), a record of a decision (below `decisions/`, `adr/`
   or `adrs/`), a guide of agents (`AGENTS.md`, `CLAUDE.md`, below `.ai/`), a doc (below `docs/` or `doc/`, a README);
-  of Markdown, text, reStructuredText and AsciiDoc only. An entry per changed block: its paragraphs added and removed,
-  each its lines joined without the marker of an item, the heading of its section of Markdown, the paths that the
-  test links it adds name (`provenBy`); a new spec its `description:` and the count of the items of its
-  "Requirements"; a deleted file `deleted`. Of a doc only prose (three words or more of letters, no
-  key and no value after one) is quoted: a changed line of values (`dark: #88aaff`, `color: red; background: blue`)
-  says nothing, the heading of its section names the change; the spans of code of each
-  paragraph (`addedCode`, `removedCode`) as a body has them. The page sets each entry under the chip of its kind, at
-  its left edge.
+  of Markdown, text, reStructuredText and AsciiDoc only. An entry per place of a file (`prose`): its changed blocks
+  widened to whole paragraphs on both sides, never the changed lines of a hard-wrapped one, the blocks whose
+  paragraphs meet one entry (`blocks`); the heading of its section of Markdown, the paths that the test links its
+  blocks add name (`provenBy`), and its `paragraphs`, each whole, its lines joined without the marker of an item and
+  the test links. A paragraph wrapped anew is no change; a removed paragraph and the first similar added one after the
+  last pair (half of the shorter kept and a third of the longer, by word) are one `changed` paragraph with the words
+  the change wrote (`inserted`) and removed (`deleted`, each at the offset of the text it stood before), the rest
+  `added` or `removed`. A link of Markdown reads as its text with its target (`links`: a path of the repository
+  resolved against the file, without its anchor, or a URL as written); of a paragraph longer than 280 UTF-16 code
+  units changed in a few sentences, the sentences that hold its changes (`excerpt`) when they leave out a quarter of it
+  at least. A new spec its `description:` and the count of the items of its "Requirements"; a deleted file `deleted`.
+  Of a doc only prose (three words or more of letters, no key and no value after one) is quoted: a changed line of
+  values (`dark: #88aaff`, `color: red; background: blue`) says nothing, the heading of its section names the change;
+  the spans of code of each paragraph (`code`) as a body has them.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`, `the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose`)
+  [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_link_reads_as_its_text_with_its_target`, `a_long_paragraph_changed_in_one_sentence_shows_it_first`)
 
 ### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 15`), the ids of the commits of the steps and of the
+- `bd review-plan` must print `steps` and `brief` (`"schema": 16`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -286,8 +298,12 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   a pull request, which names it already; a commit shown alone its
   whole heading and message instead (`range-review-commit-header`: its subject, meta line, action and menu, its body
   whole, of the concerns of its own plan the parts of it told before the steps). Then What Changes, one header per
-  file ("Spec rule", "Decision", "Agent guide", "Doc" and its path, which open the file), under it each changed block:
-  the heading of its section, "Proven by restart.json", its paragraphs; then the Steps, each its number and its full
+  file ("Spec rule", "Decision", "Agent guide", "Doc" and its path, which open the file), under it each section the
+  change touches: its heading once, "Proven by restart.json" muted after it, its paragraphs whole, half a line apart:
+  one the change adds with the bar of an addition in the gutter, one it removes muted and struck through beside the
+  bar of a removal, one it changes with what it wrote tinted and what it removed struck through where it stood; of a
+  long one the sentences of its change between ellipses, either of which opens it whole; a link its text, which shows
+  the file it names at its header when the review shows that file, opens a page, else stays text; then the Steps, each its number and its full
   title (the title Rust gives the commit that starts it; a step of the concerns
   its concern), wrapping, never cut, which shows its opening; the lead of its body; its facts in one short line: how
   many of the declarations of its code a test reaches ("Tests reach 2 of 3 declarations", "Tests reach all 2
@@ -306,19 +322,23 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   only step is what no evidence joined, or one concern that covers it, lists no step, and its facts are the facts of the range. Then Possible
   Breakage (the uses left outside right after the name of an entry) and Since your review ([Review
   Plan](review-plan.spec.md#requirements)); why the uses are unknown is folded under Possible Breakage when it lists an
-  entry, else one muted line ("Uses unknown: no index of this repository"). The title of a step wraps at the measure of
-  its lead. The type of the document is one scale: its headline (and the subject of a commit shown alone) `text-lg
-  font-semibold`, the title of an opening and of an open part `text-base`/`text-sm font-semibold`, a step of the
-  contents `text-sm font-medium` (docs/design/ui-theme.md). The count line of the old card,
+  entry, else one muted line ("Uses unknown: no index of this repository"). The document is one reading column in the
+  middle of its island (`ReadingColumn`: `max-w-measure`, 65ch of `text-md`, its lines wrapped to avoid a short last
+  one), every block ending at its edge and none setting a width of its own; the number of a step hangs in the gutter,
+  so its title and its lead stand at that edge. The type of the document is one scale: its prose `text-md`, its
+  headline (and the subject of a commit shown alone) `text-lg font-semibold`, the title of an opening `text-base
+  font-semibold`, a heading of What Changes and an open part `font-semibold`, a step of the contents `font-medium`, its
+  facts and the header of a file `text-xs` muted (docs/design/ui-theme.md). The count line of the old card,
   its Dependencies, Repeated Edits and New API are gone: the dependency changes and the same edit are on the rows of
   the tree and the divider "Same edit in N files", the new API and the links between modules are facts of their step.
-  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`, `should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
-  [@test] ../../src/presenters/review-story.test.ts (`words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+  [@test] ../../src/presenters/review-story.test.ts (`words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
 - The opening of a step (`ChapterOpening`) must be a card of prose a gap above the card of its first section (each
-  opening of a layer its own card), as tall as its words (the diffs measure it): "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
+  opening of a layer its own card), as tall as its words (the diffs measure it), its words in the reading column of
+  the overview (`ReadingColumn`) in the middle of the card: "Step 2" muted, then its full title in `text-base`, wrapping, which a click shows
   at the top; the body of the commit that starts it by the grammar of a body ([Commit Row → Message
-  body](../commit/commit-row.spec.md)): its lead a step larger, its paragraphs, lists, labels as the captions of their
+  body](../commit/commit-row.spec.md)) in `text-md`: its lead a step larger (`text-base`), its paragraphs, lists, labels as the captions of their
   blocks, code and measurements in the monospace font, a "Look closely:" section an info callout, no trailer and no
   muted text but what its body removed since the review, struck through where Rust placed it, beside the blocks it
   added, marked ([Review Plan](review-plan.spec.md#in-the-review-window)), and the subject its commit had below its

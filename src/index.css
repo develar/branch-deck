@@ -207,9 +207,16 @@
   /* the IntelliJ UI font size: Inter 13px, on a 20px line; rows, controls and short text, not long prose */
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.25rem;
-  /* reading text: commit bodies in the previews, 14px on a 22px line */
+  /* reading text: commit bodies in the previews, the document of a review, 14px on a 22px line */
   --text-md: 0.875rem;
   --text-md--line-height: 1.375rem;
+
+  /*
+   * The measure of prose a person reads (docs/design/ui-theme.md, "Reading column"): `max-w-measure`, the width of a
+   * `ReadingColumn`, which sets text-md on itself, so the measure is 65ch of text-md, as `max-w-prose` of a body read
+   * in it (the description of a pull request): every block ends at one edge
+   */
+  --container-measure: 65ch;
 
   /* the glyphs of the Windows caption buttons (WindowControls), sized by bd-window-control-glyph */
   --font-window-controls: "Segoe Fluent Icons", "Segoe MDL2 Assets";

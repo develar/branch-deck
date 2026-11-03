@@ -3,6 +3,7 @@ use crate::brief::{ContractKind, contract_kind, shared_issue};
 use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
+use crate::prose::ProseChange;
 use crate::steps::{CommitRole, ConcernsReason, JoinedUnit, ReviewStep, ShownElsewhere, StepSource, StepStop, TEST_DEPTH, commit_title, join_units, tells_a_story};
 use crate::test_support::{plan_of, plan_of_range, range};
 use crate::units::{ReviewUnit, UnitBlock, UnitKind, UnitSlice};
@@ -110,6 +111,11 @@ fn a_commit_is_titled_by_its_subject_without_the_issue_key_of_the_brief_in_the_c
   assert_eq!(commit_title("(layout) IJAI-1 — a splash shows", Some("IJAI-1")), "a splash shows");
   assert_eq!(commit_title("IJAI-12 another issue", Some("IJAI-1")), "IJAI-12 another issue");
   assert_eq!(commit_title("IJAI-1", Some("IJAI-1")), "IJAI-1");
+  // of the keys a subject starts with, the issue of the brief goes, the others stay
+  assert_eq!(
+    commit_title("IJAI-1184 IJAI-5640 Air records the links", Some("IJAI-5640")),
+    "IJAI-1184 Air records the links"
+  );
   assert_eq!(commit_title("the open asks", None), "the open asks");
 
   let repo = TestRepo::new();
@@ -468,12 +474,17 @@ fn the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests() {
     "the step that changes the rule is proven by its test"
   );
   let [entry] = plan.brief.contract.as_slice() else { panic!("{:?}", plan.brief) };
+  let texts: Vec<(&str, &ProseChange)> = entry.paragraphs.iter().map(|paragraph| (paragraph.text.as_str(), &paragraph.change)).collect();
   assert_eq!(
-    (entry.kind, entry.heading.as_deref(), entry.added.as_slice(), entry.proven_by.as_slice()),
+    (entry.kind, entry.heading.as_deref(), texts.as_slice(), entry.proven_by.as_slice()),
     (
       ContractKind::Spec,
       Some("Requirements"),
-      ["The window keeps its stored layout across a restart. The Project view does not take its place.".to_string()].as_slice(),
+      [(
+        "The window keeps its stored layout across a restart. The Project view does not take its place.",
+        &ProseChange::Added
+      )]
+      .as_slice(),
       ["tests/restart.json".to_string()].as_slice()
     )
   );
@@ -496,12 +507,17 @@ The dark theme takes a blue accent, and the doc says why.",
     )],
   );
   let plan = plan_of_range(&repo, &base, &head);
-  let entries: Vec<(Option<&str>, &[String])> = plan.brief.contract.iter().map(|entry| (entry.heading.as_deref(), entry.added.as_slice())).collect();
+  let entries: Vec<(Option<&str>, Vec<&str>)> = plan
+    .brief
+    .contract
+    .iter()
+    .map(|entry| (entry.heading.as_deref(), entry.paragraphs.iter().map(|paragraph| paragraph.text.as_str()).collect()))
+    .collect();
   assert_eq!(
     entries,
     [
-      (Some("Colours"), [].as_slice()),
-      (Some("Why"), ["The theme follows the system, its accent blue as the logo is.".to_string()].as_slice())
+      (Some("Colours"), vec![]),
+      (Some("Why"), vec!["The theme follows the system, its accent blue as the logo is."])
     ]
   );
 }
@@ -585,6 +601,11 @@ fn the_issue_is_one_key_half_the_commits_name_and_none_contradicts() {
   assert_eq!(shared_issue(["IJAI-1 a", "IJAI-1 b", "c"].into_iter()).as_deref(), Some("IJAI-1"));
   assert_eq!(shared_issue(["IJAI-1 a", "IJAI-2 b"].into_iter()), None);
   assert_eq!(shared_issue(["IJAI-1 a", "b", "c"].into_iter()), None);
+  // a subject that starts with two keys names both: the key every one names is the issue
+  assert_eq!(
+    shared_issue(["IJAI-5640 a", "IJAI-1184 IJAI-5640 b", "IJAI-5640 c"].into_iter()).as_deref(),
+    Some("IJAI-5640")
+  );
 }
 
 #[test]

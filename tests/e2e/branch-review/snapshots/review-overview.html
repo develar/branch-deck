@@ -1,4 +1,4 @@
-<section aria-label="Overview" class="flex max-w-208 min-w-0 flex-col gap-5 px-1 pt-3 pb-1 text-sm" data-testid="review-overview">
+<section aria-label="Overview" class="mx-auto flex w-full max-w-measure min-w-0 flex-col text-md text-pretty gap-6 px-1 pt-3 pb-1" data-testid="review-overview">
   <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
     <h2 class="min-w-0 text-lg font-semibold [overflow-wrap:anywhere]" data-testid="review-overview-headline">
       layout
@@ -10,8 +10,8 @@
         What Changes
       </span>
     </div>
-    <ul class="flex flex-col gap-2.5">
-      <li class="flex min-w-0 flex-col gap-1" data-path="spec/window.spec.md" data-testid="review-brief-contract-entry">
+    <ul class="flex flex-col gap-5">
+      <li class="flex min-w-0 flex-col gap-3" data-path="spec/window.spec.md" data-testid="review-brief-contract-entry">
         <span class="flex min-w-0 items-center gap-2 text-xs">
           <span class="group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-2xl border border-transparent px-2 py-0.5 text-xs font-normal whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80" data-slot="badge" data-variant="secondary">
             Spec rule
@@ -22,20 +22,25 @@
             </span>
           </button>
         </span>
-        <div class="flex min-w-0 flex-col gap-0.5">
-          <span class="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
-            <span class="min-w-0 font-medium">
+        <div class="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
+          <div class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <h3 class="min-w-0 font-semibold">
               Requirements
-            </span>
-            <span>
+            </h3>
+            <span class="text-xs text-muted-foreground">
               Proven by restart.json
             </span>
-          </span>
-          <span class="max-w-prose">
-            <span>
-              The window keeps its stored layout across a restart, and the project view does not take the place of another tool window.
+          </div>
+          <p class="-ml-3 border-l-2 border-success pl-2.5" data-change="added" data-testid="review-brief-paragraph">
+            <span class="sr-only">
+              Added:
             </span>
-          </span>
+            <span>
+              <span>
+                The window keeps its stored layout across a restart, and the project view does not take the place of another tool window.
+              </span>
+            </span>
+          </p>
         </div>
       </li>
     </ul>
@@ -53,7 +58,7 @@
     </div>
     <ol class="flex flex-col gap-3">
       <li class="flex min-w-0 flex-col gap-1" data-step="6c0d95a29fdde55819e751872e4b01b1265af773" data-testid="review-contents-step">
-        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
+        <span class="-ml-6 flex min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             1
           </span>
@@ -61,7 +66,7 @@
             the manager drops the hooks nothing sets
           </button>
         </span>
-        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+        <div class="flex min-w-0 flex-col gap-1">
           <div data-testid="review-contents-step-lead">
             <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
@@ -71,7 +76,7 @@
               </p>
             </div>
           </div>
-          <span class="max-w-prose text-xs text-muted-foreground" data-testid="review-contents-step-facts">
+          <span class="text-xs text-muted-foreground" data-testid="review-contents-step-facts">
             <span>
               Removes hooks, shown in
               <button class="rounded-sm text-foreground underline decoration-muted-foreground/60 underline-offset-2 outline-none hover:decoration-foreground focus-visible:ring-3 focus-visible:ring-ring/30 disabled:text-muted-foreground disabled:no-underline" data-testid="review-step-shown-elsewhere" type="button">
@@ -82,7 +87,7 @@
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="fd351daa52fd564d181e509c8346ea6a57596307" data-testid="review-contents-step">
-        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
+        <span class="-ml-6 flex min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             2
           </span>
@@ -90,7 +95,7 @@
             the open keeps a stored layout
           </button>
         </span>
-        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+        <div class="flex min-w-0 flex-col gap-1">
           <div data-testid="review-contents-step-lead">
             <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
@@ -106,7 +111,7 @@
               </p>
             </div>
           </div>
-          <span class="max-w-prose text-xs text-muted-foreground" data-testid="review-contents-step-facts">
+          <span class="text-xs text-muted-foreground" data-testid="review-contents-step-facts">
             <span>
               Tests reach 2 of 3 declarations
             </span>
@@ -121,7 +126,7 @@
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="0b97e3d5beb29847fabff4061daebd80fb553a97" data-testid="review-contents-step">
-        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
+        <span class="-ml-6 flex min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             3
           </span>
@@ -129,7 +134,7 @@
             the view paints with the first frame
           </button>
         </span>
-        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+        <div class="flex min-w-0 flex-col gap-1">
           <div data-testid="review-contents-step-lead">
             <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
@@ -145,7 +150,7 @@
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="3d8f4bd0f6cefa4975361c1037d81e9b4853ac55" data-testid="review-contents-step">
-        <span class="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
+        <span class="-ml-6 flex min-w-0 items-baseline gap-2">
           <span class="w-4 shrink-0 text-right text-muted-foreground tabular-nums">
             4
           </span>
@@ -153,7 +158,7 @@
             the restart story checks the layout
           </button>
         </span>
-        <div class="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+        <div class="flex min-w-0 flex-col gap-1">
           <div data-testid="review-contents-step-lead">
             <div class="-mx-1 min-w-0 rounded-sm px-1 data-highlight:animate-story-highlight">
               <p>
@@ -163,7 +168,7 @@
               </p>
             </div>
           </div>
-          <span class="max-w-prose text-xs text-muted-foreground" data-testid="review-contents-step-facts">
+          <span class="text-xs text-muted-foreground" data-testid="review-contents-step-facts">
             <span>
               Proven by restart.json
             </span>
@@ -199,7 +204,7 @@
   </div>
   <div class="flex flex-col gap-1.5" data-testid="review-plan-breakage">
     <div class="flex min-w-0 flex-col gap-1.5 text-xs font-medium" data-closed="" data-slot="collapsible" data-testid="review-plan-unbroken">
-      <button aria-expanded="false" class="group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
+      <button aria-expanded="false" class="group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 text-muted-foreground hover:text-foreground" data-slot="collapsible-trigger" tabindex="0" type="button">
         <svg aria-hidden="true" class="lucide lucide-chevron-right size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-aria-expanded:rotate-90 group-data-[panel-open]:rotate-90" />
         <span class="min-w-0">
           1 API change, no use left outside breaks

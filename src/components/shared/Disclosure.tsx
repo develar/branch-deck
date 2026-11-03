@@ -33,7 +33,7 @@ export function Disclosure({
       <CollapsibleTrigger
         data-testid={triggerTestId}
         className={cn(
-          "group flex max-w-prose min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
+          "group flex min-w-0 items-baseline gap-1 self-start rounded-sm text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30",
           tone === "muted" ? "text-muted-foreground hover:text-foreground" : "text-foreground",
         )}
       >

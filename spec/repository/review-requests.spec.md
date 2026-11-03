@@ -385,8 +385,8 @@ Safe Push it allows.
   changes, no second headline under the title of the island (the changes open on the same lead); a link of it reviews
   all changes at its place, as the same link there shows it once the changes are read: a code name or an entry at its
   declaration, its file selected and its name selected in the diffs, a use left outside opening its file over the
-  changes, a step at its opening. It is as wide as what it holds (its prose at the measure of 65ch, 52rem at most),
-  the rail right after it:
+  changes, a step at its opening. It is as wide as what it holds, the measure of reading at most (`ReadingColumn`,
+  65ch of `text-md`), the rail right after it, the two in the middle of the island:
   "Files 4" with the muted sum of the line counts, then the files of the range (status letter, name, directory,
   `+a −d`; the name first, the directory giving way, as every list of changed files names a file; a click
   reviews all changes at that file, the right click and ⌘C copy its path, [Commit Files](../commit/commit-files.spec.md#the-actions-on-a-file))

@@ -11,7 +11,7 @@ import type { MessageChange } from "@/lib/bindings"
  */
 export function MessageChangeView({ change }: { change: MessageChange }) {
   return (
-    <div className="flex max-w-prose min-w-0 flex-col gap-2 text-sm text-foreground" data-testid="review-plan-since-message">
+    <div className="flex min-w-0 flex-col gap-2 text-sm text-foreground" data-testid="review-plan-since-message">
       {change.subjectBefore !== null && <SubjectBefore subject={change.subjectBefore} />}
       {change.hunks.map(hunk => (
         <Fragment key={hunk.start}>

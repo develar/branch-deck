@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vite-plus/test"
-import type { CommitBodyBlock, CommitBodyPart, Concern, ContractEntry, Mention, ReviewPlan, ReviewStep, ReviewUnit, StoryCommit, StoryPlace, TestRef } from "@/lib/bindings"
+import type {
+  CommitBodyBlock,
+  CommitBodyPart,
+  Concern,
+  ContractEntry,
+  FileFacts,
+  Mention,
+  ProseParagraph,
+  ReviewPlan,
+  ReviewStep,
+  ReviewUnit,
+  StoryCommit,
+  StoryPlace,
+  TestRef,
+} from "@/lib/bindings"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
 import { mentionWords, presentOpenings, presentPrologue, presentStepFacts, presentStory, storyMarks } from "@/presenters/review-story"
@@ -61,24 +75,88 @@ function textOf(view: StoryView): { lead: string | null; shown: string[][]; fold
   }
 }
 
-function contract(path: string, heading: string, added: string[], provenBy: string[] = []): ContractEntry {
+/** A paragraph of prose the commits add whole, as Rust reads it (`review_plan::prose`) */
+function prose(text: string, change: ProseParagraph["change"] = { kind: "added" }, links: ProseParagraph["links"] = []): ProseParagraph {
+  return { text, code: [], links, change, excerpt: null }
+}
+
+function contract(path: string, heading: string | null, added: (string | ProseParagraph)[], provenBy: string[] = [], block = 0): ContractEntry {
   return {
     kind: "spec",
     unit: `other:${path}`,
     path,
-    block: 0,
+    blocks: [block],
     heading,
     newSpec: null,
     deleted: false,
-    added,
-    addedCode: added.map(() => []),
-    removed: [],
-    removedCode: [],
+    paragraphs: added.map(it => (typeof it === "string" ? prose(it) : it)),
     provenBy,
   }
 }
 
 describe("the document of a review", () => {
+  it("words What Changes: a file once, a section once with its tests, its paragraphs whole, a link showing a changed file or opening a page", () => {
+    const changed = prose("The store keeps at most 500 projects and their focus.", { kind: "changed", inserted: [{ start: 37, end: 53 }], deleted: [] }, [
+      { start: 4, end: 9, target: "spec/store.spec.md" },
+      { start: 10, end: 15, target: "https://example.com/keeps" },
+      { start: 16, end: 18, target: "spec/elsewhere.spec.md" },
+    ])
+    const file = (path: string): FileFacts => ({ path, oldPath: null }) as FileFacts
+    const view = presentPrologue(
+      plan([], [], {
+        files: [file("spec/a.spec.md"), file("spec/store.spec.md")],
+        brief: {
+          issue: null,
+          contract: [
+            // two places of one section, which Rust tells apart by their blocks: one section, its tests once
+            contract("spec/a.spec.md", "Storage", [changed], ["tests/restart.json"], 0),
+            contract(
+              "spec/a.spec.md",
+              "Storage",
+              ["The focus is a fact the window derives.", prose("Old words.", { kind: "removed" })],
+              ["tests/restart.json", "tests/focus.json"],
+              2,
+            ),
+            contract("spec/a.spec.md", "Requirements", ["The window opens."], [], 4),
+            { ...contract("spec/new.spec.md", null, []), blocks: [], newSpec: { description: null, rules: 3 } },
+            { ...contract("spec/old.spec.md", null, []), blocks: [], deleted: true },
+          ],
+        },
+      }),
+      false,
+    )
+    expect(
+      view.contract.map(it => [
+        it.path,
+        it.entries.map(entry => [entry.heading, entry.paragraphs.map(paragraph => [paragraph.text, paragraph.change?.kind ?? null]), entry.provenBy]),
+      ]),
+    ).toEqual([
+      [
+        "spec/a.spec.md",
+        [
+          [
+            "Storage",
+            [
+              ["The store keeps at most 500 projects and their focus.", "changed"],
+              ["The focus is a fact the window derives.", "added"],
+              ["Old words.", "removed"],
+            ],
+            "Proven by restart.json and focus.json",
+          ],
+          ["Requirements", [["The window opens.", "added"]], null],
+        ],
+      ],
+      ["spec/new.spec.md", [[null, [["A new spec of 3 rules", null]], null]]],
+      ["spec/old.spec.md", [[null, [["Deleted", null]], null]]],
+    ])
+    // a link to a changed file shows it at its top, one to a page opens it, one to a file the review does not show is text
+    expect(view.contract[0]!.entries[0]!.paragraphs[0]!.links).toEqual([
+      { start: 4, end: 9, place: { path: "spec/store.spec.md", side: "new", line: null, name: null }, href: null },
+      { start: 10, end: 15, place: null, href: "https://example.com/keeps" },
+      { start: 16, end: 18, place: null, href: null },
+    ])
+  })
+
   it("words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves", () => {
     const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
     const unreached = (name: string, within: number | null = null) => ({ name, within })

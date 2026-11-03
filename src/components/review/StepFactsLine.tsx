@@ -33,7 +33,7 @@ export function StepFactsLine({ facts, testId }: { facts: StepFacts; testId: str
         ]),
   ]
   return (
-    <span className="max-w-prose text-xs text-muted-foreground" data-testid={testId}>
+    <span className="text-xs text-muted-foreground" data-testid={testId}>
       {parts.map((part, index) => (
         <Fragment key={part.key}>
           {index > 0 && " · "}

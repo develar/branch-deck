@@ -896,4 +896,49 @@ test.describe("Review tour", () => {
     await expect(window.getByTestId("review-opening")).toHaveCount(0)
     await expect(window.getByTestId("review-step-bar")).toHaveCount(0)
   })
+
+  test("should tell What Changes in whole paragraphs changed by word, a long one by the sentence of its change, and show the file its link names", async ({
+    page,
+    setupRepo,
+    syncAndWaitForBranches,
+  }) => {
+    turnOnReviewPlan(await setupRepo("review_prose"))
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "prose")
+    const overview = window.getByTestId("review-overview")
+    // the issue every subject names, also the one that starts with two keys, whose title keeps the other key
+    await expect(overview.getByTestId("review-overview-issue")).toHaveText("IJAI-5640")
+    await expect(overview.getByTestId("review-contents-step-title")).toHaveText([
+      "the layout file keeps the tool window in focus",
+      "IJAI-1184 the store drops only the layouts no pinned tool window holds",
+    ])
+    // one section once, its paragraphs whole: never the changed lines of a hard-wrapped paragraph
+    const storage = overview.getByTestId("review-brief-section").filter({ has: window.getByRole("heading", { name: "Storage", exact: true }) })
+    await expect(storage).toHaveCount(1)
+    const paragraphs = storage.getByTestId("review-brief-paragraph")
+    await expect(paragraphs).toHaveCount(3)
+    // the long paragraph shows the sentence of its change, what the change wrote and what it removed in place
+    const long = paragraphs.nth(0)
+    await expect(long).toHaveAttribute("data-change", "changed")
+    await expect(long.getByTestId("review-brief-inserted")).toHaveText(PROSE_INSERTED)
+    await expect(long.getByTestId("review-brief-deleted")).toHaveText(PROSE_DELETED)
+    await expect(long).toContainText("The file holds the tool windows of each project: their side, their size")
+    await expect(long).not.toContainText("renamed aside")
+    // an ellipsis opens it whole
+    await long.getByRole("button", { name: "Show the whole paragraph" }).first().click()
+    await expect(long).toContainText("A file that cannot be read is renamed aside, and the window opens with the default layout.")
+    await expect(long.getByRole("button", { name: "Show the whole paragraph" })).toHaveCount(0)
+    // words the second commit appends to the next paragraph
+    await expect(paragraphs.nth(1).getByTestId("review-brief-inserted")).toHaveText([" that pin no tool window"])
+    // the paragraph the change adds reads its link as its text, which shows the file it names in the review
+    const added = paragraphs.nth(2)
+    await expect(added).toHaveAttribute("data-change", "added")
+    await expect(added).toContainText("The focus of a tool window is a fact the window derives from the last click. Window Focus owns its rules.")
+    await added.getByTestId("review-brief-link").click()
+    await expect(reviewSidebar(window).tree.getByRole("treeitem", { name: "spec/focus.spec.md", exact: true })).toHaveAttribute("aria-selected", "true")
+    await captureHtmlSnapshot(overview.getByTestId("review-brief-contract"), "review-brief-prose")
+  })
 })
+
+/** What the first commit of `review_prose` writes and removes in the long paragraph, as the word diff reads it */
+const PROSE_INSERTED = [",", " and the tool window in focus"]
+const PROSE_DELETED = ["and"]

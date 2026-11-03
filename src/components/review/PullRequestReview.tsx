@@ -419,9 +419,9 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
   const overviewNavigator = linkNavigator(showLink)
 
   const overview = (
-    // the document as wide as what it holds (its prose at 65ch, 52rem at most), the rail right after it: no gap of the
-    // window between them
-    <div className="grid gap-x-10 gap-y-6 md:grid-cols-[fit-content(52rem)_18rem]">
+    // the document as wide as what it holds, the measure of reading at most (`ReadingColumn`, a body at `max-w-prose`),
+    // the rail right after it, the two in the middle of the island: no gap of the window between them
+    <div className="mx-auto grid w-fit max-w-full gap-x-10 gap-y-6 md:grid-cols-[auto_18rem]">
       <div className="flex min-w-0 flex-col gap-5">
         {host.withdrawn && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="review-withdrawn">

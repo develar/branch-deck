@@ -27,6 +27,8 @@ imports and naming, and the React and WebKit behaviour that cost sessions. [AGEN
   or hardcode `rounded-[…]`. To change the feel, change the token. Prefer a coherent token-driven scale over copying
   IntelliJ pixel values.
 - **Spacing**: `flex flex-col gap-*` on the parent, not `space-y-*` or child `mt-*`.
+- **Prose in a wide pane** is a `ReadingColumn` (one measure, `max-w-measure`, in the middle, `text-md`); a block in
+  it sets no width of its own ([UI Theme → Reading column](../design/ui-theme.md)).
 - **Font**: InterVariable from `inter-ui` (the full rsms build; `@fontsource-variable/inter` lacks `ss02`/`cv*`
   features), falling back to the system UI font, at 13px (`text-sm`, the IntelliJ UI size). Commit bodies enable `ss04`
   (I/l/1 disambiguation). `font-mono` is JetBrains Mono (`@fontsource-variable/jetbrains-mono`) without ligatures.

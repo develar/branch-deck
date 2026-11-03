@@ -161,6 +161,24 @@ pub fn find_issue_number(text: &str) -> Option<&str> {
   find_issue_range(text).map(|(start, end)| &text[start..end])
 }
 
+/// The issue keys a subject starts with, where `find_issue_range` reads its key: the first and each that follows it after
+/// a space or a comma (`IJAI-1184 IJAI-5640 Air records…`, `ABC-1, ABC-2: fix`), as byte ranges of the first line
+pub fn leading_issue_keys(text: &str) -> Vec<(usize, usize)> {
+  let bytes = text.as_bytes();
+  let mut keys = Vec::new();
+  let Some(mut at) = issue_key_position(text) else {
+    return keys;
+  };
+  while let Some((start, end)) = extract_issue_at(bytes, at) {
+    keys.push((start, end));
+    at = end;
+    while at < bytes.len() && matches!(bytes[at], b' ' | b',') {
+      at += 1;
+    }
+  }
+  keys
+}
+
 /// Check if a message already contains an issue reference pattern (like ABC-123)
 /// More efficient than `find_issue_number` when you only need existence check
 pub fn has_issue_reference(text: &str) -> bool {
@@ -289,6 +307,15 @@ pub fn issue_keys_in(text: &str) -> impl Iterator<Item = &str> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn the_leading_keys_of_a_subject_are_the_keys_it_starts_with() {
+    let keys = |text: &'static str| leading_issue_keys(text).into_iter().map(|(start, end)| &text[start..end]).collect::<Vec<_>>();
+    assert_eq!(keys("IJAI-1184 IJAI-5640 Air records the links"), ["IJAI-1184", "IJAI-5640"]);
+    assert_eq!(keys("fix: ABC-1, ABC-2: the open"), ["ABC-1", "ABC-2"]);
+    assert_eq!(keys("ABC-1 the open names DEF-2"), ["ABC-1"]);
+    assert_eq!(keys("the open names DEF-2"), Vec::<&str>::new());
+  }
 
   #[test]
   fn test_find_issue_range() {

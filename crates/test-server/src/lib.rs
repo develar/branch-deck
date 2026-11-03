@@ -438,6 +438,8 @@ pub enum RepositoryTemplate {
   ReviewConcerns,
   #[serde(rename = "review_tour")]
   ReviewTour,
+  #[serde(rename = "review_prose")]
+  ReviewProse,
   #[serde(rename = "script_colors")]
   ScriptColors,
   #[serde(rename = "stacked_branches")]
@@ -527,6 +529,7 @@ impl RepositoryTemplate {
       Self::GeneratedFiles => "generated_files",
       Self::ReviewConcerns => "review_concerns",
       Self::ReviewTour => "review_tour",
+      Self::ReviewProse => "review_prose",
       Self::ScriptColors => "script_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackedChain => "stacked_chain",

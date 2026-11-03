@@ -6,11 +6,12 @@ import { Spinner } from "@/components/ui/spinner"
 import { CommitCard } from "@/components/commit/CommitCard"
 import { CommitRowMark } from "@/components/commit/CommitRowMark"
 import { LinkedText } from "@/components/commit/LinkedText"
+import { ContractParagraphView } from "@/components/review/ContractParagraphView"
 import { MessageChangeView } from "@/components/review/MessageChangeView"
 import { StepFactsLine } from "@/components/review/StepFactsLine"
 import { StoryBlock, StoryBody, StoryPart, SubjectBefore } from "@/components/review/StoryBody"
-import { CodeText } from "@/components/shared/CodeText"
 import { Disclosure } from "@/components/shared/Disclosure"
+import { ReadingColumn } from "@/components/shared/ReadingColumn"
 import type { RowCardState } from "@/components/shared/RowCard"
 import { SectionLabel } from "@/components/shared/SectionLabel"
 import { useHeadingCard } from "@/hooks/useHeadingCard"
@@ -63,8 +64,8 @@ export function ReviewPrologue({
   // (the plan names a commit short, the range in full)
   const untold = view?.untold != null && commit !== null && state?.current === true && commit.commit.id.startsWith(view.untold.story.commit) ? view.untold : null
   return (
-    // as wide as a reading column and its facts: the far end of a wide window is no place for the uses of an entry
-    <section aria-label="Overview" data-testid="review-overview" className="flex max-w-208 min-w-0 flex-col gap-5 px-1 pt-3 pb-1 text-sm">
+    // one reading column in the middle of the island: every block ends at its edge
+    <ReadingColumn as="section" aria-label="Overview" data-testid="review-overview" className="gap-6 px-1 pt-3 pb-1">
       {commit !== null ? <CommitPart commit={commit} story={untold?.story ?? null} /> : view !== null && headline && <Headline issue={view.issue} title={view.title} />}
       {lead !== null && (
         <div className="flex min-w-0 flex-col" data-testid="review-overview-lead">
@@ -90,7 +91,7 @@ export function ReviewPrologue({
         </div>
       )}
       {view !== null && <PrologueSections view={view} />}
-    </section>
+    </ReadingColumn>
   )
 }
 
@@ -199,9 +200,9 @@ function PrologueSections({ view }: { view: PrologueView }) {
       {view.contract.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="review-brief-contract">
           <SectionLabel title="What Changes" />
-          <ul className="flex flex-col gap-2.5">
+          <ul className="flex flex-col gap-5">
             {view.contract.map(file => (
-              <li key={file.key} className="flex min-w-0 flex-col gap-1" data-testid="review-brief-contract-entry" data-path={file.path}>
+              <li key={file.key} className="flex min-w-0 flex-col gap-3" data-testid="review-brief-contract-entry" data-path={file.path}>
                 <span className="flex min-w-0 items-center gap-2 text-xs">
                   <Badge variant="secondary">{file.kind}</Badge>
                   <FileButton place={fileTop(file.path)} title={file.path} testId="review-brief-contract-file">
@@ -209,23 +210,17 @@ function PrologueSections({ view }: { view: PrologueView }) {
                   </FileButton>
                 </span>
                 {file.entries.map(entry => (
-                  // under the chip of the kind, at its left edge: the heading of the section, then its prose
-                  <div key={entry.key} className="flex min-w-0 flex-col gap-0.5">
+                  // under the chip of the kind, at its left edge: the heading of the section once, its tests, then its
+                  // paragraphs whole, half a line apart
+                  <div key={entry.key} className="flex min-w-0 flex-col gap-2" data-testid="review-brief-section">
                     {(entry.heading !== null || entry.provenBy !== null) && (
-                      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
-                        {entry.heading !== null && <span className="min-w-0 font-medium">{entry.heading}</span>}
-                        {entry.provenBy !== null && <span>{entry.provenBy}</span>}
-                      </span>
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                        {entry.heading !== null && <h3 className="min-w-0 font-semibold">{entry.heading}</h3>}
+                        {entry.provenBy !== null && <span className="text-xs text-muted-foreground">{entry.provenBy}</span>}
+                      </div>
                     )}
                     {entry.paragraphs.map(paragraph => (
-                      <span key={paragraph.text} className="max-w-prose">
-                        <CodeText text={paragraph.text} spans={paragraph.code} />
-                      </span>
-                    ))}
-                    {entry.removed.map(paragraph => (
-                      <span key={paragraph.text} className="max-w-prose text-muted-foreground line-through">
-                        <CodeText text={paragraph.text} spans={paragraph.code} />
-                      </span>
+                      <ContractParagraphView key={paragraph.key} paragraph={paragraph} />
                     ))}
                   </div>
                 ))}
@@ -314,19 +309,20 @@ function PrologueSections({ view }: { view: PrologueView }) {
 }
 
 /**
- * A step of the contents: its number and full title, which show its opening, wrapping at the measure of its lead; the
- * lead of its body; its facts; the Look closely of its author, the one view of that part of a body (`StoryPart`)
+ * A step of the contents: its number hanging in the gutter, so its full title, which shows its opening, and the lead of
+ * its body stand at the edge of the column; its facts; the Look closely of its author, the one view of that part of a
+ * body (`StoryPart`)
  */
 function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => void) | null }) {
   return (
     <li className="flex min-w-0 flex-col gap-1" data-testid="review-contents-step" data-step={step.id}>
-      <span className="flex max-w-[calc(65ch+1.5rem)] min-w-0 items-baseline gap-2">
+      <span className="-ml-6 flex min-w-0 items-baseline gap-2">
         <span className="w-4 shrink-0 text-right text-muted-foreground tabular-nums">{step.number}</span>
         <button
           type="button"
           className={cn(
             "min-w-0 rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/30 disabled:no-underline",
-            step.code && "font-mono text-sm",
+            step.code && "font-mono",
           )}
           disabled={onShow === null}
           data-testid="review-contents-step-title"
@@ -335,7 +331,7 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
           {step.title}
         </button>
       </span>
-      <div className="flex max-w-prose min-w-0 flex-col gap-1 pl-6">
+      <div className="flex min-w-0 flex-col gap-1">
         {step.lead !== null && (
           <div data-testid="review-contents-step-lead">
             <StoryBlock story={step.lead.story} placed={step.lead.block} told={false} />

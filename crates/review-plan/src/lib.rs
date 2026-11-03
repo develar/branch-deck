@@ -19,7 +19,8 @@
 //! - `steps`: the story of the review (spec/branch/review-tour.spec.md): the steps the commits tell, of one commit the
 //!   parts of its message that name its code (`message_steps`), else the concerns, each with the parts of the units it
 //!   shows and the tests that name its code
-//! - `brief`: the issue the commits name and the prose of the specs and the docs the change adds or changes
+//! - `brief`: the issue the commits name and the prose of the specs and the docs the change adds or changes, whole
+//!   paragraphs changed by word (`prose`)
 //! - `story`: the body of each commit once, its code names resolved to the units and the files of the range, and the
 //!   new API and the new links between modules of each step
 //!
@@ -38,6 +39,7 @@ pub mod mark_reviewed;
 pub mod message_steps;
 pub mod order;
 pub mod pair;
+pub mod prose;
 pub mod steps;
 pub mod story;
 pub mod units;
@@ -535,6 +537,8 @@ mod mark_reviewed_test;
 mod message_steps_test;
 #[cfg(test)]
 mod order_test;
+#[cfg(test)]
+mod prose_test;
 #[cfg(test)]
 mod steps_test;
 #[cfg(test)]

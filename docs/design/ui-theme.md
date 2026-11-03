@@ -317,8 +317,9 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
   - `text-sm` (13/20px, the IntelliJ UI font size): rows, controls, labels, short text, the commit subjects of the
     lists and the commit card of a row's mark (`CommitCard`, its body `CommitBodyView` at the size `card`);
   - `text-md` (14/22px): reading text, the commit bodies of the commit and branch previews (`CommitBodyView` at the
-    size `reading`), at most `max-w-prose` wide (65ch, about 80 characters). 13px suits a row label, not paragraphs a
-    user reads;
+    size `reading`), at most `max-w-prose` wide (65ch, about 80 characters), and the document of a review (its
+    overview, the opening of a step, the overview of a pull request: a `ReadingColumn`), whose story's lead is a step
+    larger (`text-base`). 13px suits a row label, not paragraphs a user reads;
   - `text-base` (16/24px): dialog titles, also the subject in the commit preview header, the branch name in the
     branch preview header and the title of a pull request in its review (`font-medium`, as the subject of a commit
     preview); a commit as the heading of what follows it (`CommitHeader` `heading` in `CommitCard`: a commit of the
@@ -328,8 +329,17 @@ The syntax colours are the IntelliJ editor schemes: the `--syntax-*` tokens of `
     `text-base font-semibold`: it greets once, above an otherwise empty window, so it is the size of a dialog title,
     never `text-lg`.
   - `text-lg` (18/28px) only for the headline of the document of a review and the subject of the commit a review shows
-    alone (`CommitHeader` `document`): one step above the titles of its openings (`text-base font-semibold`), whose
-    open parts and labels are `text-sm font-semibold`, and the steps of its contents (`text-sm font-medium`).
+    alone (`CommitHeader` `document`): one step above the titles of its openings (`text-base font-semibold`); its
+    headings of What Changes, its open parts and labels are `font-semibold` and the steps of its contents
+    `font-medium`, at the `text-md` of its prose, never smaller than the text under them; its facts and meta lines
+    `text-xs` muted.
+- **Reading column**: prose a person reads in a wide pane (the overview of a review, the opening of a step, the
+  overview of a pull request) is a `ReadingColumn` (`src/components/shared/ReadingColumn.tsx`): one measure,
+  `max-w-measure` (`--container-measure`, 65ch of `text-md`, about 80 characters), in the middle of its pane, its
+  lines wrapped to avoid a short last one (`text-pretty`). Every block in it fills it and sets no width of its own,
+  so headings, paragraphs and their facts end at one edge; a number or a bar hangs in the gutter (`-ml-*`), so the
+  text keeps the edge. A column pressed to the left of a wide card with a second, narrower measure inside it reads
+  as a third of the screen with ragged edges. Dialogs, popovers and cards measure themselves.
   - A custom step takes a t-shirt name (`text-md`): `cn` (tailwind-merge) merges any other `text-*` class as a colour
     and drops it next to `text-foreground` (`src/lib/type-scale.test.ts`). A size outside the scale is a `bd-` utility
     (`bd-window-control-glyph`, the 10px Windows caption glyph; `bd-avatar-initials`, the initials in a 20px avatar

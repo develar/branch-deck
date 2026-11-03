@@ -1,0 +1,439 @@
+//! The prose a change rewrites, as a reader of the brief reads it (spec/branch/review-tour.spec.md, "Brief"): whole
+//! paragraphs, never the changed lines of a hard-wrapped one; a paragraph changed in a few words once, with what the
+//! commits wrote and removed in it by word (`text_diff::by_word`); a link of Markdown as its text with its target; of a
+//! long paragraph the sentences that hold its changes. No git: the texts are in the memory of the plan.
+
+use crate::units::UnitBlock;
+use domain_types::commit_body::CodeSpan;
+use serde::Serialize;
+use std::ops::Range;
+use std::time::Duration;
+use sync_utils::code_spans::code_spans;
+use text_diff::by_word;
+use text_diff::cancellation::Deadline;
+use text_diff::lcs::diff::build_changes;
+use text_diff::policy::ComparisonPolicy;
+
+/// A paragraph of prose the commits add, remove or change
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ProseParagraph {
+  /// Its text after the commits, its lines joined, without the marker of its item, a link as its text; of a removed
+  /// paragraph its text before them
+  pub text: String,
+  /// Its spans of code (`sync_utils::code_spans`), the grammar the page sets code by
+  pub code: Vec<CodeSpan>,
+  /// Its links of Markdown (`[text](target)`), each the range of its text in `text`
+  pub links: Vec<ProseLink>,
+  pub change: ProseChange,
+  /// Of a long paragraph changed in a few places, the range of `text` of the sentences that hold its changes, which the
+  /// page shows until the reader opens the paragraph whole; `None` shows it whole
+  pub excerpt: Option<TextRange>,
+}
+
+/// What the commits did to a paragraph
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ProseChange {
+  /// A paragraph the commits add
+  Added,
+  /// A paragraph the commits remove
+  Removed,
+  /// A paragraph the commits change in places, the rest of its words kept: the ranges of `text` they wrote and the
+  /// words they removed, each at the offset of `text` it stood before
+  Changed { inserted: Vec<TextRange>, deleted: Vec<ProseDeletion> },
+}
+
+/// Words the commits removed from a changed paragraph
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ProseDeletion {
+  /// The offset of `ProseParagraph::text` they stood before
+  pub at: u32,
+  pub text: String,
+}
+
+/// A range of a text: UTF-16 code units, the end excluded, as the spans of code count
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TextRange {
+  pub start: u32,
+  pub end: u32,
+}
+
+/// A link of Markdown in a paragraph: the range of its text and its target, a path of the repository resolved against
+/// the file of the paragraph (its `#anchor` dropped) or a URL as written
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ProseLink {
+  pub start: u32,
+  pub end: u32,
+  pub target: String,
+}
+
+/// A paragraph longer than this (UTF-16 code units) changed in a few sentences shows them alone first
+const EXCERPT_MIN_LENGTH: usize = 280;
+/// An excerpt is shown only when it leaves out at least this share of the paragraph, as `(numerator, denominator)`
+const EXCERPT_MAX_SHARE: (usize, usize) = (3, 4);
+/// The word diff of one pair of paragraphs gets this long, then the pair is a removal and an addition
+const WORD_DIFF_BUDGET: Duration = Duration::from_millis(50);
+
+/// Whether a line ends a paragraph by itself: a blank line, a heading, a fence of code
+fn is_break(line: &str) -> bool {
+  let trimmed = line.trim();
+  trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("```")
+}
+
+/// The text of an item of a list without its marker (`- `, `* `, `+ `, `1. `), `None` for a line that starts none
+fn item_text(trimmed: &str) -> Option<&str> {
+  ["- ", "* ", "+ "].iter().find_map(|marker| trimmed.strip_prefix(marker)).or_else(|| {
+    let digits = trimmed.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
+    (digits > 0).then(|| trimmed[digits..].strip_prefix(". ")).flatten()
+  })
+}
+
+/// Whether line `index` of `lines` starts a paragraph (or is a break): the first line, a line after a break, a break,
+/// the start of an item
+fn starts_paragraph(lines: &[&str], index: usize) -> bool {
+  index == 0 || index >= lines.len() || is_break(lines[index]) || is_break(lines[index - 1]) || item_text(lines[index].trim()).is_some()
+}
+
+/// The lines above `range` the paragraph its first line is in reaches: of an empty range, the paragraph it stands inside
+fn reach_up(lines: &[&str], range: &Range<usize>) -> usize {
+  let start = range.start;
+  let inside = if range.is_empty() {
+    start > 0 && start < lines.len() && !starts_paragraph(lines, start)
+  } else {
+    start < lines.len() && !is_break(lines[start])
+  };
+  if !inside {
+    return 0;
+  }
+  let mut at = start;
+  while at > 0 && !starts_paragraph(lines, at) {
+    at -= 1;
+  }
+  start - at
+}
+
+/// The lines below `range` the paragraph its last line is in reaches: of an empty range, the paragraph it stands inside
+fn reach_down(lines: &[&str], range: &Range<usize>) -> usize {
+  let end = range.end;
+  let inside = if range.is_empty() {
+    end > 0 && end < lines.len() && !starts_paragraph(lines, end)
+  } else {
+    end > 0 && end <= lines.len() && !is_break(lines[end - 1])
+  };
+  if !inside {
+    return 0;
+  }
+  let mut at = end;
+  while at < lines.len() && !starts_paragraph(lines, at) {
+    at += 1;
+  }
+  at - end
+}
+
+/// The changed blocks of a file of prose widened to whole paragraphs on both sides, the blocks whose paragraphs meet
+/// joined into one: each its lines before and after the commits and the indexes of its blocks. The lines around a block are
+/// the same on both sides, so a paragraph one side reaches into widens the other side by as many lines
+pub(crate) fn paragraph_spans(old: &[&str], new: &[&str], blocks: &[UnitBlock]) -> Vec<(Range<usize>, Range<usize>, Vec<u32>)> {
+  let mut spans: Vec<(Range<usize>, Range<usize>, Vec<u32>)> = Vec::new();
+  for block in blocks {
+    let mut old_range = block.old_start as usize..block.old_end as usize;
+    let mut new_range = block.new_start as usize..block.new_end as usize;
+    let mut indexes = vec![block.index];
+    loop {
+      // a paragraph that reaches the span before: one span, the lines between them the same on both sides
+      if let Some((last_old, _, _)) = spans.last()
+        && old_range.start <= last_old.end
+        && let Some((last_old, last_new, last_indexes)) = spans.pop()
+      {
+        old_range.start = last_old.start;
+        new_range.start = last_new.start;
+        indexes.splice(0..0, last_indexes);
+      }
+      let up = reach_up(old, &old_range).max(reach_up(new, &new_range)).min(old_range.start).min(new_range.start);
+      let down = reach_down(old, &old_range)
+        .max(reach_down(new, &new_range))
+        .min(old.len().saturating_sub(old_range.end))
+        .min(new.len().saturating_sub(new_range.end));
+      if up == 0 && down == 0 {
+        break;
+      }
+      old_range = old_range.start - up..old_range.end + down;
+      new_range = new_range.start - up..new_range.end + down;
+    }
+    spans.push((old_range, new_range, indexes));
+  }
+  spans
+}
+
+/// The paragraphs of `lines`: a break and the start of an item of a list end one; each its lines joined by a space,
+/// without the marker of its item; the `[@test]` lines apart, as the paths they name
+pub(crate) fn paragraphs(lines: &[&str]) -> (Vec<String>, Vec<String>) {
+  let (mut paragraphs, mut proven_by) = (Vec::new(), Vec::new());
+  let mut current = String::new();
+  let mut flush = |current: &mut String| {
+    if !current.is_empty() {
+      paragraphs.push(std::mem::take(current));
+    }
+  };
+  for line in lines {
+    let trimmed = line.trim();
+    if let Some(test) = trimmed.strip_prefix("[@test]") {
+      if let Some(path) = test.split_whitespace().next() {
+        proven_by.push(path.trim_start_matches("../").to_string());
+      }
+      continue;
+    }
+    let item = item_text(trimmed);
+    if is_break(line) || item.is_some() {
+      flush(&mut current);
+    }
+    if is_break(line) {
+      continue;
+    }
+    if !current.is_empty() {
+      current.push(' ');
+    }
+    current.push_str(item.unwrap_or(trimmed));
+  }
+  flush(&mut current);
+  (paragraphs, proven_by)
+}
+
+/// The paragraphs `new` has that `old` lacks, in their order: an equal paragraph is no change (a paragraph wrapped
+/// anew says the same), a removed paragraph and the first similar added one at its place one changed paragraph by
+/// word, the rest added or removed.
+/// `path` is the file of the paragraphs, the base of the paths their links name; `keep` filters the paragraphs by
+/// their text
+pub(crate) fn prose_changes(old: &[String], new: &[String], path: &str, keep: impl Fn(&str) -> bool) -> Vec<ProseParagraph> {
+  let directory = path.rsplit_once('/').map_or("", |(directory, _)| directory);
+  let old: Vec<(String, Vec<ProseLink>)> = old.iter().map(|text| strip_links(text, directory)).collect();
+  let new: Vec<(String, Vec<ProseLink>)> = new.iter().map(|text| strip_links(text, directory)).collect();
+  let old_texts: Vec<&str> = old.iter().map(|(text, _)| text.as_str()).collect();
+  let new_texts: Vec<&str> = new.iter().map(|(text, _)| text.as_str()).collect();
+  let changes = build_changes(&old_texts, &new_texts).unwrap_or_else(|_| {
+    vec![text_diff::lcs::diff::Change {
+      line0: 0,
+      line1: 0,
+      deleted: old.len(),
+      inserted: new.len(),
+    }]
+  });
+  let mut result = Vec::new();
+  for change in changes {
+    let removed = &old[change.line0..change.line0 + change.deleted];
+    let added = &new[change.line1..change.line1 + change.inserted];
+    // each removed paragraph pairs with the first similar added one after the last pair: the added ones it skips are
+    // new, a removed one without a pair is gone
+    let mut next = 0;
+    for (before, before_links) in removed {
+      let pair = (next..added.len()).find_map(|at| word_change(before, &added[at].0).map(|change| (at, change)));
+      let Some((at, (inserted, deleted))) = pair else {
+        result.push(paragraph(before, before_links, ProseChange::Removed, None));
+        continue;
+      };
+      for (text, links) in &added[next..at] {
+        result.push(paragraph(text, links, ProseChange::Added, None));
+      }
+      let (after, links) = &added[at];
+      let excerpt = excerpt(after, &inserted, &deleted);
+      result.push(paragraph(after, links, ProseChange::Changed { inserted, deleted }, excerpt));
+      next = at + 1;
+    }
+    for (text, links) in &added[next..] {
+      result.push(paragraph(text, links, ProseChange::Added, None));
+    }
+  }
+  result.retain(|paragraph| keep(&paragraph.text));
+  result
+}
+
+fn paragraph(text: &str, links: &[ProseLink], change: ProseChange, excerpt: Option<TextRange>) -> ProseParagraph {
+  ProseParagraph {
+    text: text.to_string(),
+    code: code_spans(text),
+    links: links.to_vec(),
+    change,
+    excerpt,
+  }
+}
+
+fn utf16(text: &str) -> u32 {
+  u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
+}
+
+/// `text` with each link of Markdown outside code (`[text](target)`, not an image) as its text alone, and the links
+/// (`ProseLink`), their targets resolved against `directory`
+pub(crate) fn strip_links(text: &str, directory: &str) -> (String, Vec<ProseLink>) {
+  let mut out = String::with_capacity(text.len());
+  let mut links = Vec::new();
+  let mut rest = text;
+  let mut in_code = false;
+  while let Some(at) = rest.find(['`', '[']) {
+    let (before, tail) = rest.split_at(at);
+    out.push_str(before);
+    if let Some(after) = tail.strip_prefix('`') {
+      in_code = !in_code;
+      out.push('`');
+      rest = after;
+      continue;
+    }
+    let image = out.ends_with('!');
+    let parsed = (!in_code && !image).then(|| parse_link(tail)).flatten();
+    let Some((label, target, length)) = parsed else {
+      out.push('[');
+      rest = &tail[1..];
+      continue;
+    };
+    let start = utf16(&out);
+    out.push_str(label);
+    links.push(ProseLink {
+      start,
+      end: utf16(&out),
+      target: resolve_target(target, directory),
+    });
+    rest = &tail[length..];
+  }
+  out.push_str(rest);
+  (out, links)
+}
+
+/// The label, the target and the length of a link of Markdown at the start of `text` (`[label](target)`)
+fn parse_link(text: &str) -> Option<(&str, &str, usize)> {
+  let close = text.find(']')?;
+  let label = &text[1..close];
+  if label.is_empty() || label.contains('[') {
+    return None;
+  }
+  let after = text[close + 1..].strip_prefix('(')?;
+  let end = after.find(')')?;
+  let target = after[..end].trim();
+  // a title after the target (`[a](b "title")`) is no part of it
+  let target = target.split_whitespace().next()?;
+  Some((label, target, close + 2 + end + 1))
+}
+
+/// The target of a link: a URL or an anchor as written, a path of the repository resolved against `directory` without
+/// its `#anchor`
+fn resolve_target(target: &str, directory: &str) -> String {
+  if target.contains("://") || target.starts_with("mailto:") || target.starts_with('#') {
+    return target.to_string();
+  }
+  let path = target.split('#').next().unwrap_or(target);
+  let mut parts: Vec<&str> = if path.starts_with('/') {
+    Vec::new()
+  } else {
+    directory.split('/').filter(|part| !part.is_empty()).collect()
+  };
+  for part in path.split('/') {
+    match part {
+      "" | "." => {}
+      ".." => {
+        parts.pop();
+      }
+      part => parts.push(part),
+    }
+  }
+  parts.join("/")
+}
+
+/// What the commits wrote and removed in `after` by word, when `before` is similar: at least half of the characters of
+/// the shorter side and a third of the longer one kept (a sentence appended to a paragraph keeps it); `None` for
+/// paragraphs too different to read as one (or a diff out of its budget)
+fn word_change(before: &str, after: &str) -> Option<(Vec<TextRange>, Vec<ProseDeletion>)> {
+  let old: Vec<u16> = before.encode_utf16().collect();
+  let new: Vec<u16> = after.encode_utf16().collect();
+  let fragments = by_word::compare(&old, &new, ComparisonPolicy::Default, &Deadline::after(WORD_DIFF_BUDGET)).ok()?;
+  let removed: usize = fragments.iter().map(|fragment| fragment.end_offset1 - fragment.start_offset1).sum();
+  let kept = old.len() - removed.min(old.len());
+  if kept * 2 < old.len().min(new.len()) || kept * 3 < old.len().max(new.len()) {
+    return None;
+  }
+  let offset = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+  let inserted = fragments
+    .iter()
+    .filter(|fragment| fragment.end_offset2 > fragment.start_offset2)
+    .map(|fragment| TextRange {
+      start: offset(fragment.start_offset2),
+      end: offset(fragment.end_offset2),
+    })
+    .collect();
+  let deleted = fragments
+    .iter()
+    .filter(|fragment| fragment.end_offset1 > fragment.start_offset1)
+    .map(|fragment| ProseDeletion {
+      at: offset(fragment.start_offset2),
+      text: String::from_utf16_lossy(&old[fragment.start_offset1..fragment.end_offset1]),
+    })
+    .collect();
+  Some((inserted, deleted))
+}
+
+/// The sentences of `text` (UTF-16 ranges): a `.`, `!` or `?` and the whitespace after it end one, the whitespace
+/// between two sentences belongs to neither
+fn sentences(text: &[u16]) -> Vec<Range<usize>> {
+  let is_space = |unit: u16| unit == u16::from(b' ') || unit == u16::from(b'\t');
+  let is_end = |unit: u16| unit == u16::from(b'.') || unit == u16::from(b'!') || unit == u16::from(b'?');
+  let mut result = Vec::new();
+  let mut start = 0;
+  let mut at = 0;
+  while at < text.len() {
+    if is_end(text[at]) && text.get(at + 1).is_some_and(|&next| is_space(next)) {
+      result.push(start..at + 1);
+      at += 1;
+      while at < text.len() && is_space(text[at]) {
+        at += 1;
+      }
+      start = at;
+    } else {
+      at += 1;
+    }
+  }
+  if start < text.len() {
+    result.push(start..text.len());
+  }
+  result
+}
+
+/// Of a long paragraph, the sentences that hold its changes, when they leave out enough of it (`EXCERPT_MAX_SHARE`)
+fn excerpt(text: &str, inserted: &[TextRange], deleted: &[ProseDeletion]) -> Option<TextRange> {
+  let units: Vec<u16> = text.encode_utf16().collect();
+  if units.len() <= EXCERPT_MIN_LENGTH {
+    return None;
+  }
+  let sentences = sentences(&units);
+  // the sentence a position of a change is in: the one it starts in, the last one for the end of the text
+  let sentence_of = |at: usize| sentences.iter().position(|sentence| at < sentence.end).unwrap_or_else(|| sentences.len().saturating_sub(1));
+  let touched = inserted
+    .iter()
+    .flat_map(|range| {
+      [
+        sentence_of(range.start as usize),
+        sentence_of((range.end as usize).saturating_sub(1).max(range.start as usize)),
+      ]
+    })
+    .chain(deleted.iter().map(|deletion| sentence_of(deletion.at as usize)));
+  let (first, last) = touched.fold((usize::MAX, 0), |(first, last), index| (first.min(index), last.max(index)));
+  if first == usize::MAX {
+    return None;
+  }
+  let range = sentences[first].start..sentences[last].end;
+  let (numerator, denominator) = EXCERPT_MAX_SHARE;
+  (range.len() * denominator <= units.len() * numerator).then(|| TextRange {
+    start: u32::try_from(range.start).unwrap_or(u32::MAX),
+    end: u32::try_from(range.end).unwrap_or(u32::MAX),
+  })
+}
