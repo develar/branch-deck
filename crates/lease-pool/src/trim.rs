@@ -22,7 +22,7 @@ use crate::lease::{
 };
 use crate::lease_clean::{Trash, remove_measured};
 use crate::output_bases::{OutputBase, orphans, output_bases, output_user_roots};
-use crate::shrink::shrink_order;
+use crate::shrink::{next_free, shrink_order};
 use anyhow::{Result, anyhow};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{forget_slot, lease_config};
@@ -348,7 +348,10 @@ pub struct EvictParams<'a> {
 /// its output bases before the next `statfs`, so no slot goes that the volume did not need. A get runs it only below the
 /// minimum after the trim and the shrink, whose clean rules left the free slots only their worktrees. Only the slots on
 /// the volume of `params.volume` are candidates (`free_space::Volume`): the delete of another frees nothing there. A slot
-/// with a lease of any state stays, as does one with a process in it but its Bazel servers, which are stopped
+/// with a lease of any state stays, as does one with a process in it but its Bazel servers, which are stopped. So do the
+/// free slot the get takes next in its own pool (`shrink::next_free`), which it reuses warm where an eviction would make
+/// it clone the same worktree again; a dirty one, whose changes made without a lease may be their only copy; and one
+/// never returned, a worktree `bd lease adopt` kept where it was
 #[instrument(skip_all, fields(repository = %params.trim.repository.top_level, target = params.target))]
 pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -> Trimmed {
   let Machine { pools, bases, .. } = Machine::read(params.trim.repository, params.trim.home);
@@ -365,9 +368,17 @@ pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -
     .collect();
   let slots: Vec<&[Slot]> = stores.iter().map(|(_, store)| store.slots.as_slice()).collect();
   let volume = Volume::of(params.volume);
-  let order = shrink_order(&slots, |slot| {
+  let present = |slot: &Slot| {
     let path = Path::new(&slot.path);
     path.is_dir() && volume.holds(path) && slot_servers(&scan, path).1.is_empty()
+  };
+  let own = PathBuf::from(canonical_path(Path::new(&params.trim.repository.git_common_dir)));
+  let kept = stores
+    .iter()
+    .find(|(pool, _)| pool.git_common_dir == own)
+    .and_then(|(_, store)| next_free(store.slots.iter().filter(|slot| slot.lease.is_none() && present(slot))));
+  let order = shrink_order(&slots, |slot| {
+    present(slot) && !slot.dirty && slot.returned.is_some() && !kept.is_some_and(|kept| std::ptr::eq(kept, slot))
   });
   // the report of each pool, made as its first slot goes
   let mut reports: Vec<Option<TrimmedPool>> = stores.iter().map(|_| None).collect();

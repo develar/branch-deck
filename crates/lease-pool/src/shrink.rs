@@ -180,8 +180,7 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
   let mut last: Vec<(usize, &Slot)> = Vec::new();
   for (pool, slots) in pools.iter().enumerate() {
     let free: Vec<&Slot> = slots.iter().filter(|slot| slot.lease.is_none() && usable(slot)).collect();
-    // the first of the minimum, as the stable sort of `reserve` takes it
-    let next = free.iter().copied().min_by_key(|slot| (slot.dirty, Reverse(slot.returned)));
+    let next = next_free(free.iter().copied());
     for slot in free {
       if next.is_some_and(|next| std::ptr::eq(next, slot)) {
         last.push((pool, slot));
@@ -195,6 +194,12 @@ pub fn shrink_order<'a>(pools: &[&'a [Slot]], usable: impl Fn(&Slot) -> bool) ->
   last.sort_by_key(|(_, slot)| (slot.returned_at, slot.returned));
   first.extend(last);
   first
+}
+
+/// Of the free slots `free`, the one a get takes first, as `lease::reserve` orders them: clean before dirty, returned
+/// last first, then the first never returned (the first of the minimum, as the stable sort of `reserve` takes it)
+pub fn next_free<'a>(free: impl Iterator<Item = &'a Slot>) -> Option<&'a Slot> {
+  free.min_by_key(|slot| (slot.dirty, Reverse(slot.returned)))
 }
 
 #[cfg(test)]

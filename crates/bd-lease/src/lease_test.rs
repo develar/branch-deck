@@ -1453,7 +1453,8 @@ fn a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_l
 }
 
 /// A get that the trim, the shrink and the eviction leave below the minimum refuses, with nothing leased, and names
-/// what it freed: the slots whose build output it deleted, the slot of its next get last, and the slots it deleted
+/// what it freed: the slots whose build output it deleted, the slot of its next get last, and the slots it deleted,
+/// every free slot but that one, which it would reuse rather than clone the same worktree again
 #[test_log::test]
 fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed() {
   let shrink = ShrinkFixture::new();
@@ -1472,16 +1473,49 @@ fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_n
   let lease_pool::lease::LeaseRefusal::LowDiskSpace { available, freed, .. } = refusal else {
     panic!("{refusal}");
   };
-  assert_eq!((*available, freed.trim.slots, freed.shrink.slots, freed.evict.slots), (53 * GIB, 0, 3, 3), "{refusal}");
+  assert_eq!((*available, freed.trim.slots, freed.shrink.slots, freed.evict.slots), (53 * GIB, 0, 3, 2), "{refusal}");
   assert!(freed.shrink.bytes >= 3 * UNIT_BYTES as u64 && freed.evict.bytes > 0, "{refusal}");
   let message = refusal.to_string();
   assert!(
     message.contains("the get deleted the build output of 3 free slot(s) of the pools of this machine")
-      && message.contains("then it deleted 3 free slot(s) below `branchdeck.leaseMaxSlots`"),
+      && message.contains("then it deleted 2 free slot(s) below `branchdeck.leaseMaxSlots`"),
     "{message}"
   );
   assert_eq!(kinds(&steps), ["trim", "shrink", "evict"]);
-  assert_eq!(states(&shrink.fixture.status()), Vec::<(String, String)>::new());
+  assert_eq!(states(&shrink.fixture.status()), [(shrink.slots[2].clone(), "free".to_string())]);
+}
+
+/// The eviction keeps a free slot marked dirty, whose changes made without a lease may be their only copy, and one
+/// never returned, such as a worktree `bd lease adopt` kept where it was: with the get's next slot kept too, it deletes
+/// nothing here, and the get refuses
+#[test_log::test]
+fn the_eviction_keeps_dirty_and_never_returned_free_slots() {
+  let shrink = ShrinkFixture::new();
+  let mut state: Value = serde_json::from_str(&std::fs::read_to_string(shrink.fixture.state_file()).unwrap()).unwrap();
+  let slots = state["slots"].as_array_mut().unwrap();
+  slots[0]["dirty"] = json!(true);
+  let adopted = slots[1].as_object_mut().unwrap();
+  adopted.remove("returned");
+  adopted.remove("returned_at");
+  std::fs::write(shrink.fixture.state_file(), state.to_string()).unwrap();
+  let steps = std::sync::Mutex::new(Vec::new());
+  let error = shrink
+    .get(
+      Volume {
+        base: 50,
+        per_unit: 1,
+        per_slot: 30,
+      },
+      &steps,
+    )
+    .unwrap_err();
+  let refusal = error.downcast_ref::<lease_pool::lease::LeaseRefusal>().unwrap_or_else(|| panic!("{error:#}"));
+  let lease_pool::lease::LeaseRefusal::LowDiskSpace { freed, .. } = refusal else {
+    panic!("{refusal}");
+  };
+  assert_eq!((freed.shrink.slots, freed.evict.slots), (3, 0), "{refusal}");
+  assert_eq!(kinds(&steps), ["trim", "shrink", "evict"]);
+  assert_eq!(states(&shrink.fixture.status()).len(), 3);
 }
 
 /// A get records the process it ran for, the nearest ancestor that is no shell, and the status tells whether it runs;

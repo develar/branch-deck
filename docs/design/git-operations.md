@@ -1986,7 +1986,9 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    from cleaning one more slot each, smaller than a whole slot, which would clean two where one lifts the volume over
    the minimum. The trim comes first: the slots past the limit go anyway, and a clean of them would be work for
    nothing. Still below, the get evicts free slots below the limit once (`trim::evict_core`), in the order of the
-   shrink, each removed as the trim removes one and deleted at once, one `statfs` before each, up to the same margin:
+   shrink, each removed as the trim removes one and deleted at once, one `statfs` before each, up to the same margin,
+   but for three free slots: the one the get takes next in its own pool, which it would otherwise clone again at once,
+   one marked dirty, whose changes may be their only copy, and one never returned, a worktree adopted where it was:
    what the shrink left of a free slot is its worktree (14 to 16 GB of files of its own in a slot of idea-1, rewritten
    since its clone), which a later get clones again; the other way out was a refusal that leaves the user only the
    deletes by hand. Neither runs for a minimum past the size of the volume (`f_blocks` of the same `statfs`), which no

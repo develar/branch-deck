@@ -195,7 +195,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   its pool directory) are candidates: a pool of `branchdeck.leasePool` or a worktree adopted where it was can live on
   another disk, whose deletes would not raise that free space; two APFS volumes of one container share their free
   space but not their device, so their slots are passed over too. A free slot with a process in it stays (`busy`), as
-  does one without rules. Before each slot the get measures (one `statfs`) and stops once the volume has the minimum and a
+  does one without rules. A free slot marked dirty and one never returned are cleaned as well: their rules name build
+  output, never the changes in their worktree. Before each slot the get measures (one `statfs`) and stops once the volume has the minimum and a
   tenth of it: without the margin every later get would find the volume just below the minimum again and clean one
   more slot. Its answer names each slot it cleaned with what its rules freed (`shrunk`), and a `low_disk_space` after
   it names how many slots it cleaned and the bytes they freed. On 2026-11-03 each free slot of branch-deck held 50 to
@@ -214,7 +215,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   stopped, its directory and its output bases through the trash, its registration and its entry dropped), deleted
   before the next is chosen, one `statfs` before each, until the volume has the minimum and a tenth of it. Only the
   slots on the volume the get measures are candidates, as for the shrink. A slot with a lease of any state (a host slot
-  too) and one with a process in it but its Bazel servers stay. Its answer names the
+  too) and one with a process in it but its Bazel servers stay, and so do three free slots: the one the get takes next
+  in its own pool, which it reuses warm where an eviction would make it clone the same worktree again; one marked
+  dirty, whose changes made without a lease may be their only copy; and one never returned, such as a worktree that
+  `bd lease adopt` kept where it was. Its answer names the
   slots it deleted (`evicted`, as `bd lease trim` prints them), and a `low_disk_space` after it names how many and the
   bytes they freed. A free slot is pool property: after its build output, what is left of it is its worktree, which a
   later get clones again, and the user, told only `low_disk_space`, would delete the slots by hand.
@@ -226,6 +230,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_limit_returned_longest_ago_first`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`, `a_get_below_the_minimum_free_space_refuses_and_names_it`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`the_eviction_keeps_dirty_and_never_returned_free_slots`)
   [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)
 - A free slot with local changes (one `status --porcelain=v1`, the repository's own `core.fsmonitor` applies) must be
   skipped (`skipped`, `reason: "dirty"`, `paths`), stay free, and be marked dirty; later gets must try a dirty slot
@@ -1056,7 +1061,8 @@ and one `write-tree`. Both give the same commit for the same tree.
   finish one after the other instead of all failing together, and a freed slot ends the wait of the next get.
 - A seeded path that a later commit tracks is removed by the return, and the slot shows a deletion; the next get skips
   it as dirty.
-- A free slot left dirty stays in the pool; a get that needs it pays one `status` of it once something touched it.
+- A free slot left dirty stays in the pool, also through the eviction of a get below the minimum free space (its build
+  output goes in the shrink); a get that needs it pays one `status` of it once something touched it.
 - The proof of a dirty slot reads only the top-level `.gitignore` and `info/exclude`: a nested `.gitignore` or a
   global `core.excludesFile` that comes to ignore the stray file, the file itself untouched, keeps the slot skipped
   until something touches a recorded path or the slot moves.
