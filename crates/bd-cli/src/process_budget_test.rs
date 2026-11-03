@@ -1170,6 +1170,55 @@ fn a_lease_trim() {
   assert_git_processes(&context.git, &[("rev-parse", 1), ("worktree", 1)]);
 }
 
+/// A get below the minimum free space that shrinks and evicts, in a pool of three free slots with the clean rule
+/// `cargo target`: the processes of a get of a free slot (`config` 1, `rev-parse` 3, `status` 1), one `config` of the
+/// limit of the pool for the trim, which deletes nothing, one `ls-files` of the rules of each slot the shrink cleans
+/// (three: nothing lifts the volume), one `config` of the limit of the pool the eviction deletes from, for its report,
+/// and one `worktree remove` of the one slot it deletes, as the volume has the minimum after it; nothing per kept slot
+#[test]
+fn a_lease_get_that_shrinks_and_evicts() {
+  const GIB: u64 = 1 << 30;
+  let repo = repo_with_branches();
+  repo.create_commit_with_files(
+    "Add the clean rules",
+    &[(".gitignore", "/target/\n"), (".branchdeck.toml", "[lease]\nclean = [{ cargo = \"target\" }]\n")],
+  );
+  let (_home, environment) = lease_environment(&repo);
+  let slots: Vec<String> = (0..3).map(|_| leased_slot(&environment).to_string_lossy().into_owned()).collect();
+  for slot in &slots {
+    let context = LeaseContext::resolve(&environment, Some(std::path::Path::new(slot))).unwrap();
+    lease_return(&context, &LeaseReturnArgs::default()).unwrap();
+  }
+  let context = LeaseContext::resolve(&environment, None).unwrap();
+  // 50 GiB, 110 once a slot is gone: past the minimum of 100
+  let space = |_: &std::path::Path| {
+    let gone = slots.iter().filter(|slot| !std::path::Path::new(slot).exists()).count() as u64;
+    Some(lease_pool::free_space::VolumeSpace {
+      available: (50 + 60 * gone) * GIB,
+      total: 1024 * GIB,
+    })
+  };
+  let got = lease_pool::lease::lease_get_core(
+    &context.git,
+    &lease_pool::lease::LeaseGetParams {
+      source: &context.dirs,
+      home: environment.home.as_deref(),
+      holder: None,
+      branch: None,
+      min_free: Some(100 * GIB),
+      server_timeout: context.server_stop_timeout,
+      bazel: None,
+      lock_timeout: context.lock_timeout,
+      progress: None,
+      space: Some(&space),
+    },
+  )
+  .unwrap();
+  assert_eq!(got.shrunk.as_ref().map(|shrunk| shrunk.slots.len()), Some(3), "{got:?}");
+  assert_eq!(got.evicted.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(1), "{got:?}");
+  assert_git_processes(&context.git, &[("config", 3), ("ls-files", 3), ("rev-parse", 3), ("status", 1), ("worktree", 1)]);
+}
+
 /// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto
 /// --detach` in the common dir, once the slot is free
 #[test]

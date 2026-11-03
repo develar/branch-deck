@@ -1,7 +1,7 @@
 #[cfg(unix)]
 use crate::clones_lock_test::wait_for_the_slot;
-use crate::clones_lock_test::{get_with_steps, kinds, new_slot_steps};
-use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_status};
+use crate::clones_lock_test::{get_with_steps, kinds, new_slot_steps, printed};
+use crate::lease_command::{LeaseContext, LeaseStatusArgs, lease_get_output, lease_status};
 use bd_cli::fixture_test::assert_covered;
 #[cfg(unix)]
 use bd_cli::fixture_test::beside_a_held_sync;
@@ -1335,6 +1335,13 @@ impl ShrinkFixture {
     )
   }
 
+  /// The output of `got` as bd prints it, checked against `bd schema`
+  fn printed(&self, got: &lease_pool::lease::LeaseGot) -> Value {
+    let environment = self.fixture.environment(self.fixture.repo.path());
+    let context = LeaseContext::resolve(&environment, None).unwrap();
+    printed(&self.fixture, &lease_get_output(&context, got).unwrap())
+  }
+
   /// Which of the slots still have their unit
   fn units(&self) -> Vec<bool> {
     self.slots.iter().map(|slot| Self::unit(slot).exists()).collect()
@@ -1396,6 +1403,42 @@ fn a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots
   // what the rules moved into the trash is deleted
   let trash = shrink.fixture.repo.path().join(".git/branch-deck/trash");
   assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0);
+}
+
+/// A free slot with a process in it stays as it is (`busy`, with the process), and so does one without clean rules: the
+/// shrink goes on to the next slot, here the one the get takes, and the answer names both, as bd prints it
+#[cfg(unix)]
+#[test_log::test]
+fn a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules() {
+  let shrink = ShrinkFixture::new();
+  let [first, second, third] = &shrink.slots;
+  let _busy = Killed(busy_in(first));
+  std::fs::remove_file(Path::new(second).join(".branchdeck.toml")).unwrap();
+  let steps = std::sync::Mutex::new(Vec::new());
+  let got = shrink
+    .get(
+      Volume {
+        base: 99,
+        per_unit: 12,
+        per_slot: 0,
+      },
+      &steps,
+    )
+    .unwrap();
+  assert_eq!(shrunk_paths(&got), std::slice::from_ref(third));
+  assert_eq!(shrink.units(), [true, true, false]);
+  assert_eq!(got.slot.path, *third);
+  let output = shrink.printed(&got);
+  let shrunk = &output["shrunk"];
+  assert_eq!(shrunk["busy"].as_array().map(Vec::len), Some(1), "{output}");
+  assert_eq!(shrunk["busy"][0]["path"], json!(first), "{output}");
+  assert_eq!(
+    shrunk["busy"][0]["processes"][0]["command"].as_str().map(|command| command.contains("sleep")),
+    Some(true),
+    "{output}"
+  );
+  assert_eq!((&shrunk["slots"][0]["path"], &shrunk["processes_checked"]), (&json!(third), &json!(true)), "{output}");
+  assert!(shrunk["freed_bytes"].as_u64().is_some_and(|freed| freed >= UNIT_BYTES as u64), "{output}");
 }
 
 /// A shrink stops at the first slot past the minimum and its margin: the others keep their build output
@@ -1496,6 +1539,11 @@ fn a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_l
   assert_eq!((&got.slot.path, got.free_bytes), (third, Some(113 * GIB)));
   assert_eq!(kinds(&steps)[..4], ["trim", "shrink", "evict", "reserve"]);
   assert_eq!(states(&shrink.fixture.status()), [(third.clone(), "ready".to_string())]);
+  // as bd prints it: the shrink of the three slots, and the eviction as `bd lease trim` prints its slots
+  let output = shrink.printed(&got);
+  assert_eq!(output["shrunk"]["slots"].as_array().map(Vec::len), Some(3), "{output}");
+  let removed: Vec<&Value> = output["evicted"]["pools"][0]["removed"].as_array().unwrap().iter().map(|slot| &slot["path"]).collect();
+  assert_eq!(removed, [&json!(first), &json!(second)], "{output}");
 }
 
 /// The eviction stops at the minimum itself, not at the margin of the shrink: a slot is a whole worktree, and the one

@@ -211,6 +211,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`)
   [@test] ../../crates/lease-pool/src/shrink_test.rs (`the_shrink_takes_the_free_slots_returned_longest_ago_across_pools_and_each_pools_next_one_last`, `the_next_slot_of_a_pool_is_the_one_its_get_would_take`)
   [@test] ../../crates/lease-pool/src/free_space_test.rs (`a_volume_holds_the_paths_of_its_own_device_only`)
+  [@test] ../../crates/bd-lease/src/lease_test.rs (`a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_shrinks_and_evicts`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_that_waited_for_the_shrink_of_another_cleans_nothing_once_the_volume_has_the_target`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
 - A get whose volume is still below the minimum free space after the shrink must evict free slots below

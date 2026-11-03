@@ -17,8 +17,8 @@ use lease_pool::free_space::available_bytes;
 use lease_pool::host_slots::{HOST_HOLDER_PREFIX, HostSlotRefusal, HostSlotsParams, clean_host_slots};
 use lease_pool::landed_work::{LandedCheck, LandedCommit, Proof};
 use lease_pool::lease::{
-  Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseHome, LeaseReclaimParams, LeaseRefusal,
-  LeaseReturnParams, Pool, Reclaimed, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core,
+  Adopted, BusyProcess, CreatedBy, GetStep, IdleCheck, IdleLease, IdleSkip, Lease, LeaseAdoptParams, LeaseCleanParams, LeaseGetParams, LeaseGot, LeaseHome, LeaseReclaimParams,
+  LeaseRefusal, LeaseReturnParams, Pool, Reclaimed, SkipReason, SlotState, StoppedServer, canonical_path, lease_adopt_core, lease_clean_core, lease_get_core, lease_reclaim_core,
   lease_return_core, lease_status_core, pool_dir, ready_slot_at, reclaimed_refusal,
 };
 use lease_pool::lease_clean::{CleanOverrides, Cleaned, parse_age, read_pick_requires_check};
@@ -719,6 +719,11 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     space: None,
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
+  lease_get_output(context, &got)
+}
+
+/// The output of the get `got` in the repository of `context`
+pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result<LeaseGetOutput, CliError> {
   let lease = got
     .slot
     .lease
@@ -738,7 +743,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     next: lease_next(&got.slot.path, &lease.home(), &lease.id),
     leased_at: lease.leased_at,
     reused: lease.reused,
-    created_by: got.created_by.map(|created_by| match created_by {
+    created_by: got.created_by.as_ref().map(|created_by| match created_by {
       CreatedBy::Clone => CreatedByOutput::Clone,
       CreatedBy::Checkout => CreatedByOutput::Checkout,
     }),
