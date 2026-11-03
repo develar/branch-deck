@@ -360,10 +360,7 @@ fn a_get_deletes_the_trash_without_the_clones_lock() {
   let error = beside.second.unwrap_err();
   assert_eq!(error.code, ErrorCode::LowDiskSpace, "{}", error.message);
   assert!(!gone.exists(), "the trash of the gone run is deleted");
-  assert_eq!(
-    kinds(&steps),
-    ["reserve", "wait", "delete trash", "reserve", "trim", "reserve"]
-  );
+  assert_eq!(kinds(&steps), ["reserve", "wait", "delete trash", "reserve", "trim", "reserve"]);
   assert_eq!(
     GetStep::DeleteTrash.to_string(),
     "deleting the trash of runs that are gone: the free space is below the minimum"

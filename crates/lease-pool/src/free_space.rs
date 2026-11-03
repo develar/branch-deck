@@ -78,9 +78,9 @@ fn device(path: &Path) -> Option<u64> {
 #[cfg(target_os = "macos")]
 #[expect(unsafe_code, reason = "statfs(2), which std does not wrap")]
 mod platform {
+  use super::VolumeSpace;
   use std::ffi::CString;
   use std::mem::MaybeUninit;
-  use super::VolumeSpace;
   use std::os::unix::ffi::OsStrExt;
   use std::path::Path;
 
@@ -104,9 +104,9 @@ mod platform {
 #[cfg(all(unix, not(target_os = "macos")))]
 #[expect(unsafe_code, reason = "statvfs(3), which std does not wrap")]
 mod platform {
+  use super::VolumeSpace;
   use std::ffi::CString;
   use std::mem::MaybeUninit;
-  use super::VolumeSpace;
   use std::os::unix::ffi::OsStrExt;
   use std::path::Path;
 
