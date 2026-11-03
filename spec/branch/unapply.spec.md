@@ -118,7 +118,7 @@ puts its commits back on top of the current branch, their files and their groupi
   - the range from the oldest dropped commit to HEAD contains a merge commit;
   - the branch moved meanwhile.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_refuses_an_unknown_or_changed_branch_one_not_built_and_one_checked_out`)
-  [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`rewrite_refused_during_merge`)
+  [@test] ../../crates/git-ops/src/unapply_test.rs (`a_drop_is_refused_during_a_merge`)
 - The unapply, the reapply, the delete of an unapplied branch and their undo must be rewrites of the engine (the intent
   `rewrite`, `execute`): the session runs them one after the other with the other rewrites of the app, in the order
   they came, each on what the one before it left, and a second start of the same one joins it; the delete holds only
@@ -159,6 +159,11 @@ puts its commits back on top of the current branch, their files and their groupi
   entry or file may change.
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_conflict_changes_nothing`)
   [@test] ../../crates/git-ops/src/unapply_test.rs (`a_conflict_of_the_drop_changes_nothing`)
+- A later commit of another branch that holds only changes of the unapplied commits would become empty, and `git replay`
+  would leave it out with its message: it must refuse the unapply as a conflict does ("move it into that branch
+  first"), nothing changed. A later commit whose trees the unapply keeps (the branch's commits cancel out) must keep
+  its mapping note, written before the move, so the next sync keeps its virtual copy.
+  [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`unapply_keeps_the_note_of_a_later_commit_whose_trees_stay_and_refuses_to_empty_one`)
 - A failed unapply must keep the branch in the table and say why in the error toast "Cannot unapply ‹branch›".
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should keep the branch and say why when the unapply fails, and close the confirmation with Escape`)
 

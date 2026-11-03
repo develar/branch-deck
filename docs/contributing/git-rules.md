@@ -63,7 +63,8 @@ the user asked to apply, all or nothing, the index left alone), the single excep
 `pub(crate)`, called only by `update_branch.rs`: for Update Project (the app, `bd update`, and the update of a lease
 onto its home branch, detached, after a conflict of `bd lease pick`), its undo, the finish
 of a resolve session (`update_resolve.rs`), `bd pick` (`pick.rs`, also the worktree of `--follow`) and its undo, and
-the unapply and the reapply of a virtual branch (`unapply.rs`, `reapply.rs`) and their undo
+the unapply and the reapply of a virtual branch (`unapply.rs`, `reapply.rs`), the drop of commits (`unapply.rs`,
+whose `check_drop` alone builds a drop and names it by its `DropKind`) and their undo
 ([Invariants](../design/git-operations.md#invariants)). The scan
 counts its `-u` argument lists and the files that call the moves (`MOVE_CALLERS`). Don't add another caller, another
 argument list, or a public way to build a move. A slot of the lease pool is not the user's working

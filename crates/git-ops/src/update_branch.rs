@@ -956,6 +956,9 @@ pub const UNAPPLY: MoveOperation = MoveOperation {
   undo: "undo unapply",
 };
 
+/// The drop of commits for good (`bd drop`, the app's Drop Commit) and its undo
+pub const DROP: MoveOperation = MoveOperation { done: "drop", undo: "undo drop" };
+
 /// The reapply of an unapplied branch (`reapply`) and its undo
 pub const REAPPLY: MoveOperation = MoveOperation {
   done: "reapply",
@@ -963,7 +966,7 @@ pub const REAPPLY: MoveOperation = MoveOperation {
 };
 
 /// Every move the files follow: the finish of an interrupted one accepts their messages
-const MOVE_OPERATIONS: [MoveOperation; 4] = [UPDATE, PICK, UNAPPLY, REAPPLY];
+const MOVE_OPERATIONS: [MoveOperation; 5] = [UPDATE, PICK, UNAPPLY, REAPPLY, DROP];
 
 /// The fork point of `commit` in the reflog of `branch`, whose tip is `tip`, without a value that only a move of bd put
 /// into the reflog and that its rollback or its undo took back (`undone_move_base`): a fast-forward pick that rolled
@@ -1040,9 +1043,9 @@ pub(crate) fn undone_move_base(entries: &[ReflogEntry], value: &str) -> Option<S
   before
 }
 
-/// How a message names the operation of a move: `pick`, `unapply`, `reapply` or `update`
+/// How a message names the operation of a move: `pick`, `unapply`, `reapply`, `drop` or `update`
 fn noun(operation: &str) -> &'static str {
-  [PICK, UNAPPLY, REAPPLY]
+  [PICK, UNAPPLY, REAPPLY, DROP]
     .into_iter()
     .find(|move_| operation.contains(move_.done))
     .map_or("update", |move_| move_.done)

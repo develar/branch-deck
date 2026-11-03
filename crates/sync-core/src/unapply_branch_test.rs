@@ -5,7 +5,7 @@ use anyhow::Result;
 use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use domain_types::{SyncEvent, UnappliedBranchInfo};
 use git_ops::rewrite_guard::HeadMoved;
-use git_ops::unapply::MoveBlocked;
+use git_ops::unapply::{DropRefused, MoveBlocked};
 use git_ops::update_branch::{PENDING_UPDATE_PREFIX, UndoBlocked};
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
 use pretty_assertions::assert_eq;
@@ -74,6 +74,39 @@ fn unapply_takes_the_commits_of_the_branch_out_of_head_with_their_files() -> Res
   sync(&repo);
   assert!(!repo.branch_exists(VIRTUAL));
   assert_eq!(repo.rev_parse(&result.unapplied_branch_name).map_err(anyhow::Error::msg)?, tip);
+  Ok(())
+}
+
+/// A later commit whose trees the unapply keeps (the branch's commits cancel out) keeps its mapping note, so the next sync
+/// keeps its virtual copy; one that would become empty refuses the unapply, so `git replay` loses no commit of another
+/// branch
+#[test]
+fn unapply_keeps_the_note_of_a_later_commit_whose_trees_stay_and_refuses_to_empty_one() -> Result<()> {
+  let repo = baseline_repo(false);
+  repo.create_commit("(feature) Add x", "x.txt", "x\n");
+  repo.git(&["rm", "-q", "x.txt"]);
+  repo.git(&["commit", "-q", "-m", "(feature) Remove x"]);
+  repo.create_commit("(other) Add y", "y.txt", "y\n");
+  sync(&repo);
+  let notes_ref = git_ops::notes::notes_ref(repo.git_executor(), path(&repo))?;
+  let note = repo.git(&["notes", "--ref", &notes_ref, "show", "HEAD"]);
+
+  unapply(&repo, "feature", None)?;
+  assert_eq!(subjects(&repo), ["Initial commit", "(other) Add y"]);
+  assert_eq!(repo.git(&["notes", "--ref", &notes_ref, "show", "HEAD"]), note);
+
+  // a commit of another branch that holds only the change of this one: replay would leave it out
+  let repo = baseline_repo(false);
+  repo.create_commit("(feature) Add x", "x.txt", "x\n");
+  repo.create_commit("(other) Add y", "y.txt", "y\n");
+  repo.git(&["rm", "-q", "x.txt"]);
+  repo.git(&["commit", "-q", "-m", "(other) Remove x"]);
+  sync(&repo);
+  let head = repo.head();
+  let error = unapply(&repo, "feature", None).expect_err("the unapply should be refused");
+  let refused = error.downcast_ref::<DropRefused>().unwrap_or_else(|| panic!("not a refused drop: {error:#}"));
+  assert!(refused.0.contains("would become empty: move it into that branch first"), "{refused}");
+  assert_eq!(repo.head(), head);
   Ok(())
 }
 

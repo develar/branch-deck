@@ -92,18 +92,20 @@ flowchart TD
     A[a core: repository lock, expected HEAD] --> G[rewrite_guard: no operation in progress, branch checked out, no merges in range]
     G --> R{What changes?}
     R -->|message only| W[commit_writer: cat-file --batch + fast-import, exact metadata]
-    R -->|content| P[merge-tree --write-tree + git replay: amend, drop, squash]
+    R -->|content| P[merge-tree --write-tree + git replay: amend, squash]
+    R -->|drop, unapply| DR[git replay of the kept runs, then the dry run of the files on a copy of the index]
     W --> T[update-ref --stdin: CAS on the branch, temp refs deleted, reflog message]
     P --> F[index preflight on a copy of the index]
     F --> T
+    DR --> M[the guarded move of Update Project: the branch, then read-tree -m -u of the files]
     T --> I{HEAD tree changed?}
     I -->|no: reword, move, squash| D[done: index and working tree untouched]
-    I -->|drop| X[read-tree -m -i old new]
     I -->|amend| U[update-index the amended files from the working tree]
 ```
 
 Every path ends at one ref transaction. Only a content rewrite reaches the index step, and the working tree is never
-written, except by Update Project and the finish of its resolve session (their own sections below).
+written, except by the guarded move of Update Project: Update Project and the finish of its resolve session, `bd
+pick`, the unapply and the reapply, and the drop of commits (their own sections below).
 
 ### Invariants
 
@@ -129,7 +131,9 @@ written, except by Update Project and the finish of its resolve session (their o
    `bd pick` in `pick.rs`, which moves HEAD only to the tip its own check replayed (`PickPlan`, private fields), a
    detached HEAD with `option no-deref`, and, through its `pub(crate)` `move_branch_and_files_carrying` and
    `apply_move_undo_with`, for the unapply in `unapply.rs`, which moves HEAD only to the drop its own check replayed
-   (`UnapplyPlan`, private fields) and moves the virtual branch in the same transaction, and for the reapply in
+   (`DropPlan`, private fields, built only by `check_drop`, whose `DropKind` names the move) and moves the virtual branch
+   in the same transaction, for the drop of commits for good in the same file (`apply_drop`, `branch-deck: drop`), and
+   for the reapply in
    `reapply.rs`, which moves HEAD only to the pick its own check replayed (through `pick.rs`'s `apply_pick_carrying`)
    and deletes the unapplied branch in the same transaction. The safety scan allows `-u`
    there and asserts the number of such argument lists (two: the dry run and the update), so the exemption can't grow
@@ -943,7 +947,13 @@ git replay --ref-action=print --onto=<base> --ref=refs/branch-deck/replay <d_i>.
 
 The last run is `<d_k>..HEAD`. That is at most k processes for k dropped commits, whatever the length of the range.
 A conflict makes `replay` exit with 1, without output, and nothing has changed. A drop is a rewrite plan
-(`prepare_plan`) whose steps are all `Drop`.
+(`prepare_plan`) whose steps are all `Drop`, read with the mapping notes, and checked as a squash is: one `log` of the
+new history counts its commits, since `replay` silently leaves out a later commit that becomes empty (one that holds
+only changes of the dropped commits), which refuses the drop (`DropRefused`, nothing changed), and gives the trees by
+which a replayed commit whose trees stay keeps its mapping note. A dropped root commit is refused too. Every drop that
+moves HEAD runs `check_drop` (`crates/git-ops/src/unapply.rs`): the plan, then the dry run of the files below; its
+`DropKind` names the move in the reflog (`unapply`, `drop`), which the undo and the finish of an interrupted move look
+for.
 
 Unapply ([Unapply](../../spec/branch/unapply.spec.md)) takes the commits of a virtual branch out of HEAD with their
 files and keeps the branch in the unapplied namespace, which no sync archives or deletes. Steps 1 to 4 read and
@@ -966,7 +976,8 @@ move (step 5, `lock_prepared_move`):
    worktree (`refs/branch-deck/update-pending/<worktree id>`). A ref that moved meanwhile (another process rewrote HEAD
    or took the name) computes steps 1 to 4 once more under the lock; a mark there lets the files of that move follow
    first (`finish_pending_update`). Then the guarded move of "Update project" moves HEAD with the files
-   (`move_branch_and_files_carrying`, `branch-deck: unapply`). Its transaction also creates the branch in the
+   (`move_branch_and_files_carrying`, `branch-deck: unapply`); the carried mapping notes were written before the lock,
+   as for a squash (best effort). Its transaction also creates the branch in the
    unapplied namespace (none of the name may exist), deletes the virtual branch (checked against its tip) and the
    temporary refs of the drop; the rollback of files that changed since the dry run moves both back.
 
@@ -1026,8 +1037,7 @@ text or the target's own message and encoding):
    target and the newest folded one change their trees and keep none; the originals keep theirs, for an undo.
 7. Write the carried notes (`PreparedRewrite::ready`: `notes get-ref` and one `fast-import` from `<notes ref>^0`,
    best effort as `write_cache_notes`, whose own compare-and-swap of the notes ref needs no lock), so a sync the move
-   wakes finds them; a note on a commit the branch never reaches harms nothing. A drop runs its index preflight here
-   too (`IndexUpdate::preflight`, on a copy of the index).
+   wakes finds them; a note on a commit the branch never reaches harms nothing.
 8. Take the repository lock: steps 1 to 7 ran before it. Read the witness, HEAD and its branch (one `for-each-ref`);
    HEAD elsewhere runs steps 1 to 7 once more under the lock, where a HEAD other than the expected one is `HeadMoved`.
    Then move the branch in one transaction (`branch-deck: squash N commits`) that also deletes the temporary refs.

@@ -457,7 +457,8 @@ fn unapply_beta(git: &GitCommandExecutor, repo: &TestRepo, commits: &[String]) -
 
 /// The commits of beta dropped from the checked out branch with their files, its virtual branch kept as an unapplied one:
 /// before the lock the grouping inputs and the commits ahead, the build of the virtual branch (its tip, its stack note,
-/// its own commits), the drop (`git replay` per kept run), the dry run of the files and the free name; under it the
+/// its own commits), the drop (`git replay` per kept run, one `log` of the new history: its count, no commit lost, and
+/// its trees, the mapping notes the replayed commits keep), the dry run of the files and the free name; under it the
 /// witness (`for-each-ref` of HEAD, the issue groups, both branches and the mark of pending files) and the move with its
 /// mark (`update-ref`, `read-tree`)
 #[tokio::test]
@@ -473,13 +474,13 @@ async fn a_drop() {
       ("config", 1),
       ("diff-tree", 1),
       ("for-each-ref", 4),
-      ("log", 3),
+      ("log", 4),
       ("merge-base", 1),
       ("read-tree", 2),
       ("remote", 1),
       ("replay", 2),
       ("rev-list", 1),
-      ("rev-parse", 4), // the directories, read once for the lock, the guards, the mark and the index: 1
+      ("rev-parse", 3), // the directories, read once for the lock, the guards, the mark and the index: 1
       ("symbolic-ref", 2),
       ("update-index", 2),
       ("update-ref", 2),

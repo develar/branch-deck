@@ -45,8 +45,8 @@ const MOVE_FUNCTIONS: [&str; 6] = [
 ];
 
 /// The files that name `MOVE_FUNCTIONS` (declarations and calls), with their number of uses: Update Project and its
-/// undo, the finish of a resolve session, `bd pick`, the unapply and the reapply of a virtual branch and their undo
-/// (docs/design/git-operations.md, invariant 1)
+/// undo, the finish of a resolve session, `bd pick`, the unapply and the reapply of a virtual branch, the drop of
+/// commits and their undo (docs/design/git-operations.md, invariant 1)
 const MOVE_CALLERS: [(&str, usize); 5] = [
   ("crates/git-ops/src/update_branch.rs", 13),
   ("crates/git-ops/src/update_resolve.rs", 2),

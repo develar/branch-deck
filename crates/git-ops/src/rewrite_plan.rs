@@ -148,7 +148,7 @@ impl PreparedRewrite {
 
   /// The carried notes in one `fast-import` on the mapping notes ref, which exists: the notes were read from it. Best
   /// effort (`write_cache_notes`): a sync writes a missing note when it copies the commit again
-  fn write_carried_notes(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
+  pub(crate) fn write_carried_notes(&self, git_executor: &GitCommandExecutor, repo_path: &str) {
     if self.carried_notes.is_empty() {
       return;
     }
@@ -367,7 +367,7 @@ impl PlanWriter<'_> {
       }
       match role {
         Role::Drop if new_tip.is_none() => {
-          return Err(CopyCommitError::Other(anyhow!("Cannot drop the root commit {}", short_id(self.history.id(position)))));
+          return Err(refusal(format!("Cannot drop the root commit {}", short_id(self.history.id(position)))));
         }
         Role::Drop | Role::Folded => {}
         Role::Replace(replacement) => new_tip = Some(self.write_replacement(new_tip.as_deref(), position, replacement)?),
@@ -415,6 +415,10 @@ impl PlanWriter<'_> {
         None => self.empty_tree(),
       };
       self.carried_notes = self.notes_to_carry(roles, oldest_position, &chain, &base_tree);
+      // a plan that only drops wrote no commit: the notes commit needs the committer all the same
+      if !self.carried_notes.is_empty() && self.committer.is_empty() {
+        self.committer = current_committer(self.git_executor, self.repo_path)?;
+      }
     }
     Ok(new_head)
   }
@@ -614,9 +618,9 @@ impl PlanWriter<'_> {
 }
 
 /// Prepare dropping `commit_ids_to_drop` from the checked out branch: their descendants are replayed onto the
-/// remaining history. The branch is not moved; `PreparedRewrite::apply` does it.
-/// The working tree keeps the dropped content, so it shows up as unstaged changes (files the dropped commits added as
-/// untracked); staged changes on other paths stay staged.
+/// remaining history, the ones whose trees stay keeping their mapping notes. A later commit that would become empty
+/// (`git replay` leaves it out) refuses it as `RewriteRefused` of `RefusalKind::Empty`. The branch is not moved: the
+/// guarded move of `unapply` does it, the files following
 #[instrument(skip(git_executor))]
 pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String]) -> Result<PreparedRewrite, CopyCommitError> {
   if commit_ids_to_drop.is_empty() {
@@ -624,18 +628,14 @@ pub fn prepare_drop_commits(git_executor: &GitCommandExecutor, repo_path: &str, 
   }
 
   let ids: Vec<&str> = commit_ids_to_drop.iter().map(String::as_str).collect();
-  let history = History::read_to(git_executor, repo_path, &ids)?;
+  let history = History::read_to_with_notes(git_executor, repo_path, &ids)?;
   let mut plan = RewritePlan::default();
   for id in commit_ids_to_drop {
     plan.steps.insert(history.position(id)?, PlanStep::Drop);
   }
-  prepare_plan(git_executor, repo_path, &history, &plan, PlanChecks::default())
-}
-
-/// Drop `commit_ids_to_drop` from the checked out branch; returns the new HEAD
-#[instrument(skip(git_executor))]
-pub fn drop_commits_from_head(git_executor: &GitCommandExecutor, repo_path: &str, commit_ids_to_drop: &[String]) -> Result<String, CopyCommitError> {
-  let prepared = prepare_drop_commits(git_executor, repo_path, commit_ids_to_drop)?.ready(git_executor, repo_path)?;
-  prepared.apply(git_executor, repo_path, RefTransaction::new(), &format!("drop {} commits", commit_ids_to_drop.len()))?;
-  Ok(prepared.new_head)
+  let checks = PlanChecks {
+    keep_head_tree: false,
+    check_commit_count: true,
+  };
+  prepare_plan(git_executor, repo_path, &history, &plan, checks)
 }

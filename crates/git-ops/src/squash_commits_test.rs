@@ -222,7 +222,7 @@ fn a_squash_on_a_history_without_notes_writes_none() -> Result<()> {
   let after = repo.create_commit("Add z", "z.txt", "z");
   write_commit_notes(repo.git_executor(), repo_path(&repo), &[mapping_note(&repo, &after, &"1".repeat(40))?])?;
 
-  // the history of an amend or a drop is read without notes: nothing to carry
+  // the history of an amend is read without notes: nothing to carry
   let prepared = squash(&repo, &target, &[&folded], "Add a and b\n")?;
   assert_eq!(prepared.carried_notes().count(), 0);
   Ok(())

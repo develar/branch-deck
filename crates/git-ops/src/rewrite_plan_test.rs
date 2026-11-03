@@ -2,8 +2,8 @@ use super::copy_commit::CopyCommitError;
 use super::history::History;
 use super::ref_transaction::RefTransaction;
 use super::revs::resolve_tree_id;
-use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, drop_commits_from_head, prepare_plan, refused_in};
-use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, stage_file, status, write_file};
+use super::rewrite_plan::{PlanChecks, PlanStep, PreparedRewrite, RefusalKind, Replacement, RewritePlan, prepare_plan, refused_in};
+use super::rewrite_test_utils::{assert_no_temp_refs, commit_count, log_format, repo_path, show, status, write_file};
 use anyhow::Result;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
@@ -169,26 +169,8 @@ fn squash_into_root_commit() -> Result<()> {
   assert_no_temp_refs(&repo)
 }
 
-/// A staged change on a path the drop changes refuses it, and the error names that path as git stores it (a quote in
-/// the name included), not the paths whose staged changes the drop keeps
-#[test]
-fn a_drop_under_a_staged_change_names_the_path() -> Result<()> {
-  let repo = TestRepo::new();
-  repo.create_commit("Base", "base.txt", "base");
-  let dropped = repo.create_commit("Add it's", "it's.txt", "one");
-  repo.create_commit("Add other", "other.txt", "other");
-  stage_file(&repo, "it's.txt", "staged")?;
-  stage_file(&repo, "base.txt", "staged too")?;
-  let head_before = repo.head();
-
-  let error = drop_commits_from_head(repo.git_executor(), repo_path(&repo), &[dropped]).expect_err("the drop should be refused");
-
-  assert!(error.to_string().ends_with("unstage or commit them first: it's.txt"), "{error}");
-  assert_eq!(repo.head(), head_before);
-  assert_no_temp_refs(&repo)
-}
-
-/// The guards of a rewrite refuse it while a merge is in progress, before anything is written
+/// The guards of a rewrite refuse an amend while a merge is in progress, before anything is written (the drop:
+/// `unapply_test.rs`)
 #[test]
 fn rewrite_refused_during_merge() {
   let test_repo = TestRepo::new();
@@ -208,13 +190,7 @@ fn rewrite_refused_during_merge() {
   )
   .unwrap_err()
   .to_string();
-  let drop_error = drop_commits_from_head(test_repo.git_executor(), path, std::slice::from_ref(&commit))
-    .unwrap_err()
-    .to_string();
-
-  for error in [amend_error, drop_error] {
-    assert!(error.contains("a merge is in progress"), "{error}");
-  }
+  assert!(amend_error.contains("a merge is in progress"), "{amend_error}");
   assert_eq!(test_repo.head(), commit);
   assert_eq!(std::fs::read_to_string(test_repo.path().join("login.rs")).unwrap(), "// changed");
 }

@@ -11,7 +11,7 @@ use domain_types::error::ErrorCode;
 use domain_types::rewrite::{UnapplyBranchResult, UndoneUnapply};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::revs::{is_object_id, with_dirs_of};
-use git_ops::unapply::{UnappliedMove, UnapplyPlan, apply_unapply, apply_unapply_undo, check_unapply, check_unapply_undo};
+use git_ops::unapply::{DropKind, DropPlan, UnappliedMove, apply_unapply, apply_unapply_undo, check_drop, check_unapply_undo};
 use git_ops::update_branch::UndoCheck;
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
 use history_rewrite::repository_lock::{LockWait, Prepared, RewriteOptions, Witness, lock_checked_undo};
@@ -67,7 +67,7 @@ impl UnapplyRefusal {
 /// original commits leave HEAD (the checked out branch), the files following, and the virtual branch moves to the
 /// unapplied namespace, all in one ref transaction. Before the repository lock: the commits of the branch as they group
 /// now (`original_commit_ids`, when given, must be them), the check that the virtual branch is their copies, the drop
-/// replayed on objects, the dry run of the files (`check_unapply`) and a free name. Under it only the witness (HEAD,
+/// replayed on objects, the dry run of the files (`check_drop`) and a free name. Under it only the witness (HEAD,
 /// the issue groups, both branches and the mark of an interrupted move, `RewriteOptions::lock_prepared_move`) and the
 /// move
 #[instrument(skip(git_executor, options), fields(repo = %params.repository_path, branch = %params.branch_name))]
@@ -141,7 +141,7 @@ struct UnapplyRequest<'a> {
 /// An unapply computed before the repository lock: the checked drop, the commits it drops, the tip of the virtual
 /// branch and the free name of the unapplied one, on the HEAD and the issue groups read once
 struct PreparedUnapply {
-  plan: UnapplyPlan,
+  plan: DropPlan,
   ids: Vec<String>,
   tip: String,
   virtual_ref: String,
@@ -169,7 +169,7 @@ impl Prepared for PreparedUnapply {
 }
 
 /// Everything an unapply reads and computes: the commits of the branch as they group now, the check that the virtual
-/// branch is their copies, the drop and the dry run of the files (`check_unapply`), and a free name for the unapplied
+/// branch is their copies, the drop and the dry run of the files (`check_drop`), and a free name for the unapplied
 /// branch (`unique_branch_name`: the witness and the create of the transaction keep it free)
 fn prepare_unapply(git_executor: &GitCommandExecutor, repo: &str, request: &UnapplyRequest<'_>, options: &RewriteOptions) -> Result<PreparedUnapply> {
   let grouping = read_grouping_inputs(git_executor, repo)?;
@@ -196,12 +196,13 @@ fn prepare_unapply(git_executor: &GitCommandExecutor, repo: &str, request: &Unap
   let tip = built_tip(git_executor, repo, &request.virtual_name, &ahead.baseline, &commits)?;
 
   // fails on conflicts and on local changes on the paths the drop writes, before anything changes
-  let plan = check_unapply(git_executor, repo, &ids)?;
+  let plan = check_drop(git_executor, repo, &ids, DropKind::Unapply)?;
   let named = options
     .ensure_head(git_executor, repo, plan.head())
     .map_err(anyhow::Error::new)
     .and_then(|()| unique_branch_name(git_executor, repo, &request.unapplied_base));
   let unapplied_branch_name = named.inspect_err(|_| plan.discard(git_executor, repo))?;
+  plan.write_carried_notes(git_executor, repo);
   Ok(PreparedUnapply {
     plan,
     ids,
