@@ -17,6 +17,7 @@ use crate::highlight::paint::{Paint, comment_paint, paint_leaf};
 use crate::highlight::scopes::Scopes;
 use crate::highlight::{BOLD, COMMENT, FIELD, Role, STATIC_FIELD, UNDERLINE, is_constant_name};
 use crate::kotlin::navigate::{Receiver, callable_receiver};
+use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -136,10 +137,6 @@ impl<'t> Painter<'t> {
     child_token(self.tree, id, kind)
   }
 
-  fn child_node(&self, id: NodeId, kind: NodeKind) -> Option<NodeId> {
-    self.tree.children(id).find(|&child| self.tree.node_kind(child) == Some(kind))
-  }
-
   fn parent_kind(&self, id: NodeId) -> Option<NodeKind> {
     self.tree.parent(id).and_then(|parent| self.tree.node_kind(parent))
   }
@@ -168,7 +165,7 @@ impl<'t> Painter<'t> {
       }
       NodeKind::FUN => {
         self.scopes.push_local(id.0 as usize);
-        if let Some(name) = self.child_token(id, TokenKind::IDENTIFIER) {
+        if let Some(name) = psi::get_name_identifier(tree, id) {
           self.mark(name, Role::FunctionDeclaration.style());
         }
       }
@@ -180,7 +177,7 @@ impl<'t> Painter<'t> {
       NodeKind::FUNCTION_LITERAL => {
         self.scopes.push_local(id.0 as usize);
         // the implicit `it` is bold (`KOTLIN_CLOSURE_DEFAULT_PARAMETER`)
-        if self.child_node(id, NodeKind::VALUE_PARAMETER_LIST).is_none() {
+        if psi::get_value_parameter_list(tree, id).is_none() {
           self.scopes.bind_styled("it", BOLD);
         }
       }
@@ -188,7 +185,7 @@ impl<'t> Painter<'t> {
       NodeKind::VALUE_PARAMETER => self.parameter(id),
       NodeKind::VALUE_ARGUMENT => {
         // a named argument: `name = value`
-        if let Some(name) = self.child_node(id, NodeKind::VALUE_ARGUMENT_NAME) {
+        if let Some(name) = psi::kt_value_argument_get_argument_name(tree, id) {
           self.mark(name, Role::NamedArgument.style());
           if let Some(equals) = self.child_token(id, TokenKind::EQ) {
             self.mark(equals, Role::NamedArgument.style());
@@ -196,16 +193,16 @@ impl<'t> Painter<'t> {
         }
       }
       NodeKind::TYPE_PARAMETER => {
-        if let Some(name) = self.child_token(id, TokenKind::IDENTIFIER) {
+        if let Some(name) = psi::get_name_identifier(tree, id) {
           self.scopes.bind_type_parameter(self.text_of(name));
           self.mark(name, Role::TypeParameter.style());
         }
       }
       // `a.b`, `a?.b`: a selector that is not called is a property
       NodeKind::DOT_QUALIFIED_EXPRESSION | NodeKind::SAFE_ACCESS_EXPRESSION if !self.in_header() => {
-        if let Some(selector) = tree.children(id).filter(|&child| !tree.is_leaf(child)).nth(1)
+        if let Some(selector) = psi::kt_qualified_expression_get_selector_expression(tree, id)
           && tree.node_kind(selector) == Some(NodeKind::REFERENCE_EXPRESSION)
-          && let Some(name) = self.child_token(selector, TokenKind::IDENTIFIER)
+          && let Some(name) = psi::get_referenced_name_element(tree, selector).filter(|&it| tree.token_kind(it) == Some(TokenKind::IDENTIFIER))
         {
           let style = if is_constant_name(self.text_of(name)) { STATIC_FIELD } else { FIELD };
           self.mark(name, style);
@@ -249,7 +246,7 @@ impl<'t> Painter<'t> {
     } else {
       Some(STATIC_FIELD)
     };
-    let mutable = self.child_token(id, TokenKind::VAR_KEYWORD).is_some();
+    let mutable = psi::is_var(tree, id);
     for name in self.declared_names(id) {
       if let Some(style) = style {
         self.mark(name, style);
@@ -266,10 +263,10 @@ impl<'t> Painter<'t> {
   /// loop or a `catch`, bound in its scope; of a function type, `(size: Int) -> Unit`, nothing the code sees
   fn parameter(&mut self, id: NodeId) {
     let tree = self.tree;
-    let Some(name) = self.child_token(id, TokenKind::IDENTIFIER) else { return };
+    let Some(name) = psi::get_name_identifier(tree, id) else { return };
     match tree.parent(id).and_then(|list| self.parent_kind(list)) {
       Some(NodeKind::PRIMARY_CONSTRUCTOR) => {
-        if is_property_parameter(tree, id) {
+        if psi::kt_parameter_has_val_or_var(tree, id) {
           self.mark(name, FIELD);
         }
       }
@@ -278,24 +275,22 @@ impl<'t> Painter<'t> {
     }
   }
 
-  /// The names a property or a destructuring declaration declares
+  /// The names a property or a destructuring declaration declares: of a destructuring declaration, those of the entries
+  /// directly in it (not those of a top-level `val (a, b) = p`, which a parse error wraps)
   fn declared_names(&self, id: NodeId) -> Vec<NodeId> {
     let tree = self.tree;
     if tree.node_kind(id) == Some(NodeKind::DESTRUCTURING_DECLARATION) {
-      tree
-        .children(id)
-        .filter(|&entry| tree.node_kind(entry) == Some(NodeKind::DESTRUCTURING_DECLARATION_ENTRY))
-        .filter_map(|entry| self.child_token(entry, TokenKind::IDENTIFIER))
+      psi::kt_destructuring_declaration_get_entries(tree, id)
+        .filter(|&entry| tree.parent(entry) == Some(id))
+        .filter_map(|entry| psi::get_name_identifier(tree, entry))
         .collect()
     } else {
-      self.child_token(id, TokenKind::IDENTIFIER).into_iter().collect()
+      psi::get_name_identifier(tree, id).into_iter().collect()
     }
   }
 
   fn is_const(&self, property: NodeId) -> bool {
-    self
-      .child_node(property, NodeKind::MODIFIER_LIST)
-      .is_some_and(|modifiers| self.child_token(modifiers, TokenKind::CONST_KEYWORD).is_some())
+    psi::has_modifier(self.tree, property, TokenKind::CONST_KEYWORD)
   }
 
   /// A property of an object, a companion object or a file: no instance property
@@ -326,11 +321,9 @@ impl<'t> Painter<'t> {
     for child in tree.children(class) {
       match tree.node_kind(child) {
         Some(NodeKind::PRIMARY_CONSTRUCTOR) => {
-          let parameters = self.child_node(child, NodeKind::VALUE_PARAMETER_LIST);
-          for parameter in parameters.into_iter().flat_map(|it| tree.children(it)) {
-            if tree.node_kind(parameter) == Some(NodeKind::VALUE_PARAMETER)
-              && is_property_parameter(tree, parameter)
-              && let Some(name) = self.child_token(parameter, TokenKind::IDENTIFIER)
+          for parameter in psi::get_value_parameters(tree, child) {
+            if psi::kt_parameter_has_val_or_var(tree, parameter)
+              && let Some(name) = psi::get_name_identifier(tree, parameter)
             {
               names.push((self.text_of(name).to_string(), style));
             }
@@ -340,8 +333,8 @@ impl<'t> Painter<'t> {
           for member in tree.children(child) {
             match tree.node_kind(member) {
               Some(NodeKind::PROPERTY | NodeKind::DESTRUCTURING_DECLARATION) => add_property(&mut names, member),
-              Some(NodeKind::ENUM_ENTRY) => names.extend(self.child_token(member, TokenKind::IDENTIFIER).map(|name| (self.text_of(name).to_string(), STATIC_FIELD))),
-              Some(NodeKind::OBJECT_DECLARATION) if self.is_companion(member) => names.extend(self.members(member, STATIC_FIELD)),
+              Some(NodeKind::ENUM_ENTRY) => names.extend(psi::get_name_identifier(tree, member).map(|name| (self.text_of(name).to_string(), STATIC_FIELD))),
+              Some(NodeKind::OBJECT_DECLARATION) if psi::kt_object_declaration_is_companion(tree, member) => names.extend(self.members(member, STATIC_FIELD)),
               _ => {}
             }
           }
@@ -360,12 +353,6 @@ impl<'t> Painter<'t> {
       }
     }
     names
-  }
-
-  fn is_companion(&self, object: NodeId) -> bool {
-    self
-      .child_node(object, NodeKind::MODIFIER_LIST)
-      .is_some_and(|modifiers| self.child_token(modifiers, TokenKind::COMPANION_KEYWORD).is_some())
   }
 
   /// The paint of a leaf that no node marked
@@ -449,11 +436,6 @@ impl<'t> Painter<'t> {
 /// The first child leaf of a token kind
 fn child_token(tree: &Tree, id: NodeId, kind: TokenKind) -> Option<NodeId> {
   tree.children(id).find(|&child| tree.token_kind(child) == Some(kind))
-}
-
-/// A parameter of a primary constructor that is a property: `val` or `var`
-fn is_property_parameter(tree: &Tree, parameter: NodeId) -> bool {
-  child_token(tree, parameter, TokenKind::VAL_KEYWORD).is_some() || child_token(tree, parameter, TokenKind::VAR_KEYWORD).is_some()
 }
 
 #[cfg(test)]

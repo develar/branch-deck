@@ -1,6 +1,8 @@
 //! Kotlin through psi-syntax's `kotlin-syntax`: a port of the Kotlin compiler's own lexer and parser whose tree is
 //! Kotlin's PSI (`FUN`, `CLASS`, `CALL_EXPRESSION`, `DOT_QUALIFIED_EXPRESSION`, …), read by walks of this module over its
-//! preorder ids by `kotlin_syntax::NodeKind` and `TokenKind`, never as tree-sitter nodes. `parse` is the one call into
+//! preorder ids by `kotlin_syntax::NodeKind` and `TokenKind`, never as tree-sitter nodes; what a PSI class answers of
+//! its node (`KtNamedDeclaration.getNameIdentifier`, `KtModifierListOwner.hasModifier`, `KtTypeReference.getTypeElement`,
+//! …) by its port in `kotlin_syntax::psi`, not by a walk of its own. `parse` is the one call into
 //! the parser; `summary` makes the `FileSummary`, `highlight` the `LineRuns`, `navigate` the answers of Go to
 //! Declaration and Find Usages, each by the parser-neutral builders (`summary_builder` and `jvm`, `highlight::lines` and
 //! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answers, byte_offset}`).

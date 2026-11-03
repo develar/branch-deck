@@ -1,6 +1,8 @@
 //! Java through psi-syntax's `java-syntax`: a port of IntelliJ's own Java lexer and parser (`java-syntax`) whose tree is
 //! IntelliJ's Java PSI (`CLASS`, `METHOD`, `METHOD_CALL_EXPRESSION`, `REFERENCE_EXPRESSION`, …), read by walks of this
-//! module over its preorder ids by `java_syntax::NodeKind` and `TokenKind`, never as tree-sitter nodes. `parse` is the
+//! module over its preorder ids by `java_syntax::NodeKind` and `TokenKind`, never as tree-sitter nodes; what a PSI class
+//! answers of its node (`PsiFieldImpl.getTypeElement`, `PsiJavaCodeReferenceElementImpl.getQualifier`,
+//! `PsiModifierListImpl.hasExplicitModifier`, …) by its port in `java_syntax::psi`, not by a walk of its own. `parse` is the
 //! one call into the parser; `summary` makes the `FileSummary`, `highlight` the `LineRuns`, `navigate` the answers of Go
 //! to Declaration and Find Usages, each by the parser-neutral builders (`summary_builder` and `jvm`, `highlight::lines` and
 //! `highlight::paint::paint_leaf`, `navigate::{reference_answer, usage_answers, byte_offset}`).

@@ -21,6 +21,8 @@
 use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{Bindings, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
+use java_syntax::psi;
+use java_syntax::psi::modifier::Modifier;
 use java_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree};
 use psi_builder::document::Lines;
 use std::collections::HashMap;
@@ -196,7 +198,7 @@ impl<'t> Walk<'t> {
       }
       N::PACKAGE_STATEMENT => {
         self.import_statement(id);
-        if let Some(path) = self.child(id, N::JAVA_CODE_REFERENCE).and_then(|it| self.path_of(it)) {
+        if let Some(path) = psi::package_statement::get_package_reference(self.tree, id).and_then(|it| self.path_of(it)) {
           self.out.package = Some(path.join("."));
         }
         false
@@ -214,7 +216,7 @@ impl<'t> Walk<'t> {
         self.class(id);
         true
       }
-      N::METHOD if self.child(id, N::TYPE).is_none() => {
+      N::METHOD if psi::method::is_constructor(self.tree, id) => {
         self.constructor(id);
         true
       }
@@ -239,12 +241,12 @@ impl<'t> Walk<'t> {
         true
       }
       N::TYPE_PARAMETER | N::PATTERN_VARIABLE | N::DECONSTRUCTION_PATTERN_VARIABLE => {
-        let name = self.name_leaf(id);
+        let name = psi::get_name_identifier(self.tree, id);
         self.bind_name(name, None, false);
         true
       }
       N::RESOURCE_VARIABLE => {
-        let name = self.name_leaf(id);
+        let name = psi::get_name_identifier(self.tree, id);
         self.bind_name(name, None, true);
         true
       }
@@ -271,14 +273,13 @@ impl<'t> Walk<'t> {
         true
       }
       N::INSTANCE_OF_EXPRESSION => {
-        let operand = self.composite_children(id).next();
-        if let Some(operand) = operand {
+        if let Some(operand) = psi::instance_of_expression::get_operand(self.tree, id) {
           self.smart_cast(operand);
         }
         true
       }
       N::TYPE_CAST_EXPRESSION => {
-        if let Some(operand) = self.composite_children(id).filter(|it| self.kind(*it) != Some(N::TYPE)).last() {
+        if let Some(operand) = psi::type_cast_expression::get_operand(self.tree, id) {
           self.smart_cast(operand);
         }
         true
@@ -308,7 +309,7 @@ impl<'t> Walk<'t> {
         true
       }
       N::ANNOTATION => {
-        if let Some(name) = self.child(id, N::JAVA_CODE_REFERENCE) {
+        if let Some(name) = psi::annotation::get_name_reference_element(self.tree, id) {
           let mark = Mark::Role {
             role: Role::Type,
             shape: None,
@@ -319,7 +320,7 @@ impl<'t> Walk<'t> {
         true
       }
       N::THIS_EXPRESSION | N::SUPER_EXPRESSION => {
-        if let Some(qualifier) = self.child(id, N::JAVA_CODE_REFERENCE) {
+        if let Some(qualifier) = self.outer_qualifier(id) {
           self.marks.insert(qualifier.0, Mark::Values);
         }
         true
@@ -333,6 +334,7 @@ impl<'t> Walk<'t> {
   /// A class, interface, enum, record or annotation; its type parameters are visible in it
   fn class(&mut self, id: NodeId) {
     let keyword = self.class_keyword(id);
+    // an `@` anywhere among its children, also one a parse error left after the modifiers
     let own = match keyword {
       Some(T::INTERFACE_KEYWORD) if self.has_token(id, T::AT) => Holder::Annotation,
       Some(T::INTERFACE_KEYWORD) => Holder::Interface,
@@ -340,7 +342,7 @@ impl<'t> Walk<'t> {
       Some(T::CLASS_KEYWORD | T::RECORD_KEYWORD) => Holder::Class,
       _ => Holder::Leaf,
     };
-    let name = self.name_leaf(id);
+    let name = psi::get_name_identifier(self.tree, id);
     let supertypes = self.supertypes_of(id);
     let mut fields = JvmFields {
       unstable: self.unstable(id),
@@ -354,7 +356,7 @@ impl<'t> Walk<'t> {
       return;
     }
     if let Some(name) = name {
-      let modifiers = self.child(id, N::MODIFIER_LIST);
+      let modifiers = psi::get_modifier_list(self.tree, id);
       let (kind, reach, member) = self.traits(modifiers, DeclKind::Type, own, keyword == Some(T::CLASS_KEYWORD));
       // a parse error in a class may swallow a constructor: its constructors are unknown then
       if own == Holder::Class && !self.has_error(id) {
@@ -376,7 +378,7 @@ impl<'t> Walk<'t> {
 
   /// A method or an annotation's element: a function; a method's parameters and body are local
   fn method(&mut self, id: NodeId, element: bool) {
-    let name = self.name_leaf(id);
+    let name = psi::get_name_identifier(self.tree, id);
     let mut fields = self.function_fields(id, name, element);
     fields.unstable = self.unstable(id);
     if !element {
@@ -390,7 +392,7 @@ impl<'t> Walk<'t> {
       return;
     }
     if let Some(name) = name {
-      let modifiers = self.child(id, N::MODIFIER_LIST);
+      let modifiers = psi::get_modifier_list(self.tree, id);
       let traits = self.traits(modifiers, DeclKind::Function, Holder::Leaf, false);
       let span = self.member_span(id, name);
       let header = self.header(None, id, !element);
@@ -404,7 +406,7 @@ impl<'t> Walk<'t> {
 
   /// The signature, the modifiers and the `Override` references of a method or an annotation's element
   fn function_fields(&mut self, id: NodeId, name: Option<NodeId>, element: bool) -> JvmFields {
-    let modifiers = self.child(id, N::MODIFIER_LIST);
+    let modifiers = psi::get_modifier_list(self.tree, id);
     let (overrides, test, overridable) = if element {
       (false, false, false)
     } else {
@@ -416,8 +418,8 @@ impl<'t> Walk<'t> {
         Some(Holder::Class | Holder::Enum) => !self.in_final_class(id),
         _ => false,
       };
-      let has = |token| self.modifier(modifiers, token);
-      let overridable = open && !self.bindings.is_local() && !has(T::FINAL_KEYWORD) && !has(T::PRIVATE_KEYWORD) && !has(T::STATIC_KEYWORD);
+      let has = |modifier| self.modifier(modifiers, modifier);
+      let overridable = open && !self.bindings.is_local() && !has(Modifier::FINAL) && !has(Modifier::PRIVATE) && !has(Modifier::STATIC);
       (overrides, test, overridable)
     };
     // a local function is no declaration: only the shape of an override needs its parameters
@@ -442,14 +444,15 @@ impl<'t> Walk<'t> {
   /// canonical one of a record (JLS 8.10.4), compact or declared again with the names and types of its components,
   /// every type known, replaces the one of the record's header
   fn constructor(&mut self, id: NodeId) {
-    let class = self.tree.parent(id).filter(|it| self.kind(*it) == Some(N::CLASS));
-    let record = class.filter(|it| self.class_keyword(*it) == Some(T::RECORD_KEYWORD));
+    let tree = self.tree;
+    let class = psi::method::get_containing_class(tree, id).filter(|it| self.kind(*it) == Some(N::CLASS));
+    let record = class.filter(|it| psi::class::is_record(tree, *it));
     let header = record.map(|it| self.signature(it));
-    let compact = self.child(id, N::PARAMETER_LIST).is_none();
+    let compact = psi::method::is_compact_constructor(tree, id);
     let declared = if compact { header.clone() } else { Some(self.signature(id)) };
     if let Some(signature) = declared {
       let canonical = compact || header.is_some_and(|header| header == signature && signature.parameters.iter().all(|it| it.type_ref.is_some()));
-      let reach = self.reach_of(self.child(id, N::MODIFIER_LIST), true, false);
+      let reach = self.reach_of(psi::get_modifier_list(tree, id), true, false);
       if !self.bindings.is_local()
         && let Some(decl) = self.classes.innermost()
       {
@@ -461,21 +464,21 @@ impl<'t> Walk<'t> {
 
   /// A field, a local variable: a local binds its name once left, with its type
   fn variable(&mut self, id: NodeId) {
-    let head = self.head_of(id);
-    let name = self.name_leaf(id);
-    let initializer = self.initializer(id);
-    let value_type = if self.has_token(id, T::LBRACKET) {
+    let tree = self.tree;
+    let (ty, modifiers) = self.declaration_head(id);
+    let name = psi::get_name_identifier(tree, id);
+    let initializer = psi::get_initializer(tree, id);
+    let value_type = if name.is_some_and(|it| psi::java_shared_impl_util::c_style_dimensions(tree, it) > 0) {
       // `Foo a[]`: an array, of no type here
       None
     } else {
-      self.value_type(self.child(head, N::TYPE), initializer)
+      self.value_type(ty, initializer)
     };
     if self.bindings.is_local() {
       self.bind_name(name, value_type, true);
       return;
     }
     let Some(name) = name else { return };
-    let modifiers = self.child(head, N::MODIFIER_LIST);
     let traits = self.traits(modifiers, DeclKind::Value, Holder::Leaf, false);
     let fields = JvmFields {
       unstable: self.annotation_paths(modifiers).iter().any(|path| self.out.unstable_annotation(path)),
@@ -484,10 +487,12 @@ impl<'t> Walk<'t> {
     };
     // a declarator starts at its name, after the modifiers and the type of its declaration; a later one at a doc comment
     // above it too (`int a, /** b */ b;`)
-    let start = self.tree.range(name).start;
+    // the head of the declaration, whose modifiers and type a later variable shares (`b` of `int a, b;`)
+    let head = ty.and_then(|it| tree.parent(it)).filter(|it| *it != id);
+    let start = tree.range(name).start;
     let mut start_line = self.lines.line(start);
-    if head != id {
-      for child in self.tree.children(id).take_while(|it| *it != name).filter(|it| self.is_doc_comment(*it)) {
+    if head.is_some() {
+      for child in tree.children(id).take_while(|it| *it != name).filter(|it| self.is_doc_comment(*it)) {
         start_line = start_line.min(self.line_at(child));
       }
     }
@@ -496,14 +501,14 @@ impl<'t> Walk<'t> {
       end: self.end_line(start, self.own_range(id).end),
       name: self.lines.line(start),
     };
-    let header = self.header((head != id).then_some(head), id, false);
+    let header = self.header(head, id, false);
     let decl = self.declare(name, traits, &span, fields, Some(header));
     self.frame().deferred = Some(decl);
   }
 
   /// An enum constant, whose body is local and overrides the members of its enum
   fn enum_constant(&mut self, id: NodeId) {
-    let name = self.name_leaf(id);
+    let name = psi::get_name_identifier(self.tree, id);
     let fields = JvmFields {
       unstable: self.unstable(id),
       ..JvmFields::default()
@@ -515,12 +520,12 @@ impl<'t> Walk<'t> {
       return;
     }
     if let Some(name) = name {
-      let traits = self.traits(self.child(id, N::MODIFIER_LIST), DeclKind::EnumEntry, Holder::Leaf, false);
+      let traits = self.traits(psi::get_modifier_list(self.tree, id), DeclKind::EnumEntry, Holder::Leaf, false);
       let span = self.member_span(id, name);
       let decl = self.declare(name, traits, &span, fields, None);
       self.enter_container(decl, Holder::Leaf);
     }
-    if let Some(body) = self.child(id, N::ENUM_CONSTANT_INITIALIZER) {
+    if let Some(body) = psi::enum_constant::get_initializing_class(self.tree, id) {
       self.marks.insert(body.0, Mark::Scope);
     }
   }
@@ -528,9 +533,9 @@ impl<'t> Walk<'t> {
   /// A component of a record: a public field (and its accessor), a vararg one too (`int... xs`, which tree-sitter's
   /// walk read as a field of the package without a type); in a local record a parameter
   fn record_component(&mut self, id: NodeId) {
-    let name = self.name_leaf(id);
-    let ty = self.child(id, N::TYPE);
-    let vararg = ty.is_some_and(|it| self.has_token(it, T::ELLIPSIS));
+    let name = psi::get_name_identifier(self.tree, id);
+    let ty = psi::get_type_element(self.tree, id);
+    let vararg = self.is_var_args(id);
     if self.bindings.is_local() {
       let value_type = if vararg { None } else { self.value_type(ty, None) };
       self.bind_name(name, value_type, vararg);
@@ -554,11 +559,12 @@ impl<'t> Walk<'t> {
   /// A parameter of a method or a lambda binds its name with its declared type (a vararg and `Foo a[]` none); the
   /// variable of a `for` and the parameter of a `catch` without
   fn parameter(&mut self, id: NodeId) {
-    let typed = self.parent_kind(id) == Some(N::PARAMETER_LIST) && !self.has_token(id, T::LBRACKET);
-    let ty = self.child(id, N::TYPE);
-    let vararg = ty.is_some_and(|it| self.has_token(it, T::ELLIPSIS));
+    let tree = self.tree;
+    let name = psi::get_name_identifier(tree, id);
+    let typed = self.parent_kind(id) == Some(N::PARAMETER_LIST) && name.is_none_or(|it| psi::java_shared_impl_util::c_style_dimensions(tree, it) == 0);
+    let ty = psi::get_type_element(tree, id);
+    let vararg = self.is_var_args(id);
     let value_type = if typed && !vararg { self.value_type(ty, None) } else { None };
-    let name = self.name_leaf(id);
     self.bind_name(name, value_type, false);
   }
 
@@ -594,18 +600,18 @@ impl<'t> Walk<'t> {
   /// The kind, reach and member kind of a declaration of `kind` with these modifiers, given what it is to its own
   /// members and whether it is a `class` (only a class without `static` is inner)
   fn traits(&self, modifiers: Option<NodeId>, kind: DeclKind, own: Holder, class: bool) -> (DeclKind, Reach, MemberKind) {
-    let has = |token| self.modifier(modifiers, token);
+    let has = |modifier| self.modifier(modifiers, modifier);
     let holder = self.holder();
     let in_interface = matches!(holder, Some(Holder::Interface | Holder::Annotation));
     // only a class without `static` is inner; enums, records, interfaces and annotations are static
-    let nested_type = own != Holder::Leaf && (!class || has(T::STATIC_KEYWORD));
+    let nested_type = own != Holder::Leaf && (!class || has(Modifier::STATIC));
     let mut kind = kind;
-    if kind == DeclKind::Value && (in_interface || (has(T::STATIC_KEYWORD) && has(T::FINAL_KEYWORD))) {
+    if kind == DeclKind::Value && (in_interface || (has(Modifier::STATIC) && has(Modifier::FINAL))) {
       kind = DeclKind::Constant;
     }
     let member = match holder {
       None => MemberKind::TopLevel,
-      Some(_) if kind == DeclKind::EnumEntry || kind == DeclKind::Constant || nested_type || has(T::STATIC_KEYWORD) => MemberKind::Static,
+      Some(_) if kind == DeclKind::EnumEntry || kind == DeclKind::Constant || nested_type || has(Modifier::STATIC) => MemberKind::Static,
       Some(_) if in_interface && own != Holder::Leaf => MemberKind::Static,
       Some(_) => MemberKind::Instance,
     };
@@ -616,10 +622,10 @@ impl<'t> Walk<'t> {
   /// The reach of these modifiers: `public` and `protected` are public (and so is a member of an interface or an enum
   /// constant without them), `private` of the container (of the file at the top level), none of the package
   fn reach_of(&self, modifiers: Option<NodeId>, member: bool, public: bool) -> Reach {
-    let has = |token| self.modifier(modifiers, token);
-    if public || has(T::PUBLIC_KEYWORD) || has(T::PROTECTED_KEYWORD) {
+    let has = |modifier| self.modifier(modifiers, modifier);
+    if public || has(Modifier::PUBLIC) || has(Modifier::PROTECTED) {
       Reach::Public
-    } else if has(T::PRIVATE_KEYWORD) {
+    } else if has(Modifier::PRIVATE) {
       if member { Reach::Container } else { Reach::File }
     } else {
       Reach::Module
@@ -696,14 +702,14 @@ impl<'t> Walk<'t> {
   /// `extends` and `implements` of a class, an enum or a record, `extends` of an interface, each as written without
   /// type arguments
   fn supertypes_of(&mut self, id: NodeId) -> Vec<Vec<u32>> {
-    let mut paths = Vec::new();
-    for list in self.tree.children(id).filter(|it| matches!(self.kind(*it), Some(N::EXTENDS_LIST | N::IMPLEMENTS_LIST))) {
-      for reference in self.tree.children(list).filter(|it| self.kind(*it) == Some(N::JAVA_CODE_REFERENCE)) {
-        if let Some(path) = self.path_of(reference) {
-          paths.push(path);
-        }
-      }
-    }
+    let tree = self.tree;
+    let lists = [psi::class::get_extends_list(tree, id), psi::class::get_implements_list(tree, id)];
+    let paths: Vec<Vec<&'t str>> = lists
+      .into_iter()
+      .flatten()
+      .flat_map(|list| psi::reference_list::get_reference_elements(tree, list))
+      .filter_map(|reference| self.path_of(reference))
+      .collect();
     paths.iter().map(|it| self.out.ids(it)).collect()
   }
 
@@ -722,22 +728,22 @@ impl<'t> Walk<'t> {
   /// only for a non-private method of an interface
   fn entry_point(&self, id: NodeId, modifiers: Option<NodeId>, signature: &Signature) -> bool {
     let holder = self.holder();
-    let has = |token| self.modifier(modifiers, token);
+    let has = |modifier| self.modifier(modifiers, modifier);
     holder.is_some()
-      && (has(T::PUBLIC_KEYWORD) || (holder == Some(Holder::Interface) && !has(T::PRIVATE_KEYWORD)))
-      && has(T::STATIC_KEYWORD)
-      && self.child(id, N::TYPE).is_some_and(|it| self.has_token(it, T::VOID_KEYWORD))
+      && (has(Modifier::PUBLIC) || (holder == Some(Holder::Interface) && !has(Modifier::PRIVATE)))
+      && has(Modifier::STATIC)
+      && psi::method::get_return_type_element(self.tree, id).is_some_and(|it| self.has_token(it, T::VOID_KEYWORD))
       && matches!(signature.parameters.as_slice(), [parameter] if self.out.type_is(parameter.type_ref.as_ref(), &["String"], 1))
   }
 
   /// Whether the class whose body holds the method is `final` or a record
   fn in_final_class(&self, id: NodeId) -> bool {
-    let Some(class) = self.tree.parent(id).filter(|it| self.kind(*it) == Some(N::CLASS)) else {
+    let Some(class) = psi::method::get_containing_class(self.tree, id).filter(|it| self.kind(*it) == Some(N::CLASS)) else {
       return false;
     };
     match self.class_keyword(class) {
       Some(T::RECORD_KEYWORD) => true,
-      Some(T::CLASS_KEYWORD) => self.modifier(self.child(class, N::MODIFIER_LIST), T::FINAL_KEYWORD),
+      Some(T::CLASS_KEYWORD) => self.modifier(psi::get_modifier_list(self.tree, class), Modifier::FINAL),
       _ => false,
     }
   }
@@ -745,7 +751,7 @@ impl<'t> Walk<'t> {
   /// Whether an annotation of the declaration marks it as no stable API
   fn unstable(&self, id: NodeId) -> bool {
     self
-      .annotation_paths(self.child(id, N::MODIFIER_LIST))
+      .annotation_paths(psi::get_modifier_list(self.tree, id))
       .iter()
       .any(|path| self.out.unstable_annotation(path))
   }
@@ -753,11 +759,8 @@ impl<'t> Walk<'t> {
   /// The names of the annotations among these modifiers, each as its path (`[org, junit, Test]`)
   fn annotation_paths(&self, modifiers: Option<NodeId>) -> Vec<Vec<&'t str>> {
     let Some(modifiers) = modifiers else { return Vec::new() };
-    self
-      .tree
-      .children(modifiers)
-      .filter(|it| self.kind(*it) == Some(N::ANNOTATION))
-      .filter_map(|it| self.child(it, N::JAVA_CODE_REFERENCE))
+    psi::modifier_list::get_annotations(self.tree, modifiers)
+      .filter_map(|it| psi::annotation::get_name_reference_element(self.tree, it))
       .filter_map(|it| self.path_of(it))
       .collect()
   }
@@ -765,21 +768,21 @@ impl<'t> Walk<'t> {
   /// The parameters of a method or a constructor, the components of a record (`String... rest` a vararg, an array on
   /// the JVM); an annotation's element has none
   fn signature(&mut self, id: NodeId) -> Signature {
-    let (list, item) = match self.kind(id) {
-      Some(N::CLASS) => (self.child(id, N::RECORD_HEADER), N::RECORD_COMPONENT),
-      Some(N::ANNOTATION_METHOD) => (None, N::PARAMETER),
-      _ => (self.child(id, N::PARAMETER_LIST), N::PARAMETER),
+    let tree = self.tree;
+    let items: Vec<NodeId> = match self.kind(id) {
+      Some(N::CLASS) => psi::class::get_record_header(tree, id).map_or_else(Vec::new, |it| psi::record_header::get_record_components(tree, it).collect()),
+      Some(N::ANNOTATION_METHOD) => Vec::new(),
+      _ => psi::method::get_parameter_list(tree, id).map_or_else(Vec::new, |it| psi::parameter_list::get_parameters(tree, it).collect()),
     };
     let type_parameters = self.type_parameter_names(id);
-    let items: Vec<NodeId> = list.map_or_else(Vec::new, |list| self.tree.children(list).filter(|it| self.kind(*it) == Some(item)).collect());
     let mut parameters = Vec::new();
     for parameter in items {
       let Some(name) = self.name_text(parameter) else { continue };
-      let ty = self.child(parameter, N::TYPE);
-      let vararg = ty.is_some_and(|it| self.has_token(it, T::ELLIPSIS));
-      // `int[][] x`, `int x[]` and `int... x` are arrays on the JVM
-      let after_name = self.tree.children(parameter).filter(|it| self.tree.token_kind(*it) == Some(T::LBRACKET)).count();
-      let arrays = ty.map_or(0, |it| self.dimensions(it)) + after_name + usize::from(vararg);
+      let ty = psi::get_type_element(tree, parameter);
+      let vararg = self.is_var_args(parameter);
+      // `int[][] x`, `int x[]` and `int... x` are arrays on the JVM: the dimensions of `getType()`
+      let after_name = psi::get_name_identifier(tree, parameter).map_or(0, |it| psi::java_shared_impl_util::c_style_dimensions(tree, it));
+      let arrays = ty.map_or(0, |it| psi::type_element::calculate_type(tree, it).array_dimensions) + after_name;
       let arrays = u8::try_from(arrays).unwrap_or(u8::MAX);
       let type_ref = ty.and_then(|it| self.type_ref(it, arrays, &type_parameters));
       parameters.push(Parameter {
@@ -792,22 +795,17 @@ impl<'t> Walk<'t> {
     Signature { parameters }
   }
 
-  /// The `[]` of a type, those of its element included: a `TYPE` nests one level per dimension
-  fn dimensions(&self, ty: NodeId) -> usize {
-    let mut count = 0;
-    let mut current = Some(ty);
-    while let Some(ty) = current {
-      count += self.tree.children(ty).filter(|it| self.tree.token_kind(*it) == Some(T::LBRACKET)).count();
-      current = self.child(ty, N::TYPE);
-    }
-    count
-  }
-
   /// The names of the type parameters of a declaration (`<T, R>`)
   fn type_parameter_names(&self, id: NodeId) -> Vec<&'t str> {
-    let parameters = self.child(id, N::TYPE_PARAMETER_LIST).into_iter().flat_map(|list| self.tree.children(list));
-    parameters
-      .filter(|it| self.kind(*it) == Some(N::TYPE_PARAMETER))
+    let tree = self.tree;
+    let list = if self.kind(id) == Some(N::CLASS) {
+      psi::class::get_type_parameter_list(tree, id)
+    } else {
+      psi::method::get_type_parameter_list(tree, id)
+    };
+    list
+      .into_iter()
+      .flat_map(|it| psi::type_parameter_list::get_type_parameters(tree, it))
       .filter_map(|it| self.name_text(it))
       .collect()
   }
@@ -831,7 +829,7 @@ impl<'t> Walk<'t> {
           let path = self.path_of(node)?;
           names.push(type_name(&mut self.out, &self.bindings, &path, type_parameters)?);
           // the type arguments of the last name; those of a qualifier are of no name here
-          match self.child(node, N::REFERENCE_PARAMETER_LIST) {
+          match psi::code_reference::get_parameter_list(self.tree, node) {
             Some(arguments) => arguments,
             None => continue,
           }
@@ -851,10 +849,11 @@ impl<'t> Walk<'t> {
   /// body (an anonymous class is a type of its own)
   fn value_type(&mut self, ty: Option<NodeId>, initializer: Option<NodeId>) -> Option<Typed> {
     let ty = ty?;
-    let constructed = self.has_token(ty, T::VAR_KEYWORD);
+    let constructed = psi::type_element::is_inferred_type(self.tree, ty);
     let path = if constructed {
-      let new = initializer.filter(|it| self.kind(*it) == Some(N::NEW_EXPRESSION) && self.child(*it, N::ANONYMOUS_CLASS).is_none() && !self.is_array_creation(*it))?;
-      self.path_of(self.child(new, N::JAVA_CODE_REFERENCE)?)?
+      let new =
+        initializer.filter(|it| self.kind(*it) == Some(N::NEW_EXPRESSION) && psi::new_expression::get_anonymous_class(self.tree, *it).is_none() && !self.is_array_creation(*it))?;
+      self.path_of(psi::new_expression::get_class_reference(self.tree, new)?)?
     } else {
       self.path_of(ty)?
     };
@@ -867,37 +866,25 @@ impl<'t> Walk<'t> {
     })
   }
 
-  /// The `FIELD` or `LOCAL_VARIABLE` whose modifiers and type a later one of the same declaration (`b` of `int a, b;`)
-  /// shares: the one before it that has a type
-  fn head_of(&mut self, id: NodeId) -> NodeId {
-    if self.child(id, N::TYPE).is_some() {
+  /// The type element and the modifier list of a `FIELD` or a `LOCAL_VARIABLE`, those of its declaration's first one for
+  /// a later one (`b` of `int a, b;`): a field's from `field::find_first_field_in_declaration`, the field met last with
+  /// its own modifiers when it is of the same parent (no declaration in an initializer came between them), so a long
+  /// declaration costs a step a field
+  fn declaration_head(&mut self, id: NodeId) -> (Option<NodeId>, Option<NodeId>) {
+    let tree = self.tree;
+    if self.kind(id) != Some(N::FIELD) {
+      return (psi::get_type_element(tree, id), psi::get_modifier_list(tree, id));
+    }
+    let head = if psi::field::get_modifier_list_with_head(tree, id).is_some() {
       self.last_head = Some(id);
-      return id;
-    }
-    // the head met last, unless a declaration in an initializer came between them
-    if let Some(head) = self.last_head.filter(|it| self.tree.parent(*it) == self.tree.parent(id)) {
-      return head;
-    }
-    let kind = self.kind(id);
-    let mut current = id;
-    while self.child(current, N::TYPE).is_none() {
-      let previous = std::iter::successors(self.tree.previous_sibling(current), |it| self.tree.previous_sibling(*it))
-        .find(|it| !self.is_trivia(*it) && self.tree.token_kind(*it) != Some(T::COMMA));
-      match previous.filter(|it| self.kind(*it) == kind) {
-        Some(previous) => current = previous,
-        None => return id,
+      id
+    } else {
+      match self.last_head.filter(|it| tree.parent(*it) == tree.parent(id)) {
+        Some(head) => head,
+        None => psi::field::find_first_field_in_declaration(tree, id),
       }
-    }
-    current
-  }
-
-  /// The initializer of a variable: the expression after its `=`
-  fn initializer(&self, id: NodeId) -> Option<NodeId> {
-    self
-      .tree
-      .children(id)
-      .skip_while(|it| self.tree.token_kind(*it) != Some(T::EQ))
-      .find(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it))
+    };
+    (psi::field::get_type_element_with_head(tree, head), psi::field::get_modifier_list_with_head(tree, head))
   }
 
   /// The header of a declaration (`Declaration::header`): the tokens of `head`'s modifiers and type (the head of a
@@ -943,8 +930,11 @@ impl<'t> Walk<'t> {
   /// the class around them, or of its superclass, the type of `extends` (a class without one calls `Object`'s: no
   /// reference)
   fn call(&mut self, id: NodeId) {
-    let Some(callee) = self.child(id, N::REFERENCE_EXPRESSION) else { return };
-    let shape = self.call_shape(self.child(id, N::EXPRESSION_LIST));
+    let tree = self.tree;
+    let Some(callee) = psi::method_call_expression::get_method_expression(tree, id) else {
+      return;
+    };
+    let shape = self.call_shape(psi::method_call_expression::get_argument_list(tree, id));
     if self.name_leaf(callee).is_some() {
       let mark = Mark::Role {
         role: Role::Call,
@@ -954,10 +944,7 @@ impl<'t> Walk<'t> {
       self.marks.insert(callee.0, mark);
       return;
     }
-    let Some(keyword) = self
-      .tree
-      .children(callee)
-      .find(|it| matches!(self.tree.token_kind(*it), Some(T::THIS_KEYWORD | T::SUPER_KEYWORD)))
+    let Some(keyword) = psi::reference_expression::get_reference_name_element(tree, callee).filter(|it| matches!(tree.token_kind(*it), Some(T::THIS_KEYWORD | T::SUPER_KEYWORD)))
     else {
       return;
     };
@@ -967,9 +954,8 @@ impl<'t> Walk<'t> {
     let path = if self.tree.token_kind(keyword) == Some(T::THIS_KEYWORD) {
       self.name_text(class).map(|it| vec![it])
     } else if self.class_keyword(class) == Some(T::CLASS_KEYWORD) {
-      self
-        .child(class, N::EXTENDS_LIST)
-        .and_then(|it| self.child(it, N::JAVA_CODE_REFERENCE))
+      psi::class::get_extends_list(tree, class)
+        .and_then(|it| psi::reference_list::get_reference_elements(tree, it).next())
         .and_then(|it| self.path_of(it))
     } else {
       None
@@ -985,11 +971,14 @@ impl<'t> Walk<'t> {
   /// `new Type(…)` calls the type with the shape of its arguments, which are of the code around an anonymous class; an
   /// anonymous class declares nothing, its methods override those of the type. An array's type is a type
   fn creation(&mut self, id: NodeId) {
-    let anonymous = self.child(id, N::ANONYMOUS_CLASS);
-    let owner = anonymous.unwrap_or(id);
-    let constructed = self.child(owner, N::JAVA_CODE_REFERENCE);
+    let tree = self.tree;
+    let anonymous = psi::new_expression::get_anonymous_class(tree, id);
+    let constructed = match anonymous {
+      Some(class) => psi::anonymous_class::get_base_class_reference(tree, class),
+      None => psi::new_expression::get_class_reference(tree, id),
+    };
     if let Some(constructed) = constructed.filter(|_| !self.is_array_creation(id)) {
-      let shape = self.call_shape(self.child(owner, N::EXPRESSION_LIST));
+      let shape = self.call_shape(psi::new_expression::get_argument_list(tree, id));
       let mark = Mark::Role {
         role: Role::Call,
         shape,
@@ -1007,8 +996,7 @@ impl<'t> Walk<'t> {
   /// `Type::method`, `object::method`; `Type::new` names no method
   fn method_reference(&mut self, id: NodeId) {
     let Some(name) = self.name_leaf(id) else { return };
-    let Some(object) = self.tree.children(id).find(|it| !self.is_trivia(*it)) else { return };
-    let qualifier = self.qualifier_of(object);
+    let qualifier = psi::method_reference_expression::get_qualifier(self.tree, id).map_or_else(Vec::new, |it| self.qualifier_of(it));
     if let Some(text) = self.text(name) {
       let line = self.line_at(name);
       self.reference(text, line, Role::Value, Some(qualifier), None);
@@ -1148,12 +1136,12 @@ impl<'t> Walk<'t> {
             None => break,
           }
         }
-        Some(N::THIS_EXPRESSION) if self.child(node, N::JAVA_CODE_REFERENCE).is_none() => {
+        Some(N::THIS_EXPRESSION) if psi::this_expression::get_qualifier(self.tree, node).is_none() => {
           reversed.push("this");
           break;
         }
         Some(N::SUPER_EXPRESSION) => {
-          let Some(qualifier) = self.child(node, N::JAVA_CODE_REFERENCE) else {
+          let Some(qualifier) = psi::super_expression::get_qualifier(self.tree, node) else {
             reversed.push("super");
             break;
           };
@@ -1173,14 +1161,24 @@ impl<'t> Walk<'t> {
     Some(reversed)
   }
 
-  /// The qualifier of a reference: the expression or the reference before its name, not an annotation of the type
-  /// (`@A List`, `java.util.@A List`)
+  /// The qualifier of a reference: the expression before the name of a reference expression, the reference before the
+  /// name of a code reference (not an annotation of the type, `@A List`, `java.util.@A List`) or of a static import
   fn qualifier(&self, id: NodeId) -> Option<NodeId> {
-    self
-      .tree
-      .children(id)
-      .take_while(|it| self.tree.token_kind(*it) != Some(T::IDENTIFIER))
-      .find(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it) && !matches!(self.kind(*it), Some(N::REFERENCE_PARAMETER_LIST | N::ANNOTATION)))
+    match self.kind(id)? {
+      N::REFERENCE_EXPRESSION => psi::reference_expression::get_qualifier_expression(self.tree, id),
+      N::JAVA_CODE_REFERENCE => psi::code_reference::get_qualifier(self.tree, id),
+      N::IMPORT_STATIC_REFERENCE => psi::import_static_reference::get_class_reference(self.tree, id),
+      _ => None,
+    }
+  }
+
+  /// The `Outer` of `Outer.this` and `Outer.super`
+  fn outer_qualifier(&self, id: NodeId) -> Option<NodeId> {
+    match self.kind(id)? {
+      N::THIS_EXPRESSION => psi::this_expression::get_qualifier(self.tree, id),
+      N::SUPER_EXPRESSION => psi::super_expression::get_qualifier(self.tree, id),
+      _ => None,
+    }
   }
 
   // --- imports ---
@@ -1199,9 +1197,10 @@ impl<'t> Walk<'t> {
   /// reference to a name
   fn import(&mut self, id: NodeId) {
     self.import_statement(id);
-    let reference = self.child(id, N::IMPORT_STATIC_REFERENCE).or_else(|| self.child(id, N::JAVA_CODE_REFERENCE));
+    let reference = psi::import_statement::get_import_reference(self.tree, id);
     let Some(segments) = reference.and_then(|it| self.path_of(it)) else { return };
     let line = self.line_at(id);
+    // by its `*`, not `isOnDemand`'s dot: `import a.b.;` imports `b`
     if self.has_token(id, T::ASTERISK) {
       self.out.add_import_all(&segments, false, line);
     } else if let Some((name, path)) = segments.split_last() {
@@ -1239,23 +1238,37 @@ impl<'t> Walk<'t> {
     self.tree.children(id).any(|it| self.tree.token_kind(it) == Some(token))
   }
 
-  /// Whether these modifiers have this keyword
-  fn modifier(&self, modifiers: Option<NodeId>, token: T) -> bool {
-    modifiers.is_some_and(|it| self.has_token(it, token))
+  /// Whether these modifiers have this keyword, the explicit modifiers only
+  fn modifier(&self, modifiers: Option<NodeId>, modifier: Modifier) -> bool {
+    modifiers.is_some_and(|it| psi::modifier_list::has_explicit_modifier(self.tree, it, modifier))
   }
 
   /// The keyword of a `CLASS`: `class`, `interface` (also of `@interface`), `enum` or `record`
   fn class_keyword(&self, id: NodeId) -> Option<T> {
-    self
-      .tree
-      .children(id)
-      .filter_map(|it| self.tree.token_kind(it))
-      .find(|it| matches!(it, T::CLASS_KEYWORD | T::INTERFACE_KEYWORD | T::ENUM_KEYWORD | T::RECORD_KEYWORD))
+    psi::class::class_or_interface_keyword(self.tree, id).and_then(|it| self.tree.token_kind(it))
   }
 
-  /// The name of a declaration or a reference: its `IDENTIFIER`
+  /// Whether a parameter or a record component is a vararg (`String... rest`)
+  fn is_var_args(&self, id: NodeId) -> bool {
+    match self.kind(id) {
+      Some(N::PARAMETER) => psi::parameter::is_var_args(self.tree, id),
+      Some(N::RECORD_COMPONENT) => psi::record_component::is_var_args(self.tree, id),
+      _ => false,
+    }
+  }
+
+  /// The name of a declaration or a reference: its name identifier, the `IDENTIFIER` a reference names (none for the
+  /// `this` and `super` of a delegating call, the `new` of `Type::new`)
   fn name_leaf(&self, id: NodeId) -> Option<NodeId> {
-    self.tree.children(id).find(|it| self.tree.token_kind(*it) == Some(T::IDENTIFIER))
+    let tree = self.tree;
+    let name = match self.kind(id)? {
+      N::REFERENCE_EXPRESSION => psi::reference_expression::get_reference_name_element(tree, id),
+      N::JAVA_CODE_REFERENCE => psi::code_reference::get_reference_name_element(tree, id),
+      N::IMPORT_STATIC_REFERENCE => psi::import_static_reference::get_reference_name_element(tree, id),
+      N::METHOD_REF_EXPRESSION => psi::method_reference_expression::get_reference_name_element(tree, id),
+      _ => psi::get_name_identifier(tree, id),
+    };
+    name.filter(|it| tree.token_kind(*it) == Some(T::IDENTIFIER))
   }
 
   fn name_text(&self, id: NodeId) -> Option<&'t str> {

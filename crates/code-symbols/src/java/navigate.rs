@@ -19,6 +19,7 @@
 
 use super::highlight::{anonymous_body, is_callee, is_class, is_doc_comment, is_local_scope, is_path_owner, is_pattern_scope, name_leaf, qualifier, reference_owner, text_of};
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
+use java_syntax::psi;
 use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 
 /// The name at `position` of a Java text and what its syntax says (`navigate::reference_at`)
@@ -105,7 +106,7 @@ fn kind_of(tree: &Tree, leaf: NodeId) -> (ReferenceKind, Option<NodeId>) {
       // `Base.super.run()`: the member is the one of `Base`
       let qualifier = qualifier(tree, parent).map(|it| {
         if tree.node_kind(it) == Some(NodeKind::SUPER_EXPRESSION) {
-          tree.first_child_of_kind(it, NodeKind::JAVA_CODE_REFERENCE).unwrap_or(it)
+          psi::super_expression::get_qualifier(tree, it).unwrap_or(it)
         } else {
           it
         }
@@ -291,7 +292,7 @@ fn annotation_elements<'t>(tree: &'t Tree, is_named: &impl Fn(NodeId) -> bool) -
 /// that name in the file
 fn element_of(tree: &Tree, name: NodeId, elements: &[(&str, NodeId)]) -> Option<NodeId> {
   let annotation = tree.parent(tree.parent(tree.parent(name)?)?)?;
-  let reference = tree.first_child_of_kind(annotation, NodeKind::JAVA_CODE_REFERENCE)?;
+  let reference = psi::annotation::get_name_reference_element(tree, annotation)?;
   let type_name = text_of(tree, name_leaf(tree, reference)?);
   elements.iter().find(|it| it.0 == type_name).map(|it| it.1)
 }

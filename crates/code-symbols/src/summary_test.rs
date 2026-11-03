@@ -6,7 +6,7 @@ use crate::test_support::{check_golden, declaration, fixture, summary_of};
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
 /// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 539_422_904;
+const EXTRACTOR_VERSION: u32 = 466_672_622;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {

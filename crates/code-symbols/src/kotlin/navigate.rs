@@ -15,6 +15,7 @@
 //!   those that no local binds. The parameter of a function type, `(event: Event) -> Unit`, no scope sees.
 
 use crate::navigate::{Access, Position, ReferenceAt, ReferenceKind, Usage, UsagesAt, byte_offset, reference_answer, usage_answers};
+use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
 
@@ -139,18 +140,10 @@ impl Names<'_> {
         | NodeKind::DESTRUCTURING_DECLARATION_ENTRY,
       ) => true,
       // the name of a companion object is a type
-      Some(NodeKind::OBJECT_DECLARATION) => !self.is_companion(parent),
+      Some(NodeKind::OBJECT_DECLARATION) => !psi::kt_object_declaration_is_companion(self.tree, parent),
       _ => false,
     };
-    declares && self.tree.children(parent).find(|&child| self.tree.token_kind(child) == Some(TokenKind::IDENTIFIER)) == Some(leaf)
-  }
-
-  fn is_companion(&self, object: NodeId) -> bool {
-    let tree = self.tree;
-    tree
-      .children(object)
-      .find(|&child| tree.node_kind(child) == Some(NodeKind::MODIFIER_LIST))
-      .is_some_and(|modifiers| tree.children(modifiers).any(|it| tree.token_kind(it) == Some(TokenKind::COMPANION_KEYWORD)))
+    declares && psi::get_name_identifier(self.tree, parent) == Some(leaf)
   }
 
   /// Inside a `package` or `import` directive, whose names are a path
@@ -208,9 +201,10 @@ impl Names<'_> {
 
   /// The receiver of a qualified expression whose selector is `selector`; none when `selector` is the receiver
   fn receiver_of(&self, qualified: NodeId, selector: NodeId) -> Option<NodeId> {
-    let mut parts = self.parts(qualified);
-    let receiver = parts.next()?;
-    (parts.next() == Some(selector)).then_some(receiver)
+    if psi::kt_qualified_expression_get_selector_expression(self.tree, qualified) != Some(selector) {
+      return None;
+    }
+    psi::kt_qualified_expression_get_receiver_expression(self.tree, qualified)
   }
 
   /// Whether a declared name is a local, which no other file sees: code around its declaration (a function, not the one

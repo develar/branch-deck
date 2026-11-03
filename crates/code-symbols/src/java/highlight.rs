@@ -21,6 +21,8 @@ use crate::highlight::lines::{Builder, LineRuns};
 use crate::highlight::paint::{Paint, comment_paint, paint_leaf};
 use crate::highlight::scopes::Scopes;
 use crate::highlight::{FIELD, ITALIC, Role, STATIC_FIELD, is_constant_name, is_type_name};
+use java_syntax::psi;
+use java_syntax::psi::modifier::Modifier;
 use java_syntax::{NodeId, NodeKind, TokenKind, Tree};
 use std::collections::HashMap;
 
@@ -182,7 +184,7 @@ impl Painter<'_> {
     let tree = self.tree;
     let parent = tree.parent(leaf)?;
     match tree.node_kind(parent)? {
-      NodeKind::METHOD | NodeKind::ANNOTATION_METHOD => Some(if has_modifier(tree, parent, TokenKind::STATIC_KEYWORD) {
+      NodeKind::METHOD | NodeKind::ANNOTATION_METHOD => Some(if has_modifier(tree, psi::get_modifier_list(tree, parent), Modifier::STATIC) {
         STATIC_METHOD
       } else {
         Role::FunctionDeclaration.style()
@@ -220,20 +222,20 @@ impl Painter<'_> {
     let interface = class_keyword(tree, class) == Some(TokenKind::INTERFACE_KEYWORD);
     let mut names = Vec::new();
     // `static int a, b;`: PSI gives each name a `FIELD`, the later ones without the modifiers and the type of the first
-    let mut head_static = false;
+    let mut heads = psi::field::declaration_heads(tree, class);
     for member in tree.children(class) {
       match tree.node_kind(member) {
         Some(NodeKind::FIELD) => {
-          if tree.first_child_of_kind(member, NodeKind::TYPE).is_some() {
-            head_static = has_modifier(tree, member, TokenKind::STATIC_KEYWORD);
-          }
+          // the fields of the class in order, as `declaration_heads` pairs them
+          let head = heads.next().map_or(member, |(_, head)| head);
+          let head_static = has_modifier(tree, psi::field::get_modifier_list_with_head(tree, head), Modifier::STATIC);
           let style = if interface || head_static { STATIC_FIELD } else { FIELD };
           self.field_styles.insert(member, style);
           names.extend(name_text(tree, member).map(|name| (name.to_string(), style)));
         }
         Some(NodeKind::ENUM_CONSTANT) => names.extend(name_text(tree, member).map(|name| (name.to_string(), STATIC_FIELD))),
         Some(NodeKind::RECORD_HEADER) => {
-          for component in tree.children(member).filter(|&it| tree.node_kind(it) == Some(NodeKind::RECORD_COMPONENT)) {
+          for component in psi::record_header::get_record_components(tree, member) {
             names.extend(name_text(tree, component).map(|name| (name.to_string(), FIELD)));
           }
         }
@@ -400,9 +402,7 @@ fn introduces(tree: &Tree, condition: NodeId, polarity: bool) -> bool {
     let operands = tree.children(node).filter(|&it| !tree.is_leaf(it));
     match tree.node_kind(node) {
       Some(NodeKind::INSTANCE_OF_EXPRESSION) => {
-        let pattern = tree
-          .children(node)
-          .find(|&it| matches!(tree.node_kind(it), Some(NodeKind::TYPE_TEST_PATTERN | NodeKind::DECONSTRUCTION_PATTERN)));
+        let pattern = psi::instance_of_expression::get_pattern(tree, node);
         if polarity
           && pattern.is_some_and(|it| {
             tree
@@ -495,51 +495,44 @@ pub(super) fn text_of(tree: &Tree, node: NodeId) -> &str {
   tree.utf8_text(node).unwrap_or_default()
 }
 
-/// The name of a declaration: its `IDENTIFIER` child
+/// The name of a declaration (its name identifier, a label's too) or of a code reference
 pub(super) fn name_leaf(tree: &Tree, node: NodeId) -> Option<NodeId> {
-  tree.children(node).find(|&it| tree.token_kind(it) == Some(TokenKind::IDENTIFIER))
+  let name = match tree.node_kind(node)? {
+    NodeKind::JAVA_CODE_REFERENCE => psi::code_reference::get_reference_name_element(tree, node),
+    _ => psi::get_name_identifier(tree, node),
+  };
+  // a module's name is its `MODULE_REFERENCE`
+  name.filter(|&it| tree.token_kind(it) == Some(TokenKind::IDENTIFIER))
 }
 
 fn name_text(tree: &Tree, node: NodeId) -> Option<&str> {
   name_leaf(tree, node).and_then(|it| tree.utf8_text(it))
 }
 
-/// The qualifier of a `REFERENCE_EXPRESSION` (`a` of `a.b`) or of a `JAVA_CODE_REFERENCE`: its first child that is no
-/// comment, when that is a composite other than the list of type arguments
+/// The qualifier of a `REFERENCE_EXPRESSION` (`a` of `a.b`) or of a `JAVA_CODE_REFERENCE` (`a` of `a.B`)
 pub(super) fn qualifier(tree: &Tree, reference: NodeId) -> Option<NodeId> {
-  let first = tree
-    .children(reference)
-    .find(|&it| !tree.kind(it).token().is_some_and(TokenKind::is_whitespace_or_comment))?;
-  (!tree.is_leaf(first) && tree.node_kind(first) != Some(NodeKind::REFERENCE_PARAMETER_LIST)).then_some(first)
+  match tree.node_kind(reference)? {
+    NodeKind::REFERENCE_EXPRESSION => psi::reference_expression::get_qualifier_expression(tree, reference),
+    NodeKind::JAVA_CODE_REFERENCE => psi::code_reference::get_qualifier(tree, reference),
+    _ => None,
+  }
 }
 
 /// Whether a `REFERENCE_EXPRESSION` is the method a call calls (`foo` of `foo()`, `a.foo` of `a.foo()`)
 pub(super) fn is_callee(tree: &Tree, reference: NodeId) -> bool {
   tree
     .parent(reference)
-    .is_some_and(|call| tree.node_kind(call) == Some(NodeKind::METHOD_CALL_EXPRESSION) && tree.children(call).find(|&it| !tree.is_leaf(it)) == Some(reference))
+    .is_some_and(|call| tree.node_kind(call) == Some(NodeKind::METHOD_CALL_EXPRESSION) && psi::method_call_expression::get_method_expression(tree, call) == Some(reference))
 }
 
-/// Whether a declaration has the modifier `keyword` in its `MODIFIER_LIST`
-fn has_modifier(tree: &Tree, declaration: NodeId, keyword: TokenKind) -> bool {
-  tree
-    .first_child_of_kind(declaration, NodeKind::MODIFIER_LIST)
-    .is_some_and(|list| tree.children(list).any(|it| tree.token_kind(it) == Some(keyword)))
+/// Whether a modifier list has the modifier as a keyword
+fn has_modifier(tree: &Tree, list: Option<NodeId>, modifier: Modifier) -> bool {
+  list.is_some_and(|list| psi::modifier_list::has_explicit_modifier(tree, list, modifier))
 }
 
-/// The keyword a class is declared with (`class`, `interface`, also of `@interface`, `enum`, `record`), read before
-/// its body
+/// The keyword a class is declared with (`class`, `interface`, also of `@interface`, `enum`, `record`)
 fn class_keyword(tree: &Tree, class: NodeId) -> Option<TokenKind> {
-  tree
-    .children(class)
-    .filter_map(|it| tree.token_kind(it))
-    .take_while(|&it| it != TokenKind::LBRACE)
-    .find(|it| {
-      matches!(
-        it,
-        TokenKind::CLASS_KEYWORD | TokenKind::INTERFACE_KEYWORD | TokenKind::ENUM_KEYWORD | TokenKind::RECORD_KEYWORD
-      )
-    })
+  psi::class::class_or_interface_keyword(tree, class).and_then(|it| tree.token_kind(it))
 }
 
 /// The node a `JAVA_CODE_REFERENCE` is a part of: the parent of the outermost reference of its chain (`a.b.C`)

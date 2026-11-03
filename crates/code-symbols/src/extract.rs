@@ -80,7 +80,7 @@ fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) 
 
 /// The revision of psi-syntax, whose `kotlin-syntax` and `java-syntax` read Kotlin and Java: the `rev` of the three
 /// psi-syntax crates in `Cargo.toml` (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub(crate) const PSI_SYNTAX_REVISION: &str = "36222345d10cee7425d29da747b01fcbebc268e7";
+pub(crate) const PSI_SYNTAX_REVISION: &str = "25dac59fe04bc1bc24452dfe57a6696c3ba57620";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
 /// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax (Kotlin, Java) or the

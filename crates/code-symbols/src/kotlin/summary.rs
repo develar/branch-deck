@@ -31,6 +31,7 @@ use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smar
 use crate::kotlin::parse;
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
 use crate::summary_builder::{Bindings, Marks, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
+use kotlin_syntax::psi;
 use kotlin_syntax::{FileKind, NodeId, NodeKind as N, TokenKind as K, Tree};
 use psi_builder::document::Lines;
 
@@ -355,7 +356,7 @@ impl<'t> Walk<'t> {
         true
       }
       N::CALL_EXPRESSION => {
-        if let Some(callee) = self.first_composite(id).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION) && !self.is_marked(*it)) {
+        if let Some(callee) = self.callee(id).filter(|it| !self.is_marked(*it)) {
           let shape = self.call_shape(id);
           self.mark(callee, Mark::Role(Role::Call, Some(shape)));
         }
@@ -374,9 +375,9 @@ impl<'t> Walk<'t> {
         true
       }
       N::OBJECT_DECLARATION => {
-        if self.tree.parent(id).is_some_and(|it| self.is(it, N::OBJECT_LITERAL)) {
+        if psi::kt_object_declaration_is_object_literal(self.tree, id) {
           self.object_literal(id);
-        } else if self.modifier_texts(id).contains(&"companion") {
+        } else if psi::kt_object_declaration_is_companion(self.tree, id) {
           let decl = DeclRule {
             default_name: Some("Companion"),
             ..rule(DeclKind::Type, Opens::Nothing)
@@ -392,7 +393,7 @@ impl<'t> Walk<'t> {
         true
       }
       N::FUN => {
-        if self.name_token(id).is_some() {
+        if psi::get_name_identifier(self.tree, id).is_some() {
           self.declaration(id, &rule(DeclKind::Function, Opens::Body));
         } else {
           // an anonymous function, as a lambda
@@ -413,7 +414,7 @@ impl<'t> Walk<'t> {
           self.declaration(id, &decl);
           // `context(c: Ctx) val x get() = c.foo`, `val <T> T.x`: its context and type parameters are names of the
           // property alone, as a function's are of the function
-          if self.child(id, N::TYPE_PARAMETER_LIST).is_some() || self.child(id, N::MODIFIER_LIST).is_some_and(|it| self.child(it, N::CONTEXT_PARAMETER_LIST).is_some()) {
+          if psi::get_type_parameter_list(self.tree, id).is_some() || psi::get_modifier_list(self.tree, id).is_some_and(|it| self.child(it, N::CONTEXT_PARAMETER_LIST).is_some()) {
             self.push_scope(false);
           }
         }
@@ -433,7 +434,7 @@ impl<'t> Walk<'t> {
       N::ENUM_ENTRY => {
         self.declaration(id, &rule(DeclKind::EnumEntry, Opens::Nothing));
         // the members of its body override those of the enum, as locals
-        if let Some(body) = self.child(id, N::CLASS_BODY) {
+        if let Some(body) = psi::kt_class_or_object_get_body(self.tree, id) {
           self.mark(body, Mark::Scope);
         }
         true
@@ -444,13 +445,13 @@ impl<'t> Walk<'t> {
       }
       N::TYPE_CONSTRAINT => {
         // `where T : Bound` names the type parameter `T`
-        if let Some(subject) = self.first_composite(id).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION)) {
+        if let Some(subject) = psi::kt_type_constraint_get_subject_type_parameter_name(self.tree, id) {
           self.mark(subject, Mark::Role(Role::Type, None));
         }
         true
       }
       N::TYPE_PARAMETER => {
-        if let Some(name) = self.name_token(id) {
+        if let Some(name) = psi::get_name_identifier(self.tree, id) {
           self.bind_token(name, None);
         }
         true
@@ -467,7 +468,7 @@ impl<'t> Walk<'t> {
       }
       N::SECONDARY_CONSTRUCTOR => {
         if let Some(signature) = self.signature(id) {
-          let reach = reach(&self.modifier_texts(id), true);
+          let reach = reach(self.tree, id, true);
           self.add_constructor(Constructor { signature, reach });
         }
         self.push_scope(true);
@@ -539,8 +540,8 @@ impl<'t> Walk<'t> {
   /// anonymous function
   fn coroutine(&self, id: NodeId, kind: N) -> Option<Context> {
     match kind {
-      N::FUN if self.name_token(id).is_none() => Some(Context::Unknown),
-      N::FUN if self.modifier_texts(id).contains(&"suspend") => Some(Context::Coroutine),
+      N::FUN if psi::get_name_identifier(self.tree, id).is_none() => Some(Context::Unknown),
+      N::FUN if psi::has_modifier(self.tree, id, K::SUSPEND_KEYWORD) => Some(Context::Coroutine),
       N::FUN | N::PROPERTY_ACCESSOR | N::SECONDARY_CONSTRUCTOR | N::CLASS_INITIALIZER | N::CLASS_BODY => Some(Context::Plain),
       N::LAMBDA_EXPRESSION => Some(match self.lambda_callee(id) {
         Some(callee) if COROUTINE_BUILDERS.contains(&callee) => Context::Coroutine,
@@ -568,8 +569,7 @@ impl<'t> Walk<'t> {
     if !self.is(call, N::CALL_EXPRESSION) {
       return None;
     }
-    let callee = self.first_composite(call).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))?;
-    self.identifier_text(callee)
+    self.identifier_text(self.callee(call)?)
   }
 
   // --- names and references
@@ -589,8 +589,12 @@ impl<'t> Walk<'t> {
 
   /// `a.b`, `a?.b`, `a.b(c)`: `b` is a reference qualified by the path of `a`, a call with the shape of `(c)`
   fn qualified(&mut self, id: NodeId, mark: Option<Mark>) {
-    let Some(receiver) = self.first_composite(id) else { return };
-    let Some(selector) = self.selector(id) else { return };
+    let Some(receiver) = psi::kt_qualified_expression_get_receiver_expression(self.tree, id) else {
+      return;
+    };
+    let Some(selector) = psi::kt_qualified_expression_get_selector_expression(self.tree, id) else {
+      return;
+    };
     let (name, role, shape) = if self.is(selector, N::REFERENCE_EXPRESSION) {
       let (role, shape) = match mark {
         Some(Mark::Role(role, shape)) => (role, shape),
@@ -600,10 +604,10 @@ impl<'t> Walk<'t> {
     } else if self.is(selector, N::CALL_EXPRESSION) {
       // `a.b()()` calls what `a.b()` returns: `b` takes the shape of its own call
       let mut call = selector;
-      while let Some(inner) = self.first_composite(call).filter(|it| self.is(*it, N::CALL_EXPRESSION)) {
+      while let Some(inner) = psi::get_callee_expression(self.tree, call).filter(|it| self.is(*it, N::CALL_EXPRESSION)) {
         call = inner;
       }
-      let Some(callee) = self.first_composite(call).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION)) else {
+      let Some(callee) = self.callee(call) else {
         return;
       };
       (callee, Role::Call, Some(self.call_shape(call)))
@@ -635,19 +639,6 @@ impl<'t> Walk<'t> {
     if let Some(typed) = typed.filter(|_| self.out.references.len() > before) {
       typed.give(&mut self.out, before);
     }
-  }
-
-  /// The selector of a qualified expression: its expression after the `.` or `?.`
-  fn selector(&self, id: NodeId) -> Option<NodeId> {
-    let mut after = false;
-    for child in self.tree.children(id) {
-      match self.tree.token_kind(child) {
-        Some(K::DOT | K::SAFE_ACCESS) => after = true,
-        None if after && !self.is_trivia(child) => return Some(child),
-        _ => {}
-      }
-    }
-    None
   }
 
   /// `::f`, `a::f`, `a.B::f`: `f` qualified by the path of the receiver; a receiver of one name is a type
@@ -692,10 +683,10 @@ impl<'t> Walk<'t> {
 
   /// The name of `List<String>` before a `::`, which PSI reads as a call with type arguments alone
   fn type_arguments_callee(&self, id: NodeId) -> Option<NodeId> {
-    if !self.is(id, N::CALL_EXPRESSION) || self.child(id, N::VALUE_ARGUMENT_LIST).is_some() || self.child(id, N::LAMBDA_ARGUMENT).is_some() {
+    if !self.is(id, N::CALL_EXPRESSION) || psi::get_value_argument_list(self.tree, id).is_some() || psi::get_lambda_arguments(self.tree, id).next().is_some() {
       return None;
     }
-    self.first_composite(id).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))
+    self.callee(id)
   }
 
   /// A type `a.b.C<T>`: each name a type qualified by the names before it, the role and shape of a mark on the last
@@ -718,15 +709,22 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// The `REFERENCE_EXPRESSION`s of the segments of a `USER_TYPE`, outermost qualifier first
+  /// The `REFERENCE_EXPRESSION`s of the segments of a `USER_TYPE`, outermost qualifier first; not the
+  /// `ENUM_ENTRY_SUPERCLASS_REFERENCE_EXPRESSION` of an enum entry's `A(1)`, which names the enum, as its entry's
+  /// supertypes do (`Classes::enum_supertypes`)
   fn type_names(&self, user_type: NodeId) -> Vec<NodeId> {
     let mut chain = vec![user_type];
     let mut node = user_type;
-    while let Some(qualifier) = self.child(node, N::USER_TYPE) {
+    while let Some(qualifier) = psi::kt_user_type_get_qualifier(self.tree, node) {
       chain.push(qualifier);
       node = qualifier;
     }
-    chain.iter().rev().filter_map(|it| self.child(*it, N::REFERENCE_EXPRESSION)).collect()
+    chain
+      .iter()
+      .rev()
+      .filter_map(|it| psi::kt_user_type_get_reference_expression(self.tree, *it))
+      .filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))
+      .collect()
   }
 
   /// `[a, b, C]` of a user type `a.b.C<T>`
@@ -738,7 +736,7 @@ impl<'t> Walk<'t> {
   /// `a to b` calls `to` on `a`
   fn infix(&mut self, id: NodeId) {
     let Some(operation) = self.child(id, N::OPERATION_REFERENCE) else { return };
-    let Some(name) = self.child_token(operation, K::IDENTIFIER) else { return };
+    let Some(name) = self.name_element(operation) else { return };
     let Some(left) = self.first_composite(id) else { return };
     let path = self.path_of(left);
     let qualifier = match path {
@@ -755,7 +753,7 @@ impl<'t> Walk<'t> {
     let Some(label) = self.child(id, N::LABEL_QUALIFIER).and_then(|it| self.child(it, N::LABEL)) else {
       return;
     };
-    if let Some(name) = self.child_token(label, K::IDENTIFIER)
+    if let Some(name) = self.name_element(label)
       && let Some(text) = self.tree.utf8_text(name)
     {
       self.reference(text, self.line_of(name), Role::Type, None, None);
@@ -803,9 +801,9 @@ impl<'t> Walk<'t> {
           break;
         }
         N::DOT_QUALIFIED_EXPRESSION | N::SAFE_ACCESS_EXPRESSION => {
-          let selector = self.selector(node).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))?;
+          let selector = psi::kt_qualified_expression_get_selector_expression(self.tree, node).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))?;
           reversed.push(self.identifier_text(selector)?);
-          node = self.first_composite(node)?;
+          node = psi::kt_qualified_expression_get_receiver_expression(self.tree, node)?;
         }
         // `m!!.foo` names `m` as `m?.foo` does
         N::POSTFIX_EXPRESSION if self.is_not_null_assertion(node) => node = self.first_composite(node)?,
@@ -853,7 +851,7 @@ impl<'t> Walk<'t> {
     };
     let Some(subject) = self.when_subject(when) else { return };
     let path = if self.is(subject, N::PROPERTY) {
-      self.name_token(subject).and_then(|it| self.tree.utf8_text(it)).map(|it| vec![it])
+      self.name_text(subject).map(|it| vec![it])
     } else {
       self.path_of(subject)
     };
@@ -889,19 +887,14 @@ impl<'t> Walk<'t> {
   /// `@file:JvmName("Util")` names the JVM class of the top-level declarations; `@file:ApiStatus.Internal` marks them
   /// as no stable API. One annotation or a list of them (`@file:[A B]`)
   fn file_annotation_list(&mut self, id: NodeId) {
-    let entries: Vec<NodeId> = self
-      .tree
-      .descendants(id)
-      .filter(|it| self.is(*it, N::ANNOTATION_ENTRY) && self.tree.parent(*it).is_some_and(|parent| parent == id || self.is(parent, N::ANNOTATION)))
-      .collect();
+    let entries: Vec<NodeId> = psi::get_annotation_entries(self.tree, id).collect();
     for entry in entries {
       let Some(names) = self.annotation_path(entry) else { continue };
       let jvm_name = names == ["JvmName"] || names == ["kotlin", "jvm", "JvmName"];
       self.file_annotations.push(names);
       if jvm_name
-        && let Some(name) = self
-          .child(entry, N::VALUE_ARGUMENT_LIST)
-          .and_then(|it| self.child(it, N::VALUE_ARGUMENT))
+        && let Some(name) = psi::get_value_arguments(self.tree, entry)
+          .next()
           .and_then(|it| self.child(it, N::STRING_TEMPLATE))
           .and_then(|it| self.child(it, N::LITERAL_STRING_TEMPLATE_ENTRY))
           .and_then(|it| self.tree.utf8_text(it))
@@ -913,22 +906,22 @@ impl<'t> Walk<'t> {
 
   fn import(&mut self, id: NodeId) {
     self.import_statement(id);
-    let Some(expression) = self.first_composite(id).filter(|it| !self.is(*it, N::IMPORT_ALIAS)) else {
+    let Some(expression) = psi::kt_import_directive_get_imported_reference(self.tree, id) else {
       return;
     };
     let Some(segments) = self.path_of(expression) else { return };
     let line = self.line_of(id);
-    if self.child_token(id, K::MUL).is_some() {
+    if psi::kt_import_directive_is_all_under(self.tree, id) {
       self.out.add_import_all(&segments, false, line);
       return;
     }
     let Some((name, path)) = segments.split_last() else { return };
-    let alias = self.child(id, N::IMPORT_ALIAS).and_then(|it| self.name_token(it));
+    let alias = psi::kt_import_directive_get_alias(self.tree, id).and_then(|it| psi::get_name_identifier(self.tree, it));
     let alias_text = alias.and_then(|it| self.tree.utf8_text(it));
     let last = if self.is(expression, N::REFERENCE_EXPRESSION) {
       Some(expression)
     } else {
-      self.selector(expression)
+      psi::kt_qualified_expression_get_selector_expression(self.tree, expression)
     };
     let name_line = last.map_or(line, |it| self.line_of(it));
     self.out.add_import_name(path, name, alias_text, false, line);
@@ -1006,17 +999,16 @@ impl<'t> Walk<'t> {
     }
   }
 
-  /// The name tokens of a declaration: its `IDENTIFIER`, or those of the entries of a destructuring declaration
+  /// The name tokens of a declaration: its name identifier, or those of the entries of a destructuring declaration
+  /// directly in it (not those of a top-level `val (a, b) = p`, which a parse error wraps)
   fn declared_names(&self, id: NodeId) -> Vec<NodeId> {
     if self.is(id, N::DESTRUCTURING_DECLARATION) {
-      return self
-        .tree
-        .children(id)
-        .filter(|it| self.is(*it, N::DESTRUCTURING_DECLARATION_ENTRY))
-        .filter_map(|it| self.name_token(it))
+      return psi::kt_destructuring_declaration_get_entries(self.tree, id)
+        .filter(|it| self.tree.parent(*it) == Some(id))
+        .filter_map(|it| psi::get_name_identifier(self.tree, it))
         .collect();
     }
-    self.name_token(id).into_iter().collect()
+    psi::get_name_identifier(self.tree, id).into_iter().collect()
   }
 
   /// The first line of the doc comments above a declaration: those PSI binds into it and those before it
@@ -1117,24 +1109,28 @@ impl<'t> Walk<'t> {
 
   /// The kind, reach and member kind of a declaration, and what it is to its members
   fn traits(&mut self, id: NodeId, rule: &DeclRule) -> Traits {
-    let modifiers = self.modifier_texts(id);
+    let tree = self.tree;
     let holder = self.holder();
     let member = holder.is_some();
     let mut kind = rule.kind;
     let mut own = Holder::Leaf;
     let mut member_kind = member_in(holder, false);
-    match self.tree.node_kind(id) {
+    match tree.node_kind(id) {
       Some(N::CLASS) => {
-        own = if self.child_token(id, K::INTERFACE_KEYWORD).is_some() {
+        own = if psi::kt_class_is_interface(tree, id) {
           Holder::Interface
-        } else if modifiers.contains(&"enum") {
+        } else if psi::kt_class_is_enum(tree, id) {
           Holder::Enum
-        } else if modifiers.contains(&"annotation") {
+        } else if psi::kt_class_or_object_is_annotation(tree, id) {
           Holder::Annotation
         } else {
           Holder::Class
         };
-        member_kind = if modifiers.contains(&"inner") { MemberKind::Instance } else { member_in(holder, true) };
+        member_kind = if psi::kt_class_is_inner(tree, id) {
+          MemberKind::Instance
+        } else {
+          member_in(holder, true)
+        };
       }
       Some(N::OBJECT_DECLARATION) => {
         own = Holder::Object;
@@ -1142,11 +1138,11 @@ impl<'t> Walk<'t> {
       }
       Some(N::TYPEALIAS) => member_kind = member_in(holder, true),
       Some(N::ENUM_ENTRY) => member_kind = MemberKind::Static,
-      Some(N::PROPERTY) if modifiers.contains(&"const") => kind = DeclKind::Constant,
+      Some(N::PROPERTY) if psi::has_modifier(tree, id, K::CONST_KEYWORD) => kind = DeclKind::Constant,
       _ => {}
     }
     let receiver = self.receiver_name(id).map(|it| self.out.intern(it));
-    let reach = if kind == DeclKind::EnumEntry { Reach::Public } else { reach(&modifiers, member) };
+    let reach = if kind == DeclKind::EnumEntry { Reach::Public } else { reach(tree, id, member) };
     Traits {
       kind,
       reach,
@@ -1159,13 +1155,13 @@ impl<'t> Walk<'t> {
   /// `override`, `open`, `abstract`, `final` and the JVM annotations of a function or a property, and its extension
   /// receiver
   fn modality(&mut self, id: NodeId) -> Modality {
-    let modifiers = self.modifier_texts(id);
-    let has = |modifier: &str| modifiers.contains(&modifier);
-    let overrides = has("override");
+    let tree = self.tree;
+    let has = |modifier: K| psi::has_modifier(tree, id, modifier);
+    let overrides = has(K::OVERRIDE_KEYWORD);
     let holder = self.holder();
     // a member of an object or a companion, or a local, can't be overridden
     let member = matches!(holder, Some(Holder::Class | Holder::Interface | Holder::Enum)) && !self.bindings.is_local();
-    let open = has("open") || has("abstract") || (overrides && !has("final")) || holder == Some(Holder::Interface);
+    let open = has(K::OPEN_KEYWORD) || has(K::ABSTRACT_KEYWORD) || (overrides && !has(K::FINAL_KEYWORD)) || holder == Some(Holder::Interface);
     let receiver = self.receiver_name(id).map(|it| self.out.intern(it));
     let annotations = self.annotation_names(id);
     let annotated = |path: &[&str]| {
@@ -1173,15 +1169,16 @@ impl<'t> Walk<'t> {
         .iter()
         .any(|names| names == path || names.strip_prefix(["kotlin", "jvm"].as_slice()) == Some(path))
     };
+    let mutable = psi::is_var(tree, id) || psi::kt_parameter_is_mutable(tree, id);
     Modality {
       overrides,
-      overridable: member && open && !has("private"),
+      overridable: member && open && !has(K::PRIVATE_KEYWORD),
       jvm_static: annotated(&["JvmStatic"]),
       jvm_field: annotated(&["JvmField"]),
       jvm_name: annotated(&["JvmName"]) || annotated(&["JvmSynthetic"]),
-      lateinit: has("lateinit"),
+      lateinit: has(K::LATEINIT_KEYWORD),
       test: annotations.iter().any(|path| path.last().is_some_and(|last| TEST_ANNOTATIONS.contains(last))),
-      setter: self.child_token(id, K::VAR_KEYWORD).map(|_| reach(&modifiers, holder.is_some())),
+      setter: mutable.then(|| reach(tree, id, holder.is_some())),
       receiver,
     }
   }
@@ -1194,12 +1191,12 @@ impl<'t> Walk<'t> {
   /// A top-level `fun main` without a receiver or type parameters, returning `Unit` if it has a declared return type:
   /// without parameters, of one `Array<String>` or of a `vararg` of `String`
   fn entry_point(&self, id: NodeId, signature: &Signature) -> bool {
-    if self.holder().is_some() || self.receiver_type(id).is_some() || self.child(id, N::TYPE_PARAMETER_LIST).is_some() {
+    let tree = self.tree;
+    if self.holder().is_some() || psi::get_receiver_type_reference(tree, id).is_some() || psi::get_type_parameter_list(tree, id).is_some() {
       return false;
     }
-    if let Some(returns) = self.declared_type(id) {
-      let unit = self
-        .type_element(returns)
+    if let Some(returns) = psi::get_type_reference(tree, id) {
+      let unit = psi::kt_type_reference_get_type_element(tree, returns)
         .filter(|it| self.is(*it, N::USER_TYPE))
         .and_then(|it| self.type_path(it))
         .is_some_and(|path| matches!(path.as_slice(), ["Unit"] | ["kotlin", "Unit"]));
@@ -1217,23 +1214,21 @@ impl<'t> Walk<'t> {
 
   /// The parameters of the `VALUE_PARAMETER_LIST` of a function or a constructor
   fn signature(&mut self, id: NodeId) -> Option<Signature> {
-    let list = self.child(id, N::VALUE_PARAMETER_LIST)?;
-    let type_parameters = self.type_parameter_names(id);
     let tree = self.tree;
-    let parameters = tree
-      .children(list)
-      .filter(|it| tree.node_kind(*it) == Some(N::VALUE_PARAMETER))
-      .filter_map(|it| self.parameter_of(it, &type_parameters))
-      .collect();
+    psi::get_value_parameter_list(tree, id)?;
+    let type_parameters = self.type_parameter_names(id);
+    let parameters = psi::get_value_parameters(tree, id).filter_map(|it| self.parameter_of(it, &type_parameters)).collect();
     Some(Signature { parameters })
   }
 
-  /// A parameter: its name and its type, a vararg as an array, as on the JVM, optional with a default value
+  /// A parameter: its name and its type, a vararg as an array, as on the JVM, optional with a default value (an `=`,
+  /// also one without a value after it yet)
   fn parameter_of(&mut self, id: NodeId, type_parameters: &[&'t str]) -> Option<Parameter> {
-    let name = self.name_token(id).and_then(|it| self.tree.utf8_text(it))?;
-    let vararg = self.modifier_texts(id).contains(&"vararg");
-    let type_ref = self.child(id, N::TYPE_REFERENCE).and_then(|it| {
-      let nullable = self.type_element(it).is_some_and(|element| self.is(element, N::NULLABLE_TYPE));
+    let tree = self.tree;
+    let name = self.name_text(id)?;
+    let vararg = psi::kt_parameter_is_var_arg(tree, id);
+    let type_ref = psi::get_type_reference(tree, id).and_then(|it| {
+      let nullable = psi::kt_type_reference_get_type_element(tree, it).is_some_and(|element| self.is(element, N::NULLABLE_TYPE));
       self.type_ref(it, nullable, u8::from(vararg), type_parameters)
     });
     Some(Parameter {
@@ -1266,7 +1261,7 @@ impl<'t> Walk<'t> {
           continue;
         }
         Some(N::MODIFIER_LIST | N::ANNOTATION_ENTRY | N::ANNOTATION) | None => continue,
-        Some(N::VALUE_PARAMETER) if self.name_token(node).is_some() => continue,
+        Some(N::VALUE_PARAMETER) if psi::get_name_identifier(self.tree, node).is_some() => continue,
         Some(_) => {}
       }
       let start = stack.len();
@@ -1278,28 +1273,21 @@ impl<'t> Walk<'t> {
 
   /// The names of the type parameters of a declaration (`<T, R>`)
   fn type_parameter_names(&self, id: NodeId) -> Vec<&'t str> {
-    let Some(list) = self.child(id, N::TYPE_PARAMETER_LIST) else { return Vec::new() };
-    self
-      .tree
-      .children(list)
-      .filter(|it| self.is(*it, N::TYPE_PARAMETER))
-      .filter_map(|it| self.name_token(it))
-      .filter_map(|it| self.tree.utf8_text(it))
-      .collect()
+    psi::get_type_parameters(self.tree, id).filter_map(|it| self.name_text(it)).collect()
   }
 
   /// The primary constructor of a class: its parameters (a vararg by `vararg` among its modifiers, optional by a
   /// default value) and the reach of the modifiers before `constructor`; none without one
   fn constructors(&mut self, id: NodeId) -> Vec<Constructor> {
-    let Some(primary) = self.child(id, N::PRIMARY_CONSTRUCTOR) else { return Vec::new() };
+    let tree = self.tree;
+    let Some(primary) = psi::kt_class_or_object_get_primary_constructor(tree, id) else {
+      return Vec::new();
+    };
     let type_parameters = self.type_parameter_names(id);
-    let declared: Vec<NodeId> = self
-      .child(primary, N::VALUE_PARAMETER_LIST)
-      .map_or_else(Vec::new, |list| self.tree.children(list).filter(|it| self.is(*it, N::VALUE_PARAMETER)).collect());
-    let parameters = declared.into_iter().filter_map(|it| self.parameter_of(it, &type_parameters)).collect();
+    let parameters = psi::get_value_parameters(tree, primary).filter_map(|it| self.parameter_of(it, &type_parameters)).collect();
     vec![Constructor {
       signature: Signature { parameters },
-      reach: reach(&self.modifier_texts(primary), true),
+      reach: reach(tree, primary, true),
     }]
   }
 
@@ -1327,30 +1315,26 @@ impl<'t> Walk<'t> {
   /// a vararg; else the type a property's initializer constructs, a call of a capitalized name (`Manager(…)`,
   /// `a.Manager(…)`), not a delegate or any other expression; with whether a call gave it
   fn value_path(&self, id: NodeId) -> Option<(Vec<&'t str>, bool)> {
-    if self.modifier_texts(id).contains(&"vararg") || self.is(id, N::DESTRUCTURING_DECLARATION) || self.child(id, N::DESTRUCTURING_DECLARATION).is_some() {
+    let tree = self.tree;
+    if psi::kt_parameter_is_var_arg(tree, id) || self.is(id, N::DESTRUCTURING_DECLARATION) || psi::kt_parameter_get_destructuring_declaration(tree, id).is_some() {
       return None;
     }
-    let declared = if self.is(id, N::VALUE_PARAMETER) {
-      self.child(id, N::TYPE_REFERENCE)
-    } else {
-      self.declared_type(id)
-    };
-    if let Some(type_node) = declared {
+    if let Some(type_node) = psi::get_type_reference(tree, id) {
       let path = self.type_path(self.simple_user_type(type_node)?)?;
       // a type parameter around it, or one of the property's own (`val <T> List<T>.head: T`), bound after this
       let type_parameter = path.len() == 1 && (self.is_bound_text(path[0]) || self.type_parameter_names(id).contains(&path[0]));
       return (!type_parameter).then_some((path, false));
     }
-    if !self.is(id, N::PROPERTY) || self.child(id, N::PROPERTY_DELEGATE).is_some() {
+    if !self.is(id, N::PROPERTY) || psi::kt_property_has_delegate(tree, id) {
       return None;
     }
-    let initializer = self.initializer(id)?;
+    let initializer = psi::get_initializer(tree, id)?;
     let path = if self.is(initializer, N::CALL_EXPRESSION) {
-      self.path_of(self.first_composite(initializer)?)?
+      self.path_of(psi::get_callee_expression(tree, initializer)?)?
     } else if self.is(initializer, N::DOT_QUALIFIED_EXPRESSION) || self.is(initializer, N::SAFE_ACCESS_EXPRESSION) {
-      let call = self.selector(initializer).filter(|it| self.is(*it, N::CALL_EXPRESSION))?;
-      let callee = self.first_composite(call).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))?;
-      let mut path = self.path_of(self.first_composite(initializer)?)?;
+      let call = psi::kt_qualified_expression_get_selector_expression(tree, initializer).filter(|it| self.is(*it, N::CALL_EXPRESSION))?;
+      let callee = self.callee(call)?;
+      let mut path = self.path_of(psi::kt_qualified_expression_get_receiver_expression(tree, initializer)?)?;
       path.push(self.identifier_text(callee)?);
       path
     } else {
@@ -1358,19 +1342,6 @@ impl<'t> Walk<'t> {
     };
     let capitalized = path.last().is_some_and(|last| last.starts_with(char::is_uppercase));
     (capitalized && !(path.len() == 1 && self.is_bound_text(path[0]))).then_some((path, true))
-  }
-
-  /// The expression after the `=` of a property
-  fn initializer(&self, id: NodeId) -> Option<NodeId> {
-    let mut after = false;
-    for child in self.tree.children(id) {
-      if self.tree.token_kind(child) == Some(K::EQ) {
-        after = true;
-      } else if after && !self.tree.is_leaf(child) && !self.is_trivia(child) {
-        return Some(child);
-      }
-    }
-    None
   }
 
   /// The supertypes of a class, an object or a companion, the enum of an enum entry
@@ -1386,26 +1357,11 @@ impl<'t> Walk<'t> {
   /// entry `Base(…)` calls the constructor of `Base`, with the shape taken now: an object expression pushes its
   /// supertypes after this, and the arguments are of the code around it
   fn supertype_list(&mut self, id: NodeId) -> Vec<Vec<u32>> {
-    let Some(list) = self.child(id, N::SUPER_TYPE_LIST) else { return Vec::new() };
-    let entries: Vec<NodeId> = self
-      .tree
-      .children(list)
-      .filter(|it| {
-        matches!(
-          self.tree.node_kind(*it),
-          Some(N::SUPER_TYPE_ENTRY | N::SUPER_TYPE_CALL_ENTRY | N::DELEGATED_SUPER_TYPE_ENTRY)
-        )
-      })
-      .collect();
+    let entries: Vec<NodeId> = psi::kt_class_or_object_get_super_type_list_entries(self.tree, id).collect();
     let mut paths = Vec::new();
     for entry in entries {
       let call = self.is(entry, N::SUPER_TYPE_CALL_ENTRY);
-      let type_reference = if call {
-        self.child(entry, N::CONSTRUCTOR_CALLEE).and_then(|it| self.child(it, N::TYPE_REFERENCE))
-      } else {
-        self.child(entry, N::TYPE_REFERENCE)
-      };
-      let user_type = type_reference.and_then(|it| self.type_element(it)).filter(|it| self.is(*it, N::USER_TYPE));
+      let user_type = psi::kt_super_type_list_entry_get_type_as_user_type(self.tree, entry);
       if let Some(user_type) = user_type.filter(|_| call) {
         let shape = self.call_shape(entry);
         self.mark(user_type, Mark::Role(Role::Call, Some(shape)));
@@ -1433,18 +1389,18 @@ impl<'t> Walk<'t> {
     match (self.tree.node_kind(list), owner) {
       (Some(N::VALUE_PARAMETER_LIST), Some(N::PRIMARY_CONSTRUCTOR)) => self.class_parameter(id),
       (Some(N::VALUE_PARAMETER_LIST), Some(N::FUN | N::SECONDARY_CONSTRUCTOR)) | (Some(N::CONTEXT_PARAMETER_LIST), _) => {
-        if let Some(name) = self.name_token(id) {
+        if let Some(name) = psi::get_name_identifier(self.tree, id) {
           let type_path = self.typed(id);
           self.bind_token(name, type_path);
         }
       }
       (Some(N::VALUE_PARAMETER_LIST), Some(N::PROPERTY_ACCESSOR | N::CATCH)) => {
-        if let Some(name) = self.name_token(id) {
+        if let Some(name) = psi::get_name_identifier(self.tree, id) {
           self.bind_token(name, None);
         }
       }
       (Some(N::VALUE_PARAMETER_LIST), Some(N::FUNCTION_LITERAL)) => {
-        let type_path = if self.name_token(id).is_some() { self.typed(id) } else { None };
+        let type_path = if psi::get_name_identifier(self.tree, id).is_some() { self.typed(id) } else { None };
         self.pend_names(id, self.frames.len() - 2, type_path.as_ref());
       }
       _ => {}
@@ -1453,9 +1409,9 @@ impl<'t> Walk<'t> {
 
   /// The name tokens of a parameter: its name, or those of its destructuring declaration
   fn parameter_names(&self, id: NodeId) -> Vec<NodeId> {
-    match self.child(id, N::DESTRUCTURING_DECLARATION) {
+    match psi::kt_parameter_get_destructuring_declaration(self.tree, id) {
       Some(pattern) => self.declared_names(pattern),
-      None => self.name_token(id).into_iter().collect(),
+      None => psi::get_name_identifier(self.tree, id).into_iter().collect(),
     }
   }
 
@@ -1472,8 +1428,8 @@ impl<'t> Walk<'t> {
   /// A `val`/`var` constructor parameter is a property; a plain one is visible in the class body, its initializers
   /// see its type
   fn class_parameter(&mut self, id: NodeId) {
-    let Some(name) = self.name_token(id) else { return };
-    let property = self.child_token(id, K::VAL_KEYWORD).is_some() || self.child_token(id, K::VAR_KEYWORD).is_some();
+    let Some(name) = psi::get_name_identifier(self.tree, id) else { return };
+    let property = psi::kt_parameter_has_val_or_var(self.tree, id);
     // an `override val` of a local class overrides too
     let fields = if property {
       let mut fields = self.overriding(id, Some(name), DeclKind::Value);
@@ -1493,7 +1449,7 @@ impl<'t> Walk<'t> {
     let Some(text) = self.tree.utf8_text(name) else { return };
     let traits = Traits {
       kind: DeclKind::Value,
-      reach: reach(&self.modifier_texts(id), true),
+      reach: reach(self.tree, id, true),
       member: MemberKind::Instance,
       receiver: None,
       holder: Holder::Leaf,
@@ -1506,14 +1462,15 @@ impl<'t> Walk<'t> {
     self.push_scope(true);
     self.bind_text("field");
     self.enter_container_as(self.container(), Holder::Leaf, true);
-    let modifiers = self.modifier_texts(id);
-    if self.child_token(id, K::SET_KEYWORD).is_some()
-      && (modifiers.contains(&"private") || modifiers.contains(&"internal") || modifiers.contains(&"protected"))
+    let tree = self.tree;
+    let has = |modifier: K| psi::has_modifier(tree, id, modifier);
+    if psi::kt_property_accessor_is_setter(tree, id)
+      && (has(K::PRIVATE_KEYWORD) || has(K::INTERNAL_KEYWORD) || has(K::PROTECTED_KEYWORD))
       && let Some(property) = self.container()
       && let Some(declaration) = self.out.declarations.get_mut(property as usize)
       && declaration.setter.is_some()
     {
-      declaration.setter = Some(reach(&modifiers, true));
+      declaration.setter = Some(reach(tree, id, true));
     }
   }
 
@@ -1521,31 +1478,27 @@ impl<'t> Walk<'t> {
   /// supertype, the one a class without a primary constructor names without arguments (`: Base`); none beside another
   /// supertype, nor for a supertype with arguments or a delegate
   fn constructor_delegation(&mut self, id: NodeId) {
-    let Some(reference) = self.child(id, N::CONSTRUCTOR_DELEGATION_REFERENCE) else { return };
+    let tree = self.tree;
+    let Some(reference) = psi::get_callee_expression(tree, id) else { return };
     let this = self.child_token(reference, K::THIS_KEYWORD).is_some();
     if !this && self.child_token(reference, K::SUPER_KEYWORD).is_none() {
       return;
     }
     // the secondary constructor, the class body, the class
-    let class = self
-      .tree
+    let class = tree
       .parent(id)
-      .and_then(|it| self.tree.parent(it))
-      .and_then(|it| self.tree.parent(it))
+      .and_then(|it| tree.parent(it))
+      .and_then(|it| tree.parent(it))
       .filter(|it| self.is(*it, N::CLASS));
     let Some(class) = class else { return };
     let path = if this {
-      self.name_token(class).and_then(|it| self.tree.utf8_text(it)).map(|it| vec![it])
+      self.name_text(class).map(|it| vec![it])
     } else {
-      let entries: Vec<NodeId> = self.child(class, N::SUPER_TYPE_LIST).map_or_else(Vec::new, |list| {
-        self.tree.children(list).filter(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it)).collect()
-      });
+      // the composites of the list: an error element beside the entry counts as another
+      let entries: Vec<NodeId> = psi::kt_class_or_object_get_super_type_list(tree, class)
+        .map_or_else(Vec::new, |list| tree.children(list).filter(|it| !tree.is_leaf(*it) && !self.is_trivia(*it)).collect());
       match entries.as_slice() {
-        [only] if self.is(*only, N::SUPER_TYPE_ENTRY) => self
-          .child(*only, N::TYPE_REFERENCE)
-          .and_then(|it| self.type_element(it))
-          .filter(|it| self.is(*it, N::USER_TYPE))
-          .and_then(|it| self.type_path(it)),
+        [only] if self.is(*only, N::SUPER_TYPE_ENTRY) => psi::kt_super_type_list_entry_get_type_as_user_type(tree, *only).and_then(|it| self.type_path(it)),
         _ => None,
       }
     };
@@ -1560,26 +1513,24 @@ impl<'t> Walk<'t> {
   /// `VALUE_ARGUMENT_LIST` in order, a named one with its name, a spread (`*items`), and its lambda arguments last;
   /// interned, `enclosed` by the walk
   fn call_shape(&mut self, id: NodeId) -> u32 {
+    let tree = self.tree;
     let mut arguments = Vec::new();
     let mut spread = false;
-    let values: Vec<NodeId> = self
-      .child(id, N::VALUE_ARGUMENT_LIST)
-      .map_or_else(Vec::new, |list| self.tree.children(list).filter(|it| self.is(*it, N::VALUE_ARGUMENT)).collect());
+    let values: Vec<NodeId> = psi::get_value_arguments(tree, id).filter(|it| self.is(*it, N::VALUE_ARGUMENT)).collect();
     for value_argument in values {
-      let name = self
-        .child(value_argument, N::VALUE_ARGUMENT_NAME)
+      let name = psi::kt_value_argument_get_argument_name(tree, value_argument)
         .and_then(|it| self.child(it, N::REFERENCE_EXPRESSION))
         .and_then(|it| self.identifier_text(it))
         .map(|it| self.out.intern(it));
-      spread |= self.child_token(value_argument, K::MUL).is_some();
-      let value = self
-        .tree
+      spread |= psi::kt_value_argument_is_spread(tree, value_argument);
+      // its last composite, an error element after the value too (`getArgumentExpression` is the first expression)
+      let value = tree
         .children(value_argument)
-        .filter(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it) && !self.is(*it, N::VALUE_ARGUMENT_NAME))
+        .filter(|it| !tree.is_leaf(*it) && !self.is_trivia(*it) && !self.is(*it, N::VALUE_ARGUMENT_NAME))
         .last();
       arguments.push((name, value.map_or(Argument::Expression, |it| self.argument(it))));
     }
-    let lambdas = self.tree.children(id).filter(|it| self.is(*it, N::LAMBDA_ARGUMENT)).count();
+    let lambdas = psi::get_lambda_arguments(tree, id).count();
     arguments.extend(std::iter::repeat_n((None, Argument::Lambda), lambdas));
     let enclosed = self.enclosed();
     self.out.intern_shape(Shape::Call { arguments, spread, enclosed })
@@ -1615,112 +1566,54 @@ impl<'t> Walk<'t> {
 
   // --- the parts of a declaration
 
-  /// The `IDENTIFIER` token of a declaration or a parameter
-  fn name_token(&self, id: NodeId) -> Option<NodeId> {
-    self.child_token(id, K::IDENTIFIER)
+  /// The text of a declaration's name identifier as written, backticks kept, as a reference spells it
+  /// (`identifier_text`)
+  fn name_text(&self, id: NodeId) -> Option<&'t str> {
+    psi::get_name_identifier(self.tree, id).and_then(|it| self.tree.utf8_text(it))
   }
 
-  /// The name of a `REFERENCE_EXPRESSION`: its `IDENTIFIER`'s text; none for `this`, `super` and an empty one
+  /// The `IDENTIFIER` a simple name expression (a reference, a label, an operation reference) names: none for `this`,
+  /// `super`, an operator and an empty one
+  fn name_element(&self, id: NodeId) -> Option<NodeId> {
+    psi::get_referenced_name_element(self.tree, id).filter(|it| self.tree.token_kind(*it) == Some(K::IDENTIFIER))
+  }
+
+  /// The name of a `REFERENCE_EXPRESSION`: its `IDENTIFIER`'s text as written, backticks kept (not
+  /// `get_referenced_name`, which removes them: a name is matched with the declarations as the source spells them)
   fn identifier_text(&self, id: NodeId) -> Option<&'t str> {
-    let token = self.tree.first_child(id).filter(|it| self.tree.token_kind(*it) == Some(K::IDENTIFIER))?;
-    self.tree.utf8_text(token)
+    self.tree.utf8_text(self.name_element(id)?)
   }
 
-  /// The extension receiver of a function or a property: the `TYPE_REFERENCE` before its `.` and its name
-  fn receiver_type(&self, id: NodeId) -> Option<NodeId> {
-    let mut candidate = None;
-    for child in self.tree.children(id) {
-      match self.tree.token_kind(child) {
-        Some(K::DOT) => return candidate,
-        Some(K::IDENTIFIER | K::LPAR) => return None,
-        _ if self.is(child, N::TYPE_REFERENCE) => candidate = Some(child),
-        _ if self.is(child, N::VALUE_PARAMETER_LIST) => return None,
-        _ => {}
-      }
-    }
-    None
+  /// The callee of a call when it is a name (`foo` of `foo()`, of `foo<T>()`)
+  fn callee(&self, call: NodeId) -> Option<NodeId> {
+    psi::get_callee_expression(self.tree, call).filter(|it| self.is(*it, N::REFERENCE_EXPRESSION))
   }
 
   /// The type name of a simple receiver (`String`, `a.Foo<T>`, `Foo?`)
   fn receiver_name(&self, id: NodeId) -> Option<&'t str> {
-    let user_type = self.simple_user_type(self.receiver_type(id)?)?;
+    let user_type = self.simple_user_type(psi::get_receiver_type_reference(self.tree, id)?)?;
     self.type_names(user_type).last().and_then(|it| self.identifier_text(*it))
   }
 
   /// The `USER_TYPE` a `TYPE_REFERENCE` holds, also inside a `NULLABLE_TYPE` (`a.Foo<T>?`, `Foo??`, `(Foo?)?`); none
   /// for a function type
   fn simple_user_type(&self, type_reference: NodeId) -> Option<NodeId> {
-    let mut element = self.type_element(type_reference)?;
+    let mut element = psi::kt_type_reference_get_type_element(self.tree, type_reference)?;
     while self.is(element, N::NULLABLE_TYPE) {
       element = self.first_composite(element)?;
     }
     self.is(element, N::USER_TYPE).then_some(element)
   }
 
-  /// The declared type of a property (after its name) or the return type of a function (after its parameters): the
-  /// `TYPE_REFERENCE` after a `:`
-  fn declared_type(&self, id: NodeId) -> Option<NodeId> {
-    let mut colon = false;
-    for child in self.tree.children(id) {
-      if self.is_trivia(child) {
-        continue;
-      }
-      if self.tree.token_kind(child) == Some(K::COLON) {
-        colon = true;
-      } else if colon && self.is(child, N::TYPE_REFERENCE) {
-        return Some(child);
-      } else {
-        colon = false;
-      }
-    }
-    None
-  }
-
-  /// The type a `TYPE_REFERENCE` holds, past its modifiers: a `USER_TYPE`, a `NULLABLE_TYPE`, a `FUNCTION_TYPE`, …
-  fn type_element(&self, type_reference: NodeId) -> Option<NodeId> {
-    self
-      .tree
-      .children(type_reference)
-      .find(|it| !self.tree.is_leaf(*it) && !self.is_trivia(*it) && !self.is(*it, N::MODIFIER_LIST))
-  }
-
-  /// The texts of the modifier keywords of a declaration, without its annotations
-  fn modifier_texts(&self, id: NodeId) -> Vec<&'t str> {
-    let Some(list) = self.child(id, N::MODIFIER_LIST) else { return Vec::new() };
-    self
-      .tree
-      .children(list)
-      .filter(|it| self.tree.is_leaf(*it) && !self.is_trivia(*it))
-      .filter_map(|it| self.tree.utf8_text(it))
-      .collect()
-  }
-
   /// The names of the annotations among the modifiers of a declaration, each as its segments
   fn annotation_names(&self, id: NodeId) -> Vec<Vec<&'t str>> {
-    let Some(list) = self.child(id, N::MODIFIER_LIST) else { return Vec::new() };
-    let mut names = Vec::new();
-    for child in self.tree.children(list) {
-      match self.tree.node_kind(child) {
-        Some(N::ANNOTATION_ENTRY) => names.extend(self.annotation_path(child)),
-        Some(N::ANNOTATION) => names.extend(
-          self
-            .tree
-            .children(child)
-            .filter(|it| self.is(*it, N::ANNOTATION_ENTRY))
-            .filter_map(|it| self.annotation_path(it)),
-        ),
-        _ => {}
-      }
-    }
-    names
+    psi::get_annotation_entries(self.tree, id).filter_map(|it| self.annotation_path(it)).collect()
   }
 
-  /// The segments of the type of an annotation entry
+  /// The segments of the type of an annotation entry, as written
   fn annotation_path(&self, entry: NodeId) -> Option<Vec<&'t str>> {
-    let user_type = self
-      .child(entry, N::CONSTRUCTOR_CALLEE)
-      .and_then(|it| self.child(it, N::TYPE_REFERENCE))
-      .and_then(|it| self.type_element(it))?;
+    let tree = self.tree;
+    let user_type = psi::kt_type_reference_get_type_element(tree, psi::kt_annotation_entry_get_type_reference(tree, entry)?)?;
     self.is(user_type, N::USER_TYPE).then(|| self.type_path(user_type)).flatten()
   }
 
@@ -1899,10 +1792,11 @@ impl<'t> Walk<'t> {
   }
 }
 
-fn reach(modifiers: &[&str], member: bool) -> Reach {
-  if modifiers.contains(&"private") {
+/// The reach of a declaration by its modifiers: `private` first, then `internal`, whatever else the list holds
+fn reach(tree: &Tree, owner: NodeId, member: bool) -> Reach {
+  if psi::is_private(tree, owner) {
     if member { Reach::Container } else { Reach::File }
-  } else if modifiers.contains(&"internal") {
+  } else if psi::has_modifier(tree, owner, K::INTERNAL_KEYWORD) {
     Reach::Module
   } else {
     Reach::Public
