@@ -844,7 +844,7 @@ test.describe("Review tour", () => {
     await expect(titles.first()).toHaveText("The splash")
     await expect(titles.nth(1)).toHaveText("The theme")
     // the identifier stays the evidence that joined the task
-    await expect(window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "The splash", exact: true })).toBeVisible()
+    await expect(window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem", { name: "1 · The splash", exact: true })).toBeVisible()
     await titles.nth(1).click()
     await expect(window.getByTestId("review-step-bar").getByTestId("review-step-title")).toHaveText("The theme")
   })
@@ -873,9 +873,9 @@ test.describe("Review tour", () => {
     await expect(overview.getByTestId("review-contents-source")).toHaveText("One commit: the steps are the parts of its message")
     const titles = overview.getByTestId("review-contents-step-title")
     await expect(titles).toHaveText(["The splash shows before the frame.", "The theme answers the accent of the scheme.", "Tests"])
-    // the tree names each step as its author did
+    // the tree names each step as its author did, by its number as the overview tells it
     const tree = window.getByRole("tree", { name: "Changed files" })
-    await expect(tree.getByRole("treeitem", { name: "The theme answers the accent of the scheme.", exact: true })).toBeVisible()
+    await expect(tree.getByRole("treeitem", { name: "2 · The theme answers the accent of the scheme.", exact: true })).toBeVisible()
     // a step of its contents shows its opening at the top, which reads the paragraph of its title a step larger
     await titles.nth(1).click()
     await expect(window.getByTestId("review-step-bar").getByTestId("review-step-title")).toHaveText("The theme answers the accent of the scheme.")

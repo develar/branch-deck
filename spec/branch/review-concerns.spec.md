@@ -141,7 +141,8 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   [@test] ../../src/presenters/review-concerns.test.ts (`names a concern by its evidence, and says why its parts are together`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should list the concerns of the range in the tree, each with its files, a file of two concerns also in the second, and tell the story by them`)
 - A file must have one row of its own, in the concern of its main row; each other concern of it (`elsewhere`) a row
-  of its own name, "docs/guide.md, also in ijproxy", in its place among the files (in the directory tree of Other
+  of its own name, "docs/guide.md, also in 1 · ijproxy" ("in step 2" after its name; a concern of a story that tells
+  no step by its name), in its place among the files (in the directory tree of Other
   changes for `rest`), its main concern in its hover. That row selects the file and shows its part of that concern;
   it counts as no file: "File 4 / 8" is the place of the file, and the line counts of a concern are those of its own
   rows.

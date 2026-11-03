@@ -77,15 +77,17 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
       // the author's name of the task, the label of the section of the body told in it, else the name of its evidence
       const label = step.title ?? formatConcernName(concern.name)
       const rest = concern.name.source === "rest"
+      const told = !rest && plan.steps.told
       return {
         id: step.id,
         number,
         label,
-        heading: label,
-        reference: label,
+        // a step the overview tells by its number is that step everywhere: "2 · …" in the tree, "in step 2" after a row
+        heading: told ? `${number} · ${label}` : label,
+        reference: told ? `step ${number}` : label,
         hover: formatConcernEvidence(concern.evidence),
         rest,
-        told: !rest && plan.steps.told,
+        told,
         code: step.title === null && isCodeName(concern.name),
         titleInBody: false,
         parts,
@@ -101,8 +103,8 @@ export function presentChapters(plan: Pick<ReviewPlan, "steps" | "concerns">): C
         id: step.id,
         number,
         label,
-        heading: label,
-        reference: label,
+        heading: plan.steps.told ? `${number} · ${label}` : label,
+        reference: plan.steps.told ? `step ${number}` : label,
         hover: null,
         rest: false,
         told: plan.steps.told,

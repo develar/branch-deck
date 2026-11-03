@@ -645,7 +645,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(tree.getByRole("treeitem", { name: "src/guide.md" })).not.toHaveAttribute("aria-description", /same edit/)
     // the overview at the top selects no row: no file is shown yet (the first of the real work is first in the story)
     await expect(tree.locator("[role=treeitem][aria-selected=true]")).toHaveCount(0)
-    const concern = tree.getByRole("treeitem", { name: "guide.md", exact: true })
+    const concern = tree.getByRole("treeitem", { name: "1 · guide.md", exact: true })
     await expect(concern).toHaveAttribute("aria-expanded", "true")
     const renderings = tree.getByRole("treeitem", { name: "Generated (2)" })
     await expect(renderings).toHaveAttribute("aria-expanded", "false")
@@ -699,12 +699,12 @@ test.describe("The review plan in the branch review", () => {
     await expect
       .poll(rows)
       .toEqual([
-        "ijproxy",
+        "1 · ijproxy",
         ".codex/config.toml",
-        "docs/guide.md, also in ijproxy",
+        "docs/guide.md, also in 1 · ijproxy",
         "tools/codex/config.toml",
         ".mcp.json",
-        "grep → accio",
+        "2 · grep → accio",
         "docs/guide.md",
         "docs/tools.md",
         "Generated (1)",
@@ -713,7 +713,7 @@ test.describe("The review plan in the branch review", () => {
         "App.kt",
         "Mechanical (1)",
       ])
-    await expect(row("ijproxy")).toHaveAttribute("aria-description", "3 files, +0 −10")
+    await expect(row("1 · ijproxy")).toHaveAttribute("aria-description", "3 files, +0 −10")
     await captureHtmlSnapshot(tree, "review-plan-concerns-tree")
     await row("Generated (1)").click()
     await expect(row("AGENTS.md")).toBeVisible()
@@ -734,8 +734,8 @@ test.describe("The review plan in the branch review", () => {
     // the row "also in" selects the guide, not counted as a file of its own, and shows its part of ijproxy: J goes on in
     // ijproxy from there, into the opening of the next concern at its end, then its first card, and the tree follows; K
     // goes back
-    await row("docs/guide.md, also in ijproxy").click()
-    await expect(row("docs/guide.md, also in ijproxy")).toHaveAttribute("aria-selected", "true")
+    await row("docs/guide.md, also in 1 · ijproxy").click()
+    await expect(row("docs/guide.md, also in 1 · ijproxy")).toHaveAttribute("aria-selected", "true")
     await expect(row("docs/guide.md")).toHaveAttribute("aria-selected", "false")
     await expect(position).toHaveText(/File 4 \/ 8$/)
     await window.keyboard.press("j")
@@ -743,12 +743,12 @@ test.describe("The review plan in the branch review", () => {
     await window.keyboard.press("j")
     await expect(row(".mcp.json")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("j")
-    await expect(row("grep → accio")).toHaveAttribute("aria-selected", "true")
+    await expect(row("2 · grep → accio")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("j")
     await expect(row("docs/guide.md")).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 4 \/ 8$/)
     await window.keyboard.press("k")
-    await expect(row("grep → accio")).toHaveAttribute("aria-selected", "true")
+    await expect(row("2 · grep → accio")).toHaveAttribute("aria-selected", "true")
     await window.keyboard.press("k")
     await expect(row(".mcp.json")).toHaveAttribute("aria-selected", "true")
 
@@ -759,7 +759,7 @@ test.describe("The review plan in the branch review", () => {
 
     // the filter keeps the concerns of the files it finds
     await window.getByRole("textbox", { name: "Filter files" }).fill("tools")
-    await expect.poll(rows).toEqual(["ijproxy", "tools/codex/config.toml", "grep → accio", "docs/tools.md"])
+    await expect.poll(rows).toEqual(["1 · ijproxy", "tools/codex/config.toml", "2 · grep → accio", "docs/tools.md"])
   })
 
   test("should show a repeated edit once under its group, the other files of the edit collapsed, and a file's own change in its section with a row to the edit", async ({

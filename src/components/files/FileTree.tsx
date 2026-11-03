@@ -682,8 +682,15 @@ function DirectoryRowContent({
         data-group={node.group}
         {...titleHover}
       >
-        {/* a code name wraps at its dots, never inside a word */}
-        {node.code === true ? <BreakableCode text={node.name} /> : node.name}
+        {/* the number of a step in the font of the text; a code name wraps at its dots, never inside a word */}
+        {node.code === true ? (
+          <>
+            {node.lead !== undefined && <span className="font-sans">{node.lead}</span>}
+            <BreakableCode text={node.name.slice(node.lead?.length ?? 0)} />
+          </>
+        ) : (
+          node.name
+        )}
       </span>
       {ownerMark !== null && (
         <Badge variant="secondary" data-testid="review-owner-mark" className="max-w-[45%] shrink text-muted-foreground">
@@ -727,7 +734,8 @@ function AlsoRowContent({ node, owner }: { node: FileTreeAlso; owner: string | u
       <span className="flex min-w-0">
         <FilePathLabel path={file.path} oldPath={file.oldPath} status={file.status} directory={node.inGroup} letterSlot="icon" wholeDirectory />
       </span>
-      <span className="shrink-0 text-xs" data-testid="review-also-home">
+      {/* "in step 2"; a chapter of no number by its name, which gives way at half the row, its whole name in the hover */}
+      <span className="max-w-1/2 shrink-0 truncate text-xs" data-testid="review-also-home">
         {node.homeTag}
       </span>
     </span>

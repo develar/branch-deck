@@ -67,6 +67,8 @@ export interface FileTreeDirectory {
   title?: string
   /** A concern named by an identifier: its name is code */
   code?: boolean
+  /** Of a step told by its number, the start of its name that numbers it ("2 · "), in the font of the text before a code name */
+  lead?: string
   /**
    * The commit that starts a step of the commits, which the row of its step is: its menu, its hash, Enter shows it alone;
    * its key is the key of the group
@@ -302,7 +304,12 @@ export function buildReviewTree(
     const commitRows = listed ? commitNodes(commits?.steps.get(chapter.id) ?? [], key, chapter.id) : []
     if (children.length > 0 || commitRows.length > 0 || head !== undefined) {
       grouped.add(chapter.id)
-      const group = { ...groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined), ...(chapter.code && { code: true }) }
+      const lead = `${chapter.number} · `
+      const group = {
+        ...groupNode(key, chapter.heading, 0, undefined, [...commitRows, ...children], "concern", chapter.hover ?? undefined),
+        ...(chapter.code && { code: true }),
+        ...(chapter.heading.startsWith(lead) && chapter.heading !== lead && { lead }),
+      }
       nodes.push(head === undefined ? group : { ...group, commit: { kind: "commit", key, name: head.title, depth: 0, parentKey: undefined, commit: head, chapter: chapter.id } })
     }
   }

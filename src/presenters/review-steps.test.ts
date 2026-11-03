@@ -73,17 +73,19 @@ describe("review steps", () => {
     }
     const of = plan([{ ...step("c", [commit("one")], [["u:a", "a.json"]]), concern: "c" }], [concern])
     const [chapter] = presentChapters(of)
-    expect([chapter!.label, chapter!.heading, chapter!.hover, chapter!.elsewhere, formatStepDivider(chapter!)]).toEqual([
+    // a told step by its number in the tree and after a row "also in" it, as the overview tells it
+    expect([chapter!.label, chapter!.heading, chapter!.reference, chapter!.hover, chapter!.elsewhere, formatStepDivider(chapter!)]).toEqual([
       "proxy",
-      "proxy",
+      "1 · proxy",
+      "step 1",
       "Joined by the identifier ij-proxy",
       ["a.json"],
       "Step 1 · proxy",
     ])
     // its name is an identifier, set as code; a story Rust tells in no steps (one task that covers the range,
-    // `ReviewSteps.told`) tells no chapter
+    // `ReviewSteps.told`) tells no chapter, and numbers none
     expect([chapter!.told, chapter!.code]).toEqual([true, true])
-    expect(presentChapters({ ...of, steps: { ...of.steps, told: false } }).map(it => it.told)).toEqual([false])
+    expect(presentChapters({ ...of, steps: { ...of.steps, told: false } }).map(it => [it.told, it.heading, it.reference])).toEqual([[false, "proxy", "proxy"]])
 
     // beside another task, each a step; the label of the section of the body told in a step is its title, as the author
     // named the task, and is no code

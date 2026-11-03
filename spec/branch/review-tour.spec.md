@@ -370,10 +370,11 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   commit (its one commit is the row of no step: the tree lists it in the first step); a step titled by the first
   sentence of its paragraph (`titleSource: "sentence"`) shows "Step 2" and that paragraph as its lead, a step larger,
   the title only for a screen reader, so the sentence reads once; a step titled by a code name sets it as code. The
-  overview, the tree and the bar of the step name the step by its title.
+  overview, the tree and the bar of the step name the step by its title, the tree after its number ("2 · …").
   [@test] ../../src/presenters/review-story.test.ts (`tells each part of the message of one commit in the step it is, a title of its first sentence read in its paragraph, a step larger, the commit no step's row`)
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should tell each step of one commit by the paragraph of its message that names its code, titled by its first sentence, which its opening reads a step larger`)
-- The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path, a file
+- The tree must list the steps, each a group "2 · The open keeps a stored layout" with its files by their path (a
+  step of the concerns and of the message too, its number in the font of the text before a code name), a file
   of two steps with its row in the step of its most lines and a row "also in" each other; a step of the concerns is
   named by the label of the first section of the body of its commit it tells (`title`, "The splash"; a verification
   and a Look closely aside), else by its concern, an identifier set in the code font wherever the step is named (the
@@ -410,7 +411,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   takes the width of the title; a title of a step,
   of a task or of a commit wraps to a second line (its chevron, icon, mark and line counts on its first line), cut
   only past two at the width of the sidebar (24rem at first); a row of a file whose own row is in another step says
-  where after its name ("in step 2", a task by its name), its hover in words; either, of a
+  where after its name ("in step 2", a task of no number by its name, cut at half the row), its hover in words; either, of a
   commit with a body, the mark of its card, which its hover and `I` on the focused row open as in the main window
   ([Commit Row](../commit/commit-row.spec.md#commit-card)), Escape giving the focus back to the row; a commit row is
   no file (no position, no count, no owner mark of its own: it is muted with its step). The column above the tree
