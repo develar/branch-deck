@@ -3387,7 +3387,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "java-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=25dac59fe04bc1bc24452dfe57a6696c3ba57620#25dac59fe04bc1bc24452dfe57a6696c3ba57620"
+source = "git+https://github.com/JetBrains/accio?rev=476f47c88892bc74ab74837fc1b07acc55cb2eef#476f47c88892bc74ab74837fc1b07acc55cb2eef"
 dependencies = [
  "psi-builder",
 ]
@@ -3609,7 +3609,7 @@ dependencies = [
 [[package]]
 name = "kotlin-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=25dac59fe04bc1bc24452dfe57a6696c3ba57620#25dac59fe04bc1bc24452dfe57a6696c3ba57620"
+source = "git+https://github.com/JetBrains/accio?rev=476f47c88892bc74ab74837fc1b07acc55cb2eef#476f47c88892bc74ab74837fc1b07acc55cb2eef"
 dependencies = [
  "psi-builder",
 ]
@@ -5026,7 +5026,7 @@ dependencies = [
 [[package]]
 name = "psi-builder"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=25dac59fe04bc1bc24452dfe57a6696c3ba57620#25dac59fe04bc1bc24452dfe57a6696c3ba57620"
+source = "git+https://github.com/JetBrains/accio?rev=476f47c88892bc74ab74837fc1b07acc55cb2eef#476f47c88892bc74ab74837fc1b07acc55cb2eef"
 
 [[package]]
 name = "pxfm"

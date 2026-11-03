@@ -7,11 +7,12 @@ description = "Declarations, imports and references of one source file, on psi-s
 
 [dependencies]
 # Kotlin's and Java's parsers: psi-syntax's ports of the Kotlin compiler's and IntelliJ's own lexers and parsers, whose
-# trees are their PSI byte for byte; pure Rust, no C. A git revision, the one accio pins; `psi-builder` is the tree both
-# build, named directly for the code both languages share.
-java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "25dac59fe04bc1bc24452dfe57a6696c3ba57620", optional = true }
-kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "25dac59fe04bc1bc24452dfe57a6696c3ba57620", optional = true }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "25dac59fe04bc1bc24452dfe57a6696c3ba57620", optional = true }
+# trees are their PSI byte for byte; pure Rust, no C. They live in accio's repository (`psi-syntax/`), so a revision of
+# JetBrains/accio pins them, the parsers accio itself builds at it; `psi-builder` is the tree both build, named directly
+# for the code both languages share.
+java-syntax = { git = "https://github.com/JetBrains/accio", rev = "476f47c88892bc74ab74837fc1b07acc55cb2eef", optional = true }
+kotlin-syntax = { git = "https://github.com/JetBrains/accio", rev = "476f47c88892bc74ab74837fc1b07acc55cb2eef", optional = true }
+psi-builder = { git = "https://github.com/JetBrains/accio", rev = "476f47c88892bc74ab74837fc1b07acc55cb2eef", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
 tree-sitter-rust = { version = "0.24.2", optional = true }
