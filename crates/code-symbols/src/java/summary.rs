@@ -87,6 +87,8 @@ struct Walk<'t> {
   errors: Vec<u32>,
   /// The `FIELD` or `LOCAL_VARIABLE` with a type met last: the head of the later ones of its declaration
   last_head: Option<NodeId>,
+  /// The class `in_final_class` answered last, and whether it is `final`
+  final_class: Option<(NodeId, bool)>,
 }
 
 impl<'t> Walk<'t> {
@@ -104,6 +106,7 @@ impl<'t> Walk<'t> {
       error_depth: 0,
       errors: Vec::new(),
       last_head: None,
+      final_class: None,
     };
     walk.errors = tree.errors().map(|(id, _)| id).filter(|id| !walk.in_doc_comment(*id)).map(|id| id.0).collect();
     walk
@@ -334,9 +337,8 @@ impl<'t> Walk<'t> {
   /// A class, interface, enum, record or annotation; its type parameters are visible in it
   fn class(&mut self, id: NodeId) {
     let keyword = self.class_keyword(id);
-    // an `@` anywhere among its children, also one a parse error left after the modifiers
     let own = match keyword {
-      Some(T::INTERFACE_KEYWORD) if self.has_token(id, T::AT) => Holder::Annotation,
+      Some(T::INTERFACE_KEYWORD) if psi::class::is_annotation_type(self.tree, id) => Holder::Annotation,
       Some(T::INTERFACE_KEYWORD) => Holder::Interface,
       Some(T::ENUM_KEYWORD) => Holder::Enum,
       Some(T::CLASS_KEYWORD | T::RECORD_KEYWORD) => Holder::Class,
@@ -615,14 +617,16 @@ impl<'t> Walk<'t> {
       Some(_) if in_interface && own != Holder::Leaf => MemberKind::Static,
       Some(_) => MemberKind::Instance,
     };
-    let reach = self.reach_of(modifiers, holder.is_some(), in_interface || kind == DeclKind::EnumEntry);
+    let reach = self.reach_of(modifiers, holder.is_some(), kind == DeclKind::EnumEntry);
     (kind, reach, member)
   }
 
-  /// The reach of these modifiers: `public` and `protected` are public (and so is a member of an interface or an enum
-  /// constant without them), `private` of the container (of the file at the top level), none of the package
+  /// The reach of these modifiers, the implicit ones included (`PsiModifierListImpl.hasModifierProperty`): `public` and
+  /// `protected` are public (a member of an interface that is not `private` is `public`, and so is an enum constant),
+  /// `private` of the container (of the file at the top level; a private method of an interface, the constructor of
+  /// an enum), none of the package
   fn reach_of(&self, modifiers: Option<NodeId>, member: bool, public: bool) -> Reach {
-    let has = |modifier| self.modifier(modifiers, modifier);
+    let has = |modifier| modifiers.is_some_and(|it| psi::modifier_list::has_modifier_property(self.tree, it, modifier));
     if public || has(Modifier::PUBLIC) || has(Modifier::PROTECTED) {
       Reach::Public
     } else if has(Modifier::PRIVATE) {
@@ -736,16 +740,21 @@ impl<'t> Walk<'t> {
       && matches!(signature.parameters.as_slice(), [parameter] if self.out.type_is(parameter.type_ref.as_ref(), &["String"], 1))
   }
 
-  /// Whether the class whose body holds the method is `final` or a record
-  fn in_final_class(&self, id: NodeId) -> bool {
+  /// Whether the class whose body holds the method is `final`, explicitly or implicitly (a record, an enum none of whose
+  /// constants has a body)
+  fn in_final_class(&mut self, id: NodeId) -> bool {
     let Some(class) = psi::method::get_containing_class(self.tree, id).filter(|it| self.kind(*it) == Some(N::CLASS)) else {
       return false;
     };
-    match self.class_keyword(class) {
-      Some(T::RECORD_KEYWORD) => true,
-      Some(T::CLASS_KEYWORD) => self.modifier(psi::get_modifier_list(self.tree, class), Modifier::FINAL),
-      _ => false,
+    // an enum's implicit `final` reads all of its members: the class asked last is kept, whose methods ask in a row
+    if let Some(&(known, is_final)) = self.final_class.as_ref()
+      && known == class
+    {
+      return is_final;
     }
+    let is_final = psi::has_modifier_property(self.tree, class, Modifier::FINAL);
+    self.final_class = Some((class, is_final));
+    is_final
   }
 
   /// Whether an annotation of the declaration marks it as no stable API

@@ -235,6 +235,42 @@ fn a_member_knows_whether_it_overrides_and_can_be_overridden() {
 }
 
 #[test]
+fn the_implicit_modifiers_give_the_reach_and_whether_a_member_may_be_overridden() {
+  let source = b"interface Shapes {
+  private void helper() {}
+  void draw();
+  class Nested {}
+}
+enum Plain {
+  ONE, TWO;
+  void label() {}
+}
+enum Bodies {
+  ONE { void label() {} };
+  void label() {}
+}
+interface Broken {
+  void open();
+  @interface
+}
+";
+  let summary = summarize(Language::Java, source);
+  let reach = |name: &str| declaration(&summary, name).reach;
+  assert_eq!(reach("helper"), Reach::Container, "a private method of an interface is private");
+  assert_eq!((reach("draw"), reach("Nested")), (Reach::Public, Reach::Public), "and any other member public");
+  assert_eq!(
+    modalities(&summary, "label"),
+    ["Plain", "Bodies overridable"],
+    "an enum without bodies of its constants is final"
+  );
+  assert_eq!(
+    modalities(&summary, "open"),
+    ["Broken overridable"],
+    "an `@` that is not before `interface` makes no annotation type"
+  );
+}
+
+#[test]
 fn a_call_has_its_argument_shape() {
   let summary = summary_of("java/Overrides.java");
   assert_eq!(refs(&summary, "changed"), ["80 <Listener>.changed(_)"], "a call is an expression");

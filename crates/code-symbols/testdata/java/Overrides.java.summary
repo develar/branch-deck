@@ -14,7 +14,7 @@ Type Listener in Overrides Public Static 40-50 @40 : EventListener
 Function changed in Listener Public Instance 41-41 @41 (paths: List/String) `void changed` overridable
 Function reset in Listener Public Instance 43-43 @43 () `void reset` overridable
 Function empty in Listener Public Static 45-47 @45 () `static Listener empty`
-Function log in Listener Public Instance 49-49 @49 () `void log`
+Function log in Listener Container Instance 49-49 @49 () `void log`
 Type Level in Overrides Module Static 52-64 @52 : Weighted
 EnumEntry LOW in Level Public Static 53-58 @53
 EnumEntry HIGH in Level Public Static 59-59 @59

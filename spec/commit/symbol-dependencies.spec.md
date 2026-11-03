@@ -68,6 +68,12 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   any expression, and so must a member of a chain of names longer than any path (64 segments), so that the
   qualifiers of a chain take linear space.
   [@test] ../../crates/code-symbols/src/java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`, `an_annotated_vararg_is_a_parameter`, `the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`, `a_module_import_imports_no_name`, `an_import_with_comments_inside`, `a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`, `a_vararg_record_component_is_a_public_field`, `a_long_chain_of_names_takes_linear_space`)
+- The reach of a Java member and whether a subtype may override it must follow the modifiers IntelliJ's PSI gives it,
+  the implicit ones included (`PsiModifierListImpl.hasModifierProperty`): a member of an interface is public unless it
+  is `private` (a private method of an interface reaches its container alone), an enum none of whose constants has a
+  body is final as a record is (none of its methods may be overridden), and a class is an annotation type only by the
+  `@` right after its modifiers.
+  [@test] ../../crates/code-symbols/src/java_test.rs (`the_implicit_modifiers_give_the_reach_and_whether_a_member_may_be_overridden`)
 - The summary of a Kotlin or Java file must hold the parameter types of each function (the last names of each type, `?`,
   a default value, `vararg`, the dimensions of an array with a vararg counted as one; a type parameter as any type),
   whether a member overrides, whether a subtype may override it and whether a Kotlin member is `@JvmStatic`,
