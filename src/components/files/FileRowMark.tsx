@@ -9,9 +9,10 @@ import type { LinkEntry, RowFacts, RowFactsSection } from "@/presenters/review-p
 
 /*
  * The one mark of a row of the tree of a review with its plan (spec/branch/review-plan.spec.md, In the Review Window):
- * details on demand. The row shows at most one small mark, in the warning tone when its file breaks uses left outside
- * the change; its hover opens the card of the facts: what it breaks, its links among the changed files, the same edit
- * as other files, and the dependency changes the row carries. The presenter words them (`presentRowFacts`); a click on
+ * details on demand. The row shows at most one small mark: in the warning tone when its file breaks uses left outside
+ * the change, always; a muted one only on the row under the pointer, the selected and the focused row. Its hover opens
+ * the card of the facts: what it breaks, its links among the changed files, the same edit as other files, and the
+ * dependency changes the row carries. The presenter words them (`presentRowFacts`); a click on
  * a file in the card selects it and closes the card. The card opens and closes as every card of a row does
  * (`RowCard`): `I` on the focused row opens it with the focus on its first file, Escape gives the focus back. The tests
  * that name its code are those of its step (spec/branch/review-tour.spec.md).
@@ -20,21 +21,32 @@ import type { LinkEntry, RowFacts, RowFactsSection } from "@/presenters/review-p
 export interface FileRowMarkProps extends RowCardState {
   facts: RowFacts
   onSelectPlace: (place: ReviewPlace) => void
+  /** The row is selected: a muted mark shows there as on the row under the pointer and the focused one */
+  selected: boolean
 }
 
 /**
  * The mark of a row; its hover opens the card of its facts, and so does `I` on its row. Not a tab stop: the description
  * of the row says every fact, and the links are in the diffs and the overview of the plan too
  */
-export function FileRowMark({ facts, onSelectPlace, ...card }: FileRowMarkProps) {
-  const Icon = facts.tone === "warning" ? TriangleAlertIcon : InfoIcon
+export function FileRowMark({ facts, onSelectPlace, selected, ...card }: FileRowMarkProps) {
+  const warning = facts.tone === "warning"
+  const Icon = warning ? TriangleAlertIcon : InfoIcon
+  // the warning is the one mark a tree shows always; a muted one, on most rows of a change, only where the reader is
+  // (the row under the pointer, the selected and the focused row, its card open), its place kept so no name moves
+  const quiet = !warning && !selected && !card.open
   return (
     <RowCard
       {...card}
       label={facts.description}
       mark={
         <span
-          className={cn("my-0.5 flex size-4 shrink-0 items-center justify-center", facts.tone === "warning" ? "text-warning" : "text-muted-foreground")}
+          className={cn(
+            "my-0.5 flex size-4 shrink-0 items-center justify-center transition-opacity",
+            warning ? "text-warning" : "text-muted-foreground",
+            quiet && "opacity-0 group-hover/row:opacity-100 group-focus-visible/tree-item:opacity-100",
+          )}
+          data-quiet={quiet ? "" : undefined}
           data-testid="file-row-mark"
           data-tone={facts.tone}
         />

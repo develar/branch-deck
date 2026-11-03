@@ -282,6 +282,14 @@ test.describe("The review plan in the branch review", () => {
       await expect(reader).toHaveAttribute("aria-description", /, uses 1, \+1 new$/)
       await expect(cache).toHaveAttribute("aria-description", /, used by 1$/)
       await expect(store).toHaveAttribute("aria-description", /, breaks 3$/)
+      // the warning shows always; a muted mark, on most rows of a change, only where the reader is: the row under the
+      // pointer, the selected one (below), its place kept
+      await window.mouse.move(0, 0)
+      await expect(store.getByTestId("file-row-mark")).toHaveCSS("opacity", "1")
+      await expect(reader.getByTestId("file-row-mark")).toHaveCSS("opacity", "0")
+      await reader.hover()
+      await expect(reader.getByTestId("file-row-mark")).toHaveCSS("opacity", "1")
+      await expect(cache.getByTestId("file-row-mark")).toHaveCSS("opacity", "0")
       await captureHtmlSnapshot(tree, "review-plan-tree-badges")
 
       // the card of Store says what it breaks and why, and nothing else
@@ -301,6 +309,9 @@ test.describe("The review plan in the branch review", () => {
       await linked.click()
       await expect(cache).toHaveAttribute("aria-selected", "true")
       await expect(popover).toHaveCount(0)
+      // the selected row shows its muted mark with no pointer over it
+      await window.mouse.move(0, 0)
+      await expect(cache.getByTestId("file-row-mark")).toHaveCSS("opacity", "1")
       await expect(window.getByTestId("review-position")).toHaveText(/File 2 \/ 3$/)
 
       // the card of Cache lists Reader, which uses it: a click shows its first use, the name selected

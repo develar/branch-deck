@@ -700,7 +700,9 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
 - A row of the tree must show at most one small mark, where its facts are: those of its file and the dependency
   changes the row carries. The mark must be in the warning tone when the file breaks uses left outside the change
-  (`breaks N` or `breaks N+`), else muted. Details are on demand: the hover of the mark (300 ms, only after a move of
+  (`breaks N` or `breaks N+`), and show always; else muted, shown only on the row under the pointer, the selected and
+  the focused row and while its card is open, its place kept so no name moves: a mark on most rows of a change would
+  tell nothing, and the warning is the one signal of the tree. Details are on demand: the hover of the mark (300 ms, only after a move of
   the pointer) must open its card, with the sections that apply in this order: Breaks, Uses, Used by, Same edit,
   Dependencies. The mark is no tab stop: the description of the row must say every fact in words (`uses 1, +1 new,
   breaks 3, new module`).

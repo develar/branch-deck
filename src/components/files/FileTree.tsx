@@ -543,7 +543,7 @@ const FileTreeRow = memo(function FileTreeRow({
           <FileRowContent node={node} owner={owner} />
         )}
         {facts !== null && onSelectPlace !== undefined ? (
-          <FileRowMark facts={facts} onSelectPlace={onSelectPlace} {...cardState} />
+          <FileRowMark facts={facts} onSelectPlace={onSelectPlace} selected={isSelected === true} {...cardState} />
         ) : (
           commitCard !== null &&
           node.kind === "directory" && <CommitRowMark commit={commitCard.commit} size="tree" menu={commitCard.menu} popupHover={hover.popup} {...cardState} />
