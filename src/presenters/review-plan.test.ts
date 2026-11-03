@@ -88,7 +88,7 @@ describe("the possible breakage of the overview", () => {
     expect(formatOutsideUses(usages(1, 2), false)).toBe("2 uses left outside")
     expect(formatOutsideUses(usages(0, 1), false)).toBe("1 use left outside")
     expect(formatOutsideUses({ ...usages(0, 100), complete: false, unbroken: false }, false)).toBe("At least 100 uses left outside")
-    expect(formatOutsideUses({ ...usages(3, 0), complete: false, unbroken: false }, false)).toBe("No use found outside, the count is incomplete")
+    expect(formatOutsideUses({ ...usages(3, 0), complete: false, unbroken: false }, false)).toBe("No use left outside found, the search stopped early")
     expect(formatOutsideUses(null, false)).toBe("The uses are unknown")
     expect(formatOutsideUses(null, true)).toBe("Finding the uses…")
   })
@@ -147,7 +147,12 @@ describe("the possible breakage of the overview", () => {
         stillBound: null,
         byName: null,
         // each at its place at the head, the name of the API selected there
-        sites: [1, 2, 3, 4, 5].map(line => ({ label: `src/b/Client.kt:${line}`, place: { path: "src/b/Client.kt", side: "new", line, name: "open" } })),
+        sites: [1, 2, 3, 4, 5].map(line => ({
+          label: `src/b/Client.kt:${line}`,
+          name: `Client.kt:${line}`,
+          directory: "src/b",
+          place: { path: "src/b/Client.kt", side: "new", line, name: "open" },
+        })),
         moreSites: "+2 more",
       },
       {
@@ -157,7 +162,7 @@ describe("the possible breakage of the overview", () => {
         kind: "Changed",
         tone: "warning",
         location: "src/Store.kt:34",
-        changed: "parameters, visibility",
+        changed: "parameters and visibility changed",
         before: "fun helper(value: Int)",
         after: "fun helper(value: Int, scale: Int)",
         outside: "2 uses left outside",
@@ -165,8 +170,8 @@ describe("the possible breakage of the overview", () => {
         stillBound: null,
         byName: null,
         sites: [
-          { label: "src/Base.kt:1", place: { path: "src/Base.kt", side: "new", line: 1, name: "helper" } },
-          { label: "src/Uses.kt:4", place: { path: "src/Uses.kt", side: "new", line: 4, name: "helper" } },
+          { label: "src/Base.kt:1", name: "Base.kt:1", directory: "src", place: { path: "src/Base.kt", side: "new", line: 1, name: "helper" } },
+          { label: "src/Uses.kt:4", name: "Uses.kt:4", directory: "src", place: { path: "src/Uses.kt", side: "new", line: 4, name: "helper" } },
         ],
         moreSites: null,
       },
@@ -186,13 +191,13 @@ describe("the possible breakage of the overview", () => {
     )
     expect(entries.map(entry => [entry.name, entry.outside, entry.byName])).toEqual([
       ["unknown", "The uses are unknown", null],
-      ["constructor", "No use found outside, the count is incomplete", null],
-      ["isEmpty", "0 uses left outside", "3 uses by name only, unknown"],
+      ["constructor", "No use left outside found, the search stopped early", null],
+      ["isEmpty", "0 uses left outside", "3 matches by name only, not checked"],
     ])
     expect(unbroken?.label).toBe("2 API changes, no use left outside breaks")
     expect(unbroken?.entries.map(entry => [entry.name, entry.inside, entry.stillBound])).toEqual([
       ["renamed", "3 uses updated in this change", null],
-      ["policy", null, "4 calls left outside still bind"],
+      ["policy", null, "4 calls left outside still fit the new form"],
     ])
     expect(presentBreakage([change({ usages: usages(1, 0) })], false).unbroken?.label).toBe("1 API change, no use left outside breaks")
   })

@@ -264,11 +264,15 @@ group at the end. The overview at the top of the document of the review, before 
   changed, and its form before and after: the header with the parameters after the name, a type by its constructors,
   written as code is (`fun hooks(): List<String>`, `fun open(path: String): Int`), never its tokens spaced apart; the
   type parameters of a declaration stand apart from its keyword (`fun <T> String.trim2(): T?`, `static <T> List<T> of()`).
+  A type's constructors read as calls of it, a line each (`Event(text: String, start: Long = …)`, `private Event()`),
+  never the name of a `Reach`; a parameter by its name and type, `= …` for a default, `vararg` before a vararg; a
+  type of several names (its last names, the structure gone) is not shown, never as `List/Window`. Only what the form
+  shows changes: Rust compares the forms as it holds them.
   The file and line are those after the commits, through every rename, also one that changes no declaration; of a
   removal, those before the first commit that touched the declaration, so `path:line` is of the same content: the old
   path when that commit also renamed the file. A range of no source file of a known language has an empty `api`.
   [@test] ../../crates/review-plan/src/api_test.rs (`the_card_lists_the_public_declarations_the_range_adds_removes_or_changes`, `a_range_without_source_files_has_no_api`, `a_removal_after_a_rename_names_the_path_its_line_is_of`, `the_usages_of_an_api_of_a_renamed_file_count_at_its_new_path`)
-  [@test] ../../crates/review-plan/src/api_test.rs (`a_form_of_type_parameters_reads_as_code`)
+  [@test] ../../crates/review-plan/src/api_test.rs (`a_form_of_type_parameters_reads_as_code`, `a_form_of_constructors_and_parameters_reads_as_code`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
 
 ### Fan-in
@@ -645,13 +649,19 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should tell a commit shown alone under Since Your Review by its own plan: its story, its steps and the marks back to it`)
   [@test] ../../src/presenters/review-plan.test.ts (`counts what changed since the review, and nothing when only the baseline moved`, `says per path what a rewritten commit changes that its reviewed version did not, and the reverse, and that its message changed only when Rust says so`)
 - "Possible Breakage" must list each removed or changed API, in the order Rust ranked it, unless no use left outside
-  breaks: its kind, its name, `path:line`, the parts that changed, the form before and the form after on lines of
-  their own, the uses left outside that can break ("3 uses left outside") with the first sites as `path:line`, the
-  uses updated in this change, the calls left outside that still bind ("4 calls left outside still bind") and the
-  uses only the name ties ("2 uses by name only, unknown"). An entry with `usages` null says "The uses are unknown".
-  An entry whose count is not `complete` says "At least N uses left outside", or "No use found outside, the count is
-  incomplete" at 0. Only the entries Rust says are `unbroken` fold into one collapsed line, "12 API changes, no use
-  left outside breaks": an unknown, incomplete or by-name count never reads as safe. An addition is not listed there.
+  breaks: its kind and its whole name, wrapping at its dots; under them `path:line` (a long path losing its start),
+  the parts that changed ("parameters and visibility changed") and the uses left outside that can break ("3 uses left
+  outside"); the form before and the form after on lines of their own, wrapping, never cut, as code reads (a
+  constructor as a call of its type, a line each: `Event(text: String, styles, start: Long = …)`, one not public
+  after its visibility; a parameter whose type has several names without its type, which Rust keeps only as those
+  names; never the name of a `Reach` nor `List/Window`); then the first sites a line each, its file name and line
+  with its directory muted after it and its `path:line` in its hover, and in one line the rest: the uses updated in
+  this change, the calls left outside that still fit the new form ("4 calls left outside still fit the new form") and
+  the hits only the name ties ("2 matches by name only, not checked"). An entry with `usages` null says "The uses are
+  unknown". An entry whose count is not `complete` says "At least N uses left outside", or "No use left outside found,
+  the search stopped early" at 0. Only the entries Rust says are `unbroken` fold into one collapsed line, "12 API
+  changes, no use left outside breaks": an unknown, incomplete or by-name count never reads as safe. An addition is
+  not listed there.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should fold the mechanical changes into a collapsed group at the end, with the same edit and the dependency changes of a module`)
@@ -715,7 +725,7 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../src/presenters/review-plan.test.ts (`counts the links among the changed files, the new ones apart, and lists each with its names, its line, its state and its place`)
 - The card of a file must say under Breaks `breaks N` in the warning tone and why, for the uses left outside the
   change of the API it removes or changes. When `breaks_complete` is false it must say `breaks N+` ("At least 3 uses
-  left outside the change: the count is incomplete"), or a quiet `breaks ?` at 0, whose mark is muted: a lower bound
+  left outside the change: the search stopped early"), or a quiet `breaks ?` at 0, whose mark is muted: a lower bound
   never reads as safe. A row has no `no test`: the tests that name the code of a change are those of its step
   ([Review Tour](review-tour.spec.md#tests-that-name-it)); `untested` stays in `bd review-plan`.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`, `should keep an API whose uses are unknown under Possible breakage, and say why`)
@@ -796,9 +806,9 @@ group at the end. The overview at the top of the document of the review, before 
 - The **overview** at the top of the document: "Since your review: 1 new · 1 rewritten", under it "Rewritten scale the
   helper: src/Store.kt +1 −1"; after a body rewritten alone "Since your review: 1 reworded" and the disclosure
   "Reworded scale the helper: message changed", opened: "Why" and "the store kept one scale for all of them." struck
-  through, "Look closely" and "a scale of zero empties the store." with the bar of an addition; under Possible Breakage `Changed helper src/Store.kt:36
-  parameters 3 uses left outside`, under it `− fun helper(value:Int)`, `+ fun helper(value:Int, scale:Int)` and
-  "src/Base.kt:1 · src/Uses.kt:4 · src/main/App.kt:9 · 1 use by name only, unknown"; without an index "The uses are
+  through, "Look closely" and "a scale of zero empties the store." with the bar of an addition; under Possible Breakage `Changed helper`, under it
+  `src/Store.kt:36 · parameters changed · 3 uses left outside`, `− fun helper(value: Int)`, `+ fun helper(value: Int,
+  scale: Int)`, "Base.kt:1 src", "Uses.kt:4 src", "App.kt:9 src/main" and "1 match by name only, not checked"; without an index "The uses are
   unknown"; "1 API change, no use left outside breaks"; "No usages: no index of this repository"; among the facts
   "New API: Reader, Cache" and "New link between modules: Reader.kt → Cache.kt"; "Cannot read the review plan: …".
 - The tree, flag on: `Reader.kt` with a muted mark, its card "Uses 1 · +1 new: Cache.kt Added, Cache, get ·

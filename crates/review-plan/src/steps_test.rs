@@ -388,11 +388,16 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
     .flat_map(|step| {
       let tests = &step.tests;
       let reached = tests.reached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line));
-      reached.chain(tests.unreached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line))).collect::<Vec<_>>()
+      reached
+        .chain(tests.unreached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line)))
+        .collect::<Vec<_>>()
     })
     .collect();
   places.sort_unstable();
-  assert_eq!(places, [("allowed", "src/a/Manager.kt", 8), ("isEmpty", "src/a/Manager.kt", 6), ("open", "src/a/Manager.kt", 4)]);
+  assert_eq!(
+    places,
+    [("allowed", "src/a/Manager.kt", 8), ("isEmpty", "src/a/Manager.kt", 6), ("open", "src/a/Manager.kt", 4)]
+  );
   assert!(plan.steps.steps.iter().all(|step| step.tests.answered));
   assert_eq!(plan.index_note, None);
 

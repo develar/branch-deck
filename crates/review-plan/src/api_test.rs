@@ -84,7 +84,7 @@ fn the_card_lists_the_public_declarations_the_range_adds_removes_or_changes() {
         Some("fun narrowedCall(): Int")
       ),
       // its constructor's property is the type's entry
-      (ApiChangeKind::Added, "AddedType", path, 8, vec![], None, Some("Public(name:String)")),
+      (ApiChangeKind::Added, "AddedType", path, 8, vec![], None, Some("AddedType(name: String)")),
     ]
   );
   assert_eq!(plan.api[0].key, "a.removedCall");
@@ -742,7 +742,7 @@ fn a_promoted_declaration_is_new_api() {
         Some("fun narrowed(x: Int, y: Int): Int")
       ),
       (ApiChangeKind::Added, "promoted", path, 5, vec![], None, Some("fun promoted(x: Int): Int")),
-      (ApiChangeKind::Added, "Registry", registry, 3, vec![], None, Some("Public()")),
+      (ApiChangeKind::Added, "Registry", registry, 3, vec![], None, Some("Registry()")),
     ]
   );
 }
@@ -755,4 +755,17 @@ fn a_form_of_type_parameters_reads_as_code() {
   assert_eq!(form("fun < T > String . trim2() : T ?"), "fun <T> String.trim2(): T?");
   assert_eq!(form("public static < T > List < T > of()"), "public static <T> List<T> of()");
   assert_eq!(form("fun hooks() : Map < String , List < T > >"), "fun hooks(): Map<String, List<T>>");
+}
+
+/// The constructors of a type read as calls of it, a line each, a non-public one after its visibility; a parameter by its
+/// name and type, a default as `= …`, a vararg after `vararg`; a type of several names (its structure gone) no type at
+/// all, never `List/Window`; never the name of a `Reach`
+#[test]
+fn a_form_of_constructors_and_parameters_reads_as_code() {
+  assert_eq!(
+    crate::api::shown_constructors("Event", "Public(text:String,styles:List/StyleRange,start:Long,ends:List/Long=);Container()"),
+    "Event(text: String, styles, start: Long, ends = …)\nprivate Event()"
+  );
+  assert_eq!(crate::api::shown_constructors("Port", "Module(value:Int?)"), "internal Port(value: Int?)");
+  assert_eq!(crate::api::shown_parameters("items:String[]*,handler:String/Int/Unit"), "vararg items: String[], handler");
 }

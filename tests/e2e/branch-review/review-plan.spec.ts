@@ -132,7 +132,7 @@ async function showHelperDeclaration(window: Page, helper: Locator, store: Locat
 /** The use of `helper` in src/Base.kt, left outside the change: its file at the head over the review, the name selected */
 async function showHelperUseOutside(window: Page, helper: Locator): Promise<Locator> {
   const fileView = window.getByTestId("declaration-file-view")
-  await helper.getByTestId("review-plan-site").filter({ hasText: "src/Base.kt:1" }).click()
+  await helper.getByTestId("review-plan-site").filter({ hasText: "Base.kt:1" }).click()
   await expect(fileView).toContainText("outside the review")
   await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "helper", path: "src/Base.kt" })
   return fileView
@@ -173,16 +173,19 @@ test.describe("The review plan in the branch review", () => {
     await expect(helper).toHaveAttribute("data-name", "helper")
     await expect(helper).toContainText("Changed")
     await expect(helper).toContainText("src/Store.kt:")
+    await expect(helper).toContainText("parameters changed")
     await expect(helper.getByTestId("review-plan-outside")).toHaveText("3 uses left outside")
     // the forms before and after on their own lines, then the uses left outside
     await expect(helper.getByTestId("review-plan-before")).toContainText("value: Int")
     await expect(helper.getByTestId("review-plan-before")).not.toContainText("scale")
     await expect(helper.getByTestId("review-plan-after")).toContainText("scale: Int")
-    for (const site of ["src/Base.kt:1", "src/Uses.kt:4", "src/main/App.kt:9"]) {
-      await expect(helper.getByTestId("review-plan-sites")).toContainText(site)
-    }
+    // a line each: its file name and line, its directory after it, the whole path in its hover
+    await expect(helper.getByTestId("review-plan-site")).toHaveText(["Base.kt:1src", "Uses.kt:4src", "App.kt:9src/main"])
+    await expect
+      .poll(() => helper.getByTestId("review-plan-site").evaluateAll(sites => sites.map(site => site.getAttribute("title"))))
+      .toEqual(["src/Base.kt:1", "src/Uses.kt:4", "src/main/App.kt:9"])
     // a call only the name ties is no use, and no proof of none
-    await expect(helper.getByTestId("review-plan-sites")).toContainText("1 use by name only, unknown")
+    await expect(helper.getByTestId("review-plan-sites")).toContainText("1 match by name only, not checked")
     await expect(helper.getByTestId("review-plan-sites")).not.toContainText("scripts/helper.py")
 
     // a use left outside opens its file at the head over the review, the name selected, the overview under it until Back;
@@ -190,7 +193,7 @@ test.describe("The review plan in the branch review", () => {
     const fileView = await showHelperUseOutside(window, helper)
     await fileView.getByRole("button", { name: "Back" }).click()
     await expect(fileView).toBeHidden()
-    await helper.getByTestId("review-plan-site").filter({ hasText: "src/main/App.kt:9" }).click()
+    await helper.getByTestId("review-plan-site").filter({ hasText: "App.kt:9" }).click()
     const missing = window.locator("[data-slot=toast]", { hasText: "Cannot open src/main/App.kt:9" })
     await expect(missing).toContainText("The head of the review has no such line")
     await closeToast(missing)
@@ -259,7 +262,7 @@ test.describe("The review plan in the branch review", () => {
     await expect(store.getByTestId("file-row-mark")).toHaveAttribute("data-tone", "muted")
     await expect(store).toHaveAttribute("aria-description", /, breaks \?$/)
     const storeCard = await openFactsCard(window, store)
-    await expect(storeCard.getByTestId("file-facts-breaks")).toHaveText("breaks ? · The uses left outside the change are unknown, or their count is incomplete")
+    await expect(storeCard.getByTestId("file-facts-breaks")).toHaveText("breaks ? · The uses left outside the change are unknown, or the search stopped early")
   })
 
   test(

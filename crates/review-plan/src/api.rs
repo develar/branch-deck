@@ -234,20 +234,73 @@ pub fn api_changes(input: &SymbolInput, diffs: &[CommitDiff]) -> Vec<ApiChange> 
   changes
 }
 
-/// The form the card shows: the header with the parameters after the name, else the constructors of a type
+/// The form the card shows, as code reads: the header with the parameters after the name, else the constructors of a
+/// type, a line each (`shown_constructors`). Only the display: the forms Rust compares stay as `Form` holds them
 fn shown(declaration: &DeclarationForm) -> Option<String> {
   let form = &declaration.form;
-  let Some(header) = &form.header else { return form.constructors.clone() };
+  let Some(header) = &form.header else {
+    return form.constructors.as_deref().map(|constructors| shown_constructors(&declaration.name, constructors));
+  };
   let Some(parameters) = &form.parameters else {
     return Some(as_written(header.split(' ')));
   };
-  let parameters = format!("({})", parameters.replace(',', ", ").replace(':', ": "));
+  let parameters = format!("({})", shown_parameters(parameters));
   let mut tokens: Vec<String> = header.split(' ').map(str::to_string).collect();
   match tokens.iter_mut().find(|token| **token == declaration.name) {
     Some(name) => name.push_str(&parameters),
     None => tokens.push(parameters),
   }
   Some(as_written(tokens.iter().map(String::as_str)))
+}
+
+/// The constructors of the type `name` (`Form::constructors`: `Reach(name:Type,…)`, `;` apart) as calls of it read, a
+/// line each: `Event(text: String, styles, start: Long = …)`, a constructor that is not public after its visibility
+/// (`private Event()`), never the name of a `Reach`
+pub(crate) fn shown_constructors(name: &str, constructors: &str) -> String {
+  constructors
+    .split(';')
+    .filter(|constructor| !constructor.is_empty())
+    .map(|constructor| {
+      let (reach, parameters) = constructor.split_once('(').unwrap_or((constructor, ""));
+      let visibility = match reach {
+        "Module" => "internal ",
+        "Parent" => "pub(super) ",
+        "File" | "Container" => "private ",
+        _ => "",
+      };
+      format!("{visibility}{name}({})", shown_parameters(parameters.strip_suffix(')').unwrap_or(parameters)))
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+/// A parameter list as a call sees it (`name:Type?`, `,` apart, `=` for a default, `*` for a vararg) as code reads:
+/// `name: Type?`, `= …` for a default, `vararg` before a vararg. A type of several names (`List/Window`: the last name
+/// of each type in it, its structure gone) shows no type: `List<Window>`, `String.(Int) -> Unit` cannot be told from it
+pub(crate) fn shown_parameters(parameters: &str) -> String {
+  parameters
+    .split(',')
+    .filter(|parameter| !parameter.is_empty())
+    .map(|parameter| {
+      let (parameter, vararg) = parameter.strip_suffix('*').map_or((parameter, false), |it| (it, true));
+      let (parameter, optional) = parameter.strip_suffix('=').map_or((parameter, false), |it| (it, true));
+      let (name, type_text) = parameter.split_once(':').unwrap_or((parameter, ""));
+      let mut shown = String::new();
+      if vararg {
+        shown.push_str("vararg ");
+      }
+      shown.push_str(name);
+      if !type_text.is_empty() && !type_text.contains('/') {
+        shown.push_str(": ");
+        shown.push_str(type_text);
+      }
+      if optional {
+        shown.push_str(" = …");
+      }
+      shown
+    })
+    .collect::<Vec<_>>()
+    .join(", ")
 }
 
 /// The tokens of a form as code is written: no space before `>`, `,`, `)`, `.`, `?`, `:` and `[`, none after `<`, `(`,

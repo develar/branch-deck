@@ -25,7 +25,7 @@ import type {
 // only word them in the order Rust sent.
 import type { ReviewPlace } from "@/lib/review-place"
 import { fileTop } from "@/lib/review-place"
-import { capitalize } from "@/lib/text"
+import { capitalize, joinNames } from "@/lib/text"
 import { GENERATED_NAME_WORDS } from "@/presenters/collapse"
 
 /** What the commit column says of a commit since the review: "New", "Rewritten", "Reworded"; nothing of the others */
@@ -114,8 +114,9 @@ function formatCalls(count: number): string {
 }
 
 /**
- * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use found outside, the count is
- * incomplete", "The uses are unknown" without a count, "Finding the uses…" while Rust asks the index (`pending`)
+ * "3 uses left outside", "At least 2 uses left outside" of an incomplete count, "No use left outside found, the search
+ * stopped early" of an incomplete count of none (the index answers at most 100 hits a declaration: a lower bound, never
+ * safe), "The uses are unknown" without a count, "Finding the uses…" while Rust asks the index (`pending`)
  */
 export function formatOutsideUses(usages: Usages | null, pending: boolean): string {
   if (usages === null) {
@@ -124,7 +125,7 @@ export function formatOutsideUses(usages: Usages | null, pending: boolean): stri
   if (usages.complete) {
     return `${formatUses(usages.outside)} left outside`
   }
-  return usages.outside === 0 ? "No use found outside, the count is incomplete" : `At least ${formatUses(usages.outside)} left outside`
+  return usages.outside === 0 ? "No use left outside found, the search stopped early" : `At least ${formatUses(usages.outside)} left outside`
 }
 
 /** An API the commits remove or change, as the card words it */
@@ -140,21 +141,24 @@ export interface BreakageEntry {
   readonly tone: ApiTone
   /** "src/Store.kt:34" */
   readonly location: string
-  /** "parameters, visibility": the parts of the form that changed, of a change */
+  /** "parameters and visibility changed": the parts of the form that changed, of a change */
   readonly changed: string | null
-  /** The forms before and after, each on its own line */
+  /** The forms before and after, each on lines of its own: a type a line per constructor */
   readonly before: string | null
   readonly after: string | null
   /** "3 uses left outside" (`formatOutsideUses`) */
   readonly outside: string
   /** "2 uses updated in this change"; null for none or an unknown count */
   readonly inside: string | null
-  /** "4 calls left outside still bind", "1 call left outside still binds": they pass only what the change keeps; null for none */
+  /** "4 calls left outside still fit the new form": accio says they fit it, each argument binding what it bound; null for none */
   readonly stillBound: string | null
-  /** "3 uses by name only, unknown": hits only the name ties to the declaration; null for none */
+  /** "3 matches by name only, not checked": hits only the name ties to the declaration, no use; null for none */
   readonly byName: string | null
-  /** The first uses left outside, "src/Base.kt:1", each at its place at the head, then "+4 more" when Rust found more */
-  readonly sites: readonly { readonly label: string; readonly place: ReviewPlace }[]
+  /**
+   * The first uses left outside, each at its place at the head: "src/Base.kt:1" (`label`), its file name and line
+   * ("Base.kt:1") and its directory ("src"), then "+4 more" when Rust found more
+   */
+  readonly sites: readonly { readonly label: string; readonly name: string; readonly directory: string; readonly place: ReviewPlace }[]
   readonly moreSites: string | null
 }
 
@@ -177,14 +181,23 @@ function breakageEntry(change: ApiChange, pending: boolean): BreakageEntry {
     kind: KIND_WORDS[change.kind],
     tone: change.kind === "removed" ? "destructive" : "warning",
     location: `${change.path}:${change.line}`,
-    changed: change.changes.length === 0 ? null : change.changes.map(it => FORM_WORDS[it]).join(", "),
+    changed: change.changes.length === 0 ? null : `${joinNames(change.changes.map(it => FORM_WORDS[it]))} changed`,
     before: change.before,
     after: change.kind === "removed" ? null : change.after,
     outside: formatOutsideUses(usages, pending),
     inside: usages === null || usages.inside === 0 ? null : `${formatUses(usages.inside)} updated in this change`,
-    stillBound: usages === null || usages.stillBound === 0 ? null : `${formatCalls(usages.stillBound)} left outside still ${usages.stillBound === 1 ? "binds" : "bind"}`,
-    byName: usages === null || usages.byName === 0 ? null : `${formatUses(usages.byName)} by name only, unknown`,
-    sites: usages?.outsideSites.map(site => ({ label: `${site.path}:${site.line}`, place: { path: site.path, side: "new", line: site.line, name: change.name } })) ?? [],
+    stillBound: usages === null || usages.stillBound === 0 ? null : `${formatCalls(usages.stillBound)} left outside still ${usages.stillBound === 1 ? "fits" : "fit"} the new form`,
+    byName: usages === null || usages.byName === 0 ? null : `${usages.byName === 1 ? "1 match" : `${usages.byName} matches`} by name only, not checked`,
+    sites:
+      usages?.outsideSites.map(site => {
+        const slash = site.path.lastIndexOf("/")
+        return {
+          label: `${site.path}:${site.line}`,
+          name: `${site.path.slice(slash + 1)}:${site.line}`,
+          directory: slash < 0 ? "" : site.path.slice(0, slash),
+          place: { path: site.path, side: "new" as const, line: site.line, name: change.name },
+        }
+      }) ?? [],
     moreSites: more > 0 ? `+${more} more` : null,
   }
 }
@@ -344,9 +357,9 @@ function breaksBadge(file: FileFacts): FileBadges["breaks"] {
     return file.breaks === 0 ? null : { label: `breaks ${file.breaks}`, title: `${formatUses(file.breaks)} left outside the change`, tone: "warning" }
   }
   if (file.breaks === 0) {
-    return { label: "breaks ?", title: "The uses left outside the change are unknown, or their count is incomplete", tone: "muted" }
+    return { label: "breaks ?", title: "The uses left outside the change are unknown, or the search stopped early", tone: "muted" }
   }
-  return { label: `breaks ${file.breaks}+`, title: `At least ${formatUses(file.breaks)} left outside the change: the count is incomplete`, tone: "warning" }
+  return { label: `breaks ${file.breaks}+`, title: `At least ${formatUses(file.breaks)} left outside the change: the search stopped early`, tone: "warning" }
 }
 
 /** The badges of each file row, by its path; a file with none is not listed */

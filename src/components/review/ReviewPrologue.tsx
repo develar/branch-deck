@@ -207,7 +207,10 @@ function PrologueSections({ view }: { view: PrologueView }) {
                 <span className="flex min-w-0 items-center gap-2 text-xs">
                   <Badge variant="secondary">{file.kind}</Badge>
                   <FileButton place={fileTop(file.path)} title={file.path} testId="review-brief-contract-file">
-                    <span className="text-muted-foreground">{file.path}</span>
+                    {/* a long path loses its start, never its name */}
+                    <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
+                      <bdi dir="ltr">{file.path}</bdi>
+                    </span>
                   </FileButton>
                 </span>
                 {file.entries.map(entry => (
@@ -271,10 +274,14 @@ function PrologueSections({ view }: { view: PrologueView }) {
               <ul aria-label="API changes no use left outside breaks" className="flex flex-col gap-0.5">
                 {breakage.unbroken.entries.map(entry => (
                   <li key={entry.key} className="flex min-w-0 items-center gap-2" data-testid="review-plan-unbroken-entry" data-name={entry.name}>
-                    <Badge variant={entry.tone}>{entry.kind}</Badge>
+                    <Badge variant={entry.tone} className="shrink-0">
+                      {entry.kind}
+                    </Badge>
                     <FileButton place={entry.place} title={entry.location}>
-                      <code className="font-mono">{entry.name}</code>
-                      <span className="text-xs text-muted-foreground">{entry.location}</span>
+                      <code className="shrink-0 font-mono">{entry.name}</code>
+                      <span className="min-w-0 truncate text-xs text-muted-foreground" dir="rtl">
+                        <bdi dir="ltr">{entry.location}</bdi>
+                      </span>
                     </FileButton>
                   </li>
                 ))}
@@ -348,62 +355,90 @@ function ContentsItem({ step, onShow }: { step: ContentsStep; onShow: (() => voi
 }
 
 /**
- * A removed or changed API: its kind and name show its declaration; its forms before and after, then the uses left
- * outside, each opening its file at the head of the review
+ * A removed or changed API: its kind and its whole name, which shows its declaration; under it its file and line, the
+ * parts that changed and the uses left outside; its forms before and after, wrapping, a line per constructor; then the
+ * uses left outside, a line each (its file name and line, its directory muted, opening its file at the head of the
+ * review), and the counts of the rest. Every line ends at the edge of the column
  */
 function BreakageItem({ entry }: { entry: BreakageEntry }) {
   const navigator = useSelectReviewFile()
-  const titles = [...entry.sites.map(site => site.label), ...(entry.moreSites === null ? [] : [entry.moreSites])]
+  const counts = [entry.moreSites, entry.inside, entry.stillBound, entry.byName].filter(part => part !== null)
   return (
-    <li className="flex min-w-0 flex-col" data-testid="review-plan-breakage-entry" data-name={entry.name} data-path={entry.path}>
-      <div className="flex min-w-0 items-center gap-2">
-        <Badge variant={entry.tone}>{entry.kind}</Badge>
+    <li className="flex min-w-0 flex-col gap-0.5" data-testid="review-plan-breakage-entry" data-name={entry.name} data-path={entry.path}>
+      <div className="flex min-w-0 items-baseline gap-2">
+        <Badge variant={entry.tone} className="shrink-0">
+          {entry.kind}
+        </Badge>
         <FileButton place={entry.place} title={entry.location} testId="review-plan-breakage-file">
-          <code className="font-mono">{entry.name}</code>
-          <span className="text-xs text-muted-foreground">{entry.location}</span>
+          <code className="font-mono [overflow-wrap:anywhere]">
+            <BreakableCode text={entry.name} />
+          </code>
         </FileButton>
-        {entry.changed !== null && <span className="shrink-0 text-xs text-muted-foreground">{entry.changed}</span>}
-        <span className="shrink-0 text-xs text-warning tabular-nums" data-testid="review-plan-outside">
+      </div>
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">
+        <span className="min-w-0 truncate" title={entry.location} dir="rtl">
+          <bdi dir="ltr">{entry.location}</bdi>
+        </span>
+        {entry.changed !== null && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="shrink-0">{entry.changed}</span>
+          </>
+        )}
+        <span aria-hidden="true">·</span>
+        <span className="shrink-0 text-warning tabular-nums" data-testid="review-plan-outside">
           {entry.outside}
         </span>
       </div>
-      {entry.before !== null && (
-        <code className="truncate pl-3 font-mono text-xs text-muted-foreground" title={entry.before} data-testid="review-plan-before">
-          {`− ${entry.before}`}
-        </code>
-      )}
-      {entry.after !== null && (
-        <code className="truncate pl-3 font-mono text-xs text-muted-foreground" title={entry.after} data-testid="review-plan-after">
-          {`+ ${entry.after}`}
-        </code>
-      )}
-      {(titles.length > 0 || entry.inside !== null || entry.stillBound !== null || entry.byName !== null) && (
-        <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 pl-3 text-xs text-muted-foreground" title={titles.join("\n")} data-testid="review-plan-sites">
-          {[
-            ...entry.sites.map(site => (
-              <button
-                key={site.label}
-                type="button"
-                className="rounded-sm outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
-                disabled={navigator === null}
-                data-testid="review-plan-site"
-                data-path={site.place.path}
-                onClick={() => navigator?.showOutside(site.place)}
-              >
-                {site.label}
-              </button>
-            )),
-            ...[entry.moreSites, entry.inside, entry.stillBound, entry.byName].filter(part => part !== null).map(part => <span key={part}>{part}</span>),
-          ].map((part, index) => (
-            // the parts apart as the line of a list: "src/Base.kt:1 · src/Uses.kt:4 · 1 use updated in this change"
-            <span key={part.key} className="flex items-baseline gap-x-1.5">
-              {index > 0 && <span aria-hidden="true">·</span>}
-              {part}
-            </span>
+      {entry.before !== null && <EntryForm sign="−" form={entry.before} testId="review-plan-before" />}
+      {entry.after !== null && <EntryForm sign="+" form={entry.after} testId="review-plan-after" />}
+      {(entry.sites.length > 0 || counts.length > 0) && (
+        <div className="flex min-w-0 flex-col pl-3 text-xs text-muted-foreground" data-testid="review-plan-sites">
+          {entry.sites.map(site => (
+            <button
+              key={site.label}
+              type="button"
+              className="flex min-w-0 items-baseline gap-1.5 self-start rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
+              title={site.label}
+              disabled={navigator === null}
+              data-testid="review-plan-site"
+              data-path={site.place.path}
+              onClick={() => navigator?.showOutside(site.place)}
+            >
+              <span className="shrink-0 text-foreground">{site.name}</span>
+              {site.directory !== "" && (
+                <span className="min-w-0 truncate" dir="rtl">
+                  <bdi dir="ltr">{site.directory}</bdi>
+                </span>
+              )}
+            </button>
           ))}
-        </span>
+          {counts.length > 0 && (
+            // the counts of the rest apart as the line of a list: "+4 more · 2 uses updated in this change"
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+              {counts.map((part, index) => (
+                <span key={part} className="flex items-baseline gap-x-1.5">
+                  {index > 0 && <span aria-hidden="true">·</span>}
+                  {part}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
       )}
     </li>
+  )
+}
+
+/** A form of an entry before (−) or after (+): code that wraps at its spaces, a line per constructor, the sign hanging */
+function EntryForm({ sign, form, testId }: { sign: string; form: string; testId: string }) {
+  return (
+    <code className="flex min-w-0 gap-1.5 pl-3 font-mono text-xs text-muted-foreground" data-testid={testId}>
+      <span aria-hidden="true" className="shrink-0">
+        {sign}
+      </span>
+      <span className="min-w-0 [overflow-wrap:anywhere] whitespace-pre-line">{form}</span>
+    </code>
   )
 }
 
@@ -416,7 +451,7 @@ function FileButton({ place, title, testId = "review-plan-file", children }: { p
   return (
     <button
       type="button"
-      className="flex min-w-0 items-baseline gap-2 truncate rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
+      className="flex min-w-0 items-baseline gap-2 rounded-sm text-left outline-none hover:underline focus-visible:bd-focus disabled:no-underline"
       title={title}
       disabled={navigator === null}
       data-testid={testId}
