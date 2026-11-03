@@ -272,6 +272,37 @@ test.describe("Unapplied branches", () => {
     expect(reviewOfBranch!.data.kept).toBeUndefined()
   })
 
+  test("should say that the commits of an unapplied branch cancel each other out when together they change no file, and show the first", async ({
+    page,
+    repo,
+    syncAndWaitForBranches,
+  }) => {
+    // a commit and the fixup that takes it back: each changes the readme, the two together nothing
+    await repo.commit("(notes) Retitle the readme", { "README.md": "# The filter\n" }, 1704139200)
+    await repo.commit("(notes) Take back the title", { "README.md": "# Filter\n" }, 1704141000)
+    await syncAndWaitForBranches()
+    await expect(findBranchRow(page, "notes")).toHaveCount(1)
+    await unapplyFromMenu(page, "notes")
+    await unappliedRow(page, "notes").click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Review Changes" }).click()
+    await expect.poll(async () => (await getOpenedSubWindows(page)).length).toBe(1)
+    const [opened] = await getOpenedSubWindows<BranchReviewWindowData>(page)
+    const window = await openLinkedSubWindow(page, opened!)
+
+    // All Changes: its commits are listed, the range changes no file
+    const empty = window.getByTestId("review-range-empty")
+    await expect(empty).toContainText("The 2 commits cancel each other out: together they change no file")
+    await expect(window.getByTestId("range-review-commit")).toHaveText([/^All Changes/, /Take back the title/, /Retitle the readme/])
+    await expect(window.getByTestId("review-file-header")).toHaveCount(0)
+
+    // Show First Commit: the oldest commit alone, with the file it changes
+    await empty.getByRole("button", { name: "Show First Commit" }).click()
+    await expect(window.getByRole("option", { name: /Retitle the readme/, selected: true })).toBeVisible()
+    await expect(window.getByTestId("review-file-header")).toHaveCount(1)
+    await expect(window.getByTestId("review-file-header")).toContainText("README.md")
+    await expect(empty).toHaveCount(0)
+  })
+
   test("should preview an unapplied branch with Space, its own commits with their messages, and review it from the preview", async ({ page }) => {
     await unapplyFromMenu(page, "docs")
     await unappliedRow(page, "docs").focus()

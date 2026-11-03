@@ -103,6 +103,10 @@ export function RangeReview({
   }
   // the story lists the commits of a scope in its steps: the column keeps the scopes
   const inStory = !single && shown?.kind === "scope" && reviewFacts != null
+  // the commits the shown scope diffs, oldest last: when they change no file, the review offers the oldest one
+  const scopeCommits = !single && shown?.kind === "scope" ? storyCommits(items, shown.key) : []
+  const firstCommit = scopeCommits.at(-1)
+  const emptyRange: CommitReviewProps["emptyRange"] = firstCommit === undefined ? null : { commitCount: scopeCommits.length, onShowFirstCommit: () => onSelect(firstCommit.key) }
   const commitRows: CommitReviewProps["commitRows"] = inStory
     ? {
         items: storyCommits(items, shown.key),
@@ -138,6 +142,7 @@ export function RangeReview({
         commitRows={commitRows}
         filesHeader={filesHeader}
         reviewFacts={reviewFacts}
+        emptyRange={emptyRange}
         prologue={
           shown?.kind === "commit" ? (
             <ReviewPrologue

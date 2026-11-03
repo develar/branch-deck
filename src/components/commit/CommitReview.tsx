@@ -46,6 +46,7 @@ import {
 import type { FileTreeCommit, FileTreeNode, ReviewCommitItem } from "@/lib/file-tree"
 import type { MenuItemGroups } from "@/lib/menu"
 import { isTypingTarget } from "@/lib/preview-keys"
+import { formatRangeWithoutChanges } from "@/lib/range-review"
 import type { ReviewPlace } from "@/lib/review-place"
 import { readOutsideExcerpt, readOutsidePlace } from "@/lib/review-plan"
 import type { ReviewPosition } from "@/lib/review-position"
@@ -140,6 +141,18 @@ export interface CommitReviewProps {
    * the end of the tree; the plain tree without them
    */
   reviewFacts?: ReviewFacts | null
+  /**
+   * A scope of a range with commits (`RangeReview`): when it changes no file, the review says that its commits cancel
+   * each other out and offers its first commit, instead of "No changed files"; none for a commit
+   */
+  emptyRange?: EmptyRange | null
+}
+
+/** The commits of a shown scope of a range, for its review when the scope changes no file */
+export interface EmptyRange {
+  readonly commitCount: number
+  /** Shows the oldest commit of the scope alone */
+  readonly onShowFirstCommit: () => void
 }
 
 /**
@@ -165,6 +178,7 @@ export function CommitReview({
   prologue,
   neighbours,
   reviewFacts = null,
+  emptyRange = null,
 }: CommitReviewProps) {
   const subjectId = diffSubjectId(subject)
   const commitFiles = useFilesOfCommit(subjectId)
@@ -270,6 +284,15 @@ export function CommitReview({
         <span className="min-w-0 truncate">{formatNoFileMatch(filterText)}</span>
         <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setFilterText("")}>
           Clear Filter
+        </Button>
+      </div>
+    )
+  } else if (shownFiles.length === 0 && emptyRange !== null && emptyRange.commitCount > 0) {
+    message = (
+      <div data-testid="review-range-empty" className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
+        <span className="min-w-0">{formatRangeWithoutChanges(emptyRange.commitCount)}</span>
+        <Button variant="link" size="xs" className="h-auto px-0" onClick={emptyRange.onShowFirstCommit}>
+          Show First Commit
         </Button>
       </div>
     )

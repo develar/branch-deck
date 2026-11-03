@@ -181,6 +181,12 @@ with its base, its head and its commits, or the commits of a list. A pull reques
   it keeps what it read, its actions disabled with why ("docs is no longer unapplied: it was reapplied or deleted").
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should review an unapplied branch from its row, its menu and its commits, on its own base, with its actions`)
 - The review plan of a kept branch reads its range; it has no Mark Reviewed and no "Since Your Review".
+- A scope of a range ("All Changes", "Since Your Review") whose commits change no file together, as a commit and the
+  fixup that takes it back, must say so instead of "No changed files" ("The 2 commits cancel each other out: together
+  they change no file", `formatRangeWithoutChanges`) and offer "Show First Commit", which shows the oldest commit of
+  the scope alone with its files; a commit that changes no file still says "No changed files".
+  [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should say that the commits of an unapplied branch cancel each other out when together they change no file, and show the first`)
+  [@test] ../../src/lib/range-review.test.ts (`says that the commits of a scope that changes no file cancel each other out`)
 
 ## References
 

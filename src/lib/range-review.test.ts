@@ -4,6 +4,7 @@ import type { ReviewSegment, Interdiff, ReviewCommit } from "@/lib/bindings"
 import {
   ALL_CHANGES,
   SINCE_REVIEW,
+  formatRangeWithoutChanges,
   isSingleCommit,
   keepCommit,
   localSinceReview,
@@ -163,5 +164,12 @@ describe("pullRequestItems", () => {
     // the scope that left falls back to all changes
     expect(shownKey(pullRequestItems(commits, "c3"), SINCE_REVIEW)).toBe("all")
     expect(shownKey(pullRequestItems(commits, "c1"), SINCE_REVIEW)).toBe(SINCE_REVIEW)
+  })
+})
+
+describe("formatRangeWithoutChanges", () => {
+  it("says that the commits of a scope that changes no file cancel each other out", () => {
+    expect(formatRangeWithoutChanges(2)).toBe("The 2 commits cancel each other out: together they change no file")
+    expect(formatRangeWithoutChanges(1)).toBe("Its commit changes no file")
   })
 })

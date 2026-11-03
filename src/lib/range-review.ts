@@ -78,6 +78,14 @@ export function storyCommits(items: readonly RangeReviewItem[], scopeKey: string
   })
 }
 
+/**
+ * What an empty scope of a range says while it has commits: they change files one by one, but undo each other (a fixup
+ * that reverts its commit), so the range from its base to its head changes none
+ */
+export function formatRangeWithoutChanges(commitCount: number): string {
+  return commitCount === 1 ? "Its commit changes no file" : `The ${commitCount} commits cancel each other out: together they change no file`
+}
+
 /** The shown item: the chosen one while the range has it (a scope that is gone, a commit that left), else all changes */
 export function shownKey(items: readonly RangeReviewItem[], selected: string): string {
   return items.some(item => item.key === selected) ? selected : ALL_CHANGES
