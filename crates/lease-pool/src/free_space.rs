@@ -3,6 +3,9 @@
 
 use std::path::Path;
 
+/// What tells the free bytes of the volume of a path: `available_bytes`, or a volume a test tells
+pub type AvailableBytes<'a> = dyn Fn(&Path) -> Option<u64> + 'a;
+
 /// The bytes a process of this user may still write on the volume of `path` (`f_bavail`); `None` where the system
 /// does not tell (Windows), and the get then checks nothing
 #[cfg_attr(not(unix), expect(clippy::missing_const_for_fn, reason = "const only where the system tells nothing"))]

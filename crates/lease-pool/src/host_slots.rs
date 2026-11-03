@@ -1562,6 +1562,7 @@ fn fill_one(
       bazel: None,
       lock_timeout: params.lock_timeout,
       progress: Some(&report),
+      available: None,
     },
   );
   let got = match got {

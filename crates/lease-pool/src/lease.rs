@@ -14,10 +14,11 @@
 
 use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
-use crate::free_space::available_bytes;
+use crate::free_space::{AvailableBytes, available_bytes};
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
+use crate::shrink::{ShrinkParams, Shrunk, shrink_core};
 use crate::state_file::StateFile;
 use crate::trim::{TrimParams, Trimmed, trim_core};
 use anyhow::{Context, Result, anyhow, bail};
@@ -531,10 +532,11 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `bd lease trim` free space); never pass `--min-free 0` on your own",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `bd lease trim` free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
     describe_trimmed(*.trimmed_slots, *.trimmed_bytes),
+    describe_shrunk(*.shrunk_slots, *.shrunk_bytes),
     describe_idle(.idle),
     describe_trash(*.trash)
   )]
@@ -550,6 +552,10 @@ pub enum LeaseRefusal {
     trimmed_slots: usize,
     /// The bytes on disk that trim freed
     trimmed_bytes: u64,
+    /// The free slots of every pool of the machine whose build output the get deleted after the trim (`shrink`)
+    shrunk_slots: usize,
+    /// The bytes on disk that shrink freed
+    shrunk_bytes: u64,
   },
   #[error("{key} {value:?}: {reason}")]
   InvalidSize { key: String, value: String, reason: String },
@@ -666,6 +672,17 @@ fn describe_trimmed(slots: usize, bytes: u64) -> String {
   } else {
     format!(
       "; the get deleted {slots} free slot(s) past `branchdeck.leaseMaxSlots` and the Bazel output bases of gone slots first, {}",
+      describe_size(bytes)
+    )
+  }
+}
+
+fn describe_shrunk(slots: usize, bytes: u64) -> String {
+  if slots == 0 {
+    String::new()
+  } else {
+    format!(
+      "; the get deleted the build output of {slots} free slot(s) of the pools of this machine by their clean rules with keep 0, {}",
       describe_size(bytes)
     )
   }
@@ -812,6 +829,15 @@ pub struct LeaseGetParams<'a> {
   pub lock_timeout: Duration,
   /// Hears each step as it starts
   pub progress: Option<&'a dyn Fn(GetStep)>,
+  /// The free bytes of the volume of a path; `None`: `free_space::available_bytes`. A test tells a volume of its own
+  pub available: Option<&'a AvailableBytes<'a>>,
+}
+
+impl LeaseGetParams<'_> {
+  /// The free bytes of the volume of `path` (`available`)
+  fn available(&self, path: &Path) -> Option<u64> {
+    self.available.map_or_else(|| available_bytes(path), |available| available(path))
+  }
 }
 
 /// A step of a get, told as it starts (`LeaseGetParams::progress`): in a large repository a get takes minutes, and
@@ -831,6 +857,9 @@ pub enum GetStep {
   /// Below the minimum free space, after the trash: the free slots past `branchdeck.leaseMaxSlots` of every pool of the
   /// machine are deleted with their Bazel output bases (`trim`), without the clones lock
   Trim,
+  /// Below the minimum free space, after the trim: the build output of the free slots of every pool of the machine is
+  /// deleted by their clean rules with keep 0, the ones returned longest ago first (`shrink`), without the clones lock
+  Shrink,
   /// The Bazel servers of the reserved free slot are asked to exit
   StopServers { slot: String, servers: usize },
   /// One `status` of the slot: of a reserved free slot, or of a clone after its checkout
@@ -868,6 +897,9 @@ impl fmt::Display for GetStep {
       Self::Trim => {
         f.write_str("deleting the free slots past `branchdeck.leaseMaxSlots` of the pools of this machine with their Bazel output bases: the free space is below the minimum")
       }
+      Self::Shrink => f.write_str(
+        "deleting the build output of the free slots of the pools of this machine, returned longest ago first, by their clean rules with keep 0: the free space is below the minimum",
+      ),
       Self::StopServers { slot, servers } => write!(f, "stopping {servers} Bazel server(s) of {slot}"),
       Self::Status { slot } => write!(f, "looking for local changes in {slot}"),
       Self::Clone { template, slot } => write!(f, "cloning {template} into {slot}"),
@@ -953,6 +985,9 @@ pub struct LeaseGot {
   pub waited_for_clone: Option<Duration>,
   /// Below the minimum free space: the free slots and the output bases that the trim of the pools of the machine deleted
   pub trimmed: Option<Trimmed>,
+  /// Below the minimum free space after the trim: the free slots of the pools of the machine whose build output the
+  /// get deleted (`shrink::shrink_core`)
+  pub shrunk: Option<Shrunk>,
 }
 
 /// The slot a get reserved under the pool lock
@@ -1041,18 +1076,12 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
   let pool_dir = PathBuf::from(canonical_path(&pool_dir));
   let pool = Pool::new(&git_common_dir);
   let mut min_free = required_free(params, &config)?;
-  // whether the get deleted the trash since its last wait for the clones lock
-  let mut swept = false;
-  // the trim of the pools of the machine, once per get
-  let mut trimmed: Option<Trimmed> = None;
+  // what the get did below the minimum free space
+  let mut relief = Relief::default();
   let mut free_bytes = loop {
-    match free_space(&pool, &pool_dir, min_free, swept, trimmed.as_ref())? {
+    match free_space(params, &pool, &pool_dir, min_free, &relief)? {
       FreeSpace::Enough(available) => break available,
-      FreeSpace::Trash => {
-        delete_trash(&pool, &report);
-        swept = true;
-      }
-      FreeSpace::Trim => trimmed = Some(trim_for_get(git_executor, params, &report)),
+      low => relief.relieve(git_executor, params, &pool, (&pool_dir, min_free), &low, &report),
     }
   };
   let seeds = seed_paths(git_executor, source)?;
@@ -1125,25 +1154,20 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
             min_free = required_free(params, &lease_config(git_executor, source)?)?;
             scan = ProcessScan::scan();
             // and the trash, which the gets before it may have filled
-            swept = false;
+            relief.swept = false;
           }
           // a queue of gets never adds slots past the minimum: each measures what the ones before it left
-          match free_space(&pool, &pool_dir, min_free, swept, trimmed.as_ref())? {
+          match free_space(params, &pool, &pool_dir, min_free, &relief)? {
             FreeSpace::Enough(available) => {
               free_bytes = available;
               clones_lock = Some(lock);
             }
-            FreeSpace::Trash => {
-              // the delete of a trash takes minutes for a Bazel output base of tens of GB: the gets behind this one go on
+            low => {
+              // the delete of a trash takes minutes for a Bazel output base of tens of GB, and so do the deletes of a
+              // trim and a shrink, which mark the slots of this pool under its lock: the gets behind this one go on
               // meanwhile, and it takes its turn again
               drop(lock);
-              delete_trash(&pool, &report);
-              swept = true;
-            }
-            FreeSpace::Trim => {
-              // the deletes take minutes too, and the trim marks the slots of this pool under its lock
-              drop(lock);
-              trimmed = Some(trim_for_get(git_executor, params, &report));
+              relief.relieve(git_executor, params, &pool, (&pool_dir, min_free), &low, &report);
             }
           }
           continue;
@@ -1317,7 +1341,8 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
       took_over,
       process_scan: scan.is_available(),
       waited_for_clone,
-      trimmed,
+      trimmed: relief.trimmed,
+      shrunk: relief.shrunk,
     });
   }
 }
@@ -1396,22 +1421,63 @@ enum FreeSpace {
   /// of every pool of the machine go with their output bases (`trim_for_get`), never under the clones lock, and the get
   /// measures again
   Trim,
+  /// Below the minimum after the trim, and the get shrank no pool yet: the build output of the free slots of every pool
+  /// of the machine goes, the ones returned longest ago first, until the volume has the minimum and its margin
+  /// (`shrink_for_get`), never under the clones lock
+  Shrink,
 }
 
-/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs`, and below the minimum
-/// the names in the trash. Below it with no trash of a gone run, or one the get deleted since its last wait (`swept`),
-/// the trim of the pools, once (`trimmed`). Below it after both: `LowDiskSpace`, naming what the trim deleted and what
-/// the trash keeps
-fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool, trimmed: Option<&Trimmed>) -> Result<FreeSpace> {
-  let available = available_bytes(pool_dir);
+/// What a get below the minimum free space did to raise it: the trash once per wait for the clones lock, the trim and
+/// the shrink once per get
+#[derive(Default)]
+struct Relief {
+  /// The get deleted the trash since its last wait for the clones lock
+  swept: bool,
+  trimmed: Option<Trimmed>,
+  shrunk: Option<Shrunk>,
+}
+
+impl Relief {
+  /// The step `low` of `free_space` for the get of `params` whose pool directory is `pool_dir` and whose minimum is
+  /// `min_free`, never under the clones lock: the get measures again after it
+  fn relieve(
+    &mut self,
+    git_executor: &GitCommandExecutor,
+    params: &LeaseGetParams<'_>,
+    pool: &Pool,
+    (pool_dir, min_free): (&Path, u64),
+    low: &FreeSpace,
+    report: &dyn Fn(GetStep),
+  ) {
+    match low {
+      FreeSpace::Enough(_) => {}
+      FreeSpace::Trash => {
+        delete_trash(pool, report);
+        self.swept = true;
+      }
+      FreeSpace::Trim => self.trimmed = Some(trim_for_get(git_executor, params, report)),
+      FreeSpace::Shrink => self.shrunk = Some(shrink_for_get(git_executor, params, (pool_dir, min_free), report)),
+    }
+  }
+}
+
+/// The free space of the volume of the pool, at least `min_free`, measured only: one `statfs` (`LeaseGetParams::available`),
+/// and below the minimum the names in the trash. Below it with no trash of a gone run, or one the get deleted since its
+/// last wait (`swept`), the trim of the pools, then their shrink, each once. Below it after all: `LowDiskSpace`, naming
+/// what the trim deleted, what the shrink freed and what the trash keeps
+fn free_space(params: &LeaseGetParams<'_>, pool: &Pool, pool_dir: &Path, min_free: u64, relief: &Relief) -> Result<FreeSpace> {
+  let available = params.available(pool_dir);
   let Some(available) = available.filter(|&available| available < min_free) else {
     return Ok(FreeSpace::Enough(available));
   };
-  if !swept && holds_gone_runs(&pool.trash_dir()) {
+  if !relief.swept && holds_gone_runs(&pool.trash_dir()) {
     return Ok(FreeSpace::Trash);
   }
-  let Some(trimmed) = trimmed else {
+  let Some(trimmed) = &relief.trimmed else {
     return Ok(FreeSpace::Trim);
+  };
+  let Some(shrunk) = &relief.shrunk else {
+    return Ok(FreeSpace::Shrink);
   };
   let store = pool.read()?;
   bail!(LeaseRefusal::LowDiskSpace {
@@ -1423,6 +1489,8 @@ fn free_space(pool: &Pool, pool_dir: &Path, min_free: u64, swept: bool, trimmed:
     trash: pool.trash_bytes(),
     trimmed_slots: trimmed.removed_slots(),
     trimmed_bytes: trimmed.freed_bytes(),
+    shrunk_slots: shrunk.slots.len(),
+    shrunk_bytes: shrunk.freed_bytes(),
   });
 }
 
@@ -1443,6 +1511,36 @@ fn trim_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, 
     warn!(error = %format!("{error:#}"), "cannot trim the pools of the machine");
     Trimmed::default()
   })
+}
+
+/// How far above the minimum free space a shrink goes once the volume is below it: a tenth of the minimum (20 GiB of
+/// the `200G` of the user's Mac). Without a margin every get after the first would find the volume just below the
+/// minimum again, once the lease it leased had built, and shrink one more slot; a margin of a whole slot (50 to 59 GiB
+/// of `target/` in a slot of branch-deck on 2026-11-03) would deep-clean two slots where one lifts the volume over the
+/// minimum. The minimum is what the user chose for the machine, so its margin scales with it, and no setting is added
+const SHRINK_MARGIN_DIVISOR: u64 = 10;
+
+/// The free bytes at which a shrink below the minimum `min_free` stops (`SHRINK_MARGIN_DIVISOR`)
+pub const fn shrink_target(min_free: u64) -> u64 {
+  min_free.saturating_add(min_free / SHRINK_MARGIN_DIVISOR)
+}
+
+/// The shrink of the pools of the machine below the minimum free space (`shrink::shrink_core`), told as a step, up to
+/// the minimum and its margin (`shrink_target`) of the volume of `pool_dir`
+fn shrink_for_get(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, (pool_dir, min_free): (&Path, u64), report: &dyn Fn(GetStep)) -> Shrunk {
+  report(GetStep::Shrink);
+  let available = |path: &Path| params.available(path);
+  shrink_core(
+    git_executor,
+    &ShrinkParams {
+      repository: params.source,
+      home: params.home,
+      volume: pool_dir,
+      target: shrink_target(min_free),
+      available: &available,
+      lock_timeout: params.lock_timeout,
+    },
+  )
 }
 
 /// Delete the trash of the runs that are gone (`Trash::sweep`), told as a step

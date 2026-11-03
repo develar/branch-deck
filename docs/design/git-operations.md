@@ -1969,7 +1969,19 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    deletes the `bazel-*` links of a slot, so the output user roots come from the links of the source checkouts and of
    the slots that still have one, and each output base names its workspace in `DO_NOT_BUILD_HERE`; an output base whose
    slot is gone goes too. The deletes run after every pool, eight threads over the entries of the trash, so no get
-   waits on the pool lock meanwhile.
+   waits on the pool lock meanwhile. Still below the minimum, the get shrinks the pools once (`lease_pool::shrink`): a
+   free slot keeps the warm build output of its last lease, since the cargo rule of a return keeps the 8 newest units of
+   every group (variant hygiene, not a bound on size), and a get takes the slot returned last, so the output of the
+   others waits for a lease that rarely comes; on 2026-11-03 that was 50 to 59 GiB in each free slot of branch-deck,
+   and no trim touched a pool within its limit. The shrink applies the clean rules of each free slot (its own
+   `.branchdeck.toml`) with keep 0 and age 0, under the `cleaning` marker as `bd lease clean` does, through the trash
+   of its pool, deleted once the marker is gone: the slots of every pool by `returned_at`, the time of the return
+   (`returned` counts within one pool), the one returned longest ago first, and the slot each pool's next get would
+   take after every other, since that get reuses its output. A slot with a process in it stays. After each slot one
+   `statfs`; the shrink stops at the minimum and a tenth of it, a margin that keeps the next gets, whose leases build,
+   from cleaning one more slot each, smaller than a whole slot, which would clean two where one lifts the volume over
+   the minimum. The trim comes first: the slots past the limit go anyway, and a clean of them would be work for
+   nothing.
 1. Get: under the pool lock, a `preparing` lease whose process is gone (its pid and start time, `process_scan`) is
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots

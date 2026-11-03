@@ -8,7 +8,6 @@ use bd_cli::fixture_test::beside_a_held_sync;
 use bd_cli::fixture_test::{PREFIX, assert_error, canonical, environment, git, gone_process, repo_on_baseline, repo_with_baseline, run_json};
 use bd_core::context::Environment;
 use git_executor::git_command_executor::GitCommandExecutor;
-#[cfg(unix)]
 use lease_pool::lease::GetStep;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -1252,6 +1251,162 @@ fn a_get_below_the_minimum_free_space_refuses_and_names_it() {
   assert!(output["error"]["message"].as_str().unwrap().contains("branchdeck.leaseMinFree"), "{output}");
   let (exit_code, output) = fixture.run(&["lease", "get", "--min-free", "1 week"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
+}
+
+const GIB: u64 = 1 << 30;
+/// The bytes of the cargo unit each free slot of a `ShrinkFixture` keeps
+const UNIT_BYTES: usize = 64 * 1024;
+
+/// Three free slots of the pool, returned in order (the first longest ago), each with a cargo unit of its last build in
+/// `target/`, which the committed rule `cargo target` keeps (one of the 8 newest), and a volume of the test's own: a
+/// get sees `base` GiB free and `per_slot` GiB more for each slot whose unit is gone, against a minimum of 100 GiB
+struct ShrinkFixture {
+  fixture: Fixture,
+  /// The slots, the first returned first
+  slots: [String; 3],
+}
+
+impl ShrinkFixture {
+  fn new() -> Self {
+    let fixture = Fixture::new();
+    fixture.repo.create_commit_with_files(
+      "Add the clean rules",
+      &[
+        (".gitignore", "/target/\n"),
+        (".branchdeck.toml", "[lease]\nclean = [{ cargo = \"target\", keep = 8, age = \"1h\" }]\n"),
+      ],
+    );
+    let slots: Vec<String> = (1..=3).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
+    for slot in &slots {
+      fixture.give_back(slot);
+      let unit = Self::unit(slot);
+      std::fs::create_dir_all(unit.parent().unwrap()).unwrap();
+      std::fs::write(Path::new(slot).join("target/debug/.cargo-lock"), "").unwrap();
+      std::fs::write(unit, vec![b'x'; UNIT_BYTES]).unwrap();
+    }
+    Self {
+      fixture,
+      slots: slots.try_into().unwrap(),
+    }
+  }
+
+  /// The file of the cargo unit of `slot`
+  fn unit(slot: &str) -> PathBuf {
+    Path::new(slot).join("target/debug/build/git-ops/0123456789abcdef/fingerprint/dep")
+  }
+
+  /// `bd lease get` on the volume of the fixture, each step recorded in `steps`
+  fn get(&self, (base, per_slot): (u64, u64), steps: &std::sync::Mutex<Vec<GetStep>>) -> anyhow::Result<lease_pool::lease::LeaseGot> {
+    let environment = self.fixture.environment(self.fixture.repo.path());
+    let context = LeaseContext::resolve(&environment, None).map_err(|error| anyhow::anyhow!("{}", error.message))?;
+    let available = |_: &Path| {
+      let gone = self.slots.iter().filter(|slot| !Self::unit(slot).exists()).count() as u64;
+      Some((base + per_slot * gone) * GIB)
+    };
+    lease_pool::lease::lease_get_core(
+      &context.git,
+      &lease_pool::lease::LeaseGetParams {
+        source: &context.dirs,
+        home: environment.home.as_deref(),
+        holder: Some("low".to_string()),
+        branch: None,
+        min_free: Some(100 * GIB),
+        server_timeout: context.server_stop_timeout,
+        bazel: None,
+        lock_timeout: context.lock_timeout,
+        progress: Some(&|step| steps.lock().unwrap().push(step)),
+        available: Some(&available),
+      },
+    )
+  }
+
+  /// Which of the slots still have their unit
+  fn units(&self) -> Vec<bool> {
+    self.slots.iter().map(|slot| Self::unit(slot).exists()).collect()
+  }
+}
+
+/// The paths of the slots a shrink cleaned, in its order
+fn shrunk_paths(got: &lease_pool::lease::LeaseGot) -> Vec<String> {
+  got
+    .shrunk
+    .as_ref()
+    .map_or_else(Vec::new, |shrunk| shrunk.slots.iter().map(|slot| slot.path.clone()).collect())
+}
+
+/// Below the minimum free space, once the trim deleted nothing (the pool is within `branchdeck.leaseMaxSlots`), a get
+/// deletes the build output of the free slots by their clean rules with keep 0, the one returned longest ago first,
+/// measures after each and stops once the volume has the minimum and a tenth of it: the slot returned last keeps its
+/// unit, and the get leases it, warm. The worktrees stay, free
+#[test_log::test]
+fn a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots_returned_longest_ago_first() {
+  let shrink = ShrinkFixture::new();
+  let [first, second, third] = &shrink.slots;
+  let steps = std::sync::Mutex::new(Vec::new());
+  // 99 GiB, 105 after the first slot, 111 after the second: past the 110 of the minimum and its margin
+  let got = shrink.get((99, 6), &steps).unwrap();
+  assert_eq!(shrunk_paths(&got), [first.clone(), second.clone()]);
+  assert_eq!(shrink.units(), [false, false, true]);
+  let shrunk = got.shrunk.as_ref().unwrap();
+  assert!(shrunk.slots.iter().all(|slot| slot.freed_bytes() >= UNIT_BYTES as u64), "{shrunk:?}");
+  assert!(got.trimmed.as_ref().is_some_and(lease_pool::trim::Trimmed::is_empty), "{:?}", got.trimmed);
+  assert_eq!((&got.slot.path, got.free_bytes), (third, Some(111 * GIB)));
+  assert_eq!(kinds(&steps)[..3], ["trim", "shrink", "reserve"]);
+  assert_eq!(
+    states(&shrink.fixture.status()),
+    [
+      (first.clone(), "free".to_string()),
+      (second.clone(), "free".to_string()),
+      (third.clone(), "ready".to_string())
+    ]
+  );
+  // what the rules moved into the trash is deleted
+  let trash = shrink.fixture.repo.path().join(".git/branch-deck/trash");
+  assert_eq!(std::fs::read_dir(&trash).map_or(0, Iterator::count), 0);
+}
+
+/// A shrink stops at the first slot past the minimum and its margin: the others keep their build output
+#[test_log::test]
+fn a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot() {
+  let shrink = ShrinkFixture::new();
+  let steps = std::sync::Mutex::new(Vec::new());
+  let got = shrink.get((99, 12), &steps).unwrap();
+  assert_eq!(shrunk_paths(&got), std::slice::from_ref(&shrink.slots[0]));
+  assert_eq!(shrink.units(), [false, true, true]);
+  assert_eq!(got.slot.path, shrink.slots[2]);
+}
+
+/// A get that the trim and the shrink leave below the minimum refuses, with nothing leased, and names the slots whose
+/// build output it deleted, the slot of its next get last, and the bytes they freed
+#[test_log::test]
+fn a_get_still_below_the_minimum_after_the_shrink_refuses_and_names_what_it_freed() {
+  let shrink = ShrinkFixture::new();
+  let steps = std::sync::Mutex::new(Vec::new());
+  let error = shrink.get((50, 1), &steps).unwrap_err();
+  let refusal = error.downcast_ref::<lease_pool::lease::LeaseRefusal>().unwrap_or_else(|| panic!("{error:#}"));
+  let lease_pool::lease::LeaseRefusal::LowDiskSpace {
+    available,
+    shrunk_slots,
+    shrunk_bytes,
+    ..
+  } = refusal
+  else {
+    panic!("{refusal}");
+  };
+  assert_eq!((*available, *shrunk_slots), (53 * GIB, 3), "{refusal}");
+  assert!(*shrunk_bytes >= 3 * UNIT_BYTES as u64, "{refusal}");
+  assert!(
+    refusal
+      .to_string()
+      .contains("the get deleted the build output of 3 free slot(s) of the pools of this machine"),
+    "{refusal}"
+  );
+  assert_eq!(shrink.units(), [false, false, false]);
+  assert_eq!(kinds(&steps), ["trim", "shrink"]);
+  assert_eq!(
+    states(&shrink.fixture.status()),
+    shrink.slots.iter().map(|slot| (slot.clone(), "free".to_string())).collect::<Vec<_>>()
+  );
 }
 
 /// A get records the process it ran for, the nearest ancestor that is no shell, and the status tells whether it runs;

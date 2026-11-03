@@ -2,12 +2,13 @@
 //! their Bazel output bases, and of the output bases of gone workspaces (spec/cli/lease.spec.md, "Trim"). A get does
 //! the same once the free space is below `branchdeck.leaseMinFree`; the core is `lease_pool::trim`
 
-use crate::lease_command::{LeaseContext, lease_error, processes_output};
+use crate::lease_command::{CleanedOutput, LeaseContext, cleaned_output, lease_error, processes_output};
 use bd_core::context::Environment;
 use bd_core::error::{CliError, ProcessOutput};
 use bd_core::output::SchemaVersion;
 use lease_pool::free_space::available_bytes;
-use lease_pool::lease::SkipReason;
+use lease_pool::lease::{SkipReason, SkippedSlot};
+use lease_pool::shrink::Shrunk;
 use lease_pool::trim::{RemovedBase, TrimParams, Trimmed, trim_core};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -130,24 +131,78 @@ impl TrimmedOutput {
               errors: slot.errors.clone(),
             })
             .collect(),
-          busy: pool
-            .skipped
-            .iter()
-            .map(|skipped| BusySlotOutput {
-              slot: skipped.name.clone(),
-              path: skipped.path.clone(),
-              processes: match &skipped.reason {
-                SkipReason::Busy { processes } => processes_output(processes),
-                SkipReason::Dirty { .. } | SkipReason::IdleWithWork { .. } => Vec::new(),
-              },
-            })
-            .collect(),
+          busy: busy_output(&pool.skipped),
           config_error: pool.config_error.clone(),
         })
         .collect(),
       orphans: trimmed.orphans.iter().map(base_output).collect(),
       freed_bytes: trimmed.freed_bytes(),
       processes_checked: trimmed.process_scan,
+    }
+  }
+}
+
+fn busy_output(skipped: &[SkippedSlot]) -> Vec<BusySlotOutput> {
+  skipped
+    .iter()
+    .map(|skipped| BusySlotOutput {
+      slot: skipped.name.clone(),
+      path: skipped.path.clone(),
+      processes: match &skipped.reason {
+        SkipReason::Busy { processes } => processes_output(processes),
+        SkipReason::Dirty { .. } | SkipReason::IdleWithWork { .. } => Vec::new(),
+      },
+    })
+    .collect()
+}
+
+/// What the shrink of a get below the minimum free space did, after the trim: the free slots of the pools of this
+/// machine whose build output it deleted by their clean rules with keep 0, the ones returned longest ago first
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ShrunkOutput {
+  /// In the order it cleaned them, until the volume had the minimum and a tenth of it free
+  pub slots: Vec<ShrunkSlotOutput>,
+  /// The free slots it left alone: a process works in them
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub busy: Vec<BusySlotOutput>,
+  /// The bytes on disk the deletes freed
+  pub freed_bytes: u64,
+  /// Whether the processes were checked; false where bd can't see them (Windows)
+  pub processes_checked: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ShrunkSlotOutput {
+  pub slot: String,
+  pub path: String,
+  /// `$GIT_COMMON_DIR` of its repository
+  pub git_common_dir: String,
+  pub freed_bytes: u64,
+  /// What each clean rule of its `.branchdeck.toml` did
+  pub cleaned: Vec<CleanedOutput>,
+  /// What its trash kept: paths that could not be deleted
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub trash_left: Vec<String>,
+}
+
+impl ShrunkOutput {
+  pub fn of(shrunk: &Shrunk) -> Self {
+    Self {
+      slots: shrunk
+        .slots
+        .iter()
+        .map(|slot| ShrunkSlotOutput {
+          slot: slot.name.clone(),
+          path: slot.path.clone(),
+          git_common_dir: slot.git_common_dir.clone(),
+          freed_bytes: slot.freed_bytes(),
+          cleaned: cleaned_output(&slot.cleaned),
+          trash_left: slot.trash_left.clone(),
+        })
+        .collect(),
+      busy: busy_output(&shrunk.busy),
+      freed_bytes: shrunk.freed_bytes(),
+      processes_checked: shrunk.process_scan,
     }
   }
 }

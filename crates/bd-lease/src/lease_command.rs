@@ -295,6 +295,10 @@ pub struct LeaseGetOutput {
   /// and the Bazel output bases that the get deleted first (`bd lease trim`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub trimmed: Option<crate::trim_command::TrimmedOutput>,
+  /// The free space was still below the minimum after the trim: the free slots of the pools of this machine whose build
+  /// output the get deleted by their clean rules with keep 0, the ones returned longest ago first
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub shrunk: Option<crate::trim_command::ShrunkOutput>,
 }
 
 /// Where the commits of a lease land
@@ -707,6 +711,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     bazel: None,
     lock_timeout: context.lock_timeout,
     progress: Some(progress),
+    available: None,
   };
   let got = lease_get_core(&context.git, &params).map_err(lease_error)?;
   let lease = got
@@ -775,6 +780,7 @@ pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, ar
     processes_checked: got.process_scan,
     waited_for_clone_ms: got.waited_for_clone.map(|waited| u64::try_from(waited.as_millis()).unwrap_or(u64::MAX)),
     trimmed: got.trimmed.as_ref().map(crate::trim_command::TrimmedOutput::of),
+    shrunk: got.shrunk.as_ref().map(crate::trim_command::ShrunkOutput::of),
   })
 }
 

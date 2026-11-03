@@ -80,6 +80,7 @@ pub async fn add_lease_slots(Path(id): Path<String>, State(state): State<Arc<App
           bazel: None,
           lock_timeout: Duration::from_secs(10),
           progress: None,
+          available: None,
         },
       )?;
       let lease_id = got.slot.lease.as_ref().map_or_else(String::new, |lease| lease.id.clone());

@@ -397,7 +397,7 @@ pub fn trim_order(slots: &[Slot]) -> (Vec<&Slot>, Vec<&Slot>) {
 
 /// The pools of this machine: the one of `params.repository`, then each repository whose slots live under
 /// `~/.branch-deck/pool/<pool>/<n>/<name>`, told by the `.git` file of a slot (`linked_worktree`), each once
-fn machine_pools(repository: &RepositoryDirs, home: Option<&Path>) -> Vec<MachinePool> {
+pub(crate) fn machine_pools(repository: &RepositoryDirs, home: Option<&Path>) -> Vec<MachinePool> {
   let mut pools = vec![MachinePool {
     git_common_dir: PathBuf::from(canonical_path(Path::new(&repository.git_common_dir))),
   }];
@@ -480,7 +480,7 @@ fn slot_dir(slot: &Path) -> PathBuf {
 
 /// Under the pool lock: put the `cleaning` `marker` on the slot `path` while it is free (a lease whose process is gone
 /// counts as free); false when it has a lease now or left the state
-fn mark_free(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) -> Result<bool> {
+pub(crate) fn mark_free(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) -> Result<bool> {
   pool.update(timeout, |store| {
     let Some(slot) = store.slots.iter_mut().find(|slot| slot.path == path) else {
       return Ok(false);
