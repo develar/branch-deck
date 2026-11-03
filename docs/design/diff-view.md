@@ -659,7 +659,9 @@ per MB, the parse included (the first 5 000 files of each language of intellij-c
 under a point or at the selection (`wordAt`, `wordAtSelection`: the caret of the point, the offset of its code cell
 without the deleted parts of an Inline row) and selects a name once its row is painted with its text, by every paint
 after the reveal, not by a count of frames, and again when a new layout paints the row anew, until the user presses or
-types in the view or selects elsewhere (`selectWord`); the view draws
+types in the view or selects elsewhere (`selectWord`). The caret of a field is no selection elsewhere while the name
+still waits for its paint: the search a reveal of a hidden file clears moves its caret, under load after the reveal;
+once the name is selected, a click into a field lets it go. The view draws
 the underline of a link in a layer of its own (`.dv-links`), never in the rows the painter replaces. `find_declaration`
 (`crates/file-diffs/src/declarations.rs`) reads the name and its scopes from the tree (`code_symbols::navigate`; Kotlin's and Java's from their PSI in one
 walk that keeps the declarations of the name, `kotlin/navigate.rs` and `java/navigate.rs`),

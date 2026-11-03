@@ -101,6 +101,27 @@ function newViewId(): string {
   return `diff-view-${lastViewId}`
 }
 
+/**
+ * The caret of a field that takes typed text, focused or not: the selection of the page is at the field, or, as
+ * Chromium reports a field it does not focus, in the parent of the field right before it
+ */
+function isFieldCaret(anchor: Node, offset: number): boolean {
+  return (
+    isTextField(anchor instanceof Element ? anchor : anchor.parentElement) ||
+    (anchor instanceof Element && isTextField(anchor.childNodes[offset] ?? null)) ||
+    isTextField(document.activeElement)
+  )
+}
+
+/** An element that takes typed text */
+function isTextField(element: Node | null): boolean {
+  return (
+    element instanceof HTMLTextAreaElement ||
+    (element instanceof HTMLInputElement && element.type !== "checkbox" && element.type !== "radio") ||
+    (element instanceof HTMLElement && element.isContentEditable)
+  )
+}
+
 function element(tag: string, className: string): HTMLElement {
   const created = document.createElement(tag)
   created.className = className
@@ -170,7 +191,7 @@ export class DiffPainter {
    * again when a paint drops it (a new layout paints every row again), until the user presses or types in the view or
    * selects elsewhere
    */
-  private revealedName: { file: number; side: number; line: number; start: number; end: number; word: string | null } | null = null
+  private revealedName: { file: number; side: number; line: number; start: number; end: number; word: string | null; selected: boolean } | null = null
   /** The pages of tokens that arrived since the last repaint, as `blobId:page` */
   private readonly arrivedPages = new Set<string>()
   private textsChanged = false
@@ -1047,7 +1068,7 @@ export class DiffPainter {
    * selection elsewhere, ends it
    */
   selectWord(file: number, side: number, line: number, start: number, end: number, word: string | null = null): void {
-    this.revealedName = { file, side, line, start, end, word }
+    this.revealedName = { file, side, line, start, end, word, selected: false }
     this.selectRevealedName()
   }
 
@@ -1067,14 +1088,25 @@ export class DiffPainter {
     const selection = document.getSelection()
     selection?.removeAllRanges()
     selection?.addRange(at < 0 ? cellRange(cell, name!.start, name!.end) : cellRange(cell, at, at + name!.word!.length))
+    name!.selected = true
   }
 
-  /** The selection moved out of the view (the user selected in another one): the name a reveal selected is let go */
+  /**
+   * The selection moved out of the view (the user selected in another one): the name a reveal selected is let go. A
+   * reveal still waiting for the paint of its row keeps through the caret of a field: a field moves it as its value is
+   * set, the search a reveal of a hidden file clears, and that change may come after the reveal and before the paint
+   * (under load). Once the name is selected, a click into a field lets it go
+   */
   private onSelectionChange(): void {
-    const anchor = document.getSelection()?.anchorNode ?? null
-    if (this.revealedName !== null && this.root !== null && anchor !== null && !this.root.contains(anchor)) {
-      this.revealedName = null
+    const selection = document.getSelection()
+    const anchor = selection?.anchorNode ?? null
+    if (this.revealedName === null || this.root === null || anchor === null || this.root.contains(anchor)) {
+      return
     }
+    if (!this.revealedName.selected && selection?.isCollapsed === true && isFieldCaret(anchor, selection.anchorOffset)) {
+      return
+    }
+    this.revealedName = null
   }
 
   private onCopy(event: ClipboardEvent): void {

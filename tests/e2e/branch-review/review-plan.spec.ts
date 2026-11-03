@@ -517,11 +517,17 @@ test.describe("The review plan in the branch review", () => {
     const card = window.getByTestId("review-overview")
     const header = (filePath: string) => window.locator(`[data-testid="review-file-header"][data-path="${filePath}"]`)
 
-    // a search that matches no file: the overview stays, its entry clears the search and selects Store
+    // a search that matches no file: the overview stays, its entry clears the search and selects Store. The search,
+    // cleared, moves its caret, under load after the name of Store waits for the paint of its row: the text of the diff
+    // held, the caret moves as the clear moves it, and the name is still selected once the row is painted
     await search.fill("nothing matches this")
     await expect(noMatch).toBeVisible()
+    const texts = await holdCommandCalls(window, "get_blob_texts")
     await card.getByTestId("review-plan-breakage-file").click()
     await expect(search).toHaveValue("")
+    await expect.poll(() => texts.calls.length).toBeGreaterThan(0)
+    await search.evaluate(field => (field as HTMLInputElement).setSelectionRange(0, 0))
+    texts.release()
     await expect(noMatch).toHaveCount(0)
     await expect(store).toHaveAttribute("aria-selected", "true")
     await expect(position).toHaveText(/File 8 \/ 8$/)

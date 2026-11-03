@@ -77,8 +77,10 @@ outside it.
   [@test] ../../crates/app-api/src/session/windows_test.rs (`a_window_supersedes_only_its_own_request`, `a_closed_window_supersedes_its_request`)
 - The declaration shown has its file open, the fold around it expanded, the view scrolled to it and its name selected
   once its row is painted with its text, however long its text takes, and again when a new layout paints the row anew,
-  until the user presses or types in the view or selects elsewhere.
+  until the user presses or types in the view or selects elsewhere; the caret of a field (the search that the reveal of
+  a hidden file clears) is no selection elsewhere while the name waits for its paint.
   [@test] ../../tests/e2e/commit-files/symbol-navigation.spec.ts (`should underline a name under the pointer with the modifier, go to its declaration in a fold on a click, and back`)
+  [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should select the file of an entry of the overview while a search hides every file, under an owner chip that hides none`)
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
   declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere. A
   Kotlin name after a receiver and `::` (`Foo::bar`, `this::bar`) is a member of that receiver, as after a dot; a label
