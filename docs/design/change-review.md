@@ -223,6 +223,13 @@ the review.
    with the concerns its code names, a concern two parts name cut by its own evidence; nothing is guessed, a concern
    no part names stays a step of its own. Until the author's tour (`bd tour`, Next 0) exists, the body is the tour of
    a commit alone, and the tour will share this model of chapters.
+15. **What the author left out shows** (2026-11-03). `Left out:` was a verification label, folded always, beside
+   `Tests:` and `Evidence:`. In `terminal-split-url` it held the one honest answer to "is it proven": "The tests of the
+   pending-task merge and the trim depend on timing, so they can pass without a merge", while the opening of a step
+   listed 20 declarations "no test reaches", most of them a walk accio cut or a field it does not index. What the
+   change does not do or prove is what a reviewer needs before approving: `Left out:` is a label of its own
+   (`leftOut`), shown wherever it is and costing no line of the fold, like `Look closely:`. The proof of a step by
+   the change's own tests waits for accio to answer it (JetBrains/accio#212, #213, #214).
 
 ## Review Rounds
 

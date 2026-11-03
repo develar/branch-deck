@@ -784,8 +784,8 @@ export type ApiChange = {
 	/**  Its form after the commits, of a change or an addition */
 	after: string | null,
 	/**
-	 *  Of a removal or a change: its usages at the head (`fan_in`); `None` when not asked (a name of
-	 *  `fan_in::STOP_NAMES`, past `fan_in::MAX_USAGE_QUERIES`) or not answered (no accio, no index, a failed query)
+	 *  Of a removal or a change: its usages at the head (`fan_in`); `None` when not answered (no accio, no index, a
+	 *  failed query, no declaration accio finds at its place)
 	 */
 	usages: Usages | null,
 };
@@ -3744,10 +3744,12 @@ export type LabelKind =
 /**  Any other label: "The cause", "What changed", "Why" */
 "plain" | 
 /**
- *  How the author checked the change: Tests, Evidence, Gates, Verified, Verification, Results, Proof, Left out
- *  (also "Test", "Gates on the final tree"); a review folds it always
+ *  How the author checked the change: Tests, Evidence, Gates, Verified, Verification, Results, Proof (also "Test",
+ *  "Gates on the final tree"); a review folds it always
  */
 "verification" | 
+/**  "Left out": what the change does not do or prove, by its author; a review shows it always */
+"leftOut" | 
 /**  "Look closely": where the author asks the reviewer to decide */
 "lookClosely";
 

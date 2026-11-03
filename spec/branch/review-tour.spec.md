@@ -351,8 +351,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   for it ("More: The cause, The fix, Tests, Evidence", a part of no label "The rest"), each name its own toggle; an
   opened part stands below that line in the order of the body, its label the toggle that folds it again (a chevron
   before it), so its name shows once and the text grows downward; the line names only what is still folded. A
-  verification section (Tests, Evidence, Gates, Verified, Results, Proof, Left out) is folded always, and the author's
-  "Look closely:" shows always, in its place among the shown parts. Then the other commits of the step, each one row
+  verification section (Tests, Evidence, Gates, Verified, Results, Proof) is folded always; the author's "Look
+  closely:" and "Left out:" show always, in their place among the shown parts. Then the other commits of the step, each one row
   of one form at the size of the text: a muted "Follows up" or "Without a story", its title wrapping at the width of
   the prose; a commit with a story a disclosure (`Disclosure`, one disclosure of the document: the folds of a body,
   these rows and what the overview folds) whose body is set `nested`, never larger than its row; then the facts of the

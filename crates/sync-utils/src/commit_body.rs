@@ -16,7 +16,7 @@
 //! - a label (`LEAD_IN_MAX`, `RUN_IN_MAX`) heads the blocks after it: a paragraph that is only `Label:` followed by a
 //!   block, a `Label:` line right before a list item, a `Label:` line that starts its block (or follows a list) right
 //!   before a line of prose or code, or the 1–3 words of a paragraph that starts `Label: text`; its kind is by its
-//!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`); a run-in `Look closely: text` heads its paragraph and the list or
+//!   words (`VERIFICATION_LABELS`, `LOOK_CLOSELY`, `LEFT_OUT`); a run-in `Look closely: text` heads its paragraph and the list or
 //!   code right under it (no blank line between) alone;
 //! - the code of each line of prose (`CommitBody::code`) by the grammar of `code_spans`;
 //! - the parts and the fold (`CommitBody::parts`): the lead alone, a labelled section whole, a run of other blocks; the
@@ -36,7 +36,9 @@ const LEAD_IN_MAX: usize = 39;
 /// The longest run-in label of a `Label: text` paragraph: "Why", "Left out", "Look closely"
 const RUN_IN_MAX: usize = 20;
 /// The words a verification section starts with (a leading "The" and the case aside): how the author checked the change
-const VERIFICATION_LABELS: [&str; 9] = ["tests", "test", "evidence", "gates", "verified", "verification", "results", "proof", "left out"];
+const VERIFICATION_LABELS: [&str; 8] = ["tests", "test", "evidence", "gates", "verified", "verification", "results", "proof"];
+/// The words of the label where the author says what the change does not do or prove
+const LEFT_OUT: [&str; 1] = ["left out"];
 /// The words of the label where the author asks the reviewer to decide
 const LOOK_CLOSELY: [&str; 1] = ["look closely"];
 
@@ -190,6 +192,8 @@ fn label_kind(text: &str) -> LabelKind {
   let starts = |word: &str| head.strip_prefix(word).is_some_and(|rest| rest.is_empty() || rest.starts_with(' '));
   if LOOK_CLOSELY.into_iter().any(starts) {
     LabelKind::LookClosely
+  } else if LEFT_OUT.into_iter().any(starts) {
+    LabelKind::LeftOut
   } else if VERIFICATION_LABELS.into_iter().any(starts) {
     LabelKind::Verification
   } else {
@@ -200,8 +204,8 @@ fn label_kind(text: &str) -> LabelKind {
 /// The parts of `blocks` and their fold (`CommitBody::parts`), `raw_of` the raw block of each. The units of the fold in
 /// order: the lead, a labelled section whole, any other block alone; the first unit shows however long it is, so
 /// something shows before the fold, then each while the lines so far stay within `FOLD_LINES`, and every unit after the
-/// first that does not fit folds. A verification section folds and a Look closely section shows wherever it is, at no
-/// cost. A run of other blocks on one side of the fold is one part
+/// first that does not fit folds. A verification section folds, and a Look closely or a Left out section shows wherever
+/// it is, at no cost. A run of other blocks on one side of the fold is one part
 fn parts(blocks: &[CommitBodyBlock], raw_of: &[usize], lead: bool) -> Vec<CommitBodyPart> {
   let heads = |block: &CommitBodyBlock| matches!(block, CommitBodyBlock::Label { .. } | CommitBodyBlock::Heading { .. });
   let mut parts: Vec<CommitBodyPart> = Vec::new();
@@ -236,7 +240,7 @@ fn parts(blocks: &[CommitBodyBlock], raw_of: &[usize], lead: bool) -> Vec<Commit
     };
     let folded = match kind {
       LabelKind::Verification => true,
-      LabelKind::LookClosely => false,
+      LabelKind::LookClosely | LabelKind::LeftOut => false,
       LabelKind::Plain => {
         let cost: u32 = blocks[start..end].iter().map(lines_of).sum();
         cut |= lines > 0 && lines + cost > FOLD_LINES;

@@ -98,13 +98,16 @@ vocabulary, so a reviewer finds the same section in every commit:
 | `Fix:` | what the change does about it |
 | `Tests:` | the tests that prove it, by file or name |
 | `Evidence:` | what you ran and measured, on the final code |
-| `Left out:` | what the change does not do, and why |
+| `Left out:` | what the change does not do or prove, and why |
 | `Look closely:` | the decision you ask the reviewer to make |
 
 "The cause", "Fix, in two places" and "Evidence, on the final code" are the same labels: a leading "The", the case and
-what follows a comma do not matter. `Tests:`, `Evidence:`, `Left out:` (and Gates, Verified, Verification, Results,
-Proof) are the verification of the change (`kind: verification`): they cost no line of the fold and a review folds them
-wherever they are, so a long account of what you ran never pushes the story out of sight. Put them after the story.
+what follows a comma do not matter. `Tests:` and `Evidence:` (and Gates, Verified, Verification, Results, Proof) are
+the verification of the change (`kind: verification`): they cost no line of the fold and a review folds them wherever
+they are, so a long account of what you ran never pushes the story out of sight. Put them after the story.
+`Left out:` (`kind: leftOut`) is what a reviewer must know before approving: a case the change does not handle, a test
+that can pass without proving what it names. A review shows it always, at no line of the fold, so write there only
+what is true and only what the reader needs.
 
 ## Look closely
 

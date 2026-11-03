@@ -116,7 +116,7 @@ fn the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order() 
     ]
   );
   // each part where it is told: the lead and Left out in the overview, each paragraph in its step, unfolded, the Look
-  // closely in the step of the joiner, the tests in theirs, named once as the title
+  // closely in the step of the joiner, the tests in theirs, named once as the title; what the author left out shows
   let story = &plan.steps.commits[0];
   let parts: Vec<(u32, StoryPlace, bool, bool)> = story.parts.iter().map(|part| (part.start, part.told, part.folded, part.titled)).collect();
   let step = |step| StoryPlace::Step { step };
@@ -129,7 +129,7 @@ fn the_paragraphs_of_one_commit_that_name_its_code_are_its_steps_in_its_order() 
       (3, step(2), false, false),
       (4, step(2), false, false),
       (6, step(3), false, true),
-      (8, StoryPlace::Overview, true, false),
+      (8, StoryPlace::Overview, false, false),
     ]
   );
   assert!(plan.steps.told);

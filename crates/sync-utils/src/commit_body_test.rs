@@ -253,7 +253,7 @@ fn a_paragraph_that_is_only_a_label_heads_the_next_blocks_and_a_short_run_in_lab
   );
   assert_eq!(
     blocks("Left out: the cache."),
-    [run_in_labelled("Left out", LabelKind::Verification), paragraph(&["the cache."])]
+    [run_in_labelled("Left out", LabelKind::LeftOut), paragraph(&["the cache."])]
   );
   // a label of any script, its run-in length in characters
   assert_eq!(blocks("Причина: пул иссяк."), [run_in("Причина"), paragraph(&["пул иссяк."])]);
@@ -326,12 +326,13 @@ fn a_label_is_of_the_kind_its_words_name_the_case_a_leading_the_and_a_comma_asid
     "Verification",
     "Results",
     "Proof",
-    "Left out",
     "Tests run",
   ] {
     assert_eq!(kind(text), LabelKind::Verification, "{text}");
   }
   assert_eq!(kind("Look closely"), LabelKind::LookClosely);
+  assert_eq!(kind("Left out"), LabelKind::LeftOut);
+  assert_eq!(kind("Left out, on purpose"), LabelKind::LeftOut);
   for text in ["The fix", "Fix", "The cause", "Testing notes", "Theory"] {
     assert_eq!(kind(text), LabelKind::Plain, "{text}");
   }
@@ -419,6 +420,19 @@ fn a_fold_never_cuts_a_section_off_its_label_and_a_verification_section_costs_no
   assert_eq!(fold_at(&tests), all(&tests));
   assert_eq!(tests.blocks[1], labelled("Tests", LabelKind::Verification));
   assert_eq!(tests.blocks[3], label("The fix"));
+}
+
+/// What the author left out is no verification to fold: it shows wherever it is, past the fold too, and costs no line,
+/// as a Look closely does
+#[test]
+fn a_left_out_section_shows_always_and_costs_no_line_of_the_fold() {
+  let body = format!("{}\n\nLeft out:\n{}\nThe fix:\n\n{}", lines_of_prose(4), "- a case\n".repeat(20), lines_of_prose(6));
+  let body = commit_body(&body);
+  assert_eq!(body.blocks[1], labelled("Left out", LabelKind::LeftOut));
+  assert_eq!(fold_at(&body), all(&body));
+  // after a fold, still shown
+  let late = commit_body(&format!("{}\n\n{}\n\nLeft out:\n- the cache", lines_of_prose(10), lines_of_prose(10)));
+  assert_eq!(parts(&late), [(0, 1, false), (1, 2, true), (2, 4, false)]);
 }
 
 #[test]

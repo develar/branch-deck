@@ -140,9 +140,11 @@ pub enum CommitBodyBlock {
 pub enum LabelKind {
   /// Any other label: "The cause", "What changed", "Why"
   Plain,
-  /// How the author checked the change: Tests, Evidence, Gates, Verified, Verification, Results, Proof, Left out
-  /// (also "Test", "Gates on the final tree"); a review folds it always
+  /// How the author checked the change: Tests, Evidence, Gates, Verified, Verification, Results, Proof (also "Test",
+  /// "Gates on the final tree"); a review folds it always
   Verification,
+  /// "Left out": what the change does not do or prove, by its author; a review shows it always
+  LeftOut,
   /// "Look closely": where the author asks the reviewer to decide
   LookClosely,
 }
