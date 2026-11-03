@@ -456,8 +456,21 @@ test.describe("Review window", () => {
     setupRepo,
     syncAndWaitForBranches,
   }) => {
+    // the plan held in every window: while it is read the overview says so, never a document that looks whole and then
+    // moves as the plan comes
+    let release!: () => void
+    const held = new Promise<void>(resolve => {
+      release = resolve
+    })
+    await page.context().route("**/invoke/get_review_plan", async route => {
+      await held
+      await route.fallback()
+    })
     const { review } = await openPlanChanges(page, setupRepo, syncAndWaitForBranches)
     await expect(review.getByTestId("commit-review")).toBeVisible()
+    await expect(review.getByTestId("review-overview").getByTestId("review-overview-reading")).toHaveText("Reading the review plan…")
+    await expect(review.getByTestId("review-step-bar")).toHaveCount(0)
+    release()
     // the plan of what the window shows: its overview at the top of the document, Rust's words
     await expect(review.getByTestId("review-overview")).toBeVisible()
     await expect(review.getByTestId("review-overview-reading")).toHaveCount(0)

@@ -486,7 +486,9 @@ export function PullRequestReview({ host, bodyRef, back }: PullRequestReviewProp
           fileOwners={fileOwners}
           rangeNoun="pull request"
           filesHeader={count => <ReviewOwnerChips of={owners} filter={ownerFilter} onFilterChange={setOwnerFilter} count={count} />}
-          plan={plan.plan === null ? null : plan}
+          // the overview says the plan is being read, and why it failed: only a repository that turns the plan off, or a
+          // read that found none, tells none (spec/branch/review-plan.spec.md, "Reading the review plan…")
+          plan={plan.disabled || (plan.plan === null && !plan.loading && plan.error === null) ? null : plan}
           reviewFacts={planFacts(plan)}
           planHeadline={false}
           planLead={description}

@@ -621,11 +621,13 @@ group at the end. The overview at the top of the document of the review, before 
   its own plan, its steps, its story and its facts, under "Since Your Review" with what changed since of the part. It
   must keep a block above the headers
   and the messages while the diffs are read. While the plan is read it says "Reading the review plan…", while Rust asks
-  the index "Finding the uses left outside…", and "Cannot read the review plan: …" when the read failed. After the
+  the index "Finding the uses left outside…", and "Cannot read the review plan: …" when the read failed, in the review
+  of a pull request too: no overview that looks whole and then moves as the plan comes. After the
   steps, "Possible Breakage" in the warning tone, the `index_note` folded under it ("Why the uses are unknown") when
   the usages are missing, then "Since your review" as before (a rewritten commit with the lines per path it changes against its reviewed version).
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should open the review on its overview with what can break, show the declaration of an entry, and keep the files in the tree`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a reviewed commit amended since as Rewritten, and Since Your Review as the diff from its reviewed version`)
+  [@test] ../../tests/e2e/review-requests/review-requests.spec.ts (`should show the review plan of the pull request above its changes once the repository turns it on, its commits in the tree`)
 - "Since your review" must list each rewritten and each reworded commit with what changed: "Rewritten scale the
   helper: src/Store.kt +1 −1", then " · message changed" when Rust says its message changed (`message_change`),
   "Reworded scale the helper: message changed", a rewritten commit whose lines per path are the same "the same lines
