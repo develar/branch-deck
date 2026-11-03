@@ -601,10 +601,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   rule at most prunes, never removes. The cargo rule of that dir then prunes only the profile dirs at and
   below the kept entries that are directories, not links (with two such `delete` rules, the entries both keep), at
   most 4 levels below the target dir as before: the two rules never take the same path, whatever their order in the
-  file. Each is a rule of its own in `cleaned`, its `freed_bytes` its own paths, which a dry run measures as the clean
+  file. A kept entry is the one whose name is the `except` name byte for byte, for both rules: on a volume that ignores
+  case (APFS, NTFS) `Debug` keeps no `debug`, so the delete removes it whole and the cargo rule prunes nothing of it.
+  Each is a rule of its own in `cleaned`, its `freed_bytes` its own paths, which a dry run measures as the clean
   then frees them. Both go through the trash of the run, under the `cleaning` marker of a free slot, also in the shrink
   of a get, where the cargo rule keeps no unit of the kept profile dirs; a get leaves the removed entries out of a clone.
-  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`)
+  [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`, `a_kept_entry_of_a_target_dir_is_its_exact_name`)
 - A `delete` must remove a link (a symlink, a junction or a directory symlink of Windows) in place, as the link and
   never its target, also in a return and `bd lease clean`, which move every other path into the trash: a link is no
   cheaper to move than to delete, and a junction moved there stayed ("Access is denied"). It goes only once every

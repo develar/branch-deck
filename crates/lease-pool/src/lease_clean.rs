@@ -489,12 +489,7 @@ fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, mode: Clean
       let profiles = match scope {
         None => profile_dirs(target, PROFILE_DEPTH),
         // a kept entry that is a directory, not a link to one, and the profile dirs at and below it
-        Some(kept) => kept
-          .iter()
-          .map(|name| target.join(name))
-          .filter(|entry| entry.symlink_metadata().is_ok_and(|metadata| metadata.is_dir()))
-          .flat_map(|entry| profile_dirs(&entry, PROFILE_DEPTH - 1))
-          .collect(),
+        Some(kept) => kept_dirs(target, kept).iter().flat_map(|entry| profile_dirs(entry, PROFILE_DEPTH - 1)).collect(),
       };
       for profile in profiles {
         let mut groups = classic_units(&profile);
@@ -719,6 +714,16 @@ fn profile_dirs(dir: &Path, depth: usize) -> Vec<PathBuf> {
     return Vec::new();
   }
   subdirs(dir).into_iter().flat_map(|sub| profile_dirs(&sub, depth - 1)).collect()
+}
+
+/// The directories in `dir`, not the symlinks to one, whose name is one of `names` byte for byte, as a `delete` matches
+/// its `except` (`run_rule`): a lookup by `dir.join(name)` finds `debug` for `Debug` on a volume that ignores case or
+/// the normalization of a name (APFS, NTFS), an entry that the delete removes
+fn kept_dirs(dir: &Path, names: &[&str]) -> Vec<PathBuf> {
+  subdirs(dir)
+    .into_iter()
+    .filter(|entry| entry.file_name().is_some_and(|name| names.iter().any(|kept| name == *kept)))
+    .collect()
 }
 
 /// The directories in `dir`, not the symlinks to one

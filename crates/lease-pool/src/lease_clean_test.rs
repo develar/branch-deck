@@ -503,6 +503,42 @@ fn a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule() {
   }
 }
 
+/// An `except` entry of that delete names an entry byte for byte, for the cargo rule as for the delete: `Debug` keeps no
+/// `debug`, also on a volume that ignores case (APFS, NTFS), so the delete removes `debug` whole and the cargo rule
+/// prunes nothing of it, and a dry run measures it once
+#[cfg(unix)]
+#[test]
+fn a_kept_entry_of_a_target_dir_is_its_exact_name() {
+  let hour = Duration::from_hours(1);
+  let delete = "{ delete = \"target\", except = [\"Debug\", \"release\"] }";
+  let cargo = "{ cargo = \"target\", keep = 1, age = \"1h\" }";
+  for order in [[delete, cargo], [cargo, delete]] {
+    let (checkout, git) = git_checkout();
+    let root = checkout.path();
+    let target = root.join("target");
+    for profile in ["debug", "release"] {
+      std::fs::create_dir_all(target.join(profile)).unwrap();
+      std::fs::write(target.join(profile).join(".cargo-lock"), "").unwrap();
+      unit(&target.join(profile).join("build/git-ops/h0"), 10 * hour);
+      unit(&target.join(profile).join("build/git-ops/h1"), 9 * hour);
+    }
+    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
+    let (delete_index, cargo_index) = if order[0] == delete { (0, 1) } else { (1, 0) };
+    let checkout = root.to_str().unwrap();
+    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
+    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
+    let trash = Trash::new(trash_root.path());
+    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
+    assert_eq!(cleaned[cargo_index].trashed.len(), 1, "the stale unit of release alone: {cleaned:?}");
+    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
+    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
+    assert!(cleaned[delete_index].freed_bytes >= 2 * 4096, "{order:?}: {cleaned:?}");
+    assert_eq!(entry_names(&target), ["release"], "{order:?}");
+    assert_eq!(entry_names(&target.join("release/build/git-ops")), ["h1"], "{order:?}");
+  }
+}
+
 /// A process that works in a stale unit or in an entry of a `delete` (a shell or a build of an agent) keeps it: on Windows
 /// no rename moves it, so the unit (its files moved before put back) and the entry stay whole in the checkout, the error
 /// of the rule names them and says that a process holds them, and the rest goes through the trash; once the processes
