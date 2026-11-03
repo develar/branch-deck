@@ -539,6 +539,44 @@ fn a_kept_entry_of_a_target_dir_is_its_exact_name() {
   }
 }
 
+/// The dir of the cargo rule may be a profile dir itself (`target/debug`), its delete a whitelist that drops the
+/// uplifted artifacts: the cargo rule prunes the units of the kept dirs alone (`deps`, `build`), the delete takes the
+/// rest whole (`.fingerprint`, which it does not keep, the uplifted files), in either order, a dry run measuring each
+#[cfg(unix)]
+#[test]
+fn a_delete_of_a_profile_dir_keeps_its_unit_dirs_for_the_cargo_rule() {
+  let hour = Duration::from_hours(1);
+  let delete = "{ delete = \"target/debug\", except = [\"deps\", \"build\", \"incremental\", \".cargo-lock\"] }";
+  let cargo = "{ cargo = \"target/debug\", keep = 1, age = \"1h\" }";
+  let (old, newest) = ("1111111111111111", "3333333333333333");
+  for order in [[delete, cargo], [cargo, delete]] {
+    let (checkout, git) = git_checkout();
+    let root = checkout.path();
+    let profile = root.join("target/debug");
+    std::fs::create_dir_all(&profile).unwrap();
+    std::fs::write(profile.join(".cargo-lock"), "").unwrap();
+    std::fs::write(profile.join("aho-corasick"), vec![1u8; 8192]).unwrap();
+    classic_unit(&profile, old, 10 * hour);
+    classic_unit(&profile, newest, 2 * hour);
+    let rules = parse_clean_rules(&format!("[lease]\nclean = [{}, {}]\n", order[0], order[1])).unwrap();
+    assert!(rules.iter().all(Result::is_ok), "{rules:?}");
+    let cargo_index = usize::from(order[0] == delete);
+    let checkout = root.to_str().unwrap();
+    let dry_run = apply_clean_rules(&git, checkout, &rules, CleanMode::Measure);
+    let trash_root = tempfile::tempdir_in(root.parent().unwrap()).unwrap();
+    let trash = Trash::new(trash_root.path());
+    let mut cleaned = apply_clean_rules(&git, checkout, &rules, CleanMode::Trash(&trash));
+    assert_eq!(trash.empty(&mut cleaned), Vec::<String>::new());
+    assert!(cleaned.iter().all(|rule| rule.error.is_none() && rule.freed_bytes > 0), "{order:?}: {cleaned:?}");
+    let freed = |outcome: &[crate::lease_clean::Cleaned]| outcome.iter().map(|rule| rule.freed_bytes).collect::<Vec<_>>();
+    assert_eq!(freed(&dry_run), freed(&cleaned), "{order:?}: each rule frees what its dry run measured");
+    assert!(cleaned[cargo_index].freed_bytes >= 6 * 4096, "{order:?}: the old unit in deps and build: {cleaned:?}");
+    assert_eq!(entry_names(&profile), [".cargo-lock", "build", "deps"], "{order:?}");
+    assert!(entry_names(&profile.join("deps")).iter().all(|name| name.contains(newest)), "{order:?}");
+    assert_eq!(entry_names(&profile.join("build")), [format!("aho-corasick-{newest}")], "{order:?}");
+  }
+}
+
 /// A process that works in a stale unit or in an entry of a `delete` (a shell or a build of an agent) keeps it: on Windows
 /// no rename moves it, so the unit (its files moved before put back) and the entry stay whole in the checkout, the error
 /// of the rule names them and says that a process holds them, and the rest goes through the trash; once the processes

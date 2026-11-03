@@ -13,8 +13,9 @@
 //!
 //! A `delete` of the dir of a `cargo` rule needs `except` (`{ delete = "target", except = ["debug", "release"] }`):
 //! it removes every other entry of the target dir (the scratch an agent puts there), and the cargo rule then prunes only
-//! the profile dirs at and below the kept entries (`cargo_scope`), so the two rules never take the same path, whatever
-//! their order: a dry run counts each byte once, and the trash gets each path from one rule.
+//! the profile dirs at and below the kept entries (`cargo_scope`; of a dir that is a profile dir itself, the units in its
+//! kept dirs), so the two rules never take the same path, whatever their order: a dry run counts each byte once, and
+//! the trash gets each path from one rule.
 //!
 //! A path of a rule is relative and normalized, stays inside the slot, never names `.git`, has no symlink on its way
 //! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
@@ -447,7 +448,8 @@ impl Removals {
 
 /// The entries of the dir of a cargo rule whose profile dirs it prunes, `None` for the whole dir: with a `delete` of the
 /// same dir (`except` is not empty there, `refuse_deletes_of_cargo_dirs`), the entries every such rule keeps, since the
-/// delete removes the others whole. So the two rules never take the same path, in whatever order the file has them
+/// delete removes the others whole; of a dir that is a profile dir itself, the dirs of its units among them (`run_rule`).
+/// So the two rules never take the same path, in whatever order the file has them
 fn cargo_scope<'a>(rules: &'a [ParsedRule], rule: &CleanRule) -> Option<Vec<&'a str>> {
   let CleanRule::Cargo { dir, .. } = rule else { return None };
   rules
@@ -486,15 +488,27 @@ fn run_rule(rule: &CleanRule, scope: Option<&[&str]>, target: &Path, mode: Clean
         return Ok(removals);
       }
       let cutoff = SystemTime::now().checked_sub(*age).unwrap_or(SystemTime::UNIX_EPOCH);
-      let profiles = match scope {
-        None => profile_dirs(target, PROFILE_DEPTH),
+      // each profile dir, with the dirs of it whose units the walk reads (`None` for all)
+      let profiles: Vec<(PathBuf, Option<Vec<PathBuf>>)> = match scope {
+        None => profile_dirs(target, PROFILE_DEPTH).into_iter().map(|profile| (profile, None)).collect(),
+        // the dir is a profile dir itself: its kept dirs (`deps`, `build`, ...) alone, the delete removes the others
+        Some(kept) if is_profile_dir(target) => vec![(target.to_path_buf(), Some(kept_dirs(target, kept)))],
         // a kept entry that is a directory, not a link to one, and the profile dirs at and below it
-        Some(kept) => kept_dirs(target, kept).iter().flat_map(|entry| profile_dirs(entry, PROFILE_DEPTH - 1)).collect(),
+        Some(kept) => kept_dirs(target, kept)
+          .iter()
+          .flat_map(|entry| profile_dirs(entry, PROFILE_DEPTH - 1))
+          .map(|profile| (profile, None))
+          .collect(),
       };
-      for profile in profiles {
-        let mut groups = classic_units(&profile);
-        add_build_dir_units(&mut groups, &profile.join("build"));
-        add_incremental_units(&mut groups, &profile.join("incremental"));
+      for (profile, walked) in profiles {
+        let walks = |name: &str| walked.as_ref().is_none_or(|dirs| dirs.contains(&profile.join(name)));
+        let mut groups = classic_units(&profile, &walks);
+        if walks("build") {
+          add_build_dir_units(&mut groups, &profile.join("build"));
+        }
+        if walks("incremental") {
+          add_incremental_units(&mut groups, &profile.join("incremental"));
+        }
         for unit in stale_units(groups, *keep, cutoff) {
           removals.add(remove_together(&unit.paths, mode, trashed));
         }
@@ -707,13 +721,18 @@ pub fn clone_skips(rules: &[ParsedRule]) -> Vec<(String, Vec<String>)> {
 
 /// The profile dirs under `dir`: the ones with `.cargo-lock`, at most `depth` levels down, symlinks not followed
 fn profile_dirs(dir: &Path, depth: usize) -> Vec<PathBuf> {
-  if dir.join(".cargo-lock").symlink_metadata().is_ok() {
+  if is_profile_dir(dir) {
     return vec![dir.to_path_buf()];
   }
   if depth == 0 {
     return Vec::new();
   }
   subdirs(dir).into_iter().flat_map(|sub| profile_dirs(&sub, depth - 1)).collect()
+}
+
+/// Whether cargo builds a profile into `dir`: it has `.cargo-lock`
+fn is_profile_dir(dir: &Path) -> bool {
+  dir.join(".cargo-lock").symlink_metadata().is_ok()
 }
 
 /// The directories in `dir`, not the symlinks to one, whose name is one of `names` byte for byte, as a `delete` matches
@@ -758,10 +777,10 @@ type Groups = HashMap<String, HashMap<String, Unit>>;
 /// The units of the classic layout of a profile dir: `<name>-<16 hex>` in `deps/` (`lib<name>-<hash>.rlib`,
 /// `.rmeta`, `<name>-<hash>.d`, the executable, its `.dSYM`, `.pdb` or `.exe`, the object files), `.fingerprint/` and
 /// `build/` (a build script and its run, `out/`). One name and hash is one unit, whose files go together. The uplifted
-/// artifacts at the top of the profile dir and `.cargo-lock` are never part of one
-fn classic_units(profile: &Path) -> Groups {
+/// artifacts at the top of the profile dir and `.cargo-lock` are never part of one. Only the dirs `walks` names are read
+fn classic_units(profile: &Path, walks: &impl Fn(&str) -> bool) -> Groups {
   let mut groups = Groups::new();
-  for dir in ["deps", ".fingerprint", "build"] {
+  for dir in ["deps", ".fingerprint", "build"].into_iter().filter(|dir| walks(dir)) {
     let Ok(entries) = std::fs::read_dir(profile.join(dir)) else { continue };
     for entry in entries.flatten() {
       // a symlink is never part of a unit: its target may be out of the slot
