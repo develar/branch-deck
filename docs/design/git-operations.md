@@ -536,7 +536,9 @@ archived or an unapplied branch, Pick Remote Commits) and its undo are the inten
    (`TableState::rewrites`, the last 16, each with the new ids its core reported, `RewriteResult::rewritten`; one that
    only added commits keeps the others; an added issue reference reports every commit it recreated and the new HEAD,
    `AddIssueReferenceResult::new_commit_ids` and `new_head`, since its key changes the subject a key would find them
-   by): each id goes through them. Else, and for an id one of them may have changed without naming it (a squash, an
+   by): each id goes through them, along the newest chain of them from the HEAD of the request to HEAD now (back from
+   HEAD by the newest rewrite into each head), so a rewrite that an undo took back, HEAD where it was again, is no
+   step of it. Else, and for an id one of them may have changed without naming it (a squash, an
    unapply), the session's table is brought to HEAD (the sync in flight, `SyncReason::Open`, at most three times) and
    the id is the commit of the same author, author time and subject without the prefix (`CommitKey`, read off the
    table when the request came; a key two commits share finds neither); an ungroup takes the commits of its branch

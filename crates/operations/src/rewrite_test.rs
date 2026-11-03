@@ -2,7 +2,7 @@ use crate::engine::execute;
 use crate::events::NoEvents;
 use crate::land_execute::Accepted;
 use crate::push::push_test::{Fixture, OFFLINE, alone, assert_done, fixture, on_space, registry_on, test_host, waits_for_the_agent};
-use crate::rewrite::execute_rewrite;
+use crate::rewrite::{execute_rewrite, through_links};
 use domain_types::commit::CommitInfo;
 use domain_types::error::{ApiError, ErrorCode};
 use domain_types::fixtures::land_intent;
@@ -21,8 +21,9 @@ use pretty_assertions::assert_eq;
 use repository_model::facts::{Needs, PatronusOf};
 use repository_model::patronus_view::ContentMemo;
 use repository_model::session::{RunReporter, SessionHost, SessionKey, Subscriber, SubscriberGone, SyncRun};
+use repository_model::table::RewriteLink;
 use repository_model::warm_start::{CachedSession, frame_of};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -559,8 +560,8 @@ async fn a_drop_and_its_undo_run_through_the_engine_and_a_queued_drop_follows_a_
   assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
   assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha"]);
 
-  let fixture = self::fixture(true).await;
-  let (beta, witness) = (fixture.commit("(alpha/beta) Beta"), fixture.witness().await);
+  // HEAD is back where the drop found it: a drop queued behind a reword finds the commit by the new id the reword gave
+  let witness = fixture.witness().await;
   let (reworded, dropped) = fixture
     .one_after_another(&reword(&beta, "(alpha/beta) Beta, reworded", &witness), &drop(&beta, &witness))
     .await;
@@ -1116,4 +1117,27 @@ async fn a_stop_waiting_for_the_first_sync_is_canceled_and_the_sync_goes_on() {
   fixture.commit_first_sync(&syncs).await;
   assert_eq!(syncs.runs(), 1, "the sync the session started as it opened, joined by the open");
   assert_eq!(fixture.subjects(), ["(alpha/beta) Beta", "(alpha) Alpha"]);
+}
+
+fn link(from: &str, to: &str, rewritten: &[(&str, &str)]) -> RewriteLink {
+  RewriteLink {
+    from: from.to_owned(),
+    to: to.to_owned(),
+    rewritten: rewritten.iter().map(|(old, new)| ((*old).to_owned(), (*new).to_owned())).collect::<BTreeMap<_, _>>(),
+    appends: false,
+  }
+}
+
+/// A drop whose undo led HEAD back where it was is no step of the chain to a later head: the reword after it maps the
+/// commit as it was there, with the link of the undo or without it; through the drop the commit is gone
+#[test]
+fn the_ids_go_through_the_newest_chain_of_rewrites_to_the_head() {
+  let beta = || vec!["beta".to_owned()];
+  let (drop, undo, reword) = (link("h0", "h1", &[]), link("h1", "h0", &[]), link("h0", "h2", &[("beta", "beta2")]));
+  let reworded = Some(vec![Some("beta2".to_owned())]);
+  assert_eq!(through_links(&[drop.clone(), undo, reword.clone()], "h0", "h2", &beta()), reworded);
+  assert_eq!(through_links(&[drop.clone(), reword], "h0", "h2", &beta()), reworded);
+  assert_eq!(through_links(std::slice::from_ref(&drop), "h0", "h1", &beta()), Some(vec![None]));
+  assert_eq!(through_links(&[drop], "h0", "h9", &beta()), None);
+  assert_eq!(through_links(&[], "h0", "h0", &beta()), Some(vec![Some("beta".to_owned())]));
 }

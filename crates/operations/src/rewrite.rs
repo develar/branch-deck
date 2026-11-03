@@ -569,25 +569,33 @@ fn read_witness(git: &GitCommandExecutor, path: &str, branch: &str) -> anyhow::R
   })
 }
 
-/// The ids of `named` after the rewrites of `links` that led HEAD from `from` to `to`, each id through the new ids of
-/// each rewrite (one that only added commits keeps the others): `None` for an id one of them may have given an id it
-/// does not name; `None` when no chain of them leads there
+/// The ids of `named` after the rewrites of `links` (oldest first) that led HEAD from `from` to `to`, each id through
+/// the new ids of each rewrite (one that only added commits keeps the others): `None` for an id one of them may have
+/// given an id it does not name; `None` when no chain of them leads there. The chain is the newest one: from `to` back
+/// to `from` by the newest link into each head, so a rewrite that HEAD left behind (a drop and its undo, which brought
+/// HEAD back where it was) is no step of it
 fn through_links(links: &[RewriteLink], from: &str, to: &str, named: &[String]) -> Option<Vec<Option<String>>> {
-  let mut head = from;
-  let mut ids: Vec<Option<String>> = named.iter().cloned().map(Some).collect();
-  for link in links {
-    if head == to {
+  let mut chain = Vec::new();
+  let mut head = to;
+  for link in links.iter().rev() {
+    if head == from {
       break;
     }
-    if link.from != head {
-      continue;
+    if link.to == head {
+      chain.push(link);
+      head = &link.from;
     }
+  }
+  if head != from {
+    return None;
+  }
+  let mut ids: Vec<Option<String>> = named.iter().cloned().map(Some).collect();
+  for link in chain.iter().rev() {
     for id in &mut ids {
       *id = id.take().and_then(|id| link.rewritten.get(&id).cloned().or_else(|| link.appends.then_some(id)));
     }
-    head = &link.to;
   }
-  (head == to).then_some(ids)
+  Some(ids)
 }
 
 /// What the core of a rewrite answered, and how its outcome is undone
