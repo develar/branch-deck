@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.45.0](https://github.com/develar/branch-deck/compare/v0.44.0...v0.45.0) (2026-11-03)
+
+
+### Features
+
+* **code-symbols:** Go to Declaration and Find Usages of Java from its PSI ([ae6d09b](https://github.com/develar/branch-deck/commit/ae6d09b89fa3c32c2244457d5329e0e368f2faf5))
+* **code-symbols:** Java's highlighting from its PSI ([f0d42a6](https://github.com/develar/branch-deck/commit/f0d42a6dd5c1d4f26506b561e1ef1afcb802a1f2))
+* **code-symbols:** the summary of a Java file from its PSI ([80b8ed4](https://github.com/develar/branch-deck/commit/80b8ed402ecc3351dcf3a12749464ad050042717))
+* **code-symbols:** the summary of a Kotlin file from its PSI ([de056c2](https://github.com/develar/branch-deck/commit/de056c266d3a13abb7fd5b1d8169afb3d79f0d25))
+* **review:** the document of a review is one reading column, What Changes in whole paragraphs by word ([3b1f4cb](https://github.com/develar/branch-deck/commit/3b1f4cb432073121763d38250d0b1628de81d7f6))
+
+
+### Bug Fixes
+
+* **code-symbols:** a Kotlin local outside a function is a local, a function type's parameter binds nothing ([d6a7cce](https://github.com/develar/branch-deck/commit/d6a7ccedf16e447e319180499a86ab8bd9efd8d1))
+* **code-symbols:** bounded paths, vararg record components and C-style arrays of the Java summary ([61570cb](https://github.com/develar/branch-deck/commit/61570cbe188536f159e91c643f50808fcd194c5d))
+* **code-symbols:** Java's pattern variables and anonymous class arguments by Java's scopes ([ac951db](https://github.com/develar/branch-deck/commit/ac951dbc06d45c76216f995e551ed573afc25ad1))
+* **code-symbols:** the scopes of a Kotlin summary are the compiler's, `m!!` names `m` ([6f472c6](https://github.com/develar/branch-deck/commit/6f472c6e33d55ff674028f42959a13a03e8eabec))
+* **review:** the contents name a long new API as every list, its first three and the count, the opening names it whole ([e4ec7d9](https://github.com/develar/branch-deck/commit/e4ec7d9edefd12a143814e09ffd744f835793151))
+
+
+### Performance Improvements
+
+* **code-symbols:** the usages of a Kotlin name answered in one pass over the text ([539a1d2](https://github.com/develar/branch-deck/commit/539a1d2e14911baab0d01cb5ff4b0ab81aa83a57))
+* **code-symbols:** the usages of a name answered in one pass over the text ([da35db0](https://github.com/develar/branch-deck/commit/da35db0c59dc87e28e0987badcd1a927517af05c))
+
 ## [0.44.0](https://github.com/develar/branch-deck/compare/v0.43.0...v0.44.0) (2026-11-02)
 
 
