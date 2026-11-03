@@ -849,6 +849,7 @@ pub async fn journal_agent_operation(
           dirty: false,
           dirty_check: None,
           returned: None,
+          returned_at: None,
           lease: None,
           reclaimed: None,
         });

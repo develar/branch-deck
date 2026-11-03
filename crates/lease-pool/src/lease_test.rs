@@ -157,6 +157,7 @@ fn a_commit_during_the_check_stops_the_takeover() {
       dirty: false,
       dirty_check: None,
       returned: None,
+      returned_at: None,
       lease: Some(get.clone()),
       reclaimed: None,
     }],

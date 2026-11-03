@@ -30,6 +30,8 @@
 //!   output base its `bazel-out` link leads to, and their stop with `bazel shutdown`
 //! - `output_bases`: the Bazel output bases of the workspaces of the pool, outside the slots, by the `bazel-out` links
 //!   of the checkouts and the `DO_NOT_BUILD_HERE` of each output base
+//! - `shrink`: the free slots of the pools of the machine that a get below the minimum free space deep-cleans, in the
+//!   order it takes them
 //! - `trim`: the delete of the free slots past `branchdeck.leaseMaxSlots` of each pool of the machine, with their output
 //!   bases, and of the output bases of gone workspaces, once the free space is low (a get) or on demand (`bd lease trim`)
 
@@ -47,6 +49,7 @@ pub mod landed_work;
 pub mod lease;
 pub mod lease_clean;
 pub mod output_bases;
+pub mod shrink;
 pub mod state_file;
 pub mod trim;
 

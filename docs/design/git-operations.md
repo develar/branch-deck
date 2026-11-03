@@ -1974,7 +1974,7 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    freed, and a free slot whose directory is gone is dropped. The first free slot that is a linked worktree of the same
    common dir (its `.git` file and admin directory, no git process) and has no process in it is reserved, clean slots
    before the ones marked dirty, and among them the one returned last first (`returned`, the number of its return in
-   the pool), then the ones never returned in the order they joined. The slot returned last has the warmest index,
+   the pool; `returned_at`, its time, orders the slots of different pools), then the ones never returned in the order they joined. The slot returned last has the warmest index,
    fsmonitor daemon and build caches and the commit closest to the source; by the order they joined alone, the first
    slot served every lease and the others sat idle for days, cold and thousands of files behind. A free slot whose only
    processes are its Bazel servers is reserved with them, and the get stops them with SIGTERM (`bazel shutdown` on

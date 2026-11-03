@@ -217,6 +217,7 @@ fn an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents() {
         dirty: false,
         dirty_check: None,
         returned: None,
+        returned_at: None,
         lease: None,
         reclaimed: None,
       });

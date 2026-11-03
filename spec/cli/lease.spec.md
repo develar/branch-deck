@@ -30,6 +30,7 @@ targets:
   - ../../crates/lease-pool/src/bazel_servers.rs
   - ../../crates/lease-pool/src/output_bases.rs
   - ../../crates/lease-pool/src/trim.rs
+  - ../../crates/lease-pool/src/shrink.rs
   - ../../crates/bd-lease/src/trim_command.rs
   - ../../crates/bd-lease/src/disk_command.rs
   - ../../crates/pool-disk/src/lib.rs
@@ -203,6 +204,9 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_status_of_a_slot_leaves_its_untracked_cache_warm`)
 - Among the clean free slots a get must take the one returned last first, then the ones never returned in the order
   they joined the pool: the slot returned last has the warmest index and caches and the commit closest to the source.
+  Each return (and a reclaim) records the number of the return in the pool (`returned`) and its time (`returned_at`,
+  Unix seconds), which orders the free slots of different pools; a state without the time reads as returned before
+  every slot that has one.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_free_slot_returned_last_is_leased_first`)
 - Every checkout and move of the pool (a reused slot, a clone, a new slot after its registration) must run with
   `-c checkout.workers=0` (one worker per core), unless the repository config sets `checkout.workers`.

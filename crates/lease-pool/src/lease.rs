@@ -89,6 +89,11 @@ pub struct Slot {
   /// The number of its last return in the pool, higher for a later one: a get takes the free slot returned last first
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub returned: Option<u64>,
+  /// Unix seconds of its last return: `returned` counts within one pool, and the shrink of a get below the minimum free
+  /// space orders the free slots of every pool of the machine by this (`shrink::shrink_order`). `None` for a slot never
+  /// returned and for one a bd before this field returned
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub returned_at: Option<u64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub lease: Option<Lease>,
   /// The lease a takeover or `bd lease reclaim` took from its dead holder: a command of another session in the slot is
@@ -1606,6 +1611,7 @@ fn reserve(
     dirty: false,
     dirty_check: None,
     returned: None,
+    returned_at: None,
     lease: Some(lease.clone()),
     reclaimed: None,
   });
@@ -2577,6 +2583,7 @@ fn return_once(
     slot.dirty = false;
     slot.dirty_check = None;
     slot.returned = Some(last_return + 1);
+    slot.returned_at = Some(now());
     Ok(())
   })?;
   // the slot is free. With `maintenance.auto` false no commit in a slot starts git's maintenance, whose repack held a
@@ -3230,6 +3237,7 @@ pub fn lease_reclaim_core(git_executor: &GitCommandExecutor, params: &LeaseRecla
         slot.dirty = false;
         slot.dirty_check = None;
         slot.returned = Some(last_return + 1);
+        slot.returned_at = Some(unix_seconds(SystemTime::now()));
         slot.reclaimed = Some(Reclaimed::of(&lease, None));
       }
       Ok(())
@@ -3360,6 +3368,7 @@ const fn free_slot(name: String, path: String) -> Slot {
     dirty: false,
     dirty_check: None,
     returned: None,
+    returned_at: None,
     lease: None,
     reclaimed: None,
   }
