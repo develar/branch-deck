@@ -14,7 +14,7 @@
 
 use crate::bazel_servers::{servers_by_output_base, shutdown};
 use crate::clone_dir::{CloneSkips, clone_directory};
-use crate::free_space::{AvailableBytes, available_bytes};
+use crate::free_space::{AvailableBytes, Volume, available_bytes};
 use crate::host_slots::{HOST_HOLDER_PREFIX, host_slot_number};
 use crate::landed_work::{LandedCheck, LandedCommit, Purpose, landed_work};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, clone_skips, describe_size, disk_size, holds_gone_runs, read_clean_rules, remove_together};
@@ -3630,17 +3630,9 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
   Ok(Ok((slot, Some(path.to_string()))))
 }
 
-/// Whether `a` and `b` are on one volume (`st_dev`)
-#[cfg(unix)]
+/// Whether `a` and `b` are on one volume (`st_dev`, `free_space::Volume`); elsewhere than on Unix the move is left to git
 fn same_volume(a: &Path, b: &Path) -> bool {
-  use std::os::unix::fs::MetadataExt;
-  matches!((std::fs::metadata(a), std::fs::metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev())
-}
-
-/// Elsewhere than on Unix the move is left to git
-#[cfg(not(unix))]
-const fn same_volume(_a: &Path, _b: &Path) -> bool {
-  true
+  Volume::of(a).holds(b)
 }
 
 /// The checks of an adopt: a linked worktree of this repository, not in the pool, no process in it, clean

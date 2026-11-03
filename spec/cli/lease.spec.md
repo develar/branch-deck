@@ -191,8 +191,11 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   field, first of all), and the slot each pool's next get would take (clean before dirty, returned last first) only
   after every other, each by the clean rules of its own `.branchdeck.toml` with `keep` 0 and `age` 0 under the
   `cleaning` marker, as `bd lease clean` cleans a free slot: the worktree stays, what the rules name goes through the
-  trash of its pool, deleted once the marker is gone. A free slot with a process in it stays (`busy`), as does one
-  without rules. Before each slot the get measures (one `statfs`) and stops once the volume has the minimum and a
+  trash of its pool, deleted once the marker is gone. Only the free slots on the volume the get measures (the device of
+  its pool directory) are candidates: a pool of `branchdeck.leasePool` or a worktree adopted where it was can live on
+  another disk, whose deletes would not raise that free space; two APFS volumes of one container share their free
+  space but not their device, so their slots are passed over too. A free slot with a process in it stays (`busy`), as
+  does one without rules. Before each slot the get measures (one `statfs`) and stops once the volume has the minimum and a
   tenth of it: without the margin every later get would find the volume just below the minimum again and clean one
   more slot. Its answer names each slot it cleaned with what its rules freed (`shrunk`), and a `low_disk_space` after
   it names how many slots it cleaned and the bytes they freed. On 2026-11-03 each free slot of branch-deck held 50 to
@@ -203,13 +206,15 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots_returned_longest_ago_first`, `a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`)
   [@test] ../../crates/lease-pool/src/shrink_test.rs (`the_shrink_takes_the_free_slots_returned_longest_ago_across_pools_and_each_pools_next_one_last`, `the_next_slot_of_a_pool_is_the_one_its_get_would_take`)
+  [@test] ../../crates/lease-pool/src/free_space_test.rs (`a_volume_holds_the_paths_of_its_own_device_only`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_waited_for_the_clones_lock_checks_the_minimum_free_space_under_it`)
 - A get whose volume is still below the minimum free space after the shrink must evict free slots below
   `branchdeck.leaseMaxSlots` once (`deleting free slots below …`), never under the clones lock: in the order of the
   shrink across every pool of the machine, each as the trim deletes a slot (the `cleaning` marker, its Bazel servers
   stopped, its directory and its output bases through the trash, its registration and its entry dropped), deleted
-  before the next is chosen, one `statfs` before each, until the volume has the minimum and a tenth of it. A slot with
-  a lease of any state (a host slot too) and one with a process in it but its Bazel servers stay. Its answer names the
+  before the next is chosen, one `statfs` before each, until the volume has the minimum and a tenth of it. Only the
+  slots on the volume the get measures are candidates, as for the shrink. A slot with a lease of any state (a host slot
+  too) and one with a process in it but its Bazel servers stay. Its answer names the
   slots it deleted (`evicted`, as `bd lease trim` prints them), and a `low_disk_space` after it names how many and the
   bytes they freed. A free slot is pool property: after its build output, what is left of it is its worktree, which a
   later get clones again, and the user, told only `low_disk_space`, would delete the slots by hand.

@@ -13,10 +13,10 @@
 //!
 //! A get that the trim and the shrink (`shrink`) leave below the minimum evicts free slots below the limit as well
 //! (`evict_core`): the same removal of a slot, in the order of the shrink across every pool, each deleted before the
-//! next one is chosen, until the volume has the minimum and its margin.
+//! next one is chosen, until the volume has the minimum and its margin; only the slots on the volume of the get.
 
 use crate::bazel_servers::child_dirs;
-use crate::free_space::AvailableBytes;
+use crate::free_space::{AvailableBytes, Volume};
 use crate::lease::{
   Lease, LeaseState, LeaseStore, Pool, ServerStop, SkipReason, SkippedSlot, Slot, busy_processes, canonical_path, release_marker, settle_abandoned, slot_servers, stop_servers,
 };
@@ -346,8 +346,9 @@ pub struct EvictParams<'a> {
 /// the shrink (`shrink::shrink_order`: the ones returned longest ago first across every pool, the slot each pool's next
 /// get would take after every other), one at a time until the volume has `params.target` free: each slot is deleted with
 /// its output bases before the next `statfs`, so no slot goes that the volume did not need. A get runs it only below the
-/// minimum after the trim and the shrink, whose clean rules left the free slots only their worktrees. A slot with a lease
-/// of any state stays, as does one with a process in it but its Bazel servers, which are stopped
+/// minimum after the trim and the shrink, whose clean rules left the free slots only their worktrees. Only the slots on
+/// the volume of `params.volume` are candidates (`free_space::Volume`): the delete of another frees nothing there. A slot
+/// with a lease of any state stays, as does one with a process in it but its Bazel servers, which are stopped
 #[instrument(skip_all, fields(repository = %params.trim.repository.top_level, target = params.target))]
 pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -> Trimmed {
   let Machine { pools, bases, .. } = Machine::read(params.trim.repository, params.trim.home);
@@ -363,7 +364,11 @@ pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -
     })
     .collect();
   let slots: Vec<&[Slot]> = stores.iter().map(|(_, store)| store.slots.as_slice()).collect();
-  let order = shrink_order(&slots, |slot| Path::new(&slot.path).is_dir() && slot_servers(&scan, Path::new(&slot.path)).1.is_empty());
+  let volume = Volume::of(params.volume);
+  let order = shrink_order(&slots, |slot| {
+    let path = Path::new(&slot.path);
+    path.is_dir() && volume.holds(path) && slot_servers(&scan, path).1.is_empty()
+  });
   // the report of each pool, made as its first slot goes
   let mut reports: Vec<Option<TrimmedPool>> = stores.iter().map(|_| None).collect();
   for (index, slot) in order {

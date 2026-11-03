@@ -13,6 +13,51 @@ pub fn available_bytes(path: &Path) -> Option<u64> {
   platform::available_bytes(path)
 }
 
+/// The volume of a path as a get below the minimum free space counts it: the device (`st_dev`) of the path the get
+/// measures. A free slot of another device frees nothing on it, whatever its delete frees: a pool of
+/// `branchdeck.leasePool` or a worktree that `bd lease adopt` kept where it was can live on another disk. Two APFS
+/// volumes of one container share their free space but not their device, so a slot there is passed over too: a get
+/// frees less than it could, never deletes for nothing. Elsewhere than on Unix every path is on it (no free space is
+/// measured there)
+pub struct Volume {
+  #[cfg(unix)]
+  device: Option<u64>,
+}
+
+impl Volume {
+  /// The volume of `path`; one whose `stat` fails holds no path
+  pub fn of(path: &Path) -> Self {
+    #[cfg(unix)]
+    {
+      Self { device: device(path) }
+    }
+    #[cfg(not(unix))]
+    {
+      let _ = path;
+      Self {}
+    }
+  }
+
+  /// Whether `path` is on this volume (one `stat`); a path that is gone is not
+  pub fn holds(&self, path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+      self.device.is_some() && device(path) == self.device
+    }
+    #[cfg(not(unix))]
+    {
+      let _ = path;
+      true
+    }
+  }
+}
+
+#[cfg(unix)]
+fn device(path: &Path) -> Option<u64> {
+  use std::os::unix::fs::MetadataExt;
+  std::fs::metadata(path).ok().map(|metadata| metadata.dev())
+}
+
 #[cfg(target_os = "macos")]
 #[expect(unsafe_code, reason = "statfs(2), which std does not wrap")]
 mod platform {
@@ -65,3 +110,7 @@ mod platform {
     None
   }
 }
+
+#[cfg(test)]
+#[path = "free_space_test.rs"]
+mod free_space_test;

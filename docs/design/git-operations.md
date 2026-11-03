@@ -1977,7 +1977,11 @@ latter); a return and a clean take only the pool lock, so neither waits for a cl
    `.branchdeck.toml`) with keep 0 and age 0, under the `cleaning` marker as `bd lease clean` does, through the trash
    of its pool, deleted once the marker is gone: the slots of every pool by `returned_at`, the time of the return
    (`returned` counts within one pool), the one returned longest ago first, and the slot each pool's next get would
-   take after every other, since that get reuses its output. A slot with a process in it stays. After each slot one
+   take after every other, since that get reuses its output. Only the slots on the device of the pool directory of the
+   get count, as the one `statfs` measures that volume alone: without it a get whose pool lives on another disk
+   (`branchdeck.leasePool`) cleaned and then deleted every free slot of the home disk and still refused. Two APFS
+   volumes of one container share their free space and not their device, a case that frees less than it could and
+   deletes nothing for nothing. A slot with a process in it stays. After each slot one
    `statfs`; the shrink stops at the minimum and a tenth of it, a margin that keeps the next gets, whose leases build,
    from cleaning one more slot each, smaller than a whole slot, which would clean two where one lifts the volume over
    the minimum. The trim comes first: the slots past the limit go anyway, and a clean of them would be work for

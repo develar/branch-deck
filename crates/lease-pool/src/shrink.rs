@@ -5,13 +5,13 @@
 //! (`trim`) left the volume below `branchdeck.leaseMinFree`, a get applies the clean rules of each free slot of every
 //! pool of the machine with keep 0 and age 0, the ones returned longest ago first, and the slot each pool's next get
 //! takes last, until the volume has the minimum and its margin (`lease::shrink_target`): the worktree stays, only what
-//! the rules name goes.
+//! the rules name goes. Only the slots on the volume the get measures are candidates (`free_space::Volume`).
 //!
 //! A slot is cleaned only while it is free, under the `cleaning` marker that keeps every get off it, as `bd lease clean`
 //! cleans one; what the rules remove goes into the trash of its pool and is deleted once the marker is gone, and the
 //! free space is measured after each slot (one `statfs`).
 
-use crate::free_space::AvailableBytes;
+use crate::free_space::{AvailableBytes, Volume};
 use crate::lease::{Lease, LeaseState, LeaseStore, Pool, SkipReason, SkippedSlot, Slot, busy_processes, release_marker};
 use crate::lease_clean::{CleanMode, CleanOverrides, Cleaned, Trash, apply_clean_rules, read_clean_rules};
 use crate::trim::{machine_pools, mark_free};
@@ -85,10 +85,12 @@ impl ShrunkSlot {
 }
 
 /// Clean the free slots of every pool of this machine (the pool of `params.repository` and each pool under
-/// `~/.branch-deck/pool`) by their own clean rules with keep 0 and age 0, in the order of `shrink_order`, until the
-/// volume has `params.target` free: before each slot one `statfs`, so the shrink stops at the first slot past it. A free
-/// slot with a process in it stays (`busy`), as `bd lease clean` skips it; one without rules or whose rules can't be
-/// read frees nothing and is passed over; one leased meanwhile is passed over. A failed rule never stops the others
+/// `~/.branch-deck/pool`) on the volume of `params.volume` (`free_space::Volume`) by their own clean rules with keep 0
+/// and age 0, in the order of `shrink_order`, until the volume has `params.target` free: before each slot one `statfs`,
+/// so the shrink stops at the first slot past it. A free slot on another volume frees nothing on this one and is no
+/// candidate. A free slot with a process in it stays (`busy`), as `bd lease clean` skips it; one without rules or whose
+/// rules can't be read frees nothing and is passed over; one leased meanwhile is passed over. A failed rule never stops
+/// the others
 #[instrument(skip_all, fields(repository = %params.repository.top_level, target = params.target))]
 pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>) -> Shrunk {
   let pools: Vec<(String, LeaseStore)> = machine_pools(params.repository, params.home)
@@ -106,7 +108,8 @@ pub fn shrink_core(git_executor: &GitCommandExecutor, params: &ShrinkParams<'_>)
     process_scan: scan.is_available(),
     ..Shrunk::default()
   };
-  let present = |slot: &Slot| slot.lease.is_none() && Path::new(&slot.path).is_dir();
+  let volume = Volume::of(params.volume);
+  let present = |slot: &Slot| slot.lease.is_none() && Path::new(&slot.path).is_dir() && volume.holds(Path::new(&slot.path));
   for (_, store) in &pools {
     for slot in store.slots.iter().filter(|slot| present(slot)) {
       let processes = scan.inside(Path::new(&slot.path));
