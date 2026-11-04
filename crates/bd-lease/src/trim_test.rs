@@ -165,7 +165,8 @@ fn a_free_slot_with_a_process_in_it_stays_and_the_next_one_goes() {
 
 /// Below a minimum no volume has, the trim deletes the slots past the limit first, the orphans with them, and the get
 /// refuses naming them; the slot within the limit stays with its output base, as no shrink and no eviction runs for a
-/// minimum past the size of the volume
+/// minimum past the size of the volume. Where no free space is measured (Windows) nothing is checked: the get leases
+/// and nothing is deleted
 #[test_log::test]
 fn a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted() {
   let trim = TrimFixture::new();
@@ -173,6 +174,15 @@ fn a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_de
   git(&fixture.repo, &["config", "branchdeck.leaseMaxSlots", "1"]);
   git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
   let (exit_code, output) = fixture.run(&["lease", "get", "--holder", "low"]);
+  if cfg!(not(unix)) {
+    assert_eq!(exit_code, 0, "{output}");
+    assert!(output.get("trimmed").is_none(), "{output}");
+    assert_eq!(states(&fixture.status()).len(), 3);
+    for kept in ["slot-1", "gone", "slot-3"] {
+      assert!(trim.base(kept).is_dir(), "{kept}");
+    }
+    return;
+  }
   assert_error(&output, exit_code, (4, "low_disk_space"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("the get deleted 2 free slot(s) past `branchdeck.leaseMaxSlots`"), "{message}");
