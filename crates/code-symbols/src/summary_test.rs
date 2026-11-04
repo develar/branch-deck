@@ -6,7 +6,7 @@ use crate::test_support::{check_golden, declaration, fixture, summary_of};
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
 /// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 72_696_644;
+const EXTRACTOR_VERSION: u32 = 566_444_020;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -66,9 +66,9 @@ fn the_psi_syntax_revision_is_the_one_cargo_builds() {
   let manifest = include_str!("../Cargo.toml");
   let lock = include_str!("../../../Cargo.lock");
   for name in ["java-syntax", "kotlin-syntax", "psi-builder"] {
-    let dependency = format!("{name} = {{ git = \"https://github.com/JetBrains/accio\", rev = \"{PSI_SYNTAX_REVISION}\"");
+    let dependency = format!("{name} = {{ git = \"https://github.com/develar/psi-syntax\", rev = \"{PSI_SYNTAX_REVISION}\"");
     assert!(manifest.contains(&dependency), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.toml");
-    let locked = format!("name = \"{name}\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/JetBrains/accio?rev={PSI_SYNTAX_REVISION}#{PSI_SYNTAX_REVISION}\"");
+    let locked = format!("name = \"{name}\"\nversion = \"0.1.0\"\nsource = \"git+https://github.com/develar/psi-syntax?rev={PSI_SYNTAX_REVISION}#{PSI_SYNTAX_REVISION}\"");
     assert!(lock.contains(&locked), "{name} is not at {PSI_SYNTAX_REVISION} in Cargo.lock");
   }
 }
