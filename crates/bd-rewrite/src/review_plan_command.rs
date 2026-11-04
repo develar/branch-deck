@@ -6,7 +6,7 @@
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
 //! dependency order. Reads only; the baseline is that of the checked out branch.
 //!
-//! Its output has `"schema": 17` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
+//! Its output has `"schema": 18` (`REVIEW_PLAN_SCHEMA_VERSION`), the other outputs of `bd` 2: the plan is
 //! experimental; its version 3 replaced the `risk` of each file with `files` and the `fan_in` of each declaration
 //! with `usages`, version 4 added the `units`, the changes a reviewer reads once in the order of the story,
 //! version 5 the `generated` files (`mechanical: "generated"`, with why), the lock files among them, and version 6
@@ -57,7 +57,7 @@ use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
 /// The version of the output of `bd review-plan`
-pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 17;
+pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 18;
 
 /// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]

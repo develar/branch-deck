@@ -1,3 +1,4 @@
+use crate::review_plan_command::REVIEW_PLAN_SCHEMA_VERSION;
 use bd_cli::fixture_test::{assert_covered, commit_all, commit_subjects, git, repo_with_baseline, run_in, write};
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -23,7 +24,13 @@ fn prints_the_commits_since_the_review() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (&output["schema"], &output["branch"], &output["title"], &output["base"], &output["head"]),
-    (&json!(17), &json!("test-user/virtual/auth"), &json!("auth"), &json!(base), &json!(tip))
+    (
+      &json!(REVIEW_PLAN_SCHEMA_VERSION),
+      &json!("test-user/virtual/auth"),
+      &json!("auth"),
+      &json!(base),
+      &json!(tip)
+    )
   );
   assert_eq!(
     output["interdiff"],

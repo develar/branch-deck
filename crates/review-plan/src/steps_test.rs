@@ -4,7 +4,7 @@ use crate::fan_in::NO_ACCIO;
 use crate::fan_in_test::Counts;
 use crate::files::MechanicalKind;
 use crate::prose::ProseChange;
-use crate::steps::{CommitRole, ConcernsReason, JoinedUnit, ReviewStep, ShownElsewhere, StepSource, StepStop, TEST_DEPTH, commit_title, join_units, tells_a_story};
+use crate::steps::{CommitRole, ConcernsReason, JoinedUnit, ProofFile, ReviewStep, ShownElsewhere, StepSource, StepStop, StepTest, commit_title, join_units, tells_a_story};
 use crate::test_support::{plan_of, plan_of_range, range};
 use crate::units::{ReviewUnit, UnitBlock, UnitKind, UnitSlice};
 use domain_types::commit_body::CommitBodyBlock;
@@ -283,44 +283,46 @@ fn reaching(path: &str, line: u32, reads_as: &str, depth: u32, via: &[&str]) -> 
   }
 }
 
-/// A test of a step as a test reads it: its name, whether the range adds or changes it, its depth and the callers on
-/// the way
-type Reached<'a> = (&'a str, bool, u32, Vec<&'a str>);
+/// A test of the change as a test reads it: its name, its fewest calls to the code and what of the code it reaches
+type ProofTest<'a> = (&'a str, u32, Vec<&'a str>);
 
-/// The declarations the tests reach in the steps of `plan` with their tests, and those none reaches
-type ReachedAndUnreached<'a> = (Vec<(&'a str, Vec<Reached<'a>>)>, Vec<(&'a str, Option<u32>)>);
-
-/// The declarations the tests reach in the steps of `plan`, each with its tests, sorted, and those none reaches, with
-/// the calls the walk went
-fn reached_and_unreached(plan: &ReviewPlan) -> ReachedAndUnreached<'_> {
-  let mut reached: Vec<(&str, Vec<Reached<'_>>)> = plan
-    .steps
-    .steps
-    .iter()
-    .flat_map(|step| &step.tests.reached)
-    .map(|reached| {
-      let tests = reached
-        .tests
-        .iter()
-        .map(|test| (test.name.as_str(), test.unit.is_some(), test.depth, test.via.iter().map(String::as_str).collect()))
-        .collect();
-      (reached.name.as_str(), tests)
-    })
-    .collect();
-  reached.sort();
-  let unreached = plan
-    .steps
-    .steps
-    .iter()
-    .flat_map(|step| &step.tests.unreached)
-    .map(|unreached| (unreached.name.as_str(), unreached.within))
-    .collect();
-  (reached, unreached)
+/// The tests of the steps of `plan`, each list sorted: the tests of the change by file, each with its depth and the code
+/// it reaches; the tests it did not touch that call the code; the code none reaches; the declarations a walk left
+/// unknown; the declarations a test reaches
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Tested<'a> {
+  proof: Vec<(&'a str, Vec<ProofTest<'a>>)>,
+  callers: Vec<(&'a str, Vec<&'a str>)>,
+  unreached: Vec<&'a str>,
+  unfollowed: u32,
+  reached: u32,
 }
 
-/// The tests that reach a declaration of the code of a step, as accio answers by its place at the head: a test the
-/// range adds or changes by its unit, one the change did not touch apart; a declaration no test reaches says how far the
-/// walk went; each declaration at the line of its name at the head. Without accio no step knows its tests, and the plan says why
+fn tested(plan: &ReviewPlan) -> Tested<'_> {
+  fn names(names: &[String]) -> Vec<&str> {
+    names.iter().map(String::as_str).collect()
+  }
+  let mut tested = Tested::default();
+  for tests in plan.steps.steps.iter().map(|step| &step.tests) {
+    for file in &tests.proof {
+      let of_file = file.tests.iter().map(|test| (test.name.as_str(), test.depth, names(&test.reaches))).collect();
+      tested.proof.push((file.path.as_str(), of_file));
+    }
+    tested.callers.extend(tests.callers.iter().map(|test| (test.name.as_str(), names(&test.reaches))));
+    tested.unreached.extend(tests.unreached.iter().map(|it| it.name.as_str()));
+    tested.unfollowed += tests.unfollowed;
+    tested.reached += tests.reached;
+  }
+  tested.proof.sort();
+  tested.callers.sort();
+  tested.unreached.sort_unstable();
+  tested
+}
+
+/// The tests that reach a declaration of the code of a step, as accio answers by its place at the head: the tests of the
+/// change by their file, the tests it did not touch only when they call the code; a declaration no test reaches only
+/// when accio walked every caller, one it stopped short of a count; each declaration at the line of its name at the
+/// head. Without accio no step knows its tests, and the plan says why
 #[test]
 fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   let repo = TestRepo::new();
@@ -338,7 +340,14 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   let head = repo.create_commit_with_files(
     "The manager allows a stored layout\n\nThe open asks the stored layout, and the manager is empty without one.",
     &[
-      ("src/a/Manager.kt", &manager.replace("fun open(): Int = 1", "fun open(): Int = 2").replace("= true", "= false").replace("}\n", "\n  fun allowed(id: String): Boolean = id.isNotEmpty()\n}\n")),
+      (
+        "src/a/Manager.kt",
+        &manager
+          .replace("fun open(): Int = 1", "fun open(): Int = 2")
+          .replace("= true", "= false")
+          .replace("}\n", "\n  fun allowed(id: String): Boolean = id.isNotEmpty()\n}\n"),
+      ),
+      ("src/a/Frame.kt", "package a\n\nfun paint() = 1\n"),
       (
         "test/a/ManagerTest.kt",
         "package a\n\nimport org.junit.Test\n\nclass ManagerTest {\n  @Test fun `opens`() = check(Manager().open() == 2)\n\n  @Test fun `the project open may show only the stored layout`() = check(Manager().allowed(\"Project\"))\n}\n",
@@ -347,57 +356,58 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
   );
   let tests = |tests: Vec<ReachingTest>, cut: Option<WalkCut>| TestReach { tests, cut, unavailable: false };
   let index = Counts::of(&[]).with_tests([
-    ("src/a/Manager.kt:4", tests(vec![reaching("test/a/ManagerTest.kt", 6, "opens", 1, &[])], None)),
+    (
+      "src/a/Manager.kt:4",
+      tests(
+        vec![
+          reaching("test/a/ManagerTest.kt", 6, "opens", 1, &[]),
+          reaching("test/a/StartTest.kt", 2, "the start opens the manager", 1, &[]),
+        ],
+        None,
+      ),
+    ),
     (
       "src/a/Manager.kt:8",
       tests(
         vec![
-          reaching("test/a/ManagerTest.kt", 8, "the project open may show only the stored layout", 1, &[]),
+          reaching("test/a/ManagerTest.kt", 8, "the project open may show only the stored layout", 2, &["Frame.show"]),
           reaching("test/a/LayoutTest.kt", 3, "the layout is kept", 2, &["Frame.show"]),
         ],
         None,
       ),
     ),
-    ("src/a/Manager.kt:6", tests(Vec::new(), Some(WalkCut::Depth))),
+    ("src/a/Frame.kt:3", tests(Vec::new(), Some(WalkCut::Depth))),
   ]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
-  assert_eq!(index.tested(), ["src/a/Manager.kt:4", "src/a/Manager.kt:6", "src/a/Manager.kt:8"]);
+  assert_eq!(index.tested(), ["src/a/Frame.kt:3", "src/a/Manager.kt:4", "src/a/Manager.kt:6", "src/a/Manager.kt:8"]);
   assert_eq!(index.revisions(), std::slice::from_ref(&head));
-  let (reached, unreached) = reached_and_unreached(&plan);
   assert_eq!(
-    reached,
-    [
-      (
-        "allowed",
-        vec![
-          ("the project open may show only the stored layout", true, 1, vec![]),
-          ("the layout is kept", false, 2, vec!["Frame.show"])
-        ]
-      ),
-      ("open", vec![("opens", true, 1, vec![])]),
-    ],
+    tested(&plan),
+    Tested {
+      // the file of the change in each step whose code its tests reach (`open` and `allowed` are two concerns), each test
+      // with what it reaches, through other callers too
+      proof: vec![
+        ("test/a/ManagerTest.kt", vec![("opens", 1, vec!["open"])]),
+        ("test/a/ManagerTest.kt", vec![("the project open may show only the stored layout", 2, vec!["allowed"])]),
+      ],
+      // of the tests it did not touch, the one that calls the code; the layout test reaches it through a caller only
+      callers: vec![("the start opens the manager", vec!["open"])],
+      // no caller of `isEmpty` is a test; the walk from `paint` of the new file stopped with callers left: unknown
+      unreached: vec!["isEmpty"],
+      unfollowed: 1,
+      reached: 2,
+    },
     "{:?}",
     plan.steps
   );
-  assert_eq!(unreached, [("isEmpty", Some(TEST_DEPTH))]);
-  // each at the line of its name at the head, which the review shows
-  let mut places: Vec<(&str, &str, u32)> = plan
+  // the code none reaches at the line of its name at the head, which the review shows
+  let unreached: Vec<(&str, u32)> = plan
     .steps
     .steps
     .iter()
-    .flat_map(|step| {
-      let tests = &step.tests;
-      let reached = tests.reached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line));
-      reached
-        .chain(tests.unreached.iter().map(|it| (it.name.as_str(), it.path.as_str(), it.line)))
-        .collect::<Vec<_>>()
-    })
+    .flat_map(|step| step.tests.unreached.iter().map(|it| (it.path.as_str(), it.line)))
     .collect();
-  places.sort_unstable();
-  assert_eq!(
-    places,
-    [("allowed", "src/a/Manager.kt", 8), ("isEmpty", "src/a/Manager.kt", 6), ("open", "src/a/Manager.kt", 4)]
-  );
+  assert_eq!(unreached, [("src/a/Manager.kt", 6)]);
   assert!(plan.steps.steps.iter().all(|step| step.tests.answered));
   assert_eq!(plan.index_note, None);
 
@@ -410,11 +420,11 @@ fn the_tests_that_reach_the_code_of_a_step_and_the_code_none_reaches() {
     },
   )]);
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
-  assert!(!reached_and_unreached(&plan).1.iter().any(|(name, _)| *name == "isEmpty"), "{:?}", plan.steps);
+  assert!(!tested(&plan).unreached.contains(&"isEmpty"), "{:?}", plan.steps);
 
   // without accio: no step knows its tests
   let plan = plan_of_range(&repo, &base, &head);
-  assert_eq!(reached_and_unreached(&plan), (vec![], vec![]));
+  assert_eq!(tested(&plan), Tested::default());
   assert!(plan.steps.steps.iter().all(|step| !step.tests.answered));
   assert_eq!(plan.index_note.as_deref(), Some(NO_ACCIO));
 }
@@ -445,11 +455,65 @@ fn a_fixture_of_a_test_is_no_code_a_step_asks_the_tests_of() {
   let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
   assert_eq!(index.tested(), ["src/store.rs:1"]);
   assert_eq!(
-    reached_and_unreached(&plan),
-    (vec![("size", vec![("size is right", true, 1, vec![])])], vec![]),
+    tested(&plan),
+    Tested {
+      proof: vec![("src/store.rs", vec![("size is right", 1, vec!["size"])])],
+      reached: 1,
+      ..Tested::default()
+    },
     "{:?}",
     plan.steps
   );
+}
+
+/// The declarations at the top of a new file are code of its step, the test functions of a new test file are tests of
+/// the change, and the step of those tests proves the step whose code they reach
+#[test]
+fn a_new_file_is_code_its_tests_are_the_changes_and_their_step_proves_the_other() {
+  let repo = TestRepo::new();
+  let base = repo.create_commit_with_files("Add", &[("src/a/Model.kt", "package a\n\nclass Model\n")]);
+  repo.create_commit_with_files(
+    "The joiner joins the rows of a link\n\nThe joiner runs after the filters on each line.",
+    &[(
+      "src/a/Joiner.kt",
+      "package a\n\nclass Joiner {\n  fun join(rows: List<String>) = rows.joinToString(\"\")\n}\n\nfun canJoin(row: String) = row.isNotEmpty()\n",
+    )],
+  );
+  let head = repo.create_commit_with_files(
+    "The tests of the joiner\n\nThe tests join two rows and three.",
+    &[(
+      "test/a/JoinerTest.kt",
+      "package a\n\nimport org.junit.Test\n\nclass JoinerTest {\n  @Test fun `joins two rows`() = check(Joiner().join(listOf(\"a\", \"b\")) == \"ab\")\n}\n",
+    )],
+  );
+  let index = Counts::of(&[]).with_tests([(
+    "src/a/Joiner.kt:3",
+    TestReach {
+      tests: vec![reaching("test/a/JoinerTest.kt", 6, "joins two rows", 1, &[])],
+      ..TestReach::default()
+    },
+  )]);
+  let plan = plan_of(&repo, Some(&index), &range(&repo, &base, &head)).unwrap();
+  // the class and the function at the top of the new file; no test file, no member of a type
+  assert_eq!(index.tested(), ["src/a/Joiner.kt:3", "src/a/Joiner.kt:7"]);
+  let steps = &plan.steps.steps;
+  assert_eq!(steps.len(), 2, "{steps:?}");
+  assert_eq!(
+    steps[0].tests.proof,
+    [ProofFile {
+      path: "test/a/JoinerTest.kt".to_string(),
+      tests: vec![StepTest {
+        unit: Some("new:test/a/JoinerTest.kt".to_string()),
+        path: "test/a/JoinerTest.kt".to_string(),
+        line: 6,
+        name: "joins two rows".to_string(),
+        depth: 1,
+        reaches: vec!["Joiner".to_string()],
+      }],
+    }]
+  );
+  assert_eq!(tested(&plan).unreached, ["canJoin"]);
+  assert_eq!((steps[0].proves.as_slice(), steps[1].proves.as_slice()), (&[][..], &[0][..]));
 }
 
 /// A file of no language is cut by its blocks: each block in the step of the commit that wrote it; the file has its main

@@ -4,18 +4,25 @@ import { useSelectReviewFile } from "@/hooks/useSelectReviewFile"
 import type { FactList, StepFacts } from "@/presenters/review-story"
 
 /**
- * The facts of a step, muted (spec/branch/review-tour.spec.md, "In the Review Window"): the tests that reach its code,
- * "New API: Cache and Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its place in the
- * diffs (a declaration, the first use of a link), its file selected, a list the contents cut ending with the count of
- * the rest ("Cache, Reader, Store and 16 more"); of a step none of whose code lands, the commit that took it out, which
- * shows its step; its units the section of another step shows, which shows that step; nothing without a fact. The
- * contents set them in one line, " · " apart; an opening (`lines`) each fact on a line of its own, its tests first, a
- * line each ("New or changed tests reach allowed"), every name in the code font
+ * The facts of a step, muted (spec/branch/review-tour.spec.md, "In the Review Window"): the files of the tests of the
+ * change that reach its code ("Tested by ManagerTest.kt", each its tests in its hover), how many tests it did not touch
+ * call it, "New API: Cache and Reader" and "New link between modules: Reader.kt → Cache.kt", each name showing its
+ * place in the diffs (a file of tests at its first test, a declaration, the first use of a link), its file selected, a
+ * list the contents cut ending with the count of the rest ("Cache, Reader, Store and 16 more"); of a step none of whose
+ * code lands, the commit that took it out, which shows its step; its units the section of another step shows, which
+ * shows that step; the steps its tests prove ("Proves step 2"); nothing without a fact. The contents set them in one
+ * line, " · " apart; an opening (`lines`) each fact on a line of its own, its tests first, every name in the code font
  */
 export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFacts; testId: string; lines?: boolean }) {
   const parts = [
-    ...facts.tests.map((fact, index) => <FactPlaces key={`tests:${fact.key}:${index}`} title={fact.words} list={fact.names} testId="review-step-tested" kind={fact.key} />),
+    ...facts.tests.map((fact, index) => (
+      <FactPlaces key={`tests:${fact.key}:${index}`} title={fact.words} list={fact.names} testId="review-step-tested" kind={fact.key} detail={fact.detail} />
+    )),
+    ...(facts.unfollowed === null ? [] : [<span key="unfollowed">{facts.unfollowed}</span>]),
     ...(facts.line === null ? [] : [<span key="line">{facts.line}</span>]),
+    ...facts.proves.map((proved, index) => (
+      <StepLink key={`proves:${proved.key}`} before={index === 0 ? "Proves " : ""} words={proved.step} step={proved.stepId} title={null} testId="review-step-proves" />
+    )),
     ...(facts.takenOutBy === null ? [] : [<TakenOutBy key="taken" commit={facts.takenOutBy} />]),
     ...facts.shownElsewhere.map(shown => (
       <StepLink key={`shown:${shown.key}`} before={`${shown.words} `} words={shown.step} step={shown.stepId} title={null} testId="review-step-shown-elsewhere" />
@@ -62,10 +69,10 @@ export function StepFactsLine({ facts, testId, lines = false }: { facts: StepFac
  * The names of a fact, a list in a sentence as `joinNames` writes one: "a, b and c", "a, b, c and 16 more"; each name in
  * the code font, breakable at its dots, its comma on its line (`CodeGlue`)
  */
-function FactPlaces({ title, list: { places, more }, testId, kind }: { title: string; list: FactList; testId: string; kind?: string }) {
+function FactPlaces({ title, list: { places, more }, testId, kind, detail = null }: { title: string; list: FactList; testId: string; kind?: string; detail?: string | null }) {
   const navigator = useSelectReviewFile()
   return (
-    <span data-kind={kind}>
+    <span data-kind={kind} title={detail ?? undefined}>
       {title}
       {places.map((fact, index) => {
         const last = index === places.length - 1
@@ -82,6 +89,7 @@ function FactPlaces({ title, list: { places, more }, testId, kind }: { title: st
                 disabled={navigator === null}
                 data-testid={testId}
                 data-path={fact.place.path}
+                title={fact.detail}
                 onClick={() => navigator?.show(fact.place)}
               >
                 <BreakableCode text={fact.label} />
@@ -145,14 +153,13 @@ function StepLink({
 }
 
 /**
- * The warning of a step no test reaches and no scenario proves: "No test reaches paint", "… within 3 calls" when the walk
- * stopped with callers left, each name at its place in the code font
+ * The warning of a step no test reaches, accio having walked every caller, and no scenario proves: "No test reaches
+ * paint", each name at its place in the code font
  */
 export function UnprovenFact({ unproven, testId }: { unproven: NonNullable<StepFacts["unproven"]>; testId: string }) {
   return (
     <span className="text-xs text-warning" data-testid={testId}>
       <FactPlaces title="No test reaches" list={unproven.names} testId="review-step-unreached" />
-      {unproven.within !== null && ` within ${unproven.within} calls`}
     </span>
   )
 }

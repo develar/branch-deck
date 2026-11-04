@@ -73,18 +73,15 @@
   <ul class="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="review-opening-facts">
     <li data-testid="review-step-fact">
       <span data-kind="change">
-        New or changed tests reach
-        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/a/Manager.kt" data-testid="review-step-tested" type="button">
-          allowed
+        Tested by
+        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="test/a/ManagerTest.kt" data-testid="review-step-tested" title="the open may show only the stored layout → allowed" type="button">
+          ManagerTest.kt
         </button>
       </span>
     </li>
     <li data-testid="review-step-fact">
-      <span data-kind="existing">
-        1 existing test reaches
-        <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/b/Welcome.kt" data-testid="review-step-tested" type="button">
-          focus
-        </button>
+      <span data-kind="existing" title="the welcome focuses its project → focus">
+        1 existing test calls it
       </span>
     </li>
     <li data-testid="review-step-fact">

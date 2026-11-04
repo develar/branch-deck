@@ -116,8 +116,11 @@
             </div>
           </div>
           <span class="text-xs text-muted-foreground" data-testid="review-contents-step-facts">
-            <span>
-              Tests reach 2 of 3 declarations
+            <span data-kind="change">
+              Tested by
+              <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="test/a/ManagerTest.kt" data-testid="review-step-tested" title="the open may show only the stored layout → allowed" type="button">
+                ManagerTest.kt
+              </button>
             </span>
             ·
             <span>
@@ -148,15 +151,6 @@
               </p>
             </div>
           </div>
-          <span class="text-xs text-warning" data-testid="review-contents-step-unproven">
-            <span>
-              No test reaches
-              <button class="rounded-sm font-mono outline-none hover:text-foreground hover:underline focus-visible:bd-focus disabled:no-underline" data-path="src/a/Frame.kt" data-testid="review-step-unreached" type="button">
-                paint
-              </button>
-            </span>
-            within 3 calls
-          </span>
         </div>
       </li>
       <li class="flex min-w-0 flex-col gap-1" data-step="3d8f4bd0f6cefa4975361c1037d81e9b4853ac55" data-testid="review-contents-step">

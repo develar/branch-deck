@@ -322,7 +322,17 @@ function openingOf(step: NonNullable<DiffSection["step"]>, openings: ReadonlyMap
       evidence: [],
       story: null,
       commits: [],
-      facts: { line: null, tests: [], newApi: { places: [], more: 0 }, moduleLinks: { places: [], more: 0 }, takenOutBy: null, shownElsewhere: [], unproven: null },
+      facts: {
+        line: null,
+        tests: [],
+        unfollowed: null,
+        proves: [],
+        newApi: { places: [], more: 0 },
+        moduleLinks: { places: [], more: 0 },
+        takenOutBy: null,
+        shownElsewhere: [],
+        unproven: null,
+      },
     }
   )
 }

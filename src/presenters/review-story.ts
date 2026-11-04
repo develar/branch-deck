@@ -201,12 +201,17 @@ function tellsParts(plan: Pick<ReviewPlan, "steps">, step: ReviewStep): boolean 
   return step.concern !== null || plan.steps.source.kind === "message"
 }
 
-/** A name of a fact of a step that shows its place: a new declaration, a new link between modules at its first use */
+/**
+ * A name of a fact of a step that shows its place: a file of tests of the change, a declaration, a new link between
+ * modules at its first use
+ */
 export interface FactPlace {
   readonly key: string
-  /** "Cache", "Reader.kt → Cache.kt" */
+  /** "Cache", "Reader.kt → Cache.kt", "ManagerTest.kt" */
   readonly label: string
   readonly place: ReviewPlace
+  /** Its hover: of a file of tests, the tests it holds that reach the step, a line each, and what each reaches */
+  readonly detail?: string
 }
 
 /**
@@ -220,17 +225,22 @@ export interface FactList {
 }
 
 /**
- * A fact of the tests of a step in its opening, a line of its own: its words and every declaration of the step it names,
- * each at its place ("New or changed tests reach allowed", "1 existing test reaches focus", "No test reaches show")
+ * A fact of the tests of a step, a line of its own in its opening: its words and the names it lists, each at its place
+ * ("Tested by ManagerTest.kt and LayoutTest.kt", "2 existing tests call it", "No test reaches show")
  */
 export interface TestFact {
-  /** "change": the tests the range adds or changes; "existing": the tests it did not touch; "none": the code no test reaches */
+  /**
+   * "change": the files of the tests of the change that reach its code; "existing": the tests it did not touch that
+   * call its code, a count; "none": its code no test reaches, accio having walked every caller
+   */
   readonly key: "change" | "existing" | "none"
   readonly words: string
   readonly names: FactList
+  /** Its hover: of the tests it did not touch, their names, a line each; null for none */
+  readonly detail: string | null
 }
 
-/** "Tests reach 2 of 3 declarations", "Proven by restart.json": the facts of a step, and its warning (`presentStepFacts`) */
+/** "Tested by ManagerTest.kt", "Proven by restart.json": the facts of a step, and its warning (`presentStepFacts`) */
 export interface StepFacts {
   /**
    * Its facts in one line: in the contents how many of its declarations the tests reach, the scenarios that prove it and
@@ -239,9 +249,17 @@ export interface StepFacts {
   readonly line: string | null
   /**
    * The tests that reach its code and its code none reaches, each name at its place: in the opening a line each, every
-   * name; in the contents only its code none reaches beside code a test reaches, a long list cut
+   * name; in the contents the files of the tests of the change and its code none reaches beside a scenario, a long list
+   * cut
    */
   readonly tests: readonly TestFact[]
+  /**
+   * In the opening, of a step no test of the change reaches and no test calls, its code a walk stopped short of: "No
+   * test found within 3 calls", unknown, no warning; null otherwise
+   */
+  readonly unfollowed: string | null
+  /** Of a step of tests: the other steps whose code its tests reach ("Proves step 2"), each showing that step */
+  readonly proves: readonly { readonly key: string; readonly step: string; readonly stepId: string }[]
   /** The public declarations it adds ("New API:"), each at its declaration */
   readonly newApi: FactList
   /** The links it adds between two modules ("New link between modules:"), each at its first use */
@@ -258,11 +276,10 @@ export interface StepFacts {
    */
   readonly shownElsewhere: readonly { readonly key: string; readonly words: string; readonly step: string; readonly stepId: string }[]
   /**
-   * accio answered, and no test reaches any of its code and no scenario proves it: "No test reaches paint", "No test
-   * reaches paint within 3 calls" when the walk stopped with callers left (`within`), each name at its place, a long
-   * list in the contents cut as every list is
+   * accio answered, walked every caller of the code it names, and no test reaches any of its code and no scenario
+   * proves it: "No test reaches paint", each name at its place, a long list in the contents cut as every list is
    */
-  readonly unproven: { readonly names: FactList; readonly within: number | null } | null
+  readonly unproven: { readonly names: FactList } | null
 }
 
 /** The names of a list in a sentence (`joinNames`): "run and create", "run, create, open and 2 more" */
@@ -277,32 +294,41 @@ function fileName(path: string): string {
 }
 
 /**
- * Where the facts of a step stand: the contents of the overview, one short line a reader scans ("Tests reach 3 of 5
- * declarations"), or its opening, every name
+ * Where the facts of a step stand: the contents of the overview, one short line a reader scans ("Tested by
+ * ManagerTest.kt"), or its opening, every name
  */
 export type FactsForm = "contents" | "opening"
 
-/** How many of the declarations of the code of a step a test reaches: "Tests reach 3 of 5 declarations" */
-function formatReach(reached: number, total: number): string {
-  if (reached === total) {
-    return total === 1 ? "Tests reach its declaration" : `Tests reach all ${total} declarations`
-  }
-  return `Tests reach ${reached} of ${total} declarations`
+/** "2 existing tests call it" */
+function formatCallers(count: number): string {
+  return count === 1 ? "1 existing test calls it" : `${count} existing tests call it`
+}
+
+/** The hover of a test: its name, and what of the step it reaches ("joins two rows → Joiner") */
+function testDetail(test: { readonly name: string; readonly reaches: readonly string[] }): string {
+  return `${test.name} → ${names(test.reaches)}`
+}
+
+/** Each file of tests of the change that reach a step (`StepTests::proof`) at its first test, its tests in its hover */
+function proofPlaces(proof: ReviewStep["tests"]["proof"]): FactPlace[] {
+  return proof.map(file => ({
+    key: file.path,
+    label: fileName(file.path),
+    place: { path: file.path, side: "new" as const, line: file.tests[0]?.line ?? null, name: null },
+    detail: file.tests.map(testDetail).join("\n"),
+  }))
 }
 
 /**
- * The facts of `step` (`StepFacts`): its code the tests of the change reach, the tests it did not touch that reach its
- * code, the scenarios that prove it, its code no test reaches beside proven code, the public declarations it adds and
- * the links it adds between modules, and that nothing of it lands. In the contents (`form`) the tests are one count of
- * its declarations they reach, and a long list of the new API or of the new links its first names and the count of
- * the rest (`cutList`); the opening names them all. The warning of a step no test reaches names its code in both
+ * The facts of `step` (`StepFacts`): the files of the tests of the change that reach its code, how many tests it did
+ * not touch call its code, the scenarios that prove it, its code no test reaches beside proven code, the code a walk
+ * stopped short of as a count, the steps its tests prove, the public declarations it adds and the links it adds between
+ * modules, and that nothing of it lands. In the contents (`form`) the tests are the files of the change's, and a long
+ * list its first names and the count of the rest (`cutList`); the opening names them all. The warning of a step no test
+ * reaches names its code in both
  */
 export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" | "links" | "steps" | "units">, form: FactsForm = "opening"): StepFacts {
-  const { answered, reached, unreached, scenarios } = step.tests
-  const ofChange = reached.filter(declaration => declaration.tests.some(test => test.unit !== null))
-  const untouched = new Set(reached.flatMap(declaration => declaration.tests.filter(test => test.unit === null).map(test => `${test.path}:${test.line}`)))
-  const covered = reached.filter(declaration => declaration.tests.some(test => test.unit === null))
-  const within = Math.max(0, ...unreached.map(declaration => declaration.within ?? 0))
+  const { answered, proof, callers, reached, unreached, unfollowed, within, scenarios } = step.tests
   const newApi = new Set(step.newApi)
   const addedChanges = plan.api.filter(change => change.kind === "added" && newApi.has(change.key))
   const added = addedChanges.map(change => ({
@@ -319,39 +345,52 @@ export function presentStepFacts(step: ReviewStep, plan: Pick<ReviewPlan, "api" 
   const shownElsewhere = shownElsewhereOf(step, plan)
   const contents = form === "contents"
   // the code no test reaches, beside code a test reaches or a scenario proves; alone it is the warning (`unproven`)
-  const noneBeside = unreached.length > 0 && (contents ? reached.length === 0 && scenarios.length > 0 : reached.length > 0 || scenarios.length > 0)
+  const noneBeside = unreached.length > 0 && (contents ? reached === 0 && scenarios.length > 0 : reached > 0 || scenarios.length > 0)
   // the contents name a long list as every list does: the opening names it whole
   const list = (places: readonly FactPlace[]): FactList => {
     const { shown, more } = contents ? cutList(places, NAMED_FACTS) : { shown: places, more: 0 }
     return { places: shown, more }
   }
-  const noneFact = (): TestFact => {
-    const fact = testFact("none", "No test reaches", unreached)
-    return { ...fact, names: list(fact.names.places) }
-  }
-  // the contents count the declarations the tests reach; the opening names the tests and what they reach
+  const noneFact = (): TestFact => ({ key: "none", words: "No test reaches", names: list(unreached.map(declarationPlace)), detail: null })
+  const changeFact: TestFact | null = proof.length === 0 ? null : { key: "change", words: "Tested by", names: list(proofPlaces(proof)), detail: null }
+  // the opening names the files of the tests of the change, counts the tests it did not touch that call the code
   const tests: TestFact[] = (
     contents
-      ? [noneBeside ? noneFact() : null]
+      ? [changeFact, noneBeside ? noneFact() : null]
       : [
-          ofChange.length === 0 ? null : testFact("change", "New or changed tests reach", ofChange),
-          untouched.size === 0 ? null : testFact("existing", untouched.size === 1 ? "1 existing test reaches" : `${untouched.size} existing tests reach`, covered),
+          changeFact,
+          callers.length === 0
+            ? null
+            : { key: "existing" as const, words: formatCallers(callers.length), names: { places: [], more: 0 }, detail: callers.map(testDetail).join("\n") },
           noneBeside ? noneFact() : null,
         ]
   ).filter(fact => fact !== null)
   const parts = [
-    contents && reached.length > 0 ? formatReach(reached.length, reached.length + unreached.length) : null,
     scenarios.length === 0 ? null : `Proven by ${names(scenarios.map(fileName))}`,
     step.stops.length === 0 && step.shownElsewhere.length === 0 && takenOutBy === null ? "Nothing of it lands: a later commit took it out" : null,
   ].filter(part => part !== null)
   return {
     line: parts.length === 0 ? null : parts.join(" · "),
     tests,
+    unfollowed: !contents && answered && unfollowed > 0 && reached === 0 && scenarios.length === 0 ? `No test found within ${within} calls` : null,
+    proves: step.proves.flatMap(index => {
+      const proved = plan.steps.steps[index]
+      return proved === undefined ? [] : [{ key: proved.id, step: `step ${index + 1}`, stepId: proved.id }]
+    }),
     newApi: list(added),
     moduleLinks: list(links),
     takenOutBy,
     shownElsewhere,
-    unproven: answered && unreached.length > 0 && reached.length === 0 && scenarios.length === 0 ? { names: noneFact().names, within: within > 0 ? within : null } : null,
+    unproven: answered && unreached.length > 0 && reached === 0 && scenarios.length === 0 ? { names: noneFact().names } : null,
+  }
+}
+
+/** A declaration of a step at the line of its name at the head, the name selected; a name led by its owner selects the name itself */
+function declarationPlace(declaration: { readonly name: string; readonly path: string; readonly line: number }): FactPlace {
+  return {
+    key: `${declaration.path}:${declaration.line}:${declaration.name}`,
+    label: declaration.name,
+    place: { path: declaration.path, side: "new" as const, line: declaration.line, name: declaration.name.slice(declaration.name.lastIndexOf(".") + 1) },
   }
 }
 
@@ -363,23 +402,6 @@ function ownerLed(key: string, name: string): string {
   const containers = key.endsWith(`.${name}`) ? key.slice(0, -name.length - 1) : ""
   const owner = containers.slice(containers.lastIndexOf(".") + 1)
   return /^[A-Z]/.test(owner) ? `${owner}.${name}` : name
-}
-
-/** A line of the tests of an opening: its words and each declaration it names at the line of its name at the head, the name selected */
-function testFact(key: TestFact["key"], words: string, declarations: readonly { readonly name: string; readonly path: string; readonly line: number }[]): TestFact {
-  return {
-    key,
-    words,
-    names: {
-      places: declarations.map(declaration => ({
-        key: `${declaration.path}:${declaration.line}:${declaration.name}`,
-        label: declaration.name,
-        // a name led by its owner ("Event.rightEdge") selects the name itself
-        place: { path: declaration.path, side: "new" as const, line: declaration.line, name: declaration.name.slice(declaration.name.lastIndexOf(".") + 1) },
-      })),
-      more: 0,
-    },
-  }
 }
 
 /** What a step does to a unit of its own that another step shows: "Removes", "Adds" */
@@ -692,6 +714,8 @@ function rangeFacts(plan: ReviewPlan): StepFacts | null {
     tests: all.flatMap(it => it.tests),
     newApi: { places: all.flatMap(it => it.newApi.places), more: 0 },
     moduleLinks: { places: all.flatMap(it => it.moduleLinks.places), more: 0 },
+    unfollowed: null,
+    proves: [],
     takenOutBy: null,
     shownElsewhere: [],
     unproven: null,

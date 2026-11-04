@@ -93,11 +93,11 @@ test.describe("Review tour", () => {
     ])
     const step = (number: number) => overview.getByTestId("review-contents-step").nth(number - 1)
     await expect(step(2).getByTestId("review-contents-step-lead")).toContainText("Two startup steps showed the project view at each open")
-    // of the rule a test of the change reaches, a use a test the change did not touch reaches and a use no test reaches,
-    // the contents count them; the opening names them
-    await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText("Tests reach 2 of 3 declarations · New API: allowed")
-    // the paint no test reaches within the depth accio walked; the story proven by its scenario
-    await expect(step(3).getByTestId("review-contents-step-unproven")).toHaveText("No test reaches paint within 3 calls")
+    // the contents name the file of the tests of the change that reach the rule; the opening tells the rest
+    await expect(step(2).getByTestId("review-contents-step-facts")).toHaveText("Tested by ManagerTest.kt · New API: allowed")
+    // the paint, which accio walked only within its depth: unknown, no warning; the story proven by its scenario
+    await expect(step(3).getByTestId("review-contents-step-title")).toHaveText("the view paints with the first frame")
+    await expect(step(3).getByTestId("review-contents-step-unproven")).toHaveCount(0)
     await expect(step(4).getByTestId("review-contents-step-facts")).toHaveText("Proven by restart.json")
     await captureHtmlSnapshot(overview, "review-overview")
 
@@ -141,10 +141,11 @@ test.describe("Review tour", () => {
     const opening = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 2 · the open keeps a stored layout", exact: true }) })
     await expect(opening.getByTestId("commit-body-lead").first()).toContainText("Two startup steps showed the project view at each open")
     await expect(opening).toContainText("The product decision is to keep the layout of the user.")
-    // its facts a line each, every name: the tests of the change, a test it did not touch, the code none reaches
+    // its facts a line each: the file of the tests of the change, the test it did not touch that calls the code, the
+    // code no test reaches
     await expect(opening.getByTestId("review-opening-facts").getByTestId("review-step-fact")).toHaveText([
-      "New or changed tests reach allowed",
-      "1 existing test reaches focus",
+      "Tested by ManagerTest.kt",
+      "1 existing test calls it",
       "No test reaches show",
       "New API: allowed",
     ])
@@ -154,7 +155,7 @@ test.describe("Review tour", () => {
     await round.getByRole("button", { name: /the rule names its flag again/ }).click()
     await expect(round).toContainText("The review asked for the name of the flag to say what it holds.")
     await captureHtmlSnapshot(opening, "review-opening")
-    await expect(window.getByTestId("review-opening").nth(2).getByTestId("review-opening-unproven")).toHaveText("No test reaches paint within 3 calls")
+    await expect(window.getByTestId("review-opening").nth(2).getByTestId("review-opening-facts")).toHaveText("No test found within 3 calls")
     // the map of the files beside the diffs crosses itself at the start of each step with a card; its hover names the
     // file and its step
     const map = window.getByTestId("review-file-map")
@@ -199,9 +200,9 @@ test.describe("Review tour", () => {
     await expect(bar.getByTestId("review-step-position")).toHaveText("Step 2 / 4")
     await expect(tree.getByRole("treeitem", { name: "2 · the open keeps a stored layout", exact: true })).toHaveAttribute("aria-selected", "true")
     await expect.poll(() => topOf(second)).toBe(10)
-    // a name of its tests shows its declaration in the diffs, the name selected
-    await opening.getByTestId("review-step-tested").filter({ hasText: "focus" }).click()
-    await expect.poll(() => selectedInDiffs(window)).toEqual({ text: "focus", path: "src/b/Welcome.kt" })
+    // a file of its tests shows its test in the diffs, the file selected in the tree
+    await opening.getByTestId("review-step-tested").filter({ hasText: "ManagerTest.kt" }).click()
+    await expect(window.getByRole("treeitem", { name: "ManagerTest.kt" })).toHaveAttribute("aria-selected", "true")
   })
 
   test("should open a step whose code another step's card shows above the opening of that step, with no card, its unit named in that card, J and K through both openings", async ({

@@ -12,7 +12,7 @@ import type {
   ReviewUnit,
   StoryCommit,
   StoryPlace,
-  TestRef,
+  StepTest,
 } from "@/lib/bindings"
 import { MORE } from "@/presenters/commit-body"
 import { placeCommits } from "@/presenters/review-steps"
@@ -158,27 +158,24 @@ describe("the document of a review", () => {
   })
 
   it("words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves", () => {
-    const test = (name: string, unit: string | null, line = 3): TestRef => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, via: [] })
-    const unreached = (name: string, within: number | null = null) => ({ name, path: "src/Frame.kt", line: 4, within })
-    // the rule a test of the change reaches, a use two tests it did not touch reach, a use no test reaches
+    const test = (name: string, unit: string | null, line: number, reaches: string[]): StepTest => ({ unit, path: "test/RuleTest.kt", line, name, depth: 1, reaches })
+    const unreached = (name: string) => ({ name, path: "src/Frame.kt", line: 4 })
+    // the rule a test of the change reaches, its uses two tests it did not touch call, a use no test reaches
     const ruleTests: Partial<ReviewStep["tests"]> = {
-      reached: [
-        { name: "allowed", path: "src/Rule.kt", line: 6, tests: [test("allows", "u:test"), test("keeps", null, 9)] },
-        { name: "Welcome.focus", path: "src/Welcome.kt", line: 8, tests: [test("focuses", null, 12), test("keeps", null, 9)] },
-      ],
+      proof: [{ path: "test/RuleTest.kt", tests: [test("allows", "u:test", 3, ["allowed"])] }],
+      callers: [test("focuses", null, 12, ["Welcome.focus"]), test("keeps", null, 9, ["allowed", "Welcome.focus"])],
+      reached: 2,
       unreached: [unreached("show")],
     }
     // a fact as the page words it: its words, its names, the count of the rest
     const worded = (words: string, list: FactList) => [words, ...list.places.map(it => it.label), ...(list.more > 0 ? [`and ${list.more} more`] : [])].join(" ")
-    const unproven = (facts: StepFacts) =>
-      facts.unproven === null ? null : `${worded("No test reaches", facts.unproven.names)}${facts.unproven.within === null ? "" : ` within ${facts.unproven.within} calls`}`
+    const unproven = (facts: StepFacts) => (facts.unproven === null ? null : worded("No test reaches", facts.unproven.names))
     const view = presentPrologue(
       plan(
         [
           step("a", [commit("the rule"), commit("the rule again", "followsUp")], [["u:rule", "src/Rule.kt"]], ruleTests),
-          step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]], {
-            unreached: ["paint", "create", "run", "open"].map(name => unreached(name)).concat(unreached("close", 3)),
-          }),
+          // `close`, a walk accio stopped short of: unknown, no name
+          step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]], { unreached: ["paint", "create", "run", "open"].map(unreached), unfollowed: 1 }),
           step("c", [commit("the story")], [["u:spec", "spec/a.spec.md"]], { scenarios: ["tests/restart.json"], unreached: [unreached("load")] }),
           step("d", [commit("the try")], []),
           step("w", [commit("the wip", "noStory")], [["u:wip", "src/Wip.kt"]]),
@@ -245,28 +242,33 @@ describe("the document of a review", () => {
         unproven(it.facts),
       ]),
     ).toEqual([
-      // the contents: how many of its declarations tests reach, the names in its opening
-      [1, "the rule", paragraph("One rule decides."), "Tests reach 2 of 3 declarations", [], null],
-      [2, "the paint", null, null, [], "No test reaches paint create run and 2 more within 3 calls"],
+      // the contents: the files of the tests of the change, the rest in its opening
+      [1, "the rule", paragraph("One rule decides."), null, ["Tested by RuleTest.kt"], null],
+      [2, "the paint", null, null, [], "No test reaches paint create run open"],
       [3, "the story", null, "Proven by restart.json", ["No test reaches load"], null],
       [4, "the try", null, "Nothing of it lands: a later commit took it out", [], null],
       [5, "the wip", null, null, [], null],
     ])
-    // the opening names them, a line each: the tests of the change, the tests it did not touch, the code no test
-    // reaches; each name at the line of its name at the head, the name of a name led by its owner selected alone
+    // the opening, a line each: the files of the tests of the change, each at its first test with its tests in its hover;
+    // how many tests it did not touch call it, their names in its hover; the code no test reaches at the line of its name
     const rule = step("a", [commit("the rule")], [["u:rule", "src/Rule.kt"]], ruleTests)
     const opening = presentStepFacts(rule, plan([rule], []))
     expect(opening.line).toBeNull()
-    expect(opening.tests.map(fact => [fact.key, worded(fact.words, fact.names)])).toEqual([
-      ["change", "New or changed tests reach allowed"],
-      ["existing", "2 existing tests reach allowed Welcome.focus"],
-      ["none", "No test reaches show"],
+    expect(opening.tests.map(fact => [fact.key, worded(fact.words, fact.names), fact.detail])).toEqual([
+      ["change", "Tested by RuleTest.kt", null],
+      ["existing", "2 existing tests call it", "focuses → Welcome.focus\nkeeps → allowed and Welcome.focus"],
+      ["none", "No test reaches show", null],
     ])
-    expect(opening.tests[1]!.names.places.map(it => it.place)).toEqual([
-      { path: "src/Rule.kt", side: "new", line: 6, name: "allowed" },
-      { path: "src/Welcome.kt", side: "new", line: 8, name: "focus" },
-    ])
-    expect(presentStepFacts({ ...rule, tests: { ...rule.tests, unreached: [] } }, plan([rule], []), "contents").line).toBe("Tests reach all 2 declarations")
+    expect(opening.tests[0]!.names.places.map(it => [it.place, it.detail])).toEqual([[{ path: "test/RuleTest.kt", side: "new", line: 3, name: null }, "allows → allowed"]])
+    expect(opening.tests[2]!.names.places.map(it => it.place)).toEqual([{ path: "src/Frame.kt", side: "new", line: 4, name: "show" }])
+    expect(opening.unfollowed).toBeNull()
+    // a step no test reaches whose walk accio cut: unknown, a muted line of the opening, no name, no warning
+    const paint = step("b", [commit("the paint")], [["u:paint", "src/Frame.kt"]], { unfollowed: 2 })
+    expect([presentStepFacts(paint, plan([paint], [])).unfollowed, presentStepFacts(paint, plan([paint], [])).unproven]).toEqual(["No test found within 3 calls", null])
+    expect(presentStepFacts(paint, plan([paint], []), "contents").unfollowed).toBeNull()
+    // the step of the tests names the steps they prove, each showing that step
+    const proving = step("t", [commit("the tests")], [["u:test", "test/RuleTest.kt"]], {}, { proves: [0] })
+    expect(presentStepFacts(proving, plan([rule, proving], [])).proves).toEqual([{ key: "a", step: "step 1", stepId: "a" }])
     // the new API in the contents a list as every list: four whole, from five the first three and the count; the opening
     // names it all
     const added = (name: string): ReviewPlan["api"][number] => ({

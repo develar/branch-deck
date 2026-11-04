@@ -5593,6 +5593,13 @@ export type ProfileChoice =
 /**  The default checks of the target */
 { kind: "none" };
 
+/**  A file of tests of the change that reach the code of a step, with those tests */
+export type ProofFile = {
+	path: string,
+	/**  In the order accio answered them */
+	tests: StepTest[],
+};
+
 /**  What the commits did to a paragraph */
 export type ProseChange = 
 /**  A paragraph the commits add */
@@ -5931,16 +5938,6 @@ export type RangeScope = {
 	 *  commits of the branch
 	 */
 	carried: boolean,
-};
-
-/**  A declaration of a step and the tests that reach it */
-export type ReachedDeclaration = {
-	name: string,
-	/**  The file of its name at the head */
-	path: string,
-	/**  The line of its name at the head, from 1 */
-	line: number,
-	tests: TestRef[],
 };
 
 export type ReapplyBranchResult = {
@@ -6940,6 +6937,11 @@ export type ReviewStep = {
 	 */
 	elsewhere: string[],
 	tests: StepTests,
+	/**
+	 *  The other steps whose code the tests of its units reach (`add_tests`), by their place in `ReviewSteps::steps`:
+	 *  "Proves step 2"
+	 */
+	proves: number[],
 	/**
 	 *  The public declarations it adds, by the `key` of their entry of `ReviewPlan::api` (kind `added`), each in the
 	 *  first step whose stops show it; one a stop of another step shows beside its own (`StepStop::joined`) in the step
@@ -8341,20 +8343,53 @@ export type StepStop = {
 	marks: StoryRef[],
 };
 
+/**  A test that reaches the code of a step */
+export type StepTest = {
+	/**
+	 *  `ReviewUnit::id` of a test the range adds or changes (of a new file, the unit of the file); `None` for one the
+	 *  change did not touch
+	 */
+	unit: string | null,
+	path: string,
+	/**  The line of its name at the head, from 1 */
+	line: number,
+	/**  The name the test reads as */
+	name: string,
+	/**  The fewest calls between the test and the code of the step: 1 when the test calls it */
+	depth: number,
+	/**  The declarations of the step it reaches, by their names as the step leads them, in the order of its code */
+	reaches: string[],
+};
+
 /**  The tests that reach the code of a step */
 export type StepTests = {
 	/**
-	 *  accio answered which tests reach its code (`add_tests`); without the answer `reached` and `unreached` are empty,
-	 *  and the plan's `index_note` says why
+	 *  accio answered which tests reach its code (`add_tests`); without the answer the rest is empty, and the plan's
+	 *  `index_note` says why
 	 */
 	answered: boolean,
-	/**  Its declarations that a test reaches, each with those tests */
-	reached: ReachedDeclaration[],
 	/**
-	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test reaches; none of a
-	 *  test file, whose helpers a test runs. A name two of them share is led by its owner
+	 *  The tests of the change (`StepTest::unit`) that reach its code, by their file, each file and each test once, in the
+	 *  order of its code
+	 */
+	proof: ProofFile[],
+	/**
+	 *  The tests the change did not touch that call its code (1 call), each once; one that reaches it only through
+	 *  other callers is no fact of the step
+	 */
+	callers: StepTest[],
+	/**  How many of its declarations a test reaches, the change's or another, at any depth the walk went */
+	reached: number,
+	/**
+	 *  Its declarations of a parsed language whose body or form changed, or that it adds, that no test reaches, accio
+	 *  having walked every caller within `TEST_DEPTH` calls; none of a test file, whose helpers a test runs. A name two of
+	 *  them share is led by its owner
 	 */
 	unreached: UnreachedDeclaration[],
+	/**  How many of its declarations no test reached within `within` calls with callers left: unknown, never "no test" */
+	unfollowed: number,
+	/**  The calls the walk went at most (`TEST_DEPTH`); 0 without the answer */
+	within: number,
 	/**
 	 *  The tests the `[@test]` lines of the rules of a spec it adds or changes name, by the path they give: a scenario
 	 *  that names no declaration
@@ -8736,21 +8771,6 @@ export type TargetReview =
 /**  The commits of a list, in its order */
 { kind: "commits"; commits: ReviewCommit[] };
 
-/**  A test that reaches a declaration of a step */
-export type TestRef = {
-	/**  `ReviewUnit::id` of a test the range adds or changes; `None` for one the change did not touch */
-	unit: string | null,
-	path: string,
-	/**  The line of its name at the head, from 1 */
-	line: number,
-	/**  The name the test reads as */
-	name: string,
-	/**  The calls between the test and the declaration: 1 when the test calls it */
-	depth: number,
-	/**  The callers on the way, from the test's callee to the declaration's caller */
-	via: string[],
-};
-
 /**  The diff of two texts */
 export type TextDiff = {
 	oldLineCount: number,
@@ -9057,11 +9077,6 @@ export type UnreachedDeclaration = {
 	path: string,
 	/**  The line of its name at the head, from 1 */
 	line: number,
-	/**
-	 *  The calls the walk went: accio stopped there with callers left (`TEST_DEPTH`); `None` when it walked every
-	 *  caller
-	 */
-	within: number | null,
 };
 
 export type UnsubscribeViewParams = {
