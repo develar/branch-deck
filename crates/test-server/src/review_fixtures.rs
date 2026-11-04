@@ -78,9 +78,12 @@ pub fn fixture_review_answer(requirement: &PatronusReviewRequirement) -> anyhow:
         "approved": group.approved,
         "selfApprovalAllowed": group.self_approval_allowed,
       });
+      // a branch-wide group reviews every changed path: Patronus names none
       if group.paths_source == ReviewPathsSource::Patronus {
-        wire["paths"] = json!(group.paths);
         wire["branchWide"] = json!(group.branch_wide);
+        if !group.branch_wide {
+          wire["paths"] = json!(group.paths);
+        }
       }
       wire
     })

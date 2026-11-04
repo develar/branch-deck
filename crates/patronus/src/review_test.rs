@@ -1,9 +1,9 @@
-use crate::client::{GitHubPullRequestDto, PreMergeCommitDto};
+use crate::client::{GitHubPullRequestDto, PreMergeCheckResponse, PreMergeCommitDto};
 use crate::fake_patronus::{FakePatronus, start_fake};
-use crate::review::{REVIEW_CHECK_UNAVAILABLE, ReviewSubject};
+use crate::review::{REVIEW_CHECK_UNAVAILABLE, ReviewSubject, to_requirement};
 use crate::service::PatronusService;
 use crate::service_test::{service, token};
-use domain_types::patronus::{PatronusAvailability, ReviewerApprovalState};
+use domain_types::patronus::{PatronusAvailability, ReviewPathsSource, ReviewerApprovalState};
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -111,6 +111,39 @@ async fn a_check_with_a_pull_request_sends_it_and_reads_the_evaluation() {
   service.review_check(&subject(&commits), None, false).await.unwrap();
   assert_eq!(fake.checked_pull_requests.lock().unwrap()[1], serde_json::Value::Null);
   assert_eq!((fake.check_calls.load(Ordering::SeqCst), fake.merge_request_calls.load(Ordering::SeqCst)), (2, 0));
+}
+
+/// Patronus names the paths of an owner group, none of a branch-wide group (it reviews every changed path), and none
+/// at all while its flag is off
+#[test]
+fn a_branch_wide_group_comes_without_paths_and_reviews_every_file() {
+  let response: PreMergeCheckResponse = serde_json::from_value(serde_json::json!({
+    "approvalRequired": true,
+    "reviewerGroups": [
+      {"groupName": "Platform Core", "reviewers": [], "paths": ["platform/Util.kt", "platform/Main.kt"], "branchWide": false},
+      {"groupName": "Release Managers", "reviewers": [], "branchWide": true},
+      {"groupName": "Older Server", "reviewers": []},
+    ],
+  }))
+  .unwrap();
+  let groups: Vec<_> = to_requirement(&response, None)
+    .groups
+    .into_iter()
+    .map(|group| (group.name, group.paths, group.branch_wide, group.paths_source))
+    .collect();
+  assert_eq!(
+    groups,
+    [
+      (
+        "Platform Core".to_string(),
+        vec!["platform/Main.kt".to_string(), "platform/Util.kt".to_string()],
+        false,
+        ReviewPathsSource::Patronus
+      ),
+      ("Release Managers".to_string(), Vec::new(), true, ReviewPathsSource::Patronus),
+      ("Older Server".to_string(), Vec::new(), false, ReviewPathsSource::Unknown),
+    ]
+  );
 }
 
 /// A 503 backs the background checks off, so a batch of rows doesn't ask again at once; a recheck still asks

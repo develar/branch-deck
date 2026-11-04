@@ -1281,12 +1281,14 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   "Set GitHub Repository…", which opens Settings → Repository at the field of `branchdeck.githubRepository`
   ([Settings](../repository/settings.spec.md#repository)); "Review Changes" beside it. No button creates anything.
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should name the approvals a Safe Push needs on Space, and start with the merge request found open`, `should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
-- Each group names the files it has to review: `paths` and `branchWide` of the group when Patronus sends them, else
-  the changed paths whose owner by the `OWNERSHIP` files of the baseline has the name of the group; a group Patronus
-  delegates to, or names as the reviewer of another owner, stays without files. "Review Changes" of the popover (and
+- Each group names the files it has to review: `paths` and `branchWide` of the group when Patronus sends them (a
+  branch-wide group comes without `paths`: every file of the branch is its), else the changed paths whose owner by the
+  `OWNERSHIP` files of the baseline has the name of the group; a group Patronus delegates to, or names as the reviewer
+  of another owner, stays without files. "Review Changes" of the popover (and
   D on the row) reviews the branch in its review window, on the whole stack, the groups as filters ([Branch
   Review](branch-review.spec.md#the-files-of-each-reviewer-group-safe-push-form)).
   [@test] ../../crates/sync-core/src/patronus_test.rs (`the_ownership_files_give_the_paths_to_the_groups_patronus_sent_without_them`)
+  [@test] ../../crates/patronus/src/review_test.rs (`a_branch_wide_group_comes_without_paths_and_reviews_every_file`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should say on Space that the approvals count in the GitHub pull request, and open Settings at its repository`)
 - A start reads the review again when the local tip of the branch changes: after an unstack the popover reads the
   review of the branch alone, no longer that of its former parents; until the new answer arrives the start waits.
