@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.48.0](https://github.com/develar/branch-deck/compare/v0.47.0...v0.48.0) (2026-11-04)
+
+
+### Features
+
+* **lease:** a delete of a target dir keeps its except entries for the cargo rule ([ee5fdb5](https://github.com/develar/branch-deck/commit/ee5fdb5a878c0af449c9434532ed26fb63225d1a))
+* **lease:** a return records its time, the order of the free slots of every pool ([948134c](https://github.com/develar/branch-deck/commit/948134c40be8b5b33d43862a53482b5d0a4fb45d))
+* **lease:** after the shrink, still below the minimum, a get deletes free slots too ([85387e1](https://github.com/develar/branch-deck/commit/85387e1979bc282129c00e1d4d6a7db679b5177c))
+* **lease:** below the minimum free space a get cleans the build output of free slots ([734e0bb](https://github.com/develar/branch-deck/commit/734e0bb444a09738a48886391cf201264e642fb9))
+
+
+### Bug Fixes
+
+* backend stays the script that formats. ([d859bfe](https://github.com/develar/branch-deck/commit/d859bfedaf80d601ddf902d3e0690b8840e13dec))
+* **build:** the compact unwind note of macOS ld is no warning ([810ddec](https://github.com/develar/branch-deck/commit/810ddec066018f3a0979e7cd1bb17ffbb4f96fb4))
+* **checks:** lint:backend fails on unformatted code instead of formatting it ([d859bfe](https://github.com/develar/branch-deck/commit/d859bfedaf80d601ddf902d3e0690b8840e13dec))
+* **lease:** a minimum past the size of the volume shrinks and evicts no slot ([1fe0322](https://github.com/develar/branch-deck/commit/1fe0322284ad048ad94cd20c813d47db0418c283))
+* **lease:** a second delete of a path is reported, never applied ([2b48ad1](https://github.com/develar/branch-deck/commit/2b48ad106eabaf8730bcdf81f0dd38f08df28b40))
+* **lease:** on Windows the pool of the repository is one pool of the machine, not two ([54d6a96](https://github.com/develar/branch-deck/commit/54d6a967003154b725569af58a83a0c59390aafd))
+* **lease:** the cargo rule of a profile dir with a whitelist prunes the units of its kept dirs ([36ab31b](https://github.com/develar/branch-deck/commit/36ab31b2794b3f62c058a91ad1bcb171a81f007b))
+* **lease:** the cargo rule of a target dir finds its kept entries by their exact names ([e33b55b](https://github.com/develar/branch-deck/commit/e33b55b78e77e4335349ce40fba4d7d6ccb999c6))
+* **lease:** the eviction keeps the get's next slot, dirty slots and slots never returned ([b031347](https://github.com/develar/branch-deck/commit/b0313470d9494f123d5f1cc48d699577ddb46acb))
+* **lease:** the eviction of a get stops at the minimum, without the margin of the shrink ([06bd83e](https://github.com/develar/branch-deck/commit/06bd83e994dcebdfe310e34d80b501cef65da886))
+* **lease:** the shrink and the eviction of the gets of a machine take turns under one lock ([1a6ced9](https://github.com/develar/branch-deck/commit/1a6ced90084cc9164fcf2d9891cb9dbb6593d567))
+* **lease:** the shrink and the eviction take only the free slots on the volume of the get ([1a78ca2](https://github.com/develar/branch-deck/commit/1a78ca272d0a2f0042a393c3fa27167014d92a97))
+* **lease:** the volume of Windows is no const fn for clippy there ([9d839c1](https://github.com/develar/branch-deck/commit/9d839c11b1e7d6c045b5be8758b777dde2e23270))
+
 ## [0.47.0](https://github.com/develar/branch-deck/compare/v0.46.0...v0.47.0) (2026-11-03)
 
 
