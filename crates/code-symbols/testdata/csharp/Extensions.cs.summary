@@ -1,0 +1,24 @@
+package Example.Text
+import Example.Models.* @1
+Type StringExtensions in - Public TopLevel 5-17 @5
+Function Shout in StringExtensions Public Static 7-7 @7 receiver string (text: string) `static string Shout`
+Function Score in StringExtensions Public Static 9-9 @9 receiver Item (item: Item, bonus: int) `static int Score`
+Function Reset in StringExtensions Public Static 13-13 @13 receiver Store () `void Reset`
+Value Size in StringExtensions Public Static 15-15 @15 receiver Store <int> `int Size`
+Type Usage in - Public TopLevel 19-26 @19 new()
+Function Run in Usage Public Instance 21-25 @21 (item: Item, text: string) `void Run`
+Type ItemTests in - Public TopLevel 28-38 @28 new()
+Function Scores in ItemTests Public Instance 30-31 @31 () `void Scores` test
+Function ScoresBy in ItemTests Public Instance 33-34 @34 (bonus: int) `void ScoresBy` test
+Function Later in ItemTests Public Instance 36-37 @37 () `void Later` unstable
+@7 <string>.ToUpper()
+@9 :Item <Item>.Value
+@11 :Store
+@13 <Store>.Clear()
+@15 <Store>.Count
+@21 :Item
+@23 <Item>.Score(Number)
+@24 <string>.Shout()
+@30 :Fact :FactAttribute
+@33 :InlineData :InlineDataAttribute :Theory :TheoryAttribute
+@36 :Experimental :ExperimentalAttribute

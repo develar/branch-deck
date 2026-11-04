@@ -1,7 +1,7 @@
 //! Prints the summary of each file as JSON with the names resolved, or with `--stats` one line of numbers per file and
 //! a table per language, or with `--tree` the syntax tree for writing rules: of Kotlin and Java the PSI dump of
-//! psi-syntax (`psi_to_string`, as IntelliJ's parser tests print it), of the others the tree-sitter tree (kinds, fields
-//! and lines).
+//! psi-syntax (`psi_to_string`, as IntelliJ's parser tests print it), of C# Roslyn's tree as `tools/csharp-oracle`
+//! prints it (`tree_to_string`), of the others the tree-sitter tree (kinds, fields and lines).
 //!
 //! `cargo run --release -p code-symbols --example summarize -- [--stats | --tree] <files…>`
 
@@ -209,6 +209,11 @@ fn print_tree(path: &str, language: Language, source: &[u8]) {
     Language::Java => {
       let tree = java_syntax::Parser::new().parse(&*java_syntax::document_text(source), java_syntax::FileKind::default());
       println!("{}", java_syntax::dump::psi_to_string(&tree, file_name));
+    }
+    #[cfg(feature = "csharp")]
+    Language::CSharp => {
+      let tree = csharp_syntax::Parser::new().parse(source, csharp_syntax::FileKind::default());
+      println!("{}", csharp_syntax::dump::tree_to_string(&tree));
     }
     _ => print_tree_sitter_tree(language, source),
   }

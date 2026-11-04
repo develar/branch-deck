@@ -513,6 +513,25 @@ simpleTest("should colour TSX as IntelliJ does: a name by its declaration, a com
   await expect(colorOf("</")).toHaveCSS("color", await tokenColor(window, "--syntax-tag-bracket"))
 })
 
+simpleTest("should colour C# as Rider does: a field, a declaration, an attribute, a keyword, an escape", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+  // the `csharp_colors` template: one commit of `colors` adds src/Box.cs
+  await setupRepo("csharp_colors")
+  await syncAndWaitForBranches()
+  await expandBranch(page, findBranchRow(page, "colors"))
+  await openCommitPreview(page, getBranchCommitRow(page, "colors", "add the box"))
+  await page.keyboard.press("d")
+  const window = await showReviewWindow(page, await openedReview(page, 1))
+  const code = window.getByTestId("commit-review-code")
+  await expect(code).toContainText("public void Add()")
+  const colorOf = (text: string) => code.getByText(text, { exact: true }).first()
+  // the backend's highlighting from Roslyn's tree: a field and its use, a method's declaration, an attribute
+  await expect(colorOf("count")).toHaveCSS("color", await tokenColor(window, "--syntax-field"))
+  await expect(colorOf("Add")).toHaveCSS("color", await tokenColor(window, "--syntax-function-declaration"))
+  await expect(colorOf("Serializable")).toHaveCSS("color", await tokenColor(window, "--syntax-annotation"))
+  await expect(colorOf("sealed")).toHaveCSS("color", await tokenColor(window, "--syntax-keyword"))
+  await expect(colorOf("\\t")).toHaveCSS("color", await tokenColor(window, "--syntax-escape"))
+})
+
 simpleTest("should strike a deleted file through, never its status letter, in the tree and above its diff", async ({ page, setupRepo, syncAndWaitForBranches }) => {
   // the `commit_deleted` template: one commit of `cleanup` deletes src/LegacyMapper.kt and changes src/Mapper.kt
   await setupRepo("commit_deleted")

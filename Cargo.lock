@@ -1293,6 +1293,7 @@ dependencies = [
 name = "code-symbols"
 version = "0.1.0"
 dependencies = [
+ "csharp-syntax",
  "java-syntax",
  "kotlin-syntax",
  "pretty_assertions",
@@ -1566,6 +1567,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "hybrid-array",
+]
+
+[[package]]
+name = "csharp-syntax"
+version = "0.1.0"
+source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
+dependencies = [
+ "psi-builder",
 ]
 
 [[package]]
@@ -3387,7 +3396,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "java-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=78bdb6c9a31d29baa1efee31c11cbb317dbb3125#78bdb6c9a31d29baa1efee31c11cbb317dbb3125"
+source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
 dependencies = [
  "psi-builder",
 ]
@@ -3609,7 +3618,7 @@ dependencies = [
 [[package]]
 name = "kotlin-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=78bdb6c9a31d29baa1efee31c11cbb317dbb3125#78bdb6c9a31d29baa1efee31c11cbb317dbb3125"
+source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
 dependencies = [
  "psi-builder",
 ]
@@ -5026,7 +5035,7 @@ dependencies = [
 [[package]]
 name = "psi-builder"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=78bdb6c9a31d29baa1efee31c11cbb317dbb3125#78bdb6c9a31d29baa1efee31c11cbb317dbb3125"
+source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
 
 [[package]]
 name = "pxfm"

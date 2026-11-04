@@ -18,23 +18,22 @@
 //! - **As the tree-sitter walk before it had them**: a local of a `case` group is bound until the next group; the loop variable of
 //!   a `for` and the parameter of a `catch` have no type.
 
-use crate::jvm::{Classes, Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
+use crate::jvm::{Holder, JvmFields, TypedReceiver, override_shape, smart_cast, type_name};
+use crate::psi_walk::{Span, WalkCore, Walker, has_error_in};
 use crate::summary::{Argument, Constructor, DeclKind, FileSummary, LineSpan, MemberKind, Parameter, Reach, Role, Shape, Signature, TypeRef};
-use crate::summary_builder::{Bindings, SummaryBuilder, TEST_ANNOTATIONS, Typed, blank_declaration, end_line};
+use crate::summary_builder::{TEST_ANNOTATIONS, Typed};
 use java_syntax::psi;
 use java_syntax::psi::modifier::Modifier;
 use java_syntax::{NodeId, NodeKind as N, TokenKind as T, Tree};
-use psi_builder::document::Lines;
-use std::collections::HashMap;
 
 /// Fills `summary` (`summary_builder::empty_summary` of the file, its size within the limits) with the facts of the
 /// Java file `source`; whether it was read, else it stays `truncated`
 pub(crate) fn summarize(source: &[u8], summary: &mut FileSummary) -> bool {
   let tree = super::parse(source);
   let mut walk = Walk::new(&tree);
-  walk.run();
+  crate::psi_walk::run(&mut walk);
   // javac gives the default constructor the access of its class (JLS 8.8.9)
-  walk.out.finish(summary, Some(|reach| reach));
+  walk.core.out.finish(summary, Some(|reach| reach));
   true
 }
 
@@ -50,13 +49,9 @@ enum Mark {
   Scope,
 }
 
-struct Frame {
-  /// The end of the node's subtree: the frame is left at this id
-  end: u32,
-  scopes: u8,
-  container: bool,
-  /// The entries this node pushed onto the supertypes of `Walk::classes`
-  supertypes: u8,
+/// What the walk keeps of a node (`psi_walk::Frame::extra`)
+#[derive(Default)]
+struct JavaFrame {
   error: bool,
   /// A switch's body, whose `case` groups are scopes: whether one is open
   switch_group: Option<bool>,
@@ -64,24 +59,11 @@ struct Frame {
   deferred: Option<u32>,
 }
 
-/// Where a declaration lies: its first and last line and the line of its name
-struct Span {
-  start: u32,
-  end: u32,
-  name: u32,
-}
-
 struct Walk<'t> {
   tree: &'t Tree,
-  source: &'t [u8],
-  lines: Lines,
-  out: SummaryBuilder<'t>,
-  bindings: Bindings,
-  frames: Vec<Frame>,
-  marks: HashMap<u32, Mark>,
-  /// The containers and the supertypes around the node; a class pushes its own supertypes, a method an empty list, an
-  /// anonymous class the type it constructs, an enum constant its enum
-  classes: Classes,
+  /// The text, the builder, the scopes, the frames; its containers and supertypes: a class pushes its own supertypes, a
+  /// method an empty list, an anonymous class the type it constructs, an enum constant its enum
+  core: WalkCore<'t, java_syntax::Java, JavaFrame, Mark>,
   error_depth: u32,
   /// The error elements of the code (not of a doc comment), in document order
   errors: Vec<u32>,
@@ -91,18 +73,35 @@ struct Walk<'t> {
   final_class: Option<(NodeId, bool)>,
 }
 
+impl<'t> Walker<'t> for Walk<'t> {
+  type Lang = java_syntax::Java;
+  type Extra = JavaFrame;
+  type Mark = Mark;
+
+  fn core(&mut self) -> &mut WalkCore<'t, java_syntax::Java, JavaFrame, Mark> {
+    &mut self.core
+  }
+
+  fn enter(&mut self, id: NodeId, mark: Option<Mark>) -> bool {
+    self.enter_node(id, mark)
+  }
+
+  fn token(&mut self, id: NodeId) {
+    self.leaf(id);
+  }
+
+  fn left(&mut self, extra: JavaFrame) {
+    if extra.error {
+      self.error_depth -= 1;
+    }
+  }
+}
+
 impl<'t> Walk<'t> {
   fn new(tree: &'t Tree) -> Self {
-    let source = tree.source();
     let mut walk = Self {
       tree,
-      source,
-      lines: Lines::new(source),
-      out: SummaryBuilder::new(),
-      bindings: Bindings::default(),
-      frames: Vec::new(),
-      marks: HashMap::new(),
-      classes: Classes::default(),
+      core: WalkCore::new(tree),
       error_depth: 0,
       errors: Vec::new(),
       last_head: None,
@@ -112,97 +111,50 @@ impl<'t> Walk<'t> {
     walk
   }
 
-  fn run(&mut self) {
-    let root = self.tree.root();
-    let end = self.tree.subtree_end(root).0;
-    let mut id = root.0;
-    while id < end {
-      while self.frames.last().is_some_and(|it| it.end <= id) {
-        self.leave();
-      }
-      let node = NodeId(id);
-      if self.tree.is_leaf(node) {
-        self.token(node);
-        id += 1;
-        continue;
-      }
-      let end = self.tree.subtree_end(node).0;
-      self.frames.push(Frame {
-        end,
-        scopes: 0,
-        container: false,
-        supertypes: 0,
-        error: false,
-        switch_group: None,
-        deferred: None,
-      });
-      let mark = self.marks.remove(&id);
-      id = if self.enter(node, mark) { id + 1 } else { end };
-    }
-    while !self.frames.is_empty() {
-      self.leave();
-    }
-  }
-
-  fn leave(&mut self) {
-    let Some(frame) = self.frames.pop() else { return };
-    let index = self.frames.len();
-    self.bindings.leave_frame(index, frame.scopes);
-    if frame.container {
-      self.classes.leave();
-    }
-    for _ in 0..frame.supertypes {
-      self.classes.pop_supertypes();
-    }
-    if frame.error {
-      self.error_depth -= 1;
-    }
-  }
-
   /// A leaf: a name in an error element is a value, the `{` of an anonymous class opens its body, the name of a field
   /// makes it the container
-  fn token(&mut self, id: NodeId) {
+  fn leaf(&mut self, id: NodeId) {
     match self.tree.token_kind(id) {
-      Some(T::IDENTIFIER) if self.frames.last().is_some_and(|it| it.deferred.is_some()) => {
-        if let Some(decl) = self.frame().deferred.take() {
-          self.enter_container(decl, Holder::Leaf);
+      Some(T::IDENTIFIER) if self.core.frames.last().is_some_and(|it| it.extra.deferred.is_some()) => {
+        if let Some(decl) = self.core.frame().extra.deferred.take() {
+          self.core.enter_container(decl, Holder::Leaf);
         }
       }
       Some(T::IDENTIFIER) if self.parent_kind(id) == Some(N::ERROR_ELEMENT) => {
         if let Some(text) = self.text(id) {
-          let line = self.line_at(id);
+          let line = self.core.line_at(id);
           self.reference(text, line, Role::Value, None, None);
         }
       }
       Some(T::LBRACE) if self.parent_kind(id) == Some(N::ANONYMOUS_CLASS) => {
-        self.bindings.push(true);
+        self.core.bindings.push(true);
         // the frame of the anonymous class, which the `{` has none of its own
-        self.frame().scopes += 1;
+        self.core.frame().scopes += 1;
       }
       _ => {}
     }
   }
 
-  fn enter(&mut self, id: NodeId, mark: Option<Mark>) -> bool {
+  fn enter_node(&mut self, id: NodeId, mark: Option<Mark>) -> bool {
     // a composite of a token type: a doc comment
     let Some(kind) = self.kind(id) else { return false };
     if matches!(mark, Some(Mark::Scope)) {
-      self.push_scope(true);
+      self.core.push_scope(true);
     }
     match kind {
       N::ERROR_ELEMENT => {
         if self.error_depth == 0 {
           let bytes = u32::try_from(self.tree.range(id).len()).unwrap_or(u32::MAX).max(1);
-          self.out.error_bytes = self.out.error_bytes.saturating_add(bytes);
+          self.core.out.error_bytes = self.core.out.error_bytes.saturating_add(bytes);
         }
         self.error_depth += 1;
-        self.frame().error = true;
+        self.core.frame().extra.error = true;
         true
       }
       N::PACKAGE_STATEMENT => {
         self.import_statement(id);
         if let Some(path) = psi::package_statement::get_package_reference(self.tree, id).and_then(|it| self.path_of(it)) {
-          self.out.package = Some(path.join("."));
+          self.core.out.package = Some(path.join("."));
         }
         false
       }
@@ -255,19 +207,19 @@ impl<'t> Walk<'t> {
       }
       N::CODE_BLOCK => {
         if matches!(self.parent_kind(id), Some(N::SWITCH_STATEMENT | N::SWITCH_EXPRESSION)) {
-          self.frame().switch_group = Some(false);
+          self.core.frame().extra.switch_group = Some(false);
         } else {
-          self.push_scope(true);
+          self.core.push_scope(true);
         }
         true
       }
       N::FOR_STATEMENT | N::FOREACH_STATEMENT | N::FOREACH_PATTERN_STATEMENT | N::CATCH_SECTION | N::SWITCH_LABELED_RULE | N::LAMBDA_EXPRESSION => {
-        self.push_scope(true);
+        self.core.push_scope(true);
         true
       }
       N::TRY_STATEMENT => {
         if self.child(id, N::RESOURCE_LIST).is_some() {
-          self.push_scope(true);
+          self.core.push_scope(true);
         }
         true
       }
@@ -318,13 +270,13 @@ impl<'t> Walk<'t> {
             shape: None,
             chain: Role::Value,
           };
-          self.marks.insert(name.0, mark);
+          self.core.marks.insert(name.0, mark);
         }
         true
       }
       N::THIS_EXPRESSION | N::SUPER_EXPRESSION => {
         if let Some(qualifier) = self.outer_qualifier(id) {
-          self.marks.insert(qualifier.0, Mark::Values);
+          self.core.marks.insert(qualifier.0, Mark::Values);
         }
         true
       }
@@ -351,10 +303,10 @@ impl<'t> Walk<'t> {
       supertypes: supertypes.clone(),
       ..JvmFields::default()
     };
-    self.push_supertypes(supertypes);
-    if self.bindings.is_local() {
+    self.core.push_supertypes(supertypes);
+    if self.core.bindings.is_local() {
       self.bind_name(name, None, false);
-      self.push_scope(false);
+      self.core.push_scope(false);
       return;
     }
     if let Some(name) = name {
@@ -373,9 +325,9 @@ impl<'t> Walk<'t> {
       }
       let span = self.member_span(id, name);
       let decl = self.declare(name, (kind, reach, member), &span, fields, None);
-      self.enter_container(decl, own);
+      self.core.enter_container(decl, own);
     }
-    self.push_scope(false);
+    self.core.push_scope(false);
   }
 
   /// A method or an annotation's element: a function; a method's parameters and body are local
@@ -384,12 +336,12 @@ impl<'t> Walk<'t> {
     let mut fields = self.function_fields(id, name, element);
     fields.unstable = self.unstable(id);
     if !element {
-      self.push_supertypes(Vec::new());
+      self.core.push_supertypes(Vec::new());
     }
-    if self.bindings.is_local() {
+    if self.core.bindings.is_local() {
       self.bind_name(name, None, false);
       if !element {
-        self.push_scope(true);
+        self.core.push_scope(true);
       }
       return;
     }
@@ -399,10 +351,10 @@ impl<'t> Walk<'t> {
       let span = self.member_span(id, name);
       let header = self.header(None, id, !element);
       let decl = self.declare(name, traits, &span, fields, Some(header));
-      self.enter_container(decl, Holder::Leaf);
+      self.core.enter_container(decl, Holder::Leaf);
     }
     if !element {
-      self.push_scope(true);
+      self.core.push_scope(true);
     }
   }
 
@@ -415,23 +367,23 @@ impl<'t> Walk<'t> {
       let annotations = self.annotation_paths(modifiers);
       let overrides = annotations.iter().any(|path| matches!(path.as_slice(), ["Override"] | ["java", "lang", "Override"]));
       let test = annotations.iter().any(|path| path.last().is_some_and(|last| TEST_ANNOTATIONS.contains(last)));
-      let open = match self.holder() {
+      let open = match self.core.holder() {
         Some(Holder::Interface) => true,
         Some(Holder::Class | Holder::Enum) => !self.in_final_class(id),
         _ => false,
       };
       let has = |modifier| self.modifier(modifiers, modifier);
-      let overridable = open && !self.bindings.is_local() && !has(Modifier::FINAL) && !has(Modifier::PRIVATE) && !has(Modifier::STATIC);
+      let overridable = open && !self.core.bindings.is_local() && !has(Modifier::FINAL) && !has(Modifier::PRIVATE) && !has(Modifier::STATIC);
       (overrides, test, overridable)
     };
     // a local function is no declaration: only the shape of an override needs its parameters
-    let signature = (overrides || !self.bindings.is_local()).then(|| self.signature(id));
+    let signature = (overrides || !self.core.bindings.is_local()).then(|| self.signature(id));
     if let (true, Some(name)) = (overrides, name) {
       self.override_references(name, signature.as_ref());
     }
     let text = name.and_then(|it| self.text(it));
-    let test = test || self.classes.junit3_test(&self.out, self.bindings.is_local(), text, signature.as_ref());
-    let entry_point = !element && !self.bindings.is_local() && text == Some("main") && signature.as_ref().is_some_and(|it| self.entry_point(id, modifiers, it));
+    let test = test || self.core.classes.junit3_test(&self.core.out, self.core.bindings.is_local(), text, signature.as_ref());
+    let entry_point = !element && !self.core.bindings.is_local() && text == Some("main") && signature.as_ref().is_some_and(|it| self.entry_point(id, modifiers, it));
     JvmFields {
       signature,
       overrides,
@@ -455,13 +407,13 @@ impl<'t> Walk<'t> {
     if let Some(signature) = declared {
       let canonical = compact || header.is_some_and(|header| header == signature && signature.parameters.iter().all(|it| it.type_ref.is_some()));
       let reach = self.reach_of(psi::get_modifier_list(tree, id), true, false);
-      if !self.bindings.is_local()
-        && let Some(decl) = self.classes.innermost()
+      if !self.core.bindings.is_local()
+        && let Some(decl) = self.core.classes.innermost()
       {
-        self.out.add_constructor(decl, Constructor { signature, reach }, canonical);
+        self.core.out.add_constructor(decl, Constructor { signature, reach }, canonical);
       }
     }
-    self.push_scope(true);
+    self.core.push_scope(true);
   }
 
   /// A field, a local variable: a local binds its name once left, with its type
@@ -476,14 +428,14 @@ impl<'t> Walk<'t> {
     } else {
       self.value_type(ty, initializer)
     };
-    if self.bindings.is_local() {
+    if self.core.bindings.is_local() {
       self.bind_name(name, value_type, true);
       return;
     }
     let Some(name) = name else { return };
     let traits = self.traits(modifiers, DeclKind::Value, Holder::Leaf, false);
     let fields = JvmFields {
-      unstable: self.annotation_paths(modifiers).iter().any(|path| self.out.unstable_annotation(path)),
+      unstable: self.annotation_paths(modifiers).iter().any(|path| self.core.out.unstable_annotation(path)),
       value_type,
       ..JvmFields::default()
     };
@@ -492,20 +444,20 @@ impl<'t> Walk<'t> {
     // the head of the declaration, whose modifiers and type a later variable shares (`b` of `int a, b;`)
     let head = ty.and_then(|it| tree.parent(it)).filter(|it| *it != id);
     let start = tree.range(name).start;
-    let mut start_line = self.lines.line(start);
+    let mut start_line = self.core.lines.line(start);
     if head.is_some() {
       for child in tree.children(id).take_while(|it| *it != name).filter(|it| self.is_doc_comment(*it)) {
-        start_line = start_line.min(self.line_at(child));
+        start_line = start_line.min(self.core.line_at(child));
       }
     }
     let span = Span {
       start: start_line,
-      end: self.end_line(start, self.own_range(id).end),
-      name: self.lines.line(start),
+      end: self.core.end_line(start, self.own_range(id).end),
+      name: self.core.lines.line(start),
     };
     let header = self.header(head, id, false);
     let decl = self.declare(name, traits, &span, fields, Some(header));
-    self.frame().deferred = Some(decl);
+    self.core.frame().extra.deferred = Some(decl);
   }
 
   /// An enum constant, whose body is local and overrides the members of its enum
@@ -515,9 +467,9 @@ impl<'t> Walk<'t> {
       unstable: self.unstable(id),
       ..JvmFields::default()
     };
-    let supertypes = self.classes.enum_supertypes(&self.out);
-    self.push_supertypes(supertypes);
-    if self.bindings.is_local() {
+    let supertypes = self.core.classes.enum_supertypes(&self.core.out);
+    self.core.push_supertypes(supertypes);
+    if self.core.bindings.is_local() {
       self.bind_name(name, None, false);
       return;
     }
@@ -525,10 +477,10 @@ impl<'t> Walk<'t> {
       let traits = self.traits(psi::get_modifier_list(self.tree, id), DeclKind::EnumEntry, Holder::Leaf, false);
       let span = self.member_span(id, name);
       let decl = self.declare(name, traits, &span, fields, None);
-      self.enter_container(decl, Holder::Leaf);
+      self.core.enter_container(decl, Holder::Leaf);
     }
     if let Some(body) = psi::enum_constant::get_initializing_class(self.tree, id) {
-      self.marks.insert(body.0, Mark::Scope);
+      self.core.marks.insert(body.0, Mark::Scope);
     }
   }
 
@@ -538,7 +490,7 @@ impl<'t> Walk<'t> {
     let name = psi::get_name_identifier(self.tree, id);
     let ty = psi::get_type_element(self.tree, id);
     let vararg = self.is_var_args(id);
-    if self.bindings.is_local() {
+    if self.core.bindings.is_local() {
       let value_type = if vararg { None } else { self.value_type(ty, None) };
       self.bind_name(name, value_type, vararg);
       return;
@@ -548,12 +500,7 @@ impl<'t> Walk<'t> {
       unstable: self.unstable(id),
       ..JvmFields::default()
     };
-    let range = self.own_range(id);
-    let span = Span {
-      start: self.lines.line(range.start),
-      end: self.end_line(range.start, range.end),
-      name: self.line_at(name),
-    };
+    let span = self.core.span(self.own_range(id), self.tree.range(name).start, None);
     let header = self.header(None, id, false);
     self.declare(name, (DeclKind::Value, Reach::Public, MemberKind::Instance), &span, fields, Some(header));
   }
@@ -573,37 +520,37 @@ impl<'t> Walk<'t> {
   /// Binds the name `name` in the current scope, `late` when the current node is left
   fn bind_name(&mut self, name: Option<NodeId>, type_path: Option<Typed>, late: bool) {
     let Some(text) = name.and_then(|it| self.text(it)) else { return };
-    let name = self.out.intern(text);
+    let name = self.core.out.intern(text);
     if late {
-      let index = self.frames.len() - 1;
-      self.bindings.bind_later(index, name, type_path);
+      let index = self.core.frames.len() - 1;
+      self.core.bindings.bind_later(index, name, type_path);
     } else {
-      self.bindings.bind(name, type_path);
+      self.core.bindings.bind(name, type_path);
     }
   }
 
   /// A `case` group of a switch's body (labels, then statements) is a scope until the next group
   fn case_group(&mut self, id: NodeId) {
-    let Some(parent) = self.frames.len().checked_sub(2) else { return };
-    let Some(open) = self.frames[parent].switch_group else { return };
+    let Some(parent) = self.core.frames.len().checked_sub(2) else { return };
+    let Some(open) = self.core.frames[parent].extra.switch_group else { return };
     let previous = std::iter::successors(self.tree.previous_sibling(id), |it| self.tree.previous_sibling(*it)).find(|it| !self.is_trivia(*it));
     if previous.is_some_and(|it| self.kind(it) == Some(N::SWITCH_LABEL_STATEMENT)) {
       return;
     }
     if open {
-      self.bindings.pop();
-      self.frames[parent].scopes -= 1;
+      self.core.bindings.pop();
+      self.core.frames[parent].scopes -= 1;
     }
-    self.bindings.push(true);
-    self.frames[parent].scopes += 1;
-    self.frames[parent].switch_group = Some(true);
+    self.core.bindings.push(true);
+    self.core.frames[parent].scopes += 1;
+    self.core.frames[parent].extra.switch_group = Some(true);
   }
 
   /// The kind, reach and member kind of a declaration of `kind` with these modifiers, given what it is to its own
   /// members and whether it is a `class` (only a class without `static` is inner)
   fn traits(&self, modifiers: Option<NodeId>, kind: DeclKind, own: Holder, class: bool) -> (DeclKind, Reach, MemberKind) {
     let has = |modifier| self.modifier(modifiers, modifier);
-    let holder = self.holder();
+    let holder = self.core.holder();
     let in_interface = matches!(holder, Some(Holder::Interface | Holder::Annotation));
     // only a class without `static` is inner; enums, records, interfaces and annotations are static
     let nested_type = own != Holder::Leaf && (!class || has(Modifier::STATIC));
@@ -636,69 +583,27 @@ impl<'t> Walk<'t> {
     }
   }
 
-  fn declare(&mut self, name: NodeId, (kind, reach, member): (DeclKind, Reach, MemberKind), span: &Span, fields: JvmFields, header: Option<String>) -> u32 {
+  fn declare(&mut self, name: NodeId, traits: (DeclKind, Reach, MemberKind), span: &Span, fields: JvmFields, header: Option<String>) -> u32 {
     let text = self.text(name).unwrap_or_default();
-    let name = self.out.intern(text);
-    let mut declaration = fields.declaration(blank_declaration(name, kind, reach, member, self.container()));
-    declaration.header = header;
-    declaration.start_line = span.start;
-    declaration.end_line = span.end;
-    declaration.name_line = span.name;
-    declaration.in_error = self.error_depth > 0;
-    self.out.add_declaration(declaration)
+    self.core.declare(text, traits, span, fields, header, self.error_depth > 0)
   }
 
   /// The lines of a class, a method or an enum constant: from its first token, or a doc comment above it, to its last
   fn member_span(&self, id: NodeId, name: NodeId) -> Span {
-    let range = self.own_range(id);
-    let mut start = self.lines.line(range.start);
-    for child in self.tree.children(id) {
-      if !self.is_trivia(child) {
-        break;
-      }
-      if self.is_doc_comment(child) {
-        start = start.min(self.line_at(child));
-      }
-    }
-    Span {
-      start,
-      end: self.end_line(range.start, range.end),
-      name: self.line_at(name),
-    }
-  }
-
-  fn enter_container(&mut self, decl: u32, holder: Holder) {
-    self.classes.enter(Some(decl), holder, false);
-    self.frame().container = true;
-  }
-
-  fn container(&self) -> Option<u32> {
-    self.classes.container()
-  }
-
-  fn holder(&self) -> Option<Holder> {
-    self.classes.holder()
+    let doc = self
+      .tree
+      .children(id)
+      .take_while(|child| self.is_trivia(*child))
+      .filter(|child| self.is_doc_comment(*child))
+      .map(|child| self.tree.range(child).start)
+      .min();
+    self.core.span(self.own_range(id), self.tree.range(name).start, doc)
   }
 
   /// Whether an anonymous class or a local declaration lies between the current node and the declaration around it
   /// (`Classes::enclosed`; a lambda pushes no supertypes in Java)
   fn enclosed(&self) -> bool {
-    self.classes.enclosed()
-  }
-
-  fn push_scope(&mut self, body: bool) {
-    self.bindings.push(body);
-    self.frame().scopes += 1;
-  }
-
-  fn push_supertypes(&mut self, supertypes: Vec<Vec<u32>>) {
-    self.classes.push_supertypes(supertypes);
-    self.frame().supertypes += 1;
-  }
-
-  fn frame(&mut self) -> &mut Frame {
-    let index = self.frames.len() - 1;
-    &mut self.frames[index]
+    self.core.classes.enclosed()
   }
 
   // --- the JVM facts of a declaration ---
@@ -714,15 +619,15 @@ impl<'t> Walk<'t> {
       .flat_map(|list| psi::reference_list::get_reference_elements(tree, list))
       .filter_map(|reference| self.path_of(reference))
       .collect();
-    paths.iter().map(|it| self.out.ids(it)).collect()
+    paths.iter().map(|it| self.core.out.ids(it)).collect()
   }
 
   /// One `Override` reference per supertype of the class around the method, qualified by its path
   fn override_references(&mut self, name: NodeId, signature: Option<&Signature>) {
-    let Some(supertypes) = self.classes.overridden() else { return };
+    let Some(supertypes) = self.core.classes.overridden() else { return };
     let Some(text) = self.text(name) else { return };
-    let shape = override_shape(&mut self.out, true, None, signature);
-    let line = self.line_at(name);
+    let shape = override_shape(&mut self.core.out, true, None, signature);
+    let line = self.core.line_at(name);
     for supertype in supertypes {
       self.reference(text, line, Role::Override, Some(supertype), Some(shape));
     }
@@ -731,13 +636,13 @@ impl<'t> Walk<'t> {
   /// `public static void main(String[] args)` of a type, `String... args` and `String args[]` too; `public` is implied
   /// only for a non-private method of an interface
   fn entry_point(&self, id: NodeId, modifiers: Option<NodeId>, signature: &Signature) -> bool {
-    let holder = self.holder();
+    let holder = self.core.holder();
     let has = |modifier| self.modifier(modifiers, modifier);
     holder.is_some()
       && (has(Modifier::PUBLIC) || (holder == Some(Holder::Interface) && !has(Modifier::PRIVATE)))
       && has(Modifier::STATIC)
       && psi::method::get_return_type_element(self.tree, id).is_some_and(|it| self.has_token(it, T::VOID_KEYWORD))
-      && matches!(signature.parameters.as_slice(), [parameter] if self.out.type_is(parameter.type_ref.as_ref(), &["String"], 1))
+      && matches!(signature.parameters.as_slice(), [parameter] if self.core.out.type_is(parameter.type_ref.as_ref(), &["String"], 1))
   }
 
   /// Whether the class whose body holds the method is `final`, explicitly or implicitly (a record, an enum none of whose
@@ -762,7 +667,7 @@ impl<'t> Walk<'t> {
     self
       .annotation_paths(psi::get_modifier_list(self.tree, id))
       .iter()
-      .any(|path| self.out.unstable_annotation(path))
+      .any(|path| self.core.out.unstable_annotation(path))
   }
 
   /// The names of the annotations among these modifiers, each as its path (`[org, junit, Test]`)
@@ -795,7 +700,7 @@ impl<'t> Walk<'t> {
       let arrays = u8::try_from(arrays).unwrap_or(u8::MAX);
       let type_ref = ty.and_then(|it| self.type_ref(it, arrays, &type_parameters));
       parameters.push(Parameter {
-        name: self.out.intern(name),
+        name: self.core.out.intern(name),
         type_ref,
         optional: false,
         vararg,
@@ -829,14 +734,14 @@ impl<'t> Walk<'t> {
         if is_primitive(token)
           && let Some(text) = self.text(node)
         {
-          names.push(self.out.intern(text));
+          names.push(self.core.out.intern(text));
         }
         continue;
       }
       let parent = match self.kind(node) {
         Some(N::JAVA_CODE_REFERENCE) => {
           let path = self.path_of(node)?;
-          names.push(type_name(&mut self.out, &self.bindings, &path, type_parameters)?);
+          names.push(type_name(&mut self.core.out, &self.core.bindings, &path, type_parameters)?);
           // the type arguments of the last name; those of a qualifier are of no name here
           match psi::code_reference::get_parameter_list(self.tree, node) {
             Some(arguments) => arguments,
@@ -866,13 +771,7 @@ impl<'t> Walk<'t> {
     } else {
       self.path_of(ty)?
     };
-    if path.len() == 1 && self.out.name_id(path[0]).is_some_and(|it| self.bindings.is_bound(it)) {
-      return None;
-    }
-    Some(Typed {
-      path: self.out.ids(&path),
-      constructed,
-    })
+    self.core.typed(&path, constructed)
   }
 
   /// The type element and the modifier list of a `FIELD` or a `LOCAL_VARIABLE`, those of its declaration's first one for
@@ -950,7 +849,7 @@ impl<'t> Walk<'t> {
         shape,
         chain: Role::Value,
       };
-      self.marks.insert(callee.0, mark);
+      self.core.marks.insert(callee.0, mark);
       return;
     }
     let Some(keyword) = psi::reference_expression::get_reference_name_element(tree, callee).filter(|it| matches!(tree.token_kind(*it), Some(T::THIS_KEYWORD | T::SUPER_KEYWORD)))
@@ -972,8 +871,8 @@ impl<'t> Walk<'t> {
     let Some((name, qualifier)) = path.as_deref().and_then(<[&str]>::split_last) else {
       return;
     };
-    let qualifier = (!qualifier.is_empty()).then(|| self.out.ids(qualifier));
-    let line = self.line_at(keyword);
+    let qualifier = (!qualifier.is_empty()).then(|| self.core.out.ids(qualifier));
+    let line = self.core.line_at(keyword);
     self.reference(name, line, Role::Call, qualifier, shape);
   }
 
@@ -993,12 +892,12 @@ impl<'t> Walk<'t> {
         shape,
         chain: Role::Type,
       };
-      self.marks.insert(constructed.0, mark);
+      self.core.marks.insert(constructed.0, mark);
     }
     if anonymous.is_some() {
       let path = constructed.and_then(|it| self.path_of(it));
-      let supertypes = path.iter().map(|it| self.out.ids(it)).collect();
-      self.push_supertypes(supertypes);
+      let supertypes = path.iter().map(|it| self.core.out.ids(it)).collect();
+      self.core.push_supertypes(supertypes);
     }
   }
 
@@ -1007,7 +906,7 @@ impl<'t> Walk<'t> {
     let Some(name) = self.name_leaf(id) else { return };
     let qualifier = psi::method_reference_expression::get_qualifier(self.tree, id).map_or_else(Vec::new, |it| self.qualifier_of(it));
     if let Some(text) = self.text(name) {
-      let line = self.line_at(name);
+      let line = self.core.line_at(name);
       self.reference(text, line, Role::Value, Some(qualifier), None);
     }
   }
@@ -1023,7 +922,7 @@ impl<'t> Walk<'t> {
     if chain == Role::Value
       && let Some(qualifier) = self.qualifier(id)
     {
-      self.marks.insert(qualifier.0, Mark::Values);
+      self.core.marks.insert(qualifier.0, Mark::Values);
     }
     self.member(id, role, shape);
   }
@@ -1033,7 +932,7 @@ impl<'t> Walk<'t> {
   fn member(&mut self, id: NodeId, role: Role, shape: Option<u32>) {
     let Some(name) = self.name_leaf(id) else { return };
     let Some(text) = self.text(name) else { return };
-    let line = self.line_at(name);
+    let line = self.core.line_at(name);
     let Some(object) = self.qualifier(id) else {
       self.reference(text, line, role, None, shape);
       return;
@@ -1044,23 +943,17 @@ impl<'t> Walk<'t> {
     } else {
       None
     };
-    let before = self.out.references.len();
-    self.reference(text, line, role, Some(qualifier), shape);
-    if let Some(receiver) = receiver.filter(|_| self.out.references.len() > before) {
-      receiver.give(&mut self.out, before);
+    if !is_reference_name(text) {
+      return;
     }
+    self.core.member_reference(text, line, role, qualifier, shape, Some(false), receiver);
   }
 
   /// What the receiver `object` of a member reference may have a type by: a bound name with a declared type, or, not
   /// enclosed, a property `[m]` or `[this, m]` of the qualifier
   fn typed_receiver(&self, object: NodeId, qualifier: &[u32]) -> Option<TypedReceiver> {
-    if matches!(self.kind(object), Some(N::REFERENCE_EXPRESSION | N::JAVA_CODE_REFERENCE)) && self.qualifier(object).is_none() {
-      let id = self.out.name_id(self.name_text(object)?)?;
-      if self.bindings.is_bound(id) {
-        return TypedReceiver::bound(self.bindings.binding(id)?);
-      }
-    }
-    TypedReceiver::property(&self.out, qualifier, self.enclosed())
+    let bare = matches!(self.kind(object), Some(N::REFERENCE_EXPRESSION | N::JAVA_CODE_REFERENCE)) && self.qualifier(object).is_none();
+    self.core.typed_receiver(if bare { self.name_text(object) } else { None }, qualifier)
   }
 
   /// The interned `Shape::Call` of the arguments `list`, `enclosed` by the walk
@@ -1068,7 +961,7 @@ impl<'t> Walk<'t> {
     let list = list?;
     let arguments = self.composite_children(list).map(|it| (None, self.argument(it))).collect();
     let enclosed = self.enclosed();
-    Some(self.out.intern_shape(Shape::Call {
+    Some(self.core.out.intern_shape(Shape::Call {
       arguments,
       spread: false,
       enclosed,
@@ -1104,28 +997,21 @@ impl<'t> Walk<'t> {
   /// type in its scope or function, which the walk can't follow
   fn smart_cast(&mut self, operand: NodeId) {
     if let Some(path) = self.path_of(operand) {
-      smart_cast(&mut self.out, &self.bindings, self.classes.container(), &path);
+      smart_cast(&mut self.core.out, &self.core.bindings, self.core.classes.container(), &path);
     }
   }
 
   /// A reference, unless its name is `var` or a bare name bound around it
   fn reference(&mut self, name: &'t str, line: u32, role: Role, qualifier: Option<Vec<u32>>, shape: Option<u32>) {
-    if name.is_empty() || name == "var" {
-      return;
+    if is_reference_name(name) {
+      self.core.reference(name, line, role, qualifier, shape, Some(false));
     }
-    let id = self.out.intern(name);
-    if qualifier.is_none() && self.bindings.is_bound(id) {
-      return;
-    }
-    let container = self.container();
-    self.out.add_reference(id, line, role, qualifier, container, shape, Some(false));
   }
 
   /// The qualifier of a member of `object`: its path of names, or empty for an expression or a path from a local
   fn qualifier_of(&mut self, object: NodeId) -> Vec<u32> {
-    let Some(path) = self.path_of(object) else { return Vec::new() };
-    let ids = self.out.ids(&path);
-    if ids.first().is_some_and(|it| self.bindings.is_bound(*it)) { Vec::new() } else { ids }
+    let path = self.path_of(object);
+    self.core.qualifier_ids(path)
   }
 
   /// `a.b.c` as `[a, b, c]`: a reference and the references of its qualifiers, `this`, `super`, and the type of a
@@ -1196,10 +1082,10 @@ impl<'t> Walk<'t> {
   fn import_statement(&mut self, id: NodeId) {
     let range = self.own_range(id);
     let span = LineSpan {
-      start: self.lines.line(range.start),
-      end: self.end_line(range.start, range.end),
+      start: self.core.lines.line(range.start),
+      end: self.core.end_line(range.start, range.end),
     };
-    self.out.import_lines.push(span);
+    self.core.out.import_lines.push(span);
   }
 
   /// `import a.b.C;`, `import a.b.*;`, `import static a.B.c;`, `import static a.B.*;`: the import, and the `Import`
@@ -1208,13 +1094,13 @@ impl<'t> Walk<'t> {
     self.import_statement(id);
     let reference = psi::import_statement::get_import_reference(self.tree, id);
     let Some(segments) = reference.and_then(|it| self.path_of(it)) else { return };
-    let line = self.line_at(id);
+    let line = self.core.line_at(id);
     // by its `*`, not `isOnDemand`'s dot: `import a.b.;` imports `b`
     if self.has_token(id, T::ASTERISK) {
-      self.out.add_import_all(&segments, false, line);
+      self.core.out.add_import_all(&segments, false, line);
     } else if let Some((name, path)) = segments.split_last() {
-      self.out.add_import_name(path, name, None, false, line);
-      let qualifier = (!path.is_empty()).then(|| self.out.ids(path));
+      self.core.out.add_import_name(path, name, None, false, line);
+      let qualifier = (!path.is_empty()).then(|| self.core.out.ids(path));
       self.reference(name, line, Role::Import, qualifier, None);
     }
   }
@@ -1285,15 +1171,7 @@ impl<'t> Walk<'t> {
   }
 
   fn text(&self, id: NodeId) -> Option<&'t str> {
-    std::str::from_utf8(self.source.get(self.tree.range(id))?).ok()
-  }
-
-  fn line_at(&self, id: NodeId) -> u32 {
-    self.lines.line(self.tree.range(id).start)
-  }
-
-  fn end_line(&self, start: usize, end: usize) -> u32 {
-    end_line(|offset| self.lines.line(offset), self.source, start, end)
+    self.core.text_of(id)
   }
 
   /// Whitespace, a comment, a doc comment
@@ -1330,9 +1208,7 @@ impl<'t> Walk<'t> {
 
   /// Whether the subtree of `id` holds an error element of the code
   fn has_error(&self, id: NodeId) -> bool {
-    let end = self.tree.subtree_end(id).0;
-    let index = self.errors.partition_point(|it| *it < id.0);
-    self.errors.get(index).is_some_and(|it| *it < end)
+    has_error_in(&self.errors, id.0, self.tree.subtree_end(id).0)
   }
 
   /// `new int[n]`, `new Foo[] {…}`: an array, no call of a constructor
@@ -1342,6 +1218,11 @@ impl<'t> Walk<'t> {
       .children(id)
       .any(|it| self.tree.token_kind(it) == Some(T::LBRACKET) || self.kind(it) == Some(N::ARRAY_INITIALIZER_EXPRESSION))
   }
+}
+
+/// Whether a name is one a reference may have: not empty, not `var`
+fn is_reference_name(name: &str) -> bool {
+  !name.is_empty() && name != "var"
 }
 
 /// The segments of the longest path (`Walk::path_of`); a longer one is of an expression. Every segment of a chain

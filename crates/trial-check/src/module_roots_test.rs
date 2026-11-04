@@ -38,6 +38,16 @@ fn the_nearest_directory_with_a_build_file_is_the_root() {
   );
 }
 
+#[test]
+fn a_directory_with_a_csproj_is_the_root_of_its_assembly() {
+  let app = [file("Example.App.csproj", "a")];
+  let tests = [file("Example.App.Tests.CSPROJ", "b")];
+  let roots = ModuleRoots::from_entries(&[("src/Example.App", &app), ("test/Example.App.Tests", &tests)]);
+  assert_eq!(roots.module_of("src/Example.App/Services/Box.cs"), Some("src/Example.App"));
+  assert_eq!(roots.module_of("test/Example.App.Tests/BoxTests.cs"), Some("test/Example.App.Tests"));
+  assert_eq!(roots.module_of("tools/Script.cs"), None);
+}
+
 /// One `cat-file --batch` reads the directories above the files at HEAD; a directory HEAD lacks has no facts
 #[test]
 fn reads_the_directories_above_the_files_at_head() {

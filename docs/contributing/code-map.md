@@ -185,7 +185,7 @@ crates/
 ├── host-agent/      # The agent on a host: serve, the supervisors, the keeper, the upgrade; the host slots through lease-pool in process
 ├── commit-clustering/ # What `bd suggest` and `bd commits` compute: the clustering, the areas of a commit, the hub files; no CLI, a library of bd-rewrite and bd-remote
 ├── object-cache/    # LMDB cache keyed by git object ids, shared by the app and bd: the answers of the Patronus pre-check, the robots, the passed builds, the last frame of each session
-├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/Rust/TS/JS file (Kotlin, Java on psi-syntax, the others on tree-sitter), no git; the highlighting (`highlight/`) and the navigation of the diffs
+├── code-symbols/    # Declarations, imports and references of a Kotlin/Java/C#/Rust/TS/JS file (Kotlin, Java, C# on psi-syntax, the others on tree-sitter), no git; the highlighting (`highlight/`) and the navigation of the diffs
 ├── text-diff/       # Line, word and char comparison of two texts, ported from IntelliJ (Apache-2.0, NOTICE)
 ├── file-diffs/      # The typed diff of each file of a commit, a range or the working tree, why a view starts it collapsed (`collapse.rs`), and blob texts by id
 ├── generated-files/ # The files nobody writes by hand: by their name (lock files, minified, source maps, snapshots), the attributes of a revision, the header a tool wrote; one rule for `bd`, the plan and every view of a diff

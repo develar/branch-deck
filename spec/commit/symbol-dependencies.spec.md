@@ -10,6 +10,8 @@ targets:
   - ../../crates/code-symbols/src/jvm.rs
   - ../../crates/code-symbols/src/java/summary.rs
   - ../../crates/code-symbols/src/kotlin/summary.rs
+  - ../../crates/code-symbols/src/csharp/summary.rs
+  - ../../crates/trial-check/src/dotnet_resolution.rs
   - ../../crates/code-symbols/src/rust_lang.rs
   - ../../crates/code-symbols/src/typescript.rs
   - ../../crates/trial-check/src/symbol_scan.rs
@@ -33,8 +35,8 @@ Date: 2026-10-18
 
 A commit that calls a function another commit added in another file merges cleanly into a branch without that commit,
 and the branch fails only when it is compiled. The line dependencies don't see it. Branch Deck reads the source files
-the commits change (Kotlin and Java by ports of the Kotlin compiler's and IntelliJ's own parsers, Rust, TypeScript and
-JavaScript by tree-sitter), and a commit that uses a name another commit of the range adds, with evidence that the use
+the commits change (Kotlin, Java and C# by ports of the Kotlin compiler's, IntelliJ's and Roslyn's own parsers, Rust,
+TypeScript and JavaScript by tree-sitter), and a commit that uses a name another commit of the range adds, with evidence that the use
 means that declaration, depends on it by symbols. An override of a member another commit adds, a call of the overload
 its arguments select, and a use that only a new form of a member or a constructor accepts (a wider reach, `open`, a
 default, a new or renamed parameter) count as uses of that commit's declaration. Such an edge orders branches; it never joins them. See [Symbol
@@ -50,6 +52,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 
 - Exact name resolution: no build, no language server, no index of the tree. A use without evidence is no edge.
 - Python, Go, Groovy and Scala: their files keep the line dependencies only.
+- The preprocessor configurations of a C# project: a file is read without symbols defined, and a `global using` of
+  another file is not seen.
 
 ## Requirements
 
@@ -68,6 +72,23 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   any expression, and so must a member of a chain of names longer than any path (64 segments), so that the
   qualifiers of a chain take linear space.
   [@test] ../../crates/code-symbols/src/java/summary_test.rs (`a_member_of_a_call_has_an_empty_qualifier`, `an_annotated_vararg_is_a_parameter`, `the_default_of_a_case_label_is_no_name`, `a_case_label_is_a_pattern_or_a_constant`, `a_module_import_imports_no_name`, `an_import_with_comments_inside`, `a_method_reference_of_a_qualified_super`, `a_compact_source_file_declares_at_the_top_level`, `an_annotated_receiver_parameter_is_no_parameter`, `an_annotated_supertype_is_a_supertype`, `a_vararg_record_component_is_a_public_field`, `a_long_chain_of_names_takes_linear_space`)
+- A C# file must be read as Roslyn's own parser reads it, at `LanguageVersion.Latest` and without preprocessor
+  symbols: a branch of `#if` it does not take is no code. Its package is the namespace of its first type (nested block
+  namespaces joined); `using N;` and `using static N.T;` import everything of their path, an alias `using X = N.T;`
+  its target (an `Import` reference to it), `global using` as any. It must declare its types (a nested one static),
+  methods, properties, events, the declarators of a field (a `const` and a `static readonly` one constants), enum
+  members and a record's positional parameters (public properties), with the reach of C#'s modifiers and defaults (a
+  member private, a type of a namespace internal, a member of an interface or an enum public, `file` of the file); an
+  extension method (`this T` of a static method) and a member of an extension block with the receiver `T`; a type's
+  constructors (a primary one, public, its declared ones, the implicit public `()` of a class or a struct; none of a
+  static class, an interface or an enum); an `override` and an explicit implementation of an interface's member as
+  overriding; xUnit's, NUnit's and MSTest's test attributes as tests, a static `Main` as the entry point,
+  `[Experimental]` as unstable. An attribute's name must be a reference of its class too (`[Obsolete]`,
+  `ObsoleteAttribute`); a documentation comment, a label, a named argument, `var`, `nameof` and `_` must name nothing,
+  and a name compares by its value (`@event` is `event`). A token the parser skipped or found missing counts as an
+  error.
+  [@test] ../../crates/code-symbols/src/csharp/summary_test.rs (`the_package_is_the_first_namespace_with_the_namespaces_around_it`, `usings_import_everything_of_their_path_and_an_alias_its_target`, `a_nested_type_is_static_and_a_member_is_private_without_a_modifier`, `a_record_has_its_positional_parameters_as_properties_and_its_primary_constructor`, `a_static_class_an_interface_and_an_enum_have_no_constructors`, `an_extension_method_and_a_member_of_an_extension_block_have_their_receiver`, `an_attribute_names_its_class_too`, `locals_parameters_patterns_and_query_variables_are_bound`, `a_verbatim_identifier_is_its_value`, `a_branch_of_if_the_configuration_does_not_take_is_not_read`, `a_documentation_comment_names_nothing_and_starts_its_declaration`, `a_missing_token_counts_as_an_error_and_marks_its_declaration`, `top_level_statements_bind_their_locals`, `a_deep_chain_and_deep_nesting_take_no_stack_per_level`)
+  [@test] ../../crates/code-symbols/src/summary_test.rs (`every_fixture_matches_its_golden_file`)
 - The reach of a Java member and whether a subtype may override it must follow the modifiers IntelliJ's PSI gives it,
   the implicit ones included (`PsiModifierListImpl.hasModifierProperty`): a member of an interface is public unless it
   is `private` (a private method of an interface reaches its container alone), an enum none of whose constants has a
@@ -188,6 +209,10 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   Kotlin top-level function that is no extension; a call of an extension on its receiver must stay one. No other
   language drops a qualified use: `pkg.f()` is a call of `f`.
   [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_call_on_an_expression_is_a_use_of_an_extension_only`)
+- A removed C# type must be searched by its name wherever it is declared (a block namespace indents the types of a
+  file), a static member or a constant by the stem of its file (`Defaults.Limit`), an extension method by its name;
+  an instance member must not be searched by the lines.
+  [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_removed_csharp_constant_is_searched_by_its_type_and_a_type_by_its_name`)
 - A dangling reference must name where the declaration is (`declared_in`: its file and its 1-based line in the file
   before `removed_by`, after it for a duplicate), read in the same `cat-file --batch` as the blobs of the search.
   [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_free_call_in_the_same_crate_is_a_use_with_removed_by_and_declared_in`, `the_incident_a_moved_constant_whose_use_is_fixed_in_another_branch`)
@@ -201,7 +226,7 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 - The summaries must be read through the object cache, keyed by the extractor version, the language and the blob id,
   with one `cat-file --batch` for the blobs the cache misses; a write of another extractor version must clear the
   store once. A summary cut by the parse budget must not be cached. The extractor version must change with the rules,
-  with the revision of psi-syntax that reads Kotlin and Java, and with a tree-sitter grammar of the others.
+  with the revision of psi-syntax that reads Kotlin, Java and C#, and with a tree-sitter grammar of the others.
   [@test] ../../crates/trial-check/src/symbol_scan_test.rs (`reads_the_summaries_through_the_cache`)
   [@test] ../../crates/code-symbols/src/summary_test.rs (`extractor_version_is_stable`, `the_psi_syntax_revision_is_the_one_cargo_builds`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`blob_summaries_are_read_by_the_extractor_version_that_wrote_them`)
@@ -227,6 +252,15 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   package or module for a type, a type of the same JVM package in the same module, an override, a call inherited
   from the supertype, or a use on a receiver of its type (below).
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_kotlin_import_of_a_function_another_commit_adds_is_an_edge`, `a_java_member_by_its_class_and_a_static_import_are_edges`, `a_rust_use_of_a_crate_path_and_a_path_of_another_crate_are_edges`, `a_typescript_import_by_a_relative_path_or_an_alias_is_an_edge`)
+- A C# use must be an edge by C#'s lookup: a type of the use's namespace or of a namespace around it, whatever its
+  assembly (`same_package_type`), of a `using` (`star_import`), an alias (`import`), a qualified name, also relative to
+  a namespace around the use or under `global::` (`qualified`), a static member by its type or bare through
+  `using static`; an `internal` declaration only from its own assembly (the nearest `*.csproj`); an extension method
+  only on a receiver of its type where the use sees its class's namespace (`receiver`); an instance member on a
+  receiver of a known type, `base.Member()` as an inherited call, an `override` by the JVM rules. The keys of a C# type
+  are only present or absent: a `partial` type has members in several files.
+  [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_csharp_type_by_a_using_an_alias_and_its_namespaces_is_an_edge`, `a_csharp_static_member_by_its_type_and_by_using_static_is_an_edge`, `an_internal_csharp_type_reaches_its_assembly_only`, `a_csharp_extension_method_on_a_receiver_of_its_type_where_its_namespace_is_seen_is_an_edge`, `a_csharp_member_on_a_receiver_of_its_type_and_an_override_are_edges`)
+  [@test] ../../crates/trial-check/src/module_roots_test.rs (`a_directory_with_a_csproj_is_the_root_of_its_assembly`)
 - A Rust item that the body of a macro in item position declares must be an edge like any other
   (`use avl_trace::bundle::StillEncoding` of a `vocabulary! { pub enum StillEncoding { … } }`, `StillEncoding::Lossless`
   by its enum), and so must a Rust field or method used by its owner type in another file: a field of a struct

@@ -18,7 +18,7 @@
 //! no recursion, whatever the nesting.
 
 use crate::highlight::lines::{Builder, LineRuns};
-use crate::highlight::paint::{Paint, comment_paint, paint_leaf};
+use crate::highlight::paint::{Open, Paint, close_before, comment_paint, node_count, paint_escapes, paint_leaf};
 use crate::highlight::scopes::Scopes;
 use crate::highlight::{FIELD, ITALIC, Role, STATIC_FIELD, is_constant_name, is_type_name};
 use java_syntax::psi;
@@ -52,14 +52,6 @@ enum Entered {
   Styled(u32),
 }
 
-/// A node the walk is inside that colours its subtree or opened a scope
-struct Open {
-  /// The end of its subtree: the id after its last descendant
-  end: u32,
-  node: NodeId,
-  style: Option<u32>,
-}
-
 struct Painter<'t> {
   tree: &'t Tree,
   scopes: Scopes,
@@ -70,15 +62,12 @@ struct Painter<'t> {
 impl Painter<'_> {
   fn paint(&mut self, out: &mut Builder<'_>) {
     let tree = self.tree;
-    let count = u32::try_from(tree.len()).unwrap_or(u32::MAX);
-    let mut open: Vec<Open> = Vec::new();
+    let count = node_count(tree);
+    let mut open: Vec<Open<()>> = Vec::new();
     let mut id = 0;
     while id < count {
       let node = NodeId(id);
-      while let Some(closed) = open.pop_if(|it| it.end <= id) {
-        self.scopes.pop(closed.node.0 as usize);
-      }
-      let around = open.iter().rev().find_map(|it| it.style).unwrap_or(0);
+      let around = close_before(&mut open, id, &mut self.scopes);
       if is_doc_comment(tree, node) {
         comment_lines(out, tree.range(node).start, text_of(tree, node), around);
         id = tree.subtree_end(node).0;
@@ -92,6 +81,7 @@ impl Painter<'_> {
             end: tree.subtree_end(class).0,
             node: class,
             style: None,
+            extra: (),
           });
         }
         if !tree.range(node).is_empty() {
@@ -110,6 +100,7 @@ impl Painter<'_> {
           end: tree.subtree_end(node).0,
           node,
           style,
+          extra: (),
         });
       }
       id += 1;
@@ -273,23 +264,9 @@ fn comment_lines(out: &mut Builder<'_>, start: usize, text: &str, around: u32) {
 
 /// Paints a string, a text block or a character literal: the literal in the colour of a string, its escapes in theirs
 fn string(out: &mut Builder<'_>, start: usize, text: &str, around: u32) {
-  let base = Role::String.style();
-  out.push(start, around);
-  let bytes = text.as_bytes();
-  let mut index = 0;
-  while index < bytes.len() {
-    if bytes[index] != b'\\' || index + 1 == bytes.len() {
-      index += 1;
-      continue;
-    }
-    let end = index + escape_length(&bytes[index..]);
-    // the escaped character may be a multi-byte one
-    let end = (end.min(bytes.len())..=bytes.len()).find(|&it| text.is_char_boundary(it)).unwrap_or(bytes.len());
-    out.push(start + index, base);
-    out.push(start + end, Role::Escape.style());
-    index = end;
-  }
-  out.push(start + bytes.len(), base);
+  paint_escapes(out, start, text, 0..text.len(), around, |bytes| {
+    if bytes[0] == b'\\' && bytes.len() > 1 { escape_length(bytes) } else { 0 }
+  });
 }
 
 /// The length of the escape at the start of `bytes`, a backslash and at least one more byte, as Java reads it:

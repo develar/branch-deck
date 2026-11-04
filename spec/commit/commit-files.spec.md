@@ -257,6 +257,18 @@ The views show the typed diff of each file instead of the patch ([Reading the di
   [@test] ../../crates/file-diffs/src/syntax_test.rs (`answers_the_runs_of_the_lines_asked_for_with_the_line_starts_from_zero`, `parses_a_blob_once_from_the_blobs_a_diff_read_and_reads_a_cold_one_with_one_cat_file`, `says_missing_for_a_blob_it_cannot_read_and_highlights_the_text_a_view_sends`, `falls_back_to_the_worker_for_a_file_without_a_grammar`)
   [@test] ../../src/lib/diff/highlight/backend-syntax.test.ts (`asks the backend for a run of pages and the next one, and keeps its answer as exact pages`, `sends the text of a blob the backend lacks, and of one the view made, with the first call`, `sends the text of a blob once: later pages go without it, and a Missing answer brings it back once`, `colours both sides of a file the backend cannot colour in the worker`, `leaves every language to the worker without a backend`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should colour Kotlin as IntelliJ does: a property as a field, a declaration, an annotation, a keyword`, `should colour TSX as IntelliJ does: a name by its declaration, a component, a method, the brackets of a tag`)
+- C# must be coloured as Rider colours it without resolving a name, from Roslyn's syntax tree, in the same roles: the
+  keywords of the parser (a contextual one where the parser makes it a keyword, `var` of a declaration and `nameof`
+  of a call), a field, a property, an event and a record's positional parameter as a field, static and `const` ones
+  and an enum member italic, a static method in the colour of a declaration and italic, a member after a value
+  (`item.Count`, `this.count`, `x?.Count`) as a field and one after a type name plain, a name where C# reads a type
+  never as the member of its name (`Color Color`), a type parameter, a label, a named argument, an attribute with its
+  arguments as code, the escapes of a string by its kind (`\x41`, `""` of a verbatim string, `{{` of an interpolated
+  one, none of a raw one) with the code of its holes, a documentation comment with its tags and their values, the
+  keywords of a directive, and a branch of `#if` the file's configuration does not take as a comment.
+  [@test] ../../crates/code-symbols/src/csharp/highlight_test.rs (`the_contextual_keywords_the_parser_reads_as_keywords_are_keywords_and_names_elsewhere`, `strings_have_the_escapes_of_their_kind`, `members_are_fields_by_their_declarations_and_static_ones_are_italic`, `a_name_in_a_type_position_is_a_type_not_the_member_of_its_name`, `a_member_of_a_value_is_a_field_and_one_of_a_type_name_is_unknown`, `a_type_parameter_is_one_where_declared_and_used`, `a_documentation_comment_has_its_tags_and_their_values`, `a_directive_has_its_keywords_and_a_branch_not_taken_is_a_comment`, `an_attribute_is_one_and_its_arguments_are_code`, `a_label_and_the_goto_to_it_are_labels`, `a_verbatim_identifier_binds_its_value_text`, `the_parameters_of_a_record_are_its_properties`)
+  [@test] ../../crates/code-symbols/src/highlight_test.rs (`every_fixture_matches_its_golden_file`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should colour C# as Rider does: a field, a declaration, an attribute, a keyword, an escape`)
 - A diff must show the blocks of the diff engine with 4 lines of context (IntelliJ's), changes whose context touches
   without a fold between them, and the changed ranges of the engine instead of a word diff, also on a changed line
   without a line beside it. The tints are IntelliJ's: a block with inner ranges draws its lines pale and its ranges

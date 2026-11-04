@@ -168,7 +168,7 @@ publisher: choose More info → Run anyway.
 ## Agent CLI
 
 `bd` gives a coding agent what the app sees, as JSON: the commits ahead of the baseline, their files, the
-dependencies between them, by lines and by the names they declare and use in Kotlin, Java, Rust and TypeScript
+dependencies between them, by lines and by the names they declare and use in Kotlin, Java, C#, Rust and TypeScript
 ([symbol dependencies](spec/commit/symbol-dependencies.spec.md)), and the branches. It suggests a grouping checked by
 a trial sync, applies it as one rewrite of the commit messages that can be undone, pushes and updates:
 

@@ -1,7 +1,7 @@
 //! The syntax highlighting of one file, as the IntelliJ editor colours it without resolving names
-//! (docs/design/diff-view.md, "Syntax highlighting"): the role of each piece of text, from its syntax tree. Kotlin and
-//! Java from their PSI (`kotlin::highlight`, `java::highlight`: one pass over the leaves of psi-syntax's tree, whose
-//! tokens are the lexer's, soft keywords included), Rust, TypeScript, TSX and JavaScript from a tree-sitter tree by the
+//! (docs/design/diff-view.md, "Syntax highlighting"): the role of each piece of text, from its syntax tree. Kotlin,
+//! Java and C# from their PSI and Roslyn's tree (`kotlin::highlight`, `java::highlight`, `csharp::highlight`: one pass
+//! over the leaves of psi-syntax's tree, whose tokens are the lexer's, soft keywords included), Rust, TypeScript, TSX and JavaScript from a tree-sitter tree by the
 //! rules of their grammar (`rust_lang.rs`, `typescript.rs`, painted by `paint.rs`).
 //!
 //! - **One walk, painted spans**: a preorder walk gives each piece of text its style; a node with a style paints its
@@ -143,30 +143,25 @@ impl Role {
   }
 }
 
-/// The grammar a file is highlighted with
+/// The grammar a file is highlighted with; the discriminant of each is its stable id (`id`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum Grammar {
-  Kotlin,
+  Kotlin = 0,
   /// A Kotlin script (`.kts`), whose top-level statements the compiler parses as a script's
-  KotlinScript,
-  Java,
-  Rust,
-  TypeScript,
+  KotlinScript = 5,
+  Java = 1,
+  Rust = 2,
+  TypeScript = 3,
   /// TSX: `.tsx` and JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`), JSX included
-  Tsx,
+  Tsx = 4,
+  CSharp = 6,
 }
 
 impl Grammar {
   /// A stable number for compact keys
   pub const fn id(self) -> u8 {
-    match self {
-      Self::Kotlin => 0,
-      Self::Java => 1,
-      Self::Rust => 2,
-      Self::TypeScript => 3,
-      Self::Tsx => 4,
-      Self::KotlinScript => 5,
-    }
+    self as u8
   }
 
   /// Whether this build reads files of the grammar: its language is a cargo feature
@@ -176,11 +171,12 @@ impl Grammar {
       Self::Java => cfg!(feature = "java"),
       Self::Rust => cfg!(feature = "rust"),
       Self::TypeScript | Self::Tsx => cfg!(feature = "typescript"),
+      Self::CSharp => cfg!(feature = "csharp"),
     }
   }
 
-  /// The tree-sitter grammar of the grammars tree-sitter reads in this build (Rust, TypeScript, TSX); none for Kotlin and
-  /// Java, which psi-syntax reads
+  /// The tree-sitter grammar of the grammars tree-sitter reads in this build (Rust, TypeScript, TSX); none for Kotlin,
+  /// Java and C#, which psi-syntax reads
   fn language(self) -> Option<tree_sitter::Language> {
     match self {
       #[cfg(feature = "rust")]
@@ -202,6 +198,7 @@ pub fn grammar_of(path: &str) -> Option<Grammar> {
     "kt" => Grammar::Kotlin,
     "kts" => Grammar::KotlinScript,
     "java" => Grammar::Java,
+    "cs" => Grammar::CSharp,
     "rs" => Grammar::Rust,
     "ts" | "mts" | "cts" => Grammar::TypeScript,
     "tsx" | "js" | "jsx" | "mjs" | "cjs" => Grammar::Tsx,
@@ -231,7 +228,7 @@ pub(crate) fn named_child<'tree>(node: tree_sitter::Node<'tree>, kind: &str) -> 
   node.named_children(&mut cursor).find(|it| it.kind() == kind)
 }
 
-/// The tree-sitter tree of a text by its grammar, within the parse budget of its size; `None` for Kotlin and Java
+/// The tree-sitter tree of a text by its grammar, within the parse budget of its size; `None` for Kotlin, Java and C#
 pub(crate) fn parse_text(grammar: Grammar, text: &str) -> Option<tree_sitter::Tree> {
   let language = grammar.language()?;
   let budget = (text.len() / 1024).saturating_mul(PARSE_BUDGET_PER_KIB).max(MIN_PARSE_BUDGET);
@@ -239,7 +236,8 @@ pub(crate) fn parse_text(grammar: Grammar, text: &str) -> Option<tree_sitter::Tr
 }
 
 /// The highlighting of a text; `None` when it is over `MAX_BYTES`, its grammar is not in this build or its tree-sitter
-/// parse ran out of budget. Kotlin and Java by psi-syntax's trees (`kotlin`, `java`), the others by tree-sitter's
+/// parse ran out of budget. Kotlin, Java and C# by psi-syntax's trees (`kotlin`, `java`, `csharp`), the others by
+/// tree-sitter's
 pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
   if text.len() > MAX_BYTES {
     return None;
@@ -249,6 +247,8 @@ pub fn highlight(grammar: Grammar, text: &str) -> Option<LineRuns> {
     Grammar::Kotlin | Grammar::KotlinScript => Some(crate::kotlin::highlight::highlight(crate::kotlin::file_kind(grammar), text)),
     #[cfg(feature = "java")]
     Grammar::Java => Some(crate::java::highlight::highlight(text)),
+    #[cfg(feature = "csharp")]
+    Grammar::CSharp => Some(crate::csharp::highlight::highlight(text)),
     _ => highlight_tree_sitter(grammar, text),
   }
 }

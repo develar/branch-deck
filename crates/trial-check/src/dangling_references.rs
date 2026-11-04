@@ -4,8 +4,9 @@
 //!
 //! - **Declarations by the lines.** A removed line of a commit is a declaration when it declares a name that other files
 //!   can use: a top-level type or function, a static member (used as `Stem.NAME`, the file's stem). Instance members and
-//!   locals are not searched. Language by extension: JVM (Java, Kotlin, Groovy, Scala), Rust, TypeScript and JavaScript,
-//!   Python, Go.
+//!   locals are not searched. Language by extension: JVM (Java, Kotlin, Groovy, Scala), C#, Rust, TypeScript and
+//!   JavaScript, Python, Go. A C# type is searched by its name wherever it is declared: a block namespace indents the
+//!   types of a file, so an indentation tells no nested type from a top-level one.
 //! - **Only where the trees differ.** A use that the virtual tree of a branch has and HEAD's tree lacks can only be in a
 //!   path where the two trees differ: the paths of the other branches' commits, a few hundred, not the whole tree. One
 //!   `diff-tree --stdin` for all branches, one `cat-file --batch` for the blobs; the search runs in Rust.
@@ -150,6 +151,7 @@ impl DanglingReference {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Language {
   Jvm,
+  CSharp,
   Rust,
   Script,
   Python,
@@ -160,6 +162,7 @@ fn language_of(path: &str) -> Option<Language> {
   let extension = path.rsplit_once('.')?.1;
   Some(match extension {
     "java" | "kt" | "kts" | "groovy" | "scala" => Language::Jvm,
+    "cs" => Language::CSharp,
     "rs" => Language::Rust,
     "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" => Language::Script,
     "py" => Language::Python,
@@ -218,6 +221,21 @@ static JAVA_MEMBER: LazyLock<Regex> = LazyLock::new(|| {
 });
 /// A constant of an interface, implicitly static: `String CONTROL_URL_ENV = "…";`
 static JAVA_INTERFACE_CONSTANT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?P<indent>\s+)[\w$.<>\[\]]+\s+(?P<name>[A-Z][A-Z0-9_]+)\s*=").expect("valid regex"));
+/// The attributes before a C# declaration on its line (`[Obsolete] `, `[Fact, Trait("a", "b")] `)
+const CSHARP_ATTRIBUTES: &str = r"(?:\[[^\]]*\]\s*)*";
+static CSHARP_TYPE: LazyLock<Regex> = LazyLock::new(|| {
+  Regex::new(&format!(
+    r"^(?P<indent>\s*){CSHARP_ATTRIBUTES}(?P<mods>(?:(?:public|protected|private|internal|static|sealed|abstract|partial|unsafe|new|file|readonly|ref)\s+)*)(?:(?:class|struct|interface|enum|record(?:\s+(?:struct|class))?)\s+|delegate\s+[\w.<>\[\],? ]+?\s+)(?P<name>[A-Za-z_]\w*)"
+  ))
+  .expect("valid regex")
+});
+/// A C# member with a modifier: a method, a property, a field, a constant, an event
+static CSHARP_MEMBER: LazyLock<Regex> = LazyLock::new(|| {
+  Regex::new(&format!(
+    r"^(?P<indent>\s*){CSHARP_ATTRIBUTES}(?P<mods>(?:(?:public|protected|private|internal|static|readonly|const|virtual|override|abstract|sealed|new|extern|unsafe|async|volatile|required|partial|event)\s+)+)[\w.<>\[\],? ]+?\s+(?P<name>[A-Za-z_]\w*)\s*(?:<[^>]*>\s*)?[=;({{]"
+  ))
+  .expect("valid regex")
+});
 static RUST_ITEM: LazyLock<Regex> = LazyLock::new(|| {
   Regex::new(
     r#"^(?P<indent>\s*)(?P<pub>pub(?:\([^)]*\))?\s+)?(?:(?:async|const|unsafe|extern\s+"[^"]*")\s+)*(?:fn|struct|enum|trait|const|static|type|union|mod)\s+(?P<name>[A-Za-z_]\w*)"#,
@@ -289,6 +307,26 @@ fn declaration_of(language: Language, line: &str) -> Option<Declaration> {
       }
       let captures = JAVA_INTERFACE_CONSTANT.captures(line)?;
       declaration(&captures["name"], Reach::Member)
+    }
+    Language::CSharp => {
+      if let Some(captures) = CSHARP_TYPE.captures(line) {
+        let reach = if has_mod(&captures, "private") || has_mod(&captures, "file") {
+          Reach::Private
+        } else {
+          Reach::TopLevel
+        };
+        return declaration(&captures["name"], reach);
+      }
+      let captures = CSHARP_MEMBER.captures(line)?;
+      // an extension method is called on its receiver (`x.Name()`), by its name; another static member or a constant
+      // by its type, the file's stem by convention (`Defaults.Limit`); an instance member is not searched
+      let extension = line.contains("(this ");
+      match (has_mod(&captures, "private"), has_mod(&captures, "static") || has_mod(&captures, "const")) {
+        (true, _) => declaration(&captures["name"], Reach::Private),
+        (false, true) if extension => declaration(&captures["name"], Reach::TopLevel),
+        (false, true) => declaration(&captures["name"], Reach::Member),
+        (false, false) => None,
+      }
     }
     Language::Rust => {
       let captures = RUST_ITEM.captures(line).or_else(|| RUST_MACRO.captures(line))?;

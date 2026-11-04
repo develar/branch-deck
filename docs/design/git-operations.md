@@ -3486,7 +3486,7 @@ a check, `find_dangling_references` looks for such uses without a compiler:
    of the removing files and the removing files before the commit (`<removed_by>^:<file>`, for the line of the
    declaration, `declared_in`), and the search runs in Rust. Paths where the trees differ are the other branches' changes,
    a few hundred even in a monorepo.
-4. The syntax trees subtract (`code_symbols`, Kotlin, Java, Rust, TypeScript and JavaScript): a candidate line counts
+4. The syntax trees subtract (`code_symbols`, Kotlin, Java, C#, Rust, TypeScript and JavaScript): a candidate line counts
    only where the tree of its blob has a reference to the name, so a word of a comment or a string, a local of the same
    name, a key and the name of an `override` member (it declares one) are none, nor, for a Kotlin top-level function
    that is no extension, a call on an expression (`client.name()`, an empty qualifier); a name an import still binds in the

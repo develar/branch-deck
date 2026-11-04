@@ -1,8 +1,8 @@
 //! The walk that paints: a preorder `TreeCursor` walk with an explicit stack, so a deeply nested file cannot overflow
 //! the stack. Each node asks the rules of its grammar for a `Paint`; the text between the children of a node takes the
 //! style of the innermost node with one. A parent may mark its children before the walk reaches them (the callee of a
-//! call, the name of a declaration), as the summary does (`extract.rs`). The walks of psi-syntax's trees (Kotlin, Java)
-//! paint by `paint_leaf`, one leaf at a time, and share `Paint`, `comment_paint` and the lexers.
+//! call, the name of a declaration), as the summary does (`extract.rs`). The walks of psi-syntax's trees (Kotlin, Java,
+//! C#) paint by `paint_leaf`, one leaf at a time, and share `Paint`, `comment_paint` and the lexers.
 
 use crate::highlight::lex::{Lex, lex};
 use crate::highlight::lines::Builder;
@@ -211,4 +211,55 @@ pub(crate) fn paint(tree: &Tree, text: &str, rules: &mut impl Rules, out: &mut B
       scopes.pop(parent.id());
     }
   }
+}
+
+/// Paints a string literal of a psi-syntax tree: the literal in the colour of a string, its escapes in theirs, an
+/// escape `escape_at` long at each byte of `scan` where one starts (0 where none does), an escaped character that
+/// is a multi-byte one whole
+#[cfg(any(feature = "java", feature = "csharp"))]
+pub(crate) fn paint_escapes(out: &mut Builder<'_>, start: usize, text: &str, scan: std::ops::Range<usize>, around: u32, escape_at: impl Fn(&[u8]) -> usize) {
+  let base = Role::String.style();
+  out.push(start, around);
+  let bytes = text.as_bytes();
+  let mut index = scan.start;
+  while index < scan.end {
+    let length = escape_at(&bytes[index..scan.end]);
+    if length == 0 {
+      index += 1;
+      continue;
+    }
+    let end = ((index + length).min(bytes.len())..=bytes.len())
+      .find(|&it| text.is_char_boundary(it))
+      .unwrap_or(bytes.len());
+    out.push(start + index, base);
+    out.push(start + end, Role::Escape.style());
+    index = end;
+  }
+  out.push(start + bytes.len(), base);
+}
+
+/// The number of nodes of a psi-syntax tree, the end of a walk over its ids
+#[cfg(any(feature = "java", feature = "csharp"))]
+pub(crate) fn node_count<L: psi_builder::language::TreeLanguage>(tree: &psi_builder::Tree<L>) -> u32 {
+  u32::try_from(tree.len()).unwrap_or(u32::MAX)
+}
+
+/// A node a walk over a psi-syntax tree is inside that colours its subtree or opened a scope, with what the language's
+/// walk keeps of it
+#[cfg(any(feature = "java", feature = "csharp"))]
+pub(crate) struct Open<X> {
+  /// The end of its subtree: the id after its last descendant
+  pub(crate) end: u32,
+  pub(crate) node: psi_builder::NodeId,
+  pub(crate) style: Option<u32>,
+  pub(crate) extra: X,
+}
+
+/// Closes the open nodes whose subtrees end before the node `id`, and the scopes they opened; the style around `id`
+#[cfg(any(feature = "java", feature = "csharp"))]
+pub(crate) fn close_before<X>(open: &mut Vec<Open<X>>, id: u32, scopes: &mut Scopes) -> u32 {
+  while let Some(closed) = open.pop_if(|it| it.end <= id) {
+    scopes.pop(closed.node.0 as usize);
+  }
+  open.iter().rev().find_map(|it| it.style).unwrap_or(0)
 }

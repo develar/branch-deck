@@ -18,10 +18,11 @@
 use domain_types::commit_body::CodeSpan;
 
 /// The extensions of a file name that is code
-const CODE_EXTENSIONS: [&str; 30] = [
+const CODE_EXTENSIONS: [&str; 31] = [
   "kt",
   "kts",
   "java",
+  "cs",
   "ts",
   "tsx",
   "js",

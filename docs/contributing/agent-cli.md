@@ -500,7 +500,7 @@ supertype resolves, a call in a subclass of a member its one supertype has, a us
 Java use through the accessor or the file class of a Kotlin declaration), or removes a declaration whose uses another
 commit removed. Of a Kotlin or Java type a declaration is each overload and each constructor, and a new form of one (a
 wider reach, `open`, a default, a new or renamed parameter) counts as added for the uses that only it accepts; a call
-links to the overloads its arguments select. They come from the syntax trees of Kotlin, Java, Rust, TypeScript and
+links to the overloads its arguments select. They come from the syntax trees of Kotlin, Java, C#, Rust, TypeScript and
 JavaScript, cached by blob id. Such an edge (`via: "symbols"`) means "this doesn't compile without that", which a stack
 or the order of two Safe Pushes satisfies; it never joins `units`.
 See [Symbol Dependencies](../design/symbol-dependencies.md).
@@ -1301,7 +1301,7 @@ repository lock.
   of it that names the declaration, a glob or the module of the path), and a `pub(crate)` one not at all.
   `--allow-dangling` counts a branch whose
   only failure is a dangling reference in `ok` and the exit code (its `result` stays), for a false alarm, as
-  `bd safe-push --allow-dangling` starts anyway. The syntax trees of Kotlin, Java, Rust, TypeScript and JavaScript then take away
+  `bd safe-push --allow-dangling` starts anyway. The syntax trees of Kotlin, Java, C#, Rust, TypeScript and JavaScript then take away
   a word of a comment or a string, a local of the same name, a name a `use` or an import alias still binds and a call
   on an expression of a Kotlin top-level function that is no extension: `via`
   is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. With `branchdeck.symbols

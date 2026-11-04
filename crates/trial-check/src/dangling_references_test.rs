@@ -293,6 +293,47 @@ fn a_removed_top_level_function_is_searched_by_its_name() {
   );
 }
 
+#[test]
+fn a_removed_csharp_constant_is_searched_by_its_type_and_a_type_by_its_name() {
+  let defaults =
+    "namespace Example;\n\npublic static class Defaults\n{\n    public const int Limit = 10;\n    public static int Other = 1;\n}\n\npublic sealed record Point(int X, int Y);\n";
+  let user = "namespace Example.App;\n\npublic class Box\n{\n    int Size => Defaults.Limit;\n    Point Origin => new(0, 0);\n}\n";
+  let (repo, [_, removed_by, fixed_by]) = TestRepo::with_commits(&[
+    HistoryCommit::new("Initial commit", &[("src/Defaults.cs", defaults), ("src/App/Box.cs", user)]),
+    HistoryCommit::new(
+      "(cleanup) Drop the limit and the point",
+      &[(
+        "src/Defaults.cs",
+        "namespace Example;\n\npublic static class Defaults\n{\n    public static int Other = 1;\n}\n",
+      )],
+    ),
+    HistoryCommit::new(
+      "(box) Size without them",
+      &[("src/App/Box.cs", "namespace Example.App;\n\npublic class Box\n{\n    int Size => 0;\n}\n")],
+    ),
+  ]);
+
+  let dangling = check(&repo).dangling;
+  // the identifier, the file of the use and its line, the commit that fixes it, the line of the declaration
+  type Found = (String, String, u32, Option<String>, Option<u32>);
+  let found: Vec<Found> = dangling
+    .get("cleanup")
+    .cloned()
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|reference| reference.kind == DanglingKind::Removed)
+    .map(|reference| (reference.identifier, reference.file, reference.line, reference.fixed_by, reference.declared_in.line))
+    .collect();
+  assert_eq!(
+    found,
+    [
+      ("Limit".to_string(), "src/App/Box.cs".to_string(), 5, Some(fixed_by.clone()), Some(5)),
+      ("Point".to_string(), "src/App/Box.cs".to_string(), 6, Some(fixed_by), Some(9)),
+    ],
+    "removed by {removed_by}"
+  );
+}
+
 /// A use that came with the baseline after the base: Patronus merges onto the tip, where it breaks; no commit here
 /// fixes it, so it is only possible
 #[test]

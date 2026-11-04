@@ -3,16 +3,18 @@ name = "code-symbols"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java) and tree-sitter (Rust, TypeScript)"
+description = "Declarations, imports and references of one source file, on psi-syntax (Kotlin, Java, C#) and tree-sitter (Rust, TypeScript)"
 
 [dependencies]
-# Kotlin's and Java's parsers: psi-syntax's ports of the Kotlin compiler's and IntelliJ's own lexers and parsers, whose
-# trees are their PSI byte for byte; pure Rust, no C. They live in accio's repository (`psi-syntax/`), which is
-# internal, so a revision of develar/psi-syntax, its public mirror, pins them: each mirrored commit names its accio
-# commit (`Accio-Commit:`); `psi-builder` is the tree both build, named directly for the code both languages share.
-java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "78bdb6c9a31d29baa1efee31c11cbb317dbb3125", optional = true }
-kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "78bdb6c9a31d29baa1efee31c11cbb317dbb3125", optional = true }
-psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "78bdb6c9a31d29baa1efee31c11cbb317dbb3125", optional = true }
+# Kotlin's, Java's and C#'s parsers: psi-syntax's ports of the Kotlin compiler's, IntelliJ's and Roslyn's own lexers and
+# parsers, whose trees are their PSI (Roslyn's syntax tree for C#) byte for byte; pure Rust, no C. They live in accio's
+# repository (`psi-syntax/`), which is internal, so a revision of develar/psi-syntax, its public mirror, pins them: each
+# mirrored commit names its accio commit (`Accio-Commit:`); `psi-builder` is the tree all three build, named directly
+# for the code the languages share.
+csharp-syntax = { git = "https://github.com/develar/psi-syntax", rev = "3307f0b88464b5fd8d440605c1c3b890b416e10d", optional = true }
+java-syntax = { git = "https://github.com/develar/psi-syntax", rev = "3307f0b88464b5fd8d440605c1c3b890b416e10d", optional = true }
+kotlin-syntax = { git = "https://github.com/develar/psi-syntax", rev = "3307f0b88464b5fd8d440605c1c3b890b416e10d", optional = true }
+psi-builder = { git = "https://github.com/develar/psi-syntax", rev = "3307f0b88464b5fd8d440605c1c3b890b416e10d", optional = true }
 serde.workspace = true
 tree-sitter = "0.27.1"
 tree-sitter-rust = { version = "0.24.2", optional = true }
@@ -23,9 +25,10 @@ pretty_assertions.workspace = true
 serde_json.workspace = true
 
 [features]
-default = ["kotlin", "java", "rust", "typescript"]
+default = ["kotlin", "java", "csharp", "rust", "typescript"]
 kotlin = ["dep:kotlin-syntax", "dep:psi-builder"]
 java = ["dep:java-syntax", "dep:psi-builder"]
+csharp = ["dep:csharp-syntax", "dep:psi-builder"]
 rust = ["dep:tree-sitter-rust"]
 typescript = ["dep:tree-sitter-typescript"]
 

@@ -1,4 +1,5 @@
-//! The summary of a file (`summarize`): Kotlin and Java by a walk of their PSI (`kotlin::summary`, `java::summary`),
+//! The summary of a file (`summarize`): Kotlin, Java and C# by a walk of their PSI and Roslyn's tree (`kotlin::summary`,
+//! `java::summary`, `csharp::summary`),
 //! Rust, TypeScript and JavaScript by one preorder walk over a tree-sitter tree, driven by per-language tables of node
 //! kinds (below); both on the parser-neutral `summary_builder`. The size limits and the version of the rules are those
 //! of every language.
@@ -47,8 +48,8 @@ pub fn summarize(language: Language, source: &[u8]) -> FileSummary {
   summarize_with_budget(language, source, PARSE_BUDGET)
 }
 
-/// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`kotlin`) and
-/// Java (`java`), tree-sitter's with `budget` for the others
+/// The summary within the limits of size, by the parser of the language: psi-syntax's for Kotlin (`kotlin`), Java
+/// (`java`) and C# (`csharp`), tree-sitter's with `budget` for the others
 pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u32) -> FileSummary {
   let mut summary = empty_summary(language, source);
   let lines = summary.lines;
@@ -60,6 +61,8 @@ pub(crate) fn summarize_with_budget(language: Language, source: &[u8], budget: u
     Language::Kotlin => crate::kotlin::summary::summarize(source, &mut summary),
     #[cfg(feature = "java")]
     Language::Java => crate::java::summary::summarize(source, &mut summary),
+    #[cfg(feature = "csharp")]
+    Language::CSharp => crate::csharp::summary::summarize(source, &mut summary),
     _ => summarize_tree_sitter(source, budget, &mut summary),
   };
   summary.truncated = !read;
@@ -78,13 +81,13 @@ fn summarize_tree_sitter(source: &[u8], budget: u32, summary: &mut FileSummary) 
   true
 }
 
-/// The revision of psi-syntax, whose `kotlin-syntax` and `java-syntax` read Kotlin and Java: the `rev` of develar/psi-syntax
-/// (the public mirror of accio's `psi-syntax/`) of the three psi-syntax crates in `Cargo.toml`
+/// The revision of psi-syntax, whose `kotlin-syntax`, `java-syntax` and `csharp-syntax` read Kotlin, Java and C#: the
+/// `rev` of develar/psi-syntax (the public mirror of accio's `psi-syntax/`) of the four psi-syntax crates in `Cargo.toml`
 /// (`the_psi_syntax_revision_is_the_one_cargo_builds`)
-pub(crate) const PSI_SYNTAX_REVISION: &str = "78bdb6c9a31d29baa1efee31c11cbb317dbb3125";
+pub(crate) const PSI_SYNTAX_REVISION: &str = "3307f0b88464b5fd8d440605c1c3b890b416e10d";
 
 /// A stable hash of the rules and the parsers of this build: a cached summary is valid only for the same value. FNV-1a
-/// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax (Kotlin, Java) or the
+/// over `RULES_VERSION` and, for each enabled language, the revision of psi-syntax (Kotlin, Java, C#) or the
 /// `node-types.json` of its tree-sitter grammar, so it is the same across runs and compilers.
 pub fn extractor_version() -> u32 {
   let mut hash = Fnv::new();
@@ -100,7 +103,7 @@ pub fn extractor_version() -> u32 {
 }
 
 /// The tree-sitter grammar of a language in this build (Rust, TypeScript), for tools that look at the syntax tree
-/// itself; none for Kotlin and Java, which psi-syntax reads
+/// itself; none for Kotlin, Java and C#, which psi-syntax reads
 pub fn grammar(language: Language) -> Option<tree_sitter::Language> {
   spec_of(language).map(|spec| (spec.grammar)())
 }

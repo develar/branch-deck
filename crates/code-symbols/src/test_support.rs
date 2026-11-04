@@ -32,7 +32,7 @@ pub(crate) fn fixtures(directory: &str, extension: &str) -> Vec<(String, Vec<u8>
 }
 
 /// Asserts that the leaves of a psi-syntax tree tile its text, at the file's offsets
-#[cfg(any(feature = "kotlin", feature = "java"))]
+#[cfg(any(feature = "kotlin", feature = "java", feature = "csharp"))]
 pub(crate) fn assert_leaves_tile<L: psi_builder::language::TreeLanguage>(tree: &psi_builder::Tree<L>) {
   let mut end = 0;
   for (_, range) in tree.leaves() {
@@ -125,4 +125,59 @@ fn of_name(summary: &FileSummary, name: &str, text: impl Fn(&Declaration, &str) 
       text(it, container)
     })
     .collect()
+}
+
+/// The style of the text at the `occurrence`-th `needle` of the text (counted from 0) in the highlighting of `grammar`,
+/// by the runs of its line
+pub(crate) fn style_at(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> u32 {
+  let place = place(text, needle, occurrence);
+  let runs = crate::highlight::highlight(grammar, text).unwrap();
+  runs
+    .line(place.line as usize)
+    .chunks(2)
+    .take_while(|pair| pair[0] <= place.column)
+    .last()
+    .map_or(0, |pair| pair[1])
+}
+
+/// The place of the `occurrence`-th `needle` of the text, counted from 0, its column in UTF-16 units
+pub(crate) fn place(text: &str, needle: &str, occurrence: usize) -> crate::navigate::Position {
+  let offset = text.match_indices(needle).nth(occurrence).unwrap_or_else(|| panic!("no {needle}")).0;
+  let line_start = text[..offset].rfind('\n').map_or(0, |it| it + 1);
+  crate::navigate::Position {
+    line: u32::try_from(text[..offset].matches('\n').count()).unwrap(),
+    column: u32::try_from(text[line_start..offset].encode_utf16().count()).unwrap(),
+  }
+}
+
+/// The name at the `occurrence`-th `needle` of the text and what its syntax says
+pub(crate) fn at(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> crate::navigate::ReferenceAt {
+  crate::navigate::reference_at(grammar, text, place(text, needle, occurrence)).unwrap_or_else(|| panic!("no name at {needle}"))
+}
+
+/// The kind of the name at a needle and the line and column of its declaration
+pub(crate) fn kind_and_local(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> (crate::navigate::ReferenceKind, Option<(u32, u32)>) {
+  let reference = at(grammar, text, needle, occurrence);
+  (reference.kind, reference.local.map(|it| (it.line, it.column)))
+}
+
+/// Whether the usages of the name at a needle are of a local, and their lines and accesses
+pub(crate) fn usages(grammar: crate::highlight::Grammar, text: &str, needle: &str, occurrence: usize) -> (bool, Vec<(u32, crate::navigate::Access)>) {
+  let found = crate::navigate::usages_at(grammar, text, place(text, needle, occurrence)).unwrap();
+  (found.local, found.usages.iter().map(|it| (it.start.line, it.access)).collect())
+}
+
+/// The references of a line as `text#container`, sorted
+pub(crate) fn line_references(summary: &FileSummary, line: u32) -> Vec<String> {
+  let mut texts: Vec<String> = summary
+    .references
+    .iter()
+    .filter(|it| it.line == line)
+    .map(|it| {
+      let container = it.container.and_then(|id| summary.declarations.get(id as usize)).map_or("-", |it| summary.name(it.name));
+      format!("{}#{container}", reference_text(summary, it))
+    })
+    .collect();
+  texts.sort();
+  texts
 }

@@ -1,5 +1,5 @@
-//! Where the modules of source files begin: the nearest directory above a file that holds a build file. Kotlin's
-//! `internal` and a Rust crate end there, and a TypeScript alias of `tsconfig.json` starts there. Read from HEAD's tree
+//! Where the modules of source files begin: the nearest directory above a file that holds a build file. Kotlin's and
+//! C#'s `internal` (a .NET assembly, a `*.csproj`) and a Rust crate end there, and a TypeScript alias of `tsconfig.json` starts there. Read from HEAD's tree
 //! (it has the newest structure of the commits ahead of the baseline) with one `cat-file --batch` of every directory
 //! above the files: the paths go on stdin, so the length of a command line never limits them.
 
@@ -15,7 +15,7 @@ const MODULE_FILES: [&str; 6] = ["BUILD.bazel", "BUILD", "build.gradle", "build.
 /// What one directory holds of the build files
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct DirFacts {
-  /// An `*.iml` or a file of `MODULE_FILES`
+  /// An `*.iml`, a `*.csproj` or a file of `MODULE_FILES`
   module: bool,
   /// The blob of its `Cargo.toml`
   cargo: Option<String>,
@@ -66,8 +66,8 @@ impl ModuleRoots {
     ancestors(path).find_map(|dir| self.dirs.get_key_value(dir).filter(|(_, facts)| has(facts)).map(|(dir, _)| dir.as_str()))
   }
 
-  /// The root of the module of `path`: the nearest directory above it with an `*.iml`, a Bazel, Gradle or Maven build
-  /// file; `None` when no directory has one
+  /// The root of the module of `path`: the nearest directory above it with an `*.iml`, a `*.csproj`, a Bazel, Gradle or
+  /// Maven build file; `None` when no directory has one
   pub fn module_of(&self, path: &str) -> Option<&str> {
     self.nearest(path, |facts| facts.module)
   }
@@ -122,7 +122,7 @@ fn facts_of(entries: &[TreeEntry]) -> DirFacts {
   for entry in entries.iter().filter(|entry| entry.mode.starts_with("100")) {
     let name = entry.name.as_str();
     let extension = name.rsplit_once('.').map(|(_, extension)| extension);
-    if extension.is_some_and(|extension| extension.eq_ignore_ascii_case("iml")) || MODULE_FILES.contains(&name) {
+    if extension.is_some_and(|extension| extension.eq_ignore_ascii_case("iml") || extension.eq_ignore_ascii_case("csproj")) || MODULE_FILES.contains(&name) {
       facts.module = true;
     }
     if name == "Cargo.toml" {

@@ -38,7 +38,8 @@ export function getHighlightClient(): HighlightClient {
       logError("Cannot highlight a diff", `${blobId}: ${reason}`)
     }
   })
-  // Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend with tree-sitter, as IntelliJ colours them
+  // Kotlin, Java, C#, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree, as IntelliJ (and
+  // Rider) colour them
   created.useBackend(
     new BackendSyntax(
       created.cache,

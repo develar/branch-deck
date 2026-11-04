@@ -14,6 +14,7 @@ targets:
   - ../../crates/code-symbols/src/navigate.rs
   - ../../crates/code-symbols/src/kotlin/navigate.rs
   - ../../crates/code-symbols/src/java/navigate.rs
+  - ../../crates/code-symbols/src/csharp/navigate.rs
   - ../../crates/file-diffs/src/declarations.rs
   - ../../crates/file-diffs/src/usages.rs
   - ../../crates/file-diffs/src/accio.rs
@@ -84,10 +85,14 @@ outside it.
 - A name declared in its own file by the scopes (a parameter, a local, a property of the class around it, a member
   declared after its use, a hoisted TypeScript function) must go there; the name of a declaration goes nowhere. A
   Kotlin name after a receiver and `::` (`Foo::bar`, `this::bar`) is a member of that receiver, as after a dot; a label
-  and a name in a doc comment are no names, but the `Outer` of `this@Outer` is a type.
+  and a name in a doc comment are no names, but the `Outer` of `this@Outer` is a type. In C# a local function is seen
+  in all of its block, `goto` goes to the label of its name in the blocks around it (the innermost first), a name
+  compares by its value (`@count` is `count`), the target of a `using static` is a type, and a name in a documentation
+  comment or a directive is none.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_a_kotlin_local_a_parameter_that_shadows_a_property_and_a_member_declared_after_its_use`, `finds_a_java_field_a_local_and_tells_a_static_call_by_its_qualifier`, `finds_a_rust_binding_and_tells_a_method_and_a_path`, `finds_a_typescript_parameter_a_hoisted_function_and_tells_a_property`, `has_no_reference_outside_a_name`)
   [@test] ../../crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_parameter_used_in_the_body_goes_to_the_parameter`, `the_parameter_of_a_catch_is_a_local_declaration`, `a_name_after_a_receiver_and_colons_is_its_member`, `the_subject_of_a_where_clause_is_the_type_parameter`, `a_label_and_a_doc_comment_have_no_names_but_the_label_of_this`, `a_script_declares_its_top_level_names_for_its_functions`)
   [@test] ../../crates/code-symbols/src/java/navigate_test.rs (`a_loop_variable_a_pattern_variable_a_resource_and_a_lambda_parameter_declare_their_name`, `a_use_before_the_declaration_of_a_local_is_the_field`, `the_members_of_an_anonymous_class_are_its_own`, `a_break_goes_to_its_label`, `an_argument_of_an_annotation_goes_to_the_element_of_its_type_in_the_file`, `var_and_this_are_no_names`, `a_call_through_super_of_an_interface_has_that_interface_for_its_qualifier`, `a_compact_constructor_reads_the_record_component_and_a_record_pattern_names_a_type`, `the_dotted_names_of_an_import_and_a_module_are_a_value_and_members_without_a_qualifier`, `a_pattern_variable_is_seen_where_java_sees_it_and_the_field_elsewhere`, `the_arguments_of_an_anonymous_class_see_the_code_around_it_not_its_members`)
+  [@test] ../../crates/code-symbols/src/csharp/navigate_test.rs (`a_name_goes_to_its_declaration_by_the_scopes`, `a_member_after_a_qualifier_has_its_qualifier_and_no_declaration`, `the_names_of_a_namespace_and_a_using_are_values_and_members`, `a_name_in_a_documentation_comment_or_a_directive_is_none`, `a_goto_goes_to_the_label_of_its_name_in_the_blocks_around_it`)
   [@test] ../../crates/file-diffs/src/declarations_test.rs (`goes_to_a_local_by_the_scopes_and_nowhere_from_a_declaration`)
 - Else the declarations of the name in the files of the review, on the side of the name, in a language that sees it,
   ranked by what the name says of its owner: a member reached through a type, `this` or `self`, or a property of a
@@ -129,9 +134,11 @@ outside it.
   the other files of the review in a language that sees it, from the texts the diffs read: no git process. In Kotlin a
   local is any declaration inside code, also outside a function (an `init` block, a `catch` or a `when` of a
   property's initializer), and the parameter of a function type (`(event: Event) -> Unit`) is one that no scope sees.
+  In C# an `out` or `ref` argument writes, as an assignment and an increment do.
   [@test] ../../crates/code-symbols/src/navigate_test.rs (`finds_the_usages_of_a_kotlin_parameter_apart_from_the_property_it_shadows`, `tells_a_java_write_an_increment_and_an_import`, `finds_the_usages_of_a_rust_binding_and_of_an_imported_function`, `finds_the_usages_of_a_name_in_another_file_without_the_locals_that_shadow_it`)
   [@test] ../../crates/code-symbols/src/kotlin/navigate_test.rs (`the_name_of_a_package_of_one_segment_is_one_usage`, `the_qualifier_of_an_assigned_member_is_its_whole_receiver`, `a_call_with_type_arguments_is_a_call_and_an_increment_a_write`, `a_local_outside_a_function_is_a_local`, `a_parameter_of_a_function_type_declares_nothing_the_code_sees`, `the_usages_of_a_name_are_at_their_places_in_one_pass_over_a_crlf_text`)
   [@test] ../../crates/code-symbols/src/java/navigate_test.rs (`a_local_of_an_initializer_is_a_local`, `a_write_is_the_left_side_of_an_assignment_and_the_operand_of_an_increment`)
+  [@test] ../../crates/code-symbols/src/csharp/navigate_test.rs (`the_usages_of_a_local_are_its_own_and_of_a_member_all_unbound`, `the_usages_in_another_file_are_the_names_no_local_binds`, `a_verbatim_identifier_is_found_by_its_value`)
   [@test] ../../crates/file-diffs/src/usages_test.rs (`finds_a_word_in_the_files_of_the_review_without_git_and_a_local_in_its_file_only`)
 - The usages outside the review must come from the index of accio at the commit of the side (100 at most), only in the
   files the review lacks and in a language that sees the name; one `cat-file --batch-check` and one `cat-file --batch`

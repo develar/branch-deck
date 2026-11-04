@@ -5,7 +5,6 @@
 use crate::extract::summarize;
 use crate::language::Language;
 use crate::summary::{FileSummary, ImportTarget, MemberKind, Reach};
-use crate::summary_text::reference_text;
 use crate::test_support::{NONE, constructors_of, declaration, fixtures, refs, signatures, supertypes_of};
 
 fn java(source: &str) -> FileSummary {
@@ -19,17 +18,7 @@ fn names<'s>(summary: &'s FileSummary, path: Option<&[u32]>) -> Vec<&'s str> {
 
 /// The references of a line as `text#container`, sorted
 fn line(summary: &FileSummary, line: u32) -> Vec<String> {
-  let mut texts: Vec<String> = summary
-    .references
-    .iter()
-    .filter(|it| it.line == line)
-    .map(|it| {
-      let container = it.container.and_then(|id| summary.declarations.get(id as usize)).map_or("-", |it| summary.name(it.name));
-      format!("{}#{container}", reference_text(summary, it))
-    })
-    .collect();
-  texts.sort();
-  texts
+  crate::test_support::line_references(summary, line)
 }
 
 #[test]

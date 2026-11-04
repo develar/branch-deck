@@ -6,8 +6,9 @@
 //! The usages of a name for Find Usages are its names in the tree: those bound to the same declaration for a local
 //! (a parameter, a local of a function), else every name of that text that no local binds, each with how it uses it.
 //!
-//! Kotlin and Java answer from their PSI (`kotlin::navigate`, `java::navigate`: one pass over the leaves files each
-//! declaration under the scopes that see it, by the language's own scope rules), Rust, TypeScript and JavaScript from a
+//! Kotlin, Java and C# answer from their PSI and Roslyn's tree (`kotlin::navigate`, `java::navigate`,
+//! `csharp::navigate`: one pass over the leaves files each declaration under the scopes that see it, by the language's
+//! own scope rules), Rust, TypeScript and JavaScript from a
 //! tree-sitter tree by the kinds of their grammars below. Both give their answers through `reference_answer` and
 //! `usage_answers`, with the positions of the view.
 
@@ -157,13 +158,15 @@ fn with_name_at<T>(grammar: Grammar, text: &str, position: Position, answer: imp
 }
 
 /// The name at `position` of `text` and what its syntax says; `None` where no name is or the grammar is not in this
-/// build. Kotlin and Java by psi-syntax's trees (`kotlin`, `java`), the others by tree-sitter's
+/// build. Kotlin, Java and C# by psi-syntax's trees (`kotlin`, `java`, `csharp`), the others by tree-sitter's
 pub fn reference_at(grammar: Grammar, text: &str, position: Position) -> Option<ReferenceAt> {
   match grammar {
     #[cfg(feature = "kotlin")]
     Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::reference_at(crate::kotlin::file_kind(grammar), text, position),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::java::navigate::reference_at(text, position),
+    Grammar::Java => crate::psi_navigate::reference_at(&crate::java::navigate::NAVIGATION, text, position),
+    #[cfg(feature = "csharp")]
+    Grammar::CSharp => crate::psi_navigate::reference_at(&crate::csharp::navigate::NAVIGATION, text, position),
     _ => reference_at_tree_sitter(grammar, text, position),
   }
 }
@@ -256,7 +259,9 @@ pub fn usages_at(grammar: Grammar, text: &str, position: Position) -> Option<Usa
     #[cfg(feature = "kotlin")]
     Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::usages_at(crate::kotlin::file_kind(grammar), text, position),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::java::navigate::usages_at(text, position),
+    Grammar::Java => crate::psi_navigate::usages_at(&crate::java::navigate::NAVIGATION, text, position),
+    #[cfg(feature = "csharp")]
+    Grammar::CSharp => crate::psi_navigate::usages_at(&crate::csharp::navigate::NAVIGATION, text, position),
     _ => usages_at_tree_sitter(grammar, text, position),
   }
 }
@@ -290,7 +295,9 @@ pub fn usages_of(grammar: Grammar, text: &str, name: &str) -> Vec<Usage> {
     #[cfg(feature = "kotlin")]
     Grammar::Kotlin | Grammar::KotlinScript => crate::kotlin::navigate::usages_of(crate::kotlin::file_kind(grammar), text, name),
     #[cfg(feature = "java")]
-    Grammar::Java => crate::java::navigate::usages_of(text, name),
+    Grammar::Java => crate::psi_navigate::usages_of(&crate::java::navigate::NAVIGATION, text, name),
+    #[cfg(feature = "csharp")]
+    Grammar::CSharp => crate::psi_navigate::usages_of(&crate::csharp::navigate::NAVIGATION, text, name),
     _ => usages_of_tree_sitter(grammar, text, name),
   }
 }

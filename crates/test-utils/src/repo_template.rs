@@ -646,6 +646,22 @@ pub mod templates {
       )
   }
 
+  /// One commit of one C# file for the colours Rider gives C# from its syntax tree: a field, a method's declaration, an
+  /// attribute, a keyword, the escape of a string
+  pub fn csharp_colors() -> RepoTemplate {
+    RepoTemplate::new("csharp_colors")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("README.md", "# box\n")], Some(1704117600))
+      .commit_with_timestamp(
+        "(colors) add the box",
+        &[(
+          "src/Box.cs",
+          "namespace Example;\n\n/// <summary>A box.</summary>\n[Serializable]\npublic sealed class Box\n{\n    private int count;\n\n    public string Label => \"a\\tb\";\n\n    public void Add() { count++; }\n}\n",
+        )],
+        Some(1704119400),
+      )
+  }
+
   /// One commit of one file for the whitespace policies of the diffs: a block of two lines indented again, a blank line
   /// added apart from the other changes, and one real change, so each policy shows a different diff (`Format.kt`)
   pub fn commit_whitespace() -> RepoTemplate {

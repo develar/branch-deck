@@ -21,8 +21,9 @@ proposed `bd move-hunk` would have broken a branch.
 
 ## Solution Overview
 
-`crates/code-symbols` summarizes one source file (Kotlin, Java, Rust, TypeScript and JavaScript; Kotlin on the
-compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, the others on tree-sitter): its
+`crates/code-symbols` summarizes one source file (Kotlin, Java, C#, Rust, TypeScript and JavaScript; Kotlin on the
+compiler's own parser, decision 21, Java on IntelliJ's own parser, decision 20, C# on Roslyn's, decision 23, the others
+on tree-sitter): its
 package, its imports (Rust `use` and `pub use`, Kotlin aliases, TypeScript imports and re-exports), its declarations
 with their containers and reach, and its references, without comments, strings (but with interpolations), locally
 bound names, labels and keys. Of Kotlin and Java it also holds the parameter types of each function, whether a member
@@ -637,6 +638,24 @@ flowchart TD
     Rust and TypeScript files of Branch Deck none. On one thread, the first 5 000 files of each language (18.6 MB):
     Kotlin's summary 2.07 s to 0.49 s, highlighting 1.53 s to 0.34 s, navigation 25.0 s to 3.3 s; Java's 1.49 s to
     0.47 s, 1.26 s to 0.37 s, 19.2 s to 3.3 s.
+
+23. **Decision**: a C# file is read by psi-syntax's `csharp-syntax`, a port of Roslyn's own lexer and parser
+    (`Microsoft.CodeAnalysis.CSharp` 5.9.0) whose tree is Roslyn's syntax tree, for the summary (`csharp/summary.rs`),
+    the highlighting and the navigation, on the JVM model of the summary (`jvm.rs`: the containers, the stack of
+    supertypes an `override` overrides, the constructors, the receivers' types), and resolved by C#'s own lookup
+    (`trial-check/src/dotnet_resolution.rs`, `Family::Dotnet`): a namespace sees the types of itself and of the
+    namespaces around it, whatever the assembly; `using N;` the types of `N`; `using static N.T;` the static members of
+    `T`; an alias its target; `internal` reaches its assembly, the nearest `*.csproj`; an extension method links only
+    on a receiver of its type where the use sees its class's namespace. What a node answers of its slots
+    (`ClassDeclarationSyntax.Identifier`, `UsingDirectiveSyntax.Alias`) comes from `csharp_syntax::syntax_getters`,
+    Roslyn's properties ported in psi-syntax and checked against Roslyn itself, which accio reads too, so the two
+    consumers share one reading of the tree.
+    **Rationale**: C# names a type by its namespace and its `using`s alone, so most uses are by a wildcard (`using N;`)
+    or by a namespace around the use, which the JVM rules count as weak evidence (a Kotlin or Java wildcard import is
+    rare, and a package does not see its parent's types); a `partial` type spreads its members over files, so the keys
+    of a C# type are only present or absent; C# has no smart casts, so a receiver's declared type stands. A file is
+    read without preprocessor symbols, as `CSharpSyntaxTree.ParseText` reads it: a branch of `#if` is the code of no
+    configuration the summary knows, and a `global using` of another file is not seen.
 
 ### Implementation Notes
 

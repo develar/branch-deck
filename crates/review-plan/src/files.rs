@@ -29,7 +29,7 @@
 //!   makes a group, the key of the most files first; a file is in one group at most, and a group keeps at least 3 files
 //!   that no larger group took.
 //! - **Tests**, by the path: a directory `test`, `tests`, `__tests__` or `testFixtures`; a name `*Test`, `*Tests`
-//!   (Kotlin, Java), `*_test` (Rust), `*.test`, `*.spec` (TypeScript) or `test_*`. Its subject is the stem without that
+//!   (Kotlin, Java, C#), `*_test` (Rust), `*.test`, `*.spec` (TypeScript) or `test_*`. Its subject is the stem without that
 //!   mark (`FooTest.kt` and `foo.test.ts` name `Foo` and `foo`), compared without case; a file of a test directory names
 //!   the stem it has. A source file (`code_symbols::language::language_of`), no test, still there and not mechanical,
 //!   is `untested` when no changed test names its stem and its commits change no test inside it
@@ -330,11 +330,35 @@ pub(crate) fn without_whitespace(lines: &[&str]) -> String {
   lines.iter().flat_map(|line| line.chars()).filter(|char| !char.is_whitespace()).collect()
 }
 
-/// The first line of an import statement: `import` (Kotlin, Java, TypeScript), `use` (Rust) or `package`; a `pub use`
-/// re-exports, so it is no import
+/// The first line of an import statement: `import` (Kotlin, Java, TypeScript), `use` (Rust), `package`, or a C#
+/// `using` directive or `namespace` (`is_using_directive`); a `pub use` re-exports, so it is no import
 fn is_import(line: &str) -> bool {
   let line = line.trim_start();
-  ["import ", "import{", "use ", "package "].iter().any(|keyword| line.starts_with(keyword))
+  ["import ", "import{", "use ", "package ", "namespace "].iter().any(|keyword| line.starts_with(keyword)) || is_using_directive(line)
+}
+
+/// A C# `using` directive: `using A.B;`, `using static A.B;`, `using X = A.B<int>;`, `global using …`, never a `using`
+/// statement (`using (var x = …)`, `using var x = …;`, `using Foo x = …;`), whose name before `=` is no single name
+fn is_using_directive(line: &str) -> bool {
+  let line = line.strip_prefix("global ").map_or(line, str::trim_start);
+  let Some(rest) = line.strip_prefix("using ") else { return false };
+  let rest = rest.trim_start();
+  let rest = ["static ", "unsafe "]
+    .iter()
+    .fold(rest, |rest, modifier| rest.strip_prefix(modifier).map_or(rest, str::trim_start));
+  let is_name = |text: &str| {
+    !text.is_empty()
+      && text
+        .chars()
+        .all(|char| char.is_alphanumeric() || matches!(char, '_' | '.' | ':' | '<' | '>' | ',' | ' ' | '@'))
+  };
+  match rest.split_once('=') {
+    Some((alias, _)) => {
+      let alias = alias.trim();
+      !alias.is_empty() && alias.chars().all(|char| char.is_alphanumeric() || char == '_' || char == '@')
+    }
+    None => rest.split_once(';').is_some_and(|(name, _)| is_name(name.trim()) && !name.trim().contains(' ')),
+  }
 }
 
 /// The balance of the brackets in the code of `line`, outside its strings, backtick names and comments, and whether
@@ -383,7 +407,7 @@ fn code_brackets(line: &str) -> (i32, bool) {
 /// one that closes the brackets it opens, so a Rust `use a::{` block or a TypeScript `import {` over several lines
 /// counts whole. A bracket in a string or a comment counts not (`code_brackets`). A statement that a `;`, the next
 /// import line or the end of the text ends with its brackets open counts as its first line only
-fn import_lines(lines: &[&str]) -> Vec<bool> {
+pub(crate) fn import_lines(lines: &[&str]) -> Vec<bool> {
   let mut imports = vec![false; lines.len()];
   // the first line of the statement whose brackets are open, and their depth
   let mut open: Option<(usize, i32)> = None;

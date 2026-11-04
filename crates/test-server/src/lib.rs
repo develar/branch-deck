@@ -446,6 +446,8 @@ pub enum RepositoryTemplate {
   ReviewProse,
   #[serde(rename = "script_colors")]
   ScriptColors,
+  #[serde(rename = "csharp_colors")]
+  CSharpColors,
   #[serde(rename = "stacked_branches")]
   StackedBranches,
   #[serde(rename = "stacked_chain")]
@@ -537,6 +539,7 @@ impl RepositoryTemplate {
       Self::ReviewTour => "review_tour",
       Self::ReviewProse => "review_prose",
       Self::ScriptColors => "script_colors",
+      Self::CSharpColors => "csharp_colors",
       Self::StackedBranches => "stacked_branches",
       Self::StackedChain => "stacked_chain",
       Self::StackIsland => "stack_island",

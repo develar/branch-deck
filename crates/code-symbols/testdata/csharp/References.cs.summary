@@ -1,0 +1,27 @@
+package Example.App
+import System.Linq.* @1
+import Example.Models as Models @2
+Type Box in - Public TopLevel 6-33 @6 new()
+Value items in Box Container Instance 8-8 @8 <List> `List < T > items`
+Value store in Box Container Instance 9-9 @9 <Models.Store> `Models . Store store`
+Value Count in Box Public Instance 11-11 @11 <int> `int Count`
+Function Add in Box Public Instance 13-30 @13 (item: _, times: int =) `void Add`
+Function Format in Box Container Static 32-32 @32 (times: int, value: string) `static string Format`
+@2 ^Example.Models
+@6 :Models.Item :Models
+@8 :List
+@9 :Models :Models.Store
+@11 <List>items.Count items
+@15 :Models Models.Store(Text,Number)
+@16 <Models.Store>.Open(Boolean)
+@17 <Models.Store>store.Close() store
+@18 <Models.Store>this.store.Close() this.store
+@19 <List>items.Add(_) items
+@20 Helpers Helpers.Log(Text,_) ?.Name
+@21 System.Console System System.Console.WriteLine(_)
+@22 <Models.Special>.Boost(Number) :Models :Models.Special
+@23 :Models.Item :Models <Models.Item>.Touch() ?.Valid <List>items.Where(Lambda) items
+@26 ?.Touch()
+@27 :Func
+@28 :Models.Item List() :Models
+@29 Format(times=Number,value=Text)

@@ -500,8 +500,8 @@ looked at (IntelliJ's combined diff, VS Code's multi-diff, Zed, GitHub, Phabrica
 
 ### Syntax highlighting
 
-**Two engines.** Kotlin, Java, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree (Kotlin's
-and Java's PSI, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Backend
+**Two engines.** Kotlin, Java, C#, Rust, TypeScript and JavaScript are coloured by the backend from a syntax tree
+(Kotlin's and Java's PSI, Roslyn's tree for C#, tree-sitter's for the others), as IntelliJ colours them without resolving names ("Backend
 highlighting" below); the other languages by Shiki in a worker. The two sides of a file always share
 an engine: a file the backend cannot colour goes to the worker whole.
 
@@ -569,12 +569,14 @@ grammar is not loaded stays empty, so the front matter of Markdown would be a pa
 when one it embeds lazily loads after it, while the worker keeps the states of the old one. The first line of a grammar that the time limit cuts gets one more try
 with 1 s: the first lines compile the regexes of the rules.
 
-**Backend highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, Rust, TypeScript, TSX and JavaScript
-are coloured as the IntelliJ editor colours them without resolving a name, from a syntax tree of `code-symbols`: Kotlin
-and Java from their PSI, the trees of the Kotlin compiler's and IntelliJ's own parsers (psi-syntax's `kotlin-syntax`
-and `java-syntax`, read by `kotlin/highlight.rs` and `java/highlight.rs`), the others from a tree-sitter tree (`.ts` by
+**Backend highlighting** (`crates/code-symbols/src/highlight/`). Kotlin, Java, C#, Rust, TypeScript, TSX and
+JavaScript are coloured as the IntelliJ editor (and Rider) colours them without resolving a name, from a syntax tree of
+`code-symbols`: Kotlin and Java from their PSI, the trees of the Kotlin compiler's and IntelliJ's own parsers
+(psi-syntax's `kotlin-syntax` and `java-syntax`, read by `kotlin/highlight.rs` and `java/highlight.rs`), C# from
+Roslyn's tree (psi-syntax's `csharp-syntax`, read by `csharp/highlight.rs`: a documentation comment's XML, the
+keywords of a directive, a branch of `#if` not taken as a comment), the others from a tree-sitter tree (`.ts` by
 the TypeScript grammar, the rest of the script files by TSX):
-- Kotlin and Java: one pass over the tree's ids in preorder with an explicit stack of the open nodes, each leaf of the
+- Kotlin, Java and C#: one pass over the tree's ids in preorder with an explicit stack of the open nodes, each leaf of the
   tree (its tokens tile the text) painted by `paint::paint_leaf`, so a keyword is the parser's token as the parser
   left it, a soft or contextual one only where the parser made it one; Rust and TypeScript: one preorder walk asks the
   rules of the grammar (`rust_lang.rs`, `typescript.rs`) for the `Paint` of each node; a node with a style paints its

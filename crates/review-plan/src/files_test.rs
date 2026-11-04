@@ -378,6 +378,21 @@ fn imports_whitespace_renames_and_the_build_model_are_mechanical_a_deletion_is_n
 }
 
 const LIB_RS: &str = "use std::{\n  fmt,\n  io,\n};\n\npub fn run() -> io::Result<()> {\n  Ok(())\n}\n";
+/// A C# `using` directive and the `namespace` line are imports, a `using` statement is code
+#[test]
+fn a_csharp_using_directive_is_an_import_and_a_using_statement_code() {
+  let lines = [
+    "using System.Text;",
+    "global using static System.Math;",
+    "using Items = System.Collections.Generic.List<int>;",
+    "namespace Example.App;",
+    "    using var stream = Open();",
+    "    using (var reader = Read()) { }",
+    "    using Stream other = Open();",
+  ];
+  assert_eq!(crate::files::import_lines(&lines), [true, true, true, true, false, false, false]);
+}
+
 const STORE_TS: &str = "import {\n  load,\n  save,\n} from \"./io\"\n\nexport const store = { load, save }\n";
 
 /// A call wrapped over several lines is only whitespace, and the same wrap in three files is no repeated edit; a line

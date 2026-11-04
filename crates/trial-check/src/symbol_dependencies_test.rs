@@ -3957,3 +3957,117 @@ fn a_facade_of_a_file_named_with_a_digit_or_a_script() {
     )]);
   assert_eq!(edges(&range.graph(&[], &[], &[])), [(1, 0, vec![link("first", Evidence::Facade)])]);
 }
+
+// --- C# (`dotnet_resolution`) ---
+
+/// A `*.csproj` in each of `projects`: the assemblies of `internal`
+fn in_projects(range: &Range, projects: &[&str]) -> SymbolGraph {
+  let project = [file("App.csproj")];
+  let roots: Vec<(&str, &[TreeEntry])> = projects.iter().map(|it| (*it, &project[..])).collect();
+  range.graph(&roots, &[], &[])
+}
+
+#[test]
+fn a_csharp_type_by_a_using_an_alias_and_its_namespaces_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .commit(&[("app/Models/Item.cs", Some("namespace Example.Models;\n\npublic class Item { }\n"))])
+    .commit(&[(
+      "app/Use/ByUsing.cs",
+      Some("using Example.Models;\n\nnamespace Example.Use;\n\nclass ByUsing { Item item; }\n"),
+    )])
+    .commit(&[(
+      "app/Use/ByAlias.cs",
+      Some("using Thing = Example.Models.Item;\n\nnamespace Example.Use;\n\nclass ByAlias { Thing item; }\n"),
+    )])
+    .commit(&[("app/Models/Deeper/Near.cs", Some("namespace Example.Models.Deeper;\n\nclass Near { Item item; }\n"))])
+    .commit(&[(
+      "app/Use/Qualified.cs",
+      Some("namespace Example.Use;\n\nclass Qualified { Models.Item a; global::Example.Models.Item b; }\n"),
+    )])
+    .commit(&[("app/Other/Far.cs", Some("namespace Other;\n\nclass Far { Item item; }\n"))]);
+  assert_eq!(
+    edges(&in_projects(&range, &["app"])),
+    [
+      (1, 0, vec![link("Item", Evidence::StarImport)]),
+      (2, 0, vec![link("Item", Evidence::Import)]),
+      (3, 0, vec![link("Item", Evidence::SamePackageType)]),
+      (4, 0, vec![link("Item", Evidence::Qualified)]),
+    ]
+  );
+}
+
+#[test]
+fn a_csharp_static_member_by_its_type_and_by_using_static_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .commit(&[(
+      "app/Defaults.cs",
+      Some("namespace Example;\n\npublic static class Defaults\n{\n    public const int Limit = 10;\n}\n"),
+    )])
+    .commit(&[("app/Use/Box.cs", Some("namespace Example.Use;\n\nclass Box { int Size => Defaults.Limit; }\n"))])
+    .commit(&[(
+      "app/Other/Bare.cs",
+      Some("using static Example.Defaults;\n\nnamespace Other;\n\nclass Bare { int Size => Limit; }\n"),
+    )]);
+  assert_eq!(
+    edges(&in_projects(&range, &["app"])),
+    [
+      // `Defaults` of `Defaults.Limit` is a value of the expression, as a JVM qualifier is: the member links
+      (1, 0, vec![link("Limit", Evidence::Qualified)]),
+      (2, 0, vec![link("Limit", Evidence::StarImport)]),
+    ]
+  );
+}
+
+#[test]
+fn an_internal_csharp_type_reaches_its_assembly_only() {
+  let mut range = Range::default();
+  range
+    .commit(&[("core/Hidden.cs", Some("namespace Example;\n\ninternal class Hidden { }\n"))])
+    .commit(&[("core/Near.cs", Some("namespace Example;\n\nclass Near { Hidden hidden; }\n"))])
+    .commit(&[("tests/Far.cs", Some("namespace Example;\n\nclass Far { Hidden hidden; }\n"))]);
+  assert_eq!(edges(&in_projects(&range, &["core", "tests"])), [(1, 0, vec![link("Hidden", Evidence::SamePackageType)])]);
+}
+
+#[test]
+fn a_csharp_extension_method_on_a_receiver_of_its_type_where_its_namespace_is_seen_is_an_edge() {
+  let mut range = Range::default();
+  range
+    .baseline(&[("app/Models/Item.cs", "namespace Example.Models;\n\npublic class Item { public int Value; }\n")])
+    .commit(&[(
+      "app/Text/ItemExtensions.cs",
+      Some("using Example.Models;\n\nnamespace Example.Text;\n\npublic static class ItemExtensions\n{\n    public static int Twice(this Item item) => item.Value * 2;\n}\n"),
+    )])
+    .commit(&[(
+      "app/Use/Seen.cs",
+      Some("using Example.Models;\nusing Example.Text;\n\nnamespace Example.Use;\n\nclass Seen { int F(Item item) => item.Twice(); }\n"),
+    )])
+    .commit(&[(
+      "app/Use/Unseen.cs",
+      Some("using Example.Models;\n\nnamespace Example.Use;\n\nclass Unseen { int F(Item item) => item.Twice(); }\n"),
+    )]);
+  assert_eq!(edges(&in_projects(&range, &["app"])), [(1, 0, vec![link("Twice", Evidence::Receiver)])]);
+}
+
+#[test]
+fn a_csharp_member_on_a_receiver_of_its_type_and_an_override_are_edges() {
+  let mut range = Range::default();
+  range
+    .commit(&[(
+      "app/Store.cs",
+      Some("namespace Example;\n\npublic class Store\n{\n    public void Open() { }\n    public virtual int Size() => 0;\n}\n"),
+    )])
+    .commit(&[(
+      "app/Use.cs",
+      Some("namespace Example;\n\nclass Use { void F() { var store = new Store(); store.Open(); } }\n"),
+    )])
+    .commit(&[(
+      "app/Big.cs",
+      Some("namespace Example;\n\nclass Big : Store { public override int Size() => base.Size() + 1; }\n"),
+    )]);
+  let found = edges(&in_projects(&range, &["app"]));
+  assert_eq!(found[0], (1, 0, vec![link("Open", Evidence::Receiver), link("Store", Evidence::SamePackageType)]));
+  assert_eq!(found[1].0, 2);
+  assert!(found[1].2.contains(&link("Size", Evidence::Override)), "{found:?}");
+}

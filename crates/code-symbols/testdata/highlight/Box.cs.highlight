@@ -1,0 +1,97 @@
+  1: using System;
+     keyword "using"
+  2: using System.Collections.Generic;
+     keyword "using"
+  3: using static System.Math;
+     keyword "using" · keyword "static"
+  4: using Items = System.Collections.Generic.List<int>;
+     keyword "using" · keyword "int"
+  5: 
+  6: namespace Example.App;
+     keyword "namespace"
+  7: 
+  8: /// <summary>A box of items. See <see cref="List{T}.Add(T)"/> and <paramref name="item"/>.</summary>
+     docComment "/// " · docTag "<summary>" · docComment "A box of items. See " · docTag "<see cref=" · docTagValue "\"List{T}.Add(T)\"" · docTag "/>" · docComment " and " · docTag "<paramref name=" · docTagValue "\"item\"" · docTag "/>" · docComment "." · docTag "</summary>"
+  9: /// <typeparam name="T">the type of an item</typeparam>
+     docComment "/// " · docTag "<typeparam name=" · docTagValue "\"T\"" · docTag ">" · docComment "the type of an item" · docTag "</typeparam>"
+ 10: [Serializable, Obsolete("old", error: false)]
+     annotation "Serializable" · annotation "Obsolete" · string "\"old\"" · namedArgument "error" · keyword "false"
+ 11: public sealed partial class Box<T> : IEnumerable<T> where T : IComparable<T>
+     keyword "public" · keyword "sealed" · keyword "partial" · keyword "class" · typeParameter "T" · typeParameter "T" · keyword "where" · typeParameter "T" · typeParameter "T"
+ 12: {
+ 13:     public const int Limit = 10;
+     keyword "public" · keyword "const" · keyword "int" · field+italic "Limit" · number "10"
+ 14:     private static int created;
+     keyword "private" · keyword "static" · keyword "int" · field+italic "created"
+ 15:     private readonly List<T> items = new();
+     keyword "private" · keyword "readonly" · typeParameter "T" · field "items" · keyword "new"
+ 16:     private int count;
+     keyword "private" · keyword "int" · field "count"
+ 17:     public int Count { get => count; private set => count = value; }
+     keyword "public" · keyword "int" · field "Count" · keyword "get" · field "count" · keyword "private" · keyword "set" · field "count"
+ 18:     public event EventHandler? Changed;
+     keyword "public" · keyword "event" · field "Changed"
+ 19: 
+ 20:     /// <exception cref="InvalidOperationException">when full</exception>
+     docComment "/// " · docTag "<exception cref=" · docTagValue "\"InvalidOperationException\"" · docTag ">" · docComment "when full" · docTag "</exception>"
+ 21:     public bool Add(T item, int times = 1)
+     keyword "public" · keyword "bool" · functionDeclaration "Add" · typeParameter "T" · keyword "int" · number "1"
+ 22:     {
+ 23:         count++;
+     field "count"
+ 24:         this.count += times;
+     keyword "this" · field "count"
+ 25:         created = Max(created, Limit);
+     field+italic "created" · field+italic "created" · field+italic "Limit"
+ 26:         var text = $"x={count,4:D}, {{braces}} \"quoted\"\n" + @"C:\path ""q""" + 'c' + '\t' + "\x41\u0042";
+     keyword "var" · string "$\"x=" · field "count" · number "4" · string ":D" · string ", " · escape "{{" · string "braces" · escape "}}" · string " " · escape "\\\"" · string "quoted" · escape "\\\"\\n" · string "\" " · string "@\"C:\\path " · escape "\"\"" · string "q" · escape "\"\"" · string "\"" · string "'c'" · string "'" · escape "\\t" · string "'" · string "\"" · escape "\\x41\\u0042" · string "\""
+ 27:         var raw = """
+     keyword "var" · string "\"\"\""
+ 28:             raw "text" \n
+     string "            raw \"text\" \\n"
+ 29:             """;
+     string "            \"\"\""
+ 30:         outer:
+     label "outer"
+ 31:         for (int i = 0; i < times; i++)
+     keyword "for" · keyword "int" · number "0"
+ 32:         {
+ 33:             if (i > Box<T>.Limit) goto outer;
+     keyword "if" · typeParameter "T" · keyword "goto" · label "outer"
+ 34:             items.Add(item ?? throw new ArgumentNullException(nameof(item)));
+     field "items" · keyword "throw" · keyword "new" · keyword "nameof"
+ 35:         }
+ 36:         Func<int, int> twice = x => x * 2;
+     keyword "int" · keyword "int" · number "2"
+ 37:         Changed?.Invoke(this, EventArgs.Empty);
+     field "Changed" · keyword "this"
+ 38: #if DEBUG
+     keyword "#if"
+ 39:         Console.WriteLine(text.Length + items.Count + 0x1F + 1.5e3m + twice(1));
+     comment "        Console.WriteLine(text.Length + items.Count + 0x1F + 1.5e3m + twice(1));"
+ 40: #endif
+     keyword "#endif"
+ 41:         return items.Count == 0 || count > 0 && true != false && raw is not null;
+     keyword "return" · field "items" · field "Count" · number "0" · field "count" · number "0" · keyword "true" · keyword "false" · keyword "is" · keyword "not" · keyword "null"
+ 42:     }
+ 43: 
+ 44:     public static Box<T> Create() => new Box<T>();
+     keyword "public" · keyword "static" · typeParameter "T" · functionDeclaration+italic "Create" · keyword "new" · typeParameter "T"
+ 45: 
+ 46:     public IEnumerator<T> GetEnumerator() => items.GetEnumerator();
+     keyword "public" · typeParameter "T" · functionDeclaration "GetEnumerator" · field "items"
+ 47: 
+ 48:     System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+     functionDeclaration "GetEnumerator"
+ 49: 
+ 50:     #region Nested
+     keyword "#region"
+ 51:     enum Color { Red, Green }
+     keyword "enum" · field+italic "Red" · field+italic "Green"
+ 52: 
+ 53:     record Point(int X, int Y) { public int Sum() => X + Y; }
+     keyword "record" · keyword "int" · field "X" · keyword "int" · field "Y" · keyword "public" · keyword "int" · functionDeclaration "Sum" · field "X" · field "Y"
+ 54:     #endregion
+     keyword "#endregion"
+ 55: }
+ 56: 

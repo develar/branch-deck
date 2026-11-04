@@ -1,0 +1,12 @@
+package Example.Shapes
+Type Circle in - Public TopLevel 3-18 @3 new(radius: double) new() : Shape, IShape
+Value Radius in Circle Public Instance 9-9 @9 <double> `double Radius`
+Function Area in Circle Public Instance 11-11 @11 () `double Area` overrides overridable
+Function ToString in Circle Public Instance 13-13 @13 () `string ToString` overrides
+Function Perimeter in Circle Container Instance 15-15 @15 () `double IShape . Perimeter` overrides
+@3 :IShape :Shape
+@5 Radius Shape(Text)
+@7 Circle(Number)
+@11 ~IShape.Area() ~Shape.Area() Radius
+@13 ~IShape.ToString() ~Shape.ToString()
+@15 :IShape ~IShape.Perimeter() Radius

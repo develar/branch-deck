@@ -440,10 +440,11 @@ group at the end. The overview at the top of the document of the review, before 
   a line wrapped or joined too; `importsOnly` when, in a source file, each other hunk has only blank lines and lines
   of import statements, at least one.
   [@test] ../../crates/review-plan/src/files_test.rs (`imports_whitespace_renames_and_the_build_model_are_mechanical_a_deletion_is_not`, `a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
-- An import statement must start with an `import`, `use` or `package` line and run until the brackets it opens
-  close, read in the whole file: a line inside a Rust `use a::{` block or a TypeScript `import {` block over several
-  lines is a line of an import statement. A `pub use` re-exports, so it is none.
-  [@test] ../../crates/review-plan/src/files_test.rs (`a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`)
+- An import statement must start with an `import`, `use` or `package` line, a C# `using` directive or a `namespace`
+  line, and run until the brackets it opens close, read in the whole file: a line inside a Rust `use a::{` block or a
+  TypeScript `import {` block over several lines is a line of an import statement. A `pub use` re-exports, so it is
+  none, and a C# `using` statement (`using (var x = …)`, `using var x = …;`) is code.
+  [@test] ../../crates/review-plan/src/files_test.rs (`a_wrapped_line_and_a_line_in_an_import_block_are_mechanical`, `a_csharp_using_directive_is_an_import_and_a_using_statement_code`)
 - A bracket inside a string, a backtick name or a comment of an import line must not count. A statement whose
   brackets are still open at a `;`, at the next import line or at the end of the file must count as its first line
   only, so the code after it stays real work.
@@ -524,7 +525,7 @@ group at the end. The overview at the top of the document of the review, before 
   path, a deleted one at its path (the review still shows it), none that the commits add and delete again.
   [@test] ../../crates/review-plan/src/order_test.rs (`files_of_no_known_language_keep_the_tree_order`)
 - A file that declares what another file of the order uses or imports must come before it, read from the files as the
-  last reviewed commit that changes each leaves it, in Kotlin, Java, Rust and TypeScript.
+  last reviewed commit that changes each leaves it, in Kotlin, Java, C#, Rust and TypeScript.
   [@test] ../../crates/review-plan/src/order_test.rs (`a_declaration_comes_before_the_file_that_uses_it`, `a_cycle_keeps_its_tree_order`)
 - A use must link to a declaration only with the evidence the symbol dependencies ask (an import, a qualified name,
   the same package or module): of two modules that declare one name, a file follows only the one it imports.
@@ -764,7 +765,8 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../src/presenters/review-plan.test.ts (`names the Mechanical group and its groups by kind`)
 - A block whose every changed line of each side is an import or a package statement or blank
   (`TextDiff::import_blocks`, from the syntax of the texts: the import and package statements of Kotlin, Java, Rust and
-  TypeScript, a Rust `pub use` and a TypeScript `export … from` none) must be pale, as a change of whitespace alone,
+  TypeScript, the `using` directives and the `namespace` line of C#, a Rust `pub use` and a TypeScript `export … from`
+  none) must be pale, as a change of whitespace alone,
   and N and P must pass it; in the story it is in the unit of the imports, and the section of its file shows one row
   for it. A block with a line of code beside them is a change as any.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show a block of the imports alone in the group of the imports, in its file's section one row that opens it, and pass it with N`)

@@ -45,6 +45,7 @@ const TEMPLATES: &[(&str, TemplateBuild)] = &[
   ("review_tour", |path| templates::review_tour().build(path)),
   ("review_prose", |path| templates::review_prose().build(path)),
   ("script_colors", |path| templates::script_colors().build(path)),
+  ("csharp_colors", |path| templates::csharp_colors().build(path)),
   ("stacked_branches", |path| templates::stacked_branches().build(path)),
   ("stacked_chain", |path| templates::stacked_chain().build(path)),
   ("stack_island", |path| templates::stack_island().build(path)),

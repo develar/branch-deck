@@ -4,14 +4,9 @@
 use crate::highlight::{FIELD, Grammar, ITALIC, Role, STATIC_FIELD, highlight};
 use pretty_assertions::assert_eq;
 
-/// The style of the text at the `occurrence`-th `needle` of the text (counted from 0), by the runs of its line
+/// The style of the text at the `occurrence`-th `needle` of the text (counted from 0)
 fn style_at(text: &str, needle: &str, occurrence: usize) -> u32 {
-  let offset = text.match_indices(needle).nth(occurrence).unwrap_or_else(|| panic!("no {needle}")).0;
-  let line = text[..offset].matches('\n').count();
-  let line_start = text[..offset].rfind('\n').map_or(0, |it| it + 1);
-  let column = u32::try_from(text[line_start..offset].encode_utf16().count()).unwrap();
-  let runs = highlight(Grammar::Java, text).unwrap();
-  runs.line(line).chunks(2).take_while(|pair| pair[0] <= column).last().map_or(0, |pair| pair[1])
+  crate::test_support::style_at(Grammar::Java, text, needle, occurrence)
 }
 
 const KEYWORD: u32 = Role::Keyword.style();

@@ -39,6 +39,8 @@ use std::rc::Rc;
 
 #[path = "declaration_checks.rs"]
 pub mod declaration_checks;
+#[path = "dotnet_resolution.rs"]
+mod dotnet_resolution;
 
 /// Why a use means a declaration another commit adds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -122,7 +124,7 @@ struct FileCtx<'a> {
   path: &'a str,
   language: Language,
   summary: &'a FileSummary,
-  /// The JVM package, the Rust module path, or the TypeScript file path
+  /// The JVM package, the C# namespace, the Rust module path, or the TypeScript file path
   namespace: Vec<String>,
   module_root: Option<&'a str>,
   crate_root: Option<&'a str>,
@@ -289,7 +291,7 @@ impl SymbolInput {
       language: summary.language,
       summary,
       namespace: match summary.language.family() {
-        Family::Jvm => summary.package.as_deref().map_or_else(Vec::new, |package| package.split('.').map(str::to_string).collect()),
+        Family::Jvm | Family::Dotnet => summary.package.as_deref().map_or_else(Vec::new, |package| package.split('.').map(str::to_string).collect()),
         Family::Rust => rust_module(path, crate_root),
         Family::Script => vec![path.to_string()],
       },
@@ -717,7 +719,9 @@ fn resolve_use<'s>(
         if !takes(reference, constructs, !stand_ins.is_empty(), use_site.summary, constructor_call, site) {
           return None;
         }
-        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site).filter(|it| *it != Evidence::Receiver || !extension_may_take())?;
+        // a receiver's member loses to an extension that may take the call; a C# extension is that extension itself
+        let evidence = resolve(input, use_site, reference, qualifier.as_deref(), site)
+          .filter(|it| *it != Evidence::Receiver || dotnet_resolution::is_extension_site(site) || !extension_may_take())?;
         let fits = constructor_reaches(use_site, reference, site) && call.is_none_or(|(arguments, spread)| accepts_call(use_site.summary, arguments, spread, site));
         (fits && (same_file || evidence != Evidence::SameFile)).then_some(evidence)
       };
@@ -808,7 +812,8 @@ fn site_of<'a>(ctx: &'a FileCtx<'a>, declaration: &'a Declaration) -> Site<'a> {
 /// Whether the key of `site` keeps all its declarations as entries: a JVM type and a member of one, whose overloads
 /// and constructors are all in the file of the type, as a package has one type of a name. A top-level function or
 /// property may have overloads in files the range doesn't change, so its key, as every key of Rust and TypeScript, is
-/// only present or absent, also beside a type of its name (`KeyState`)
+/// only present or absent, also beside a type of its name (`KeyState`); a C# type may be `partial`, its members in several files, so its keys
+/// are only present or absent too
 fn has_entries(site: &Site<'_>) -> bool {
   site.ctx.language.family() == Family::Jvm && (!site.containers.is_empty() || site.declaration.kind == DeclKind::Type)
 }
@@ -1201,7 +1206,10 @@ fn names_only_its_type(summary: &FileSummary, name: &str, own: bool, imports: us
 /// name
 fn takes(reference: &Reference, constructs: bool, stands_in: bool, use_summary: &FileSummary, call: CallArguments<'_>, site: &Site<'_>) -> bool {
   let declaration = site.declaration;
-  if reference.role == Role::Type && site.ctx.language.family() == Family::Jvm && matches!(declaration.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant) {
+  if reference.role == Role::Type
+    && matches!(site.ctx.language.family(), Family::Jvm | Family::Dotnet)
+    && matches!(declaration.kind, DeclKind::Function | DeclKind::Value | DeclKind::Constant)
+  {
     return false;
   }
   match site.constructor {
@@ -1642,6 +1650,7 @@ fn resolve_any(input: &SymbolInput, use_site: &UseSite<'_>, reference: &Referenc
     Family::Jvm => resolve_jvm(use_site, reference, qualifier, site),
     Family::Rust => resolve_rust(input, use_site, reference, qualifier, site),
     Family::Script => resolve_script(use_site, reference, qualifier, site),
+    Family::Dotnet => dotnet_resolution::resolve_dotnet(use_site, reference, qualifier, site),
   }
 }
 
@@ -1690,7 +1699,7 @@ fn of_another_receiver(summary: &FileSummary, reference: &Reference, site: &Site
 /// A member of the receiver's type wins over an extension in Kotlin, and only a compiler knows that type
 fn on_unknown_receiver(qualifier: Option<&[String]>, site: &Site<'_>) -> bool {
   let names_receiver = qualifier.and_then(<[String]>::last).is_some_and(|last| receiver_of(site) == Some(last.as_str()));
-  site.ctx.language.family() == Family::Jvm && site.declaration.receiver.is_some() && !bare(qualifier) && !names_receiver
+  matches!(site.ctx.language.family(), Family::Jvm | Family::Dotnet) && site.declaration.receiver.is_some() && !bare(qualifier) && !names_receiver
 }
 
 /// Whether a use with `qualifier` is one by a bare name, `this.name` or `super.name`: of a member of the type around it
@@ -1781,6 +1790,9 @@ fn resolve_override(use_site: &UseSite<'_>, reference: &Reference, qualifier: Op
 /// type of that name in the file, never a wildcard import, and no type of the name that a scope around the reference
 /// may mean instead (`scope_may_shadow`)
 fn supertype_resolves(use_site: &UseSite<'_>, reference: &Reference, path: &[String], site: &Site<'_>) -> bool {
+  if site.ctx.language.family() == Family::Dotnet && use_site.path != site.ctx.path {
+    return dotnet_resolution::type_path_resolves(use_site, reference, path, site);
+  }
   let Some((head, rest)) = path.split_first() else { return false };
   // a type of the name nested in a declaration around the reference wins over an import
   if nested_shadows(use_site, reference, head) {
@@ -2188,6 +2200,9 @@ fn receiver_name<'a>(summary: &'a FileSummary, reference: &Reference) -> Option<
 /// a qualifier: of its package, or through an import of its name or a wildcard import of its package. A member of the
 /// type wins over it only for a call the member accepts, which the summary judges generously
 fn sees_extension(use_site: &UseSite<'_>, site: &Site<'_>, receiver: &str) -> bool {
+  if site.ctx.language.family() == Family::Dotnet {
+    return receiver_of(site) == Some(receiver) && dotnet_resolution::sees_extension(use_site, site);
+  }
   site.ctx.language.family() == Family::Jvm
     && site.declaration.member == MemberKind::TopLevel
     && receiver_of(site) == Some(receiver)

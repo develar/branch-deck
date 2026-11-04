@@ -1,0 +1,51 @@
+package Example.Shapes
+import System.* @1
+import System.Collections.Generic.* @2
+import System.Math.* @3
+import System.Collections.Generic.List as Items @4
+import System.Text.Json.JsonSerializer as Json @5
+Type Shape in - Public TopLevel 9-52 @11 new(name: string) : IComparable, IShape
+Constant Max in Shape Public Static 13-13 @13 <int> `const int Max`
+Value counter in Shape Container Static 14-14 @14 <int> `static int counter`
+Constant Empty in Shape Public Static 15-15 @15 <string> `static string Empty`
+Value Name in Shape Public Instance 16-16 @16 <string> `string Name`
+Value area in Shape Module Instance 17-17 @17 <double> `double area`
+Value perimeter in Shape Module Instance 17-17 @17 <double> `double perimeter`
+Value Changed in Shape Public Instance 18-18 @18 <EventHandler> `EventHandler ? Changed`
+Function Area in Shape Public Instance 22-22 @22 () `double Area` overridable
+Function CompareTo in Shape Public Instance 24-24 @24 (other: Shape?) `int CompareTo` overridable
+Function Convert in Shape Container Static 26-26 @26 (value: object) `static R Convert < R > where R : class`
+Function AssemblyMethod in Shape Module Instance 28-28 @28 () `int AssemblyMethod`
+Type IVisitor in Shape Public Static 30-35 @30
+Constant Depth in IVisitor Public Static 32-32 @32 <int> `const int Depth`
+Function Visit in IVisitor Public Instance 33-33 @33 (shape: Shape) `void Visit` overridable
+Function Empty in IVisitor Public Static 34-34 @34 () `static IVisitor Empty`
+Type Kind in Shape Public Static 37-37 @37
+EnumEntry Round in Kind Public Static 37-37 @37
+EnumEntry Square in Kind Public Static 37-37 @37
+Type Point in Shape Public Static 39-42 @39 new(X: int, Y: int)
+Value X in Point Public Instance 39-39 @39 <int> `int X`
+Value Y in Point Public Instance 39-39 @39 <int> `int Y`
+Function Origin in Point Public Static 41-41 @41 () `static Point Origin`
+Type Nested in Shape Container Static 44-44 @44 new()
+Type Handler in Shape Public Static 46-46 @46
+Value Size in Shape Public Instance 48-49 @49 <double> `double Size`
+Type FileLocal in - File TopLevel 54-54 @54 new()
+Type Pair in - Module TopLevel 56-56 @56 new()
+Value A in Pair Public Instance 56-56 @56 <int> `int A`
+Type Program in - Public TopLevel 58-61 @58
+Function Main in Program Public Static 60-60 @60 (args: string[]) `static void Main` entry_point
+@4 ^System.Collections.Generic.List
+@5 ^System.Text.Json.JsonSerializer
+@10 :Serializable :SerializableAttribute
+@11 :IComparable :IShape :Shape
+@18 :EventHandler
+@20 Name
+@24 Area() <Shape>.Area() ?.CompareTo(_) :Shape
+@28 counter
+@33 :Shape
+@34 :IVisitor
+@41 :Point
+@46 :Shape
+@48 :Obsolete :ObsoleteAttribute
+@49 Area()

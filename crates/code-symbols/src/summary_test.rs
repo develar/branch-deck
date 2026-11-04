@@ -6,7 +6,7 @@ use crate::test_support::{check_golden, declaration, fixture, summary_of};
 
 /// The value for the parsers and rules of this build. A change of `RULES_VERSION`, of the psi-syntax revision or of a
 /// tree-sitter grammar changes it: replace it with the value the failure prints.
-const EXTRACTOR_VERSION: u32 = 566_444_020;
+const EXTRACTOR_VERSION: u32 = 229_692_377;
 
 #[test]
 fn every_spec_kind_exists_in_its_grammar() {
@@ -91,6 +91,7 @@ fn language_by_extension() {
   assert_eq!(language_of("a/b/Foo.kt"), Some(Language::Kotlin));
   assert_eq!(language_of("build.gradle.kts"), Some(Language::Kotlin));
   assert_eq!(language_of("src\\Main.java"), Some(Language::Java));
+  assert_eq!(language_of("src/App/Box.cs"), Some(Language::CSharp));
   assert_eq!(language_of("crates/x/src/lib.rs"), Some(Language::Rust));
   for path in ["a.ts", "a.tsx", "a.mts", "a.cts", "a.js", "a.jsx", "a.mjs", "a.cjs"] {
     assert_eq!(language_of(path), Some(Language::TypeScript), "{path}");
@@ -102,8 +103,9 @@ fn language_by_extension() {
   assert_eq!(Language::Java.family(), Family::Jvm);
   assert_eq!(Language::Rust.family(), Family::Rust);
   assert_eq!(Language::TypeScript.family(), Family::Script);
+  assert_eq!(Language::CSharp.family(), Family::Dotnet);
   let ids: Vec<u8> = Language::ALL.iter().map(|it| it.id()).collect();
-  assert_eq!(ids, [0, 1, 2, 3]);
+  assert_eq!(ids, [0, 1, 2, 3, 4]);
 }
 
 #[cfg(any(feature = "kotlin", feature = "rust", feature = "typescript"))]
