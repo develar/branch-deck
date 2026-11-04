@@ -60,15 +60,15 @@ jobs:
           fi
 
       - name: install Rust nightly
-        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        uses: actions-rust-lang/setup-rust-toolchain@a188e68d0fd2bd36ad51dccb2b07ba6e75105f30 # v2.0.1
         with:
           # Those targets are only used on macos runners so it's in an `if` to slightly speed up the linux and windows builds.
           target: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
-          tool: nextest@0.9.149
+          tool: nextest@0.9.151
 
       - name: install dependencies (ubuntu only)
         if: runner.os == 'Linux'

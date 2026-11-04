@@ -238,6 +238,11 @@ export default defineConfig({
           "react/rules-of-hooks": "error",
           "react/rule-suppression": "error",
           "react/unsupported-syntax": "error",
+          // the build's React Compiler (panicThreshold "all_errors") checks the reassignments after render itself;
+          // Oxlint 1.91's port refuses a `let` of an effect that its cleanup resets once a closure of the effect calls
+          // a method of a value derived in render by a call (`key = ids.join(",")`, then `key.split(",")`), which the
+          // compiler, Babel's and oxc's, compiles
+          "react/immutability": "off",
         },
       },
       {

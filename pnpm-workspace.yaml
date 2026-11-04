@@ -8,21 +8,62 @@ overrides:
   zod: ^4.6.5
   vite@*: "catalog:"
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  vite-plus: 1.4.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.5.0
+  vite-plus: 1.5.0
 peerDependencyRules:
   allowAny:
     - vite
   allowedVersions:
     vite: "*"
 minimumReleaseAgeExclude:
-  - "@voidzero-dev/vite-plus-core@1.4.0"
-  - "@voidzero-dev/vite-plus-darwin-arm64@1.4.0"
-  - "@voidzero-dev/vite-plus-darwin-x64@1.4.0"
-  - "@voidzero-dev/vite-plus-linux-arm64-gnu@1.4.0"
-  - "@voidzero-dev/vite-plus-linux-arm64-musl@1.4.0"
-  - "@voidzero-dev/vite-plus-linux-x64-gnu@1.4.0"
-  - "@voidzero-dev/vite-plus-linux-x64-musl@1.4.0"
-  - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.4.0"
-  - "@voidzero-dev/vite-plus-win32-x64-msvc@1.4.0"
-  - vite-plus@1.4.0
+  - "@voidzero-dev/vite-plus-core@1.5.0"
+  - "@voidzero-dev/vite-plus-darwin-arm64@1.5.0"
+  - "@voidzero-dev/vite-plus-darwin-x64@1.5.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@1.5.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@1.5.0"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@1.5.0"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@1.5.0"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.5.0"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@1.5.0"
+  - vite-plus@1.5.0
+  - "@oxfmt/binding-android-arm-eabi@0.76.0"
+  - "@oxfmt/binding-android-arm64@0.76.0"
+  - "@oxfmt/binding-darwin-arm64@0.76.0"
+  - "@oxfmt/binding-darwin-x64@0.76.0"
+  - "@oxfmt/binding-freebsd-x64@0.76.0"
+  - "@oxfmt/binding-linux-arm-gnueabihf@0.76.0"
+  - "@oxfmt/binding-linux-arm-musleabihf@0.76.0"
+  - "@oxfmt/binding-linux-arm64-gnu@0.76.0"
+  - "@oxfmt/binding-linux-arm64-musl@0.76.0"
+  - "@oxfmt/binding-linux-ppc64-gnu@0.76.0"
+  - "@oxfmt/binding-linux-riscv64-gnu@0.76.0"
+  - "@oxfmt/binding-linux-riscv64-musl@0.76.0"
+  - "@oxfmt/binding-linux-s390x-gnu@0.76.0"
+  - "@oxfmt/binding-linux-x64-gnu@0.76.0"
+  - "@oxfmt/binding-linux-x64-musl@0.76.0"
+  - "@oxfmt/binding-openharmony-arm64@0.76.0"
+  - "@oxfmt/binding-win32-arm64-msvc@0.76.0"
+  - "@oxfmt/binding-win32-ia32-msvc@0.76.0"
+  - "@oxfmt/binding-win32-x64-msvc@0.76.0"
+  - "@oxlint/binding-android-arm-eabi@1.91.0"
+  - "@oxlint/binding-android-arm64@1.91.0"
+  - "@oxlint/binding-darwin-arm64@1.91.0"
+  - "@oxlint/binding-darwin-x64@1.91.0"
+  - "@oxlint/binding-freebsd-x64@1.91.0"
+  - "@oxlint/binding-linux-arm-gnueabihf@1.91.0"
+  - "@oxlint/binding-linux-arm-musleabihf@1.91.0"
+  - "@oxlint/binding-linux-arm64-gnu@1.91.0"
+  - "@oxlint/binding-linux-arm64-musl@1.91.0"
+  - "@oxlint/binding-linux-ppc64-gnu@1.91.0"
+  - "@oxlint/binding-linux-riscv64-gnu@1.91.0"
+  - "@oxlint/binding-linux-riscv64-musl@1.91.0"
+  - "@oxlint/binding-linux-s390x-gnu@1.91.0"
+  - "@oxlint/binding-linux-x64-gnu@1.91.0"
+  - "@oxlint/binding-linux-x64-musl@1.91.0"
+  - "@oxlint/binding-openharmony-arm64@1.91.0"
+  - "@oxlint/binding-win32-arm64-msvc@1.91.0"
+  - "@oxlint/binding-win32-ia32-msvc@1.91.0"
+  - "@oxlint/binding-win32-x64-msvc@1.91.0"
+  - "@oxlint/plugins@1.91.0"
+  - oxfmt@0.76.0
+  - oxlint@1.91.0
