@@ -555,11 +555,13 @@ pub(crate) fn machine_pools(repository: &RepositoryDirs, home: Option<&Path>) ->
     return pools;
   };
   for pool_dir in child_dirs(&root) {
-    // a pool names one repository: the first slot that tells it is enough
+    // a pool names one repository: the first slot that tells it is enough; its common dir in the form of
+    // `canonical_path`, as the pool of the repository above: the canonical path of Windows is verbatim (`\\?\C:\`), and
+    // the pool of the repository would come twice, each free slot shrunk twice
     let common = child_dirs(&pool_dir)
       .into_iter()
       .flat_map(|number| child_dirs(&number))
-      .find_map(|slot| git_ops::lease_slot::linked_worktree(&slot).map(|worktree| worktree.git_common_dir));
+      .find_map(|slot| git_ops::lease_slot::linked_worktree(&slot).map(|worktree| PathBuf::from(display_path(&worktree.git_common_dir))));
     if let Some(git_common_dir) = common
       && !pools.iter().any(|pool| pool.git_common_dir == git_common_dir)
     {
