@@ -19,8 +19,8 @@ bd-host run studio -- cargo nextest run --workspace          # the Rust suite
 bd-host run studio -- pnpm e2e                               # the whole E2E suite
 bd-host run studio -- pnpm e2e tests/e2e/branch-row.spec.ts  # one spec
 bd-host run studio -- env DEBUG_E2E=1 pnpm e2e tests/e2e/x.spec.ts
-bd-host run studio --apply -- pnpm lint:backend              # the edits of cargo fmt come back here
-bd-host run studio --apply -- pnpm fix:backend               # the edits of clippy --fix too
+bd-host run studio -- pnpm lint:backend                      # cargo fmt --check and clippy: a check, edits nothing
+bd-host run studio --apply -- pnpm fix:backend               # the edits of cargo fmt and clippy --fix come back here
 bd-host run studio --apply -- pnpm e2e-up                    # the rewritten snapshots come back here
 ```
 

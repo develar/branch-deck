@@ -52,9 +52,12 @@ Measured on 2026-11-02 in a lease with a warm `target/` (the developer Mac, besi
   `--workspace` to the run on the Studio.
 - **A file put back with its old mtime is a stale fingerprint**: `mv` of a backup, `cp -p`, or a checkout that keeps
   times leaves cargo the build of the file as it was before; `touch` it. One run of #163 tested the throwaway edit so.
-- **`pnpm lint:backend` is a check** (`cargo fmt`, then `clippy -D warnings`): after an edit of one crate 7 s on the
-  Studio. `clippy --fix` and the check invalidate each other's results, so the former pair took 104 s every time;
-  `pnpm fix:backend` applies clippy's suggestions when there are some, then `lint:backend` checks.
+- **`pnpm lint:backend` is a check** (`cargo fmt --all --check`, then `clippy -D warnings`, as CI runs them) and edits
+  nothing: after an edit of one crate 7 s on the Studio. Format with `cargo fmt --all` here before it: when it
+  formatted, a run on the Studio without `--apply` formatted the Studio's copy, passed, and left the commit
+  unformatted for CI (0.48.0). `clippy --fix` and the check invalidate each other's results, so the former pair took
+  104 s every time; `pnpm fix:backend` formats and applies clippy's suggestions when there are some, then
+  `lint:backend` checks.
 
 ## By Change
 
@@ -91,7 +94,7 @@ pnpm install-app          # Unsigned release build of the .app, copied to /Appli
 pnpm test                 # test:backend + test:unit + test:perf (Rust, Vitest and the perf scripts; not E2E)
 pnpm test:backend         # cargo nextest run --workspace
 bd-host run studio -- cargo nextest run --workspace  # The same on the Mac Studio, on this working tree (75: run it here)
-bd-host run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, cargo fmt)
+bd-host run studio -- pnpm e2e  # The E2E suite there; --apply brings back what a command edits (pnpm e2e-up, pnpm fix:backend)
 cargo nextest run -R latest  # Rerun what failed or did not run in the last run (record on in the user config)
 pnpm test:unit            # Vitest (`vp test run`; src/**/*.test.ts)
 pnpm test:perf            # node --test of scripts/perf/test-processes.test.mjs
@@ -109,7 +112,7 @@ pnpm screenshots:readme   # The README images in docs/screenshots (tests/screens
 
 pnpm lint                 # Every lint:* script
 pnpm exec vp check        # Formatting, lint and types without fixing (what CI checks first)
-pnpm lint:backend         # cargo fmt, then clippy -D warnings: incremental, 7 s after an edit of a crate on the Studio
+pnpm lint:backend         # cargo fmt --check, then clippy -D warnings, edits nothing: 7 s after an edit of a crate on the Studio
 pnpm fix:backend          # cargo fmt and clippy --fix: a whole check of the workspace each time (about 100 s), so
                           # only to apply clippy's suggestions; lint:backend after it
 pnpm lint:frontend        # `vp check --fix` (Oxfmt, type-aware Oxlint) + lint:typecheck
