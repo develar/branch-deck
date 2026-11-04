@@ -27,7 +27,7 @@ sync-utils = { path = "../sync-utils" }
 text-diff = { path = "../text-diff" }
 # the dependency entries of the build files: the `*.iml` and the plugin descriptors, `Cargo.toml`, `package.json`
 quick-xml = "0.42"
-toml = "1.1"
+toml = "1.2"
 serde_json.workspace = true
 # the fingerprints of the units (`units`): a digest that stays the same across versions and machines
 sha2 = "0.11.1"
