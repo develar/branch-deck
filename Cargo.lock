@@ -1572,7 +1572,7 @@ dependencies = [
 [[package]]
 name = "csharp-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
+source = "git+https://github.com/develar/psi-syntax?rev=aabdfc06cb308880196b2e4ddc6bddcf5a29272c#aabdfc06cb308880196b2e4ddc6bddcf5a29272c"
 dependencies = [
  "psi-builder",
 ]
@@ -3396,7 +3396,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "java-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
+source = "git+https://github.com/develar/psi-syntax?rev=aabdfc06cb308880196b2e4ddc6bddcf5a29272c#aabdfc06cb308880196b2e4ddc6bddcf5a29272c"
 dependencies = [
  "psi-builder",
 ]
@@ -3618,7 +3618,7 @@ dependencies = [
 [[package]]
 name = "kotlin-syntax"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
+source = "git+https://github.com/develar/psi-syntax?rev=aabdfc06cb308880196b2e4ddc6bddcf5a29272c#aabdfc06cb308880196b2e4ddc6bddcf5a29272c"
 dependencies = [
  "psi-builder",
 ]
@@ -5035,7 +5035,7 @@ dependencies = [
 [[package]]
 name = "psi-builder"
 version = "0.1.0"
-source = "git+https://github.com/develar/psi-syntax?rev=3307f0b88464b5fd8d440605c1c3b890b416e10d#3307f0b88464b5fd8d440605c1c3b890b416e10d"
+source = "git+https://github.com/develar/psi-syntax?rev=aabdfc06cb308880196b2e4ddc6bddcf5a29272c#aabdfc06cb308880196b2e4ddc6bddcf5a29272c"
 
 [[package]]
 name = "pxfm"
