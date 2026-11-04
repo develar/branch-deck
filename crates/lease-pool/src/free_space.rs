@@ -43,6 +43,7 @@ pub struct Volume {
 
 impl Volume {
   /// The volume of `path`; one whose `stat` fails holds no path
+  #[cfg_attr(not(unix), expect(clippy::missing_const_for_fn, reason = "const only where no volume is measured"))]
   pub fn of(path: &Path) -> Self {
     #[cfg(unix)]
     {
@@ -56,6 +57,7 @@ impl Volume {
   }
 
   /// Whether `path` is on this volume (one `stat`); a path that is gone is not
+  #[cfg_attr(not(unix), expect(clippy::missing_const_for_fn, reason = "const only where no volume is measured"))]
   pub fn holds(&self, path: &Path) -> bool {
     #[cfg(unix)]
     {
