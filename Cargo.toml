@@ -121,6 +121,10 @@ unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 # trivial_casts: the expansion of `#[specta::specta]` casts every Tauri command to its own fn pointer type
 trivial_numeric_casts = "warn"
+# the ld of macOS notes that a debug test binary of 16 MB of `__eh_frame` (test-server; bd-cli and branch-deck close
+# behind) has frames past its compact unwind table, a note of speed only (rust-lang/rust#159105); `-no_compact_unwind`
+# would silence it but breaks `catch_unwind`, and a lint of one package cannot sit beside `workspace = true`
+linker_messages = "allow"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
