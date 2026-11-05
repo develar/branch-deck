@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.49.0](https://github.com/develar/branch-deck/compare/v0.48.0...v0.49.0) (2026-11-05)
+
+
+### Features
+
+* **bd-host:** a host keeps its disk without the app: the keeper frees space below the minimum, `bd-host trim` trims on request ([3e34339](https://github.com/develar/branch-deck/commit/3e34339419fd02ffaf2da6ce4ce128b50b9b0ea1))
+* **cli-tools:** teamcity signs in through `auth login --web --json` on every OS, and a youtrack outside Homebrew updates itself ([e34ae1b](https://github.com/develar/branch-deck/commit/e34ae1b92d76ea02df9b94895952979700fdfc8d))
+* **code-symbols:** C# on psi-syntax's csharp-syntax, Roslyn's own parser ([90bc04f](https://github.com/develar/branch-deck/commit/90bc04fd62e5da175756be03c2a6aa6bb2107453))
+* **review:** a step names the test files of the change that reach it, not the declarations a walk reached ([659de89](https://github.com/develar/branch-deck/commit/659de89cd461183087fccfe7bb3ef3bcbf317b0b))
+
 ## [0.48.0](https://github.com/develar/branch-deck/compare/v0.47.0...v0.48.0) (2026-11-04)
 
 
