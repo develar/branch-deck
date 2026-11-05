@@ -1,7 +1,7 @@
 //! The user's `teamcity` CLI, when it is installed and logged in to the server of a build: the log tail of a failed
 //! build and whether a failed test failed before this robot. Optional: without it a prompt names the commands for the
 //! agent. Branch Deck never reads its token (the CLI keeps it in the keychain); Settings → Tools starts the CLI's own
-//! browser sign-in (`cli_tools::terminal_login`).
+//! browser sign-in (`cli_tools::teamcity_login`).
 
 use crate::ci_text::{cut_tail, strip_ansi};
 use serde::Deserialize;

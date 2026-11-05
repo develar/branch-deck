@@ -88,6 +88,50 @@ fn a_teamcity_outside_homebrew_updates_itself() {
 }
 
 #[test]
+fn a_youtrack_outside_homebrew_updates_itself_without_a_terminal_from_0_8_1() {
+  let (_root, fakes, environment) = fakes();
+  fakes.install_unmanaged("youtrack", "0.8.1");
+  fakes.set_latest("youtrack", "0.9.0");
+  let (result, lines) = run(&environment, CliTool::Youtrack, CliToolAction::Update, Some("0.9.0"));
+  assert_eq!(result.unwrap().title, "Updated youtrack to 0.9.0");
+  // the lines of the upgrade, without the JSON of the status
+  assert_eq!(lines, ["Running the install script"]);
+  assert_eq!(
+    fakes.log().iter().filter(|line| line.starts_with("youtrack update")).collect::<Vec<_>>(),
+    ["youtrack update --yes --json --quiet"]
+  );
+
+  // the version read after it decides, not its answer
+  let (result, _) = run(&environment, CliTool::Youtrack, CliToolAction::Update, Some("1.0.0"));
+  assert_eq!(
+    result.unwrap_err(),
+    ActionError::Failed("youtrack has no youtrack 1.0.0 yet: youtrack stays at 0.9.0".to_string())
+  );
+
+  fakes.set(
+    "youtrack.update-fail",
+    "automatic upgrade is not available for this install (manual upgrade: apt upgrade youtrack)",
+  );
+  let (result, _) = run(&environment, CliTool::Youtrack, CliToolAction::Update, Some("1.0.0"));
+  assert_eq!(
+    result.unwrap_err(),
+    ActionError::Failed("automatic upgrade is not available for this install (manual upgrade: apt upgrade youtrack)".to_string())
+  );
+}
+
+#[test]
+fn a_youtrack_outside_homebrew_before_0_8_1_updates_only_in_a_terminal() {
+  let (_root, fakes, environment) = fakes();
+  fakes.install_unmanaged("youtrack", "0.8.0");
+  let (result, _) = run(&environment, CliTool::Youtrack, CliToolAction::Update, Some("0.9.0"));
+  assert_eq!(
+    result.unwrap_err(),
+    ActionError::Failed("youtrack updates itself only in a terminal before 0.8.1: run youtrack update".to_string())
+  );
+  assert!(!fakes.log().iter().any(|line| line.starts_with("youtrack update")), "{:?}", fakes.log());
+}
+
+#[test]
 fn installs_updates_and_removes_the_skill_of_each_cli() {
   let (_root, fakes, environment) = fakes();
   fakes.install("teamcity", "1.6.0");

@@ -13,6 +13,17 @@ use tracing::instrument;
 /// The directories of the agents a CLI writes its skill for
 const SKILL_DIRS: &[&str] = &[".claude/skills", ".agents/skills"];
 
+/// The first `teamcity` that signs in through the browser without a terminal (`auth login --web --json`)
+pub const TEAMCITY_WEB_SIGN_IN: &str = "1.6.2";
+
+/// The first `youtrack` that updates itself without a terminal (`update --yes --json`)
+pub const YOUTRACK_SELF_UPDATE: &str = "0.8.1";
+
+/// Whether `version` is `minimum` or later; an unknown version is not
+pub fn at_least(version: Option<&str>, minimum: &str) -> bool {
+  version.is_some_and(|version| compare_versions(version, minimum) != Ordering::Less)
+}
+
 /// The skill a tool bundles for the agents, its default one
 pub const fn skill_name(tool: CliTool) -> &'static str {
   match tool {
@@ -173,13 +184,15 @@ impl FoundTool {
         let problem = [version.as_ref().err(), servers.as_ref().err()].into_iter().flatten().next().cloned();
         let version = version.ok().flatten();
         let servers = servers.unwrap_or_default();
-        let action = decide_action(version.as_deref(), &servers, facts.latest.as_deref());
+        let action = decide_action(tool, version.as_deref(), &servers, facts.latest.as_deref());
         // the app's own YouTrack sign-in signs youtrack in: no command then
         let sign_in_with = facts
           .signed_in_youtrack
           .clone()
           .filter(|_| tool == CliTool::Youtrack && action == Some(CliToolAction::SignIn));
-        let command = action.and_then(|action| terminal_command(tool, action, manager)).filter(|_| sign_in_with.is_none());
+        let command = action
+          .and_then(|action| terminal_command(tool, action, manager, version.as_deref()))
+          .filter(|_| sign_in_with.is_none());
         CliToolStatus {
           tool,
           binary: Some(binary),
@@ -246,24 +259,26 @@ pub fn installed_skill(environment: &ToolEnvironment, tool: CliTool) -> Option<S
     .min_by(|a, b| compare_versions(a, b))
 }
 
-/// The one action of a row of an installed tool, the most needed first: a sign-in, a newer release
-pub fn decide_action(version: Option<&str>, servers: &[CliToolServer], latest: Option<&str>) -> Option<CliToolAction> {
+/// The one action of a row of an installed tool, the most needed first: a sign-in, a newer release. A `teamcity` older
+/// than its browser sign-in without a terminal (`TEAMCITY_WEB_SIGN_IN`) updates first while a newer release is known
+pub fn decide_action(tool: CliTool, version: Option<&str>, servers: &[CliToolServer], latest: Option<&str>) -> Option<CliToolAction> {
   let signed_in = servers.iter().any(|server| server.state != CliToolSignInState::Failed);
-  if !signed_in {
-    return Some(CliToolAction::SignIn);
-  }
   let newer = matches!((version, latest), (Some(version), Some(latest)) if compare_versions(latest, version) == Ordering::Greater);
-  newer.then_some(CliToolAction::Update)
+  if signed_in {
+    return newer.then_some(CliToolAction::Update);
+  }
+  let before_web_sign_in = tool == CliTool::Teamcity && !at_least(version, TEAMCITY_WEB_SIGN_IN);
+  Some(if before_web_sign_in && newer { CliToolAction::Update } else { CliToolAction::SignIn })
 }
 
-/// The command of `action` for a terminal, while the app can't run it: a sign-in of `youtrack`, and of `teamcity` on
-/// Windows (no `script` there for its terminal); an update of a `youtrack` not installed by Homebrew (its own `update`
-/// upgrades only in a terminal)
-fn terminal_command(tool: CliTool, action: CliToolAction, manager: Option<PackageManager>) -> Option<String> {
+/// The command of `action` for a terminal, while the app can't run it: a sign-in of `youtrack`, and of a `teamcity`
+/// before `TEAMCITY_WEB_SIGN_IN`; an update of a `youtrack` no package manager installed, before
+/// `YOUTRACK_SELF_UPDATE` (its `update` upgrades only in a terminal there)
+fn terminal_command(tool: CliTool, action: CliToolAction, manager: Option<PackageManager>, version: Option<&str>) -> Option<String> {
   match (action, tool) {
-    (CliToolAction::SignIn, CliTool::Teamcity) if !cfg!(windows) => None,
+    (CliToolAction::SignIn, CliTool::Teamcity) if at_least(version, TEAMCITY_WEB_SIGN_IN) => None,
     (CliToolAction::SignIn, _) => Some(format!("{} auth login", tool.command())),
-    (CliToolAction::Update, CliTool::Youtrack) if manager.is_none() => Some("youtrack update".to_string()),
+    (CliToolAction::Update, CliTool::Youtrack) if manager.is_none() && !at_least(version, YOUTRACK_SELF_UPDATE) => Some("youtrack update".to_string()),
     (CliToolAction::Install, _) if manager.is_none() => Some(manual_install_command(tool).to_string()),
     _ => None,
   }

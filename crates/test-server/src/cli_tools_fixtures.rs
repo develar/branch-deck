@@ -71,7 +71,8 @@ pub struct CliToolsFixture {
   #[serde(default)]
   pub latest: BTreeMap<String, String>,
   /// State files of the fakes by name: `teamcity.auth`, `youtrack.auth` (the `auth status --json`), `teamcity.skill`
-  /// (the bundled skill), `brew.fail` (the stderr of a failing brew), `brew.hang` (a brew that runs for a minute)
+  /// (the bundled skill), `teamcity.no-web` (a TeamCity without the browser sign-in), `brew.fail` (the stderr of a
+  /// failing brew), `brew.hang` (a brew that runs for a minute)
   #[serde(default)]
   pub files: BTreeMap<String, String>,
 }

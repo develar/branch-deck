@@ -1,4 +1,7 @@
-use crate::parse::{compare_versions, parse_skill_list, parse_skill_version, parse_teamcity_auth, parse_version, parse_youtrack_auth};
+use crate::parse::{
+  compare_versions, is_json_line, parse_authorize_event, parse_json_error, parse_login_event, parse_skill_list, parse_skill_version, parse_teamcity_auth, parse_version,
+  parse_youtrack_auth, parse_youtrack_update,
+};
 use domain_types::cli_tools::{CliToolServer, CliToolSignInState};
 use pretty_assertions::assert_eq;
 use std::cmp::Ordering;
@@ -98,4 +101,40 @@ fn reads_the_version_of_a_skill_and_of_the_skill_list() {
     "Name                 Version  Description\nteamcity-cli         1.4.0    Use when working with TeamCity (default)\nmigrate-to-teamcity  0.3.1    Use when migrating\n";
   assert_eq!(parse_skill_list(list, "teamcity-cli").as_deref(), Some("1.4.0"));
   assert_eq!(parse_skill_list(list, "other"), None);
+}
+
+#[test]
+fn reads_the_events_of_the_browser_sign_in_of_teamcity() {
+  let authorize = r#"{"event":"authorize","url":"https://ci.example/oauth2/authorize?state=x","browser_opened":false}"#;
+  assert_eq!(parse_authorize_event(authorize).as_deref(), Some("https://ci.example/oauth2/authorize?state=x"));
+  let login = r#"{"event":"login","server":"https://ci.example","auth_method":"token","user":{"id":1,"username":"jane","name":"Jane Doe"},"token_storage":"keyring"}"#;
+  assert_eq!(parse_authorize_event(login), None);
+  assert_eq!(parse_login_event(&format!("{authorize}\n{login}\n")).as_deref(), Some("jane"));
+  assert_eq!(parse_login_event(authorize), None);
+  assert!(is_json_line(authorize) && is_json_line("  \"code\": \"validation_error\",") && is_json_line("}"));
+  assert!(!is_json_line("Could not open browser automatically"));
+}
+
+#[test]
+fn reads_the_message_of_the_json_error_of_a_cli_after_the_lines_before_it() {
+  let stderr = "Running the install script\n{\n  \"error\": {\n    \"code\": \"validation_error\",\n    \"message\": \"browser sign-in is not available on https://old.example\",\n    \"suggestion\": \"Requires TeamCity 2026.1+\"\n  }\n}";
+  assert_eq!(parse_json_error(stderr).as_deref(), Some("browser sign-in is not available on https://old.example"));
+  assert_eq!(
+    parse_json_error(r#"{"error":{"code":"internal_error","message":"upgrade failed"}}"#).as_deref(),
+    Some("upgrade failed")
+  );
+  assert_eq!(parse_json_error("Error: unknown flag: --web"), None);
+}
+
+#[test]
+fn reads_whether_youtrack_upgraded() {
+  assert_eq!(
+    parse_youtrack_update(r#"{"currentVersion":"0.8.1","latestVersion":"0.9.0","updateAvailable":true,"upgraded":true}"#),
+    Some(true)
+  );
+  assert_eq!(
+    parse_youtrack_update(r#"{"currentVersion":"0.9.0","latestVersion":"0.9.0","updateAvailable":false}"#),
+    Some(false)
+  );
+  assert_eq!(parse_youtrack_update("YouTrack CLI upgraded"), None);
 }

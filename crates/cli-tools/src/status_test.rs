@@ -43,13 +43,11 @@ fn a_missing_cli_offers_its_install_through_homebrew_or_a_command() {
 #[test]
 fn an_installed_cli_has_its_version_and_servers_and_offers_its_sign_in_first() {
   let (_root, fakes, environment) = fakes();
-  fakes.install("teamcity", "1.6.0");
+  fakes.install("teamcity", "1.6.2");
   let status = read_status(&environment, CliTool::Teamcity, &latest("1.7.0"));
-  assert_eq!((status.version.as_deref(), status.servers.len()), (Some("1.6.0"), 0));
-  // a sign-in before the update: without it the CLI does nothing for the app
-  // the app runs its browser sign-in; Windows has no terminal for it
-  let command = cfg!(windows).then_some("teamcity auth login");
-  assert_eq!((status.action, status.command.as_deref()), (Some(CliToolAction::SignIn), command));
+  assert_eq!((status.version.as_deref(), status.servers.len()), (Some("1.6.2"), 0));
+  // a sign-in before the update: without it the CLI does nothing for the app; the app runs its browser sign-in
+  assert_eq!((status.action, status.command), (Some(CliToolAction::SignIn), None));
   assert_eq!(status.problem, None);
 
   fakes.set("teamcity.auth", SIGNED_IN);
@@ -59,6 +57,21 @@ fn an_installed_cli_has_its_version_and_servers_and_offers_its_sign_in_first() {
   assert_eq!(status.action, Some(CliToolAction::Update));
   // teamcity updates itself
   assert_eq!(status.command, None);
+}
+
+#[test]
+fn a_teamcity_before_its_browser_sign_in_without_a_terminal_updates_first_else_signs_in_in_a_terminal() {
+  let (_root, fakes, environment) = fakes();
+  fakes.install("teamcity", "1.6.1");
+  let status = read_status(&environment, CliTool::Teamcity, &latest("1.7.0"));
+  assert_eq!((status.action, status.command), (Some(CliToolAction::Update), None));
+  // no newer release known: the sign-in of a terminal
+  let status = read_status(&environment, CliTool::Teamcity, &KnownFacts::default());
+  assert_eq!((status.action, status.command.as_deref()), (Some(CliToolAction::SignIn), Some("teamcity auth login")));
+  // signed in: the sign-in stays the CLI's; a newer release is the action, as for any CLI
+  fakes.set("teamcity.auth", SIGNED_IN);
+  let status = read_status(&environment, CliTool::Teamcity, &latest("1.7.0"));
+  assert_eq!((status.action, status.command), (Some(CliToolAction::Update), None));
 }
 
 #[test]
@@ -95,13 +108,17 @@ fn the_skill_of_each_cli_is_the_oldest_copy_of_the_agents_against_the_bundled_on
 }
 
 #[test]
-fn youtrack_outside_homebrew_updates_in_a_terminal() {
+fn youtrack_outside_homebrew_updates_itself_from_0_8_1_and_in_a_terminal_before() {
   let (_root, fakes, environment) = fakes();
-  fakes.install_unmanaged("youtrack", "0.6.0");
+  fakes.install_unmanaged("youtrack", "0.8.0");
   fakes.set("youtrack.auth", r#"{"url":"https://yt.example","login":"me","status":"authenticated"}"#);
-  let status = read_status(&environment, CliTool::Youtrack, &latest("0.7.0"));
+  let status = read_status(&environment, CliTool::Youtrack, &latest("0.9.0"));
   assert_eq!(status.servers.len(), 1);
   assert_eq!((status.action, status.command.as_deref()), (Some(CliToolAction::Update), Some("youtrack update")));
+
+  fakes.install_unmanaged("youtrack", "0.8.1");
+  let status = read_status(&environment, CliTool::Youtrack, &latest("0.9.0"));
+  assert_eq!((status.action, status.command), (Some(CliToolAction::Update), None));
 }
 
 #[test]

@@ -69,7 +69,7 @@ impl FakeCliTools {
     fake_executable(&self.bin(), name, &self.tool_body(name));
   }
 
-  /// The release `brew upgrade` and `teamcity update` install
+  /// The release `brew upgrade`, `teamcity update` and `youtrack update` install
   pub fn set_latest(&self, name: &str, version: &str) {
     self.set(&format!("{name}.latest"), version);
   }
@@ -126,7 +126,6 @@ esac"#
 bundled=$(cat {state}/{name}.skill 2>/dev/null || echo 1.0.0)
 case "$1 $2" in
   "--version "*) echo "{name} version $(cat {state}/{name}.version)"; exit 0;;
-  "update "*) if [ -e {state}/{name}.latest ]; then cp {state}/{name}.latest {state}/{name}.version; fi; exit 0;;
   "skill list") echo "{name}-cli         $bundled  Use when working with {name}"; exit 0;;
   "skill install"|"skill update") mkdir -p {skill}; printf -- '---\nname: {name}-cli\nversion: %s\n---\n' "$bundled" > {skill}/SKILL.md; exit 0;;
   "skill remove") rm -rf {skill}; exit 0;;
@@ -135,18 +134,41 @@ esac"#
     let own = match name {
       "teamcity" => format!(
         r#"case "$1 $2" in
+  "update "*) if [ -e {state}/teamcity.latest ]; then cp {state}/teamcity.latest {state}/teamcity.version; fi;;
   "auth status") cat {state}/teamcity.auth; grep -q '"authenticated"' {state}/teamcity.auth || exit 1;;
   "auth login")
-    # as the CLI: the authorize page, then the token it keeps; a server without the browser sign-in asks to paste one
-    if [ -e {state}/teamcity.paste ]; then printf 'Paste your access token: '; read -r token; exit 1; fi
-    echo "Opening $4/oauth2/authorize?client_id=teamcity-cli&code_challenge=x in your browser"
-    if [ -e {state}/teamcity.denied ]; then echo "Error: the sign-in was denied"; exit 1; fi
+    # as the CLI with --web --json: the authorize event, then the token it keeps and the login event; an error is its
+    # JSON envelope on stderr. A server without the browser sign-in fails before the browser
+    if [ -e {state}/teamcity.no-web ]; then
+      printf '{{\n  "error": {{\n    "code": "validation_error",\n    "message": "browser sign-in is not available on %s",\n    "suggestion": "Requires TeamCity 2026.1+ with PKCE enabled; use --token instead"\n  }}\n}}\n' "$4" >&2
+      exit 1
+    fi
+    printf '{{"event":"authorize","url":"%s/oauth2/authorize?client_id=teamcity-cli&code_challenge=x","browser_opened":true}}\n' "$4"
+    if [ -e {state}/teamcity.denied ]; then
+      printf 'Browser auth failed\n{{\n  "error": {{\n    "code": "validation_error",\n    "message": "browser sign-in failed: access_denied"\n  }}\n}}\n' >&2
+      exit 1
+    fi
+    # an end without the login event, as a cancel
+    if [ -e {state}/teamcity.canceled ]; then exit 0; fi
     printf '[{{"server":"%s","status":"authenticated","user":{{"username":"jane"}},"token_expiry":"2026-12-01T00:00:00Z"}}]' "$4" > {state}/teamcity.auth
-    echo "Logged in to $4 as jane";;
+    printf '{{"event":"login","server":"%s","auth_method":"token","user":{{"id":1,"username":"jane","name":"Jane Doe"}},"token_storage":"keyring","token_expiry":"2026-12-01T00:00:00Z"}}\n' "$4";;
 esac"#
       ),
       _ => format!(
         r#"case "$1 $2" in
+  "update --yes")
+    # as the CLI with --json: the lines of the upgrade on stderr, then its status on stdout; an error is its JSON
+    # envelope on stderr
+    echo "Running the install script" >&2
+    if [ -e {state}/youtrack.update-fail ]; then
+      printf '{{\n  "error": {{\n    "code": "internal_error",\n    "message": "%s"\n  }}\n}}\n' "$(cat {state}/youtrack.update-fail)" >&2
+      exit 1
+    fi
+    before=$(cat {state}/youtrack.version)
+    if [ -e {state}/youtrack.latest ]; then cp {state}/youtrack.latest {state}/youtrack.version; fi
+    after=$(cat {state}/youtrack.version)
+    upgraded=$([ "$before" = "$after" ] && echo false || echo true)
+    printf '{{"currentVersion":"%s","latestVersion":"%s","updateAvailable":%s,"upgraded":%s}}\n' "$before" "$after" "$upgraded" "$upgraded";;
   "auth status") cat {state}/youtrack.auth;;
   "auth login")
     # as the CLI: the token from stdin, checked and kept; its instance the active one, beside the others

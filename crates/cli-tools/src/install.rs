@@ -1,12 +1,12 @@
-//! The actions the app runs for a tool: its install and update through Homebrew (a `teamcity` outside Homebrew updates
-//! itself), and the skills of the agents. Each streams its lines and ends with its whole process group on a
+//! The actions the app runs for a tool: its install and update through Homebrew (a CLI no package manager installed
+//! updates itself), its sign-in, and the skills of the agents. Each streams its lines and ends with its whole process group on a
 //! cancel; the version is read again after it, so an update that installed nothing new says so.
 
 use crate::environment::ToolEnvironment;
 use crate::package_manager::{FoundManager, install_manager, installed_by, manager_commands, manager_name};
-use crate::parse::{compare_versions, parse_version};
-use crate::status::{installed_skill, quiet_flags, read_servers, read_skill, skill_name};
-use crate::terminal_login::sign_in_teamcity;
+use crate::parse::{compare_versions, is_json_line, parse_json_error, parse_version, parse_youtrack_update};
+use crate::status::{TEAMCITY_WEB_SIGN_IN, YOUTRACK_SELF_UPDATE, at_least, installed_skill, quiet_flags, read_skill, skill_name};
+use crate::teamcity_login::sign_in_teamcity;
 use domain_types::cli_tools::{CliTool, CliToolAction};
 use std::cmp::Ordering;
 use std::path::Path;
@@ -116,7 +116,8 @@ fn run_steps(
         (Some(found), _) => run_manager(environment, found, tool, true, on_line, is_canceled)?,
         // an install script's teamcity updates itself, without a terminal with --yes
         (None, CliTool::Teamcity) => run_streamed(environment, &binary, &["update", "--yes", "--no-input", "--no-color"], on_line, is_canceled)?,
-        (None, CliTool::Youtrack) => return Err("youtrack updates itself only in a terminal: run youtrack update".to_string()),
+        (None, CliTool::Youtrack) if at_least(before.as_deref(), YOUTRACK_SELF_UPDATE) => update_youtrack(environment, &binary, on_line, is_canceled)?,
+        (None, CliTool::Youtrack) => return Err(format!("youtrack updates itself only in a terminal before {YOUTRACK_SELF_UPDATE}: run youtrack update")),
       }
       let after = installed_version(environment, tool);
       let newer = match (&before, &after) {
@@ -156,13 +157,15 @@ fn run_steps(
         .filter(|server| server.starts_with("https://") || server.starts_with("http://"));
       let server = server.ok_or_else(|| "the URL of the TeamCity server starts with https://".to_string())?;
       let binary = environment.find_tool(tool).ok_or_else(|| format!("{name} is not installed"))?;
-      sign_in_teamcity(environment, &binary, server, on_line, output.on_url, is_canceled)?;
-      let servers = read_servers(environment, tool, &binary)?;
-      let user = servers
-        .iter()
-        .find(|known| known.url == server)
-        .and_then(|known| known.user.clone())
-        .ok_or_else(|| format!("teamcity signed in, but is not signed in to {server}"))?;
+      // a server line offers Sign In Again whatever the version
+      let version = installed_version(environment, tool);
+      if !at_least(version.as_deref(), TEAMCITY_WEB_SIGN_IN) {
+        let version = version.unwrap_or_default();
+        return Err(format!(
+          "teamcity {version} signs in only in a terminal: update it to {TEAMCITY_WEB_SIGN_IN} or later, or run teamcity auth login"
+        ));
+      }
+      let user = sign_in_teamcity(environment, &binary, server, on_line, output.on_url, is_canceled)?;
       Ok(ToolTaskDone::new(format!("Signed in to {} as {user}", server.split("://").nth(1).unwrap_or(server))))
     }
   }
@@ -209,6 +212,27 @@ fn run_streamed(environment: &ToolEnvironment, binary: &Path, args: &[&str], on_
   command.args(args);
   let name = binary.file_stem().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
   finish(&name, run_child_lines(&mut command, TASK_TIMEOUT, on_line, is_canceled))
+}
+
+/// `youtrack update --yes --json --quiet` (`YOUTRACK_SELF_UPDATE`): the upgrade through the way it was installed,
+/// without a terminal. Its stdout has the status, its stderr the lines of the upgrade and the JSON envelope of an error
+fn update_youtrack(environment: &ToolEnvironment, binary: &Path, on_line: &dyn Fn(&str), is_canceled: &dyn Fn() -> bool) -> Result<(), String> {
+  let mut command = environment.command(binary);
+  command.args(["update", "--yes", "--json", "--quiet"]);
+  let on_output = |line: &str| {
+    if !is_json_line(line) {
+      on_line(line);
+    }
+  };
+  let output = match run_child_lines(&mut command, TASK_TIMEOUT, &on_output, is_canceled) {
+    Ok(output) if !output.status.success() => return Err(parse_json_error(&output.stderr).unwrap_or_else(|| output.failure_message("youtrack"))),
+    Ok(output) => output,
+    error @ Err(_) => return finish("youtrack", error),
+  };
+  // the version read after it decides whether it did
+  let upgraded = parse_youtrack_update(&String::from_utf8_lossy(&output.stdout));
+  info!(?upgraded, "youtrack update answered");
+  Ok(())
 }
 
 fn finish(tool: &str, result: Result<sync_utils::child_process::ChildOutput, ChildProcessError>) -> Result<(), String> {

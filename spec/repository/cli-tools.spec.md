@@ -8,7 +8,7 @@ targets:
   - ../../crates/cli-tools/src/status.rs
   - ../../crates/cli-tools/src/install.rs
   - ../../crates/cli-tools/src/package_manager.rs
-  - ../../crates/cli-tools/src/terminal_login.rs
+  - ../../crates/cli-tools/src/teamcity_login.rs
   - ../../crates/sync-utils/src/child_process.rs
   - ../../crates/sync-utils/src/known_tools.rs
   - ../../crates/domain-types/src/cli_tools.rs
@@ -48,7 +48,8 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 ## Non-goals
 
 - Reading the token a CLI keeps: each keeps its own sign-in in its keychain item, which the app never reads.
-- Running an install script (`curl | bash`, `irm | iex`): the app runs a package manager or shows the command.
+- Running an install script (`curl | bash`, `irm | iex`) itself: the app runs a package manager or the CLI's own
+  `update`, which may run the install script of its release, or shows the command.
 - A CLI without a use in Branch Deck: a row is added when the app or its agent skill relies on the tool.
 
 ## Requirements
@@ -60,8 +61,8 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   an app started from the Finder has none of them; looked up on every read, so a CLI installed meanwhile is found.
   [@test] ../../crates/sync-utils/src/child_process_test.rs (`finds_a_tool_before_path_then_on_path_then_after_it`)
 - A read runs `--version`, `auth status --json` and `skill list`, each in its own thread, both tools
-  at once, 20 s each, while GitHub is asked for the newest releases; the CLIs run without colours, prompts or an update
-  check, and without the `TEAMCITY_*` and `YOUTRACK_*` credential variables of the app's environment, so the status is
+  at once, 20 s each, while GitHub is asked for the newest releases; the CLIs run without colours (`NO_COLOR=1`), prompts
+  or an update check, and without the `TEAMCITY_*` and `YOUTRACK_*` credential variables of the app's environment, so the status is
   what an agent's shell gets. The windows that ask while a read runs (the Setup dot of each window, Settings → Tools)
   share the read after it ([below](#sign-in)).
   [@test] ../../crates/cli-tools/src/status_test.rs (`reads_every_tool`)
@@ -81,12 +82,14 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 ### The action of a row
 
 - Rust picks one action per tool, the most needed first: Install (not found), Sign In (signed in to no server),
-  Update (a newer release than the installed one); none when all is well. The skill has a line of its own.
+  Update (a newer release than the installed one); none when all is well. A `teamcity` before 1.6.2 updates before
+  its sign-in ([below](#sign-in)). The skill has a line of its own.
   [@test] ../../crates/cli-tools/src/status_test.rs (`an_installed_cli_has_its_version_and_servers_and_offers_its_sign_in_first`)
 - The app runs the action where it can, else the row shows the command for a terminal with Copy: an install without
-  Homebrew (the README's command), a sign-in, an update of a `youtrack` outside Homebrew (`youtrack update`, which
-  upgrades only in a terminal).
-  [@test] ../../crates/cli-tools/src/status_test.rs (`a_missing_cli_offers_its_install_through_homebrew_or_a_command`, `youtrack_outside_homebrew_updates_in_a_terminal`)
+  Homebrew (the README's command), a sign-in of `youtrack` without the app's sign-in and of a `teamcity` before 1.6.2,
+  an update of a `youtrack` before 0.8.1 that no package manager installed (`youtrack update`, which upgrades only in
+  a terminal there).
+  [@test] ../../crates/cli-tools/src/status_test.rs (`a_missing_cli_offers_its_install_through_homebrew_or_a_command`, `youtrack_outside_homebrew_updates_itself_from_0_8_1_and_in_a_terminal_before`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should give the command to install a CLI without Homebrew`)
 
 ### Install and update
@@ -94,7 +97,9 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 - Install is `brew install jetbrains/utils/<tool>`, Update of a tool Homebrew installed (its binary links into a
   `Cellar`) `brew upgrade`, with `NONINTERACTIVE`, no hints, cleanup or dependents check, its taps updated first (the
   tap of a tool lags behind its releases otherwise). A `teamcity` no manager installed updates itself
-  (`teamcity update --yes`).
+  (`teamcity update --yes`), a `youtrack` 0.8.1 or later too (`youtrack update --yes --json --quiet`: the lines of the
+  upgrade on stderr, its status with `upgraded` on stdout, an error as the JSON envelope of the CLI on stderr); the
+  version read after it decides ([below](#agent-skill)).
 - On Windows the manager is winget for a tool it has a package of (`JetBrains.TeamCityCLI`; `youtrack` has none in
   winget yet): `winget install --id … --exact --scope user --silent --disable-interactivity
   --accept-source-agreements --accept-package-agreements`, `winget upgrade` likewise; else scoop, which adds the
@@ -107,6 +112,8 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
   [@test] ../../crates/cli-tools/src/package_manager_test.rs (`winget_installs_for_the_user_without_prompts_and_scoop_adds_its_bucket_first`, `the_path_of_a_binary_tells_its_manager_when_the_machine_has_it`)
   [@test] ../../crates/cli-tools/src/install_test.rs (`the_package_manager_of_the_machine_installs_teamcity`)
   [@test] ../../crates/cli-tools/src/install_test.rs (`installs_and_updates_through_homebrew_streaming_its_lines`, `a_teamcity_outside_homebrew_updates_itself`)
+  [@test] ../../crates/cli-tools/src/install_test.rs (`a_youtrack_outside_homebrew_updates_itself_without_a_terminal_from_0_8_1`, `a_youtrack_outside_homebrew_before_0_8_1_updates_only_in_a_terminal`)
+  [@test] ../../crates/cli-tools/src/parse_test.rs (`reads_whether_youtrack_upgraded`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should install a missing CLI through Homebrew with its agent skill, then show its version and its sign-in`)
 - An update also updates an older skill of the agents ("Updated teamcity to 1.7.0 and its agent skill to 1.5.0"); a
   skill the user removed stays removed.
@@ -147,22 +154,30 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 
 ### Sign-in
 
-- Sign In of `teamcity` (macOS, Linux) starts the CLI's own browser sign-in, `teamcity auth login --server <url>`: the
-  CLI opens the browser for its PKCE flow and keeps its token in its own keychain item; the app never sees the token
-  and passes none. The CLI signs in through the browser only with a terminal on stdin, so `script` runs it in a
-  pseudo-terminal (BSD `script -q /dev/null …`, util-linux `script -q -e -c …`), 4096 columns wide, without escape
-  sequences; its stdin stays empty. The row shows the last line and "Open in Browser" with the authorize page the CLI
-  printed, for a browser that didn't come up; it waits 5 minutes, Cancel ends it. Then the status is read again and
-  the toast says "Signed in to ci.example as jane".
-  [@test] ../../crates/cli-tools/src/terminal_login_test.rs (`signs_in_through_the_browser_login_of_the_cli_in_a_terminal_and_names_the_user`, `a_denied_sign_in_says_the_last_words_of_the_cli`, `a_terminal_line_loses_its_escapes_and_the_echo_of_the_end_of_input`)
+- Sign In of `teamcity` starts the CLI's own browser sign-in on every OS, `teamcity auth login --server <url> --web
+  --json --no-input`: the CLI opens the browser for its PKCE flow and keeps its token in its own keychain item; the
+  app never sees the token and passes none. The CLI needs no terminal, and its stdin stays empty. Its stdout has one
+  JSON line per event: `authorize` with the page it opened, then `login` with the user. The row shows the last line
+  that is not JSON and "Open in Browser" with the authorize page, for a browser that didn't come up; it waits 6
+  minutes, longer than the 5 of the CLI, and Cancel ends it. An exit without the `login` event signs nobody in. The
+  toast names the user of the `login` event, "Signed in to ci.example as jane", and the status is read again.
+  [@test] ../../crates/cli-tools/src/teamcity_login_test.rs (`signs_in_through_the_browser_login_of_the_cli_without_a_terminal_and_names_the_user`, `a_denied_sign_in_says_the_message_of_the_error_of_the_cli`, `an_end_without_the_login_event_signed_nobody_in`)
+  [@test] ../../crates/cli-tools/src/parse_test.rs (`reads_the_events_of_the_browser_sign_in_of_teamcity`, `reads_the_message_of_the_json_error_of_a_cli_after_the_lines_before_it`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should sign teamcity in through its own browser sign-in, to the server an open names`)
-- Only TeamCity 2026.1 and later, which sign in through the browser: a CLI that asks to paste a token is ended at once,
-  "Cannot sign teamcity in: https://old.example has no browser sign-in (TeamCity 2026.1+)".
-  [@test] ../../crates/cli-tools/src/terminal_login_test.rs (`a_server_without_the_browser_sign_in_fails_at_once_instead_of_waiting_for_a_token`, `a_sign_in_needs_the_url_of_the_server`)
+- A failure is the `message` of the JSON envelope the CLI writes to stderr (`{"error":{"code","message","suggestion"}}`).
+  A TeamCity before 2026.1 has no browser sign-in and fails at once: "Cannot sign teamcity in: browser sign-in is not
+  available on https://old.example".
+  [@test] ../../crates/cli-tools/src/teamcity_login_test.rs (`a_server_without_the_browser_sign_in_fails_with_the_words_of_the_cli`, `a_sign_in_needs_the_url_of_the_server`)
   [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should refuse a TeamCity without the browser sign-in at once, and sign in again from a server's line`)
+- `--web` came with `teamcity` 1.6.2. An older one signed in to no server offers Update while a newer release is
+  known, else `teamcity auth login` to run in a terminal. Its Sign In Again fails before the CLI runs: "teamcity 1.6.1
+  signs in only in a terminal: update it to 1.6.2 or later, or run teamcity auth login".
+  [@test] ../../crates/cli-tools/src/status_test.rs (`a_teamcity_before_its_browser_sign_in_without_a_terminal_updates_first_else_signs_in_in_a_terminal`)
+  [@test] ../../crates/cli-tools/src/teamcity_login_test.rs (`a_teamcity_before_its_browser_sign_in_without_a_terminal_is_not_run`)
+  [@test] ../../tests/e2e/settings/tools-settings.spec.ts (`should offer an older teamcity its update before the sign-in, else the sign-in of a terminal`)
 - The server is the one an open of Settings names (`SettingsTarget.server`: the server of a robot's build, from the toast
   of a copied prompt), else the first one the CLI knows, else typed; each server line has Sign In Again (a token that
-  expires or was refused). Windows, without `script`, shows `teamcity auth login` to run in a terminal.
+  expires or was refused).
 - `youtrack` signed in to no instance, with the app signed in to a YouTrack, offers Use Branch Deck Sign-In
   (`signInWith`): one browser sign-in, after which the CLI has a permanent token of that YouTrack
   ([YouTrack](youtrack.spec.md#the-youtrack-cli)). It is the sign-in of the app's commands, `sign_in({ provider:
@@ -204,6 +219,6 @@ update through Homebrew, winget or scoop, the sign-in of `teamcity`) and otherwi
 
 - The newest release comes from GitHub once a day ([Setup Dot](setup-attention.spec.md#items)); a tap that lags
   behind it makes an update say so instead of looping.
-- Windows: no sign-in of `teamcity` starts (no `script`), the row shows its command; `youtrack` installs through scoop
-  only, until winget has it. `the_package_manager_of_the_machine_installs_teamcity` is ignored: it installs for real, in
+- Windows: `youtrack` installs through scoop only, until winget has it. The sign-in of `teamcity` runs the same command
+  as on macOS; only the fakes check it there. `the_package_manager_of_the_machine_installs_teamcity` is ignored: it installs for real, in
   the check on Windows ([Platform Checks](../../docs/contributing/platform-checks.md)).

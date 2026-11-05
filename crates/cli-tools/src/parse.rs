@@ -1,5 +1,6 @@
 //! The answers of the CLIs: `--version`, `auth status --json` of each, the `version:` of a skill and `teamcity skill
-//! list`. A field the app doesn't know is ignored; an answer it can't read is an error with the CLI's words.
+//! list`, the events of `teamcity auth login --web --json`, the status of `youtrack update --json` and the JSON error
+//! envelope of either. A field the app doesn't know is ignored; an answer it can't read is an error with the CLI's words.
 
 use domain_types::cli_tools::{CliToolServer, CliToolSignInState};
 use serde::Deserialize;
@@ -149,6 +150,81 @@ fn one_or_many<T: for<'de> Deserialize<'de>>(stdout: &str) -> Result<Vec<T>, ser
 fn parse_timestamp(text: &str) -> Option<u32> {
   let timestamp: jiff::Timestamp = text.parse().ok()?;
   u32::try_from(timestamp.as_second()).ok()
+}
+
+/// A line of the JSON a CLI writes with `--json` (an event, a line of its indented error envelope): no line for the row
+pub fn is_json_line(line: &str) -> bool {
+  matches!(line.trim_start().chars().next(), Some('{' | '}' | '[' | ']' | '"'))
+}
+
+/// An event of `teamcity auth login --web --json`, one JSON line each: `authorize` with the page it opened in the
+/// browser, then `login` with the user
+#[derive(Deserialize)]
+struct TeamcityLoginEventDto {
+  event: String,
+  #[serde(default)]
+  url: Option<String>,
+  #[serde(default)]
+  user: Option<TeamcityUserDto>,
+}
+
+/// The page of the `{"event":"authorize","url":…}` line of `teamcity auth login --web --json`
+pub fn parse_authorize_event(line: &str) -> Option<String> {
+  let event: TeamcityLoginEventDto = serde_json::from_str(line.trim()).ok()?;
+  (event.event == "authorize").then_some(event.url).flatten().filter(|url| !url.is_empty())
+}
+
+/// The user of the `{"event":"login","user":{"username":…}}` line of the stdout of `teamcity auth login --web --json`
+pub fn parse_login_event(stdout: &str) -> Option<String> {
+  stdout
+    .lines()
+    .filter_map(|line| serde_json::from_str::<TeamcityLoginEventDto>(line.trim()).ok())
+    .filter(|event| event.event == "login")
+    .find_map(|event| event.user.and_then(|user| user.username))
+    .filter(|username| !username.is_empty())
+}
+
+/// The error envelope both CLIs write to stderr with `--json`, indented over several lines:
+/// `{"error":{"code","message","suggestion"}}`
+#[derive(Deserialize)]
+struct JsonErrorDto {
+  error: JsonErrorDetailDto,
+}
+
+#[derive(Deserialize)]
+struct JsonErrorDetailDto {
+  message: String,
+}
+
+/// The message of the error envelope in the stderr of a CLI run with `--json`, after any lines it wrote before it: the
+/// envelope starts at a line that starts with `{`
+pub fn parse_json_error(stderr: &str) -> Option<String> {
+  let mut starts = Vec::new();
+  let mut offset = 0;
+  for line in stderr.split_inclusive('\n') {
+    if line.starts_with('{') {
+      starts.push(offset);
+    }
+    offset += line.len();
+  }
+  starts
+    .into_iter()
+    .rev()
+    .find_map(|start| serde_json::from_str::<JsonErrorDto>(&stderr[start..]).ok())
+    .map(|envelope| envelope.error.message)
+    .filter(|message| !message.is_empty())
+}
+
+/// The status `youtrack update --yes --json` writes to stdout; `upgraded` once it upgraded
+#[derive(Deserialize)]
+struct YoutrackUpdateDto {
+  #[serde(default)]
+  upgraded: bool,
+}
+
+/// Whether `youtrack update --yes --json` says it upgraded; None for an answer that is not its status
+pub fn parse_youtrack_update(stdout: &str) -> Option<bool> {
+  serde_json::from_str::<YoutrackUpdateDto>(stdout.trim()).ok().map(|status| status.upgraded)
 }
 
 /// The `version:` of the front matter of a `SKILL.md`
