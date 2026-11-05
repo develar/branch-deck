@@ -13,6 +13,7 @@ targets:
   - ../../scripts/external-bin.mjs
   - ../../src-tauri/tauri.windows-bd.conf.json
   - ../../crates/bd-cli/src/lib.rs
+  - ../../crates/bd-cli/src/flag_names.rs
   - ../../crates/bd-core/src/context.rs
   - ../../crates/sync-core/src/branch_prefix.rs
   - ../../crates/app-settings/src/resolve.rs
@@ -196,6 +197,34 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-cli/src/operation_test.rs (`every_log_line_of_a_command_names_its_operation_whose_id_its_json_carries`, `the_operation_of_a_nested_command_names_both_words`)
   [@test] ../../crates/git-executor/src/thread_span_scan_test.rs (`every_closure_or_future_handed_to_another_thread_carries_the_span_of_its_caller`)
 
+### Flag names
+
+An agent carries a flag from one command to another: it ran `bd pick` with the `--unchecked` of `bd lease pick`, and
+clap answered `bd land --unchecked` with "a similar argument exists: '--check'", a flag of the opposite sense. So one
+sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
+
+- A preview that writes at most git objects (and the sync its command runs first) must be `--dry-run`, in every
+  command: `bd safe-push`, `bd land` and `bd request-review` too. `--patronus-dry-run` is a Patronus Dry Run, a robot
+  that runs; with `--dry-run` it is the preview of one.
+- A flag that accepts a refusal, given only once the user agreed, must be `--allow-<what refused>`, named after the
+  error code it lifts where one code is lifted: `--allow-unchecked` (`unchecked_tree`), `--allow-checks-not-passed`
+  (`checks_not_passed`), `--allow-dangling`, `--allow-missing`, `--allow-unknown-rules`, `--allow-unknown-review`,
+  `--allow-live-session`. An act keeps its own verb (`--force` of a push, `--cancel-running`, `--restart-running`);
+  `--without-approvals` (a mode of the start, with its profiles) and `--bypass-rules` (GitHub's word, three codes) stay.
+  One flag has one sense: `bd update --force` was two, now `--overwrite-edited` (with `--materialize`) and
+  `--allow-live-session` (with `--abort --worktree`).
+- A renamed flag must keep its old name (an alias, `--force` of `bd update` a hidden flag), and a run that uses it must
+  print one line on stderr, `bd: <old> of bd <command> is now <new>`, its stdout unchanged: `--check` of `safe-push`,
+  `land` and `request-review`, `--without-checks` of `land`, `--unchecked` of `lease pick` and `pick`, `--force` of
+  `update`.
+  [@test] ../../crates/bd-cli/src/flag_names_test.rs (`every_renamed_flag_stays_and_names_flags_that_exist`, `a_renamed_flag_says_its_name_now`, `an_old_name_runs_as_the_new_one`)
+  [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
+- A flag the command lacks must be `invalid_arguments` (exit 2) whose message names the commands that have it, by its
+  visible name (an alias found too: `--unchecked` names `--allow-unchecked` of `bd lease pick` and `bd pick`), then the
+  visible flags of this command that preview or accept a refusal, then its usage. clap's similar name stays only when
+  no other command has the flag, as a visible name: a hidden alias is never offered.
+  [@test] ../../crates/bd-cli/src/flag_names_test.rs (`a_flag_of_another_command_is_named_with_that_command`)
+
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 2` (the experimental
@@ -230,7 +259,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   config,
   index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
   with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run`,
-  `safe-push --check` and `request-review --check` sync first.
+  `safe-push --dry-run` and `request-review --dry-run` sync first.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-update/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
@@ -257,17 +286,17 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
 - The error object must carry `next_steps`, the commands that act on the refusal, ready to run (`bd -C <repository>`
   as the other printed commands), each `{command, needs_approval}`, and the same in each `refusals[]` of
-  `bd safe-push --check`; it is left out when there is none. A step that pushes, rewrites, updates or cancels or
-  restarts a robot (`push`, `safe-push` and `request-review` without `--check`, `update`, `restack`, `--force`,
+  `bd safe-push --dry-run`; it is left out when there is none. A step that pushes, rewrites, updates or cancels or
+  restarts a robot (`push`, `safe-push` and `request-review` without `--dry-run`, `update`, `restack`, `--force`,
   `--cancel-running`, `--restart-running`) must have `needs_approval: true`, and runs only once the user approved it;
-  one that only reads (`bd robot`, `bd sync`, `safe-push --check`) has it false. A suppression (`--allow-*`,
+  one that only reads (`bd robot`, `bd sync`, `safe-push --dry-run`) has it false. A suppression (`--allow-*`,
   `--without-approvals`, `--min-free`, a change of the config) must never be a step: it stays in `message` with its
   condition. The steps: `lease_rejected` the leased push that replaces the remote branch, `push_refused` of a branch
   behind its remote the push that replaces it and of a branch not synced `bd sync`, `robot_running` `bd robot` of the
   robot and the `--cancel-running` or `--restart-running` of the same command, `approvals_missing` without a pull
   request the `--create-pull-request` of the start, `dangling_reference` the `fix.command` a trial build proved,
   `missing_declaration` the `bd restack` it names, `push_dismisses_approvals` the push and then the review request,
-  `target_conflict` and `landed` `bd update`, `stack_conflict` the `--check` of the branch whose commit conflicts,
+  `target_conflict` and `landed` `bd update`, `stack_conflict` the `--dry-run` of the branch whose commit conflicts,
   `stack_not_built` `bd sync`. It is named `next_steps`, never `next`, whose commands (`bd workspace`, `bd update`,
   `bd pick`) run at once.
   [@test] ../../crates/bd-cli/src/error_test.rs (`a_next_step_that_writes_needs_the_approval_and_none_starts_anyway`)
@@ -424,7 +453,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `landed`, `sync_error`, `merge_conflict`, `analyzing_conflict`, `parked`; omitted when only the push state is to
   say). `bd status` reads the grouping without a sync, so it names no failure of one: `bd sync` says it. `bd status` lists no
   pull request, asks no readiness and no problem of a failed robot: a step that needs them waits for them (row 0,
-  `pull_requests`, `readiness`, `robot_problems`); `bd safe-push --check` reads them. Omitted off Space (the row has
+  `pull_requests`, `readiness`, `robot_problems`); `bd safe-push --dry-run` reads them. Omitted off Space (the row has
   no slot), with `--brief` and `--unassigned`; no git process more.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
@@ -629,7 +658,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   whose `amend!` waits must be `invalid_plan`; a plan that rewords the fixup with its target passes.
   [@test] ../../crates/bd-rewrite/src/reword_test.rs (`a_new_prefix_moves_the_commit_to_another_branch`, `a_reword_that_strands_a_fixup_is_refused`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_new_prefix_moves_the_commit_with_its_fixups`, `a_reword_that_strands_a_fixup_is_refused`, `a_plan_that_rewords_a_fixup_with_its_target_passes`, `a_reword_that_breaks_a_stack_is_refused`)
-- A reworded branch that was pushed must need a push: `bd safe-push --check` with `push_needed: true` and
+- A reworded branch that was pushed must need a push: `bd safe-push --dry-run` with `push_needed: true` and
   `remote.reworded`, `bd push --dry-run` a forced update.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_reworded_by_bd_reword_needs_a_push`)
 - A session must be able to reword its own landed commit from its lease with `-C <shared checkout>`; the lease needs no
@@ -1218,7 +1247,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   then the robot started on `refs/heads/<prefix>/virtual/<branch>`, never repeated. It must hold the repository lock
   only for the witness of its refs and the freeze of its push: the sync (as `bd sync`), the reads of the remote, the
   trial, the check against the target, the retargets, the cancel, the network push and the start run without it, so
-  they keep no other `bd` writer waiting; `--check` takes no lock. `--check` must print the same object and push or start nothing, with the
+  they keep no other `bd` writer waiting; `--dry-run` takes no lock. `--dry-run` must print the same object and push or start nothing, with the
   `refusals` a start would fail with.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_safe_push_locks_only_the_witness_and_the_freeze`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`)
@@ -1228,7 +1257,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   after the lock, must skip the start as `plan_changed`, naming what was pushed before it, with `bd safe-push <branch>`
   as the next step; the push sends the commits it froze.
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`, `a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_what_was_done`)
-- `--check` must print `next_step`, the step the app's row shows of the subject (`domain_policy::next_step`, as
+- `--dry-run` must print `next_step`, the step the app's row shows of the subject (`domain_policy::next_step`, as
   `bd status` prints it) over what the check read: the robots Patronus listed, the problems of the failed robot of the
   subject (whether it failed for the approvals, as the session reads them), the pull requests, the readiness when the
   start waits for it, the landing gate of the start; a step that needs a fact the check didn't read (the readiness of a
@@ -1268,7 +1297,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
 - `remotes` must name each existing remote branch the start pushes with its remote state, as `bd sync` has it, so
-  `--check` says beforehand what the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops. A branch
+  `--dry-run` says beforehand what the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops. A branch
   whose push would drop commits (`behind`) must refuse the check and the start with `push_refused` and the `bd push`
   that drops them after the user approves; the start's error carries the branch in `error.branches`, nothing pushed
   or started. `--force`, once the user approved, must start with the drop pushed away (D12): the push replaces the
@@ -1310,7 +1339,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   token, no access, an error) must never read as "keeps the approvals": `rules_unknown` (exit 4) refuses the start
   unless `--allow-unknown-rules`, which starts with `rules.message` saying what is not known. `rules` carries
   `dismiss_stale_reviews_on_push` (`true`, `false`, `null` when GitHub didn't answer) and `message`, absent when the
-  rules were not read; `--check` lists the refusal in `refusals`.
+  rules were not read; `--dry-run` lists the refusal in `refusals`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_push_that_dismisses_approvals_patronus_does_not_count_starts_and_says_so`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`, `the_rules_are_read_only_for_a_push_into_an_approved_pull_request`)
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`)
@@ -1338,7 +1367,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_pull_request_that_already_exists_is_found_instead`, `a_pull_request_without_a_github_token_is_not_logged_in`, `create_pull_request_retargets_the_pull_request_of_a_virtual_branch_and_refuses_one_into_another_base`)
 - A branch a merged Safe Push landed whole must refuse the start with `landed` (exit 4, first of the `refusals` of
-  `--check`): "Nothing was pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is
+  `--dry-run`): "Nothing was pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is
   left to land"; so must `--whole-stack` once every branch of the stack landed ("every branch of the whole auth stack
   landed in master with the Safe Pushes of login and session"). `lands` must leave out the branches merged Safe
   Pushes landed whole, the branch itself always named: the robot lands the rest. A branch landed otherwise is refused
@@ -1361,7 +1390,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
   with `dangling_reference` (exit 4), nothing pushed; the trial build that finds it builds only what lands (every
   branch for a whole stack that forks), naming the use, `fixed_by` and the fix (of two references both,
-  from three on of the first and "(2 more: bd check)"); `--check` must list it in `refusals`, `--allow-dangling` must
+  from three on of the first and "(2 more: bd check)"); `--dry-run` must list it in `refusals`, `--allow-dangling` must
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
@@ -1372,7 +1401,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   name a branch of the landing stack adds is none, a sibling's of a whole stack that forks too. The message must name
   the use, the commit that adds the name with its branch, and the fix: `bd restack <root> <branch>`, which lands that
   branch too, or, with stacked branches off, a commit unassigned or a restack that would close a cycle, the move of the
-  commit; "(N more: bd check)" for the others. `--check` must list it in `refusals`, and `--allow-missing` must start
+  commit; "(N more: bd check)" for the others. `--dry-run` must list it in `refusals`, and `--allow-missing` must start
   anyway.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`, `a_safe_push_check_of_the_whole_stack`)
@@ -1384,7 +1413,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `target_conflict` (exit 4), nothing pushed or started. The error names the commit by the id of the checked out branch
   (`error.commits`), the files (`error.paths`), and the commits of the target after the base of the branch that change
   these files (hash, author, subject). The message tells the fix: `bd update` resolves it locally, then start again.
-  `--check` must list it in `refusals`, and `target_check` must say `result` (`clean`, `conflict`, `not_run`) and the
+  `--dry-run` must list it in `refusals`, and `target_check` must say `result` (`clean`, `conflict`, `not_run`) and the
   `target_tip`. A failed fetch must not stop the check: it replays onto the last fetched tip, `fetched` is false, and
   `message` says why. A check that can't run holds nothing back. `--create-pull-request` starts no robot and checks
   nothing. HEAD's branch read for the fetch must not outlive it: a HEAD the user detached while the fetch ran defers
@@ -1399,11 +1428,11 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - A Safe Push of a stacked branch must land it with every branch it is built on, in one robot, as the app's start does
   ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
   first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the
-  robot takes, root first, ending with the branch (only the branch for a root), in the start, in `--check` and in a dry
+  robot takes, root first, ending with the branch (only the branch for a root), in the start, in `--dry-run` and in a dry
   run, which checks the same commits. `--land-stack`, which an older bd needed, must be accepted, hidden, and change
   nothing.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `check_names_the_profiles_and_the_review_and_starts_nothing`)
-- `--check` of a stacked branch must add `alone`, the trial build of the branch as a root on the base the sync built
+- `--dry-run` of a stacked branch must add `alone`, the trial build of the branch as a root on the base the sync built
   on: `builds` (with `uses`, the names of its stack it uses, and `symbols`, whether names were read) or `needs` (the
   conflicting commit and its files, the commits of its ancestors it needs with their branch, and `movable`), with a
   `message` naming `bd unstack <branch>` or the move; `unknown` when the trial fails. It must share the trial session
@@ -1414,7 +1443,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   ([Whole Stack](../branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack)): the robot starts from the stack
   branch of its top-level root, `refs/heads/<prefix>/stack/<root>`, the only branch pushed, leased on the remote head
   of its remote status in the sync's report, with nothing read again; `lands` must name every branch of the stack, and
-  `whole_stack` the `root`, the `source` and the `state` of the stack branch, in the start, in `--check` and in a dry
+  `whole_stack` the `root`, the `source` and the `state` of the stack branch, in the start, in `--dry-run` and in a dry
   run. A straight chain, which has no stack branch, must start from its last branch that is not parked (`source` its
   virtual branch). The whole stack is the app's, by declared parent (D8): a blocked branch whose declared parent has no
   commits heads one of its own. A remote stack branch that moved since the sync without commits the stack branch lacks
@@ -1428,7 +1457,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - A stack branch that is not `built` must refuse the start, nothing pushed or started: `stack_conflict` (exit 4) with the
   commit (`error.commits`) and the files (`error.paths`) when a commit of it conflicts with the commits of the stack
   before it, `stack_not_built` (exit 4) naming the branch of the stack that is blocked or failed, or why it is stale;
-  both say to land it in pieces. `--check` lists the refusal and asks Patronus no review of it. A remote stack branch
+  both say to land it in pieces. `--dry-run` lists the refusal and asks Patronus no review of it. A remote stack branch
   with commits the stack lacks must be `push_refused`, naming `bd push <root> --with-children --force`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
 - The guards must go both ways: a running Safe Push of a branch of the stack lands a part of it and refuses the start
@@ -1455,7 +1484,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   [@test] ../../crates/operations/src/robot_start_test.rs (`a_comment_the_bot_accepts_starts_the_newest_robot_of_its_pull_request_nobody_knew`, `a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answers_is_pending_after_the_minute`)
 - An open pull request of the branch, or of a branch its push takes along, whose base is a virtual branch of the user
   must be retargeted to the target before anything is pushed or canceled, and the robot then starts from the
-  branch's: `retargeted` lists them as `bd push` does, `--check` the ones a start would retarget. A retarget of the
+  branch's: `retargeted` lists them as `bd push` does, `--dry-run` the ones a start would retarget. A retarget of the
   branch's own pull request that GitHub refuses fails the start with nothing pushed or started; one of a branch taken
   along is a `retarget_warnings` line (where a pull request goes is the rule of the app's, `domain_policy::pull_request::
   base_of`). One into another base (a release branch) stays as it is, never retargeted silently: its approvals count
@@ -1479,18 +1508,18 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   open pull request of the subject on GitHub, or enables its auto-merge ([Landing Routes](../branch/landing-routes.spec.md#merge)),
   where no robot of Patronus lands the repository (on Space the route is the Safe Push) and the pull request lands into
   the target (a repository off GitHub or a mirror `origin` doesn't push to: `landing_route_unsupported`); Patronus named
-  off Space is `not_on_space`. `--whole-stack` lands the whole stack, `--check` syncs and pushes nothing: `lands`,
+  off Space is `not_on_space`. `--whole-stack` lands the whole stack, `--dry-run` syncs and pushes nothing: `lands`,
   `confirmations`, `next_step` and the `refusals` a push or a merge would meet.
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_pull_request_route_off_github_merges_nothing_and_patronus_off_space_starts_nothing`)
 - A push must run the plan of the app's start (`operations::land::prepare_one_shot` over the one-shot session of the
   command: the pull requests with the permission of the token, the rules of the target, the landing gate of the
   subject) through the engine (`operations::land_execute::execute`): no check against the newest target, the witness
   and the freeze under the lock (its sync before it, as `bd sync`), the push by the push URL after it. What CI did not
-  check and the changes requested refuse it (`checks_not_passed`) unless `--without-checks`; what the gate of the route
+  check and the changes requested refuse it (`checks_not_passed`) unless `--allow-checks-not-passed`; what the gate of the route
   asks refuses it with the code of its reason (`baseline_requires_pull_request`, `baseline_refused`, `push_refused`)
   unless `--bypass-rules`; both only once the user agreed. A target that moved is `baseline_moved` (exit 3, master
   fetched, next step `bd update`), and so is a fetched master with commits the branch is not built on, refused before
-  anything is sent (`--check` names the step `update_project`); a refusal of the server `baseline_refused` in its
+  anything is sent (`--dry-run` names the step `update_project`); a refusal of the server `baseline_refused` in its
   words; below write access `no_write_access`.
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`, `a_land_by_a_push_locks_only_the_witness`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`, `a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`)
@@ -1502,7 +1531,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   refuses it with the code of its reason: `no_pull_request` (create it first), `merge_blocked` (approvals, required
   checks, changes requested, a draft), `not_mergeable` (a conflict, a head behind its base with `bd update` next, a
   branch to push first with `bd push` next, a refusal of GitHub in its words); checks its base doesn't require that
-  fail are `checks_not_passed` until `--without-checks`; a head GitHub moved meanwhile is `plan_changed`.
+  fail are `checks_not_passed` until `--allow-checks-not-passed`; a head GitHub moved meanwhile is `plan_changed`.
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
 - `bd land` must never update: a push that landed, and a merge, print `landed: true` and `next: "bd update"`, which brings the
   branch onto the target and drops the commits that landed. It lists the open pull requests its push closes as
@@ -1525,7 +1554,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `operations::pull_request`), planned over the one-shot session of the command (`operations::needs`) and run by the
   same engine. It must print `reviewers` (whom it asks), `requested`, `refused` with GitHub's reason, `waiting_for` (the
   reviewers the pull request asks after the request), the `readiness` before it, each person with the full name
-  Patronus knows, and `pushed`, the branches it pushed first. `--check` must print the same object and push and ask
+  Patronus knows, and `pushed`, the branches it pushed first. `--dry-run` must print the same object and push and ask
   nothing. It must hold the repository lock only for the witness and the freeze of the push of `--push` (its sync as
   `bd sync`, without it), and write nothing but the push of `--push` and the request on GitHub.
   [@test] ../../crates/bd-remote/src/request_review_test.rs (`asks_the_suggested_code_owner_of_the_missing_group_once`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`, `a_request_locks_only_the_witness_and_the_freeze_of_its_push`)
@@ -1623,7 +1652,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   other, and updating onto the baseline with its conflicts, landing a worktree's commits, fixups, a change in the wrong
   commit, a review request, why a robot failed), its full path, `bd workspace` before the first edit with what each of
   its rules asks, `bd help agent` as the workflow of grouping, pushing and Safe Push, `bd help update` for an update,
-  and `bd safe-push <branch> --check` before a Safe Push, which lands a stacked branch with its parents, and
+  and `bd safe-push <branch> --dry-run` before a Safe Push, which lands a stacked branch with its parents, and
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
   triggers, `bd help worktrees` when several sessions or worktrees work on one branch, `bd <command> --help` for the
   outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
@@ -1677,7 +1706,7 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
   `dropped_commits`), `robot_running`, `approvals_missing` (`--without-approvals` only when the user says so),
   `dangling_reference` and `missing_declaration` (only a false alarm), `rules_unknown`, `low_disk_space` (never
   `--min-free 0`). Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each
-  branch; apply with `bd group --sync`; push; Safe Push with `--check` first, `lands` and `--whole-stack`; review;
+  branch; apply with `bd group --sync`; push; Safe Push with `--dry-run` first, `lands` and `--whole-stack`; review;
   robot; statistics), each step sending the agent to the `--help` of its command, then the other tasks (`bd update`,
   `bd pick`, `bd fold`, `bd squash`, `bd reword` with its `(prefix)` kept and never an empty `amend!` or plumbing, `bd move-hunk`,
   `bd install`). Together with `bd help update`, `bd help worktrees` and the `--help` of every command it must name

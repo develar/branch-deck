@@ -9,8 +9,9 @@ elsewhere a straight chain is a stack of GitHub ([Stacks of GitHub](docs/design/
 feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md)).
 
 A desktop app (React 19 + Vite SPA in a Tauri v2 shell), a Rust workspace under `crates/`, and `bd`, the agent CLI
-([Agent CLI](docs/contributing/agent-cli.md)). Use `pnpm` only: the version is `packageManager` in `package.json`,
-Node.js is `.node-version`; CI reads both through `voidzero-dev/setup-vp`.
+([Agent CLI](docs/contributing/agent-cli.md), [its flags](docs/contributing/agent-cli.md#flag-names)). Use `pnpm`
+only: the version is `packageManager` in `package.json`, Node.js is `.node-version`; CI reads both through
+`voidzero-dev/setup-vp`.
 
 **A sync** ([Virtual Branches](docs/design/virtual-branches.md)): `CommitGrouper` groups the commits ahead of the
 baseline by their `(prefix)`, else by the issue group of the subject's issue key, else by the issue key. Each group
@@ -270,13 +271,13 @@ Frontend, in full: [Frontend Rules](docs/contributing/frontend.md).
 Rust, in full: [Rust Rules](docs/contributing/rust-rules.md).
 - `tracing`; every command of the app has `#[instrument]` and a fallible one runs as an operation
   ([Operation spans](docs/design/async-patterns.md#operation-spans)); a closure for another thread carries the span.
-- **Clippy** pedantic with `-D warnings`, Windows included; `#[expect(lint, reason = "…")]`, never `#[allow]`.
+- **Clippy** pedantic with `-D warnings`, Windows included.
 - **A platform branch in a test** asserts on every platform; a `#[cfg(unix)]` test's helper is `#[cfg(unix)]` too.
 - **Single flights**: a read others wait for is a `sync_utils::single_flight`, never an async mutex guard across an
   await ([Single flights](docs/design/async-patterns.md#single-flights-no-async-mutex)).
 - **File system removals and renames** through `sync_utils::fs_retry`, **processes** through
   `sync_utils::child_process::windowless_command`, never `std::fs` or `Command::new`.
-- **Imports** by the full module path, never `pub use` ([Import Guidelines](docs/contributing/imports.md)).
+- **Imports** by the full module path ([Import Guidelines](docs/contributing/imports.md)).
 
 ## Where Things Are
 

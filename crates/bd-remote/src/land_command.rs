@@ -7,7 +7,7 @@
 //!   the rules of the target, the landing gate of the subject), then its run through the engine
 //!   (`operations::land_execute::execute`: the witness and the freeze under the lock, the push of the copy into the
 //!   target by the push URL after it). What CI did not check and what the gate of the route asks are accepted only by
-//!   flags (`--without-checks`, `--bypass-rules`, `domain_policy::land::unaccepted`), once the user said so. It never
+//!   flags (`--allow-checks-not-passed`, `--bypass-rules`, `domain_policy::land::unaccepted`), once the user said so. It never
 //!   updates: the output names `bd update` as the next step.
 //! - The merge of a pull request on GitHub (`land::merges_on_github`): the same frame as a push, the plan of the app's
 //!   start merging the open pull request of the subject on GitHub, or enabling its auto-merge after the push of its
@@ -75,13 +75,13 @@ pub struct LandArgs {
   #[arg(long)]
   pub whole_stack: bool,
   /// Sync, then print what lands, the next step and what stands in the way; nothing is pushed or started
-  #[arg(long)]
-  pub check: bool,
+  #[arg(long, alias = "check")]
+  pub dry_run: bool,
   /// Push into the target although CI did not pass on the commit it lands (`checks_not_passed`: no open pull request,
   /// one that shows another commit, failing or running checks, GitHub listing none) or changes are requested on its
   /// pull request: only once the user said so
-  #[arg(long)]
-  pub without_checks: bool,
+  #[arg(long, alias = "without-checks")]
+  pub allow_checks_not_passed: bool,
   /// Push into the target past what its gate asks (a rule of the target the user may bypass, its required status
   /// checks, a refusal of the server before): only once the user said so
   #[arg(long)]
@@ -116,17 +116,17 @@ pub struct LandOutput {
   /// stack branch), on the baseline
   #[serde(skip_serializing_if = "Option::is_none")]
   pub commit: Option<String>,
-  /// What the user accepts before the push, in words; each names the flag that accepts it, if any (`--without-checks`,
+  /// What the user accepts before the push, in words; each names the flag that accepts it, if any (`--allow-checks-not-passed`,
   /// `--bypass-rules`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub confirmations: Vec<String>,
-  /// With `--check`: the next step of the subject as the app's row shows it
+  /// With `--dry-run`: the next step of the subject as the app's row shows it
   #[serde(skip_serializing_if = "Option::is_none")]
   pub next_step: Option<NextStepSummary>,
-  /// With `--check`: what refuses the push, each with the error code it would fail with
+  /// With `--dry-run`: what refuses the push, each with the error code it would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
-  /// The push landed the commit into the target, or GitHub merged the pull request; `false` with `--check`
+  /// The push landed the commit into the target, or GitHub merged the pull request; `false` with `--dry-run`
   pub landed: bool,
   /// The route `pull-request`: the pull request GitHub merges
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,7 +156,7 @@ pub struct LandOutput {
 }
 
 /// What `bd land` decided, for the scenario table (`crates/bd-remote/src/scenario_test.rs`): the plan of the push
-/// (`operations::land`), of the route Patronus the Safe Push's, and with `--check` the next step its words tell
+/// (`operations::land`), of the route Patronus the Safe Push's, and with `--dry-run` the next step its words tell
 #[derive(Debug, Default)]
 pub struct Decided {
   pub plan: Option<Plan>,
@@ -170,7 +170,7 @@ const UNAPPLIED_LAND: &str = "nothing was pushed: reapply it to land it";
 ///
 /// # Errors
 /// What refuses the landing, with its code: the route (`landing_route_unsupported`), the table, the gate of the route,
-/// what CI did not check without `--without-checks`, a push the server refused (`baseline_refused`) or a target that
+/// what CI did not check without `--allow-checks-not-passed`, a push the server refused (`baseline_refused`) or a target that
 /// moved (`baseline_moved`)
 pub fn land(context: &RepoContext, args: &LandArgs, environment: &Environment) -> Result<LandOutput, CliError> {
   // the config of the command, which its sync reads again from the same snapshot
@@ -239,7 +239,7 @@ fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environme
   let safe_push_args = SafePushArgs {
     branch: args.branch.clone(),
     whole_stack: args.whole_stack,
-    check: args.check,
+    dry_run: args.dry_run,
     allow_dangling: args.allow_dangling,
     allow_missing: args.allow_missing,
     ..SafePushArgs::default()
@@ -366,7 +366,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
     allow: LandingAllowances {
       allow_dangling: args.allow_dangling,
       allow_missing: args.allow_missing,
-      allow_without_checks: args.without_checks,
+      allow_without_checks: args.allow_checks_not_passed,
       bypass_rules: args.bypass_rules,
       ..LandingAllowances::default()
     },
@@ -404,7 +404,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
     },
   };
   let refusals = refusals_of(context, plan, land.allow, &what, &robots, direct);
-  if args.check {
+  if args.dry_run {
     let read = CheckRead {
       table: &table,
       session: &facts.session,
@@ -573,7 +573,7 @@ fn refusals_of(context: &RepoContext, plan: &Plan, allow: LandingAllowances, wha
   let asked = unaccepted(&plan.confirmations, &allow).into_iter().map(|confirmation| {
     let (code, flag) = match confirmation {
       Confirmation::RouteRule { reason } => (refusal_code(reason), "--bypass-rules"),
-      _ => (ErrorCode::ChecksNotPassed, "--without-checks"),
+      _ => (ErrorCode::ChecksNotPassed, "--allow-checks-not-passed"),
     };
     Refusal::new(
       code,
@@ -595,12 +595,12 @@ fn confirmation_words(confirmation: &Confirmation) -> String {
         Unchecked::Failing { number } => format!("the checks of pull request #{number} fail"),
         Unchecked::Running { number } => format!("the checks of pull request #{number} still run"),
       };
-      format!("CI did not pass on the commit it pushes: {why} (--without-checks)")
+      format!("CI did not pass on the commit it pushes: {why} (--allow-checks-not-passed)")
     }
-    Confirmation::ChangesRequested { number, by } if by.is_empty() => format!("changes are requested on pull request #{number} (--without-checks)"),
-    Confirmation::ChangesRequested { number, by } => format!("{} requested changes on pull request #{number} (--without-checks)", by.join(", ")),
+    Confirmation::ChangesRequested { number, by } if by.is_empty() => format!("changes are requested on pull request #{number} (--allow-checks-not-passed)"),
+    Confirmation::ChangesRequested { number, by } => format!("{} requested changes on pull request #{number} (--allow-checks-not-passed)", by.join(", ")),
     Confirmation::RouteRule { reason } => format!("{} (--bypass-rules)", start_refusal_text(reason, "", &[])),
-    Confirmation::ChecksNotRequired { number } => format!("checks of pull request #{number} that its base doesn't require fail or still run (--without-checks)"),
+    Confirmation::ChecksNotRequired { number } => format!("checks of pull request #{number} that its base doesn't require fail or still run (--allow-checks-not-passed)"),
     Confirmation::SquashOnly { number } => {
       format!("the repository allows only squash merges: the commit GitHub writes of #{number} pairs with no original, so `bd update` may stop on a conflict")
     }

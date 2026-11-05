@@ -698,7 +698,7 @@ pub struct AbortedSession {
   pub state: SessionState,
 }
 
-/// `bd update --abort [--worktree <id>] [--force]`: under the repository lock, delete the session ref (compare-and-swap);
+/// `bd update --abort [--worktree <id>] [--allow-live-session]`: under the repository lock, delete the session ref (compare-and-swap);
 /// after its release, the copies bd wrote, which are nobody's then. Another worktree's session is named by its id; while that worktree exists (the session is
 /// not orphaned), only `force` removes it
 #[instrument(skip(git_executor))]
@@ -717,7 +717,7 @@ pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktre
   let state = session.state().clone();
   if state.git_dir != own.git_dir && Path::new(&state.git_dir).is_dir() && !force {
     return Err(invalid(format!(
-      "The resolve session of the worktree {id} is live: its git dir {} exists. Abort it there; --force aborts it from here, once the user approved",
+      "The resolve session of the worktree {id} is live: its git dir {} exists. Abort it there; --allow-live-session aborts it from here, once the user approved",
       state.git_dir
     )));
   }

@@ -1584,7 +1584,7 @@ fn a_pick_into_a_branch_the_target_has() {
 /// sync, one `replay` of the branch onto the target tip that the sync read
 const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1), ("symbolic-ref", 1)];
 
-/// What `bd safe-push auth --check` runs besides the target conflict check (`a_safe_push_check`)
+/// What `bd safe-push auth --dry-run` runs besides the target conflict check (`a_safe_push_check`)
 const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
   ("cat-file", 3),
   ("config", 1),
@@ -1624,7 +1624,7 @@ fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
   assert_processes(context, &all);
 }
 
-/// `bd safe-push auth --check` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
+/// `bd safe-push auth --dry-run` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
 /// stack and the tips come from the sync's report, the Space and the GitHub repository from the push URL of `origin` in
 /// the remotes of the command (`remote -v`, which the sync takes too) and the Space settings (`cat-file`); the dangling
 /// references take the grouping from the report too and read the commits with their new mapping notes (`log`) and the
@@ -1646,7 +1646,7 @@ fn a_safe_push_check() {
   let context = RepoContext::resolve(&environment, &options).unwrap();
   let args = SafePushArgs {
     branch: "auth".to_string(),
-    check: true,
+    dry_run: true,
     ..SafePushArgs::default()
   };
   let output = safe_push(&context, &args, &environment).unwrap();
@@ -1688,29 +1688,29 @@ fn land_by_push(flags: impl FnOnce(&mut LandArgs)) -> (RepoContext, LandOutput) 
   (context, output)
 }
 
-/// `bd land auth --check` of a repository that lands by a push into a remote off GitHub and off Space: the sync, then
+/// `bd land auth --dry-run` of a repository that lands by a push into a remote off GitHub and off Space: the sync, then
 /// what the push is decided on, nothing pushed
 #[test]
 fn a_land_check_by_a_push() {
-  let (context, output) = land_by_push(|args| args.check = true);
+  let (context, output) = land_by_push(|args| args.dry_run = true);
   assert!(!output.landed, "{output:?}");
   assert_processes(&context, LAND_CHECK);
 }
 
-/// `bd land auth --without-checks`: what `a_land_check_by_a_push` decides on, then the run of the engine: the witness
+/// `bd land auth --allow-checks-not-passed`: what `a_land_check_by_a_push` decides on, then the run of the engine: the witness
 /// before the lock and under it (`for-each-ref` each, the checked out branch `symbolic-ref`), the push of the copy into
 /// master by the push URL of `origin` (the upstream of the baseline and its URL, read again after the lock, where the
 /// engine refuses a baseline that tracks another branch now: `for-each-ref`, `remote` twice; `push`, with the size
 /// check of what it adds: `log`, `cat-file`)
 #[test]
 fn a_land_by_a_push() {
-  let (context, output) = land_by_push(|args| args.without_checks = true);
+  let (context, output) = land_by_push(|args| args.allow_checks_not_passed = true);
   assert!(output.landed, "{output:?}");
   let run = [("cat-file", 1), ("for-each-ref", 3), ("log", 1), ("push", 1), ("remote", 2), ("symbolic-ref", 1)];
   assert_processes(&context, &with_more(LAND_CHECK, &run));
 }
 
-/// What `bd land auth --check` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
+/// What `bd land auth --dry-run` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
 /// their push URLs (`remote -v`), from which the push URL of `origin` for Space comes too, and the trial of the landing
 /// gate in the session of the sync's report (`log`, `cat-file`); no fetch, no check against the newest target: a push
 /// is its own
@@ -1731,7 +1731,7 @@ const LAND_CHECK: &[(&str, u32)] = &[
   ("var", 1),
 ];
 
-/// `bd safe-push form --check` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
+/// `bd safe-push form --dry-run` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
 /// alone (`alone`) in the same trial session as the dangling references, so no second `log` or `for-each-ref`: its
 /// build (`merge-tree`, `fast-import`) and the changes of the commits for the names they use (`log`). The sync of the
 /// stack builds form on auth without a merge and looks for the notes of the stack (`show-ref`). The `stack_not_landed`
@@ -1744,7 +1744,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
   let context = space_context(&environment);
   let args = SafePushArgs {
     branch: "form".to_string(),
-    check: true,
+    dry_run: true,
     ..SafePushArgs::default()
   };
   let output = safe_push(&context, &args, &environment).unwrap();
@@ -1754,7 +1754,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
   assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("fast-import", 1), ("show-ref", 1)]));
 }
 
-/// `bd safe-push auth --whole-stack --check` of a stack that forks into form and side: what `a_safe_push_check` runs,
+/// `bd safe-push auth --whole-stack --dry-run` of a stack that forks into form and side: what `a_safe_push_check` runs,
 /// with the sync of three stacked branches and their stack branch (one more `fast-import` and `update-ref` each for
 /// the second child and the stack branch, a remote status walk each, `rev-list`, and the notes of the stack,
 /// `show-ref`), and the review of the stack branch's commits; the stack, its stack branch and its remote status come
@@ -1768,7 +1768,7 @@ fn a_safe_push_check_of_the_whole_stack() {
   let context = space_context(&environment);
   let args = SafePushArgs {
     branch: "auth".to_string(),
-    check: true,
+    dry_run: true,
     whole_stack: true,
     ..SafePushArgs::default()
   };
@@ -1888,7 +1888,7 @@ fn a_robot_stats() {
   assert_processes(&context, &[("for-each-ref", 1), ("remote", 1), ("rev-parse", 1), ("symbolic-ref", 1)]);
 }
 
-/// `bd request-review auth --push --check`: the sync, which says the remote lacks auth, the plan of its push, and the
+/// `bd request-review auth --push --dry-run`: the sync, which says the remote lacks auth, the plan of its push, and the
 /// review of Patronus (`log`, `diff-tree`, the `OWNERSHIP` files)
 #[test]
 fn a_request_review_check() {
@@ -1898,7 +1898,7 @@ fn a_request_review_check() {
     branch: "auth".to_string(),
     reviewers: Vec::new(),
     push: true,
-    check: true,
+    dry_run: true,
   };
   let output = request_review(&context, &args, &environment).unwrap();
   assert_eq!(output.reviewers.len(), 1, "{output:?}");

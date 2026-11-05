@@ -27,7 +27,7 @@ pub const PATCH_FILE: &str = "commit.patch";
 pub enum Materialize {
   /// Only the missing ones (`bd update --status --materialize`, and a rerun of `bd update`)
   Missing,
-  /// All of them, replacing what is there: a new round, or `--force`
+  /// All of them, replacing what is there: a new round, or `--overwrite-edited`
   All,
 }
 

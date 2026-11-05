@@ -81,7 +81,8 @@ pub struct UpdateArgs {
   /// Remove the resolve session and its copies; nothing else changes
   #[arg(long, conflicts_with_all = ["status", "no_fetch", "dry_run", "dir"])]
   pub abort: bool,
-  /// With --abort: the session of another worktree, e.g. an orphaned one that --status lists; a live one needs --force
+  /// With --abort: the session of another worktree, e.g. an orphaned one that --status lists; a live one needs
+  /// --allow-live-session
   #[arg(long, value_name = "ID", requires = "abort")]
   pub worktree: Option<String>,
   /// Print the resolve session of this worktree and every session of the repository; changes nothing
@@ -90,9 +91,16 @@ pub struct UpdateArgs {
   /// With --status: write the copies of the open round that are missing
   #[arg(long, requires = "status")]
   pub materialize: bool,
-  /// With --materialize: rewrite every copy, also the edited ones. With --abort --worktree: remove the session of a
-  /// worktree that still exists
-  #[arg(long)]
+  /// With --materialize: rewrite every copy, also the edited ones
+  #[arg(long, requires = "materialize")]
+  pub overwrite_edited: bool,
+  /// With --abort --worktree: remove the session of a worktree that still exists (a live one); only once the user
+  /// approved
+  #[arg(long, requires = "worktree")]
+  pub allow_live_session: bool,
+  /// The name before of --overwrite-edited (with --materialize) and of --allow-live-session (with --abort): one word
+  /// for two acts, so each has its own flag now
+  #[arg(long, hide = true)]
   pub force: bool,
   /// Write the copies of a new session into this directory (absolute, outside every worktree, empty or bd's) instead of
   /// the worktree's git dir, e.g. for a sandbox that keeps `.git` read only
@@ -564,7 +572,10 @@ pub fn update(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandO
 /// `update`, recorded unless it reads only
 fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutput, CliError> {
   if args.force && !args.materialize && !args.abort {
-    return Err(CliError::new(ErrorCode::InvalidArguments, "--force goes with --status --materialize or with --abort"));
+    return Err(CliError::new(
+      ErrorCode::InvalidArguments,
+      "--force is no flag of bd update: --overwrite-edited goes with --status --materialize, --allow-live-session with --abort --worktree",
+    ));
   }
   // the command an agent runs next: this binary in this repository, as the app's prompt names it
   let bd = context.bd.clone();
@@ -572,7 +583,14 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
     return status(context, args, &bd).map(|output| UpdateCommandOutput::Status(Box::new(output)));
   }
   if args.abort {
-    let aborted = abort_resolve(&context.git, &context.repository, args.worktree.as_deref(), args.force, context.lock_timeout).map_err(core_error)?;
+    let aborted = abort_resolve(
+      &context.git,
+      &context.repository,
+      args.worktree.as_deref(),
+      args.allow_live_session || args.force,
+      context.lock_timeout,
+    )
+    .map_err(core_error)?;
     return Ok(UpdateCommandOutput::Abort(UpdateAbortOutput {
       schema: SchemaVersion,
       repository: context.repository.clone(),
@@ -660,7 +678,9 @@ fn parse_take(text: &str) -> Result<(Side, String), CliError> {
 }
 
 fn status(context: &RepoContext, args: &UpdateArgs, bd: &str) -> Result<UpdateStatusOutput, CliError> {
-  let materialize = args.materialize.then_some(if args.force { Materialize::All } else { Materialize::Missing });
+  let materialize = args
+    .materialize
+    .then_some(if args.overwrite_edited || args.force { Materialize::All } else { Materialize::Missing });
   let (own, sessions) = session_status(&context.git, &context.repository, materialize)?;
   let pending = pending_update(&context.git, &context.repository)?;
   let short = context.short_ids(own.iter().flat_map(view_ids).chain(pending.as_deref()));

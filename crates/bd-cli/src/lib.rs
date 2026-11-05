@@ -2,6 +2,7 @@
 //! JSON on stdout, every object with `"schema": 2`; logs on stderr; the exit code of an error is fixed by its code.
 
 pub mod agent_help;
+pub mod flag_names;
 pub mod install;
 pub mod schema;
 
@@ -9,6 +10,7 @@ use crate::agent_help::{
   AGENT_HELP, CHECK_HELP, DROP_HELP, FOLD_HELP, GROUP_HELP, LAND_HELP, MOVE_HUNK_HELP, PICK_HELP, PUSH_HELP, READ_ONLY, REQUEST_REVIEW_HELP, REWORD_HELP, ROBOT_HELP,
   ROBOT_STATS_HELP, SAFE_PUSH_HELP, SQUASH_HELP, STATUS_HELP, SUGGEST_HELP, UPDATE_HELP, WORKTREES_HELP, skill_text,
 };
+use crate::flag_names::{renamed_in, unknown_argument};
 use crate::install::{InstallArgs, install};
 use crate::schema::{SchemaArgs, schema};
 use bd_core::bd_command::skill_command;
@@ -178,19 +180,19 @@ enum Command {
   /// parents first, and print a `gh pr create` for each
   #[command(after_help = "Outputs and refusals: `bd push --help`", after_long_help = PUSH_HELP)]
   Push(PushArgs),
-  /// Start a Patronus Safe Push (or --patronus-dry-run) of a branch; --check starts nothing
+  /// Start a Patronus Safe Push (or --patronus-dry-run) of a branch; --dry-run starts nothing
   ///
   /// As the app's Safe Push, with a merge profile: the code-owner review checked first (`approvals_missing`, exit 4,
   /// when approvals are missing), the branch pushed first when the remote lacks its commits by content
   #[command(after_help = "Outputs and refusals: `bd safe-push --help`", after_long_help = SAFE_PUSH_HELP)]
   SafePush(SafePushArgs),
-  /// Land a branch into master by the route of the repository (`branchdeck.landing`); --check pushes nothing
+  /// Land a branch into master by the route of the repository (`branchdeck.landing`); --dry-run pushes nothing
   ///
   /// A Safe Push of Patronus, or a push of the copy into the target as a fast-forward, which lands without CI: only
   /// after the user approved. It never updates: `next` names `bd update`
   #[command(after_help = "Outputs and refusals: `bd land --help`", after_long_help = LAND_HELP)]
   Land(LandArgs),
-  /// Ask GitHub users to review the open pull request of a branch; --check asks nobody
+  /// Ask GitHub users to review the open pull request of a branch; --dry-run asks nobody
   ///
   /// The code owners Patronus suggests for the groups whose approval is missing, or --reviewer <login>
   #[command(after_help = "Outputs and refusals: `bd request-review --help`", after_long_help = REQUEST_REVIEW_HELP)]
@@ -329,14 +331,22 @@ struct Invocation {
   op: String,
 }
 
+/// The command line parsed; a renamed flag used prints its name now on stderr (`flag_names::renamed_in`), and a flag the
+/// command lacks names the commands that have it (`flag_names::unknown_argument`)
 fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, out: &mut Out<'_>) -> Result<Invocation, i32> {
+  let args: Vec<OsString> = args.into_iter().collect();
   Cli::command()
-    .try_get_matches_from(std::iter::once(OsString::from("bd")).chain(args))
+    .try_get_matches_from(std::iter::once(OsString::from("bd")).chain(args.iter().cloned()))
     .and_then(|matches| {
       Cli::from_arg_matches(&matches).map(|cli| Invocation {
         cli,
         op: operation_name(&matches),
       })
+    })
+    .inspect(|invocation| {
+      for line in renamed_in(&invocation.op, &args) {
+        let _ = writeln!(std::io::stderr().lock(), "{line}");
+      }
     })
     .map_err(|e| match e.kind() {
       ErrorKind::DisplayHelp => {
@@ -348,6 +358,7 @@ fn parse(args: impl IntoIterator<Item = OsString>, environment: &Environment, ou
         Ok(()) => 0,
         Err(error) => print_error(out, &error),
       },
+      ErrorKind::UnknownArgument => print_error(out, &CliError::new(ErrorCode::InvalidArguments, unknown_argument(&built_command(), &e, &args))),
       _ => print_error(out, &CliError::new(ErrorCode::InvalidArguments, e.render().to_string().trim())),
     })
 }
@@ -742,6 +753,8 @@ mod cross_process_test;
 mod error_test;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixture_test;
+#[cfg(test)]
+mod flag_names_test;
 #[cfg(test)]
 mod install_test;
 #[cfg(test)]

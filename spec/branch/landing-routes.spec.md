@@ -215,7 +215,7 @@ target, read before anything is pushed.
 - A push runs no CI: what CI did not pass on the commit it lands must be confirmed (`unchecked`: no open pull request,
   one that shows another commit, failing or running checks, GitHub listing none; a commit without checks asks nothing),
   so must the changes requested on its pull request and what the gate asks (`routeRule`); `bd land` accepts them only by
-  `--without-checks` and `--bypass-rules`.
+  `--allow-checks-not-passed` and `--bypass-rules`.
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_checks_that_did_not_pass_on_the_tip_and_the_changes_requested_are_confirmations`, `bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags`)
 - The push must go by the first push URL of the remote of the baseline that its plan names
   (`PlannedEffect::PushBaseline.remote`, whose remote-tracking ref of the target the start reserves; a baseline that
@@ -295,7 +295,7 @@ target, read before anything is pushed.
   conflict, which the start asks first (`squashOnly`).
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`a_clean_pull_request_merges_by_the_first_method_the_repository_allows_and_an_unstable_one_asks_first`)
 - A start must merge now a pull request GitHub can merge (`CLEAN`, `HAS_HOOKS`), and one whose checks the base does not
-  require fail or run (`UNSTABLE`) once the user accepts it (`checksNotRequired`, `--without-checks` of `bd land`);
+  require fail or run (`UNSTABLE`) once the user accepts it (`checksNotRequired`, `--allow-checks-not-passed` of `bd land`);
   changes someone requested that hold nothing back are a confirmation too. It must enable the auto-merge, GitHub merging
   once the checks pass, while required checks still run (`BLOCKED` by them) where the repository allows it, and after
   the push of the branch (of a whole stack its stack branch) when the pull request shows another commit than the copy:

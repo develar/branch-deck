@@ -218,7 +218,7 @@ redirect and without a client secret.
   tells every page of the repository `auth-changed` on its event stream, as the backend tells its windows
   ([E2E Testing](../../docs/design/e2e-testing.md)).
 - In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<the client id of build-tauri.yml> pnpm install-app`, unset `GH_TOKEN`, move `gh`
-  out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --check`
+  out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --dry-run`
   sees the pull request.
 
 ## Open Questions / Risks

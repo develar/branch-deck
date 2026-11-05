@@ -114,7 +114,7 @@ fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
     // the update moves the checked out branch: the user's to approve
     assert_eq!(next_steps(&output["error"]), [("bd update".to_string(), true)], "{args:?}");
   }
-  let (exit_code, check) = bd(&space, &["safe-push", "login", "--check"]);
+  let (exit_code, check) = bd(&space, &["safe-push", "login", "--dry-run"]);
   assert_eq!((exit_code, check["refusals"][0]["code"].clone()), (0, json!("landed")), "{check}");
   assert_eq!(next_steps(&check["refusals"][0]), [("bd update".to_string(), true)]);
 
@@ -123,9 +123,9 @@ fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
   commit_all(&space.repo, "(auth) Check the token", 1_700_000_900);
   let (exit_code, output) = bd(&space, &["push", "auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
-  let (exit_code, check) = bd(&space, &["safe-push", "auth", "--check"]);
+  let (exit_code, check) = bd(&space, &["safe-push", "auth", "--dry-run"]);
   assert_eq!((exit_code, check.get("refusals"), check["lands"].clone()), (0, None, json!(["auth"])), "{check}");
-  let (exit_code, output) = bd(&space, &["safe-push", "login", "--check"]);
+  let (exit_code, output) = bd(&space, &["safe-push", "login", "--dry-run"]);
   assert_eq!((exit_code, output["refusals"][0]["code"].clone()), (0, json!("landed")), "{output}");
 }
 
@@ -201,7 +201,7 @@ fn the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_
   sync(&space);
   // the Safe Push of login landed auth and login: session is left
   space.set_robots(vec![merged(&space, "login-robot", "login", &minutes_ago(90))]);
-  let (exit_code, output) = bd(&space, &["safe-push", "auth", "--whole-stack", "--check"]);
+  let (exit_code, output) = bd(&space, &["safe-push", "auth", "--whole-stack", "--dry-run"]);
   assert_eq!((exit_code, output["lands"].clone(), output.get("refusals")), (0, json!(["session"]), None), "{output}");
 
   // session landed with its own Safe Push too: nothing of the whole stack is left

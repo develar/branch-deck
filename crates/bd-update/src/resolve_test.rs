@@ -301,7 +301,7 @@ fn markers_an_edit_outside_a_block_and_a_missing_file_are_refused() {
   std::fs::write(&edit, "edited\n").unwrap();
   run_in(&clone, &["update", "--status", "--materialize"]);
   assert_eq!(read(&edit), "edited\n", "--materialize writes only the missing copies");
-  run_in(&clone, &["update", "--status", "--materialize", "--force"]);
+  run_in(&clone, &["update", "--status", "--materialize", "--overwrite-edited"]);
   assert_eq!(read(&edit), merged);
 }
 
@@ -339,7 +339,7 @@ fn a_symlink_at_edit_is_never_followed() {
 
   let (exit_code, output) = run_in(&clone, &["update", "--continue"]);
   assert_error(&output, exit_code, (2, "missing_resolution"));
-  // --force replaces the link instead of writing through it
+  // --overwrite-edited (`--force`, its name before) replaces the link instead of writing through it
   run_in(&clone, &["update", "--status", "--materialize", "--force"]);
   assert!(!std::fs::symlink_metadata(&edit).unwrap().file_type().is_symlink());
   assert_eq!(std::fs::read_to_string(&secret).unwrap(), "secret\n");
@@ -991,7 +991,7 @@ fn the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_ne
 }
 
 #[test_log::test]
-fn aborting_the_live_session_of_another_worktree_needs_force() {
+fn aborting_the_live_session_of_another_worktree_needs_allow_live_session() {
   let (_upstream, clone) = conflicting_clone();
   let (_linked, linked_path) = linked_worktree(&clone);
   run_at(&linked_path, &["update"]);
@@ -1000,7 +1000,7 @@ fn aborting_the_live_session_of_another_worktree_needs_force() {
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   let (exit_code, output) = run_in(&clone, &["update", "--abort", "--worktree", "w t"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  let (exit_code, output) = run_in(&clone, &["update", "--abort", "--worktree", "wt", "--force"]);
+  let (exit_code, output) = run_in(&clone, &["update", "--abort", "--worktree", "wt", "--allow-live-session"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(git(&clone, &["for-each-ref", "refs/branch-deck/resolve/"]), "");
 }

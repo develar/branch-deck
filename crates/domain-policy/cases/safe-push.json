@@ -36,7 +36,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --check waits for it: spec/cli/agent-cli.spec.md#bd-safe-push"
+      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --dry-run waits for it: spec/cli/agent-cli.spec.md#bd-safe-push"
     },
     "bd": {
       "step": {
@@ -68,7 +68,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --check waits for it: spec/cli/agent-cli.spec.md#bd-safe-push"
+      "why": "bd asks Patronus for the review only when the start waits for it, never for a Dry Run, so the step of --dry-run waits for it: spec/cli/agent-cli.spec.md#bd-safe-push"
     },
     "bd": {
       "step": {

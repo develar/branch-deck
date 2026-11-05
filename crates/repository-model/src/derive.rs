@@ -34,7 +34,7 @@
 //! `next_steps` is the next step and the node of every row and of every whole stack that forks
 //! (`domain_policy::next_step`, `domain_policy::landing_node` over `StepSources`: the table of the last sync, its rows as
 //! they are now, the Patronus view, the robots and the facts of the remote services), which the view derives with
-//! every patch, a sync of a branch included (row 1), and `bd status` and `bd safe-push --check` over what they read
+//! every patch, a sync of a branch included (row 1), and `bd status` and `bd safe-push --dry-run` over what they read
 //! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
 //!
@@ -1365,7 +1365,7 @@ pub(crate) fn blocking_parent(status: BranchStatus, stack: Option<&BranchStack>)
     .or_else(|| stack.declared_parent.clone())
 }
 
-/// The rows of `table` as a grouping read without a sync has them (`bd status`, `bd safe-push --check` over the table of
+/// The rows of `table` as a grouping read without a sync has them (`bd status`, `bd safe-push --dry-run` over the table of
 /// its sync), in its order
 #[must_use]
 pub fn grouped_rows(table: &BranchTable) -> Vec<(String, RowFacts)> {

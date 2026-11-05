@@ -145,7 +145,7 @@ fn a_next_step_that_writes_needs_the_approval_and_none_starts_anyway() {
   let steps = |steps: Value| json!({"next_steps": steps});
   let read = steps(json!([
     {"command": "bd -C /repo robot auth --whole-stack", "needs_approval": false},
-    {"command": "bd safe-push auth --check", "needs_approval": false},
+    {"command": "bd safe-push auth --dry-run", "needs_approval": false},
     {"command": "bd sync", "needs_approval": false},
     {"command": "bd push auth --force --expect-remote 1a2b3c4d", "needs_approval": true},
   ]));

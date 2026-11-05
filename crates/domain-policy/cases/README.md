@@ -17,10 +17,10 @@ fake Patronus and the fake GitHub, and asks both sides of it:
   review readiness `ReadinessFact::update` asks for the shown rows whose step waits for it and for the subject the
   click needs. Then `repository_model::derive`: `next_steps_of` for the step, and the plan of the start the case asks
   as the app's `prepare` answers it (`operations::land::plan_of` over the sources of the session).
-- **`bd`**: `safe_push()` itself with `--check` (the function the command runs: its preamble, `plan()` with the plan
+- **`bd`**: `safe_push()` itself with `--dry-run` (the function the command runs: its preamble, `plan()` with the plan
   of `operations::land::prepare_one_shot`, the decision of `domain_policy::land::decide`, the output of a check), whose
   output carries the plan and the step its words tell (`SafePushOutput.plan`, `.step`); then `bd safe-push` without
-  `--check`, which must start (through the API or from a pull request, canceling the robot the plan cancels) when
+  `--dry-run`, which must start (through the API or from a pull request, canceling the robot the plan cancels) when
   nothing refuses it and the flags of the case accept every confirmation (`domain_policy::land::unaccepted`), and
   refuse otherwise.
 
@@ -49,7 +49,7 @@ case, that every group has its test (a new group gets its test in the same commi
 of a branch built on it, of an older commit with and without a push, `--cancel-running`), the parked member of a whole
 stack, a remote branch behind, the retarget of an ancestor's pull request, missing declarations and dangling references
 with their `--allow-*`. `landing-routes.json` holds the cases of a repository that lands by a push into the target
-(`given.route`, group `modes-and-routes`): there the side of `bd` is `bd land` (`land()` with `--check`, then the
+(`given.route`, group `modes-and-routes`): there the side of `bd` is `bd land` (`land()` with `--dry-run`, then the
 command without it, which must land, `landed: true`, when nothing refuses it and the flags accept every confirmation).
 `discrepancies.json` is the registry (below).
 
@@ -111,7 +111,7 @@ The test of the registry checks each id once, every pointer of `today`, no recor
 a closed entry names a stage whose row says «закрыт»; every test checks every `spec` anchor of its cases. D8 is
 recorded: the vocabulary has no stored stack parent, so its case is a test of its own,
 `the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8` (the placement, the sync of the fixture,
-`whole_stack`, `bd safe-push A --whole-stack --check`).
+`whole_stack`, `bd safe-push A --whole-stack --dry-run`).
 
 ## `given`: the closed vocabulary
 

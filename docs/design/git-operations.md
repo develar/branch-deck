@@ -316,7 +316,7 @@ taken and deletes it before the release), then runs the real git.
 | The app's push (`operations::push::execute_push`: a branch, a stack, up to a commit, an unapplied branch) | `for-each-ref` (the full witness and the freeze of the commits and the leases) | `a_push_locks_only_the_witness_and_the_freeze`, `a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze` (`crates/operations/src/push_test.rs`) |
 | A start of the app and of `bd safe-push` (`operations::land_execute::execute`) | `for-each-ref` (the full witness and the freeze of its push) | `a_start_locks_only_the_witness_and_the_freeze`, `a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan` (`crates/operations/src/land_execute_test.rs`) |
 | `bd push` (its sync before the lock, `bd-core` `sync_command::sync`, then the run of the app's push) | `for-each-ref` (the full witness and the freeze) | `a_push_of_bd_locks_only_the_witness_and_the_freeze`, `the_network_push_holds_no_repository_lock`, `the_robot_list_of_a_push_is_read_outside_the_repository_lock` (`crates/bd-remote/src/push_test.rs`) |
-| `bd safe-push` (its sync before the lock, then the start above; `--check` takes no lock) | `for-each-ref` (the full witness and the freeze) | `a_safe_push_locks_only_the_witness_and_the_freeze` (`crates/bd-remote/src/safe_push_test.rs`) |
+| `bd safe-push` (its sync before the lock, then the start above; `--dry-run` takes no lock) | `for-each-ref` (the full witness and the freeze) | `a_safe_push_locks_only_the_witness_and_the_freeze` (`crates/bd-remote/src/safe_push_test.rs`) |
 | `bd land` by a push into the target (its sync before the lock, then the start above) | `for-each-ref` (the witness of the copy, the remote-tracking ref of the baseline and the checked out branch) | `a_land_by_a_push_locks_only_the_witness` (`crates/bd-remote/src/land_test.rs`) |
 | `bd request-review` (its sync before the lock, then the request; the lock only for the push of `--push`) | `for-each-ref` (the full witness and the freeze of the push) | `a_request_locks_only_the_witness_and_the_freeze_of_its_push` (`crates/bd-remote/src/request_review_test.rs`) |
 
@@ -853,7 +853,7 @@ also reads the mark of an interrupted move of the worktree (`pending_mark`) and 
   (`crates/test-server/src/invoke.rs`).
 
 `bd push` and `bd safe-push` (their sync, then the witness and the freeze of
-their push; the network push after it; with `--check` only the sync),
+their push; the network push after it; with `--dry-run` only the sync),
 `bd move-hunk`, `bd pick` (after its check, the witness and the moves of both worktrees under one hold, its landing report after it) and `bd undo` take it, so does the app's push
 (`execute` of the intent `Push`: `operations::push`, on the `$GIT_COMMON_DIR` the app keeps, so the witness sees the
 branches no other writer moves meanwhile and fix the commits that go; it holds the lock only for that, and pushes
@@ -3441,7 +3441,7 @@ changes of every commit ahead of the baseline are read (the object cache, one `l
 dependencies (`dependencies.rs`), lock files included: they name the commits of the ancestors the branch needs. The
 changes and the line dependencies with the fixup units (`CheckSession::line_graph`) are read once per session, and the
 conflict fix, the symbol edges and `bd check` share them.
-The app (`get_stack_independence`) and `bd safe-push --check` (`alone`, in the session of its dangling references)
+The app (`get_stack_independence`) and `bd safe-push --dry-run` (`alone`, in the session of its dangling references)
 ask it; the sync and a start of `bd safe-push` never do. It takes no lock.
 
 `bd check --build` runs a command in the tree of each branch that builds, extracted by `git archive` into a temporary
@@ -4034,7 +4034,7 @@ app's does ("Push and land": the witness, the lock only for the full witness and
 `safe_push_run.rs`), recorded first in the operations registry of the
 repository: while the app or another `bd` runs a start or a push of what it lands, it is `busy` (exit 3) with that
 operation's id, and the other way round ("Operations registry"). A rewrite of another session between the sync and the
-witness changes the plan: `plan_changed` (exit 3), nothing done; `--check` stops after the plan. A stacked
+witness changes the plan: `plan_changed` (exit 3), nothing done; `--dry-run` stops after the plan. A stacked
 branch lands with its ancestors in one robot ([Landing](landing.md)): the push takes the ancestors with work for the
 remote along, and the robot starts on the branch's virtual branch, which carries their commits (`lands`). A parked
 branch, one built on a parked branch and a whole stack with a parked member are refused as `parked` right after the
@@ -4057,7 +4057,7 @@ sync, before anything is asked of Patronus.
    the sync's table (`repository_model::one_shot::OneShot`): what a start needs (`operations::needs`) side by side, one
    request per fact (`operations::facts::fill`): the robots of the user (one list, kept for `bd status`), the pull
    requests (one search), the merge profiles of the target (one `start-supported`), then the details of the last robot
-   of the subject when the list names no profile (its profile is the default), with `--check` the problems of its
+   of the subject when the list names no profile (its profile is the default), with `--dry-run` the problems of its
    failed robot; then what the first decision waits for (`operations::needs::waits`): the review readiness of the
    subject and the rules of the target. The Patronus view of the table over the robots derives on bd's thread, as the
    session's host derives it; the landing needs of a branch are its landing gate's (below). No read runs under the
@@ -4071,7 +4071,7 @@ sync, before anything is asked of Patronus.
    commits ahead of the baseline with the mapping notes the sync wrote (one `log`, so the trial reuses the virtual
    commits) and the branch tips under the prefix (one `for-each-ref`). Only the branch and the branches it is built on
    are built (`CheckSession::check_landing`), every branch only for a whole stack that forks; the landing gate (below,
-   "Landing gate") reads the missing declarations in the same session. With `--check`, the
+   "Landing gate") reads the missing declarations in the same session. With `--dry-run`, the
    trial build of a stacked
    branch alone (`alone`, `stack_independence`) runs in the same session: its build and, for the names it uses, the
    changes of the commits; a start runs no trial.
@@ -4908,7 +4908,7 @@ view derives with each patch but while a sync runs, as `lands`. The next step an
 that forks (`nextSteps`, `domain_policy::next_step` and `domain_policy::landing_node` over `derive::StepSources`: the
 table of the last sync, its rows as they are, the Patronus view, the robots, the pull requests, the readiness, what
 landed) it derives with every patch, a sync included (a branch that syncs is row 1); `bd status` and `bd safe-push
---check` derive the same over what they read (`derive::grouped_rows`), the facts they don't read unknown ([The
+--dry-run` derive the same over what they read (`derive::grouped_rows`), the facts they don't read unknown ([The
 landing of a session](#the-landing-of-a-session)).
 
 | Family | Part of the view | Read through `FactSources` | Asked by `domain_policy::refresh` | Written by the commands |
@@ -5149,7 +5149,7 @@ Patronus view's, the landing needs the host's.
   branch, the cancel of the robot the start replaces, the push of the branches the effect names, the start), and its
   outcome is the toast (`src/presenters/outcome.ts`).
 - **`bd`** derives with the same functions over what it read, the facts it doesn't read unknown: `bd status` and `bd
-  safe-push --check` the next step (`StepSources` of `derive::grouped_rows`), `bd safe-push` the plan of its start
+  safe-push --dry-run` the next step (`StepSources` of `derive::grouped_rows`), `bd safe-push` the plan of its start
   (`operations::land::prepare_one_shot` over its one-shot session: the first decision over what `needs(Land)` read,
   then the review and the rules it waits for, read once, then the decision again, with the landing gate and the target
   check it ran; its flags are the allowances of the intent),
@@ -5158,7 +5158,7 @@ Patronus view's, the landing needs the host's.
   effects. The
   scenario table runs each case through both sides
   (`crates/bd-remote/src/scenario_test.rs`: the derivation of a session over the table state of a sync and a
-  `FactStore` fed as a host feeds it, then `bd safe-push --check` and its start) against one expectation.
+  `FactStore` fed as a host feeds it, then `bd safe-push --dry-run` and its start) against one expectation.
 - **The words**: a reason is a code with its facts (`domain_types::reason::Reason`, `ActionBlocker`), worded by the page
   (`src/presenters/`) and by `bd` (`start_refusal_text`, `bd-core/src/next_step_summary.rs`); the catalogs
   `crates/domain-policy/reasons.json` and `actions.json` name every code, and the tests of the presenters word each.
@@ -5335,16 +5335,16 @@ the whole stack, 2026-10-18; ** with the whole stack in the app, 2026-10-18) and
 | The target conflict check of a Safe Push start without its fetch, clean / one conflicting commit (2026-10-19) | `a_target_conflict_check` | 2 / 6 | 2 / 6 |
 | `bd check`, with `--build` of two paths | `a_check`, `a_check_with_a_build` | 20, 26 | 20, 23 |
 | `bd push --dry-run` (the size check since 2026-10-25: 2 more) | `a_push` | 54 | 27 |
-| `bd safe-push --check` (the fetch and the replay of the target conflict check since 2026-10-19: 8 more) | `a_safe_push_check` * | 57 | 40 |
-| `bd safe-push --check` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 43 |
-| `bd safe-push --whole-stack --check` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 47 |
+| `bd safe-push --dry-run` (the fetch and the replay of the target conflict check since 2026-10-19: 8 more) | `a_safe_push_check` * | 57 | 40 |
+| `bd safe-push --dry-run` of a stacked branch, with its trial build alone | `a_safe_push_check_of_a_stacked_branch` § | 40 | 43 |
+| `bd safe-push --whole-stack --dry-run` of a stack that forks (three branches and the stack branch) | `a_safe_push_check_of_the_whole_stack` ¶ | 39 | 47 |
 | `bd fold` | `a_fold` | 36 | 30 |
 | `bd pick --from --follow` (2026-10-18; the grouping before the move, 2026-10-19; the check before the lock, its witness under it, 2026-10-23) | `a_pick` | 54 | 66 |
 | `bd pick --dry-run` of a fast-forward into a branch the target has: the dependency check (2026-10-19) | `a_pick_into_a_branch_the_target_has` | 28 | 28 |
 | `bd lease get` of a free slot, then `bd lease return` (2026-10-19) | `a_lease_get_and_return` | 5, 4 | 5, 4 |
 | `bd status` (the push URL of `origin` for `landed_by` since 2026-10-18) | `a_status` * | 10 | 8 |
 | `bd status` of a stack that forks | `a_status_of_a_forking_stack` ‡ | 7 | 8 |
-| `bd robot`, `bd request-review --push --check` (its sync since 2026-10-26: whether the remote lacks the branch, D5), `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 14, 11 |
+| `bd robot`, `bd request-review --push --dry-run` (its sync since 2026-10-26: whether the remote lacks the branch, D5), `bd group --dry-run` | `a_robot`, `a_request_review_check`, `a_group_dry_run_with_a_description` * | 8, 11, 11 | 8, 14, 11 |
 
 `bd sync` runs the processes of its core and one `rev-parse` for its context (`a_sync_with_the_prefix_of_the_config`).
 On a clone of a monorepo (217 commits ahead of the baseline in 38 stacked groups, 16 of them conflicting), a release

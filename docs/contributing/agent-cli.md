@@ -84,6 +84,27 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   app, the CLI never asks a login shell for git. Without one, the error is `git_not_found`: a line "Cannot find Git:
   <reason>" or "Git 2.39 is too old: Branch Deck requires Git 2.54 or newer", then how to install Git.
 
+### Flag names
+
+An agent carries a flag from one command to another, so one sense has one word in every command
+(`crates/bd-cli/src/flag_names.rs`, [the spec](../../spec/cli/agent-cli.spec.md#flag-names)). Name a new flag by
+these rules:
+
+- **A preview is `--dry-run`**: it writes at most git objects, after the sync its command runs first. Never `--check`
+  (that is the command `bd check`, and next to "checks" of CI it reads as their opposite).
+- **A flag that accepts a refusal is `--allow-<what refused>`**, after the error code it lifts when it lifts one:
+  `--allow-unchecked` (`unchecked_tree`), `--allow-checks-not-passed`, `--allow-dangling`, `--allow-live-session`.
+  Its help says it runs only once the user agreed, and the refusal's `message` names it with its condition (never a
+  `next_steps` entry).
+- **An act is its own verb**: `--force` of a push, `--cancel-running`, `--overwrite-edited`. One flag has one sense:
+  `bd update --force` was two acts and is two flags now.
+- **A rename keeps the old name** as an alias (a hidden flag when the old name had two senses), with a row in
+  `RENAMED`, whose test checks it against clap; a run with it prints `bd: <old> of bd <command> is now <new>` on
+  stderr. The skills installed before the rename keep working.
+- **A flag the command lacks** is `invalid_arguments`, whose message names the commands that have it by their visible
+  name and the flags of this command that preview or accept a refusal; clap's similar name only when no command has
+  it, never a hidden alias.
+
 ## The JSON contract
 
 - stdout gets exactly one JSON object per run, on one line. Only `bd help` prints text.
@@ -135,7 +156,7 @@ holds most of the push (`dir/`) and its largest files.
 `target_conflict` has `commits` and `paths`: the commit that Patronus can't rebase onto the newest target and its files.
 
 A refusal that a command acts on has `next_steps`, the commands ready to run in their order, each with
-`needs_approval` (the `refusals` of `bd safe-push --check` carry them too):
+`needs_approval` (the `refusals` of `bd safe-push --dry-run` carry them too):
 
 ```json
 {"schema":2,"error":{"code":"lease_rejected","message":"The remote rejected auth: …","commits":[],"branches":[…],
@@ -143,7 +164,7 @@ A refusal that a command acts on has `next_steps`, the commands ready to run in 
 ```
 
 A step with `needs_approval` pushes, rewrites, updates or cancels or restarts a robot: run it only once the user
-approved it. One without it only reads (`bd robot`, `bd sync`, `bd safe-push <branch> --check`). The field is
+approved it. One without it only reads (`bd robot`, `bd sync`, `bd safe-push <branch> --dry-run`). The field is
 `next_steps`, not `next`: the `next` of `bd workspace`, `bd update` and `bd pick` runs at once, a step of an error
 does not. A way to start anyway (`--allow-*`, `--without-approvals`), `--min-free` and a change of the config are
 never a step: the message names each with its condition ("only when the user says it is a false alarm", "never raise
@@ -154,7 +175,7 @@ that replaces a branch behind its remote, `bd sync` for one not synced; `robot_r
 the same command with `--cancel-running` (`safe-push`) or `--restart-running` (`push`) where it applies;
 `approvals_missing` the start with `--create-pull-request` when the branch has no pull request; `dangling_reference`
 the `fix.command` a trial build proved; `missing_declaration` the `bd restack` it names; `push_dismisses_approvals`
-the push, then `bd request-review`; `target_conflict` and `landed` `bd update`; `stack_conflict` the `--check` of the
+the push, then `bd request-review`; `target_conflict` and `landed` `bd update`; `stack_conflict` the `--dry-run` of the
 branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `crates/bd-core/src/error.rs`.
 
 | Exit | Meaning | Codes |
@@ -1701,12 +1722,12 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--check] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
+### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
 pass) or, with `--patronus-dry-run`, a Patronus Dry Run (the checks only; it pushes and starts a robot as a Safe Push
-does, so it needs the user's approval too; `--check` is the preview that starts nothing). The repository must be on Space (`origin` on
+does, so it needs the user's approval too; `--dry-run` is the preview that starts nothing). The repository must be on Space (`origin` on
 `git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
 `./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
 instance, as for the Safe Push CLI. The app's setting Settings → Landing → "New Patronus API"
@@ -1719,7 +1740,7 @@ A stacked branch lands with every branch it is built on, in one robot, as the ap
 lands them all. The branches built on it stay; after the merge the next sync builds them on the target.
 
 A parked branch (`parked` in `bd status`), a branch built on one and a `--whole-stack` with a parked member start
-nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the sync, before Patronus is asked.
+nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the sync, before Patronus is asked.
 
 ```json
 {"schema":2,…,"branch":"login","mode":"safe_push","target":"master","lands":["auth","login"],
@@ -1757,7 +1778,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
    "started_via":"api","robot":{"id":"r2",…}}
   ```
 
-- `--check` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
+- `--dry-run` syncs and prints the same object without pushing or starting anything: what it `lands`, the profiles, the
   review, `push_needed`, `remotes`, `target_check`, and `refusals`, each `{code, message}` a start would fail with. The
   agent shows it to the user and starts only after the user approves.
 - The decision is the app's rule, `domain_policy::land::decide` ([Rust as the Domain Authority](../design/rust-domain-authority.md#s8-policy)),
@@ -1792,7 +1813,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   (only the branch for a root). A Safe Push lands them all into the target; a dry run checks the same commits; with
   `--create-pull-request` its pull request holds them. There is no refusal and no flag for it: the obsolete
   `--land-stack` of an older bd is accepted, hidden, and changes nothing.
-- `alone` (only with `--check`, only for a stacked branch) is the trial build of the branch as a root, on the base the
+- `alone` (only with `--dry-run`, only for a stacked branch) is the trial build of the branch as a root, on the base the
   sync builds on, not on the newest target (`stack_independence` in `crates/trial-check/src/check.rs`): the second way,
   landing the branch without what it is built on, for the user to choose; bd never unstacks or moves anything for it.
   `result` is `builds` (it applies alone: `bd unstack <branch>` makes it a root; `uses` lists the names of its stack
@@ -1850,7 +1871,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
   with an open pull request into the target start from it (`started_via: pull_request`). One into a virtual branch, of
   the branch or of a branch its push takes along, is retargeted to the target first, before anything is pushed
-  (`retargeted`, as `bd push` lists them; `--check` lists the ones a start would retarget): a refused retarget of the
+  (`retargeted`, as `bd push` lists them; `--dry-run` lists the ones a start would retarget): a refused retarget of the
   branch's own fails the start, nothing pushed or started; one of a branch taken along is a `retarget_warnings` line.
   One into another base starts through the API. For a start from the pull request bd posts
   `/patronus merge --keep-source-branch` (`/patronus dry-run`) through the GitHub API, waits up to a minute for the answer of
@@ -1866,7 +1887,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   auth is running: wait until it merges"). A running Safe Push of an older commit fails once the push changes its
   branch: `--cancel-running` cancels it first (`canceled`). A Dry Run replaces no Safe Push: its push into the branch
   of a running Safe Push is refused, `--cancel-running` or not; one without a push starts beside it.
-- `landed` (exit 4, the first of `refusals` with `--check`): a merged Safe Push landed all of the branch ("Nothing was
+- `landed` (exit 4, the first of `refusals` with `--dry-run`): a merged Safe Push landed all of the branch ("Nothing was
   pushed or started: login merged into master with its Safe Push (<robot>): nothing of it is left to land"), or, with
   `--whole-stack`, every branch of the stack ("every branch of the whole auth stack landed in master with the Safe
   Pushes of login and session"). `lands` leaves out the branches merged Safe Pushes landed all of: the robot lands the
@@ -1877,14 +1898,14 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   again a declaration whose use (or other declaration) a commit of another branch changes, as `bd check` reports it
   (`dangling_references`, with its `kind`); the message
   names the use, the commits and the fix, of two references both, from three on of the first, with the count of the
-  rest ("(2 more: bd check)", which lists them). `--check` lists it in `refusals`; `--allow-dangling` starts anyway, when
+  rest ("(2 more: bd check)", which lists them). `--dry-run` lists it in `refusals`; `--allow-dangling` starts anyway, when
   the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
 - `missing_declaration` (exit 4, nothing pushed, `branchdeck.symbols on`): a commit of what lands uses a name that a
   commit outside it adds, which no merged Safe Push landed (`missing_declarations` of `bd check`; a name of a branch of
   the landing stack is none). The landing gate (`trial_check::landing_gate`, the same rule as the app's start) checks it
   in the trial session of the dangling references. The message names the use, the commit that adds the name with its
   branch, and the fix: `bd restack <root> <branch>` lands that branch too (after the user approves); with stacked
-  branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--check` lists it in
+  branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--dry-run` lists it in
   `refusals`; `--allow-missing` starts anyway, when the user says it is a false alarm.
 - `push_dismisses_approvals` (exit 4, nothing pushed or started): the start pushes new commits into the pull request
   the robot starts from, which someone approved, and the GitHub rules of the target dismiss stale reviews on push
@@ -1892,7 +1913,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
   fails. Push first (`bd push <branch>`), then `bd request-review <branch>`. Approvals Patronus doesn't count are only
   said in `rules.message`. `rules_unknown` (exit 4): GitHub didn't answer the rules (no token, no access, an error);
   `--allow-unknown-rules` starts anyway when the user says so. `rules` is `{dismiss_stale_reviews_on_push: true | false
-  | null, message}`, absent when they were not read; `--check` lists either refusal in `refusals`.
+  | null, message}`, absent when they were not read; `--dry-run` lists either refusal in `refusals`.
 - `review_unknown` (exit 4, nothing pushed or started, also in `refusals`): Patronus couldn't answer the code-owner
   review (its pre-check failed; `review.readiness` `unavailable`), which is never "approved" (D14);
   `--allow-unknown-review` starts anyway when the user says so, and the robot checks the approvals when it starts.
@@ -1904,7 +1925,7 @@ nothing, a Dry Run and `--check` included: `parked` (exit 4) right after the syn
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
-### `bd land <branch> [--whole-stack] [--check] [--without-checks] [--bypass-rules] [--allow-dangling] [--allow-missing]`
+### `bd land <branch> [--whole-stack] [--dry-run] [--allow-checks-not-passed] [--bypass-rules] [--allow-dangling] [--allow-missing]`
 
 Lands the branch into master by the route of the repository (`branchdeck.landing`,
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), `route` in the output:
@@ -1914,7 +1935,7 @@ Lands the branch into master by the route of the repository (`branchdeck.landing
   command (the pull requests with `viewerPermission`, the rules of the target, the landing gate of the subject), then
   its run through the engine: the witness under the lock, the push of the copy (`commit`: the virtual branch of the
   piece, the stack branch of a whole stack) into `target` by the push URL after it, a fast-forward
-  ([Push into the baseline](../design/git-operations.md#push-into-the-baseline)). `--check` pushes nothing and prints
+  ([Push into the baseline](../design/git-operations.md#push-into-the-baseline)). `--dry-run` pushes nothing and prints
   `lands`, `confirmations`, `next_step` and `refusals`.
 - `pull-request`: the same frame, GitHub merging the open pull request of the branch (`pull_request`) by the first
   method the repository allows of rebase, a merge commit and squash, while it shows the commit the copy is
@@ -1925,7 +1946,7 @@ Lands the branch into master by the route of the repository (`branchdeck.landing
   `not_mergeable` (a conflict, a head behind its base: `bd update` then `bd push`; GitHub's refusal in its words).
 
 A push into master lands without a robot and without the CI of a pull request: what CI did not pass on the commit
-and the changes requested on its pull request refuse it as `checks_not_passed` until `--without-checks`; what the gate
+and the changes requested on its pull request refuse it as `checks_not_passed` until `--allow-checks-not-passed`; what the gate
 of the route asks (a rule a maintainer may bypass, the required status checks, a refusal of the server before) refuses
 it with the code of its reason until `--bypass-rules`. Both flags are the user's word, never the agent's. Below write
 access it is `no_write_access`, a rule no push passes `baseline_refused`, a server that refused it `baseline_refused`
@@ -1935,7 +1956,7 @@ It never updates: a push that landed, and a merge, print `landed: true` and `nex
 of what it landed that show an older version of a branch, which the app closes with a comment (`bd` closes none; one
 whose head the push put into master GitHub merges by itself). Name them to the user.
 
-### `bd request-review <branch> [--reviewer LOGIN]… [--push] [--check]`
+### `bd request-review <branch> [--reviewer LOGIN]… [--push] [--dry-run]`
 
 Asks GitHub users to review the open pull request of the virtual branch, as the app's Request Review… does
 ([Pull Requests](../../spec/branch/pull-requests.spec.md#request-review)): the same intent of the engine
@@ -1954,7 +1975,7 @@ approvals of the code owners in that pull request, so one that asks no member of
   owner with a GitHub login of each missing group nobody is asked for yet, each once: never the author, a member asked
   already or one whose approval counts. A group someone is asked for adds nobody, so a second run asks nobody.
   `--reviewer <login>` (repeatable) asks those instead and doesn't ask Patronus (`readiness: null`).
-- `reviewers` is whom it asks; `--check` prints the same object and asks nobody (`requested` empty): the agent shows it
+- `reviewers` is whom it asks; `--dry-run` prints the same object and asks nobody (`requested` empty): the agent shows it
   to the user and asks only after the user approves. `requested` is whom GitHub asked, `refused` whom it refused with
   its reason (the author, a user without access; a refused list is asked one by one to tell), `waiting_for` the
   reviewers the pull request asks after the request.
@@ -1962,7 +1983,7 @@ approvals of the code owners in that pull request, so one that asks no member of
   branch has work its remote lacks: then the reviewers would not see the commits, and it is `needs_push` (exit 4)
   with the next step `bd request-review <branch> --push`, the user's to approve. `--push` pushes them first as the app's
   request does (the ancestors with work first; an open pull request of what it pushes into a virtual branch is
-  retargeted into the target before the push), `pushed` naming the branches, then asks; `--check` names what it would
+  retargeted into the target before the push), `pushed` naming the branches, then asks; `--dry-run` names what it would
   push. The writes take the lock only for the witness and the freeze of the push: the push, then
   `POST pulls/<n>/requested_reviewers`, users only (no team).
 - `no_pull_request` (exit 4): no open pull request, or a draft; `bd safe-push <branch> --create-pull-request` opens
@@ -2134,7 +2155,7 @@ How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI�
   tool and `cd <path> && ` before each shell command. The body then sends the agent to `bd help agent` for grouping, pushing
   and Safe Push, to `bd help update` for an update, to `bd help worktrees` when several sessions or worktrees work
   on one branch, and to `bd <command> --help` for the outputs and refusals of a command; it asks for
-  `bd safe-push <branch> --check` before a Safe Push, as the Safe Push of a stacked branch lands its parents too, and
+  `bd safe-push <branch> --dry-run` before a Safe Push, as the Safe Push of a stacked branch lands its parents too, and
   keeps the rules an agent must not miss before it reads any help (approval, no reorder, `bd pick`, `error.code`,
   parked, unapply). The workflow and the fields stay in the binary, so the skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
   runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and

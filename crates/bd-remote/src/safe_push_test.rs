@@ -25,7 +25,7 @@ fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
 #[test_log::test]
 fn check_names_the_profiles_and_the_review_and_starts_nothing() {
   let space = Space::new(&["(auth) Add auth"]);
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let (_, schema) = run_json(&environment(space.repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
@@ -74,8 +74,8 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
   let (exit_code, output) = space.run(&["auth", "--create-pull-request"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 
-  // --check reports it instead of failing
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  // --dry-run reports it instead of failing
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["refusals"][0]["code"], json!("approvals_missing"));
   assert_eq!(next_steps(&output["refusals"][0]), []);
@@ -99,7 +99,7 @@ fn a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api(
   space.add_robot("older", "FAILURE", "auth", "0000");
   space.fake.details.lock().unwrap().get_mut("older").unwrap()["options"]["patronus.review.approval.check.skip"] = json!("true");
 
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output["profile"]["id"].clone(), output.get("refusals")), (json!("lsc"), None));
   assert_eq!(
@@ -108,13 +108,13 @@ fn a_profile_that_skips_the_review_starts_without_the_approvals_through_the_api(
   );
 
   // the default checks don't skip it: the flag does
-  let (exit_code, output) = space.run(&["auth", "--profile", "none", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--profile", "none", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (output["refusals"][0]["code"].clone(), output["review"].get("skipped_by")),
     (json!("approvals_missing"), None)
   );
-  let (exit_code, output) = space.run(&["auth", "--profile", "none", "--without-approvals", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--profile", "none", "--without-approvals", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output.get("refusals"), output["review"]["skipped_by"].clone()), (None, json!("without_approvals")));
 
@@ -152,7 +152,7 @@ fn the_profile_of_the_last_robot_is_the_default_and_none_drops_it() {
   // its details name the Large Scale Change profile
   space.set_robots(vec![robot("older", "FAILURE", "auth", "0000")]);
 
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["profile"]["id"], json!("lsc"));
 
@@ -174,7 +174,7 @@ fn assert_refused_for_a_robot_on(space: &Space, revision: &str) {
 #[test_log::test]
 fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told() {
   let space = Space::new(&["(auth) Add auth"]);
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let tip = space.local_tip(AUTH);
 
@@ -219,7 +219,7 @@ fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment
   let pushed = space.remote_tip(AUTH);
   rebuild_on_a_newer_baseline(&space.repo);
 
-  let (exit_code, output) = safe_push(environment, &["auth", "--check"]);
+  let (exit_code, output) = safe_push(environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["push_needed"], json!(false));
   assert_ne!(space.local_tip(AUTH), pushed, "the sync rebuilt auth on the newer baseline");
@@ -255,7 +255,7 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("the start would run beside it. Once the user approved, --cancel-running"), "{output}");
   // a dry run runs beside it
-  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--dry-run"]);
   assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
   let (exit_code, output) = space.run(&["auth", "--cancel-running"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -265,10 +265,10 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
 }
 
-/// `bd safe-push auth --check` of a branch whose remote branch is not as it is: a push is due, nothing refuses the
+/// `bd safe-push auth --dry-run` of a branch whose remote branch is not as it is: a push is due, nothing refuses the
 /// start, and the output matches the schema; returns the remote state of auth in `remotes`
 fn check_auth_needs_a_push(space: &Space) -> Value {
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
   assert_eq!(output["push_needed"], json!(true));
   assert_eq!(output["remotes"][0]["name"], json!("auth"));
@@ -345,7 +345,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
 
   let theirs = push_from_elsewhere_to(&space.remote, AUTH, "Someone else");
   git(&space.repo, &["fetch", "-q", "origin"]);
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["refusals"][0]["code"], json!("push_refused"), "{output}");
   let message = output["refusals"][0]["message"].as_str().unwrap();
@@ -376,7 +376,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   );
 
   // once the user approved the drop (D12), the start pushes the commit of someone else away and starts
-  let (exit_code, output) = space.run(&["auth", "--check", "--force"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run", "--force"]);
   assert_eq!((exit_code, output.get("refusals")), (0, None), "{output}");
   let (exit_code, output) = space.run(&["auth", "--force"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -394,7 +394,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
 fn a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed() {
   let space = Space::new(&["(auth) Add auth"]);
   *space.fake.review_hook.lock().unwrap() = Some(Arc::new(|_| Some((500, json!({"message": "down"})))));
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (refusal_codes(&output), output["review"]["readiness"].clone()),
@@ -409,7 +409,7 @@ fn a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed() {
     "nothing was pushed or started"
   );
 
-  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--patronus-dry-run", "--dry-run"]);
   assert_eq!((exit_code, output.get("refusals"), output["review"].clone()), (0, None, Value::Null), "{output}");
   let (exit_code, output) = space.run(&["auth", "--allow-unknown-review"]);
   assert_eq!((exit_code, output["started_via"].clone()), (0, json!("api")), "{output}");
@@ -422,9 +422,9 @@ fn login_on_auth() -> Space {
   space
 }
 
-/// `bd safe-push login --check`, which lands auth with login and refuses nothing; the output matches the schema
+/// `bd safe-push login --dry-run`, which lands auth with login and refuses nothing; the output matches the schema
 fn check_login_lands_auth(space: &Space) -> Value {
-  let (exit_code, output) = space.run(&["login", "--check"]);
+  let (exit_code, output) = space.run(&["login", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output["lands"].clone(), output.get("refusals")), (json!(["auth", "login"]), None));
   let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
@@ -438,7 +438,7 @@ fn a_parked_branch_and_a_branch_built_on_it_start_nothing() {
   let space = login_on_auth();
   let (exit_code, output) = run_in(&space.repo, &["park", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
-  for args in [&["auth", "--check"][..], &["login"], &["login", "--patronus-dry-run"]] {
+  for args in [&["auth", "--dry-run"][..], &["login"], &["login", "--patronus-dry-run"]] {
     let (exit_code, output) = space.run(args);
     assert_error(&output, exit_code, (4, "parked"));
   }
@@ -448,7 +448,7 @@ fn a_parked_branch_and_a_branch_built_on_it_start_nothing() {
 }
 
 /// The virtual branch of a stacked branch carries the commits of the branches it is built on: one robot lands them all.
-/// No refusal and no flag; `--check` adds the trial build of the branch alone, the second way, which a start never runs
+/// No refusal and no flag; `--dry-run` adds the trial build of the branch alone, the second way, which a start never runs
 #[test_log::test]
 fn a_stacked_branch_lands_its_parents_with_it() {
   let space = login_on_auth();
@@ -460,7 +460,7 @@ fn a_stacked_branch_lands_its_parents_with_it() {
       "message": "login builds alone on the baseline and uses no name its stack adds: `bd unstack login` makes it a root that lands alone (not checked by a compiler)"})
   );
   // the obsolete --land-stack is accepted and changes nothing
-  let (exit_code, landed_stack) = space.run(&["login", "--land-stack", "--check"]);
+  let (exit_code, landed_stack) = space.run(&["login", "--land-stack", "--dry-run"]);
   assert_eq!((exit_code, &landed_stack), (0, &output));
 
   let (exit_code, output) = space.run(&["login"]);
@@ -713,7 +713,7 @@ fn started_from_the_pull_request(environment: &Environment, args: &[&str]) -> Va
 fn a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push() {
   let (space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::ok(dismissing_rules()));
 
-  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(refusal_codes(&output), vec![json!("push_dismisses_approvals")]);
   assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], json!(true));
@@ -753,7 +753,7 @@ fn a_push_that_dismisses_approvals_patronus_does_not_count_starts_and_says_so() 
 fn rules_github_does_not_answer_refuse_the_safe_push_unless_allowed() {
   let (space, github, environment) = approved_pull_request_with_rules(true, FakeAnswer::status(500, json!({"message": "Server Error"})));
 
-  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(refusal_codes(&output), vec![json!("rules_unknown")]);
   assert_eq!(output["rules"]["dismiss_stale_reviews_on_push"], Value::Null);
@@ -875,7 +875,7 @@ fn the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_witho
 #[test_log::test]
 fn the_pull_request_it_opens_asks_the_suggested_code_owner_by_the_github_login_patronus_names() {
   let (_space, github, environment) = needs_review_on_github();
-  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let login = output["review"]["groups"][0]["reviewers"][0]["github_login"].clone();
   assert_eq!(login, json!("alice-gh"));
@@ -917,9 +917,9 @@ fn a_dangling_reference_refuses_the_safe_push_unless_allowed() {
       .as_array()
       .map_or_default(|refusals| refusals.iter().map(|refusal| refusal["code"].clone()).collect())
   };
-  let (_, output) = space.run(&["fake-agent", "--check"]);
+  let (_, output) = space.run(&["fake-agent", "--dry-run"]);
   assert!(codes(&output).contains(&json!("dangling_reference")), "{output}");
-  let (_, output) = space.run(&["fake-agent", "--check", "--allow-dangling"]);
+  let (_, output) = space.run(&["fake-agent", "--dry-run", "--allow-dangling"]);
   assert!(!codes(&output).contains(&json!("dangling_reference")), "{output}");
 }
 
@@ -947,16 +947,16 @@ fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
   assert_eq!(next_steps(&output["error"]), [("bd restack flow util".to_string(), true)]);
   assert_eq!(space.remote_tip("test-user/virtual/flow"), "", "nothing was pushed");
 
-  let (_, output) = space.run(&["flow", "--check"]);
+  let (_, output) = space.run(&["flow", "--dry-run"]);
   assert!(refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
-  let (_, output) = space.run(&["flow", "--check", "--allow-missing"]);
+  let (_, output) = space.run(&["flow", "--dry-run", "--allow-missing"]);
   assert!(!refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
 
   for args in [&["restack", "flow", "util"][..], &["sync"]] {
     let (exit_code, output) = run_in(&space.repo, args);
     assert_eq!(exit_code, 0, "{output}");
   }
-  let (_, output) = space.run(&["flow", "--check"]);
+  let (_, output) = space.run(&["flow", "--dry-run"]);
   assert!(!refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
   assert_eq!(output["lands"], json!(["util", "flow"]), "{output}");
 }
@@ -973,11 +973,11 @@ fn a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack() {
   write(&space.repo, "src/b/Use.kt", "package b\n\nimport a.controlUrl\n\nfun start() = controlUrl()\n");
   commit_all(&space.repo, "(auth/session) Start with controlUrl", 1_700_000_200);
 
-  let (_, output) = space.run(&["session", "--whole-stack", "--check"]);
+  let (_, output) = space.run(&["session", "--whole-stack", "--dry-run"]);
   assert_eq!(output["lands"], json!(["auth", "login", "session"]), "{output}");
   assert!(!refusal_codes(&output).contains(&json!("missing_declaration")), "{output}");
 
-  let (_, output) = space.run(&["session", "--check"]);
+  let (_, output) = space.run(&["session", "--dry-run"]);
   let refusal = output["refusals"]
     .as_array()
     .and_then(|refusals| refusals.iter().find(|refusal| refusal["code"] == json!("missing_declaration")))
@@ -1030,7 +1030,7 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   assert_eq!(exit_code, 0, "{output}");
 }
 
-/// The refusals of `bd safe-push --check` by their codes
+/// The refusals of `bd safe-push --dry-run` by their codes
 fn refusal_codes(output: &Value) -> Vec<Value> {
   output["refusals"]
     .as_array()
@@ -1065,7 +1065,7 @@ fn a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on() {
   restack_env_below(&space, "auth");
   let env = "test-user/virtual/env";
 
-  let (exit_code, output) = space.run(&["env", "--check"]);
+  let (exit_code, output) = space.run(&["env", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert!(!refusal_codes(&output).contains(&json!("robot_running")), "{output}");
   let (exit_code, output) = bd_push(&space.environment(), &["env", "--alone"]);
@@ -1099,7 +1099,7 @@ fn a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe
   write(&space.repo, "login-more.txt", "more\n");
   commit_all(&space.repo, "(auth/login) Add more login", 1_700_000_600);
 
-  let (exit_code, output) = space.run(&["login", "--patronus-dry-run", "--check"]);
+  let (exit_code, output) = space.run(&["login", "--patronus-dry-run", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let remotes: Vec<&Value> = output["remotes"].as_array().unwrap().iter().map(|branch| &branch["name"]).collect();
   assert_eq!(remotes, [&json!("login")], "the remote branches the start pushes: {output}");
@@ -1136,7 +1136,7 @@ fn a_push_of_a_parent_whose_commits_a_running_safe_push_lands_is_refused() {
     );
   }
   assert_eq!(space.remote_tip(AUTH), "");
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert!(refusal_codes(&output).contains(&json!("robot_running")), "{output}");
 
@@ -1363,7 +1363,7 @@ fn the_pull_requests_of_the_branch_and_of_the_parents_it_pushes_go_into_the_targ
     {"branch": "login", "number": 7, "url": "https://github.com/acme/monorepo/pull/7", "old_base": AUTH, "new_base": "master", "approved_by": ["alice"]},
   ]);
 
-  let (exit_code, output) = safe_push(&environment, &["login", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["login", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((&output["retargeted"], &output["pull_request"]["number"]), (&retargeted, &json!(7)));
   assert_eq!(retargets_sent(&github), []);
@@ -1459,7 +1459,7 @@ fn a_pull_request_into_another_base_refuses_only_a_safe_push_whose_approvals_cou
 #[test_log::test]
 fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
   let space = forking_stack();
-  let (exit_code, output) = space.run(&["login", "--whole-stack", "--check"]);
+  let (exit_code, output) = space.run(&["login", "--whole-stack", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let (_, schema) = run_json(&space.environment(), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["safe_push"], &schema["outputs"]["safe_push"], &output, "safe_push");
@@ -1548,7 +1548,7 @@ fn the_whole_stack_pushes_again_over_a_moved_remote_that_lacks_nothing_of_its_st
 #[test_log::test]
 fn the_whole_stack_of_a_straight_chain_lands_from_its_last_branch() {
   let space = login_on_auth();
-  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (output["lands"].clone(), output["whole_stack"].clone()),
@@ -1571,7 +1571,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
   write(&space.repo, "config.txt", "b");
   let changed = commit_all(&space.repo, "(auth/session) Change config", 1_700_000_600)[..8].to_string();
 
-  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--whole-stack", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (output["whole_stack"]["state"].clone(), output["refusals"][0]["code"].clone(), output["review"].clone()),
@@ -1579,7 +1579,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
     "a stack branch that is not built has no commits to review"
   );
   // the branch of the commit that conflicts lands with what it is built on: its check reads only
-  let piece = [("bd safe-push session --check".to_string(), false)];
+  let piece = [("bd safe-push session --dry-run".to_string(), false)];
   assert_eq!(next_steps(&output["refusals"][0]), piece);
   let (exit_code, output) = space.run(&["login", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "stack_conflict"));
@@ -1659,7 +1659,7 @@ fn the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_commen
     space.fake.checked_pull_requests.lock().unwrap().last(),
     Some(&json!({"repository": "acme/monorepo", "number": 7}))
   );
-  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--dry-run"]);
   assert_eq!((exit_code, output.get("pull_request")), (0, None), "{output}");
 }
 
@@ -1686,7 +1686,7 @@ fn a_safe_push_locks_only_the_witness_and_the_freeze() {
     ..space.environment()
   };
 
-  let (exit_code, output) = safe_push(&environment, &["auth", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(wrapped.under_lock(), Vec::<String>::new(), "a check takes no lock: {:#?}", wrapped.commands());
   let _ = std::fs::remove_file(wrapped.dir().join("log"));
@@ -1699,18 +1699,18 @@ fn a_safe_push_locks_only_the_witness_and_the_freeze() {
 
 /// The target moved after the last sync with a change of the lines a commit of the branch changes: Patronus could not
 /// rebase it and would fail the robot at once. The check fetches the target, replays the branch onto it and refuses the
-/// start (`target_conflict`, exit 4), nothing pushed or started; `--check` lists it in `refusals`
+/// start (`target_conflict`, exit 4), nothing pushed or started; `--dry-run` lists it in `refusals`
 #[test_log::test]
 fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the_start() {
   let space = Space::new(&["(auth) Add auth"]);
   space.publish_target();
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(output["target_check"]["result"], json!("clean"), "{output}");
   let original = git(&space.repo, &["rev-parse", "HEAD"])[..8].to_string();
   let target = space.land_on_target("f0.txt", "theirs", "Change f0")[..8].to_string();
 
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (
@@ -1745,7 +1745,7 @@ fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the
 fn a_target_that_moved_without_a_conflict_starts() {
   let space = Space::new(&["(auth) Add auth"]);
   // no target on the remote: the fetch fails, the check uses the last fetched target
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_clean_on_the_last_fetched(&output, "origin/master");
 
@@ -1791,12 +1791,12 @@ fn a_branch_switched_during_the_fetch_of_the_target_is_checked_as_not_fetched() 
   git(&space.repo, &["branch", "--quiet", "release"]);
   git(&space.repo, &["branch", "--quiet", "--set-upstream-to=origin/253", "release"]);
   let target = space.land_on("253", "f0.txt", "theirs", "Change f0")[..8].to_string();
-  let (_wrapped, exit_code, output) = safe_push_with_head_moved_before_the_fetch(&space, "git switch -q release", &["auth", "--check"]);
+  let (_wrapped, exit_code, output) = safe_push_with_head_moved_before_the_fetch(&space, "git switch -q release", &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   let message = assert_clean_on_the_last_fetched(&output, "origin/253");
   assert!(message.ends_with("HEAD switched to another branch while origin/master was fetched"), "{message}");
 
-  let (exit_code, output) = space.run(&["auth", "--check"]);
+  let (exit_code, output) = space.run(&["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (

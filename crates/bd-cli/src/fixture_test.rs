@@ -185,9 +185,9 @@ const STEPS_THAT_NEED_APPROVAL: &[&str] = &["push", "update", "restack", "unstac
 /// The flags that start anyway or lower a limit: the user's word, named with its condition in the message, never a step
 const SUPPRESSIONS: &[&str] = &["--allow-", "--without-approvals", "--min-free"];
 
-/// The `next_steps` of an error (`output["error"]`) or of a refusal of `--check`, as `(command, needs_approval)`, each
+/// The `next_steps` of an error (`output["error"]`) or of a refusal of `--dry-run`, as `(command, needs_approval)`, each
 /// checked: a step that pushes, rewrites, cancels or restarts a robot (`STEPS_THAT_NEED_APPROVAL`, `safe-push` and
-/// `request-review` without `--check`, `--force`, `--restart-running`, `--cancel-running`) needs the user's approval,
+/// `request-review` without `--dry-run`, `--force`, `--restart-running`, `--cancel-running`) needs the user's approval,
 /// and none is a suppression (`SUPPRESSIONS`)
 pub fn next_steps(refusal: &Value) -> Vec<(String, bool)> {
   let steps = refusal["next_steps"].as_array().map_or_else(Vec::new, |steps| {
@@ -210,7 +210,7 @@ pub fn next_steps(refusal: &Value) -> Vec<(String, bool)> {
     let subcommand = words.get(index).copied().unwrap_or_default();
     let has = |flag: &str| words.contains(&flag);
     let writes = STEPS_THAT_NEED_APPROVAL.contains(&subcommand)
-      || (matches!(subcommand, "safe-push" | "request-review") && !has("--check"))
+      || (matches!(subcommand, "safe-push" | "request-review") && !has("--dry-run"))
       || ["--force", "--restart-running", "--cancel-running"].into_iter().any(has);
     assert!(!writes || *needs_approval, "{command}: it writes, so it needs the user's approval");
   }

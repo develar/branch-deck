@@ -270,7 +270,7 @@ pub(crate) fn counted(robot: PatronusRobot) -> (Arc<Counted>, Arc<dyn FactSource
   (counted, sources)
 }
 
-/// `bd safe-push --check` of a branch whose failed robot's list names no profile: one list, one search, one
+/// `bd safe-push --dry-run` of a branch whose failed robot's list names no profile: one list, one search, one
 /// `start-supported`, the details of that robot and its problems, side by side within each round; then what the
 /// decision waits for: one rules and one readiness read, however often they are named
 #[tokio::test(flavor = "multi_thread")]

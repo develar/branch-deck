@@ -96,7 +96,7 @@ landing of a session](../design/git-operations.md#the-landing-of-a-session)), wh
 | Whether a subject waits for approvals, which shown subjects the session asks | `readiness.rs` | `derive::wanted_readiness` |
 | The running Safe Push that lands a missing declaration of the landing gate | `landing_needs.rs` | `BranchPatronus.landingNeeds` |
 | The route of a repository into master (a robot, a push into the target, a merge of the pull request) by `branchdeck.landing` or the host of `origin`, and its gate of the write access and the rules of the target; the branch whose rules the session reads for it | `landing_route.rs` | the facts it reads: `TableHeader.landing`, `PullRequestsView.viewerPermission`, `FactsView.rules`; `bd`: none yet |
-| The next step of a branch and of a whole stack | `next_step.rs` | `RepositoryView.nextSteps` (`derive::next_steps`); `bd status`, `bd safe-push --check` (`next_step`) |
+| The next step of a branch and of a whole stack | `next_step.rs` | `RepositoryView.nextSteps` (`derive::next_steps`); `bd status`, `bd safe-push --dry-run` (`next_step`) |
 | The node of a row and of a stack header: whose move it is | `landing_node.rs` | `NextStepView.node` |
 | The Status cell of a branch row: what happens to it first, the facts it covers beside it | `row_status.rs` | `NextStepView.status`; `bd status` (`next_step.status`) |
 | The facts of a branch itself (its robot, its sync, its parent, what landed it, parked), collected once for the node and the cell | `own_facts.rs` | `landing_node`, `row_status` |

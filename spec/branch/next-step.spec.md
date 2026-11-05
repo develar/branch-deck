@@ -248,7 +248,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   the table and the robots have it, each fact of the remote as it stands), and so is the node of the row
   (`domain_policy::landing_node`): the session derives the step and the node of every row and of every whole stack
   that forks with each patch of its view (`RepositoryView.nextSteps`, `repository_model::derive::next_steps`; a sync of
-  a branch is row 1 meanwhile), `bd status` and `bd safe-push --check` print it of what they read
+  a branch is row 1 meanwhile), `bd status` and `bd safe-push --dry-run` print it of what they read
   ([Agent CLI](../cli/agent-cli.spec.md#bd-status)). A step carries the facts its words need, never the words: its row,
   its kind with the pull request and the groups it names, the blockers of the Safe Push and the Dry Run (a reason of
   the rules, the sync, or the step's own reason), whether it waits for the readiness or stands on a stale answer of it,

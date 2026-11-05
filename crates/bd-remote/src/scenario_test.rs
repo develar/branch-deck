@@ -3,8 +3,8 @@
 //! it. The app's side: the table its sync folds (`TableState`) and the facts its session holds of the same fakes
 //! (`FactStore`, fed as the session's host feeds it), through `repository_model::derive` (`next_steps_of`) and the plan
 //! of its start (`operations::land::plan_of`, as the app's `prepare` answers it). The side of `bd`: `safe_push()` with
-//! `--check` (the production path: its preamble, `plan()`, the output of a check, with the plan and the step its words
-//! tell), then the start without `--check`
+//! `--dry-run` (the production path: its preamble, `plan()`, the output of a check, with the plan and the step its words
+//! tell), then the start without `--dry-run`
 
 use crate::land_command::{LandArgs, land as land_command};
 use crate::push_command::github_repository;
@@ -439,7 +439,7 @@ enum Flag {
   AllowMissing,
   AllowDangling,
   AllowUnknownRules,
-  /// `--without-checks` of `bd land`: what CI did not check, accepted
+  /// `--allow-checks-not-passed` of `bd land`: what CI did not check, accepted
   WithoutChecks,
   /// `--bypass-rules` of `bd land`: what the gate of the route asks, accepted
   BypassRules,
@@ -539,7 +539,7 @@ impl Given {
       branch: self.branch.clone(),
       patronus_dry_run: self.mode == Mode::DryRun,
       profile: self.profile.as_ref().and_then(|profile| profile.chosen.clone()),
-      check,
+      dry_run: check,
       without_approvals: self.has(Flag::WithoutApprovals),
       create_pull_request: self.has(Flag::CreatePullRequest),
       cancel_running: self.has(Flag::CancelRunning),
@@ -592,8 +592,8 @@ impl Given {
     LandArgs {
       branch: self.branch.clone(),
       whole_stack: self.subject == GivenSubject::WholeStack,
-      check,
-      without_checks: self.has(Flag::WithoutChecks),
+      dry_run: check,
+      allow_checks_not_passed: self.has(Flag::WithoutChecks),
       bypass_rules: self.has(Flag::BypassRules),
       allow_dangling: self.has(Flag::AllowDangling),
       allow_missing: self.has(Flag::AllowMissing),
@@ -1003,7 +1003,7 @@ impl Situation {
     }
   }
 
-  /// `safe_push()` with `--check`, the function the command runs: its output as `--check` prints it, or the error of
+  /// `safe_push()` with `--dry-run`, the function the command runs: its output as `--dry-run` prints it, or the error of
   /// the plan
   fn check(&self, given: &Given) -> Result<BdCheck, CliError> {
     let context = self.context()?;
@@ -1040,12 +1040,12 @@ impl Situation {
     )
   }
 
-  /// `bd safe-push` without `--check`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
+  /// `bd safe-push` without `--dry-run`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
   fn start(&self, given: &Given) -> Value {
     if given.route.is_some() {
       let mut args = vec!["--prefix", PREFIX, "land", given.branch.as_str()];
       if given.has(Flag::WithoutChecks) {
-        args.push("--without-checks");
+        args.push("--allow-checks-not-passed");
       }
       if given.has(Flag::BypassRules) {
         args.push("--bypass-rules");
@@ -1358,7 +1358,7 @@ impl Situation {
   }
 }
 
-/// What `bd` decides of a case with `--check`: the plan and the step its words tell
+/// What `bd` decides of a case with `--dry-run`: the plan and the step its words tell
 struct BdCheck {
   plan: Option<Plan>,
   step: Option<NextStep>,
@@ -1491,7 +1491,7 @@ fn differences(side: &str, column: &str, expected: &Value, actual: &Value) -> Ve
   }
 }
 
-/// The start of `bd` without `--check` does what its decision says: it starts (through the API or from a pull request,
+/// The start of `bd` without `--dry-run` does what its decision says: it starts (through the API or from a pull request,
 /// canceling the robot the decision cancels) when nothing refuses it and the flags accept every confirmation
 /// (`domain_policy::land::unaccepted`), else it refuses
 fn start_differences(situation: &Situation, given: &Given, decision: &Plan) -> Vec<String> {
@@ -1517,12 +1517,12 @@ fn start_differences(situation: &Situation, given: &Given, decision: &Plan) -> V
   if actual == expected {
     Vec::new()
   } else {
-    vec![format!("bd: the start without --check: expected {expected}, answers {actual}")]
+    vec![format!("bd: the start without --dry-run: expected {expected}, answers {actual}")]
   }
 }
 
-/// What the case's repository answers against its expectation: the app's side, then `bd` with `--check` (its decision
-/// and its step), then its start without `--check`; the failures, each named with the case
+/// What the case's repository answers against its expectation: the app's side, then `bd` with `--dry-run` (its decision
+/// and its step), then its start without `--dry-run`; the failures, each named with the case
 fn answer(case: &Case) -> Vec<String> {
   let named = |failures: Vec<String>| -> Vec<String> { failures.into_iter().map(|failure| format!("{}: {failure} — {}", case.id, case.title)).collect() };
   assert!(!case.spec.is_empty(), "{}: a case names the requirements it pins", case.id);
@@ -1989,7 +1989,7 @@ fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() 
     (WholeStack::Chain { root: "C", leaf: "C" }, WholeStack::Chain { root: "A", leaf: "A" })
   );
   // so the Safe Push of the whole stack of A lands A alone, its own stack problem refusing it, never C's block
-  let (exit_code, output) = safe_push(&environment, &["A", "--whole-stack", "--check"]);
+  let (exit_code, output) = safe_push(&environment, &["A", "--whole-stack", "--dry-run"]);
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("push_refused")), "{output}");
   let message = output["error"]["message"].as_str().unwrap();
   assert!(

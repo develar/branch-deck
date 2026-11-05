@@ -15,26 +15,29 @@ fn landing_by_push() -> (TestRepo, TempDir) {
   (repo, remote)
 }
 
-/// A repository that lands by a push: `--check` names what lands and what CI did not check, pushing nothing; the push
-/// itself refuses what the user didn't accept (`checks_not_passed`); with `--without-checks` the copy of the branch
+/// A repository that lands by a push: `--dry-run` names what lands and what CI did not check, pushing nothing; the push
+/// itself refuses what the user didn't accept (`checks_not_passed`); with `--allow-checks-not-passed` the copy of the branch
 /// lands into master as a fast-forward, the remote-tracking ref of master stays, and `bd update` is the next step,
 /// which drops the original whose copy landed
 #[test_log::test]
 fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check() {
   let (repo, remote) = landing_by_push();
   let base = remote_tip(&remote, "master");
-  let (exit_code, check) = run_in(&repo, &["land", "auth", "--check"]);
+  let (exit_code, check) = run_in(&repo, &["land", "auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{check}");
   assert_eq!((&check["route"], &check["lands"], &check["landed"]), (&json!("push"), &json!(["auth"]), &json!(false)));
   assert_eq!(check["refusals"][0]["code"], json!("checks_not_passed"), "{check}");
   assert_eq!(check["next_step"]["step"], json!("push_to_baseline"), "{check}");
   assert_eq!(remote_tip(&remote, "master"), base, "a check pushes nothing");
+  // `--check`, its name before, is the same dry run
+  let (exit_code, old) = run_in(&repo, &["land", "auth", "--check"]);
+  assert_eq!((exit_code, &old["refusals"]), (0, &check["refusals"]), "{old}");
 
   let (exit_code, refused) = run_in(&repo, &["land", "auth"]);
   assert_error(&refused, exit_code, (4, "checks_not_passed"));
   assert_eq!(remote_tip(&remote, "master"), base);
 
-  let (exit_code, landed) = run_in(&repo, &["land", "auth", "--without-checks"]);
+  let (exit_code, landed) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_eq!(exit_code, 0, "{landed}");
   assert_eq!((&landed["landed"], &landed["next"]), (&json!(true), &json!("bd update")));
   let copy = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
@@ -53,27 +56,27 @@ fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not
 fn a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused() {
   let (repo, remote) = landing_by_push();
   let theirs = push_from_elsewhere_to(&remote, "master", "Their fix");
-  let (exit_code, moved) = run_in(&repo, &["land", "auth", "--without-checks"]);
+  let (exit_code, moved) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&moved, exit_code, (3, "baseline_moved"));
   assert_eq!(next_steps(&moved["error"]), [("bd update".to_string(), true)]);
   assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), theirs, "the push fetched it");
 
   let (repo, remote) = landing_by_push();
   pre_receive_hook(remote.path(), "echo 'master is protected' >&2\nexit 1");
-  let (exit_code, refused) = run_in(&repo, &["land", "auth", "--without-checks"]);
+  let (exit_code, refused) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&refused, exit_code, (4, "baseline_refused"));
   assert!(refused["error"]["message"].as_str().unwrap().contains("master is protected"), "{refused}");
 }
 
 /// A fetched master with a commit the branch is not built on refuses the push before it is sent, as `baseline_moved`
-/// with `bd update` next: the copy is built on the fork point, so the push would be no fast-forward; `--check` names
+/// with `bd update` next: the copy is built on the fork point, so the push would be no fast-forward; `--dry-run` names
 /// the update as the step
 #[test_log::test]
 fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
   let (repo, remote) = landing_by_push();
   let theirs = push_from_elsewhere_to(&remote, "master", "Their fix");
   git(&repo, &["fetch", "-q", "origin"]);
-  let (exit_code, check) = run_in(&repo, &["land", "auth", "--check"]);
+  let (exit_code, check) = run_in(&repo, &["land", "auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{check}");
   assert_eq!(
     (&check["next_step"]["row"], &check["next_step"]["step"]),
@@ -81,7 +84,7 @@ fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
     "{check}"
   );
   assert_eq!(check["refusals"][0]["code"], json!("baseline_moved"), "{check}");
-  let (exit_code, refused) = run_in(&repo, &["land", "auth", "--without-checks"]);
+  let (exit_code, refused) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&refused, exit_code, (3, "baseline_moved"));
   assert_eq!(next_steps(&refused["error"]), [("bd update".to_string(), true)]);
   assert_eq!(remote_tip(&remote, "master"), theirs, "nothing was pushed");
@@ -94,7 +97,7 @@ fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
 fn a_land_by_a_push_locks_only_the_witness() {
   let (repo, remote) = landing_by_push();
   let wrapped = bd_cli::fixture_test::LockSpanGit::new(&repo, "");
-  let (exit_code, landed) = wrapped.run(&["land", "auth", "--without-checks"]);
+  let (exit_code, landed) = wrapped.run(&["land", "auth", "--allow-checks-not-passed"]);
   assert_eq!(exit_code, 0, "{landed}");
   assert_eq!(remote_tip(&remote, "master"), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
   wrapped.assert_a_push_locks_only_its_witness("fast-import");
@@ -108,11 +111,11 @@ fn a_pull_request_route_off_github_merges_nothing_and_patronus_off_space_starts_
   let (exit_code, output) = run_in(&repo, &["land", "auth"]);
   assert_error(&output, exit_code, (4, "landing_route_unsupported"));
   git(&repo, &["config", "branchdeck.landing", "patronus"]);
-  let (exit_code, output) = run_in(&repo, &["land", "auth", "--check"]);
+  let (exit_code, output) = run_in(&repo, &["land", "auth", "--dry-run"]);
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("not_on_space")), "{output}");
 }
 
-/// `bd status` decides the steps by the route of the repository, as `bd land --check` does: a branch of a repository
+/// `bd status` decides the steps by the route of the repository, as `bd land --dry-run` does: a branch of a repository
 /// that lands by a push has no Dry Run of Patronus, and its push into master waits for the pull requests GitHub lists
 /// (whether CI passed on its tip), which `bd status` doesn't read
 #[test_log::test]

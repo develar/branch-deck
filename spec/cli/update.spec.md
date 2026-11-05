@@ -289,7 +289,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   `invalid_arguments`, and a refused directory that bd created is removed. bd must delete only what it wrote, and
   remove only a directory it created.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`the_copies_go_to_dir_only_outside_every_worktree`, `the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
-- `bd update --status --materialize` must write the missing copies of the open round, and with `--force` all of them.
+- `bd update --status --materialize` must write the missing copies of the open round, and with `--overwrite-edited`
+  (`--force`, its name before) all of them.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
 
 ### `--continue`
@@ -384,8 +385,9 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - `bd update --abort` must delete the session ref with compare-and-swap under the lock, then the copies bd wrote
   after its release, and print the `worktree`, the `branch` and the `round`; it writes no note. Without a session it is `no_session` (exit 2).
   `--worktree <id>` must abort the session of another worktree, e.g. an orphaned one. While that worktree exists, only
-  `--force` aborts it. An id must be letters, digits, `.`, `_` and `-`, else `invalid_arguments`.
-  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_rewritten_head_makes_the_session_stale_and_abort_removes_it`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`, `aborting_the_live_session_of_another_worktree_needs_force`)
+  `--allow-live-session` aborts it (`--force`, its name before). An id must be letters, digits, `.`, `_` and `-`, else
+  `invalid_arguments`.
+  [@test] ../../crates/bd-update/src/resolve_test.rs (`a_rewritten_head_makes_the_session_stale_and_abort_removes_it`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`, `aborting_the_live_session_of_another_worktree_needs_allow_live_session`)
 - Temporary refs older than an hour (by the time in their name) belong to a process that is gone; the start of a
   session, `--abort` and a `--continue` of an `applying` or `applied` session must delete them.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`stale_temporary_refs_are_swept_when_a_session_starts`)
@@ -417,7 +419,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   round object with `landed_as`, `landed_differs`, `blocked_paths`, `marker_labels` and `next`, `pending`,
   edit only the files at `edit` (a change outside the blocks waits for a `fixup!`), `--continue` with `--take`,
   `--delete`, `--allow-empty`, `--drop-empty`, `--landed` and `--user`, the exit codes, the report of the resolutions,
-  the build and the tests of `verify.paths` after exit 0 and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--force` for a live
+  the build and the tests of `verify.paths` after exit 0 and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--allow-live-session` for a live
   session of another worktree), `--status` and `--dir`, and that a copy is written as UTF-8 without a BOM
   (`[IO.File]::WriteAllText` in Windows PowerShell). `bd help agent` must only name it; together the two texts must name every
   option of `bd update`.

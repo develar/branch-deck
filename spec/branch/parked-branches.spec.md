@@ -160,7 +160,7 @@ branch built on it carries its commits, so it is parked with it.
   refuses only when nothing else is left. The stack branch of a stack with a parked member stays local.
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_parked_branch_and_what_is_built_on_it_are_never_pushed`)
 - `bd safe-push` must refuse a parked branch, a branch built on one and a whole stack with a parked member with
-  `parked`, `--check` and `--patronus-dry-run` included, before Patronus is asked.
+  `parked`, `--dry-run` and `--patronus-dry-run` included, before Patronus is asked.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`, `the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - `bd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.

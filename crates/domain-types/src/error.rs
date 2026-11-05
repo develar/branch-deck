@@ -54,7 +54,7 @@ pub enum ErrorCode {
   PrefixChanged,
   /// An operation of the remote was prepared over facts that changed before its first effect (a rewrite of another
   /// session, a pull request, a robot, a remote branch): its plan is another one now, and nothing was done. Read the
-  /// plan again (`bd safe-push --check`), then retry
+  /// plan again (`bd safe-push --dry-run`), then retry
   PlanChanged,
   /// `bd unpark`: the branch is not parked
   NotParked,
@@ -234,7 +234,7 @@ pub enum ErrorCode {
   BaselineMoved,
   /// `bd land`: CI did not pass on the commit the push lands (no open pull request, one that shows another commit, its
   /// checks failing or running, GitHub listing none), or changes are requested on its pull request: a push into the
-  /// target runs no CI. Nothing was pushed; ask the user, `--without-checks` pushes once they agree
+  /// target runs no CI. Nothing was pushed; ask the user, `--allow-checks-not-passed` pushes once they agree
   ChecksNotPassed,
   /// `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet. Nothing was
   /// pushed

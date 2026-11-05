@@ -41,7 +41,7 @@ fn asks_the_suggested_code_owner_of_the_missing_group_once() {
   let ilya = json!({"login": "ikorennoy", "full_name": "Ilya Korennoy"});
 
   // the check names whom it asks, and asks nobody
-  let (exit_code, output) = request_review(&environment, &["auth", "--check"]);
+  let (exit_code, output) = request_review(&environment, &["auth", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
     (output["readiness"].clone(), output["reviewers"].clone(), output["requested"].clone()),
@@ -132,7 +132,7 @@ fn a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused() {
 }
 
 /// A branch with work its remote lacks: the reviewers would not see it, so the request is refused (`needs_push`) with
-/// the command that pushes it first, the user's to approve; `--push` pushes it, then asks, and `--check` names what it
+/// the command that pushes it first, the user's to approve; `--push` pushes it, then asks, and `--dry-run` names what it
 /// would push
 #[test_log::test]
 fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() {
@@ -143,11 +143,11 @@ fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() 
   // the push is the user's to approve
   assert_eq!(next_steps(&output["error"]), [("bd request-review auth --push".to_string(), true)]);
 
-  let (exit_code, output) = request_review(&environment, &["auth", "--push", "--check"]);
+  let (exit_code, output) = request_review(&environment, &["auth", "--push", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!((output["pushed"].clone(), output["requested"].clone()), (json!(["auth"]), json!([])));
   let remote = format!("{PREFIX}/virtual/auth");
-  assert_eq!(space.remote_tip(&remote), "", "--check pushes nothing");
+  assert_eq!(space.remote_tip(&remote), "", "--dry-run pushes nothing");
   assert_eq!(bodies(&github), [] as [Value; 0]);
 
   let (exit_code, output) = request_review(&environment, &["auth", "--push"]);

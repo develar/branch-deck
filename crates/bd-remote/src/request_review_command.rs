@@ -53,8 +53,8 @@ pub struct RequestReviewArgs {
   #[arg(long)]
   pub push: bool,
   /// Print whom it would ask and what it would push, and ask nobody
-  #[arg(long)]
-  pub check: bool,
+  #[arg(long, alias = "check")]
+  pub dry_run: bool,
 }
 
 /// `bd request-review`
@@ -69,13 +69,13 @@ pub struct RequestReviewOutput {
   /// `unknown`); `null` with `--reviewer`, which doesn't ask Patronus
   pub readiness: Option<String>,
   /// Whom it asks: the `--reviewer` logins, else one suggested code owner of each missing group nobody is asked for
-  /// yet; with `--check`, whom it would ask
+  /// yet; with `--dry-run`, whom it would ask
   pub reviewers: Vec<PersonSummary>,
-  /// The branches `--push` pushed first, root first; with `--check`, what it would push; absent when the remote has
+  /// The branches `--push` pushed first, root first; with `--dry-run`, what it would push; absent when the remote has
   /// them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub pushed: Vec<String>,
-  /// Whom GitHub asked to review; empty with `--check`
+  /// Whom GitHub asked to review; empty with `--dry-run`
   pub requested: Vec<PersonSummary>,
   /// Whom GitHub refused (the author, a user without access to the repository), with its reason
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -246,7 +246,7 @@ pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environme
     .filter(|reviewer| reviewer.requested)
     .map(|reviewer| reviewer.login.clone())
     .collect();
-  if args.check || (asked.is_empty() && pushes.is_empty()) {
+  if args.dry_run || (asked.is_empty() && pushes.is_empty()) {
     output.waiting_for = waiting.iter().map(|login| summary(login)).collect();
     return Ok(output);
   }

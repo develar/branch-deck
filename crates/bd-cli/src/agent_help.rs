@@ -9,7 +9,7 @@ macro_rules! read_only {
 `bd reword --dry-run`
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
 object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
-`bd push --dry-run`, `bd safe-push --check` and `bd request-review --check` sync first."
+`bd push --dry-run`, `bd safe-push --dry-run` and `bd request-review --dry-run` sync first."
   };
 }
 
@@ -108,11 +108,11 @@ Workflow: the commits into pull requests
 4. Push the branches, never into master (`bd land`). Show the result to the user; once approved,
    `bd push <branch>...`, and name every branch of `branches`. Each has a ready `gh pr create` into the baseline; pipe
    its `body` into it. `bd push --help`: the refusals and the stack branches.
-5. Safe Push (Patronus). First, always, `bd safe-push <branch> --check`; show the user `lands` (a stacked branch lands
+5. Safe Push (Patronus). First, always, `bd safe-push <branch> --dry-run`; show the user `lands` (a stacked branch lands
    what it is built on, in one robot; `--whole-stack` the whole stack) and `review`. Once approved,
-   `bd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). `bd safe-push --help`: the fields of --check and every
+   `bd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). `bd safe-push --help`: the fields of --dry-run and every
    refusal. Any route: `bd land --help`.
-6. Review. `bd request-review <branch> --check` names whom it would ask; once approved, the same without --check
+6. Review. `bd request-review <branch> --dry-run` names whom it would ask; once approved, run it without
    (`bd request-review --help`).
 7. Robot. `bd robot <branch>` (`--full` after a failure says why and what to fix; `bd robot --help`).
 8. Statistics. `bd robot-stats` (`bd robot-stats --help`).
@@ -217,9 +217,9 @@ says what is left.
 `session_stale` (exit 4): the branch was rewritten or HEAD left it; `unsupported_conflict` (exit 4): a binary,
 file/directory, rename, mode, symlink or submodule conflict, or an invalid path. Both: stop and show the user. `bd update --abort` removes the session
 and its copies (nothing else changed); --worktree <id> removes an orphaned session of another worktree, a live one
-only with --force.
+only with --allow-live-session, once the user approved.
 `bd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
-changes nothing; --materialize writes the missing copies, with --force all of them. --dir <path> puts the copies of a
+changes nothing; --materialize writes the missing copies, with --overwrite-edited all of them. --dir <path> puts the copies of a
 new session into an empty directory outside every worktree, for a sandbox that keeps .git read only.
 ";
 
@@ -523,10 +523,10 @@ push none that isn't `built`. `bd push <root> --with-children` pushes it in the 
 remote or its pull request is open, when this sync built it (`stack_warnings` names one left out).
 ";
 
-/// `bd safe-push --help`: the fields of --check, its refusals and the branches it landed
+/// `bd safe-push --help`: the fields of --dry-run, its refusals and the branches it landed
 pub const SAFE_PUSH_HELP: &str = "\
 `bd safe-push` starts a Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`). First, always,
-`bd safe-push <branch> --check`: it syncs and starts nothing, and prints
+`bd safe-push <branch> --dry-run`: it syncs and starts nothing, and prints
 - `profile` (default: the one of the last robot of the branch) and the `profiles` to choose from (--profile
   <id|name|none>);
 - `review`: `readiness` (`not_required`, `approved`, `missing`, `unknown`), `groups` with their `reviewers` and
@@ -547,7 +547,7 @@ by content), then starts the robot: `robot.url` is its page; a branch with an op
 starts from a `/patronus` comment there, where its approvals count (`started_via`); one into a virtual branch is
 retargeted first (`retargeted`). --patronus-dry-run starts a Dry Run instead: the checks without the push into the
 target and without the review, but it pushes and starts a robot like a Safe Push. The whole stack, its side
-branches included, lands in one robot with --whole-stack (from any branch of it; --check first): the robot starts
+branches included, lands in one robot with --whole-stack (from any branch of it; --dry-run first): the robot starts
 from the stack branch of its top-level root (`whole_stack.source`; a straight chain starts from its last branch),
 `lands` names every branch, and its pull request is the stack's own, where the approvals of the whole stack count.
 Refusals, nothing pushed or started:
@@ -597,7 +597,7 @@ send). bd closes no pull request after the merge: the app closes those of the pa
 merge; when the app isn't running, tell the user that they stay open.
 ";
 
-/// `bd land --help`: the routes, the fields of --check and the refusals of a push into the target
+/// `bd land --help`: the routes, the fields of --dry-run and the refusals of a push into the target
 pub const LAND_HELP: &str = "\
 `bd land <branch>` lands the branch into master by the route of the repository (`branchdeck.landing`, `route`): a
 Safe Push of Patronus (`patronus`: what `bd safe-push` does, its output in `safe_push`), or a push of the copy into
@@ -605,7 +605,7 @@ the target (`push`: the commit the sync built of the branch on the baseline, `co
 fast-forward; it lands without the robot and without the CI of a pull request), or a merge of its pull request on
 GitHub (`pull-request`: `pull_request` merges by rebase, else a merge commit, else squash; while its required checks
 run, or after the push of a branch its pull request shows an older commit of, `auto_merge: true`: GitHub merges it once
-they pass, nothing landed yet). First, always, `bd land <branch> --check`: it
+they pass, nothing landed yet). First, always, `bd land <branch> --dry-run`: it
 syncs and pushes nothing, and prints `lands` (a stacked branch lands the branches it is built on with it;
 --whole-stack the whole stack, from its stack branch once the sync built it), `confirmations` and the `refusals` a
 push would meet. A push into master is as final as a merge: show `lands` and every confirmation to the user, and push
@@ -614,7 +614,7 @@ the branch onto the target and drops the commits that landed; bd land never upda
 Refusals, nothing pushed:
 - `checks_not_passed` (exit 4, also in `refusals`): CI did not pass on the commit it lands (no open pull request, one
   that shows another commit, failing or running checks, GitHub listing none), or changes are requested on its pull
-  request: ask the user; --without-checks pushes once they agree.
+  request: ask the user; --allow-checks-not-passed pushes once they agree.
 - `no_write_access` (exit 4): the token may not push into the repository (GitHub's `viewerPermission`): someone with
   write access lands it.
 - `baseline_requires_pull_request` (exit 4): the rules of the target take a change only through a pull request; a
@@ -639,7 +639,7 @@ Refusals, nothing pushed:
 
 /// `bd request-review --help`: whom it asks and its refusals
 pub const REQUEST_REVIEW_HELP: &str = "\
-A pull request that asks no code owner of a missing group: `bd request-review <branch> --check` names whom
+A pull request that asks no code owner of a missing group: `bd request-review <branch> --dry-run` names whom
 it would ask (`reviewers`: one suggested code owner of each such group) and what it would push first (`pushed`);
 once approved, `bd request-review <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these
 instead): `requested`, `refused` with GitHub's reason, `waiting_for`. `needs_push` (exit 4): the branch has commits
@@ -820,12 +820,12 @@ command prints and what each of its refusals asks.
   Move a change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
   Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
   for that approval too.
-- Before a Safe Push, run `bd safe-push <branch> --check` first and show the user what it lands: the Safe Push of a
+- Before a Safe Push, run `bd safe-push <branch> --dry-run` first and show the user what it lands: the Safe Push of a
   stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
   its side branches included, in one robot.
 - `bd land` of a repository that lands by a push (`route: push`) pushes into master itself, without a robot and without
-  the CI of a pull request: run `bd land <branch> --check`, show the user `lands` and `confirmations`, and run it only
-  once they approved, as any push; never pass --without-checks or --bypass-rules on your own. After it, `bd update`.
+  the CI of a pull request: run `bd land <branch> --dry-run`, show the user `lands` and `confirmations`, and run it only
+  once they approved, as any push; never pass --allow-checks-not-passed or --bypass-rules on your own. After it, `bd update`.
 - A branch `parked` in `bd status` stays local until the user unparks it: `bd push` and `bd safe-push` refuse it
   (`parked`). Never push or unpark it on your own.
 - `bd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one, and

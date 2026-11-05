@@ -188,8 +188,8 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   robot started on the branch's virtual branch. Its start is the run of the app's start (`operations::land_execute`,
   [Push and land](git-operations.md#push-and-land)): the same plan, the same effects in the same order (the retargets,
   the cancel of the Safe Push it replaces, the push, the start), the same witness of the refs before the first effect;
-  only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--check`; only
-  `--check` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
+  only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--dry-run`; only
+  `--dry-run` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
   The app's start and `bd safe-push` of one piece never run side by side: the operations registry of the repository
   makes the second one `busy`, naming the first ([Running Operations](operations.md)), and a start whose answer was

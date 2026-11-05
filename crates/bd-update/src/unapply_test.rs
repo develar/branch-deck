@@ -95,7 +95,7 @@ fn status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_wi
   );
   let (exit_code, output) = run_in(&repo, &["push", "docs"]);
   assert_error(&output, exit_code, (4, "unapplied"));
-  let (exit_code, output) = run_in(&repo, &["safe-push", "docs", "--check"]);
+  let (exit_code, output) = run_in(&repo, &["safe-push", "docs", "--dry-run"]);
   assert_error(&output, exit_code, (4, "unapplied"));
 
   // `origin` is the repository itself: git answers the push of the branch it has as up to date, and the remote-tracking

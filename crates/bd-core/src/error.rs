@@ -187,7 +187,7 @@ pub struct ErrorBody {
   pub processes: Vec<ProcessOutput>,
   /// The commands that act on the refusal, ready to run, in the order to run them: a step with `needs_approval` runs
   /// only once the user approved it (a push, a rewrite, a cancel of a robot); one without it only reads (`bd robot`,
-  /// `bd sync`, a `--check`). Never a way to start anyway: `--allow-*`, `--without-approvals` and `--min-free` stay in
+  /// `bd sync`, a `--dry-run`). Never a way to start anyway: `--allow-*`, `--without-approvals` and `--min-free` stay in
   /// `message`, with the condition of each
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub next_steps: Vec<NextStep>,

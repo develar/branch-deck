@@ -394,7 +394,7 @@ pub struct BranchStatus {
   pub parked: Option<ParkedSummary>,
   /// What the app's row offers next (`domain_policy::next_step`, spec/branch/next-step.spec.md): the row of the table, the
   /// step, the fact it waits for, its pull request, why a Safe Push or a Dry Run can't start. `bd status` reads no pull
-  /// request, readiness or why a robot failed: a step that needs them waits for them (row 0); `bd safe-push --check`
+  /// request, readiness or why a robot failed: a step that needs them waits for them (row 0); `bd safe-push --dry-run`
   /// reads them. Omitted off Space (the row has no slot) and with --unassigned
   #[serde(skip_serializing_if = "Option::is_none")]
   pub next_step: Option<NextStepSummary>,

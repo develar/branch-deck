@@ -1,7 +1,7 @@
 //! The next step of a subject in the words of `bd` (`domain_policy::next_step`, the step the app's row shows;
 //! spec/branch/next-step.spec.md, "The table"): the row of the table, the step, the fact it waits for, its pull request
 //! and why a Safe Push or a Dry Run can't start now. `bd status` prints it of every branch and whole stack, `bd
-//! safe-push --check` of the subject it checks.
+//! safe-push --dry-run` of the subject it checks.
 
 use domain_types::next_step::{NextStep, RowFact, RowStatus, StepBlocker, StepFact, StepFailure, StepKind};
 use domain_types::patronus::{MissingReviewGroup, PatronusRobot, Person};
@@ -24,7 +24,7 @@ pub struct NextStepSummary {
   pub step: String,
   /// Row 0: the fact without an answer, or whose read failed: `patronus`, `pull_requests`, `landing_needs`,
   /// `robot_problems`, `readiness`. `bd status` reads no pull request, readiness or problem of a failed robot: a step
-  /// that needs them waits for them; `bd safe-push --check` reads them
+  /// that needs them waits for them; `bd safe-push --dry-run` reads them
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waits_for: Option<String>,
   /// The pull request the step is about: the open one, the one a robot failed in, of the whole stack the branch is in

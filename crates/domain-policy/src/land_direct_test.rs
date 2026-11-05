@@ -382,7 +382,7 @@ fn a_whole_stack_pushes_its_stack_branch_only_once_the_sync_built_it() {
   assert_eq!(codes(&decide_stack(&built, Some(&running))), ["lastCommit"]);
 }
 
-/// `bd` accepts the checks that did not pass and the changes requested only with `--without-checks`, what the gate of the
+/// `bd` accepts the checks that did not pass and the changes requested only with `--allow-checks-not-passed`, what the gate of the
 /// route asks only with `--bypass-rules`
 #[test]
 fn bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags() {

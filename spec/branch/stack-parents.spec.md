@@ -252,7 +252,7 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 - `bd suggest` must mark a cluster `stacked_without_need` when its stored parent stays and it depends on no cluster of
   that parent's lineage. The plan must keep the parent.
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_stored_parent_without_need_is_reported_and_kept`)
-- `bd safe-push <branch> --check` of a stacked branch must print the trial build of the branch alone as `alone`:
+- `bd safe-push <branch> --dry-run` of a stacked branch must print the trial build of the branch alone as `alone`:
   `builds` with "`bd unstack <branch>` makes it a root that lands alone", or the commits of its ancestors that it
   needs, with their branch. Its Safe Push lands it with its ancestors either way; the unstack is the user's choice.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)

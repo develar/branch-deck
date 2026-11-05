@@ -108,7 +108,7 @@ pub struct SuggestedCluster {
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub restacked: bool,
   /// The stack parents stack it on `parent`, but it needs no commit of `parent` or of its ancestors by its lines. The
-  /// plan keeps the parent: `bd unstack <name>` makes it a root, `bd safe-push --check` tells whether it builds alone
+  /// plan keeps the parent: `bd unstack <name>` makes it a root, `bd safe-push --dry-run` tells whether it builds alone
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub stacked_without_need: bool,
 }

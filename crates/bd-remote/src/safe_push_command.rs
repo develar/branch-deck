@@ -1,12 +1,12 @@
 //! `bd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push does: a Safe Push (rebase onto
 //! the target, the checks, the push into the target) or a Dry Run (the checks only), with a merge profile. A stacked
 //! branch carries the commits of the branches it is built on, so its Safe Push lands them with it, in one robot
-//! (`lands`); with `--check` the trial build of the branch alone says whether it could land without them (`alone`), a
+//! (`lands`); with `--dry-run` the trial build of the branch alone says whether it could land without them (`alone`), a
 //! second way the user chooses (`bd unstack`), never the lead. Before a Safe Push the code-owner review is checked;
 //! unlike the form, which only warns, missing approvals refuse the start (`approvals_missing`): Patronus would fail the
 //! robot with "Changes require review approval". A branch the remote lacks commits of (by content, as the sync's
 //! remote status compares) is pushed first, parents first, as `bd push` pushes it; one only rebuilt on a newer baseline
-//! is not: the robot takes the remote branch. The start is never repeated. With `--check` nothing is pushed or started:
+//! is not: the robot takes the remote branch. The start is never repeated. With `--dry-run` nothing is pushed or started:
 //! the profiles, the review and what stands in the way, for the user to approve. The approvals count in the GitHub pull
 //! request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, into the target as
 //! every pull request of a virtual branch (or takes the open one of the branch, whatever its base), and the Safe Push
@@ -109,18 +109,19 @@ pub struct SafePushArgs {
   /// branch
   #[arg(long, value_name = "PROFILE")]
   pub profile: Option<String>,
-  /// Sync, then print the profiles, the review and what stands in the way of a start; nothing is pushed or started
-  #[arg(long)]
-  pub check: bool,
+  /// Sync, then print the profiles, the review and what stands in the way of a start; nothing is pushed or started.
+  /// With --patronus-dry-run the same for a Patronus Dry Run, which, without --dry-run, starts a robot
+  #[arg(long, alias = "check")]
+  pub dry_run: bool,
   /// Start a Safe Push although the code owners have not approved it: Patronus fails it unless they approve meanwhile
   #[arg(long, conflicts_with = "patronus_dry_run")]
   pub without_approvals: bool,
   /// Push the branch and open its GitHub pull request, where the code owners approve, assigned to the user; no robot
   /// starts. The Safe Push starts from it then
-  #[arg(long, conflicts_with_all = ["patronus_dry_run", "check", "without_approvals", "profile"])]
+  #[arg(long, conflicts_with_all = ["patronus_dry_run", "dry_run", "without_approvals", "profile"])]
   pub create_pull_request: bool,
   /// With `--create-pull-request`: ask this GitHub login to review it (repeatable); `github_login` of the `review`
-  /// reviewers of `--check` names the suggested code owners
+  /// reviewers of `--dry-run` names the suggested code owners
   #[arg(long = "reviewer", value_name = "LOGIN", requires = "create_pull_request")]
   pub reviewers: Vec<String>,
   /// With `--create-pull-request`: don't assign the pull request to the user
@@ -202,25 +203,25 @@ pub struct SafePushOutput {
   /// `dropped_commits`, which refuses the start with `push_refused`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub remotes: Vec<ErrorBranch>,
-  /// With `--check`: the next step of the subject as the app's row shows it (`domain_policy::next_step`) over what the
+  /// With `--dry-run`: the next step of the subject as the app's row shows it (`domain_policy::next_step`) over what the
   /// check read: the row of the table, the step, the fact it waits for, its pull request, why a Safe Push or a Dry Run
   /// can't start now
   #[serde(skip_serializing_if = "Option::is_none")]
   pub next_step: Option<NextStepSummary>,
-  /// With `--check`: what refuses a start, each with the error code the start would fail with
+  /// With `--dry-run`: what refuses a start, each with the error code the start would fail with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refusals: Vec<Refusal>,
   /// Whether Patronus can rebase what the robot lands onto the newest target; `null` with `--create-pull-request`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub target_check: Option<TargetCheckSummary>,
-  /// With `--check`, for a stacked branch: the trial build of the branch alone, as a root, whether it could land
+  /// With `--dry-run`, for a stacked branch: the trial build of the branch alone, as a root, whether it could land
   /// without the branches it is built on. A second way for the user to choose, never the lead; a start runs no trial
   #[serde(skip_serializing_if = "Option::is_none")]
   pub alone: Option<AloneBuild>,
   /// What may break the build though no commit proves it, as `bd check` warns: `possible_dangling_reference`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
-  /// The branches the start pushed, parents first; empty with `--check` and without `push_needed`
+  /// The branches the start pushed, parents first; empty with `--dry-run` and without `push_needed`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub pushed: Vec<PushedBranch>,
   /// The running Safe Push of an older commit that `--cancel-running` canceled: before the push, or before the start of a
@@ -230,7 +231,7 @@ pub struct SafePushOutput {
   /// `api`, or `pull_request` for a `/patronus` comment on the open pull request of the branch; `null` when nothing
   /// was started
   pub started_via: Option<String>,
-  /// The started robot; `null` with `--check` and `--create-pull-request`, and while Patronus hasn't listed the robot
+  /// The started robot; `null` with `--dry-run` and `--create-pull-request`, and while Patronus hasn't listed the robot
   /// of a comment yet
   pub robot: Option<RobotSummary>,
   /// The start went out and its answer was lost (a timeout, a connection that broke off, a comment the bot did not
@@ -239,12 +240,12 @@ pub struct SafePushOutput {
   /// forgets it (`bd operation forget <operation>`); `null` when the start was answered
   #[serde(skip_serializing_if = "Option::is_none")]
   pub start_unknown: Option<StartUnknown>,
-  /// The pull request the robot starts from; with `--check`, the one it would start from; with
+  /// The pull request the robot starts from; with `--dry-run`, the one it would start from; with
   /// `--create-pull-request`, the one it opened (or found open)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub pull_request: Option<PullRequestStart>,
   /// The open pull requests of the branch and of the branches its push takes along whose base was a virtual branch,
-  /// retargeted to the target before the push (with `--check`: the ones a start would retarget). Name them to the user,
+  /// retargeted to the target before the push (with `--dry-run`: the ones a start would retarget). Name them to the user,
   /// and the `approved_by` of each
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub retargeted: Vec<RetargetedPullRequest>,
@@ -256,7 +257,7 @@ pub struct SafePushOutput {
   #[serde(skip)]
   #[schemars(skip)]
   pub plan: Option<Plan>,
-  /// With `--check`: the next step `next_step` tells, not printed (the scenario table)
+  /// With `--dry-run`: the next step `next_step` tells, not printed (the scenario table)
   #[serde(skip)]
   #[schemars(skip)]
   pub step: Option<domain_types::next_step::NextStep>,
@@ -398,9 +399,9 @@ pub struct PullRequestStart {
   /// `--create-pull-request` opened it
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub created: bool,
-  /// The posted `/patronus` comment; `null` with `--check`
+  /// The posted `/patronus` comment; `null` with `--dry-run`
   pub comment_url: Option<String>,
-  /// `accepted`, or `pending` while Patronus hasn't answered the comment within a minute; `null` with `--check`
+  /// `accepted`, or `pending` while Patronus hasn't answered the comment within a minute; `null` with `--dry-run`
   pub reply: Option<String>,
   /// `--create-pull-request`: the logins GitHub asked for a review
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -454,7 +455,7 @@ struct Prepared {
   /// What the robot lands: the branches it is built on, root first, then the branch; or every branch of the stack
   lands: Vec<String>,
   refusals: Vec<Refusal>,
-  /// With `--check`: the next step of the subject over what the check read, as the app's row shows it, with its words
+  /// With `--dry-run`: the next step of the subject over what the check read, as the app's row shows it, with its words
   next_step: Option<(domain_types::next_step::NextStep, NextStepSummary)>,
   /// What `refusals`, the effects and the route above are of: the plan of the start (`operations::land`), with what its
   /// run needs
@@ -467,7 +468,7 @@ struct Prepared {
   table: BranchTable,
   /// What the landing gate refuses
   gate: Vec<LandingRefusal>,
-  /// With `--check`, for a stacked branch: its trial build alone
+  /// With `--dry-run`, for a stacked branch: its trial build alone
   alone: Option<AloneBuild>,
   warnings: Vec<CheckWarning>,
   /// The whole stack of a stack that forks: its stack branch, the only branch pushed
@@ -596,7 +597,7 @@ pub fn safe_push(context: &RepoContext, args: &SafePushArgs, environment: &Envir
     whole_stack.as_ref().map(|whole| (whole, synced.report.stack_branches.as_slice())),
     &plan,
   );
-  if args.check {
+  if args.dry_run {
     return Ok(check_output(output, plan));
   }
   if let Some(refusal) = plan.refusals.first().cloned() {
@@ -877,7 +878,7 @@ fn start_output(context: &RepoContext, args: &SafePushArgs, mode: PatronusPushMo
   }
 }
 
-/// The output of `--check`: `output` with what refuses a start, the trial build alone and the retargets a start would do
+/// The output of `--dry-run`: `output` with what refuses a start, the trial build alone and the retargets a start would do
 fn check_output(mut output: SafePushOutput, plan: Prepared) -> SafePushOutput {
   output.refusals = plan.refusals;
   (output.step, output.next_step) = plan.next_step.unzip();
@@ -1044,7 +1045,7 @@ fn stack_conflict_message(context: &RepoContext, synced: &SyncOutput, update: &S
   };
   let short = context.short_ids(std::iter::once(conflict.commit.as_str()));
   format!(
-    "Nothing was pushed or started: {}. Land it in pieces: `bd safe-push <branch> --check` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
+    "Nothing was pushed or started: {}. Land it in pieces: `bd safe-push <branch> --dry-run` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
     stack_conflict_words(&synced.report.branches, update, &|id| short.get(id).to_string())
   )
 }
@@ -1177,7 +1178,7 @@ fn plan(
   // what the start reads of the remote, as the session of the app reads it (`operations::needs`): the robots of the
   // user, each matched to its branch (or the whole stack) and what the merged ones landed of it by content, the pull
   // requests, the merge profiles of the target, the profile of the last robot of the subject when the list names none;
-  // with --check the problems of its failed robot. One that had finished before a comment is never the one it starts
+  // with --dry-run the problems of its failed robot. One that had finished before a comment is never the one it starts
   let services = BdServices {
     patronus: Some(Arc::clone(service)),
     space: Some(space.clone()),
@@ -1187,7 +1188,7 @@ fn plan(
   };
   let mut facts = SessionFacts::new(context, synced.table.clone(), table.clone(), services.sources());
   let mut first_needs = needs(&Intent::Land(land.clone()));
-  if args.check {
+  if args.dry_run {
     first_needs.push(FactNeed::FailedRobot(subject.clone()));
   }
   facts.read(context, &first_needs)?;
@@ -1231,7 +1232,7 @@ fn plan(
   });
   // the second way, for the user to choose: the branch alone, in the same trial session; a start never asks
   let alone = match (&landing.stack, landing.built.len().checked_sub(2).and_then(|parent| landing.built.get(parent))) {
-    (None, Some(parent)) if args.check => Some(alone_build(context, &trial, name, parent)),
+    (None, Some(parent)) if args.dry_run => Some(alone_build(context, &trial, name, parent)),
     _ => None,
   };
   let conflict = conflict_fact(target_check.as_ref());
@@ -1284,7 +1285,7 @@ fn plan(
   let start_pull_request = decision.pull_request.and_then(|number| pull_request_of(pull_requests, start, number)).cloned();
   // the next step of the subject over what the start read, the problems of its failed robot with them (whether it
   // failed for the approvals), as the session reads them of its failed robots
-  let next_step = args.check.then(|| {
+  let next_step = args.dry_run.then(|| {
     let read = CheckRead {
       table: &table,
       session,
@@ -1435,7 +1436,7 @@ pub(crate) fn subject_readiness<'s>(session: &'s OneShot, subject: &Subject) -> 
   }
 }
 
-/// What `bd safe-push --check` and `bd land --check` read, for the next step of its subject
+/// What `bd safe-push --dry-run` and `bd land --dry-run` read, for the next step of its subject
 pub(crate) struct CheckRead<'a> {
   pub(crate) table: &'a BranchTable,
   /// The robots with the problems of the failed robot of the subject, the Patronus view with the landing needs of a
@@ -1618,7 +1619,7 @@ impl Told<'_> {
       Reason::StackNotBuilt { state, .. } => match (self.stack(), state) {
         // the branch of the commit that conflicts builds with what it is built on: a piece to land
         (Some(update), StackBranchState::Conflict) => Refusal::new(ErrorCode::StackConflict, stack_conflict_message(context, self.synced, update)).with_next_step(
-          format!("{} safe-push {} --check", context.bd, shell_word(conflict_branch(self.synced, update).unwrap_or(name))),
+          format!("{} safe-push {} --dry-run", context.bd, shell_word(conflict_branch(self.synced, update).unwrap_or(name))),
           false,
         ),
         (Some(update), _) => Refusal::new(ErrorCode::StackNotBuilt, stack_not_built_message(update)).with_next_step(format!("{} sync", context.bd), false),
