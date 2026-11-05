@@ -4,6 +4,7 @@ description: Requirements for bd pick, which lands the commits of another worktr
 style: plain-1
 targets:
   - ../../crates/bd-update/src/pick_command.rs
+  - ../../crates/lease-pool/src/check_record.rs
   - ../../crates/bd-cli/src/agent_help.rs
   - ../../crates/domain-types/src/error.rs
   - ../../crates/bd-rewrite/src/rewrite.rs
@@ -59,6 +60,8 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
 - A command of the app for the pick of a worktree: the app sees the moved branch through its watcher and syncs. Only
   the pick of the remote commits of a branch is the app's too (Pick Remote Commits, [Outgoing
   Commits](../repository/outgoing.spec.md#remote-commits-of-others)).
+- A check of the remote commits of `--remote`: they are someone else's, pushed and seen by the user, and no worktree
+  of this machine built them.
 
 ## Requirements
 
@@ -161,6 +164,35 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
 - A pick while a `bd update` resolve session is open on the branch must land, and the finish of the session must carry
   the picked commits as a peer's.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_during_an_open_update_session_is_carried_by_its_finish`)
+
+### The check of the tree
+
+`pick_requires_check = true` in `[lease]` of the committed `.branchdeck.toml` (the gate of [bd
+lease](lease.spec.md#pick)) is a gate of the pick, not of the lease: an agent that ran `bd pick --from <lease>
+--follow`, which the help named as what `bd lease pick` runs, landed a tree that no build saw.
+
+- With the setting in the checkout the pick runs in (`-C`), `bd pick --from <dir>` must land only a tree of HEAD of
+  the worktree of `dir` that a green record of its `bd-checks.jsonl` names, as `bd lease pick` does: else nothing
+  lands, `unchecked_tree` (exit 4), whose message starts `bd pick:`, names the tree, HEAD and the last check, and both
+  ways on with this pick again (`bd pick --from <dir> [--follow]`, then the same with `--allow-unchecked '<reason>'`).
+  The pick expects the source's HEAD to be the commit it checked (`head_moved` otherwise). The check is one
+  `rev-parse` of the git dir, HEAD and its tree, and for a stale tree one `diff-tree`; without the setting and without
+  --dry-run the pick reads neither the records nor git for it.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_tree_check_of_a_lease_pick`, `a_pick_into_a_branch_the_target_has`)
+- `bd pick <rev>` and `<a>..<b>` with the setting must land nothing, `unchecked_tree` (exit 4): revisions name no
+  worktree whose records bd could read; the message names the pick from the worktree that built them and
+  `--allow-unchecked`. `--dry-run` reports no `check` for revisions and never refuses.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded`)
+- `--dry-run` of `--from` must report the check in `check` (`state` `ok`, `stale` or `missing`, `record`), with or
+  without the setting, and never refuse for it.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded`)
+- `--allow-unchecked <reason>` must land without a check, of a worktree or of revisions: the reason is required (a
+  blank one is `invalid_arguments`), the output repeats it (`unchecked`) and stderr names it. `--unchecked`, its name
+  in `bd lease pick` before, must be the same flag. With `--remote` it is `invalid_arguments`: no check gates the
+  commits someone else pushed, which the user saw (`--expect-remote`), and the app's Pick Remote Commits has no gate
+  either.
+  [@test] ../../crates/bd-update/src/pick_test.rs (`allow_unchecked_lands_a_pick_without_a_check_and_says_why`)
 
 ### Remote commits
 

@@ -1,7 +1,8 @@
-//! The check record of a worktree (`bd lease pick`, spec/cli/lease.spec.md): `bd-checks.jsonl` in the git dir of the
-//! worktree, where a build or test tool appends one JSON line per green run with the tree that run saw (`bt` of the
-//! IntelliJ monorepo writes it). The tree is `HEAD^{tree}` of a clean worktree, else the tree of the worktree with its
-//! local changes, so a check before the commit counts for the commit of the same files. bd only reads the file.
+//! The check record of a worktree (`bd lease pick` and `bd pick --from`, spec/cli/lease.spec.md, spec/cli/pick.spec.md):
+//! `bd-checks.jsonl` in the git dir of the worktree, where a build or test tool appends one JSON line per green run with
+//! the tree that run saw (`bt` of the IntelliJ monorepo writes it). The tree is `HEAD^{tree}` of a clean worktree, else
+//! the tree of the worktree with its local changes, so a check before the commit counts for the commit of the same
+//! files. bd only reads the file.
 //!
 //! ```json
 //! {"schema":1,"tree":"<id>","head":"<id>","tool":"bt","command":"build","patterns":["//plugins/air/..."],"exit":0,"at":1793108792000}
@@ -11,7 +12,7 @@ use crate::lease_clean::read_parsed;
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::paths::changed_path_names;
-use git_ops::revs::head_and_tree;
+use git_ops::revs::{WorktreeHead, worktree_head};
 use serde::Deserialize;
 use std::path::Path;
 
@@ -109,11 +110,11 @@ pub struct TreeCheck {
 /// How many changed paths a refusal and an answer name; the rest is a count
 pub const NAMED_PATHS: usize = 10;
 
-/// The check of HEAD of the worktree at `top_level` against the records in its git dir `git_dir`: one `rev-parse`, and
-/// for a stale tree one `diff-tree`
-pub fn check_tree(git_executor: &GitCommandExecutor, top_level: &str, git_dir: &Path) -> Result<TreeCheck> {
-  let (head, tree) = head_and_tree(git_executor, top_level)?;
-  let records = read_check_records(git_dir)?;
+/// The check of HEAD of the worktree of `dir` against the records in its git dir: one `rev-parse` (the git dir, HEAD
+/// and its tree), and for a stale tree one `diff-tree`
+pub fn check_tree(git_executor: &GitCommandExecutor, dir: &str) -> Result<TreeCheck> {
+  let WorktreeHead { git_dir, head, tree } = worktree_head(git_executor, dir)?;
+  let records = read_check_records(Path::new(&git_dir))?;
   if let Some(record) = records.iter().rev().find(|record| record.tree == tree) {
     return Ok(TreeCheck {
       head,
@@ -132,7 +133,7 @@ pub fn check_tree(git_executor: &GitCommandExecutor, top_level: &str, git_dir: &
       changed_paths: None,
     });
   };
-  let changed_paths = changed_path_names(git_executor, top_level, &last.tree, &tree)?;
+  let changed_paths = changed_path_names(git_executor, dir, &last.tree, &tree)?;
   Ok(TreeCheck {
     head,
     tree,

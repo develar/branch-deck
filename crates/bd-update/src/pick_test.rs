@@ -633,3 +633,79 @@ fn a_remote_pick_from_another_head_than_the_one_seen_picks_nothing() {
   assert_error(&output, exit_code, (4, "lease_rejected"));
   assert_eq!(repo.head(), head, "nothing was picked");
 }
+
+/// A repository whose checkout commits `pick_requires_check = true`, and a worktree with one commit it lacks
+fn gated_repo() -> (TestRepo, TestWorktree, String) {
+  let repo = repo_with_baseline(&[("a.txt", "a\n")]);
+  repo.create_commit("Require a check", ".branchdeck.toml", "[lease]\npick_requires_check = true\n");
+  let lane = TestWorktree::detached(&repo);
+  let lane_head = lane.commit("(lane) Add b", "b.txt", "b\n");
+  (repo, lane, lane_head)
+}
+
+/// A record of the tree of HEAD of `lane`, green for `exit` 0
+fn record_check(lane: &TestWorktree, exit: i32) {
+  bd_cli::fixture_test::record_check(&lane.path, &lane.git(&["rev-parse", "HEAD^{tree}"]), exit);
+}
+
+/// With `pick_requires_check` a pick from any worktree passes the gate of `bd lease pick`: a tree that no green build or
+/// test recorded lands nothing (`unchecked_tree`), whose message names this pick again; --dry-run reports the check
+/// and never refuses; revisions name no worktree whose records bd could read, so they need a reason; a green record of
+/// the tree lands it
+#[test_log::test]
+fn a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded() {
+  let (repo, lane, lane_head) = gated_repo();
+  let home = repo.head();
+
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_error(&output, exit_code, (4, "unchecked_tree"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.starts_with("bd pick: no green build or test ran") && message.contains(" --follow --allow-unchecked '<reason>'`"),
+    "{message}"
+  );
+  let (exit_code, dry) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
+  assert_eq!((exit_code, &dry["state"], &dry["check"]["state"]), (0, &json!("picked"), &json!("missing")), "{dry}");
+  assert_pick_schema(&repo, &dry, "pick with a check");
+
+  let (exit_code, output) = run_in(&repo, &["pick", &lane_head]);
+  assert_error(&output, exit_code, (4, "unchecked_tree"));
+  let message = output["error"]["message"].as_str().unwrap();
+  assert!(
+    message.contains("pick --from <worktree> --follow") && message.contains("--allow-unchecked '<reason>'"),
+    "{message}"
+  );
+  let (exit_code, dry) = run_in(&repo, &["pick", &lane_head, "--dry-run"]);
+  assert_eq!((exit_code, &dry["state"], dry.get("check")), (0, &json!("picked"), None), "{dry}");
+  assert_eq!(repo.head(), home, "nothing landed");
+
+  record_check(&lane, 1);
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_error(&output, exit_code, (4, "unchecked_tree"));
+  record_check(&lane, 0);
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow"]);
+  assert_eq!(
+    (exit_code, &output["state"], &output["check"]["state"], output.get("unchecked")),
+    (0, &json!("picked"), &json!("ok"), None),
+    "{output}"
+  );
+}
+
+/// `--allow-unchecked` lands a pick without a check, of a worktree or of revisions, and the output repeats the reason;
+/// `--unchecked`, its name in `bd lease pick` before, is the same flag; a blank reason is refused, and `--remote` takes
+/// none, as no check gates it
+#[test_log::test]
+fn allow_unchecked_lands_a_pick_without_a_check_and_says_why() {
+  let (repo, lane, _) = gated_repo();
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow", "--allow-unchecked", " "]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+  let (exit_code, output) = run_in(&repo, &["pick", "--from", &lane.path, "--follow", "--unchecked", "docs only"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!((&output["picked"][0]["subject"], &output["unchecked"]), (&json!("(lane) Add b"), &json!("docs only")));
+  assert!(output.get("check").is_none(), "{output}");
+  let next = lane.commit("(lane) Add c", "c.txt", "c\n");
+  let (exit_code, output) = run_in(&repo, &["pick", &next, "--allow-unchecked", "docs only"]);
+  assert_eq!((exit_code, &output["state"], &output["unchecked"]), (0, &json!("picked"), &json!("docs only")), "{output}");
+  let (exit_code, output) = run_in(&repo, &["pick", "--remote", "lane", "--allow-unchecked", "docs only"]);
+  assert_error(&output, exit_code, (2, "invalid_arguments"));
+}

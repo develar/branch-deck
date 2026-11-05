@@ -1,5 +1,5 @@
 use crate::lease_test::{Fixture, path_of, slot_git};
-use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, canonical, git};
+use bd_cli::fixture_test::{PREFIX, assert_covered, assert_error, canonical, git, record_check};
 use bd_core::bd_command::shell_word;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -212,19 +212,6 @@ fn tree_of(path: &str) -> String {
   slot_git(path, &["rev-parse", "HEAD^{tree}"])
 }
 
-/// Appends a line to `bd-checks.jsonl` of the lease, as a check tool writes it
-fn record(path: &str, tree: &str, exit: i32) {
-  let file = slot_git(path, &["rev-parse", "--path-format=absolute", "--git-path", "bd-checks.jsonl"]);
-  let line = format!(
-    r#"{{"schema":1,"tree":"{tree}","head":"{}","tool":"bt","command":"build","patterns":["//plugins/air/..."],"exit":{exit},"at":1793108792000}}"#,
-    slot_git(path, &["rev-parse", "HEAD"])
-  );
-  let mut text = std::fs::read_to_string(&file).unwrap_or_default();
-  text.push_str(&line);
-  text.push('\n');
-  std::fs::write(file, text).unwrap();
-}
-
 /// The message of the `unchecked_tree` refusal of `bd lease pick` in the lease at `path`
 fn unchecked_message(fixture: &Fixture, path: &str) -> String {
   let (exit_code, output) = lease_pick(fixture, path, &[]);
@@ -253,13 +240,16 @@ fn a_lease_pick_refuses_a_tree_that_no_green_check_recorded() {
   let home = fixture.repo.head();
 
   let message = unchecked_message(&fixture, &path);
-  assert!(message.contains("no green build or test ran") && message.contains("--unchecked '<reason>'"), "{message}");
+  assert!(
+    message.contains("no green build or test ran") && message.contains("lease pick --allow-unchecked '<reason>'"),
+    "{message}"
+  );
   assert!(!message.contains("The last check"), "{message}");
   let (dry, state) = checked_pick(&fixture, &path, &["--dry-run"], 0, "state");
   assert_eq!((&dry["state"], state), (&json!("picked"), json!("missing")), "{dry}");
 
-  record(&path, &tree, 3);
-  record(&path, &before, 0);
+  record_check(&path, &tree, 3);
+  record_check(&path, &before, 0);
   let message = unchecked_message(&fixture, &path);
   assert!(
     message.contains("The last check ran on tree")
@@ -274,7 +264,7 @@ fn a_lease_pick_refuses_a_tree_that_no_green_check_recorded() {
   );
   assert_eq!(fixture.repo.head(), home, "nothing landed");
 
-  record(&path, &tree, 0);
+  record_check(&path, &tree, 0);
   let (dry, checked) = checked_pick(&fixture, &path, &["--dry-run"], 0, "tree");
   assert_eq!((&dry["check"]["state"], checked), (&json!("ok"), json!(tree)), "{dry}");
   let (output, state) = checked_pick(&fixture, &path, &[], 0, "state");
@@ -284,21 +274,25 @@ fn a_lease_pick_refuses_a_tree_that_no_green_check_recorded() {
   fixture.give_back(&path);
 }
 
-/// `--unchecked` lands a tree without a check and the output repeats the reason; a blank reason is refused. Without
-/// `pick_requires_check` the pick reads no record and prints no `check`
+/// `--allow-unchecked` lands a tree without a check and the output repeats the reason; `--unchecked`, its name before,
+/// is the same flag; a blank reason is refused. Without `pick_requires_check` the pick reads no record and prints no
+/// `check`
 #[test_log::test]
-fn unchecked_lands_without_a_check_and_says_why() {
+fn allow_unchecked_lands_without_a_check_and_says_why() {
   let fixture = gated_fixture();
   let path = path_of(&fixture.get(&[]));
   commit_in(&path, "(lane) Add a", "lane-a.txt");
-  let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", " "]);
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--allow-unchecked", " "]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", "docs only"]);
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--allow-unchecked", "docs only"]);
   assert_eq!(
     (exit_code, &output["state"], &output["unchecked"], output.get("check")),
     (0, &json!("picked"), &json!("docs only"), None),
     "{output}"
   );
+  commit_in(&path, "(lane) Add b", "lane-b.txt");
+  let (exit_code, output) = lease_pick(&fixture, &path, &["--unchecked", "docs only"]);
+  assert_eq!((exit_code, &output["unchecked"]), (0, &json!("docs only")), "{output}");
   fixture.give_back(&path);
 
   let fixture = Fixture::new();
@@ -318,7 +312,7 @@ fn an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree() {
   std::fs::write(Path::new(&path).join("w.txt"), "ALPHA beta gamma delta\n").unwrap();
   slot_git(&path, &["commit", "-q", "-a", "-m", "(lane) Change alpha"]);
   fixture.repo.create_commit("(peer) Change delta", "w.txt", "alpha beta gamma DELTA\n");
-  record(&path, &tree_of(&path), 0);
+  record_check(&path, &tree_of(&path), 0);
 
   let (output, state) = checked_pick(&fixture, &path, &[], 1, "state");
   assert_eq!(
@@ -330,7 +324,7 @@ fn an_update_that_applies_after_a_conflict_waits_for_a_check_of_the_new_tree() {
   assert!(next.contains("no build or test ran on") && next.contains("lease pick` again"), "{next}");
   assert_eq!(std::fs::read_to_string(Path::new(&path).join("w.txt")).unwrap(), "ALPHA beta gamma DELTA\n");
 
-  record(&path, &tree_of(&path), 0);
+  record_check(&path, &tree_of(&path), 0);
   let (output, state) = checked_pick(&fixture, &path, &[], 0, "state");
   assert_eq!((&output["state"], state), (&json!("picked"), json!("ok")), "{output}");
   fixture.give_back(&path);

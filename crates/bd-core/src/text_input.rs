@@ -1,6 +1,6 @@
 //! Text that bd reads from a file or stdin (a plan, a pull request body): UTF-8, with a byte order mark dropped, or
 //! UTF-16 with its byte order mark, which Windows PowerShell 5.1 writes (`Set-Content -Encoding UTF8` adds a UTF-8
-//! BOM, `Out-File` and `>` write UTF-16LE)
+//! BOM, `Out-File` and `>` write UTF-16LE); and the words of an argument that must say something (a reason)
 
 use crate::error::CliError;
 use domain_types::error::ErrorCode;
@@ -44,6 +44,19 @@ pub fn read_text(path: &Path, what: &str) -> Result<String, CliError> {
     (bytes, path.display().to_string())
   };
   decode_text(&bytes).map_err(|e| invalid(format!("Cannot read {what} from {source}: {e}; write it as UTF-8")))
+}
+
+/// The reason of a flag that lands what a check did not pass (`--allow-unchecked <reason>` of `bd pick` and `bd lease
+/// pick`), as a clap value parser: words, not an empty or blank string
+///
+/// # Errors
+/// The words of the refusal when the reason is blank
+pub fn reason_text(value: &str) -> Result<String, String> {
+  let value = value.trim();
+  if value.is_empty() {
+    return Err("say why the tree lands without a check".to_string());
+  }
+  Ok(value.to_string())
 }
 
 fn invalid(message: String) -> CliError {

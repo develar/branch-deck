@@ -535,8 +535,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   and one `show-ref` asks whether its resolve session is open.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick`)
 - A repository whose committed `.branchdeck.toml` sets `pick_requires_check = true` in `[lease]` (false by default)
-  must land only a tree that a green build or test ran on. A check tool (`bt` of the IntelliJ monorepo) appends one
-  JSON line per green run to `bd-checks.jsonl` in the git dir of the worktree (`git rev-parse --git-path`):
+  must land only a tree that a green build or test ran on. The gate is the pick's
+  ([bd pick](pick.spec.md#the-check-of-the-tree)): `bd pick --from <lease>`, what `bd lease pick` runs, passes it
+  too, so no path around it lands an unchecked tree. A check tool (`bt` of the IntelliJ monorepo) appends one JSON
+  line per green run to `bd-checks.jsonl` in the git dir of the worktree (`git rev-parse --git-path`):
   `{"schema":1,"tree","head","tool","command","patterns","exit":0,"at"}`, with `host` for a run on another machine.
   The tree is `HEAD^{tree}` of a clean worktree, else the tree of the worktree with its local changes. bd only reads
   the file: a line of another schema, with an `exit` other than 0 or that does not parse counts as no record. The
@@ -545,7 +547,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   lease, nothing lands: `unchecked_tree` (exit 4), whose message names the tree and HEAD, the last check (its tree,
   time and command, how many files changed since and the first 10 of them, left out when git no longer has that
   tree) and both ways on: build and test, then `bd -C <lease> lease pick` again, or `bd -C <lease> lease pick
-  --unchecked '<reason>'`. The pick expects the lease's HEAD to be the commit it checked (`expect_source_head`, held
+  --allow-unchecked '<reason>'`. The pick expects the lease's HEAD to be the commit it checked (`expect_source_head`, held
   under the lock by the recheck of the pick): a lease that moved between the check and the lock is `head_moved`
   (exit 3), and the pick runs again. The gate stops a stale claim, a check that ran before the last edit; it does not
   stop a merge break: a pick onto a tip that moved, without a conflict, lands a tree that no record saw. It does not
@@ -553,10 +555,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_source_that_moved_from_the_expected_head_is_refused`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_tree_that_no_green_check_recorded`)
   [@test] ../../crates/lease-pool/src/check_record_test.rs (`only_green_records_of_schema_one_count`, `pick_requires_check_is_a_boolean_of_the_lease_table`)
-- `--unchecked <reason>` must land the tree without a check: the reason is required (a blank one is
-  `invalid_arguments`), the output repeats it (`unchecked`) and stderr names it. Without the setting the pick reads no
-  record and prints no `check`.
-  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`unchecked_lands_without_a_check_and_says_why`)
+- `--allow-unchecked <reason>` must land the tree without a check: the reason is required (a blank one is
+  `invalid_arguments`), the output repeats it (`unchecked`) and stderr names it. `--unchecked`, its name before, must
+  be the same flag. Without the setting the pick reads no record and prints no `check`.
+  [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`allow_unchecked_lands_without_a_check_and_says_why`)
 - `--dry-run` must report the check of the tree in `check` (`state`: `ok`, a record names the tree; `stale`, records
   exist and none names it; `missing`, no record; `record`: the newest record of the tree, else the newest one, with
   `changed_files` and the first 10 of them in `changed_paths`), and never refuse for it, with or without the setting. With the setting, a pick reports `check` too.

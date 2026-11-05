@@ -2205,17 +2205,20 @@ is picked again at once. While that session is open (one `show-ref` of its ref) 
 (`resolve_in_progress`): a pick that lands meanwhile would leave the session stale.
 
 A repository can make the pick land only what was built: `pick_requires_check = true` in `[lease]` of its
-`.branchdeck.toml`, read from the home checkout. Agents reported a green build that ran before their last edit, and a
-pick landed a tree that did not compile (the IntelliJ monorepo, 2026-10-27). So the check tool, not the agent, says what
-it built: `bt` appends a line with the tree it saw to `bd-checks.jsonl` in the git dir of the worktree, only for a green
-run whose tree was the same before and after the build (`lease_pool::check_record`). The pick compares that with
-`HEAD^{tree}` of the lease: one `rev-parse` (`git_ops::revs::head_and_tree`), and for a stale tree one `diff-tree -z
---name-only` that counts the files changed since (`git_ops::paths::changed_path_count`). A tree that no record names
-is `unchecked_tree`, which names the first 10 files changed since the last check; `--unchecked <reason>` lands it
-anyway and says why. The pick expects the lease's HEAD to be the commit it checked (`PickRequest::expect_source_head`,
-which `recheck_pick` holds under the lock), so a commit made between the check and the lock is `head_moved`, not an
-unchecked landing. An update that applies after a conflict makes a new tree, so the pick waits for a record of it.
-Without the setting the pick reads nothing.
+`.branchdeck.toml`, read from the checkout the commits land in. Agents reported a green build that ran before their
+last edit, and a pick landed a tree that did not compile (the IntelliJ monorepo, 2026-10-27). So the check tool, not the
+agent, says what it built: `bt` appends a line with the tree it saw to `bd-checks.jsonl` in the git dir of the
+worktree, only for a green run whose tree was the same before and after the build (`lease_pool::check_record`). The
+gate is the pick's (`bd_update::pick_command`), not the lease's: an agent ran `bd pick --from <lease> --follow`, which
+the help named as what `bd lease pick` runs, and landed past a gate that only `bd lease pick` had (2026-11-05). The
+pick compares the records with `HEAD^{tree}` of the source worktree: one `rev-parse` of its git dir, HEAD and tree
+(`git_ops::revs::worktree_head`), and for a stale tree one `diff-tree -z --name-only` that counts the files changed
+since (`git_ops::paths::changed_path_count`). A tree that no record names is `unchecked_tree`, which names the first
+10 files changed since the last check; `--allow-unchecked <reason>` lands it anyway and says why. A pick of revisions
+names no worktree whose records bd could read, so it needs the reason too. The pick expects the source's HEAD to be
+the commit it checked (`PickRequest::expect_source_head`, which `recheck_pick` holds under the lock), so a commit made
+between the check and the lock is `head_moved`, not an unchecked landing. An update that applies after a conflict
+makes a new tree, so the pick waits for a record of it. Without the setting the pick reads nothing.
 
 The gate stops a stale claim: a green run that ended before the last edit. It does not stop a merge break: a pick
 onto a tip that moved since the check, without a conflict, lands the lease's commits on a tree that no record saw.

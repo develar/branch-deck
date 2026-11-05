@@ -1445,9 +1445,9 @@ fn a_lease_pick_that_conflicts() {
   );
 }
 
-/// The check of `bd lease pick` with `pick_requires_check` (beside the resolve of the lease, one `rev-parse`): one
-/// `rev-parse` of HEAD and its tree, and for a tree that only an older record names one `diff-tree` that counts the files
-/// changed since
+/// The check of `bd lease pick` and `bd pick --from` with `pick_requires_check` (beside the resolve of the lease, one
+/// `rev-parse`): one `rev-parse` of the git dir, HEAD and its tree, and for a tree that only an older record names one
+/// `diff-tree` that counts the files changed since
 #[test]
 fn the_tree_check_of_a_lease_pick() {
   let (_repo, _home, environment, got) = leased_repo();
@@ -1459,7 +1459,7 @@ fn the_tree_check_of_a_lease_pick() {
     "{\"schema\":1,\"tree\":\"4b825dc642cb6eb9a060e54bf8d69288fbee4904\",\"exit\":0}\n",
   )
   .unwrap();
-  let check = bd_lease::lease_command::lease_tree_check(&lease).unwrap();
+  let check = bd_update::pick_command::tree_check(&lease.git, &lease.dirs.top_level).unwrap();
   assert_eq!(
     (check.state, check.changed_paths),
     (lease_pool::check_record::CheckState::Stale, Some(vec!["README.md".to_string()]))
@@ -1548,8 +1548,9 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
 }
 
 /// `bd pick --dry-run` of a commit whose prefix names a branch the target has, a fast-forward: the check without a
-/// replay and without the follow, the grouping, and the diffs of the dependency check (`log --raw` of the commits ahead
-/// and the copy, one `cat-file` of their blobs)
+/// replay and without the follow, the grouping, the diffs of the dependency check (`log --raw` of the commits ahead
+/// and the copy, one `cat-file` of their blobs), and the check of the worktree's tree that the dry run reports (one
+/// `rev-parse` of its git dir, HEAD and tree; no record, no `diff-tree`)
 #[test]
 fn a_pick_into_a_branch_the_target_has() {
   let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(own) Add c"]);
@@ -1569,7 +1570,7 @@ fn a_pick_into_a_branch_the_target_has() {
       ("read-tree", 1),
       ("remote", 1),
       ("rev-list", 1),
-      ("rev-parse", 4),
+      ("rev-parse", 5),
       ("symbolic-ref", 2),
       ("update-index", 1),
     ],

@@ -484,6 +484,25 @@ pub fn git(repo: &TestRepo, args: &[&str]) -> String {
     .unwrap_or_else(|e| panic!("git {args:?} failed: {e}"))
 }
 
+/// Appends a line for `tree` to `bd-checks.jsonl` in the git dir of the worktree at `dir`, as a check tool writes it
+/// after a run that ended with `exit` (`lease_pool::check_record`)
+pub fn record_check(dir: &str, tree: &str, exit: i32) {
+  let git = |args: &[&str]| {
+    GitCommandExecutor::new()
+      .execute_command(args, dir)
+      .unwrap_or_else(|e| panic!("git {args:?} in {dir}: {e}"))
+  };
+  let file = git(&["rev-parse", "--path-format=absolute", "--git-path", "bd-checks.jsonl"]);
+  let line = format!(
+    r#"{{"schema":1,"tree":"{tree}","head":"{}","tool":"bt","command":"build","patterns":["//plugins/air/..."],"exit":{exit},"at":1793108792000}}"#,
+    git(&["rev-parse", "HEAD"])
+  );
+  let mut text = std::fs::read_to_string(&file).unwrap_or_default();
+  text.push_str(&line);
+  text.push('\n');
+  std::fs::write(file, text).unwrap();
+}
+
 /// Commit everything in the working tree, with a fixed author and committer time
 pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   git(repo, &["add", "-A"]);

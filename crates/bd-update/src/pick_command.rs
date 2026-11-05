@@ -6,22 +6,31 @@
 //! `bd_core::operation_record`)
 
 use crate::update_command::{UpdateOutput, core_error, uncommitted_overlap, undo_core_error};
+use bd_core::bd_command::shell_word;
 use bd_core::context::{Environment, RepoContext};
 use bd_core::error::{CONFLICT_EXIT, CliError};
 use bd_core::operation_record::{asked_on, recorded};
 use bd_core::output::{SchemaVersion, ShortIds};
 use bd_core::suggest_plan::SuggestPlan;
 use bd_core::sync_command::sync;
+use bd_core::text_input::reason_text;
 use domain_types::branch_names::to_final_branch_name;
 use domain_types::error::ErrorCode;
 use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
+use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::pick::{FollowState, PickRefusal, PickState, PresentBy};
+use git_ops::revs::short_id;
 use history_rewrite::repository_lock::{LockWait, RewriteOptions};
+use lease_pool::check_record::{CheckState, NAMED_PATHS, TreeCheck, check_tree};
+use lease_pool::lease_clean::read_pick_requires_check;
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::fmt::Write as _;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+use sync_utils::timestamp::format_utc_timestamp;
 use update_core::pick::{DependencyFix, GroupedBy, PickDependency, PickFrom, PickParams, PickResult, PickUndoToken, RemotePick, UndonePick, pick_core, undo_pick_core};
 
 #[derive(Debug, Default, clap::Args)]
@@ -45,9 +54,14 @@ pub struct PickArgs {
   /// Pick only if HEAD is still this commit
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
-  /// Print what the pick would do; nothing is written but git objects
+  /// Print what the pick would do, and for --from whether a green build or test recorded the tree (`check`); nothing is
+  /// written but git objects
   #[arg(long)]
   pub dry_run: bool,
+  /// Land a tree that no green build or test recorded, where `.branchdeck.toml` sets `pick_requires_check`: say why,
+  /// the output repeats it (`unchecked`). Only once the user agreed or the change cannot break a build (docs only)
+  #[arg(long, value_name = "REASON", alias = "unchecked", value_parser = reason_text, conflicts_with = "remote")]
+  pub allow_unchecked: Option<String>,
 }
 
 /// `bd pick`
@@ -91,6 +105,14 @@ pub struct PickOutput {
   /// With `conflict`: the first commit that does not apply, and what to do
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<PickConflictOutput>,
+  /// Whether a green build or test recorded the tree of HEAD of the worktree of --from (`bd-checks.jsonl` of its git
+  /// dir): with --dry-run, and with `pick_requires_check` of `.branchdeck.toml`, which refuses a pick without one
+  /// (`unchecked_tree`)
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub check: Option<TreeCheckOutput>,
+  /// `--allow-unchecked <reason>`: the reason the pick did not ask for a check
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub unchecked: Option<String>,
   /// `pick:<previous_head>..<new_head>` with full ids, `+follow:<worktree>:<previous>..<new>` when the worktree moved:
   /// `bd undo` moves both back; omitted when nothing moved
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,17 +138,9 @@ pub struct LeasePickOutput {
   /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateOutput>,
-  /// Whether a green build or test recorded the tree of the lease's HEAD (`bd-checks.jsonl` of its git dir): with
-  /// --dry-run, and with `pick_requires_check` of `.branchdeck.toml`, which refuses a pick without one
-  /// (`unchecked_tree`)
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub check: Option<TreeCheckOutput>,
-  /// `--unchecked <reason>`: the reason the pick did not ask for a check
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub unchecked: Option<String>,
 }
 
-/// The check of the tree of a lease's HEAD
+/// The check of the tree of HEAD of the worktree the commits come from: a lease, or the worktree of `bd pick --from`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct TreeCheckOutput {
   /// `ok`: a green build or test recorded this tree; `stale`: records exist, none of this tree; `missing`: no record
@@ -312,8 +326,128 @@ pub struct HomePick {
   pub branch: String,
   /// `bd -C <lease> lease pick`: what a conflict's `next` runs again
   pub again: String,
-  /// The commit the lease's HEAD must be: the one whose tree the check of `pick_requires_check` read
-  pub source_head: Option<String>,
+  /// The check of the lease's tree that `bd lease pick` made already, after the update of a conflict: the gate reads
+  /// it instead of asking git again
+  pub check: Option<TreeCheck>,
+}
+
+/// What the gate of `pick_requires_check` let through: the check it made, and the HEAD the source must still have under
+/// the lock, the one whose tree the check read
+#[derive(Debug, Default)]
+struct Gate {
+  check: Option<TreeCheck>,
+  expect_source_head: Option<String>,
+}
+
+/// `pick_requires_check` of `.branchdeck.toml` in `checkout`, the checkout the commits land in: the file of the branch
+/// they land on. A file that does not parse is `invalid_arguments`
+///
+/// # Errors
+/// `invalid_arguments` when the file does not parse
+pub fn pick_requires_check(checkout: &str) -> Result<bool, CliError> {
+  read_pick_requires_check(Path::new(checkout)).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("{error:#}")))
+}
+
+/// Whether a green build or test recorded the tree of HEAD of the worktree of `dir`: one `rev-parse`, for a stale tree
+/// one `diff-tree`
+///
+/// # Errors
+/// When git cannot read HEAD of the worktree
+pub fn tree_check(git: &GitCommandExecutor, dir: &str) -> Result<TreeCheck, CliError> {
+  check_tree(git, dir).map_err(CliError::from)
+}
+
+/// The gate of `pick_requires_check` (spec/cli/pick.spec.md): a pick from a worktree lands only a tree that a green
+/// build or test recorded, unless `--allow-unchecked` says why; a pick of revisions names no worktree whose records bd
+/// could read, so it needs the reason too. `--remote` passes: the commits someone else pushed, which the user saw
+fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&HomePick>) -> Result<Gate, CliError> {
+  if matches!(from, PickFrom::Remote(_)) {
+    return Ok(Gate::default());
+  }
+  let gated = args.allow_unchecked.is_none() && pick_requires_check(&context.repository)?;
+  match from {
+    PickFrom::Worktree(dir) if gated || args.dry_run => {
+      let check = match home.and_then(|home| home.check.clone()) {
+        Some(check) => check,
+        None => tree_check(&context.git, dir)?,
+      };
+      if gated && !args.dry_run && check.state != CheckState::Ok {
+        return Err(unchecked_tree(context, dir, &check, args, home.is_some()));
+      }
+      Ok(Gate {
+        expect_source_head: gated.then(|| check.head.clone()),
+        check: Some(check),
+      })
+    }
+    PickFrom::Revisions(revisions) if gated && !args.dry_run => Err(CliError::new(
+      ErrorCode::UncheckedTree,
+      format!(
+        "bd pick: `.branchdeck.toml` sets `pick_requires_check`, and the revisions {revisions} name no worktree whose green build or test bd could \
+         read. Pick them from the worktree that built them (`{bd} pick --from <worktree> --follow`), or land them without a check: `{bd} pick \
+         {revisions} --allow-unchecked '<reason>'`.",
+        bd = context.bd,
+        revisions = shell_word(revisions),
+      ),
+    )),
+    _ => Ok(Gate::default()),
+  }
+}
+
+/// `unchecked_tree`: the pick from the worktree of `dir` lands nothing, as no green build or test recorded its tree; the
+/// message names the command of the path the agent took, `bd lease pick` in a lease, else `bd pick --from`
+fn unchecked_tree(context: &RepoContext, dir: &str, check: &TreeCheck, args: &PickArgs, lease: bool) -> CliError {
+  let (command, again) = if lease {
+    ("bd lease pick", format!("bd -C {} lease pick", shell_word(dir)))
+  } else {
+    let follow = if args.follow { " --follow" } else { "" };
+    ("bd pick", format!("{} pick --from {}{follow}", context.bd, shell_word(dir)))
+  };
+  let mut message = format!(
+    "{command}: no green build or test ran on the tree of {dir} (tree {}, HEAD {}).",
+    short_id(&check.tree),
+    short_id(&check.head)
+  );
+  if let Some(record) = &check.record {
+    let at = format_utc_timestamp(u32::try_from(record.at / 1000).unwrap_or(0));
+    let _ = write!(message, " The last check ran on tree {} at {at} (`{}`)", short_id(&record.tree), record.describe());
+    match check.changed_paths.as_deref() {
+      Some(paths) => {
+        let count = paths.len();
+        let named = paths.iter().take(NAMED_PATHS).map(String::as_str).collect::<Vec<_>>().join(", ");
+        let more = count.saturating_sub(NAMED_PATHS);
+        let more = if more == 0 { String::new() } else { format!(" and {more} more") };
+        let files = if count == 1 { "file" } else { "files" };
+        let _ = write!(message, ", and {count} {files} changed since, which no check saw as they are in HEAD: {named}{more}.");
+      }
+      None => message.push('.'),
+    }
+  }
+  let _ = write!(
+    message,
+    " Run the build and the tests on this tree, then `{again}` again. To land without a check: `{again} --allow-unchecked '<reason>'`."
+  );
+  CliError::new(ErrorCode::UncheckedTree, message)
+}
+
+/// The check of a worktree's tree as `bd pick` and `bd lease pick` print it
+#[must_use]
+pub fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
+  TreeCheckOutput {
+    state: match check.state {
+      CheckState::Ok => TreeCheckState::Ok,
+      CheckState::Stale => TreeCheckState::Stale,
+      CheckState::Missing => TreeCheckState::Missing,
+    },
+    tree: check.tree.clone(),
+    head: check.head.clone(),
+    record: check.record.as_ref().map(|record| CheckRecordOutput {
+      tree: record.tree.clone(),
+      command: record.describe(),
+      at: record.at,
+      changed_files: check.changed_paths.as_ref().map(Vec::len),
+      changed_paths: check.changed_paths.iter().flatten().take(NAMED_PATHS).cloned().collect(),
+    }),
+  }
 }
 
 /// `bd pick`, or with `home` the pick of `bd lease pick` (`args.from` the lease, `args.follow` set)
@@ -352,13 +486,20 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
       ));
     }
   };
+  let gate = gate(context, &from, args, home)?;
+  if let Some(reason) = &args.allow_unchecked
+    && !args.dry_run
+  {
+    let command = if home.is_some() { "bd lease pick" } else { "bd pick" };
+    let _ = writeln!(std::io::stderr().lock(), "{command}: the tree lands without a check: {reason}");
+  }
   let params = PickParams {
     repository_path: context.repository.clone(),
     from,
     follow: args.follow,
     dry_run: args.dry_run,
     expect_branch: home.map(|home| home.branch.clone()),
-    expect_source_head: home.and_then(|home| home.source_head.clone()),
+    expect_source_head: gate.expect_source_head,
   };
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
@@ -366,7 +507,10 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
     held_lock: None,
   };
   let result = pick_core(&context.git, &params, &options, &context.cache(), context.file_diffs()).map_err(pick_error)?;
-  output(context, &result, args.dry_run, home)
+  let mut output = output(context, &result, args.dry_run, home)?;
+  output.check = gate.check.as_ref().map(tree_check_output);
+  output.unchecked.clone_from(&args.allow_unchecked);
+  Ok(output)
 }
 
 /// The branch of `bd pick --remote` as the sync places it: its full name, the branch it is built on and its author. The
@@ -493,6 +637,8 @@ fn output(context: &RepoContext, result: &PickResult, dry_run: bool, home: Optio
     reparented: result.reparented.clone(),
     followed,
     conflict,
+    check: None,
+    unchecked: None,
     undo_token: result.undo_token().map(|token| token.to_string()),
   })
 }
