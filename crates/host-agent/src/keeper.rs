@@ -1,11 +1,12 @@
 //! The keeper of the host slots (spec/cli/host.spec.md, "serve"): a thread of `serve` that wakes once a minute, and at
 //! each start of a run of a repository. Per repository, one at a time, it keeps the git of the host at its floor
 //! (`run_git::ensure`: the call blocks while the pool waits for the lends and while Homebrew runs), takes up what no
-//! process acts on and deletes the refs that no run uses (`lease_pool::host_runs::reclaim_all`), keeps the minimum free
-//! space of the volume (`lease_pool::host_slots::keep_free`: below `branchdeck.leaseMinFree` the steps of a get there,
-//! the trim of every pool of the host among them), then leases the missing slots (`lease_pool::host_slots::fill`). The
-//! relief and the fill can take minutes, so they run on a thread of their own, one per repository at a time. A failed
-//! fill waits 1, 5, then 15 minutes before the next one, a relief that leaves the volume below its minimum 15 minutes.
+//! process acts on and deletes the refs that no run uses (`lease_pool::host_runs::reclaim_all`), then leases the missing
+//! slots (`lease_pool::host_slots::fill`) on a thread of its own, one per repository at a time. After the repositories,
+//! one relief keeps the minimum free space (`lease_pool::host_slots::keep_free`: below `branchdeck.leaseMinFree` the
+//! steps of a get there, the trim of every pool of the host among them), on a thread of its own and once per volume: the
+//! repositories of a host share one. A failed fill waits 1, 5, then 15 minutes before the next one, a relief that leaves
+//! a volume below its minimum 15 minutes.
 //! The repositories start from the
 //! repository list and the runs on disk, so a restart of `serve` keeps them. A change of the outcome of the git is one
 //! line of the log
@@ -17,7 +18,7 @@ use crate::run::Runs;
 use crate::{cleanup, run_git, tuning};
 use lease_pool::host_runs::reclaim_all;
 use lease_pool::host_slots::{fill, keep_free};
-use lease_pool::lease::Relieved;
+use lease_pool::lease::{ReliefRound, Relieved};
 use lease_pool::lease_clean::describe_size;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -34,13 +35,19 @@ const FILL_BACKOFF: [Duration; 3] = [Duration::from_mins(1), Duration::from_mins
 /// next one would walk the pools again for nothing
 const RELIEF_BACKOFF: Duration = Duration::from_mins(15);
 
-/// The relief and the fill of each repository
+/// The fills of each repository
 #[derive(Debug, Default)]
 struct Fill {
   running: bool,
   failures: usize,
   not_before: Option<Instant>,
-  relief_not_before: Option<Instant>,
+}
+
+/// The relief of the home: one at a time, and after one that left a volume low, not before `not_before`
+#[derive(Debug, Default)]
+struct Relief {
+  running: bool,
+  not_before: Option<Instant>,
 }
 
 /// Starts the keeper of `home`; the sender wakes it for a repository
@@ -59,17 +66,21 @@ fn keep(home: &Home, woken: &mpsc::Receiver<PathBuf>) {
     .chain(cleanup::repos(home))
     .collect();
   let fills: Arc<Mutex<HashMap<PathBuf, Fill>>> = Arc::default();
+  let relief: Arc<Mutex<Relief>> = Arc::default();
   let mut said: HashMap<PathBuf, String> = HashMap::new();
   loop {
+    let mut opened = Vec::new();
     for path in &repos {
       match Repository::open(home, path.clone()) {
         Ok(repo) => {
           ensure_git(&repo, &mut said);
+          opened.push(repo.clone());
           tend(repo, &fills);
         }
         Err(refusal) => note(&mut said, path, format!("cannot keep the host slots of {}: {refusal}", path.display())),
       }
     }
+    relieve(opened, &relief);
     match woken.recv_timeout(tuning::keeper_tick()) {
       Ok(repo) => {
         repos.insert(repo);
@@ -105,7 +116,7 @@ fn ensure_git(repo: &Repository, said: &mut HashMap<PathBuf, String>) {
   note(said, &repo.path, line);
 }
 
-/// One tick of one repository: the reclaim on this thread, the relief and the fill, each when due, on a thread of its own
+/// One tick of one repository: the reclaim on this thread, the fill on a thread of its own
 fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
   match reclaim_all(&repo.git, &repo.params()) {
     Ok(reclaimed) => {
@@ -122,44 +133,22 @@ fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
     }
     Err(error) => log(&format!("cannot reclaim the host slots of {}: {error:#}", repo.path.display())),
   }
-  let now = Instant::now();
-  let due = |not_before: Option<Instant>| not_before.is_none_or(|not_before| not_before <= now);
-  let (relieves, fills_now) = {
+  {
     let mut fills = fills.lock().unwrap_or_else(PoisonError::into_inner);
     let fill = fills.entry(repo.path.clone()).or_default();
-    let (relieves, fills_now) = (due(fill.relief_not_before), due(fill.not_before));
-    if fill.running || !(relieves || fills_now) {
+    if fill.running || fill.not_before.is_some_and(|not_before| Instant::now() < not_before) {
       return;
     }
     fill.running = true;
-    (relieves, fills_now)
-  };
+  }
   let fills = Arc::clone(fills);
   thread::spawn(in_current_span(move || {
-    let relieved = relieves.then(|| keep_free(&repo.git, &repo.params()));
-    let filled = fills_now.then(|| fill(&repo.git, &repo.params(), None));
+    let filled = fill(&repo.git, &repo.params(), None);
     let mut fills = fills.lock().unwrap_or_else(PoisonError::into_inner);
     let state = fills.entry(repo.path.clone()).or_default();
     state.running = false;
-    match relieved {
-      None | Some(Ok(None)) => {}
-      Some(Ok(Some(relieved))) => {
-        let still_low = relieved.after.is_some_and(|after| after < relieved.required);
-        state.relief_not_before = still_low.then(|| Instant::now() + RELIEF_BACKOFF);
-        log(&relieved_line(&repo.path, &relieved, still_low));
-      }
-      Some(Err(error)) => {
-        state.relief_not_before = Some(Instant::now() + RELIEF_BACKOFF);
-        log(&format!(
-          "cannot keep the free space of the pools of {}: {error:#}; again in {} min",
-          repo.path.display(),
-          RELIEF_BACKOFF.as_secs() / 60
-        ));
-      }
-    }
     match filled {
-      None => {}
-      Some(Ok(added)) => {
+      Ok(added) => {
         state.failures = 0;
         state.not_before = None;
         if !added.is_empty() {
@@ -167,7 +156,7 @@ fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
           log(&format!("added the host slots {numbers:?} of {}", repo.path.display()));
         }
       }
-      Some(Err(error)) => {
+      Err(error) => {
         let wait = FILL_BACKOFF[state.failures.min(FILL_BACKOFF.len() - 1)];
         state.failures += 1;
         state.not_before = Some(Instant::now() + wait);
@@ -178,6 +167,45 @@ fn tend(repo: Repository, fills: &Arc<Mutex<HashMap<PathBuf, Fill>>>) {
         ));
       }
     }
+  }));
+}
+
+/// The relief of one tick, when due and none runs: on a thread of its own, the repositories `repos` one after the other
+/// in one round (`ReliefRound`), so each volume is measured and relieved once, by the first repository on it. A relief
+/// that leaves a volume below its minimum, or fails, makes the next one wait `RELIEF_BACKOFF`
+fn relieve(repos: Vec<Repository>, relief: &Arc<Mutex<Relief>>) {
+  {
+    let mut relief = relief.lock().unwrap_or_else(PoisonError::into_inner);
+    if relief.running || relief.not_before.is_some_and(|not_before| Instant::now() < not_before) {
+      return;
+    }
+    relief.running = true;
+  }
+  let relief = Arc::clone(relief);
+  thread::spawn(in_current_span(move || {
+    let mut round = ReliefRound::default();
+    let mut low = false;
+    for repo in repos {
+      match keep_free(&repo.git, &repo.params(), &mut round) {
+        Ok(None) => {}
+        Ok(Some(relieved)) => {
+          let still_low = relieved.after.is_some_and(|after| after < relieved.required);
+          low |= still_low;
+          log(&relieved_line(&repo.path, &relieved, still_low));
+        }
+        Err(error) => {
+          low = true;
+          log(&format!(
+            "cannot keep the free space of the pools of {}: {error:#}; again in {} min",
+            repo.path.display(),
+            RELIEF_BACKOFF.as_secs() / 60
+          ));
+        }
+      }
+    }
+    let mut relief = relief.lock().unwrap_or_else(PoisonError::into_inner);
+    relief.running = false;
+    relief.not_before = low.then(|| Instant::now() + RELIEF_BACKOFF);
   }));
 }
 

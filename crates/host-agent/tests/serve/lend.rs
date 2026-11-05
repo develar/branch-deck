@@ -113,19 +113,26 @@ fn a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git() {
   assert!(heartbeats >= 3, "{heartbeats} heartbeats");
 }
 
-/// Below `branchdeck.leaseMinFree` the keeper raises the free space itself, as a get would, and writes what it did; a
-/// volume still below the minimum after every step waits 15 min for the next relief
+/// Below `branchdeck.leaseMinFree` the keeper raises the free space itself, as a get would, and writes what it did,
+/// once per volume: two repositories on one volume make one relief. A volume still below the minimum after every step
+/// waits 15 min for the next relief
 #[test]
-fn the_keeper_keeps_the_minimum_free_space_and_waits_after_a_relief_that_left_it_low() {
+fn the_keeper_keeps_the_minimum_free_space_once_per_volume_and_waits_after_a_relief_that_left_it_low() {
   let world = World::new(1, &[]);
-  world.remember(&[world.repo.path()]);
+  let other = TestRepo::new();
+  other.create_commit_with_files("first", &[("a.txt", "a\n")]);
+  other.git(&["config", "branchdeck.hostSlots", "1"]);
+  world.remember(&[world.repo.path(), other.path()]);
   let agent = world.serve_with(&[("BD_HOST_TEST_KEEPER_MS", "100")]);
-  eventually("the keeper fills the slot", || agent.slot_states(world.repo.path()) == ["idle"]);
+  eventually("the keeper fills the slots", || {
+    agent.slot_states(world.repo.path()) == ["idle"] && agent.slot_states(other.path()) == ["idle"]
+  });
 
-  world.repo.git(&["config", "branchdeck.leaseMinFree", "1P"]);
-  let line = format!("the volume of the pools of {} had ", world.repo.path().display());
-  let relieved = || world.serve_log().lines().filter(|logged| logged.contains(&line)).count();
-  eventually("the relief", || relieved() == 1);
+  for repo in [&world.repo, &other] {
+    repo.git(&["config", "branchdeck.leaseMinFree", "1P"]);
+  }
+  let relieved = || world.serve_log().lines().filter(|logged| logged.contains("the volume of the pools of ")).count();
+  eventually("the relief", || relieved() >= 1);
   assert!(
     world.serve_log().contains("less than `branchdeck.leaseMinFree` 1048576.0 GiB: nothing to delete; now ")
       && world.serve_log().contains(", still less than the minimum; the next relief in 15 min"),
@@ -136,7 +143,7 @@ fn the_keeper_keeps_the_minimum_free_space_and_waits_after_a_relief_that_left_it
   assert_eq!(
     relieved(),
     1,
-    "the keeper ticked every 100 ms, but a relief that left the volume low waits: {}",
+    "one volume, one relief; the keeper ticked every 100 ms, but a relief that left the volume low waits: {}",
     world.serve_log()
   );
   assert_eq!(agent.slot_states(world.repo.path()), ["idle"], "a host slot is a lease, never trimmed");

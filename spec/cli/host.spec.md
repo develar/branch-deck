@@ -456,15 +456,17 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   (`snapshot_run`), and after the command the patch from it (`changes_run`).
   [@test] ../../crates/host-agent/tests/serve.rs (`the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps`)
 - The keeper must wake once a minute and at each `Start` of a repository, and run `ensure_host_git`, `reclaim`,
-  `reclaim_refs` (`lease_pool::host_runs::reclaim_all`), `keep_free` and `fill` in process, one repository at a time.
-  A failed fill waits 1, 5, then 15 minutes.
+  `reclaim_refs` (`lease_pool::host_runs::reclaim_all`) and `fill` in process, one repository at a time, then one
+  relief (`keep_free`) over the repositories. A failed fill waits 1, 5, then 15 minutes.
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
-- Below `branchdeck.leaseMinFree` of the host, `keep_free` must raise the free space by the steps of a get there,
-  without a get ([bd lease](lease.spec.md), "Host slots"), and write one line of the log with what each step deleted
-  and the free space after. A relief that leaves the volume below the minimum after every step says so and waits
-  15 minutes before the next one; without a minimum it deletes nothing. So a host that only runs keeps its disk
-  without the app and without `bd`.
-  [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_keeps_the_minimum_free_space_and_waits_after_a_relief_that_left_it_low`)
+- Below `branchdeck.leaseMinFree` of the host, the relief must raise the free space by the steps of a get there,
+  without a get ([bd lease](lease.spec.md), "Host slots"), once per volume: the repositories of a host share one, so
+  the first repository on it measures and relieves it, and the others of the round take nothing. It runs on a thread
+  of its own, one at a time, and writes one line of the log per volume it relieved, with what each step deleted and the
+  free space after. A relief that leaves a volume below the minimum after every step says so and the next one waits
+  15 minutes; without a minimum it deletes nothing. So a host that only runs keeps its disk without the app and
+  without `bd`.
+  [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_keeps_the_minimum_free_space_once_per_volume_and_waits_after_a_relief_that_left_it_low`)
 - `serve` must hold the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after its
   hello, and each supervisor for its whole life. Elsewhere than on macOS nothing holds them.
   [@test] ../../crates/host-agent/tests/serve/system.rs (`serve_and_the_supervisor_keep_the_host_awake`)

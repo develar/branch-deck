@@ -21,8 +21,8 @@ use crate::free_space::available_bytes;
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
-  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, Relieved, canonical_path, get_host_slot, move_reused_slot,
-  relieve_core, return_host_slot,
+  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, ReliefRound, Relieved, canonical_path, get_host_slot,
+  move_reused_slot, relieve_core, return_host_slot,
 };
 use crate::lease_clean::{CleanMode, CleanOverrides, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, read_clean_rules, tracked_by_rules};
 use crate::state_file::StateFile;
@@ -1540,9 +1540,10 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
 /// The minimum free space of the volume of the pool, kept by the keeper of the host slots: below
 /// `branchdeck.leaseMinFree` it takes the steps a get takes there (`lease::relieve_core`: the trash, the trim of every
 /// pool of the machine, the shrink, the eviction), so a host that only runs keeps its minimum without a get and without
-/// `bd`. `None` when the volume has it; below it after every step, `Relieved::after` is below `Relieved::required`.
+/// `bd`. `None` when the volume has it, and when `round` took its volume already: the repositories of a host share
+/// one, and one relief serves them all. Below it after every step, `Relieved::after` is below `Relieved::required`.
 /// While a live process upgrades git it runs no git: `GitUpgrading`
-pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) -> Result<Option<Relieved>> {
+pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
   refuse_while_upgrading(&params.table().read()?)?;
   relieve_core(
     git_executor,
@@ -1558,6 +1559,7 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
       progress: None,
       space: None,
     },
+    round,
   )
 }
 

@@ -868,7 +868,8 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   the shrink and the eviction, each when the one before left the volume below it, as a get takes them ("Get"). A host
   slot is a lease and stays. Below the minimum after every step it must answer what went and the free space, not the
   `low_disk_space` of a get, whose advice is for an agent that asked for a slot; without a minimum, where the system
-  tells no free space, and while a live process upgrades git it deletes nothing. `host_slots::trim` is the trim of
+  tells no free space, and while a live process upgrades git it deletes nothing. One `ReliefRound` takes each volume
+  once: a pool of the round on a volume that it took measures nothing. `host_slots::trim` is the trim of
   `bd-host trim` ([bd-host](host.spec.md#trim)), with the same guard.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get`)
 - Only the git of that measure (one `ls-files` of the paths of the rules) may run while the slot is `giving_back`, so

@@ -1571,12 +1571,29 @@ pub struct Relieved {
   pub evicted: Option<Trimmed>,
 }
 
+/// The volumes that one round of the keeper took already (`relieve_core`): a relief raises the free space of a volume
+/// for every pool on it, and its steps take every pool of the machine, so the next pool of the round on that volume
+/// measures nothing and deletes nothing
+#[derive(Debug, Default)]
+pub struct ReliefRound {
+  /// The pool directory of each volume taken, as `free_space::Volume` tells it
+  pools: Vec<PathBuf>,
+}
+
+impl ReliefRound {
+  /// Whether a pool of the round lives on the volume of `pool_dir`
+  fn covers(&self, pool_dir: &Path) -> bool {
+    self.pools.iter().any(|pool| Volume::of(pool).holds(pool_dir))
+  }
+}
+
 /// The free space of the volume of the pool of `params.source` raised to its minimum without a get, by the steps a get
 /// takes below it (the trash, the trim, the shrink, the eviction; `Relieved::after`). `None` without a minimum, where
 /// the system tells no free space, and on a volume that has it: then it measures only. Below it after all, it answers
 /// what it did, not the `LowDiskSpace` of a get, whose advice is for an agent that asked for a slot. The keeper of the
-/// host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its minimum
-pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<Option<Relieved>> {
+/// host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its minimum. A volume that `round`
+/// took already is `None` too: once per volume and round
+pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
   let source = &params.source.top_level;
   let config = lease_config(git_executor, source)?;
   let min_free = required_free(params, &config)?;
@@ -1585,6 +1602,10 @@ pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetP
   }
   let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.source.git_common_dir)));
   let pool_dir = PathBuf::from(canonical_path(&pool_dir(&config, source, &git_common_dir, params.home)?));
+  if round.covers(&pool_dir) {
+    return Ok(None);
+  }
+  round.pools.push(pool_dir.clone());
   let Some(before) = params.available(&pool_dir).filter(|available| *available < min_free) else {
     return Ok(None);
   };

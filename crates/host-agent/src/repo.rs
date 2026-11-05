@@ -29,7 +29,7 @@ use std::time::Duration;
 const SERVER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A repository of the host, with its git and its directories, read once
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Repository {
   /// The path that a client names, with `~/` expanded
   pub(crate) path: PathBuf,

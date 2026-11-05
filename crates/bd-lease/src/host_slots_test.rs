@@ -15,7 +15,7 @@ use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
   clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
 };
-use lease_pool::lease::{LeaseState, Pool, canonical_path};
+use lease_pool::lease::{LeaseState, Pool, ReliefRound, canonical_path};
 use lease_pool::lease_clean::CleanOverrides;
 use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
@@ -556,7 +556,8 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
 /// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim deletes the
 /// free slot past `branchdeck.leaseMaxSlots` returned longest ago, and the host slot, a lease, stays. A minimum past the
 /// volume deletes no build output and no slot below the limit, and the answer says what went, not the refusal of a get.
-/// Without a minimum, and where the system tells no free space, it measures only
+/// A second pool of the round on the same volume measures nothing. Without a minimum, and where the system tells no
+/// free space, it measures only
 #[test]
 fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
   let host = Host::filled(1);
@@ -566,12 +567,14 @@ fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
     fixture.give_back(lane);
   }
   git(&fixture.repo, &["config", "branchdeck.leaseMaxSlots", "2"]);
-  assert!(keep_free(&context.git, &params).unwrap().is_none(), "without a minimum");
+  assert!(keep_free(&context.git, &params, &mut ReliefRound::default()).unwrap().is_none(), "without a minimum");
   assert_eq!(states(&fixture.status()).len(), 3, "without a minimum nothing goes");
 
   git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
   let tells_free_space = lease_pool::free_space::volume_space(Path::new(&lanes[0])).is_some();
-  let relieved = keep_free(&context.git, &params).unwrap();
+  let mut round = ReliefRound::default();
+  let relieved = keep_free(&context.git, &params, &mut round).unwrap();
+  assert!(keep_free(&context.git, &params, &mut round).unwrap().is_none(), "once per volume and round");
   let slots: Vec<String> = states(&fixture.status()).into_iter().map(|(path, _)| path).collect();
   if !tells_free_space {
     assert!(relieved.is_none(), "no free space told, no minimum to fall under");
