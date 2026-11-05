@@ -127,7 +127,7 @@ these rules:
   below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `robot-stats`, `schema`, `version`, `update --dry-run`, `update --status`,
-  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `squash --dry-run`, `drop --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
+  `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `squash --dry-run`, `drop --dry-run`, `unapply --dry-run`, `reapply --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`, the
   squashed commit of `squash --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
   `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
@@ -774,14 +774,15 @@ change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `r
   the range names no commit; `--since-reviewed` or `--base` of a range.
 - `no_baseline` (exit 4): no baseline, or one that shares no history with the branch.
 
-### `bd unapply <branch> [--expect-head <id>]`
+### `bd unapply <branch> [--dry-run] [--expect-head <id>]`
 
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as
 `{prefix}/unapplied/<name>`, which no sync archives or deletes (`sync_core::unapply_branch`, "Drop and unapply" in
 [Git Operations](../design/git-operations.md), the contract [Unapply and Reapply](../../spec/branch/unapply.spec.md)): only
 when the user asks. Computed before the repository lock, which holds only its witness and the move; the files follow
 through the guarded update of Update Project, so a local change on a path it writes is `uncommitted_overlap` (exit 4,
-`paths`) and changes nothing.
+`paths`) and changes nothing. `--dry-run` prints the same object with `dry_run: true` and without `undo_token`, the
+refusals included, and writes nothing but git objects: show the user what leaves HEAD before they say yes.
 
 ```json
 {"schema":2,"repository":"/repo","prefix":"jane","branch":"docs","unapplied_branch":"jane/unapplied/docs",

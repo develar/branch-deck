@@ -1,4 +1,4 @@
-use bd_cli::fixture_test::{assert_covered, assert_error, commit_subjects, environment, git, repo_with_subjects, run_in, run_json};
+use bd_cli::fixture_test::{assert_covered, assert_error, commit_subjects, environment, git, repo_with_subjects, run_in, run_json, writable_state};
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_utils::git_test_utils::TestRepo;
@@ -70,10 +70,40 @@ fn unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way(
   assert_error(&output, exit_code, (4, "drop_conflict"));
 }
 
+/// `--dry-run` prints the unapply it would do and writes nothing (no ref, no mapping note, no config, no index, no file),
+/// takes no lock and needs no undo; the unapply after it leaves the tree it named; a refusal is the unapply's
+#[test_log::test]
+fn a_dry_run_of_an_unapply_writes_nothing_and_says_what_it_would_do() {
+  let (repo, commits) = synced_repo();
+  let head = repo.head();
+  let before = writable_state(&repo);
+  let (exit_code, dry) = run_in(&repo, &["--full-ids", "unapply", "docs", "--dry-run"]);
+  assert_eq!(exit_code, 0, "{dry}");
+  assert_eq!(
+    (&dry["dry_run"], &dry["unapplied_branch"], &dry["commits"], &dry["previous_head"], dry.get("undo_token")),
+    (&json!(true), &json!("test-user/unapplied/docs"), &json!([commits[0], commits[2]]), &json!(head), None),
+    "{dry}"
+  );
+  assert_eq!(writable_state(&repo), before, "a dry run writes nothing");
+  let tree_of = |commit: &str| git(&repo, &["rev-parse", &format!("{commit}^{{tree}}")]);
+  let would = tree_of(dry["new_head"].as_str().unwrap());
+
+  std::fs::write(repo.path().join("f2.txt"), "in the way").unwrap();
+  let (exit_code, output) = run_in(&repo, &["unapply", "docs", "--dry-run"]);
+  assert_error(&output, exit_code, (4, "uncommitted_overlap"));
+  git(&repo, &["checkout", "-q", "--", "f2.txt"]);
+
+  let (exit_code, output) = run_in(&repo, &["--full-ids", "unapply", "docs"]);
+  assert_eq!((exit_code, &output["dry_run"]), (0, &json!(false)), "{output}");
+  assert_eq!(tree_of(&repo.head()), would);
+}
+
 #[test_log::test]
 fn unapply_outputs_match_the_schema() {
   let (repo, _) = synced_repo();
   let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
+  let (_, dry) = run_in(&repo, &["unapply", "docs", "--dry-run"]);
+  assert_covered(&schema["outputs"]["unapply"], &schema["outputs"]["unapply"], &dry, "unapply --dry-run");
   let (_, output) = run_in(&repo, &["unapply", "docs"]);
   assert_covered(&schema["outputs"]["unapply"], &schema["outputs"]["unapply"], &output, "unapply");
   let (_, undo) = run_in(&repo, &["undo", output["undo_token"].as_str().unwrap()]);

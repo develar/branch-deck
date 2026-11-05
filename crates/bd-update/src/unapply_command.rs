@@ -8,7 +8,7 @@
 use crate::update_command::{core_error, undo_core_error};
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
-use bd_core::operation_record::{asked_on, recorded, recorded_unless};
+use bd_core::operation_record::asked_on;
 use bd_core::output::SchemaVersion;
 use domain_types::error::ErrorCode;
 use domain_types::operation::Intent;
@@ -27,6 +27,10 @@ pub struct UnapplyArgs {
   /// Unapply only if HEAD is still this commit
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
+  /// Print what the unapply would do: the commits that leave HEAD and the name of the unapplied branch; nothing is
+  /// written but git objects
+  #[arg(long)]
+  pub dry_run: bool,
 }
 
 /// `bd unapply`
@@ -36,14 +40,18 @@ pub struct UnapplyOutput {
   pub repository: String,
   pub prefix: String,
   pub branch: String,
-  /// The branch that keeps the commits now: `{prefix}/unapplied/<name>`, with a `-N` suffix when the name was taken
+  /// The branch that keeps the commits now (with --dry-run: would): `{prefix}/unapplied/<name>`, with a `-N` suffix
+  /// when the name was taken
   pub unapplied_branch: String,
-  /// The commits that left HEAD, oldest first
+  pub dry_run: bool,
+  /// The commits that left HEAD (with --dry-run: would leave it), oldest first
   pub commits: Vec<String>,
   pub previous_head: String,
+  /// HEAD afterwards (with --dry-run: would be)
   pub new_head: String,
-  /// `bd undo <token>` brings the commits, their files and the virtual branch back
-  pub undo_token: String,
+  /// `bd undo <token>` brings the commits, their files and the virtual branch back; omitted with --dry-run
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub undo_token: Option<String>,
 }
 
 pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput, CliError> {
@@ -52,10 +60,10 @@ pub fn unapply(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutpu
     original_commit_ids: None,
     witness: asked_on(args.expect_head.as_deref()),
   };
-  recorded(context, &Intent::Rewrite(Box::new(intent)), || unapplied(context, args))
+  bd_core::operation_record::recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || unapplied(context, args))
 }
 
-/// `unapply` once recorded
+/// `unapply`, recorded unless a dry run
 fn unapplied(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput, CliError> {
   let options = RewriteOptions {
     expect_head: args.expect_head.clone(),
@@ -66,6 +74,7 @@ fn unapplied(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput,
     repository_path: context.repository.clone(),
     branch_name: args.branch.clone(),
     original_commit_ids: None,
+    dry_run: args.dry_run,
   };
   let result = unapply_branch_core(&context.git, params, &context.prefix, &options).map_err(unapply_error)?;
   let short = context.short_ids(
@@ -81,10 +90,11 @@ fn unapplied(context: &RepoContext, args: &UnapplyArgs) -> Result<UnapplyOutput,
     prefix: context.prefix.clone(),
     branch: args.branch.clone(),
     unapplied_branch: result.unapplied_branch_name,
+    dry_run: args.dry_run,
     commits: result.commits_removed.iter().map(|id| short.get(id).to_string()).collect(),
     previous_head: short.get(&result.previous_head).to_string(),
     new_head: short.get(&result.new_head).to_string(),
-    undo_token: result.undo_token,
+    undo_token: (!args.dry_run).then_some(result.undo_token),
   })
 }
 
@@ -168,7 +178,7 @@ pub fn reapply(context: &RepoContext, args: &ReapplyArgs) -> Result<ReapplyOutpu
     branch_name: args.branch.clone(),
     witness: asked_on(args.expect_head.as_deref()),
   };
-  recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || reapplied(context, args))
+  bd_core::operation_record::recorded_unless(context, args.dry_run, &Intent::Rewrite(Box::new(intent)), || reapplied(context, args))
 }
 
 /// `reapply`, recorded unless a dry run

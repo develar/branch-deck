@@ -31,6 +31,10 @@ pub struct UnapplyBranchParams {
   /// takes the commits as they group now
   #[serde(default)]
   pub original_commit_ids: Option<Vec<String>>,
+  /// Check only: nothing is written but git objects (no mapping note either), and no lock is taken; the result has no
+  /// undo token
+  #[serde(default)]
+  pub dry_run: bool,
 }
 
 /// An unapply refused before anything was written but git objects
@@ -69,13 +73,14 @@ impl UnapplyRefusal {
 /// now (`original_commit_ids`, when given, must be them), the check that the virtual branch is their copies, the drop
 /// replayed on objects, the dry run of the files (`check_drop`) and a free name. Under it only the witness (HEAD,
 /// the issue groups, both branches and the mark of an interrupted move, `RewriteOptions::lock_prepared_move`) and the
-/// move
+/// move. A dry run takes no lock and writes no note: its `undo_token` is empty
 #[instrument(skip(git_executor, options), fields(repo = %params.repository_path, branch = %params.branch_name))]
 pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBranchParams, branch_prefix: &str, options: &RewriteOptions) -> Result<UnapplyBranchResult> {
   let UnapplyBranchParams {
     repository_path,
     branch_name,
     original_commit_ids,
+    dry_run,
   } = params;
   let repo = repository_path.as_str();
   let prefix = normalize_branch_prefix(branch_prefix);
@@ -89,6 +94,17 @@ pub fn unapply_branch_core(git_executor: &GitCommandExecutor, params: UnapplyBra
   // the guards, the lock and the mark take the directories read here
   let git_executor = &with_dirs_of(git_executor, repo)?;
   let prepare = || prepare_unapply(git_executor, repo, &request, options);
+  if dry_run {
+    let prepared = prepare_checked(git_executor, repo, &request, options)?;
+    prepared.discard(git_executor, repo);
+    return Ok(UnapplyBranchResult {
+      unapplied_branch_name: prepared.unapplied_branch_name,
+      commits_removed: prepared.ids,
+      previous_head: prepared.plan.head().to_string(),
+      new_head: prepared.plan.new_head().to_string(),
+      undo_token: String::new(),
+    });
+  }
   let (prepared, _lock) = options.lock_prepared_move(git_executor, repo, prepare(), prepare)?;
   let PreparedUnapply {
     plan,
@@ -168,10 +184,18 @@ impl Prepared for PreparedUnapply {
   }
 }
 
-/// Everything an unapply reads and computes: the commits of the branch as they group now, the check that the virtual
-/// branch is their copies, the drop and the dry run of the files (`check_drop`), and a free name for the unapplied
-/// branch (`unique_branch_name`: the witness and the create of the transaction keep it free)
+/// Everything an unapply reads and computes (`prepare_checked`), then the mapping notes the replayed commits keep,
+/// before the lock, so a sync that the move wakes finds them
 fn prepare_unapply(git_executor: &GitCommandExecutor, repo: &str, request: &UnapplyRequest<'_>, options: &RewriteOptions) -> Result<PreparedUnapply> {
+  let prepared = prepare_checked(git_executor, repo, request, options)?;
+  prepared.plan.write_carried_notes(git_executor, repo);
+  Ok(prepared)
+}
+
+/// Everything an unapply reads and computes, and a dry run too: the commits of the branch as they group now, the check
+/// that the virtual branch is their copies, the drop and the dry run of the files (`check_drop`), and a free name for
+/// the unapplied branch (`unique_branch_name`: the witness and the create of the transaction keep it free)
+fn prepare_checked(git_executor: &GitCommandExecutor, repo: &str, request: &UnapplyRequest<'_>, options: &RewriteOptions) -> Result<PreparedUnapply> {
   let grouping = read_grouping_inputs(git_executor, repo)?;
   let ahead = CommitsAhead::read(git_executor, repo)?;
   // the newest commit ahead is HEAD
@@ -202,7 +226,6 @@ fn prepare_unapply(git_executor: &GitCommandExecutor, repo: &str, request: &Unap
     .map_err(anyhow::Error::new)
     .and_then(|()| unique_branch_name(git_executor, repo, &request.unapplied_base));
   let unapplied_branch_name = named.inspect_err(|_| plan.discard(git_executor, repo))?;
-  plan.write_carried_notes(git_executor, repo);
   Ok(PreparedUnapply {
     plan,
     ids,

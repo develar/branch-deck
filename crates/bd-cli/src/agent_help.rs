@@ -4,9 +4,8 @@ macro_rules! read_only {
     "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd robot-stats`, `bd schema`,
 `bd version`, `bd describe <branch>` without a setter, `bd update --status` without
 --materialize, `bd lease status`, `bd workspace`, and
-`bd group --dry-run`, `bd rename --dry-run`, `bd restack --dry-run`, `bd unstack --dry-run`, `bd update --dry-run`
-(also with --continue), `bd pick --dry-run`, `bd fold --dry-run`, `bd drop --dry-run`, `bd move-hunk --dry-run` and
-`bd reword --dry-run`
+`bd group`, `bd rename`, `bd restack`, `bd unstack`, `bd update` (also with its --continue), `bd pick`, `bd fold`,
+`bd drop`, `bd unapply`, `bd reapply`, `bd move-hunk` and `bd reword` with --dry-run
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
 object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
 `bd push --dry-run`, `bd safe-push --dry-run` and `bd request-review --dry-run` sync first."
@@ -42,9 +41,9 @@ Rules
 - A branch `parked` in `bd status` stays local, and so do a branch built on it (`with` names the parked one) and the
   stack that holds it. `bd park <branch> --note '<why>'` and `bd unpark <branch>` only when the user asks (no rewrite;
   `idle_parked` lists the lines of branches without commits here).
-- `bd unapply <branch>` (`--expect-head <id>`) takes a branch and its files out of the checked out branch, kept as
-  `{prefix}/unapplied/{name}` (`unapplied` of `bd status`); `bd reapply <name>` (`--dry-run`, `--expect-head <id>`)
-  puts it back on top; `bd undo <undo_token>` takes either back. Only when the user asks. `bd push` and `bd safe-push`
+- `bd unapply <branch>` (`--dry-run`, `--expect-head <id>`) takes a branch and its files out of the checked out
+  branch, kept as `{prefix}/unapplied/{name}` (`unapplied` of `bd status`); `bd reapply <name>` (`--dry-run`,
+  `--expect-head <id>`) puts it back on top; `bd undo <undo_token>` takes either back. Only when the user asks. `bd push` and `bd safe-push`
   refuse an unapplied name (`unapplied`); `bd push --unapplied <name>` keeps a copy on the remote when the user asks.
   `branch_not_built` (sync first), `branch_checked_out`, `drop_conflict`, `reapply_conflict` and `nothing_to_reapply`
   change nothing: tell the user.

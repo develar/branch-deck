@@ -781,6 +781,7 @@ impl Core {
           repository_path: path.to_owned(),
           branch_name: branch_name.clone(),
           original_commit_ids: original_commit_ids.clone(),
+          dry_run: false,
         };
         let result = unapply_branch_core(git, params, &self.prefix, &options).map_err(failed)?;
         let token = result.undo_token.clone();

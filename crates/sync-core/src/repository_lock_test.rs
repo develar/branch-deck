@@ -114,6 +114,7 @@ fn every_rewrite<'a>(git: &'a GitCommandExecutor, repo: &'a TestRepo, [a1, b1, a
               repository_path: path(repo),
               branch_name: "beta".to_string(),
               original_commit_ids: Some(vec![b1.clone()]),
+              dry_run: false,
             },
             "test-user",
             options,

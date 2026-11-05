@@ -22,6 +22,7 @@ pub(crate) fn unapply(repo: &TestRepo, branch: &str, expected: Option<Vec<String
     repository_path: path(repo).to_string(),
     branch_name: branch.to_string(),
     original_commit_ids: expected,
+    dry_run: false,
   };
   unapply_branch_core(repo.git_executor(), params, PREFIX, &RewriteOptions::default())
 }
@@ -301,6 +302,7 @@ fn an_unapply_and_its_undo_lock_only_the_witness_and_the_move() -> Result<()> {
     repository_path: path(&repo).to_string(),
     branch_name: "feature".to_string(),
     original_commit_ids: None,
+    dry_run: false,
   };
   let result = unapply_branch_core(span.executor(), params, PREFIX, &RewriteOptions::default())?;
   assert_eq!(subjects(&repo), ["Initial commit", "(other) Add file1", "(different) Add file3"]);

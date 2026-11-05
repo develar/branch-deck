@@ -449,6 +449,7 @@ fn unapply_beta(git: &GitCommandExecutor, repo: &TestRepo, commits: &[String]) -
       repository_path: path(repo),
       branch_name: "beta".to_string(),
       original_commit_ids: Some(vec![commits[1].clone(), commits[3].clone(), commits[5].clone()]),
+      dry_run: false,
     },
     PREFIX,
     &RewriteOptions::default(),
@@ -485,6 +486,46 @@ async fn a_drop() {
       ("symbolic-ref", 2),
       ("update-index", 2),
       ("update-ref", 2),
+    ],
+  );
+}
+
+/// `bd unapply --dry-run` of beta: what `a_drop` reads and computes before the lock, then the temporary refs of the drop
+/// deleted; no lock, no witness, no mapping note and no move
+#[tokio::test]
+async fn a_dry_run_of_a_drop() {
+  let (repo, commits) = alpha_and_beta_on_origin();
+  sync(&GitCommandExecutor::new(), &repo).await;
+  let git = counting();
+  let result = unapply_branch_core(
+    &git,
+    UnapplyBranchParams {
+      repository_path: path(&repo),
+      branch_name: "beta".to_string(),
+      original_commit_ids: Some(vec![commits[1].clone(), commits[3].clone(), commits[5].clone()]),
+      dry_run: true,
+    },
+    PREFIX,
+    &RewriteOptions::default(),
+  )
+  .unwrap();
+  assert_eq!((result.commits_removed.len(), result.undo_token.as_str()), (3, ""));
+  assert_processes(
+    &git,
+    &[
+      ("cat-file", 1),
+      ("config", 1),
+      ("diff-tree", 1),
+      ("for-each-ref", 3), // `a_drop` without the witness under the lock
+      ("log", 4),
+      ("merge-base", 1),
+      ("read-tree", 1), // the dry run of the files; no move
+      ("remote", 1),
+      ("replay", 2),
+      ("rev-list", 1),
+      ("rev-parse", 3),
+      ("symbolic-ref", 1),
+      ("update-index", 1), // the files into the temporary index only
     ],
   );
 }

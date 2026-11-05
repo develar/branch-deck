@@ -248,10 +248,15 @@ puts its commits back on top of the current branch, their files and their groupi
 
 ### `bd`
 
-- `bd unapply <branch> [--expect-head <id>]` must unapply as the app does and print one object (`unapply` in
-  `bd schema`) with the unapplied branch, the commits, both heads and the `undo_token`; `bd undo` of it must undo it
+- `bd unapply <branch> [--dry-run] [--expect-head <id>]` must unapply as the app does and print one object (`unapply`
+  in `bd schema`) with the unapplied branch, the commits, both heads and the `undo_token`; `bd undo` of it must undo it
   (`restored_branch`, `already_undone`).
   [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_takes_the_branch_and_its_files_out_of_head_and_the_undo_brings_them_back`, `unapply_outputs_match_the_schema`)
+- `--dry-run` must print the same object of the unapply it would do (`dry_run: true`, the name of the unapplied
+  branch, the commits that would leave HEAD, the HEAD it would move to, no `undo_token`) and write nothing but git
+  objects: no ref, no mapping note, no config, no index and no file, no lock and no record in the operations
+  registry, as the dry run of `bd reapply`; a refusal is the unapply's (`uncommitted_overlap` too).
+  [@test] ../../crates/bd-update/src/unapply_test.rs (`a_dry_run_of_an_unapply_writes_nothing_and_says_what_it_would_do`)
 - Its refusals must be codes: `unknown_branch` (exit 2), `uncommitted_overlap` with `paths`, `branch_not_built`,
   `branch_checked_out` and `drop_conflict` (exit 4).
   [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way`)
@@ -270,6 +275,9 @@ puts its commits back on top of the current branch, their files and their groupi
 - An unapply must cost the processes `a_drop` pins: the grouping read once, one `replay` per kept run, one dry run of
   the files and one move; its undo those of `an_undo_of_an_unapply`.
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_drop`, `an_undo_of_an_unapply`)
+- A dry run of an unapply must cost what `a_drop` reads and computes before the lock, without the witness, the move
+  and the mapping notes.
+  [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_dry_run_of_a_drop`)
 - A reapply must cost the processes `a_reapply` pins (one `fast-import` for the restored messages, one `replay`, one
   dry run of the files, one move); its undo those of `an_undo_of_a_reapply`.
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_reapply`, `an_undo_of_a_reapply`)
