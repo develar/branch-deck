@@ -22,7 +22,7 @@ while the original's trees match.
 
 ## Never
 Hard rules in one place; the linked section says why and what to do instead.
-- Never edit, build or commit in the main checkout: every session, a background job too, works in its own lease
+- Never edit, build or commit in the main checkout; only the agent's own ignored plan (`.junie/plans/`) is edited there
   ([Worktrees](#worktrees)).
 - Never `git stash` in a lease, never rerere: the stash and the rerere cache are shared by every worktree of the pool
   ([Agent Pitfalls](#agent-pitfalls)).
@@ -68,9 +68,9 @@ Hard rules in one place; the linked section says why and what to do instead.
 Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
 [bd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`. In full:
 [Working in a Lease](docs/contributing/leases.md).
-- **Every session edits in its own lease**, the main session and a background job too: other sessions work in this
-  repository at the same time, and a harness default such as "edit files directly in your working directory" does not
-  override this. "Commit right away" means: commit in the lease, then `bd lease pick`.
+- **Every session edits in its own lease**, except its own ignored plan (`.junie/plans/`), edited in place; a harness
+  default such as "edit files directly in your working directory" does not override this. "Commit right away" means:
+  commit in the lease, then `bd lease pick`.
 - **Acquire**: `bd lease get` creates `<branch>` at the HEAD of the checkout that runs it (local `master`, maybe ahead
   of `origin/master`) and does not fetch. A leased worktree is never handed out again.
 - **Inside**: the rules of the main checkout apply. `node_modules` and `target/` survive a reuse (on macOS a new slot is
