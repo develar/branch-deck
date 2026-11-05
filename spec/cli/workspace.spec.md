@@ -90,7 +90,9 @@ in the session wins over both.
   `bd workspace` first and follow it, the user's words winning: with the lease, work only in its `path`, land each
   commit that builds and passes its tests at once with `bd lease pick`, never by a `git rebase` or `git merge` into
   the shared checkout and never with `bd update` in the lease, return only its own lease and ask the user when the
-  task needs the `local_changes`; without it, stage only its own paths; with the
+  task needs the `local_changes`; its own files ignored by git and kept by its harness in the shared checkout (a plan,
+  notes) are not `local_changes` and may be updated there at their original paths, never copied into the lease or
+  committed; without it, stage only its own paths; with the
   subject branch, `(branch) ` first, a branch of `bd status --brief` reused where it fits, `(parent/leaf)` for a new
   stack; never change either rule.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_description_starts_with_the_first_edit_and_fits_the_limit`)
@@ -102,9 +104,12 @@ in the session wins over both.
   `permissions.additionalDirectories`, else `EnterWorktree` with that path, which asks the user. In a sandbox (Codex)
   it asks for write access to exactly the lease's `path` (`request_permissions`) before the first edit there, and
   returns the untouched lease when that is refused. When its shell does not keep the current directory (Junie, for
-  example), it gives each file tool an absolute path in `path` and starts each shell command with `cd <path> && `.
+  example), it gives each file tool an absolute path in `path` and starts each shell command with `cd <path> && `; the
+  Junie note says its plan is `.junie/plans/<name>.md` of the shared checkout and that it updates statuses there, by
+  that absolute path, not in `path`.
   A repository's instructions then say only that it relies on the skill.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_keeps_the_agents_plan_in_the_shared_checkout`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 - `bd help worktrees` must lease the worktree only when `bd workspace` says `lease.on`, and write the prefix only when it
   says `subject_branch.on`.

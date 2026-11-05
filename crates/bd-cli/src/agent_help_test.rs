@@ -454,6 +454,15 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() 
   assert!(rule_end < cd, "{skill}");
 }
 
+#[test]
+fn the_skill_keeps_the_agents_plan_in_the_shared_checkout() {
+  let skill = skill_text("bd");
+  assert!(skill.contains(
+    "Your own files ignored by git and kept by your harness in the shared checkout (a plan,\n  notes) are not `local_changes`; editing them there is allowed: read and update them at the path where the harness\n  wrote them, never copy them into the lease or commit them."
+  ));
+  assert!(skill.contains("Its plan is `.junie/plans/<name>.md` of the shared\n  checkout: update its statuses there, by that absolute path, not in `path`."));
+}
+
 /// Below the commit subject and its settings the skill says how to write the body a review reads
 /// (docs/guide/commit-bodies.md): the lead, code names in backticks that `bd review-plan` resolves, `Look closely:`, the
 /// labels of the verification and the trailers last, in five lines
