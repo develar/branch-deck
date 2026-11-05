@@ -296,6 +296,55 @@ fn slots_shows_the_lend_table_and_shrinks_it_without_the_agent() {
   assert_eq!(shrunk["table"]["limit"], json!(0));
 }
 
+/// `bd-host trim` deletes the free slots of the pools of the host past `branchdeck.leaseMaxSlots` there, without a `bd`
+/// on the host; `--plan` only names them, and a host slot, a lease, stays
+#[test]
+fn trim_plans_and_deletes_the_free_slots_of_the_host() {
+  let world = World::new();
+  world.repo.git(&["config", "branchdeck.hostSlots", "3"]);
+  let agent = world.serve();
+  let ran = world.bd_host(&["run", ALIAS, "--head", "--", "true"]);
+  assert_eq!(ran.status.code(), Some(0), "{}", text(&ran.stderr));
+  let slot_kinds = || {
+    let slots = world.bd_host(&["slots", ALIAS, "--json"]);
+    serde_json::from_slice::<Value>(&slots.stdout).map_or_else(
+      |_| Vec::new(),
+      |slots| {
+        slots["repositories"][0]["table"]["slots"]
+          .as_array()
+          .map_or_else(Vec::new, |slots| slots.iter().map(|slot| slot["state"]["kind"].clone()).collect())
+      },
+    )
+  };
+  wait_until("three idle host slots", || slot_kinds() == [json!("idle"), json!("idle"), json!("idle")]);
+  // two of them go back to the pool as free slots, and a pool of three slots keeps two
+  let repo = world.repo.path_str();
+  let shrunk = world.bd_host(&["slots", "--local", "-C", repo, "--shrink", "1"]);
+  assert_eq!(shrunk.status.code(), Some(0), "{}", text(&shrunk.stderr));
+  world.repo.git(&["config", "branchdeck.leaseMaxSlots", "2"]);
+
+  let plan = world.bd_host(&["trim", ALIAS, "--plan", "--json"]);
+  assert_eq!(plan.status.code(), Some(0), "{}", text(&plan.stderr));
+  let plan: Value = serde_json::from_slice(&plan.stdout).expect("JSON");
+  let report = &plan["hosts"][0]["report"];
+  assert_eq!(
+    (&report["plan"], &report["pools"][0]["slots"], &report["pools"][0]["max_slots"]),
+    (&json!(true), &json!(3), &json!(2)),
+    "{plan}"
+  );
+  let planned = report["pools"][0]["removed"][0]["path"].as_str().expect("a slot the trim would delete").to_owned();
+  assert!(Path::new(&planned).is_dir(), "a plan deletes nothing");
+
+  let trimmed = world.bd_host(&["trim", ALIAS]);
+  assert_eq!(trimmed.status.code(), Some(0), "{}", text(&trimmed.stderr));
+  let trimmed = text(&trimmed.stdout);
+  assert!(trimmed.starts_with(&format!("{ALIAS}: deleted 1 free slot(s) past the limit")), "{trimmed}");
+  assert!(trimmed.contains(&format!("    deleted {planned}, ")), "{trimmed}");
+  assert!(!Path::new(&planned).exists(), "the trim deletes the slot it planned");
+  assert_eq!(slot_kinds(), [json!("idle")], "the host slot stays");
+  drop(agent);
+}
+
 /// `bd-host disk`: the agent answers what the pools of its host hold, as `bd lease disk` writes it; without an alias
 /// every host of the client
 #[test]
@@ -334,7 +383,11 @@ fn schema_and_version_answer_one_json_object() {
 }
 
 /// The features an agent of this build answers: the upgrade only on macOS, where launchd starts the new binary, and the
-/// disk report everywhere
+/// disk report and the trim everywhere
 fn features_of_this_platform() -> Value {
-  if cfg!(target_os = "macos") { json!(["upgrade", "disk"]) } else { json!(["disk"]) }
+  if cfg!(target_os = "macos") {
+    json!(["upgrade", "disk", "trim"])
+  } else {
+    json!(["disk", "trim"])
+  }
 }

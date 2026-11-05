@@ -416,6 +416,12 @@ impl Agent {
         let result = with_heartbeats(channel, &mut || {}, move || disk(&home, fresh))?;
         answer(channel, result)
       }
+      Request::Trim { max, plan } => {
+        let home = self.home.clone();
+        let peer = channel.peer().short();
+        let result = with_heartbeats(channel, &mut || {}, move || trim(&home, max, plan, &peer))?;
+        answer(channel, result)
+      }
       Request::Upgrade { .. } => answer(channel, Err(Refusal::new(Code::BadRequest, "an upgrade comes as the request of its connection"))),
     }
   }
@@ -756,6 +762,27 @@ fn disk(home: &Home, fresh: bool) -> Result<Reply, Refusal> {
   for path in cleanup::repos(home) {
     match Repository::open(home, path).and_then(|repo| repo.disk(fresh)) {
       Ok(report) => return Ok(Reply::Disk { report }),
+      Err(refusal) => last = refusal,
+    }
+  }
+  Err(last)
+}
+
+/// The trim of every pool of the host (`Repository::trim`), by the first repository of the repository list that opens,
+/// as for the disk report; one line of the log names who asked and what went
+fn trim(home: &Home, max: Option<usize>, plan: bool, peer: &str) -> Result<Reply, Refusal> {
+  let mut last = Refusal::new(Code::RepoMissing, "the agent has served no repository yet");
+  for path in cleanup::repos(home) {
+    match Repository::open(home, path).and_then(|repo| repo.trim(max, plan)) {
+      Ok(report) => {
+        if !plan {
+          let lines = report.lines("the trim");
+          log(&format!("{peer} trims the pools of the host: {}", lines.join("; ")));
+        }
+        return serde_json::to_value(&report)
+          .map(|report| Reply::Trimmed { report })
+          .map_err(|error| Refusal::new(Code::AgentError, error.to_string()));
+      }
       Err(refusal) => last = refusal,
     }
   }

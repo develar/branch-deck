@@ -15,9 +15,11 @@ use git_ops::revs::{RepositoryDirs, is_object_id, repository_dirs};
 use history_rewrite::repository_lock::DEFAULT_LOCK_TIMEOUT;
 use host_link::proto::PackTarget;
 use host_link::refusal::{Code, Refusal};
+use lease_pool::free_space::available_bytes;
 use lease_pool::host_refs::{HostRef, HostRefRefusal, IngestedPack, have, ingest, show};
-use lease_pool::host_slots::{HostSlotRefusal, HostSlotsParams, changes_run, snapshot_run};
+use lease_pool::host_slots::{HostSlotRefusal, HostSlotsParams, changes_run, snapshot_run, trim};
 use pool_disk::report::DiskReport;
+use pool_disk::trim_report::TrimReport;
 use pool_disk::{DiskParams, disk_usage_core};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -89,6 +91,13 @@ impl Repository {
     };
     let usage = disk_usage_core(&self.git, &params).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))?;
     serde_json::to_value(DiskReport::of(&usage)).map_err(|error| Refusal::new(Code::AgentError, error.to_string()))
+  }
+
+  /// The trim of every pool of the host (`lease_pool::host_slots::trim`), as `pool_disk::trim_report::TrimReport`
+  /// with the free bytes of the volume of this repository after it
+  pub(crate) fn trim(&self, max: Option<usize>, plan: bool) -> Result<TrimReport, Refusal> {
+    let trimmed = trim(&self.git, &self.params(), max, !plan).map_err(|error| Refusal::new(Code::AgentError, format!("{error:#}")))?;
+    Ok(TrimReport::of(&trimmed, plan, available_bytes(&self.path)))
   }
 
   /// The common dir, where the lend table lives

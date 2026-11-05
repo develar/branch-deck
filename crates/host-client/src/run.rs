@@ -615,22 +615,38 @@ impl Client<'_> {
   }
 
   /// What the pools of the host hold on disk, as the JSON of `pool_disk::report::DiskReport` (`Request::Disk`); `fresh`
-  /// walks every slot again. An agent without the feature `disk` refuses with `agent_failed` and the upgrade to run,
-  /// before the request: it would close the connection on a request it does not know
+  /// walks every slot again. An agent without the feature `disk` refuses with `agent_failed` and the upgrade to run
+  /// (`featured_host`)
   pub fn disk(&self, alias: &str, fresh: bool) -> Result<serde_json::Value, Refusal> {
-    let mut host = self.host(alias)?;
-    let (channel, info) = host.connect()?;
-    channel.close();
-    if !info.features.iter().any(|known| known == feature::DISK) {
-      return Err(Refusal::new(
-        Code::AgentFailed,
-        format!("the agent on {alias} has no feature {}: `bd-host upgrade {alias}` sends it this build", feature::DISK),
-      ));
-    }
-    self.ask(&mut host, &Request::Disk { fresh }, |reply| match reply {
+    self.ask(&mut self.featured_host(alias, feature::DISK)?, &Request::Disk { fresh }, |reply| match reply {
       Reply::Disk { report } => Taken::Answer(report),
       reply => Taken::Other(reply),
     })
+  }
+
+  /// The trim of every pool of the host, as the JSON of `pool_disk::trim_report::TrimReport` (`Request::Trim`): the free
+  /// slots past `max`, else `branchdeck.leaseMaxSlots` there; `plan` only says what would go. An agent without the
+  /// feature `trim` refuses with `agent_failed` and the upgrade to run (`featured_host`)
+  pub fn trim(&self, alias: &str, max: Option<usize>, plan: bool) -> Result<serde_json::Value, Refusal> {
+    self.ask(&mut self.featured_host(alias, feature::TRIM)?, &Request::Trim { max, plan }, |reply| match reply {
+      Reply::Trimmed { report } => Taken::Answer(report),
+      reply => Taken::Other(reply),
+    })
+  }
+
+  /// The host of `alias` once its hello names `feature`. An agent without it refuses with `agent_failed` and the upgrade
+  /// to run, before the request: it would close the connection on a request it does not know
+  fn featured_host(&self, alias: &str, wanted: &str) -> Result<Host, Refusal> {
+    let mut host = self.host(alias)?;
+    let (channel, info) = host.connect()?;
+    channel.close();
+    if !info.features.iter().any(|known| known == wanted) {
+      return Err(Refusal::new(
+        Code::AgentFailed,
+        format!("the agent on {alias} has no feature {wanted}: `bd-host upgrade {alias}` sends it this build"),
+      ));
+    }
+    Ok(host)
   }
 
   /// One request on a new connection, and its reply that `take` reads. A refusal of the agent keeps its code, and a

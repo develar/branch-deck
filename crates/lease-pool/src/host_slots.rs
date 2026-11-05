@@ -21,11 +21,12 @@ use crate::free_space::available_bytes;
 use crate::host_git::{FoundGit, GitPlan, min_version, plan_of, run_brew};
 use crate::host_refs::delete_run_ref;
 use crate::lease::{
-  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, canonical_path, get_host_slot, move_reused_slot,
-  return_host_slot,
+  BusyProcess, CleanTarget, GetStep, LeaseGetParams, LeaseRefusal, LeaseReturnParams, LeaseReturned, LeaseState, Pool, Relieved, canonical_path, get_host_slot, move_reused_slot,
+  relieve_core, return_host_slot,
 };
 use crate::lease_clean::{CleanMode, CleanOverrides, ParsedRule, TrackedPaths, Trash, apply_clean_rules, apply_tracked_rules, read_clean_rules, tracked_by_rules};
 use crate::state_file::StateFile;
+use crate::trim::{TrimParams, Trimmed, trim_core};
 use anyhow::{Result, bail};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::lease_slot::{LeaseConfig, SlotMove, checkout_slot, discard_slot_changes, lease_config, linked_worktree, move_clean_slot, slot_changes, start_deferred_maintenance};
@@ -1534,6 +1535,50 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
     }
   }
   failed.map_or(Ok(filled), Err)
+}
+
+/// The minimum free space of the volume of the pool, kept by the keeper of the host slots: below
+/// `branchdeck.leaseMinFree` it takes the steps a get takes there (`lease::relieve_core`: the trash, the trim of every
+/// pool of the machine, the shrink, the eviction), so a host that only runs keeps its minimum without a get and without
+/// `bd`. `None` when the volume has it; below it after every step, `Relieved::after` is below `Relieved::required`.
+/// While a live process upgrades git it runs no git: `GitUpgrading`
+pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>) -> Result<Option<Relieved>> {
+  refuse_while_upgrading(&params.table().read()?)?;
+  relieve_core(
+    git_executor,
+    &LeaseGetParams {
+      source: params.repository,
+      home: params.home,
+      holder: None,
+      branch: None,
+      min_free: None,
+      server_timeout: params.server_timeout,
+      bazel: None,
+      lock_timeout: params.lock_timeout,
+      progress: None,
+      space: None,
+    },
+  )
+}
+
+/// The trim of every pool of the host that `bd-host trim` asks for (`trim::trim_core`, as `bd lease trim` runs it):
+/// the free slots past `max_slots`, else `branchdeck.leaseMaxSlots` of each repository, with their Bazel output bases,
+/// and the output bases of gone workspaces; `apply` false only says what would go. A host slot is a lease and stays.
+/// While a live process upgrades git it runs no git: `GitUpgrading`
+pub fn trim(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, max_slots: Option<usize>, apply: bool) -> Result<Trimmed> {
+  refuse_while_upgrading(&params.table().read()?)?;
+  trim_core(
+    git_executor,
+    &TrimParams {
+      repository: params.repository,
+      home: params.home,
+      max_slots,
+      apply,
+      server_timeout: params.server_timeout,
+      bazel: None,
+      lock_timeout: params.lock_timeout,
+    },
+  )
 }
 
 /// The get of the host slot `n`, which this fill reserved as `filling` (`mine`), then idle; a get that fails frees the

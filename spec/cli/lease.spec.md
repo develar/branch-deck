@@ -863,6 +863,14 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   measures) and skips a slot that is not idle or has a process in it, with the reason; it conflicts with `--free` and
   `DIR`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs`)
+- `host_slots::keep_free`, which the keeper of bd-host runs once a minute, must keep the minimum free space of the
+  volume of the pool without a get: below `branchdeck.leaseMinFree` the trash, the trim of every pool of the machine,
+  the shrink and the eviction, each when the one before left the volume below it, as a get takes them ("Get"). A host
+  slot is a lease and stays. Below the minimum after every step it must answer what went and the free space, not the
+  `low_disk_space` of a get, whose advice is for an agent that asked for a slot; without a minimum, where the system
+  tells no free space, and while a live process upgrades git it deletes nothing. `host_slots::trim` is the trim of
+  `bd-host trim` ([bd-host](host.spec.md#trim)), with the same guard.
+  [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get`)
 - Only the git of that measure (one `ls-files` of the paths of the rules) may run while the slot is `giving_back`, so
   an upgrade of git waits for it; the walk of the sizes must run once the slot is idle, and the clean then takes the
   slot only while it is still idle. A clean must leave the slot idle before it deletes its trash, as a return of the

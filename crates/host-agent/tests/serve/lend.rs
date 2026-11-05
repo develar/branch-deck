@@ -113,6 +113,35 @@ fn a_have_sends_heartbeats_while_it_waits_for_an_upgrade_of_git() {
   assert!(heartbeats >= 3, "{heartbeats} heartbeats");
 }
 
+/// Below `branchdeck.leaseMinFree` the keeper raises the free space itself, as a get would, and writes what it did; a
+/// volume still below the minimum after every step waits 15 min for the next relief
+#[test]
+fn the_keeper_keeps_the_minimum_free_space_and_waits_after_a_relief_that_left_it_low() {
+  let world = World::new(1, &[]);
+  world.remember(&[world.repo.path()]);
+  let agent = world.serve_with(&[("BD_HOST_TEST_KEEPER_MS", "100")]);
+  eventually("the keeper fills the slot", || agent.slot_states(world.repo.path()) == ["idle"]);
+
+  world.repo.git(&["config", "branchdeck.leaseMinFree", "1P"]);
+  let line = format!("the volume of the pools of {} had ", world.repo.path().display());
+  let relieved = || world.serve_log().lines().filter(|logged| logged.contains(&line)).count();
+  eventually("the relief", || relieved() == 1);
+  assert!(
+    world.serve_log().contains("less than `branchdeck.leaseMinFree` 1048576.0 GiB: nothing to delete; now ")
+      && world.serve_log().contains(", still less than the minimum; the next relief in 15 min"),
+    "{}",
+    world.serve_log()
+  );
+  thread::sleep(Duration::from_secs(1));
+  assert_eq!(
+    relieved(),
+    1,
+    "the keeper ticked every 100 ms, but a relief that left the volume low waits: {}",
+    world.serve_log()
+  );
+  assert_eq!(agent.slot_states(world.repo.path()), ["idle"], "a host slot is a lease, never trimmed");
+}
+
 /// The keeper fills the slots of a repository of the repository list without a run, and gives back the slot of a lend
 /// whose process is gone. A failed fill of another repository waits 1 min before the next one, while the keeper goes on
 #[test]

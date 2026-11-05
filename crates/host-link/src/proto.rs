@@ -58,14 +58,16 @@ pub mod feature {
   pub const UPGRADE: &str = "upgrade";
   /// `Request::Disk`: what the pools of the host hold on disk
   pub const DISK: &str = "disk";
+  /// `Request::Trim`: the trim of the pools of the host, which has no `bd`
+  pub const TRIM: &str = "trim";
 }
 
-/// The features of an agent of this build on this platform: `disk` everywhere, `upgrade` on macOS
+/// The features of an agent of this build on this platform: `disk` and `trim` everywhere, `upgrade` on macOS
 pub fn features() -> Vec<&'static str> {
   if cfg!(target_os = "macos") {
-    vec![feature::UPGRADE, feature::DISK]
+    vec![feature::UPGRADE, feature::DISK, feature::TRIM]
   } else {
-    vec![feature::DISK]
+    vec![feature::DISK, feature::TRIM]
   }
 }
 
@@ -111,6 +113,15 @@ pub enum Request {
   Disk {
     #[serde(default, skip_serializing_if = "is_false")]
     fresh: bool,
+  },
+  /// The trim of every pool of the host (`lease_pool::host_slots::trim`, as `bd lease trim` runs it): the free slots
+  /// past `max`, else `branchdeck.leaseMaxSlots` of each repository; `plan` only says what would go. Replies:
+  /// `Reply::Heartbeat` while the agent deletes, then `Reply::Trimmed`. Feature `feature::TRIM`
+  Trim {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max: Option<usize>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    plan: bool,
   },
   /// Replaces the binary that the `LaunchAgent` names. The new binary follows as a byte stream of `size` bytes whose
   /// SHA-256 is `sha256` (64 lower-case hex digits). Replies: `Reply::Heartbeat` while the agent checks the binary, then
@@ -250,6 +261,11 @@ pub enum Reply {
   /// The disk report of the host as `pool_disk::report::DiskReport` writes it: this crate reaches no pool, so it stays
   /// JSON here, and `bd-host disk` reads it with the type of `pool-disk`
   Disk {
+    report: serde_json::Value,
+  },
+  /// What the trim of `Request::Trim` deleted, as `pool_disk::trim_report::TrimReport` writes it: JSON here for the
+  /// reason of `Reply::Disk`
+  Trimmed {
     report: serde_json::Value,
   },
   Done {

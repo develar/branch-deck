@@ -1,6 +1,6 @@
 ---
 name: bd-host
-description: Requirements for bd-host, the binary of the remote runs. The client runs a command of a checkout on a host, in a warm host slot that the host lends to that run only, streams its output, and brings back the fetched files, the outputs and the changes. The agent serves the runs under launchd, lends the slots through the lend table of the pool, and replaces its own binary on an upgrade. The CLI, the refusal codes with their exit codes, the report of a run on a descriptor and the hello as JSON.
+description: Requirements for bd-host, the binary of the remote runs. The client runs a command of a checkout on a host, in a warm host slot that the host lends to that run only, streams its output, and brings back the fetched files, the outputs and the changes. The agent serves the runs under launchd, lends the slots through the lend table of the pool, keeps the minimum free space of the host and trims its pools on request, so the host needs no app and no bd, and replaces its own binary on an upgrade. The CLI, the refusal codes with their exit codes, the report of a run on a descriptor and the hello as JSON.
 style: plain-1
 targets:
   - ../../crates/bd-host/src/main.rs
@@ -25,6 +25,8 @@ targets:
   - ../../crates/bd-host/src/report_fd.rs
   - ../../crates/lease-pool/src/host_brew.rs
   - ../../crates/pool-disk/src/report.rs
+  - ../../crates/pool-disk/src/trim_report.rs
+  - ../../crates/host-agent/src/keeper.rs
 ---
 
 # bd-host
@@ -51,6 +53,8 @@ This spec is a draft of the port. A requirement names the test that will cover i
 ## Goals
 
 - One binary for both ends, outside `bd` and the app. The app binary does not grow.
+- A host needs no app and no `bd`: the agent keeps the minimum free space of its pools by itself and trims them on
+  request (`bd-host trim`), so nothing sends an agent there for the app.
 - No `bd` process and no JSON of a child process between the agent and the pool, or between the client and git.
 - A machine contract that a caller reads without parsing the words: the refusal codes, the exit codes, the report and
   the hello as JSON, and `bd-host schema` that prints them.
@@ -297,7 +301,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
     "schema": 1,
     "os": "macos",
     "arch": "aarch64",
-    "features": ["upgrade", "disk"]
+    "features": ["upgrade", "disk", "trim"]
   },
   "client": {
     "version": "0.37.0",
@@ -344,13 +348,35 @@ bd-host disk [<alias>] [--fresh] [--json]
   slot again. Without an alias it asks every host of the client (`hosts/<alias>.json`), one after the other. A client
   checks the feature in the hello first: an agent without it gets no request (it would close the connection on one it
   does not know) and its host names `agent_failed` with `bd-host upgrade <alias>`.
-  [@test] ../../crates/host-link/src/proto_test.rs (`a_request_and_a_reply_have_a_tagged_json_shape`, `an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk`)
-  [@test] ../../crates/host-client/src/run_test.rs (`runs_cancel_slots_and_disk_answer_the_replies_of_the_agent`, `disk_of_an_agent_without_the_feature_sends_no_request`)
+  [@test] ../../crates/host-link/src/proto_test.rs (`a_request_and_a_reply_have_a_tagged_json_shape`, `an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_and_the_trim`)
+  [@test] ../../crates/host-client/src/run_test.rs (`runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent`, `disk_and_trim_of_an_agent_without_the_feature_send_no_request`)
 - `--json` must print `{"schema", "hosts": [{"alias", "report"} or {"alias", "refusal": {"code", "message"}}]}`;
   without it each host is its lines: the free space and the minimum, each pool with its bytes, its slots, its limit and
   the free slots past it, the output bases of the main worktree and of gone slots. A host that answers nothing is named
   and the others go on; the command fails with its refusal only when no host answered.
   [@test] ../../crates/bd-host/tests/cli.rs (`disk_reports_the_pools_of_the_host`)
+
+### trim
+
+```sh
+bd-host trim [<alias>] [--max <n>] [--plan] [--json]
+```
+
+- `bd-host trim <alias>` must ask the agent to trim every pool of its host (`Request::Trim`, feature `trim`, every
+  agent of this build has it), as `bd lease trim` trims the pools of this machine ([bd lease](lease.spec.md#trim)):
+  the free slots past `--max`, else `branchdeck.leaseMaxSlots` of each repository there, the ones returned longest ago
+  first, with their Bazel output bases, and the output bases of gone workspaces (`lease_pool::host_slots::trim`). A host
+  slot is a lease and stays. `--plan` names what would go and deletes nothing. The agent heartbeats while it deletes,
+  refuses while a live process upgrades git (`GitUpgrading`), and writes one line of its log with the peer and what
+  went. The reply carries `pool_disk::trim_report::TrimReport` as JSON. Without an alias it asks every host of the
+  client, one after the other; an agent without the feature gets no request and its host names `agent_failed` with
+  `bd-host upgrade <alias>`, as for `disk`.
+  [@test] ../../crates/bd-host/tests/cli.rs (`trim_plans_and_deletes_the_free_slots_of_the_host`)
+  [@test] ../../crates/host-client/src/run_test.rs (`runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent`, `disk_and_trim_of_an_agent_without_the_feature_send_no_request`)
+- `--json` must print `{"schema", "hosts": [{"alias", "report"} or {"alias", "refusal": {"code", "message"}}]}`, the
+  shape of `disk`; without it each host is its lines: what went (with `--plan`: what would go) and the free space
+  after, then each pool it touched with its slots, its limit, each deleted slot with its bytes and each busy one.
+  [@test] ../../crates/pool-disk/src/trim_report_test.rs (`a_trim_report_counts_each_slot_with_its_output_bases_and_names_only_the_pools_it_touched`)
 
 ### setup
 
@@ -430,9 +456,15 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   (`snapshot_run`), and after the command the patch from it (`changes_run`).
   [@test] ../../crates/host-agent/tests/serve.rs (`the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps`)
 - The keeper must wake once a minute and at each `Start` of a repository, and run `ensure_host_git`, `reclaim`,
-  `reclaim_refs` (`lease_pool::host_runs::reclaim_all`) and `fill` in process, one repository at a time. A failed
-  fill waits 1, 5, then 15 minutes.
+  `reclaim_refs` (`lease_pool::host_runs::reclaim_all`), `keep_free` and `fill` in process, one repository at a time.
+  A failed fill waits 1, 5, then 15 minutes.
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
+- Below `branchdeck.leaseMinFree` of the host, `keep_free` must raise the free space by the steps of a get there,
+  without a get ([bd lease](lease.spec.md), "Host slots"), and write one line of the log with what each step deleted
+  and the free space after. A relief that leaves the volume below the minimum after every step says so and waits
+  15 minutes before the next one; without a minimum it deletes nothing. So a host that only runs keeps its disk
+  without the app and without `bd`.
+  [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_keeps_the_minimum_free_space_and_waits_after_a_relief_that_left_it_low`)
 - `serve` must hold the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after its
   hello, and each supervisor for its whole life. Elsewhere than on macOS nothing holds them.
   [@test] ../../crates/host-agent/tests/serve/system.rs (`serve_and_the_supervisor_keep_the_host_awake`)

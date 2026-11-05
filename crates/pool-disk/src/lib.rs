@@ -379,6 +379,7 @@ fn build_dirs(slot: &Path) -> Vec<String> {
 }
 
 pub mod report;
+pub mod trim_report;
 pub mod walk;
 
 #[cfg(test)]

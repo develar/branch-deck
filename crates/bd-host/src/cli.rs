@@ -99,6 +99,22 @@ enum Command {
     #[arg(long)]
     json: bool,
   },
+  /// Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of a host, of every host without an
+  /// alias, with their Bazel output bases, as `bd lease trim` does there; a host needs no `bd` for it. The keeper of
+  /// the agent does the same by itself below `branchdeck.leaseMinFree`
+  Trim {
+    /// The alias of the host file; without it every host of the client
+    alias: Option<String>,
+    /// Keep this many slots in every pool, over `branchdeck.leaseMaxSlots` of each repository there (default 10)
+    #[arg(long, value_name = "N")]
+    max: Option<usize>,
+    /// Only say what would be deleted; nothing is written
+    #[arg(long)]
+    plan: bool,
+    /// One JSON object on stdout
+    #[arg(long)]
+    json: bool,
+  },
   /// Makes a host ready: over ssh from this machine (`setup <alias>`), or on the host itself
   Setup(SetupArgs),
   /// Sends this binary to the agent of a macOS host over the link, without ssh. The agent swaps its binary and
@@ -442,6 +458,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
     Command::Hello { alias, json } => hello(&alias, json, out),
     Command::Slots(args) => slots(&args, out),
     Command::Disk { alias, fresh, json } => disk(alias.as_deref(), fresh, json, out),
+    Command::Trim { alias, max, plan, json } => trim(alias.as_deref(), max, plan, json, out),
     Command::Setup(args) => setup(&args, out),
     Command::Upgrade { alias, binary, force } => {
       install_interrupt("Ctrl+C ends this process, and the upgrade goes on on the host");
@@ -559,25 +576,56 @@ fn slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   Ok(0)
 }
 
-/// `bd-host disk`: the report of each host, the hosts asked one after the other; a host that does not answer or whose
-/// agent lacks the feature names its refusal and the others go on. Exit 0 when one answered, else the exit of the
-/// refusal
+/// `bd-host disk`: the report of each host (`each_host`)
 fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, Refusal> {
+  each_host(
+    alias,
+    json,
+    out,
+    |client, alias| client.disk(alias, fresh),
+    |report, alias| serde_json::from_value::<pool_disk::report::DiskReport>(report.clone()).map(|report| report.lines(alias)),
+  )
+}
+
+/// `bd-host trim`: the trim of each host (`each_host`)
+fn trim(alias: Option<&str>, max: Option<usize>, plan: bool, json: bool, out: &Out) -> Result<u8, Refusal> {
+  if !plan {
+    install_interrupt("Ctrl+C ends this process, and the trim goes on on the host");
+  }
+  each_host(
+    alias,
+    json,
+    out,
+    |client, alias| client.trim(alias, max, plan),
+    |report, alias| serde_json::from_value::<pool_disk::trim_report::TrimReport>(report.clone()).map(|report| report.lines(alias)),
+  )
+}
+
+/// One request to `alias`, else to every host of the client one after the other, its JSON answer printed as `lines`
+/// of `pool-disk` read it; a host that does not answer, or whose agent lacks the feature, names its refusal and the
+/// others go on. Exit 0 when one answered, else the exit of the refusal
+fn each_host(
+  alias: Option<&str>,
+  json: bool,
+  out: &Out,
+  ask: impl Fn(&Client<'_>, &str) -> Result<serde_json::Value, Refusal>,
+  lines: impl Fn(&serde_json::Value, &str) -> serde_json::Result<Vec<String>>,
+) -> Result<u8, Refusal> {
   let line_out = |line: &str| out.line(line);
   let client = client(&line_out, &say)?;
   let aliases = match alias {
     Some(alias) => vec![alias.to_owned()],
     None => host_client::config::Config::of_user()?.aliases(),
   };
-  let hosts: Vec<HostDisk> = aliases
+  let hosts: Vec<HostAnswer> = aliases
     .into_iter()
-    .map(|alias| match client.disk(&alias, fresh) {
-      Ok(report) => HostDisk {
+    .map(|alias| match ask(&client, &alias) {
+      Ok(report) => HostAnswer {
         alias,
         report: Some(report),
         refusal: None,
       },
-      Err(refusal) => HostDisk {
+      Err(refusal) => HostAnswer {
         alias,
         report: None,
         refusal: Some(refusal),
@@ -585,7 +633,7 @@ fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, R
     })
     .collect();
   if json {
-    out.json(&DiskOutput {
+    out.json(&HostsOutput {
       schema: REPORT_SCHEMA,
       hosts: &hosts,
     });
@@ -594,8 +642,8 @@ fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, R
   } else {
     for host in &hosts {
       match (&host.report, &host.refusal) {
-        (Some(report), _) => match serde_json::from_value::<pool_disk::report::DiskReport>(report.clone()) {
-          Ok(report) => report.lines(&host.alias).iter().for_each(|line| out.line(line)),
+        (Some(report), _) => match lines(report, &host.alias) {
+          Ok(lines) => lines.iter().for_each(|line| out.line(line)),
           Err(error) => out.line(&format!("{}: a report this build cannot read: {error}", host.alias)),
         },
         // a host that answers nothing is the error of the command when no other answered, said once
@@ -610,22 +658,22 @@ fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, R
   }
 }
 
-/// The disk report of one host, or why it has none
+/// The answer of one host to `bd-host disk` or `bd-host trim`, or why it has none
 #[derive(Serialize)]
-struct HostDisk {
+struct HostAnswer {
   alias: String,
-  /// As `pool_disk::report::DiskReport` writes it
+  /// As `pool_disk::report::DiskReport` or `pool_disk::trim_report::TrimReport` writes it
   #[serde(skip_serializing_if = "Option::is_none")]
   report: Option<serde_json::Value>,
   #[serde(skip_serializing_if = "Option::is_none")]
   refusal: Option<Refusal>,
 }
 
-/// `bd-host disk --json`
+/// `bd-host disk --json` and `bd-host trim --json`
 #[derive(Serialize)]
-struct DiskOutput<'a> {
+struct HostsOutput<'a> {
   schema: u32,
-  hosts: &'a [HostDisk],
+  hosts: &'a [HostAnswer],
 }
 
 /// `bd-host slots --json`

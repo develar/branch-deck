@@ -45,8 +45,8 @@ palette opens it.
 
 ## Non-goals
 
-- A trim of a host from the dialog: a host trims itself on its next lease below its minimum, or by `bd lease trim`
-  there.
+- A trim of a host from the dialog: the keeper of its agent frees its space by itself below its minimum, and
+  `bd-host trim <alias>` trims it now ([bd-host](../cli/host.spec.md#trim)); a host has no `bd`.
 - A change of the limit or of the minimum: both are the machine's git config.
 
 ## Requirements

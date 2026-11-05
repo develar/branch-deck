@@ -1143,12 +1143,7 @@ fn get_lease(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>, tak
   let mut min_free = required_free(params, &config)?;
   // what the get did below the minimum free space
   let mut relief = Relief::default();
-  let mut free_bytes = loop {
-    match free_space(params, &pool, &pool_dir, min_free, &relief)? {
-      FreeSpace::Enough(available) => break available,
-      low => relief.relieve(git_executor, params, &pool, (&pool_dir, min_free), &low, &report),
-    }
-  };
+  let mut free_bytes = relief.raise(git_executor, params, &pool, (&pool_dir, min_free), &report)?;
   let seeds = seed_paths(git_executor, source)?;
   // the rules of the source leave out of a cloned slot what a return would delete; a file that can't be read clones all
   let skips = CloneSkips::new(&clone_skips(&read_clean_rules(Path::new(source)).unwrap_or_else(|error| {
@@ -1509,6 +1504,24 @@ struct Relief {
 }
 
 impl Relief {
+  /// The free bytes of the volume of the pool once it has `min_free`: each step of `free_space` that it still lacks,
+  /// one after the other (`relieve`), measured again after each. `LowDiskSpace` below it after all
+  fn raise(
+    &mut self,
+    git_executor: &GitCommandExecutor,
+    params: &LeaseGetParams<'_>,
+    pool: &Pool,
+    (pool_dir, min_free): (&Path, u64),
+    report: &dyn Fn(GetStep),
+  ) -> Result<Option<u64>> {
+    loop {
+      match free_space(params, pool, pool_dir, min_free, self)? {
+        FreeSpace::Enough(available) => return Ok(available),
+        low => self.relieve(git_executor, params, pool, (pool_dir, min_free), &low, report),
+      }
+    }
+  }
+
   /// The step `low` of `free_space` for the get of `params` whose pool directory is `pool_dir` and whose minimum is
   /// `min_free`, never under the clones lock: the get measures again after it
   fn relieve(
@@ -1539,6 +1552,58 @@ impl Relief {
       }
     }
   }
+}
+
+/// What `relieve_core` did on a volume below the minimum free space, as a get does it
+#[derive(Debug)]
+pub struct Relieved {
+  /// The minimum free space (`branchdeck.leaseMinFree`)
+  pub required: u64,
+  /// The free bytes before
+  pub before: u64,
+  /// The free bytes after, `None` where the system does not tell them; below `required` when every step was taken and
+  /// the volume still lacks it
+  pub after: Option<u64>,
+  /// The trash of gone runs was deleted
+  pub swept: bool,
+  pub trimmed: Option<Trimmed>,
+  pub shrunk: Option<Shrunk>,
+  pub evicted: Option<Trimmed>,
+}
+
+/// The free space of the volume of the pool of `params.source` raised to its minimum without a get, by the steps a get
+/// takes below it (the trash, the trim, the shrink, the eviction; `Relieved::after`). `None` without a minimum, where
+/// the system tells no free space, and on a volume that has it: then it measures only. Below it after all, it answers
+/// what it did, not the `LowDiskSpace` of a get, whose advice is for an agent that asked for a slot. The keeper of the
+/// host slots calls it (`host_slots::keep_free`), so a host that only runs keeps its minimum
+pub(crate) fn relieve_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<Option<Relieved>> {
+  let source = &params.source.top_level;
+  let config = lease_config(git_executor, source)?;
+  let min_free = required_free(params, &config)?;
+  if min_free == 0 {
+    return Ok(None);
+  }
+  let git_common_dir = PathBuf::from(canonical_path(Path::new(&params.source.git_common_dir)));
+  let pool_dir = PathBuf::from(canonical_path(&pool_dir(&config, source, &git_common_dir, params.home)?));
+  let Some(before) = params.available(&pool_dir).filter(|available| *available < min_free) else {
+    return Ok(None);
+  };
+  let pool = Pool::new(&git_common_dir);
+  let mut relief = Relief::default();
+  let after = match relief.raise(git_executor, params, &pool, (&pool_dir, min_free), &|_| {}) {
+    Ok(after) => after,
+    Err(error) if matches!(error.downcast_ref::<LeaseRefusal>(), Some(LeaseRefusal::LowDiskSpace { .. })) => params.available(&pool_dir),
+    Err(error) => return Err(error),
+  };
+  Ok(Some(Relieved {
+    required: min_free,
+    before,
+    after,
+    swept: relief.swept,
+    trimmed: relief.trimmed,
+    shrunk: relief.shrunk,
+    evicted: relief.evicted,
+  }))
 }
 
 /// The turn of the get at the shrink and the eviction of the machine (`shrink::lock_pressure`), which the core measures

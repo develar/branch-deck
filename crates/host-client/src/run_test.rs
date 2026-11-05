@@ -149,6 +149,7 @@ fn kind(request: &Request) -> &'static str {
     Request::Runs => "runs",
     Request::Slots => "slots",
     Request::Disk { .. } => "disk",
+    Request::Trim { .. } => "trim",
     Request::Upgrade { .. } => "upgrade",
   }
 }
@@ -984,11 +985,12 @@ fn the_outputs_of_the_commit_come_back_in_place_of_their_local_copies() {
   assert!(start_spec(&setup).outputs);
 }
 
-/// The disk report comes after the heartbeats of the agent, as the JSON it sent, and `fresh` reaches it
+/// The disk report and the trim come after the heartbeats of the agent, as the JSON it sent, and `fresh`, `max` and
+/// `plan` reach it
 #[test]
-fn runs_cancel_slots_and_disk_answer_the_replies_of_the_agent() {
+fn runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent() {
   let hello = Hello {
-    features: vec!["upgrade".to_owned(), "disk".to_owned()],
+    features: vec!["upgrade".to_owned(), "disk".to_owned(), "trim".to_owned()],
     ..Hello::default()
   };
   let setup = Setup::with_hello(hello, |request, channel| {
@@ -997,6 +999,11 @@ fn runs_cancel_slots_and_disk_answer_the_replies_of_the_agent() {
       Request::Disk { fresh: true } => channel.send(&Reply::Heartbeat { elapsed_ms: 100 }).and_then(|()| {
         channel.send(&Reply::Disk {
           report: serde_json::json!({"bytes": 7}),
+        })
+      }),
+      Request::Trim { max: Some(6), plan: true } => channel.send(&Reply::Heartbeat { elapsed_ms: 100 }).and_then(|()| {
+        channel.send(&Reply::Trimmed {
+          report: serde_json::json!({"plan": true}),
         })
       }),
       Request::Slots => channel.send(&Reply::Slots {
@@ -1016,18 +1023,23 @@ fn runs_cancel_slots_and_disk_answer_the_replies_of_the_agent() {
   assert_eq!(client.disk(ALIAS, true).unwrap(), serde_json::json!({"bytes": 7}));
   assert_eq!(kinds(&setup).last(), Some(&"disk"));
   assert_eq!(client.disk(ALIAS, false).unwrap_err().code, Code::BadRequest);
+  assert_eq!(client.trim(ALIAS, Some(6), true).unwrap(), serde_json::json!({"plan": true}));
+  assert_eq!(kinds(&setup).last(), Some(&"trim"));
 }
 
-/// An agent without the feature `disk` gets no request: it would close the connection on one it does not know
+/// An agent without the feature `disk` or `trim` gets no such request: it would close the connection on one it does
+/// not know
 #[test]
-fn disk_of_an_agent_without_the_feature_sends_no_request() {
+fn disk_and_trim_of_an_agent_without_the_feature_send_no_request() {
   let older = Setup::new(|_, channel| {
     let _ = channel.send(&Reply::refused(Code::BadRequest, "no"));
   });
   let processes = FakeProcesses::default();
-  let refused = older.client(&processes, &|_| {}, &calm).disk(ALIAS, false).unwrap_err();
-  assert_eq!(refused.code, Code::AgentFailed, "{}", refused.message);
-  assert!(refused.message.contains("bd-host upgrade studio"), "{}", refused.message);
+  let client = older.client(&processes, &|_| {}, &calm);
+  for refused in [client.disk(ALIAS, false).unwrap_err(), client.trim(ALIAS, None, false).unwrap_err()] {
+    assert_eq!(refused.code, Code::AgentFailed, "{}", refused.message);
+    assert!(refused.message.contains("bd-host upgrade studio"), "{}", refused.message);
+  }
   assert_eq!(kinds(&older), Vec::<&str>::new());
 }
 

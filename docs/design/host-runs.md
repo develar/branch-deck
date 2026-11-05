@@ -1,7 +1,7 @@
 # Host Runs
 
 **Status:** Draft
-**Updated:** 2026-10-28
+**Updated:** 2026-11-05
 **Tags:** [host, remote-run, lease, bd-host, yonder]
 
 ## Problem
@@ -88,8 +88,10 @@ The lend table, the give-back, the clean and the shrink are in "Host slots" of
   pack, checks out the commit, runs the prepare steps and the command, stages the outputs, writes `exit.json` and gives
   the slot back on every way out. A restart of `serve` does not stop it.
 - **The keeper** is a thread of `serve`. It wakes once a minute and when a run names a repository. It brings the git
-  of the host to its floor (`ensure_host_git`), takes up what a gone process left (`reclaim`, `reclaim_refs`), and
-  fills the missing slots (`fill`). A failed fill waits 1, 5, then 15 minutes.
+  of the host to its floor (`ensure_host_git`), takes up what a gone process left (`reclaim`, `reclaim_refs`), keeps
+  the minimum free space (`keep_free`), and fills the missing slots (`fill`). A failed fill waits 1, 5, then 15
+  minutes. Below `branchdeck.leaseMinFree` the relief takes the steps of a get (the trash, the trim of every pool of
+  the host, the shrink, the eviction) without one; a relief that leaves the volume below it waits 15 minutes.
 - **Sleep.** `serve` holds the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after
   its hello, and each supervisor holds them for its whole life. So a command runs to its end without its client.
 
@@ -133,6 +135,13 @@ the `bd lease host …` and `bd host …` commands of bd were removed.
    `{"base": …}`) instead of a ref of `refs/yonder/`, and `RunSpec` has no `reference`.
 4. **Decision**: The rustls provider of the app (`aws-lc-rs`), not `ring`.
    **Rationale**: The workspace links `aws-lc-rs` through reqwest already, so no second provider comes in.
+5. **Decision**: A host has no app and no `bd`. The agent keeps its disk: the keeper frees space below the minimum,
+   and `bd-host trim` trims the pools on request (2026-11-05).
+   **Rationale**: Before, a host trimmed itself only on a `bd lease get` there, and only with `branchdeck.leaseMinFree`
+   set. A host that only runs never got one, and the one way left to free its disk was `bd lease trim` there, which
+   needs `bd`, the binary of the app. An agent that wanted to free the disk of the Studio upgraded `bd-host`, found
+   the `bd` of an old app there, and copied the app binary over. `bd-host upgrade` replaces only the agent, so every
+   function a host needs lives in the agent.
 
 ## Alternatives Considered
 

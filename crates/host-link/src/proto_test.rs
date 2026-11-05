@@ -5,11 +5,11 @@ use crate::refusal::Code;
 use pretty_assertions::assert_eq;
 
 #[test]
-fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk() {
+fn an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_and_the_trim() {
   if cfg!(target_os = "macos") {
-    assert_eq!(features(), [feature::UPGRADE, feature::DISK]);
+    assert_eq!(features(), [feature::UPGRADE, feature::DISK, feature::TRIM]);
   } else {
-    assert_eq!(features(), [feature::DISK]);
+    assert_eq!(features(), [feature::DISK, feature::TRIM]);
   }
   assert_eq!((DEFAULT_PORT, SCHEMA_VERSION), (7742, 1));
 }
@@ -32,6 +32,15 @@ fn a_request_and_a_reply_have_a_tagged_json_shape() {
     report: serde_json::json!({"bytes": 7}),
   };
   assert_eq!(serde_json::to_string(&disk).expect("json"), r#"{"reply":"disk","report":{"bytes":7}}"#);
+  assert_eq!(serde_json::to_string(&Request::Trim { max: None, plan: false }).expect("json"), r#"{"request":"trim"}"#);
+  assert_eq!(
+    serde_json::from_str::<Request>(r#"{"request":"trim","max":6,"plan":true}"#).expect("parsed"),
+    Request::Trim { max: Some(6), plan: true }
+  );
+  let trimmed = Reply::Trimmed {
+    report: serde_json::json!({"freed_bytes": 7}),
+  };
+  assert_eq!(serde_json::to_string(&trimmed).expect("json"), r#"{"reply":"trimmed","report":{"freed_bytes":7}}"#);
 
   let reply = Reply::Output {
     stream: Stream::Stderr,
@@ -216,7 +225,11 @@ fn an_upgrade_and_its_reply_have_a_tagged_json_shape() {
 fn the_version_line_names_the_build_and_a_check_adds_the_launch_agent() {
   let line = VersionLine::of_this_build("0.37.0", Some("ab".repeat(32)));
   let json = serde_json::to_string(&line).expect("json");
-  let features = if cfg!(target_os = "macos") { r#"["upgrade","disk"]"# } else { r#"["disk"]"# };
+  let features = if cfg!(target_os = "macos") {
+    r#"["upgrade","disk","trim"]"#
+  } else {
+    r#"["disk","trim"]"#
+  };
   assert_eq!(json, format!(r#"{{"version":"0.37.0","schema":1,"features":{features},"sha256":"{}"}}"#, "ab".repeat(32)));
   let checked: VersionLine = serde_json::from_str(r#"{"version":"0.37.0","schema":1,"features":["upgrade"],"sha256":null,"plist":"same"}"#).expect("a check line");
   assert_eq!((checked.plist.as_deref(), checked.sha256), (Some("same"), None));

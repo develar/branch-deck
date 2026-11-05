@@ -1,6 +1,6 @@
 # Runs on Another Mac (`bd-host`)
 
-**Updated:** 2026-10-29  
+**Updated:** 2026-11-05  
 **Tags:** [bd-host, host, remote-run, setup]
 
 `bd-host` runs a command of your checkout on another Mac of yours, the **host**: a long test suite, flake trials with
@@ -21,8 +21,9 @@ This guide sets up a host and walks through the first runs. The exact contract o
 |   | 1. the working tree as one     |  TLS 1.3 |   v                                      |
 |   |    commit (nothing changes     |  port    | bd-host serve ---- keeper, every minute: |
 |   |    in your checkout)           |  7742    |   |                fills the slots,      |
-|   | 2. a thin pack of the commits  | -------> |   |                upgrades git)         |
-|   |    the host lacks              |          |   v                                      |
+|   | 2. a thin pack of the commits  | -------> |   |                upgrades git, frees   |
+|   |    the host lacks              |          |   |                the disk)             |
+|   |                                |          |   v                                      |
 |   |                                |          | bd-host supervise, one per run           |
 |   | 3. the output, line by line    | <------- |   |                                      |
 |   | 4. the exit code               |          |   v                                      |
@@ -32,6 +33,7 @@ This guide sets up a host and walks through the first runs. The exact contract o
 ```
 
 - **One binary, both ends.** `bd-host` is the client on this Mac and the agent on the host. The app bundle carries it.
+  The host needs neither the app nor `bd`: the agent keeps its disk too.
 - **No ssh for a run.** Each end pins the certificate of the other end. ssh is needed once, for the setup.
 - **Commits, not files.** Only the commits that the host does not have travel. A second run of the same tree sends
   nothing.
@@ -214,6 +216,25 @@ borrows one for its own time only, so there is nothing to keep or give back:
 - `bd-host slots studio` shows each slot, its state, its run and the queue.
 - `bd-host runs studio` lists the runs that the host keeps, with the time of each step.
 - `bd-host slots --local -C <repo> --shrink <n>` on the host gives the slots past `n` back and keeps `n` as the limit.
+
+## The disk of the host
+
+Set the minimum free space of the host once, on the host, as on this Mac:
+
+```sh
+git config --global branchdeck.leaseMinFree 200G
+```
+
+Below it the keeper frees space by itself, once a minute: the trash of gone runs, the free worktrees past
+`branchdeck.leaseMaxSlots` (10 by default) with their Bazel output bases, then the build output of free worktrees and
+free worktrees below the limit, the ones returned longest ago first, as a `bd lease get` does on this Mac. A host slot
+is a lease and stays; after a run, its own clean rules free it. Without a minimum the keeper deletes nothing.
+
+```sh
+bd-host disk studio            # what the pools of the host hold, and what a trim deletes next
+bd-host trim studio --plan     # what a trim would delete now
+bd-host trim studio --max 6    # delete the free worktrees past 6 in every pool now
+```
 
 ## Upgrade the host
 

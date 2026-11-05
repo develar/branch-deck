@@ -14,12 +14,12 @@ pub struct DiskReport {
   /// The free bytes of the volume; omitted where the system does not tell
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
-  /// `branchdeck.leaseMinFree`, in bytes: below it a get trims the pools
+  /// `branchdeck.leaseMinFree`, in bytes: below it a get, and the keeper of a host, free space
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub min_free: Option<u64>,
   /// Every pool of the machine
   pub pools: Vec<PoolReport>,
-  /// The Bazel output bases whose slot is gone: `bd lease trim` deletes them
+  /// The Bazel output bases whose slot is gone: a trim deletes them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub orphans: Vec<BaseReport>,
   /// The bytes of every slot and orphan
@@ -72,7 +72,7 @@ pub struct SlotReport {
   pub measured_at: u64,
   /// The bytes come from `disk.json`, not from a walk of this call
   pub cached: bool,
-  /// A free slot past the limit that `bd lease trim` deletes now, unless a process works in it then
+  /// A free slot past the limit that a trim deletes now, unless a process works in it then
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub trims_next: bool,
 }
@@ -111,12 +111,13 @@ fn dir(dir: &DirUsage) -> DirReport {
 }
 
 impl DiskReport {
-  /// The report in lines for a person, `machine` its name: the free space and the minimum, each pool with its bytes,
-  /// its slots and its limit, the output bases of the main worktree and the orphans
+  /// The report of a host of `bd-host disk` in lines for a person, `machine` its name: the free space and the minimum,
+  /// each pool with its bytes, its slots and its limit, the output bases of the main worktree and the orphans. A host
+  /// has no `bd`: the lines name the keeper and `bd-host trim`
   pub fn lines(&self, machine: &str) -> Vec<String> {
     let mut lines = vec![match (self.free_bytes, self.min_free) {
-      (Some(free), Some(min)) => format!("{machine}: {} free, a get trims below {}", describe_size(free), describe_size(min)),
-      (Some(free), None) => format!("{machine}: {} free, no minimum (`branchdeck.leaseMinFree`): no get trims", describe_size(free)),
+      (Some(free), Some(min)) => format!("{machine}: {} free, the keeper frees space below {}", describe_size(free), describe_size(min)),
+      (Some(free), None) => format!("{machine}: {} free, no minimum (`branchdeck.leaseMinFree`): the keeper frees nothing", describe_size(free)),
       (None, _) => format!("{machine}: the free space is unknown"),
     }];
     for pool in &self.pools {
@@ -139,7 +140,7 @@ impl DiskReport {
     }
     if !self.orphans.is_empty() {
       let bytes: u64 = self.orphans.iter().map(|base| base.bytes).sum();
-      lines.push(format!("  {} output base(s) of gone slots: {} (`bd lease trim`)", self.orphans.len(), describe_size(bytes)));
+      lines.push(format!("  {} output base(s) of gone slots: {} (`bd-host trim`)", self.orphans.len(), describe_size(bytes)));
     }
     lines
   }

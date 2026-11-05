@@ -1,7 +1,7 @@
 # Runs on the Mac Studio (`bd-host run studio`)
 
 **Status:** Active  
-**Updated:** 2026-10-28  
+**Updated:** 2026-11-05  
 **Tags:** [tests, e2e, nextest, studio, bd-host]
 
 ## Summary
@@ -36,6 +36,9 @@ yonder of the IntelliJ monorepo did these runs until 2026-10-28, when bd-host to
   `playwright-report`, the nextest junit), `E2E_PORT` per slot, and `pnpm install` when the lockfile or package.json
   changed. A step and the command run in the login environment of the user there, with 65536 open files and `nice` 10
   (`--nice <n>`).
+- **The disk of the Studio**: the Studio has no app and no `bd`; never put either there. Its agent frees space by
+  itself below `branchdeck.leaseMinFree` there; `bd-host disk studio` shows the pools, `bd-host trim studio --plan`
+  what a trim would delete, and `bd-host trim studio` deletes it, after the user agrees.
 - **Exit codes**: the command's own; 75 when the Studio did not run it (unreachable, a refusal before the command):
   run the same command here then; 130 after Ctrl+C, which cancels the run there.
   `bd-host schema` lists every refusal code with its exit code.

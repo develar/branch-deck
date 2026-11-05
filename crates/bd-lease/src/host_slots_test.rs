@@ -8,12 +8,12 @@
 use crate::lease_command::LeaseContext;
 #[cfg(unix)]
 use crate::lease_test::busy_in;
-use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git};
+use crate::lease_test::{Fixture, assert_trash_deleted_once_free, path_of, slot_git, states};
 use bd_cli::fixture_test::{assert_error, git, gone_process};
 use lease_pool::host_refs::have;
 use lease_pool::host_slots::{
   Filled, HostSlotRefusal, HostSlots, HostSlotsParams, HostState, Lend, LendAnswer, LendRequest, Queued, ReclaimAction, ShrinkOutcome, SlotCheckout, changes_run, checkout,
-  clean_slot, fill, give_back, give_back_run, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
+  clean_slot, fill, give_back, give_back_run, keep_free, lend, lend_waiting, read_host_slots, reclaim, set_limit, shrink, snapshot_run,
 };
 use lease_pool::lease::{LeaseState, Pool, canonical_path};
 use lease_pool::lease_clean::CleanOverrides;
@@ -551,6 +551,39 @@ fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
   assert!(!Path::new(&path).join("out/cache").exists());
   let (exit_code, refused) = fixture.run(&["lease", "clean", "--host", "--free"]);
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
+}
+
+/// Below `branchdeck.leaseMinFree` the keeper takes the steps of a get without one (`keep_free`): the trim deletes the
+/// free slot past `branchdeck.leaseMaxSlots` returned longest ago, and the host slot, a lease, stays. A minimum past the
+/// volume deletes no build output and no slot below the limit, and the answer says what went, not the refusal of a get.
+/// Without a minimum, and where the system tells no free space, it measures only
+#[test]
+fn the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get() {
+  let host = Host::filled(1);
+  let (fixture, context, params) = host.parts();
+  let lanes: Vec<String> = (1..=2).map(|n| path_of(&fixture.get(&["--holder", &format!("lane-{n}")]))).collect();
+  for lane in &lanes {
+    fixture.give_back(lane);
+  }
+  git(&fixture.repo, &["config", "branchdeck.leaseMaxSlots", "2"]);
+  assert!(keep_free(&context.git, &params).unwrap().is_none(), "without a minimum");
+  assert_eq!(states(&fixture.status()).len(), 3, "without a minimum nothing goes");
+
+  git(&fixture.repo, &["config", "branchdeck.leaseMinFree", "1P"]);
+  let tells_free_space = lease_pool::free_space::volume_space(Path::new(&lanes[0])).is_some();
+  let relieved = keep_free(&context.git, &params).unwrap();
+  let slots: Vec<String> = states(&fixture.status()).into_iter().map(|(path, _)| path).collect();
+  if !tells_free_space {
+    assert!(relieved.is_none(), "no free space told, no minimum to fall under");
+    assert_eq!(slots.len(), 3);
+    return;
+  }
+  let relieved = relieved.expect("a relief below the minimum");
+  assert!(relieved.after.is_some_and(|after| after < relieved.required), "still below 1 PiB: {relieved:?}");
+  assert_eq!(relieved.trimmed.as_ref().map(lease_pool::trim::Trimmed::removed_slots), Some(1), "{relieved:?}");
+  assert!(relieved.shrunk.is_none() && relieved.evicted.is_none(), "{relieved:?}");
+  assert!(!slots.contains(&lanes[0]), "the free slot returned longest ago goes: {slots:?}");
+  assert!(slots.contains(&lanes[1]) && slots.contains(&host.filled[0].path), "{slots:?}");
 }
 
 /// A give-back holds the slot only for the git of its measure: `ls-files` runs while the slot is given back, and the
