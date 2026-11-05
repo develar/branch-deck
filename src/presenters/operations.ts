@@ -172,6 +172,7 @@ function rewriteRows(rewrite: RewriteIntent, lookup: RowLookup): readonly string
     case "park":
       return rewrite.branches.map(line => line.branchName)
     case "unpark":
+    case "stackTogether":
       return rewrite.branchNames
     case "squashFixups":
       return rewrite.scope.type === "branch" ? [rewrite.scope.value] : []

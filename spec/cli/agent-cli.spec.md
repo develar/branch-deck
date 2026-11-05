@@ -555,7 +555,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_pushed_branches_in_a_new_process`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`remote_statuses_are_read_by_their_version`)
 
-### `bd group`, `rename`, `restack`, `unstack`
+### `bd group`, `rename`, `restack`, `unstack`, `stack-together`
 
 - `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
   ungroup_issues: [keys], unstack: [branches]}` from `--plan` (`-` for stdin), set the prefixes of all its commits in one
@@ -628,6 +628,16 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   included, rewrite only the commits whose prefix declares another parent, and need stacked branches.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
+- `bd stack-together <branch> <branch>...` must put all selected branches into one oldest-first chain, preserve an
+  existing ancestor edge, move a selected branch out of its former stack while keeping its descendants, and write
+  stack parents without rewriting history when their prefixes declare no different parent. It must create one rewrite
+  with one undo token, refuse too few branches, missing branches, a cycle and branches already stacked together, and
+  use no more git processes than `bd restack`.
+  [@test] ../../crates/history-rewrite/src/regroup_test.rs (`stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite`, `stack_together_refuses_invalid_or_already_stacked_branches_and_cycles`)
+  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`stack_together_moves_a_branch_and_keeps_its_existing_parent_and_children`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`stack_together_is_one_rewrite_of_every_named_branch`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`stack_together_stacks_branches_oldest_first_and_undoes_once`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`stack_together_uses_the_same_number_of_git_processes_as_restack`)
 
 ### `bd reword`
 

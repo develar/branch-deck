@@ -98,6 +98,26 @@ export function unparkDrop(names: readonly string[], facts: BranchDropFacts): Br
   return own.length === 0 ? { refusal: "Cannot unpark: None of them is parked" } : { names: own }
 }
 
+/** The Stack On blocker common to a stack drop and Stack Together; undefined means its action is not available */
+function stackBlocker(names: readonly string[], facts: BranchDropFacts): { readonly name: string; readonly reason: string } | null | undefined {
+  if (!facts.stacksEnabled) {
+    return undefined
+  }
+  for (const name of names) {
+    if (facts.branch(name) === undefined) {
+      return undefined
+    }
+    const blocker = facts.blocker(name, "stack-on")
+    if (blocker === undefined) {
+      return undefined
+    }
+    if (blocker !== null) {
+      return { name, reason: blocker }
+    }
+  }
+  return null
+}
+
 /**
  * The stack of the one dragged branch `name` on `target`, as "Stack On…" of its menu: null where the chip doesn't show
  * (stacked branches off, more than one branch dragged, the row of the branch itself); refused on a branch stacked on it
@@ -106,7 +126,7 @@ export function unparkDrop(names: readonly string[], facts: BranchDropFacts): Br
  */
 export function stackOnDrop(names: readonly string[], target: string, facts: BranchDropFacts): BranchDrop | null {
   const [name] = names
-  if (!facts.stacksEnabled || names.length !== 1 || name === undefined || name === target) {
+  if (names.length !== 1 || name === undefined || name === target) {
     return null
   }
   const branch = facts.branch(name)
@@ -119,11 +139,23 @@ export function stackOnDrop(names: readonly string[], target: string, facts: Bra
   if (facts.descendants(name).includes(target)) {
     return { refusal: `Cannot stack ${name} on ${target}: ${target} is stacked on it` }
   }
-  const blocker = facts.blocker(name, "stack-on")
+  const blocker = stackBlocker(names, facts)
   if (blocker === undefined) {
     return null
   }
-  return blocker === null ? { names } : { refusal: `Cannot stack ${name} on ${target}: ${blocker}` }
+  return blocker === null ? { names } : { refusal: `Cannot stack ${name} on ${target}: ${blocker.reason}` }
+}
+
+/** Stack the selected branches together; stack availability and blockers are the same as Stack On… */
+export function stackTogetherDrop(names: readonly string[], facts: BranchDropFacts): BranchDrop | null {
+  if (names.length < 2) {
+    return null
+  }
+  const blocker = stackBlocker(names, facts)
+  if (blocker === undefined) {
+    return null
+  }
+  return blocker === null ? { names } : { refusal: `Cannot stack ${blocker.name}: ${blocker.reason}` }
 }
 
 /**

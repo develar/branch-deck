@@ -293,7 +293,7 @@ taken and deletes it before the release), then runs the real git.
 | `bd group` (`regroup_commits_core`; its descriptions, one `git config` each, after the lock) | `for-each-ref`, `update-ref` | `a_group_locks_only_the_witness_and_the_write` (`regroup_test.rs`), `a_group_with_descriptions_locks_only_the_witness_and_the_write` (`crates/bd-rewrite/src/rewrite_test.rs`) |
 | Rename (`rename_branch_core`) | `for-each-ref`, `update-ref` | `a_rename_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
 | Reword of the app and `bd reword` (`reword_request_core`) | `for-each-ref`, `update-ref` | `a_reword_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
-| Restack, unstack (`restack_branch_core`) | `for-each-ref`, `update-ref` | `a_restack_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
+| Stack On, Unstack and Stack Together (`restack_core`) | `for-each-ref`, `update-ref` | `a_restack_locks_only_the_witness_and_the_write`, `stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite` (`regroup_test.rs`) |
 | Undo of a regroup (`undo_regroup_core`) | `for-each-ref`, `update-ref`; of the stores alone `update-ref` (its CAS the witness) | `an_undo_locks_only_the_witness_and_the_write` (`regroup_test.rs`) |
 | Park, unpark (`park_core`, `unpark_core`) | `update-ref` (its CAS the witness) | `a_park_and_an_unpark_lock_only_the_write` (`regroup_test.rs`) |
 | The drop of the lines of integrated branches in a sync (`drop_store_lines`, only while the lock is free; the stack parents and the parked branches in one drop) | `cat-file` (the stores), `var`, `fast-import`, `update-ref`, one of each | `a_drop_of_store_lines_locks_only_its_read_and_its_write` (`regroup_test.rs`) |
@@ -655,12 +655,12 @@ that its key puts into the target anyway into `unassign`. So combining issues re
 reword and one ref transaction. A dry run of it, without the lock, is the preview of the "Move to…" form
 (`preview_move`, `preview_move_core`).
 
-The app's move, rename, restack, unstack, park, unpark and their undo run in the engine only (the page's
+The app's move, rename, restack, unstack, stack-together, park, unpark and their undo run in the engine only (the page's
 `runRewriteIntent`), on these cores with the HEAD of their witness expected ([Rewrite in the
-engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_branch_core` with `RegroupOptions::expect_head`, and
-`move_result` of their outcome. `bd group`, `bd rename`, `bd restack`, `bd unstack` and `bd reword` run the same cores
+engine](#rewrite-in-the-engine)): `rename_branch_core` and `restack_core` with `RegroupOptions::expect_head`, and
+`move_result` of their outcome. `bd group`, `bd rename`, `bd restack`, `bd unstack`, `bd stack-together` and `bd reword` run the same cores
 after their record went into the operations registry of the repository ("Operations registry",
-`bd_core::operation_record::recorded`: `RewriteIntent::Group` of the plan, `Rename`, `Restack`, `Unstack`, `Reword`,
+`bd_core::operation_record::recorded`: `RewriteIntent::Group` of the plan, `Rename`, `Restack`, `Unstack`, `StackTogether`, `Reword`,
 on the HEAD of `--expect-head`), before the lock; the record leaves before the `--sync`, which runs after the release.
 A rewrite of the app and one of `bd` meanwhile make each other neither busy nor joined: the second finds its witness
 moved once it takes the lock after the first and computes once more under it, on what the first left when HEAD is
@@ -684,8 +684,10 @@ sync and try again" (the list was read before a terminal reworded or dropped it)
 
 A rename replaces the old level in every prefix path (children included), renames the issue groups of the old name,
 names an issue branch in the issue groups, and renames the old name in the stack parents (as a child, and as the parent
-of a child with commits on this HEAD), without a rewrite; a restack writes the stack parent and rewrites only the
-commits whose prefix declares another parent, an unstack removes it and the parent levels. The undo token is
+of a child with commits on this HEAD), without a rewrite. Stack On, Unstack and Stack Together share `restack_core`:
+it validates one set of stack-parent changes and writes them through `with_stack_parents`; Stack Together orders the
+selected branches by their oldest commit and leaves existing ancestor edges alone. A restack rewrites only the commits
+whose prefix declares another parent, and an unstack removes the parent levels. The undo token is
 `H1..H2` for a rewrite:
 `restore_branch_head` moves the branch back with CAS, which is valid because a message rewrite keeps HEAD's tree. The
 app undoes a move, a rename, a restack and a reword with that token too (the rewrite `undo` of the engine), never by rewording the

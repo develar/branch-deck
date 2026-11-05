@@ -5,7 +5,7 @@
 
 use crate::move_commits::{MoveCommitsParams, move_commits_to_branch_core};
 use crate::parked::{PARKED, PARKED_DROP_MESSAGE, PARKED_REF, ParkLine, park_core, parked_drop, unpark_core};
-use crate::regroup::{RegroupError, RegroupOptions, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
+use crate::regroup::{RegroupError, RegroupOptions, Restack, UndoToken, regroup_commits_core, rename_branch_core, restack_core, undo_regroup_core};
 use crate::repository_lock::{LockWait, RewriteOptions};
 use crate::reword::{RewordRequest, reword_request_core};
 use crate::stack_parents::{STACK_PARENTS, STACK_PARENTS_DROP_MESSAGE, STACK_PARENTS_REF, drop_integrated_stack_parents, stack_parents_drop};
@@ -107,15 +107,97 @@ fn a_reword_locks_only_the_witness_and_the_write() {
 fn a_restack_locks_only_the_witness_and_the_write() {
   let (repo, _, span) = stacked();
   let head = repo.head();
-  let restacked = restack_branch_core(span.executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  let restacked = restack_core(span.executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   assert_eq!(restacked.stack_parents.unwrap().entries, BTreeMap::from([("beta".to_owned(), "alpha".to_owned())]));
   assert_eq!(repo.head(), head);
   assert_span(&span, &WITNESS_AND_WRITE);
 
   let span = LockSpan::new(&repo.path().join(".git"));
-  let unstacked = restack_branch_core(span.executor(), repo.path_str(), "beta", None, &on_head(&repo)).unwrap();
+  let unstacked = restack_core(span.executor(), repo.path_str(), &Restack::Off { leaf: "beta" }, &on_head(&repo)).unwrap();
   assert_eq!(unstacked.stack_parents.unwrap().entries, BTreeMap::new());
   assert_span(&span, &WITNESS_AND_WRITE);
+}
+
+#[test]
+fn stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite() {
+  let repo = TestRepo::new();
+  repo.create_commit("Initial commit", "README.md", "# Test");
+  repo.git(&["config", "branchdeck.stacks", "true"]);
+  repo.create_commit("(alpha) Alpha", "alpha.rs", "alpha");
+  repo.create_commit("(beta) Beta", "beta.rs", "beta");
+  repo.create_commit("(gamma) Gamma", "gamma.rs", "gamma");
+  let head = repo.head();
+  let span = LockSpan::new(&repo.path().join(".git"));
+  let names = ["gamma", "alpha", "beta"].map(str::to_owned);
+
+  let together = restack_core(span.executor(), repo.path_str(), &Restack::Together { names: &names }, &on_head(&repo)).unwrap();
+
+  let undo = UndoToken::of(&together).unwrap();
+  assert_eq!(
+    together.stack_parents.as_ref().unwrap().entries,
+    BTreeMap::from([("beta".to_owned(), "alpha".to_owned()), ("gamma".to_owned(), "beta".to_owned()),])
+  );
+  assert_eq!(repo.head(), head);
+  assert_eq!(together.previous_head, head);
+  assert_eq!(together.new_head, head);
+  assert_eq!(together.changed_count(), 0);
+  assert_span(&span, &WITNESS_AND_WRITE);
+
+  undo_regroup_core(span.executor(), repo.path_str(), &undo, LockWait::default()).unwrap();
+  assert_eq!(STACK_PARENTS.read(repo.git_executor(), repo.path_str()).unwrap().entries, BTreeMap::new());
+}
+
+#[test]
+fn stack_together_refuses_invalid_or_already_stacked_branches_and_cycles() {
+  let (repo, _, _) = stacked();
+  let empty = restack_core(repo.git_executor(), repo.path_str(), &Restack::Together { names: &[] }, &on_head(&repo)).unwrap_err();
+  assert!(matches!(&empty, RegroupError::InvalidPlan { message, .. } if message.contains("at least two")), "{empty}");
+
+  let missing_names = ["alpha".to_owned(), "missing".to_owned()];
+  let missing = restack_core(repo.git_executor(), repo.path_str(), &Restack::Together { names: &missing_names }, &on_head(&repo)).unwrap_err();
+  assert!(
+    matches!(&missing, RegroupError::InvalidPlan { message, .. } if message.contains("No branch named \"missing\"")),
+    "{missing}"
+  );
+
+  restack_core(repo.git_executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
+  let names = ["alpha".to_owned(), "beta".to_owned()];
+  let already_stacked = restack_core(repo.git_executor(), repo.path_str(), &Restack::Together { names: &names }, &on_head(&repo)).unwrap_err();
+  assert!(
+    matches!(&already_stacked, RegroupError::InvalidPlan { message, .. } if message == "alpha, beta are stacked together already"),
+    "{already_stacked}"
+  );
+
+  let disabled_repo = TestRepo::new();
+  disabled_repo.create_commit("Initial commit", "README.md", "# Test");
+  disabled_repo.create_commit("(alpha) Alpha", "alpha.rs", "alpha");
+  disabled_repo.create_commit("(beta) Beta", "beta.rs", "beta");
+  let disabled = restack_core(
+    disabled_repo.git_executor(),
+    disabled_repo.path_str(),
+    &Restack::Together { names: &names },
+    &RegroupOptions::default(),
+  )
+  .unwrap_err();
+  assert!(
+    matches!(&disabled, RegroupError::InvalidPlan { message, .. } if message == "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first"),
+    "{disabled}"
+  );
+
+  let cycle_repo = TestRepo::new();
+  cycle_repo.create_commit("Initial commit", "README.md", "# Test");
+  cycle_repo.git(&["config", "branchdeck.stacks", "true"]);
+  cycle_repo.create_commit("(a/x) X", "x.rs", "x");
+  cycle_repo.create_commit("(a) A", "a.rs", "a");
+  let cycle_names = ["x".to_owned(), "a".to_owned()];
+  let cycle = restack_core(
+    cycle_repo.git_executor(),
+    cycle_repo.path_str(),
+    &Restack::Together { names: &cycle_names },
+    &RegroupOptions::default(),
+  )
+  .unwrap_err();
+  assert!(matches!(&cycle, RegroupError::InvalidPlan { message, .. } if message.contains("cycle")), "{cycle}");
 }
 
 /// The undo of a regroup that moved HEAD reads HEAD and the stores under the lock; the undo of the stores alone has the
@@ -128,7 +210,7 @@ fn an_undo_locks_only_the_witness_and_the_write() {
   assert_eq!(repo.head(), renamed.previous_head);
   assert_eq!(span.commands_under_the_lock(), WITNESS_AND_WRITE, "{:#?}", span.commands());
 
-  let restacked = restack_branch_core(repo.git_executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  let restacked = restack_core(repo.git_executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   let span = LockSpan::new(&repo.path().join(".git"));
   undo_regroup_core(span.executor(), repo.path_str(), &UndoToken::of(&restacked).unwrap(), LockWait::default()).unwrap();
   assert_eq!(repo.rev_parse(STACK_PARENTS_REF).ok(), None);
@@ -142,13 +224,13 @@ fn an_undo_locks_only_the_witness_and_the_write() {
 #[test]
 fn a_drop_of_store_lines_locks_only_its_read_and_its_write() {
   let (repo, _, _) = stacked();
-  restack_branch_core(repo.git_executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  restack_core(repo.git_executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   let span = LockSpan::new(&repo.path().join(".git"));
   drop_integrated_stack_parents(span.executor(), repo.path_str(), &["beta"]);
   assert_eq!(STACK_PARENTS.read(repo.git_executor(), repo.path_str()).unwrap().entries, BTreeMap::new());
   assert_eq!(span.commands_under_the_lock(), ["cat-file", "fast-import", "update-ref", "var"], "{:#?}", span.commands());
 
-  restack_branch_core(repo.git_executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  restack_core(repo.git_executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   park_core(repo.git_executor(), repo.path_str(), &[ParkLine { branch: "alpha", note: "" }], &RewriteOptions::default()).unwrap();
   let span = LockSpan::new(&repo.path().join(".git"));
   drop_store_lines(span.executor(), repo.path_str(), &[stack_parents_drop(&["beta"]), parked_drop(&["alpha"])]);
@@ -218,7 +300,7 @@ fn a_drop_commit_between_the_snapshot_and_the_transaction_is_read_once_more() {
   let stores = store_with_a_drop(&repo, &STACK_PARENTS, "gone\talpha\n", STACK_PARENTS_DROP_MESSAGE);
   let wrapped = dropping_once("*\" fast-import \"*", STACK_PARENTS_REF, &stores);
 
-  let restacked = restack_branch_core(wrapped.executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  let restacked = restack_core(wrapped.executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   assert!(wrapped.marked("dropped"), "the sync dropped the line after the snapshot");
   let stack_parents = restacked.stack_parents.unwrap();
   assert_eq!(stack_parents.entries, BTreeMap::from([("beta".to_owned(), "alpha".to_owned())]));
@@ -254,7 +336,7 @@ fn an_undo_over_a_drop_after_its_checks_is_checked_once_more_under_the_lock() {
   let (repo, _) = alpha_and_beta_on_origin();
   repo.git(&["config", "branchdeck.stacks", "true"]);
   write_store_updates(repo.git_executor(), repo.path_str(), &[STACK_PARENTS.update(None, "gone\talpha\n")], None, "test").unwrap();
-  let restacked = restack_branch_core(repo.git_executor(), repo.path_str(), "beta", Some("alpha"), &on_head(&repo)).unwrap();
+  let restacked = restack_core(repo.git_executor(), repo.path_str(), &Restack::On { leaf: "beta", parent: "alpha" }, &on_head(&repo)).unwrap();
   let written = restacked.stack_parents.as_ref().and_then(|change| change.new_commit.clone()).unwrap();
   let drop = store_commit(&repo, &STACK_PARENTS, "beta\talpha\n", &written, STACK_PARENTS_DROP_MESSAGE);
   let (git, path) = (repo.git_executor(), repo.path_str());

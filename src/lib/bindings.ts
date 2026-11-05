@@ -7232,7 +7232,9 @@ export type RewriteIntent =
  *  A hunk of `path` moves from the commit `from` into the commit `to` (`bd move-hunk`): only the record of a run of
  *  `bd`, as `Group`
  */
-{ rewrite: "moveHunk"; from: string; to: string; path: string; witness: TableWitness };
+{ rewrite: "moveHunk"; from: string; to: string; path: string; witness: TableWitness } | 
+/**  The branches are stacked oldest-first */
+{ rewrite: "stackTogether"; branchNames: string[]; witness: TableWitness };
 
 /**  What the core of a rewrite answered (`OperationResult::Rewrite`), by its kind */
 export type RewriteResult = 

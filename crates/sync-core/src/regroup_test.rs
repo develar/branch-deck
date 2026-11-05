@@ -1,7 +1,7 @@
 use crate::sync::{SyncOptions, sync_branches};
 use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::StackProblem;
-use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, Restack, UndoToken, regroup_commits_core, rename_branch_core, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::{LockWait, lock_repository_as_another_process};
 use history_rewrite::store_lines::LineStore;
 use history_rewrite::test_commit::plan;
@@ -375,7 +375,7 @@ fn an_issue_branch_renamed_into_a_stacked_branch_joins_it_by_the_issue_groups() 
 fn restacks_and_unstacks_a_branch() {
   let repo = baseline_repo(true);
   commits(&repo, &["(auth) Add auth", "(login) Add form", "(other/login) Add button"]);
-  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("auth"), &RegroupOptions::default()).unwrap();
+  let outcome = restack_core(repo.git_executor(), path(&repo), &Restack::On { leaf: "login", parent: "auth" }, &RegroupOptions::default()).unwrap();
   // the stack parents stack it; only the prefix that declares another parent loses its parent level
   assert_eq!(subjects(&repo, 3), ["(auth) Add auth", "(login) Add form", "(login) Add button"]);
   assert_eq!(outcome.changed_count(), 1);
@@ -383,12 +383,18 @@ fn restacks_and_unstacks_a_branch() {
   assert_eq!(outcome.stack_parents.unwrap().entries, BTreeMap::from([("login".to_string(), "auth".to_string())]));
 
   let head = repo.head();
-  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "login", None, &RegroupOptions::default()).unwrap();
+  let outcome = restack_core(repo.git_executor(), path(&repo), &Restack::Off { leaf: "login" }, &RegroupOptions::default()).unwrap();
   assert_eq!(repo.head(), head);
   assert_eq!(outcome.stack_parents.unwrap().entries, BTreeMap::new());
   assert_eq!(outcome.forest.unwrap().declared_parent("login"), None);
 
-  let error = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("login"), &RegroupOptions::default()).unwrap_err();
+  let error = restack_core(
+    repo.git_executor(),
+    path(&repo),
+    &Restack::On { leaf: "login", parent: "login" },
+    &RegroupOptions::default(),
+  )
+  .unwrap_err();
   assert!(matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("own parent")), "{error}");
 }
 
@@ -396,7 +402,7 @@ fn restacks_and_unstacks_a_branch() {
 fn restack_needs_stacked_branches() {
   let repo = baseline_repo(false);
   commits(&repo, &["(login) Add form"]);
-  let error = restack_branch_core(repo.git_executor(), path(&repo), "login", Some("auth"), &RegroupOptions::default()).unwrap_err();
+  let error = restack_core(repo.git_executor(), path(&repo), &Restack::On { leaf: "login", parent: "auth" }, &RegroupOptions::default()).unwrap_err();
   assert!(
     matches!(&error, RegroupError::InvalidPlan { message, .. } if message.contains("branchdeck.stacks")),
     "{error}"

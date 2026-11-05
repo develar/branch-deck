@@ -237,6 +237,29 @@ fn rename_restack_unstack_and_undo() {
 }
 
 #[test_log::test]
+fn stack_together_stacks_branches_oldest_first_and_undoes_once() {
+  let (repo, _) = repo_with(&["(alpha) A", "(beta) B", "(gamma) C"]);
+  repo.set_config("branchdeck.stacks", "true").unwrap();
+  let head = repo.head();
+
+  let (exit_code, output) = run_in(&repo, &["stack-together", "gamma", "alpha", "beta"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["operation"], json!("stack-together"));
+  assert_eq!(output["rewritten"], json!(0));
+  assert_eq!(output["stack_parents"], json!({ "beta": "alpha", "gamma": "beta" }));
+  assert_eq!(repo.head(), head);
+  assert_eq!(subjects(&repo), ["(alpha) A", "(beta) B", "(gamma) C"]);
+  let token = output["undo_token"].as_str().unwrap().to_string();
+  assert!(token.starts_with("stacks:"), "{token}");
+
+  let (exit_code, undone) = run_in(&repo, &["undo", &token]);
+  assert_eq!(exit_code, 0, "{undone}");
+  assert!(undone["undone_stack_parents"].is_string(), "{undone}");
+  let (_, status) = run_in(&repo, &["status", "--branch", "beta"]);
+  assert_eq!(status["branches"][0].get("parent"), None);
+}
+
+#[test_log::test]
 fn issue_groups_plan_and_undo() {
   let (repo, ids) = repo_with(&["ABC-1 Add parser", "ABC-2 Parse lists", "Tidy up"]);
   let head = repo.head();

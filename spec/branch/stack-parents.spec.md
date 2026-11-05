@@ -26,9 +26,13 @@ targets:
   - ../../crates/bd-remote/src/safe_push_command.rs
   - ../../crates/commit-clustering/src/clustering.rs
   - ../../crates/domain-types/src/error.rs
+  - ../../crates/domain-types/src/rewrite.rs
+  - ../../crates/bd-cli/src/lib.rs
   - ../../src/lib/stack.ts
   - ../../src/stores/branch-sync.ts
   - ../../src/hooks/useStackActions.ts
+  - ../../src/components/branch/BranchSelectionBar.tsx
+  - ../../src/lib/branch-drop.ts
   - ../../src/hooks/useStackIndependence.ts
   - ../../src/hooks/useMoveCommits.ts
   - ../../src/lib/patronus-stack.ts
@@ -175,7 +179,7 @@ only the stack parents ref.
   child both stacked and unstacked; a plan whose result has a cycle or a conflict with a prefix.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`invalid_stack_parent_plans_are_refused`)
 
-### Restack, unstack and rename
+### Restack, unstack, Stack Together and rename
 
 - `bd restack <branch> <parent>` must write the line of `<branch>`, and rewrite only the commits whose prefix declares
   another parent for it.
@@ -183,6 +187,16 @@ only the stack parents ref.
 - `bd unstack <branch>` must remove the line of `<branch>` and the parent levels of its commits; a root is
   `invalid_plan`.
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`unstack_removes_the_line_and_the_parent_levels`)
+- `bd stack-together <branch> <branch>...` and the app's selection-bar action must use the same `restack_core` as Stack
+  On and Unstack, through one `RewriteIntent::StackTogether` with one stack-parent update and one undo. The core orders
+  branches by their oldest commit, keeps an existing ancestor edge, moves a selected branch from its former parent
+  without moving its children, refuses a cycle or an already-complete chain, and rewrites only commits whose prefixes
+  declare another parent.
+  [@test] ../../crates/history-rewrite/src/regroup_test.rs (`stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite`, `stack_together_refuses_invalid_or_already_stacked_branches_and_cycles`)
+  [@test] ../../crates/sync-core/src/stack_operations_test.rs (`stack_together_moves_a_branch_and_keeps_its_existing_parent_and_children`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`stack_together_is_one_rewrite_of_every_named_branch`)
+  [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`stack_together_stacks_branches_oldest_first_and_undoes_once`)
+  [@test] ../../crates/bd-cli/src/process_budget_test.rs (`stack_together_uses_the_same_number_of_git_processes_as_restack`)
 - `bd rename <old> <new>` must rename `<old>` in the map as a child, and as the parent of a child with commits on this
   HEAD, in the same transaction as the other changes of the rename: a child of another worktree keeps its parent. As a
   child, `<old>` is renamed also when it is only a level of the prefixes here, without commits of its own.
@@ -262,6 +276,9 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 - Stack On and Unstack from in the branch menu must write the map, and rewrite only as `bd restack` and `bd unstack`
   do. Their toast names a count only when commits moved: "Stacked ABC-2 on ABC-1".
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack an issue branch without a rewrite and undo it`)
+- Stack Together from the selection bar must write one oldest-first chain, show one success toast and undo, and clear the
+  selection after the sync shows the new parent map.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack the selected branches together from the selection bar, the oldest at the bottom, and undo it`)
 - A dragged branch must stack the same way when dropped on the "Stack on ‹name›" chip of a row, and unstack when
   dropped on the unstack zone of the drag bar ([Move Commits](move-commits.spec.md#drag-and-drop)); the chip refuses the branch's
   parent and a branch stacked on it, as the menu does not offer them.

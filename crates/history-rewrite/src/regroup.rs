@@ -543,26 +543,28 @@ fn has_commits(snapshot: &Snapshot, branch: &str) -> bool {
   snapshot.groups.values().any(|group| group.as_deref() == Some(branch))
 }
 
-/// Stack branch `leaf` on `parent` in the stack parents, or make it a root with `None`, without a rewrite: only the
-/// commits of the branch whose prefix declares another parent get the bare `(leaf)`. Needs stacked branches on; an
-/// issue branch and an issue group are stacked like any branch
+/// A stack change: one branch on another, a branch made a root, or several branches stacked oldest-first
+#[derive(Debug, Clone, Copy)]
+pub enum Restack<'a> {
+  On { leaf: &'a str, parent: &'a str },
+  Off { leaf: &'a str },
+  Together { names: &'a [String] },
+}
+
+/// Stack branches in the stack parents, or make a branch a root, without a rewrite: only commits whose prefix declares
+/// another parent get a bare `(leaf)`. Needs stacked branches on; an issue branch and an issue group are stacked like
+/// any branch
 #[instrument(skip(git_executor))]
-pub fn restack_branch_core(
-  git_executor: &GitCommandExecutor,
-  repository_path: &str,
-  leaf: &str,
-  parent: Option<&str>,
-  options: &RegroupOptions,
-) -> Result<RegroupOutcome, RegroupError> {
-  if let Some(parent) = parent {
+pub fn restack_core(git_executor: &GitCommandExecutor, repository_path: &str, restack: &Restack<'_>, options: &RegroupOptions) -> Result<RegroupOutcome, RegroupError> {
+  if let Restack::On { parent, .. } = restack {
     validate_branch_name(parent).map_err(|e| RegroupError::invalid(format!("{e:#}"), Vec::new()))?;
     if parent.contains('/') {
       return Err(RegroupError::invalid(format!("The parent {parent:?} must be a branch name, not a path"), Vec::new()));
     }
   }
   regroup_with(git_executor, repository_path, options, |snapshot| {
-    let (set, unstacked) = match parent {
-      Some(parent) => {
+    let (set, unstacked) = match restack {
+      Restack::On { leaf, parent } => {
         if snapshot.grouping.stacks && !has_commits(snapshot, leaf) {
           return Err(RegroupError::invalid(
             format!("No branch named {leaf:?} among the commits ahead of the baseline"),
@@ -571,10 +573,94 @@ pub fn restack_branch_core(
         }
         (BTreeMap::from([(leaf.to_string(), parent.to_string())]), BTreeSet::new())
       }
-      None => (BTreeMap::new(), BTreeSet::from([leaf.to_string()])),
+      Restack::Off { leaf } => (BTreeMap::new(), BTreeSet::from([leaf.to_string()])),
+      Restack::Together { names } => (together_chain(snapshot, names)?, BTreeSet::new()),
     };
     with_stack_parents(snapshot, Change::default(), set, unstacked)
   })
+}
+
+/// The edges that stack `names` oldest-first, leaving an existing ancestor edge alone
+fn together_chain(snapshot: &Snapshot, names: &[String]) -> Result<BTreeMap<String, String>, RegroupError> {
+  require_stacks_enabled(snapshot)?;
+  if names.len() < 2 {
+    return Err(RegroupError::invalid("Stack Together needs at least two branches", Vec::new()));
+  }
+
+  let mut seen = BTreeSet::new();
+  for name in names {
+    validate_leaf_name(name, "branch name").map_err(|message| RegroupError::invalid(message, Vec::new()))?;
+    if !seen.insert(name.as_str()) {
+      return Err(RegroupError::invalid(format!("Branch {name:?} was selected more than once"), Vec::new()));
+    }
+  }
+
+  let mut oldest_positions = HashMap::new();
+  for (position, commit) in snapshot.commits.iter().enumerate() {
+    if let Some(Some(branch)) = snapshot.groups.get(&commit.id) {
+      oldest_positions.entry(branch.as_str()).or_insert(position);
+    }
+  }
+  let mut ordered = Vec::with_capacity(names.len());
+  for name in names {
+    let Some(position) = oldest_positions.get(name.as_str()) else {
+      return Err(RegroupError::invalid(
+        format!("No branch named {name:?} among the commits ahead of the baseline"),
+        Vec::new(),
+      ));
+    };
+    ordered.push((name.as_str(), *position));
+  }
+  ordered.sort_by_key(|(_, position)| *position);
+
+  let forest = snapshot.forest.as_ref();
+  let mut set = BTreeMap::new();
+  for pair in ordered.windows(2) {
+    let (parent, child) = (pair[0].0, pair[1].0);
+    let already_ancestor = forest.is_some_and(|forest| forest.chain(child).into_iter().skip(1).any(|ancestor| ancestor == parent));
+    if !already_ancestor {
+      set.insert(child.to_string(), parent.to_string());
+    }
+  }
+  if set.is_empty() {
+    let names = ordered.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ");
+    return Err(RegroupError::invalid(format!("{names} are stacked together already"), Vec::new()));
+  }
+
+  let mut parents: BTreeMap<String, String> = forest.map_or_else(BTreeMap::new, |forest| {
+    forest
+      .nodes
+      .iter()
+      .filter_map(|(name, node)| node.declared_parent.as_ref().map(|parent| (name.clone(), parent.clone())))
+      .collect()
+  });
+  parents.extend(set.iter().map(|(child, parent)| (child.clone(), parent.clone())));
+  for child in set.keys() {
+    let mut ancestors = BTreeSet::new();
+    let mut current = child.as_str();
+    while let Some(parent) = parents.get(current) {
+      if !ancestors.insert(current) || ancestors.contains(parent.as_str()) {
+        return Err(RegroupError::invalid(
+          format!("Stacking the selected branches would create a cycle involving {child}"),
+          Vec::new(),
+        ));
+      }
+      current = parent;
+    }
+  }
+
+  Ok(set)
+}
+
+fn require_stacks_enabled(snapshot: &Snapshot) -> Result<(), RegroupError> {
+  if snapshot.grouping.stacks {
+    Ok(())
+  } else {
+    Err(RegroupError::invalid(
+      "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first",
+      Vec::new(),
+    ))
+  }
 }
 
 /// `change` that also sets the stack parents `set` (child -> parent) and removes the lines of `unstacked`: a commit that
@@ -586,12 +672,7 @@ fn with_stack_parents(snapshot: &Snapshot, mut change: Change, set: BTreeMap<Str
   if set.is_empty() && unstacked.is_empty() {
     return Ok(change);
   }
-  if !snapshot.grouping.stacks {
-    return Err(RegroupError::invalid(
-      "Stacked branches are off for this repository: run `git config branchdeck.stacks true` first",
-      Vec::new(),
-    ));
-  }
+  require_stacks_enabled(snapshot)?;
   for (child, parent) in &set {
     if child == parent {
       return Err(RegroupError::invalid(format!("{child} can't be its own parent"), Vec::new()));

@@ -4,6 +4,7 @@
 // ("Unstacked beta"). Rust decides the rewrite; these only word it.
 import type { RewriteIntent } from "@/lib/bindings"
 import { formatCommitCount } from "@/lib/commit"
+import { joinNames } from "@/lib/text"
 
 /** What a rewrite says: its row while it runs, the phrase of a sentence, the title of its failure, what it did */
 export interface RewriteWords {
@@ -45,6 +46,10 @@ export function presentRewrite(rewrite: RewriteIntent): RewriteWords {
       )
     case "unstack":
       return words(`Unstacking ${rewrite.branchName}`, `the unstack of ${rewrite.branchName}`, `Cannot unstack ${rewrite.branchName}`, `Unstacked ${rewrite.branchName}`)
+    case "stackTogether": {
+      const names = joinNames(rewrite.branchNames)
+      return words(`Stacking ${rewrite.branchNames.length} branches…`, `stacking ${names}`, "Cannot stack branches", `Stacked ${names}`)
+    }
     case "park": {
       const names = rewrite.branches.map(line => line.branchName).join(", ")
       return words(`Parking ${names}`, `the park of ${names}`, `Cannot park ${names}`, `Parked ${names}`)

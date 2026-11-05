@@ -4,7 +4,7 @@ macro_rules! read_only {
     "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd robot-stats`, `bd schema`,
 `bd version`, `bd describe <branch>` without a setter, `bd update --status` without
 --materialize, `bd lease status`, `bd workspace`, and
-`bd group`, `bd rename`, `bd restack`, `bd unstack`, `bd update` (also with its --continue), `bd pick`, `bd fold`,
+`bd group`, `bd rename`, `bd restack`, `bd unstack`, `bd stack-together`, `bd update` (also with its --continue), `bd pick`, `bd fold`,
 `bd drop`, `bd unapply`, `bd reapply`, `bd move-hunk` and `bd reword` with --dry-run
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
 object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
@@ -25,12 +25,9 @@ pub const AGENT_HELP: &str = concat!(
   ": Branch Deck for agents. JSON on stdout, one object per run (each has \"schema\": 2 and \"operation_id\"); logs on stderr
 (-v for debug). `bd <command> --help` says what a command prints and what each of its refusals asks.
 
-Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into branches, one per name: the `(name)`
-prefix of a subject, else the issue group of its issue key, else the issue key (`ABC-123 Fix ...`). A sync rebuilds
-each branch as the virtual branch `{prefix}/virtual/{name}` on the baseline; the working tree is never touched. With
-stacked branches (`git config branchdeck.stacks true`) a branch is built on a parent: a subject declares it with
-`(parent/leaf)`, or the stack parents do (`refs/branch-deck/stack-parents`) and the subject keeps the bare `(leaf)`; a
-stacked branch is named by its leaf.
+Branch Deck groups commits ahead of the baseline by `(name)`, else issue group, else issue key, into
+`{prefix}/virtual/{name}`; sync never touches the working tree. Stacks (`git config branchdeck.stacks true`) name a
+parent in `(parent/leaf)` or `refs/branch-deck/stack-parents` with `(leaf)`; the leaf names the branch.
 
 Rules
 - Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
@@ -102,6 +99,7 @@ Workflow: the commits into pull requests
    `result` asks.
 3. Apply. `bd group --expect-head <head of bd suggest> --sync --plan plan.json`: one message-only rewrite, then a sync.
    `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options;
+   `bd stack-together <branch> <branch>...` stacks oldest-first.
    `bd describe <branch> --title ... --body ...` sets the pull request text of one branch. `bd group --help`: its
    refusals and its undo.
 4. Push the branches, never into master (`bd land`). Show the result to the user; once approved,
@@ -749,7 +747,8 @@ pub fn skill_text(command: &str) -> String {
 name: branch-deck
 description: Use before the first edit or commit in a Git repository: `bd workspace` of Branch Deck says whether to \
 work in a leased worktree of your own and how to write the commit subject. Also use to group, split or stack the \
-commits of a branch into virtual branches and pull requests, to sync or push them, to fold fixup commits, to change \
+commits of a branch into virtual branches and pull requests, to stack selected branches together with `bd stack-together`, \
+to sync or push them, to fold fixup commits, to change \
 the message of a commit or move a hunk into another commit, to drop a commit that must not land, to update or rebase a branch onto master or main and \
 resolve its conflicts, to land the commits of a worktree onto a shared branch, to lease or return a worktree, to start \
 a Patronus Safe Push or Dry Run or find out why one failed, to ask code owners to review a pull request, or when the \

@@ -5,7 +5,7 @@ use domain_types::rewrite::RegroupPlan;
 use git_ops::commit_writer::write_store_updates;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
 use history_rewrite::issue_groups::{ISSUE_GROUPS, ISSUE_GROUPS_REF};
-use history_rewrite::regroup::{RegroupError, RegroupOptions, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, Restack, UndoToken, regroup_commits_core, rename_branch_core, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::store_lines::{StoreLineProblem, StoreLines, format_store_lines};
 use history_rewrite::test_commit::commit;
@@ -307,14 +307,26 @@ fn an_issue_group_is_restacked_and_can_be_a_parent() {
   commits(&repo, &["ABC-1 One", "ABC-2 Two", "(auth) Three"]);
   regroup(&repo, &group_plan(&[("parser", &["ABC-1", "ABC-2"])], &[])).unwrap();
 
-  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "parser", Some("auth"), &RegroupOptions::default()).unwrap();
+  let outcome = restack_core(
+    repo.git_executor(),
+    path(&repo),
+    &Restack::On { leaf: "parser", parent: "auth" },
+    &RegroupOptions::default(),
+  )
+  .unwrap();
   assert_eq!((outcome.changed_count(), outcome.new_head == outcome.previous_head), (0, true));
   assert_eq!(groups(&outcome), [Some("parser"), Some("parser"), Some("auth")]);
   let forest = outcome.forest.unwrap();
   assert_eq!(forest.nodes["parser"].declared_parent.as_deref(), Some("auth"));
   assert!(forest.nodes.values().all(|node| node.problems.is_empty()));
 
-  let outcome = restack_branch_core(repo.git_executor(), path(&repo), "auth", Some("parser"), &RegroupOptions::default()).unwrap_err();
+  let outcome = restack_core(
+    repo.git_executor(),
+    path(&repo),
+    &Restack::On { leaf: "auth", parent: "parser" },
+    &RegroupOptions::default(),
+  )
+  .unwrap_err();
   assert!(matches!(&outcome, RegroupError::InvalidPlan { message, .. } if message.contains("cycle")), "{outcome}");
 }
 

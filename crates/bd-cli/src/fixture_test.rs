@@ -180,7 +180,19 @@ pub fn assert_error(output: &Value, exit_code: i32, expected: (i32, &str)) {
 }
 
 /// The subcommands whose step changes the history or the remote, or a robot: run only once the user approved
-const STEPS_THAT_NEED_APPROVAL: &[&str] = &["push", "update", "restack", "unstack", "park", "unpark", "unapply", "reapply", "move-hunk", "group"];
+const STEPS_THAT_NEED_APPROVAL: &[&str] = &[
+  "push",
+  "update",
+  "restack",
+  "unstack",
+  "stack-together",
+  "park",
+  "unpark",
+  "unapply",
+  "reapply",
+  "move-hunk",
+  "group",
+];
 
 /// The flags that start anyway or lower a limit: the user's word, named with its condition in the message, never a step
 const SUPPRESSIONS: &[&str] = &["--allow-", "--without-approvals", "--min-free"];

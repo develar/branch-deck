@@ -32,7 +32,7 @@ use bd_rewrite::mark_reviewed_command::{MarkReviewedArgs, mark_reviewed};
 use bd_rewrite::move_hunk_command::{MoveHunkArgs, move_hunk};
 use bd_rewrite::review_plan_command::{ReviewPlanArgs, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
-use bd_rewrite::rewrite::{GroupArgs, RewriteArgs, group};
+use bd_rewrite::rewrite::{GroupArgs, RestackArgs, RewriteArgs, StackTogetherArgs, group, restack, stack_together};
 use bd_rewrite::squash_command::{SquashArgs, squash};
 use bd_update::pick_command::{PickArgs, PickOutput, pick};
 use domain_types::{ProgressReporter, SyncEvent};
@@ -80,6 +80,50 @@ fn assert_git_processes(git: &GitCommandExecutor, expected: &[(&str, u32)]) {
 fn repo_with_branches() -> TestRepo {
   let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a", "(ui) Add b", "(auth) Add c"]);
   repo
+}
+
+#[test]
+fn stack_together_uses_the_same_number_of_git_processes_as_restack() {
+  let repo_with_two_branches = || {
+    let (repo, _) = repo_with_subjects(&[("README.md", "readme\n")], &["(alpha) A", "(beta) B"]);
+    repo.set_config("branchdeck.stacks", "true").unwrap();
+    repo
+  };
+  let process_counts = |context: &RepoContext| {
+    context
+      .git
+      .process_stats()
+      .expect("a counting executor")
+      .by_command()
+      .into_iter()
+      .map(|(command, stats)| (command, stats.count))
+      .collect::<Vec<_>>()
+  };
+
+  let restack_repo = repo_with_two_branches();
+  let restack_context = context(&restack_repo);
+  restack(
+    &restack_context,
+    &RestackArgs {
+      branch: "beta".to_owned(),
+      parent: "alpha".to_owned(),
+      rewrite: RewriteArgs::default(),
+    },
+  )
+  .unwrap();
+  let restack_process_counts = process_counts(&restack_context);
+
+  let together_repo = repo_with_two_branches();
+  let together_context = context(&together_repo);
+  stack_together(
+    &together_context,
+    &StackTogetherArgs {
+      branches: vec!["beta".to_owned(), "alpha".to_owned()],
+      rewrite: RewriteArgs::default(),
+    },
+  )
+  .unwrap();
+  assert_eq!(process_counts(&together_context), restack_process_counts);
 }
 
 /// A build that passes in the shell of `bd check --build` on every OS: `sh -c`, and `cmd` on Windows, which has no `true`

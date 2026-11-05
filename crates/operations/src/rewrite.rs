@@ -56,7 +56,7 @@ use history_rewrite::drop_commits::{DropCommitsParams, DropUndoToken, drop_commi
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
 use history_rewrite::move_commits::{MoveCommitsParams, move_commits_to_branch_core, move_result};
 use history_rewrite::parked::{PARKED_REF, ParkLine, ParkOutcome, park_core, unpark_core};
-use history_rewrite::regroup::{RegroupOptions, UndoToken as RegroupUndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{RegroupOptions, Restack, UndoToken as RegroupUndoToken, rename_branch_core, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockHolder, LockWait, LockWaiter, RewriteOptions};
 use history_rewrite::reword::{RewordRequest, reword_request_core};
 use history_rewrite::squash::{RestoreBranchHeadParams, SquashCommitsParams, restore_branch_head_core, squash_commits_core};
@@ -174,9 +174,19 @@ fn named_branches(rewrite: &RewriteIntent) -> Vec<String> {
     RewriteIntent::Move { target_branch, .. } => target_branch.iter().cloned().collect(),
     RewriteIntent::Rename { branch_name, new_name, .. } => vec![branch_name.clone(), new_name.clone()],
     RewriteIntent::Restack { branch_name, parent, .. } => vec![branch_name.clone(), parent.clone()],
+    RewriteIntent::StackTogether { branch_names, .. } | RewriteIntent::Unpark { branch_names, .. } => branch_names.clone(),
     RewriteIntent::Park { branches, .. } => branches.iter().map(|line| line.branch_name.clone()).collect(),
-    RewriteIntent::Unpark { branch_names, .. } => branch_names.clone(),
     _ => rewrite.subject().map(str::to_owned).into_iter().collect(),
+  }
+}
+
+/// The restack of an intent, including Stack On, Unstack and Stack Together
+fn restack(rewrite: &RewriteIntent) -> Option<Restack<'_>> {
+  match rewrite {
+    RewriteIntent::Restack { branch_name, parent, .. } => Some(Restack::On { leaf: branch_name, parent }),
+    RewriteIntent::Unstack { branch_name, .. } => Some(Restack::Off { leaf: branch_name }),
+    RewriteIntent::StackTogether { branch_names, .. } => Some(Restack::Together { names: branch_names }),
+    _ => None,
   }
 }
 
@@ -740,6 +750,7 @@ impl Core {
       let token = result.undo_token.clone();
       Ran::of(RewriteResult::Moved(result), UndoKind::Regroup, token)
     };
+    let restack = restack(rewrite);
     Ok(match rewrite {
       RewriteIntent::Move { commit_ids, target_branch, .. } => {
         let params = MoveCommitsParams {
@@ -752,13 +763,12 @@ impl Core {
         let outcome = rename_branch_core(git, path, branch_name, new_name, &regroup).map_err(|error| failed(error.into()))?;
         moved(move_result(&outcome, &[], Some(new_name.clone())))
       }
-      RewriteIntent::Restack { branch_name, parent, .. } => {
-        let outcome = restack_branch_core(git, path, branch_name, Some(parent), &regroup).map_err(|error| failed(error.into()))?;
-        moved(move_result(&outcome, &[], Some(branch_name.clone())))
-      }
-      RewriteIntent::Unstack { branch_name, .. } => {
-        let outcome = restack_branch_core(git, path, branch_name, None, &regroup).map_err(|error| failed(error.into()))?;
-        moved(move_result(&outcome, &[], Some(branch_name.clone())))
+      RewriteIntent::Restack { .. } | RewriteIntent::Unstack { .. } | RewriteIntent::StackTogether { .. } => {
+        let Some(restack) = restack else {
+          return Err(failed(anyhow::anyhow!("A restack intent has no restack core operation")));
+        };
+        let outcome = restack_core(git, path, &restack, &regroup).map_err(|error| failed(error.into()))?;
+        moved(move_result(&outcome, &[], rewrite.subject().map(str::to_owned)))
       }
       RewriteIntent::Park { branches, .. } => {
         let lines: Vec<ParkLine<'_>> = branches

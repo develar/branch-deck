@@ -4,7 +4,7 @@ use domain_types::rewrite::RegroupPlan;
 use domain_types::stack::{DeclaredParent, ParentSource, ParentState, StackFix, StackProblem};
 use git_ops::revs::short_id;
 use history_rewrite::commit_grouper::{CommitGrouper, GroupingInputs};
-use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, regroup_commits_core, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, Restack, UndoToken, regroup_commits_core, rename_branch_core, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::{DEFAULT_LOCK_TIMEOUT, LockWait};
 use history_rewrite::snapshot::read_grouping_inputs;
 use history_rewrite::stack::{StackForest, describe_problem, place_branches, problem_view};
@@ -57,7 +57,10 @@ fn forest(subjects: &[&str], stored: &[(&str, &str)]) -> (StackForest, Vec<Strin
 }
 
 fn restack(repo: &TestRepo, leaf: &str, parent: Option<&str>) -> Result<RegroupOutcome, RegroupError> {
-  restack_branch_core(repo.git_executor(), path(repo), leaf, parent, &RegroupOptions::default())
+  match parent {
+    Some(parent) => restack_core(repo.git_executor(), path(repo), &Restack::On { leaf, parent }, &RegroupOptions::default()),
+    None => restack_core(repo.git_executor(), path(repo), &Restack::Off { leaf }, &RegroupOptions::default()),
+  }
 }
 
 fn unstack_plan(branches: &[&str]) -> RegroupPlan {
@@ -146,7 +149,7 @@ fn a_write_on_one_worktree_keeps_the_parents_of_another() {
   let (_other_dir, other_path) = other_worktree(&repo, &base, &["(core) Add core", "(ui) Add ui"]);
   let other_path = other_path.as_str();
   let git = repo.git_executor();
-  restack_branch_core(git, other_path, "ui", Some("core"), &RegroupOptions::default()).unwrap();
+  restack_core(git, other_path, &Restack::On { leaf: "ui", parent: "core" }, &RegroupOptions::default()).unwrap();
 
   let outcome = restack(&repo, "login", Some("auth")).unwrap();
   assert_eq!(outcome.stack_parents.unwrap().entries, entries(&[("login", "auth"), ("ui", "core")]));

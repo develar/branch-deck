@@ -1109,6 +1109,37 @@ fn the_operations_of_the_session_lie_over_the_actions_its_own_runs_a_rewrite_wai
     assert_eq!(availability(&actions, id), Availability::Enabled, "{id:?} runs beside a rewrite");
   }
 
+  let stack_together = RewriteIntent::StackTogether {
+    branch_names: vec!["auth".to_owned(), "login".to_owned()],
+    witness: TableWitness::default(),
+  };
+  let running = [rewrite_operation("t1", stack_together, OperationStep::Rewriting)];
+  assert_eq!(
+    availability(&with_operations(offered(), auth, &running), StackOn),
+    Availability::Running { op: op("t1") },
+    "Stack Together is its own Stack On rewrite for the lower branch"
+  );
+  let login = Of::Branch {
+    name: "login",
+    pushes: Some("user/virtual/login"),
+    unparks: "login",
+    pull_request: Some(8),
+  };
+  let login_offered = || {
+    branch_actions(&BranchFacts {
+      row: Row {
+        declared_parent: Some("auth"),
+        ..row("login")
+      },
+      ..facts(&step, &status)
+    })
+  };
+  assert_eq!(
+    availability(&with_operations(login_offered(), login, &running), StackOn),
+    Availability::Running { op: op("t1") },
+    "Stack Together is its own Stack On rewrite for the upper branch"
+  );
+
   // a second rewrite queued behind the first: its own item waits in the queue, the others behind the newest
   let queued = [
     rewrite_operation("u1", unstack("login"), OperationStep::Rewriting),

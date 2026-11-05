@@ -875,6 +875,7 @@ fn is_own_rewrite(id: ActionId, name: &str, unparks: &str, rewrite: &RewriteInte
         ..
       },
     ) => branch_name == name,
+    (ActionId::StackOn, RewriteIntent::StackTogether { branch_names, .. }) => branch_names.iter().any(|branch_name| branch_name == name),
     (ActionId::Park, RewriteIntent::Park { branches, .. }) => matches!(branches.as_slice(), [line] if line.branch_name == name),
     (ActionId::Unpark, RewriteIntent::Unpark { branch_names, .. }) => matches!(branch_names.as_slice(), [only] if only == unparks),
     _ => false,

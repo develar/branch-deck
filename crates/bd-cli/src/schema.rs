@@ -39,7 +39,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 /// The outputs of each command, by their names in `bd schema --all`: `rewrite` is the output of group, rename, restack,
-/// unstack and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
+/// unstack, stack-together and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
 /// those of `bd update --status` and `--abort`, `lease_get` … `lease_reclaim` those of `bd lease <command>`. `error` is
 /// what any command prints when it fails
 pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
@@ -81,6 +81,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("robot-stats", &["robot_stats"]),
   ("safe-push", &["safe_push"]),
   ("squash", &["squash"]),
+  ("stack-together", &["rewrite"]),
   ("status", &["status", "status_brief"]),
   ("suggest", &["suggest"]),
   ("sync", &["sync"]),

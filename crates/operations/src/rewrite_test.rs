@@ -155,6 +155,37 @@ async fn a_rewrite_is_run_by_its_core_and_ends_once_it_asked_its_sync_with_its_u
   assert_eq!(fixture.repo.rev_parse("HEAD").unwrap(), head, "HEAD is back");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn stack_together_is_one_rewrite_of_every_named_branch() {
+  let fixture = fixture(true).await;
+  fixture.repo.create_commit("(gamma) Gamma", "gamma.txt", "gamma\n");
+  fixture.synced().await;
+  let branch_names = ["gamma", "alpha", "beta"].map(str::to_owned).to_vec();
+  let intent = RewriteIntent::StackTogether {
+    branch_names: branch_names.clone(),
+    witness: fixture.witness().await,
+  };
+
+  let outcome = fixture.rewrite(&intent).await.unwrap();
+
+  let rewrites: Vec<_> = outcome
+    .effects
+    .iter()
+    .filter_map(|record| match &record.effect {
+      PlannedEffect::Rewrite { branches, .. } => Some((branches, &record.status)),
+      _ => None,
+    })
+    .collect();
+  assert_eq!(rewrites.len(), 1);
+  assert_eq!(rewrites[0], (&branch_names, &EffectStatus::Done));
+  assert_eq!(fixture.subjects(), ["(gamma) Gamma", "(alpha/beta) Beta", "(alpha) Alpha"]);
+  assert_eq!(outcome.undo.as_ref().map(|undo| undo.kind), Some(UndoKind::Regroup));
+
+  let undo = outcome.undo.unwrap();
+  let undone = fixture.rewrite(&RewriteIntent::Undo { token: undo }).await.unwrap();
+  assert_eq!(undone.result, OperationResult::Rewrite(Box::new(RewriteResult::Undone { already_undone: false })));
+}
+
 impl Fixture {
   /// `rewrite` asked three times while the first waits for the lock another process holds: the second and the third
   /// join the first (its record counts them), and the lock is released then; the three answers

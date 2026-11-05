@@ -1,7 +1,7 @@
 use crate::regroup_test::{commits, groups, path, regroup, subjects, sync};
 use domain_types::rewrite::{CommitReword, RewordResult, RewordText};
 use history_rewrite::issue_groups::ISSUE_GROUPS_REF;
-use history_rewrite::regroup::{FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, UndoToken, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{FixupRefusal, RegroupError, RegroupOptions, RegroupOutcome, Restack, UndoToken, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::reword::{RewordRequest, reword_core, reword_request_core};
 use history_rewrite::stack_parents::STACK_PARENTS_REF;
@@ -162,7 +162,7 @@ fn a_plan_that_rewords_a_fixup_with_its_target_passes() {
 fn a_reword_keeps_the_issue_groups_and_the_stack_parents() {
   let repo = baseline_repo(true);
   let ids = commits(&repo, &["(auth) Add auth", "(login) Add form", "ABC-1 Add parser"]);
-  restack_branch_core(repo.git_executor(), path(&repo), "login", Some("auth"), &RegroupOptions::default()).unwrap();
+  restack_core(repo.git_executor(), path(&repo), &Restack::On { leaf: "login", parent: "auth" }, &RegroupOptions::default()).unwrap();
   regroup(&repo, &issue_group_plan("login", &["ABC-1"])).unwrap();
   let stores = |repo: &TestRepo| [ISSUE_GROUPS_REF, STACK_PARENTS_REF].map(|store| repo.git_executor().execute_command(&["rev-parse", store], path(repo)).unwrap());
   let before = stores(&repo);

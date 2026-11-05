@@ -7,10 +7,11 @@ use anyhow::Context;
 use domain_types::rewrite::{MoveChange, MoveCommitsResult};
 use domain_types::stack::{StackFix, StackProblemView};
 use history_rewrite::move_commits::move_result;
-use history_rewrite::regroup::{RegroupOptions, UndoToken, rename_branch_core, restack_branch_core, undo_regroup_core};
+use history_rewrite::regroup::{RegroupOptions, Restack, UndoToken, rename_branch_core, restack_core, undo_regroup_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::stack_parents::{STACK_PARENTS_FILE, STACK_PARENTS_REF};
 use pretty_assertions::assert_eq;
+use std::collections::BTreeMap;
 use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
@@ -36,7 +37,11 @@ fn rename_branch(test_repo: &TestRepo, branch: &str, new_name: &str) -> anyhow::
 
 /// `branch` stacked on `parent`, or made a root (`None`), as the rewrites `Restack` and `Unstack` run it
 fn restack_branch(test_repo: &TestRepo, branch: &str, parent: Option<&str>) -> anyhow::Result<MoveCommitsResult> {
-  let outcome = restack_branch_core(test_repo.git_executor(), &path(test_repo), branch, parent, &RegroupOptions::default())?;
+  let restack = match parent {
+    Some(parent) => Restack::On { leaf: branch, parent },
+    None => Restack::Off { leaf: branch },
+  };
+  let outcome = restack_core(test_repo.git_executor(), &path(test_repo), &restack, &RegroupOptions::default())?;
   Ok(move_result(&outcome, &[], Some(branch.to_owned())))
 }
 
@@ -176,4 +181,33 @@ fn stack_parents(test_repo: &TestRepo) -> String {
     .git_executor()
     .execute_command(&["cat-file", "-p", &format!("{STACK_PARENTS_REF}:{STACK_PARENTS_FILE}")], &path(test_repo))
     .map_or_default(|text| if text.is_empty() { text } else { format!("{text}\n") })
+}
+
+#[test]
+fn stack_together_moves_a_branch_and_keeps_its_existing_parent_and_children() {
+  let test_repo = repo_with(&["(alpha) A", "(beta) B", "(epsilon) E", "(gamma) G", "(delta) D"]);
+  restack_branch(&test_repo, "beta", Some("alpha")).unwrap();
+  restack_branch(&test_repo, "gamma", Some("epsilon")).unwrap();
+  restack_branch(&test_repo, "delta", Some("gamma")).unwrap();
+  let head = test_repo.head();
+  let names = ["gamma", "beta", "alpha"].map(str::to_owned);
+
+  let outcome = restack_core(
+    test_repo.git_executor(),
+    &path(&test_repo),
+    &Restack::Together { names: &names },
+    &RegroupOptions::default(),
+  )
+  .unwrap();
+
+  assert_eq!(
+    outcome.stack_parents.unwrap().entries,
+    BTreeMap::from([
+      ("beta".to_owned(), "alpha".to_owned()),
+      ("delta".to_owned(), "gamma".to_owned()),
+      ("gamma".to_owned(), "beta".to_owned()),
+    ])
+  );
+  assert_eq!(test_repo.head(), head);
+  assert_eq!(stack_parents(&test_repo), "beta\talpha\ndelta\tgamma\ngamma\tbeta\n");
 }

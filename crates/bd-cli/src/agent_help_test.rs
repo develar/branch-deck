@@ -31,7 +31,7 @@ const NOT_IN_AGENT_HELP: &[&str] = &[
 ];
 
 /// Commands that the help names "with the same options" as another one
-const SAME_OPTIONS_AS: &[(&str, &str)] = &[("rename", "group"), ("restack", "group"), ("unstack", "group")];
+const SAME_OPTIONS_AS: &[(&str, &str)] = &[("rename", "group"), ("restack", "group"), ("unstack", "group"), ("stack-together", "group")];
 
 /// The long options of the commands: the global ones, and per subcommand its own, a nested one as `lease get`; without
 /// `--help`, `--version` and hidden options

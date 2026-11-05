@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react"
 import { cn } from "cn"
-import { CirclePauseIcon, CirclePlayIcon, FolderInputIcon, UndoDotIcon, XIcon } from "lucide-react"
+import { CirclePauseIcon, CirclePlayIcon, FolderInputIcon, LayersIcon, UndoDotIcon, XIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { InlineBranchTarget } from "@/components/shared/InlineBranchTarget"
@@ -8,8 +8,9 @@ import { getBranchDropFacts, useDragStores } from "@/hooks/useCommitDrag"
 import { getRemovePrefixLabel } from "@/hooks/useCommitMoveList"
 import { moveCommits } from "@/hooks/useMoveCommits"
 import { parkBranches, unparkBranches } from "@/hooks/useParkBranch"
+import { stackBranches } from "@/hooks/useStackActions"
 import type { BranchDrop } from "@/lib/branch-drop"
-import { parkDrop, showsParkDrop, showsUnparkDrop, unparkDrop } from "@/lib/branch-drop"
+import { parkDrop, showsParkDrop, showsUnparkDrop, stackTogetherDrop, unparkDrop } from "@/lib/branch-drop"
 import { inTableOrder } from "@/lib/branch-selection"
 import { useShownBranches } from "@/stores/branch-filter"
 import { useBranchCommits, useBranchTableRows, useIssueGroups, useParkedTableRows } from "@/stores/branch-sync"
@@ -96,6 +97,15 @@ export function BranchSelectionBar({ overHead }: { overHead: boolean }) {
               {backLabel}
             </Button>
           )}
+          <SelectionShapeButton
+            names={names}
+            icon={LayersIcon}
+            description="Stacks the selected branches, the oldest at the bottom"
+            decide={stackTogetherSelection}
+            act={stackBranches}
+          >
+            Stack Together
+          </SelectionShapeButton>
           <SelectionShapeButton names={names} icon={CirclePauseIcon} decide={parkSelection} act={taken => parkBranches(taken, "")}>
             Park
           </SelectionShapeButton>
@@ -124,17 +134,22 @@ function unparkSelection(names: readonly string[]): BranchDrop | null {
   return showsUnparkDrop(names, facts) ? unparkDrop(names, facts) : null
 }
 
+function stackTogetherSelection(names: readonly string[]): BranchDrop | null {
+  return stackTogetherDrop(names, getBranchDropFacts())
+}
+
 interface SelectionShapeButtonProps {
   names: readonly string[]
   icon: ComponentType
   /** Whether the button shows for the selection (null hides it), and what it takes or why it can't now */
   decide: (names: readonly string[]) => BranchDrop | null
   act: (names: readonly string[]) => Promise<boolean>
+  description?: string
   children: ReactNode
 }
 
-/** Park or Unpark of the selected branches: disabled with the reason a drag of them would give, until it can */
-function SelectionShapeButton({ names, icon: Icon, decide, act, children }: SelectionShapeButtonProps) {
+/** An action on the selected branches: disabled with the reason a drag of them would give, until it can */
+function SelectionShapeButton({ names, icon: Icon, decide, act, description, children }: SelectionShapeButtonProps) {
   // "" hides the button, "\u0000" takes the selection, any other text is why it can't now
   const verdict = useDragStores(() => {
     const drop = decide(names)
@@ -145,7 +160,7 @@ function SelectionShapeButton({ names, icon: Icon, decide, act, children }: Sele
   }
   const reason = verdict === "\u0000" ? null : verdict
   return (
-    <Tooltip disabled={reason === null}>
+    <Tooltip disabled={reason === null && description === undefined}>
       <TooltipTrigger
         render={
           <Button
@@ -164,7 +179,7 @@ function SelectionShapeButton({ names, icon: Icon, decide, act, children }: Sele
         <Icon data-icon="inline-start" />
         {children}
       </TooltipTrigger>
-      <TooltipContent>{reason}</TooltipContent>
+      <TooltipContent>{reason ?? description}</TooltipContent>
     </Tooltip>
   )
 }

@@ -150,8 +150,8 @@ parent, a bare `(login)`, an issue branch or an issue group, takes its parent fr
 level in a prefix still declares the parent, and a line that disagrees with it is the problem "commits declare
 different parents". `StackDeclarations::into_forest` walks the chain of lines up from every branch with commits, so a
 stored parent without commits is passed like a declared one; the lines that no chain reaches are idle, they may stack
-a branch of another worktree. A plan path `auth/login`, Stack On, Unstack, `bd restack` and `bd unstack` write the map
-and rewrite only the commits whose prefix declares another parent; a sync drops the line of a branch once its archived
+a branch of another worktree. A plan path `auth/login`, Stack On, Unstack, Stack Together, `bd restack`, `bd unstack`
+and `bd stack-together` write the map and rewrite only the commits whose prefix declares another parent; a sync drops the line of a branch once its archived
 branch is integrated. See [Stack Parents](../../spec/branch/stack-parents.spec.md).
 
 ### Stacked Branches
@@ -178,10 +178,10 @@ part of a flat name, as before. See [Stacked Branches](../../spec/branch/stacked
 
 In the UI, `branchTableRowsIn` (`src/stores/branch-sync.ts`) turns the stacks into a tree of typed rows with a depth;
 issue families come from the stack roots. The commit editor and Move to… ask `preview_group` (`group_of`: `stack_path`
-with the stack parents of the session's last grouping). The branch menu restacks and renames through the
-rewrites `Rename`, `Restack` and `Unstack` of the engine (`execute`, `crates/operations/src/rewrite.rs`, over the regroup
-cores `rename_branch_core` and `restack_branch_core`), which write the stack parents and rewrite only the prefixes that
-need it, in one ref transaction.
+with the stack parents of the session's last grouping). The branch menu restacks and renames through `Rename`,
+`Restack` and `Unstack`; the selection bar's Stack Together is `StackTogether`. `operations::rewrite` sends all three
+stack changes through `restack_core`, alongside `rename_branch_core`: one parent-map update builds the oldest-first
+chain, preserving existing ancestor edges, and rewrites only the prefixes that need it.
 
 ### Stack Branches
 

@@ -8,7 +8,8 @@
 
 `bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
 together), regroup the commits and sync them. It reads with `status`, `commits`, `schema` and `version`, suggests a
-checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack` and `undo`,
+checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack`,
+`stack-together` and `undo`,
 rebuilds the virtual branches with `sync` and keeps their pull request text with `describe`, tries a plan without
 writing refs with `check`, pushes with `push`, asks the code owners to review a pull request with `request-review`,
 starts a Patronus Safe Push with `safe-push` and reads its robot, and why it failed, with `robot`, and how the Safe
@@ -33,7 +34,7 @@ recorded in the operations registry of the repository under the `operation_id` o
 below), `busy` while another process runs what it needs, and once it ended it goes into the journal of the operations
 of the repository under that id, beside the app's (what it did, how it ended, its git processes, its HTTP requests and
 its time from the admission; [Journal](../design/git-operations.md#journal)). A rewrite (`group`, `rename`,
-`restack`, `unstack`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`),
+`restack`, `unstack`, `stack-together`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`),
 `update` and `pick` that write are recorded too, before they take any lock (`bd_core::operation_record::recorded`): the app's
 windows show them on their rows ("bd: Unstacking beta…") and Activity lists them, but HEAD, which they hold, makes no
 other process `busy`: the repository lock orders the rewrites of the app and of every `bd`, and a rewrite of the app

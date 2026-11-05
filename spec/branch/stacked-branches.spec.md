@@ -17,6 +17,7 @@ targets:
   - ../../crates/sync-core/src/grouping.rs
   - ../../crates/trial-check/src/check.rs
   - ../../crates/domain-types/src/stack.rs
+  - ../../crates/domain-types/src/rewrite.rs
   - ../../crates/domain-types/src/session.rs
   - ../../crates/domain-policy/src/github_stack.rs
   - ../../crates/domain-policy/src/facts.rs
@@ -41,6 +42,8 @@ targets:
   - ../../src/components/branch/StackChildrenNote.tsx
   - ../../src/components/branch/InlineRenameBranchInput.tsx
   - ../../crates/operations/src/rewrite.rs
+  - ../../crates/history-rewrite/src/regroup.rs
+  - ../../src/presenters/rewrite.ts
   - ../../src/lib/stack.ts
   - ../../src/components/commit/PrefixChangeHint.tsx
   - ../../src/components/shared/InlineBranchTarget.tsx
@@ -679,6 +682,16 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   on oauth".
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack a branch on another one and unstack it`, `should not offer a branch's own descendants to stack on`, `should stack an issue branch without a rewrite and undo it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restack_writes_the_store_and_rewrites_only_differing_parent_levels`, `unstack_removes_the_line_and_the_parent_levels`, `renaming_a_parent_renames_it_in_its_children`)
+- With stacked branches on, selecting two or more branches must show "Stack Together" on the selection bar. It stacks
+  them oldest-first (the oldest commit at the bottom), keeps an existing ancestor edge and a moved branch's children,
+  and uses the `stack-on` blocker for every selected branch. Its tooltip says "Stacks the selected branches, the oldest
+  at the bottom"; a successful click clears the selection, shows one toast with one Undo and one Activity entry, and the
+  table shows the new chain after its sync.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack the selected branches together from the selection bar, the oldest at the bottom, and undo it`)
+  [@test] ../../src/lib/branch-drop.test.ts (`stacks two or more selected branches together when Stack On is available for each`)
+  [@test] ../../src/presenters/rewrite.test.ts (`words a rewrite by what it does to what it names`)
+  [@test] ../../src/presenters/operations.test.ts (`names every selected branch as a row the rewrite works on`)
+  [@test] ../../crates/operations/src/rewrite_test.rs (`stack_together_is_one_rewrite_of_every_named_branch`)
 - Rename of a parent must keep its children stacked on it; Ungroup and Unapply of a parent must name its children:
   "oauth stays stacked on login and is built on master until login has commits again." See
   [Move Commits](move-commits.spec.md).

@@ -217,6 +217,9 @@ Renaming and ungrouping a branch are moves of all its commits.
   above the table. A table that shows no rows (the branches in islands or parked, or a filter that matched none) has no
   heads, and the bar is a line above the islands there.
   [@test] ../../tests/e2e/move-commits/combine-branches.spec.ts (`should keep the rows in place as branches are selected and deselected`)
+- With [stacked branches](stacked-branches.spec.md) on, the selection bar must offer "Stack Together" for two or more
+  selected branches; the oldest commit goes at the bottom and the action sends one rewrite intent.
+  [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack the selected branches together from the selection bar, the oldest at the bottom, and undo it`)
 - A selection with a way back must also offer it: "Move Back to ABC-123" (the issue group of the key when it has
   one, see [Issue Groups](issue-groups.spec.md); the issue branch of the key for a commit an issue group holds), "Move
   to Unassigned", "Remove Prefix", or "Move Back" when they go back to several branches.
@@ -395,7 +398,8 @@ Renaming and ungrouping a branch are moves of all its commits.
 - "Move to…" is an outline `xs` button in the primary colour. The way back is a ghost `xs` button.
 - The branch selection bar sits right-aligned over the column heads of the branch table (`absolute`, `h-8` like the
   heads, `bg-card`; the heads are `invisible` under it, so the columns keep their widths), with a ghost `icon-xs`
-  clear button; a selected branch row is `bg-primary/15`, like a selected commit row.
+  clear button and "Stack Together" when at least two branches are selected and stacks are enabled; a selected branch
+  row is `bg-primary/15`, like a selected commit row.
 - Of the droppable branch rows only the one under the pointer shows: `bg-primary/10` and a solid primary outline, its
   rows below `bg-primary/5`; a dragged row is at half opacity. The unassigned card and the Parked card get a primary
   ring.

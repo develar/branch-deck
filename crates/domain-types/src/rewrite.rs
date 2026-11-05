@@ -147,6 +147,11 @@ pub enum RewriteIntent {
     path: String,
     witness: TableWitness,
   },
+  /// The branches are stacked oldest-first
+  StackTogether {
+    branch_names: Vec<String>,
+    witness: TableWitness,
+  },
 }
 
 impl RewriteIntent {
@@ -159,6 +164,7 @@ impl RewriteIntent {
       | Self::Rename { witness, .. }
       | Self::Restack { witness, .. }
       | Self::Unstack { witness, .. }
+      | Self::StackTogether { witness, .. }
       | Self::Park { witness, .. }
       | Self::Unpark { witness, .. }
       | Self::Unapply { witness, .. }
@@ -193,7 +199,7 @@ impl RewriteIntent {
     match self {
       Self::Move { target_branch, .. } => target_branch.as_deref(),
       Self::Park { branches, .. } => branches.first().map(|line| line.branch_name.as_str()),
-      Self::Unpark { branch_names, .. } => branch_names.first().map(String::as_str),
+      Self::Unpark { branch_names, .. } | Self::StackTogether { branch_names, .. } => branch_names.first().map(String::as_str),
       Self::SquashFixups {
         scope: AutosquashScope::Branch(branch),
         ..

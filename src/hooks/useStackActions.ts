@@ -7,7 +7,9 @@ import { countMoved } from "@/lib/move-summary"
 import type { RewriteRunSpec } from "@/lib/rewrite-run"
 import { runRewriteIntent, undoRewrite, witnessed } from "@/lib/rewrite-run"
 import { formatMoveUnstackAction } from "@/lib/stack"
+import { joinNames } from "@/lib/text"
 import { showUndoToast } from "@/lib/undo-toast"
+import { branchSyncStore } from "@/stores/branch-sync"
 import { requestReveal } from "@/stores/commit-move"
 import { getSelectedProject, getSelectedRepositoryPath } from "@/stores/repository"
 import { forgetCollapsedStack, renameCollapsedStack } from "@/stores/stack-collapse"
@@ -17,6 +19,10 @@ export interface StackOperationOptions {
   surface?: string | null
   /** The busy state, when the form that starts it says more ("Naming the branch auth") */
   label?: string
+}
+
+function stackSuccessTitle(title: string, suffix: string): string {
+  return `${title}${suffix}`
 }
 
 /**
@@ -63,7 +69,7 @@ export async function restackBranch(branchName: string, parent: string | null, o
   const done = await runStackOperation(
     { surface: options.surface },
     repositoryPath => (parent === null ? witnessed(repositoryPath, { rewrite: "unstack", branchName }) : witnessed(repositoryPath, { rewrite: "restack", branchName, parent })),
-    suffix => (parent === null ? `Unstacked ${branchName}${suffix}` : `Stacked ${branchName} on ${parent}${suffix}`),
+    suffix => stackSuccessTitle(parent === null ? `Unstacked ${branchName}` : `Stacked ${branchName} on ${parent}`, suffix),
     branchName,
   )
   // a collapsed root stacked on another branch heads no stack of its own anymore
@@ -71,6 +77,36 @@ export async function restackBranch(branchName: string, parent: string | null, o
     forgetCollapsedStack(branchName)
   }
   return done
+}
+
+/** Stacks all selected branches oldest-first as one rewrite and forgets the collapsed state of its new children */
+export async function stackBranches(names: readonly string[], options: StackOperationOptions = {}): Promise<boolean> {
+  const [revealBranch] = names
+  if (revealBranch === undefined) {
+    return false
+  }
+  const done = await runStackOperation(
+    { label: options.label, surface: options.surface },
+    repositoryPath => witnessed(repositoryPath, { rewrite: "stackTogether", branchNames: [...names] }),
+    suffix => stackSuccessTitle(`Stacked ${joinNames(names)}`, suffix),
+    revealBranch,
+  )
+  if (!done) {
+    return false
+  }
+  const branches = branchSyncStore.getState().branches
+  const lower = names.find(name => {
+    const parent = branches[name]?.stack?.declaredParent
+    return parent == null || !names.includes(parent)
+  })
+  if (lower !== undefined) {
+    for (const name of names) {
+      if (name !== lower) {
+        forgetCollapsedStack(name)
+      }
+    }
+  }
+  return true
 }
 
 /** Renames a branch together with its name in the prefixes of the branches stacked on it */

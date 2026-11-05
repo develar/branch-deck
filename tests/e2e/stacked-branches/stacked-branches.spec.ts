@@ -646,6 +646,37 @@ test.describe("Stacked branches", () => {
     await expect(findBranchRow(page, "guide")).toHaveAttribute("data-state", "open")
   })
 
+  test("should stack the selected branches together from the selection bar, the oldest at the bottom, and undo it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("stacked_branches")
+    await syncAndWaitForBranches()
+    await repo.commit("(extra) Add independent branch", { "extra.txt": "extra\n" }, 1704139200)
+    await syncAndWaitForBranches()
+
+    for (const name of ["docs", "extra"]) {
+      const row = findBranchRow(page, name)
+      await row.click({ modifiers: ["ControlOrMeta"] })
+      await expect(row).toHaveAttribute("data-selected", "true")
+    }
+    const actions = page.getByTestId("branch-selection-actions")
+    await expect(actions).toContainText("2 branches selected")
+    const stackTogether = actions.getByRole("button", { name: "Stack Together" })
+    await expect(stackTogether).toBeEnabled()
+    await stackTogether.hover()
+    await expect(page.locator("[data-slot=tooltip-content][data-open]")).toHaveText("Stacks the selected branches, the oldest at the bottom")
+
+    await runAndWaitForSync(page, () => stackTogether.click())
+    await expect.poll(() => branchTree(page)).toContain("extra@1")
+    const toast = page.locator("[data-slot=toast]", { hasText: "Stacked extra and docs" })
+    await expect(toast).toBeVisible()
+    await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible()
+    await expect(getPushButton(findBranchRow(page, "extra"))).toHaveAccessibleName("Push Stack (2 branches)")
+    await expect(actions).toHaveCount(0)
+
+    await runAndWaitForSync(page, () => toast.getByRole("button", { name: "Undo" }).click())
+    await expect.poll(() => branchTree(page)).toContain("docs@0")
+    await expect.poll(() => branchTree(page)).toContain("extra@0")
+  })
+
   test("should push a stack parents first and create each pull request into master", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     // on GitHub, no pull request yet; the next one created is #900
     const repo = await setupRepo("stacked_branches", { pullRequests: { ...availablePullRequests(), nextNumber: 900 } })

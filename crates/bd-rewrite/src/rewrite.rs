@@ -16,7 +16,7 @@ use bd_core::text_input::read_text;
 use domain_types::operation::Intent;
 use domain_types::rewrite::RewriteIntent;
 use git_ops::branch_description::Description;
-use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_branch_core};
+use history_rewrite::regroup::{RegroupError, RegroupOptions, RegroupOutcome, Restack, UndoToken, problem_commits, regroup_commits_accepted, rename_branch_core, restack_core};
 use history_rewrite::repository_lock::LockWait;
 use history_rewrite::stack::{StackForest, describe_problem, problem_view};
 use schemars::JsonSchema;
@@ -83,13 +83,22 @@ pub struct UnstackArgs {
   pub rewrite: RewriteArgs,
 }
 
-/// The output of `bd group`, `rename`, `restack`, `unstack` and `reword`
+#[derive(Debug, clap::Args)]
+pub struct StackTogetherArgs {
+  /// The branches to stack together, oldest commit at the bottom
+  #[arg(required = true, num_args = 2.., value_name = "BRANCH")]
+  pub branches: Vec<String>,
+  #[command(flatten)]
+  pub rewrite: RewriteArgs,
+}
+
+/// The output of `bd group`, `rename`, `restack`, `unstack`, `stack-together` and `reword`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RewriteOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// `group`, `rename`, `restack`, `unstack` or `reword`
+  /// `group`, `rename`, `restack`, `unstack`, `stack-together` or `reword`
   pub operation: String,
   pub dry_run: bool,
   pub previous_head: String,
@@ -259,9 +268,16 @@ pub fn restack(context: &RepoContext, args: &RestackArgs) -> Result<RewriteOutpu
     parent: args.parent.clone(),
     witness: asked_on(args.rewrite.expect_head.as_deref()),
   };
-  rewrite(context, ("restack", intent), &args.rewrite, &BTreeMap::new(), |options| {
-    restack_branch_core(&context.git, &context.repository, &args.branch, Some(&args.parent), options)
-  })
+  rewrite_stack(
+    context,
+    "restack",
+    intent,
+    &args.rewrite,
+    Restack::On {
+      leaf: &args.branch,
+      parent: &args.parent,
+    },
+  )
 }
 
 pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutput, CliError> {
@@ -269,8 +285,20 @@ pub fn unstack(context: &RepoContext, args: &UnstackArgs) -> Result<RewriteOutpu
     branch_name: args.branch.clone(),
     witness: asked_on(args.rewrite.expect_head.as_deref()),
   };
-  rewrite(context, ("unstack", intent), &args.rewrite, &BTreeMap::new(), |options| {
-    restack_branch_core(&context.git, &context.repository, &args.branch, None, options)
+  rewrite_stack(context, "unstack", intent, &args.rewrite, Restack::Off { leaf: &args.branch })
+}
+
+pub fn stack_together(context: &RepoContext, args: &StackTogetherArgs) -> Result<RewriteOutput, CliError> {
+  let intent = RewriteIntent::StackTogether {
+    branch_names: args.branches.clone(),
+    witness: asked_on(args.rewrite.expect_head.as_deref()),
+  };
+  rewrite_stack(context, "stack-together", intent, &args.rewrite, Restack::Together { names: &args.branches })
+}
+
+fn rewrite_stack(context: &RepoContext, name: &str, intent: RewriteIntent, args: &RewriteArgs, restack: Restack<'_>) -> Result<RewriteOutput, CliError> {
+  rewrite(context, (name, intent), args, &BTreeMap::new(), |options| {
+    restack_core(&context.git, &context.repository, &restack, options)
   })
 }
 

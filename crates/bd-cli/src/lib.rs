@@ -41,7 +41,7 @@ use bd_rewrite::move_hunk_command::{MoveHunkArgs, MoveHunkOutput, move_hunk};
 use bd_rewrite::park_command::{ParkArgs, UnparkArgs, park, unpark};
 use bd_rewrite::review_plan_command::{ReviewPlanArgs, review_plan};
 use bd_rewrite::reword_command::{RewordArgs, reword};
-use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, UnstackArgs, group, rename, restack, unstack};
+use bd_rewrite::rewrite::{GroupArgs, RenameArgs, RestackArgs, RewriteOutput, StackTogetherArgs, UnstackArgs, group, rename, restack, stack_together, unstack};
 use bd_rewrite::squash_command::{SquashArgs, SquashOutput, squash};
 use bd_rewrite::suggest::{SuggestArgs, suggest, suggest_input_dump};
 use bd_rewrite::symbol_stats::symbol_stats;
@@ -116,6 +116,9 @@ enum Command {
   /// Make a stacked branch a root again
   #[command(after_help = "Outputs and refusals: `bd group --help`")]
   Unstack(UnstackArgs),
+  /// Stack two or more branches together, with the oldest commit at the bottom
+  #[command(after_help = "Outputs and refusals: `bd group --help`")]
+  StackTogether(StackTogetherArgs),
   /// Change the message of a commit ahead of the baseline, keeping every tree
   ///
   /// --message, --message-file (`-` for stdin) or --subject (the body stays), or several commits in one rewrite by
@@ -528,6 +531,7 @@ fn dispatch(cli: &Cli, environment: &Environment, out: &mut Out<'_>, common_dir:
     Command::Rename(args) => print_summary(out, context().and_then(|context| rename(&context, args)), RewriteOutput::exit_code),
     Command::Restack(args) => print_summary(out, context().and_then(|context| restack(&context, args)), RewriteOutput::exit_code),
     Command::Unstack(args) => print_summary(out, context().and_then(|context| unstack(&context, args)), RewriteOutput::exit_code),
+    Command::StackTogether(args) => print_summary(out, context().and_then(|context| stack_together(&context, args)), RewriteOutput::exit_code),
     Command::Reword(args) => print_summary(out, context().and_then(|context| reword(&context, args)), RewriteOutput::exit_code),
     Command::Undo(args) => context().and_then(|context| undo(&context, args)).and_then(|output| printed(out, &output)),
     Command::Update(args) => {
@@ -680,6 +684,7 @@ const fn reads_only(command: &Command) -> bool {
     | Command::Rename(RenameArgs { rewrite, .. })
     | Command::Restack(RestackArgs { rewrite, .. })
     | Command::Unstack(UnstackArgs { rewrite, .. })
+    | Command::StackTogether(StackTogetherArgs { rewrite, .. })
     | Command::Reword(RewordArgs { rewrite, .. }) => rewrite.dry_run,
     Command::Fold(args) => args.dry_run,
     Command::Squash(args) => args.dry_run,

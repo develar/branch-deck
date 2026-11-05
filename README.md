@@ -116,11 +116,12 @@ publisher: choose More info → Run anyway.
   draws a stack as one line, as Sapling and jj do, headed by its root ("22 branches", which collapses the stack), and
   hovering a branch lights the path down to it, what its push sends; a push sends the parents first, and each pull
   request goes into master with what it lands, the commits of the branches below it
-  ([spec](spec/branch/stacked-branches.spec.md)). Stack On and Unstack store the parent in
+  ([spec](spec/branch/stacked-branches.spec.md)). Stack On, Unstack and Stack Together store the parent in
   `refs/branch-deck/stack-parents`, not in the subjects, so stacking an issue branch on another one rewrites no commit
   ([stack parents](spec/branch/stack-parents.spec.md)). A stack that forks is also one branch of all its commits,
   with its own pull request into master, so the whole stack, side branches included, lands at once from its header
-  ([whole stack](spec/branch/whole-stack.spec.md)).
+  ([whole stack](spec/branch/whole-stack.spec.md)). Select two or more branches and Stack Together builds an oldest-first
+  chain ([spec](spec/branch/stacked-branches.spec.md)).
 - **Push and pull requests**: what each branch has to push, and which pushes would drop remote commits; a commit a
   colleague pushed to your pull request shows up before you push and comes into the branch with Pick Remote Commits
   ([Outgoing Commits](spec/repository/outgoing.spec.md#remote-commits-of-others)); the pull

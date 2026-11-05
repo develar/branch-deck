@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vite-plus/test"
 import type { ActionId, StackProblemView } from "@/lib/bindings"
 import type { BranchDropFacts } from "@/lib/branch-drop"
-import { moveDrop, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
+import { moveDrop, parkDrop, showsParkDrop, showsUnparkDrop, stackOnDrop, stackTogetherDrop, unparkDrop, unstackDrop } from "@/lib/branch-drop"
 import type { ParkedState } from "@/lib/parked"
 import type { Branch } from "@/stores/branch-sync"
 import { testBranch, testTip } from "@/stores/test-branch"
@@ -103,6 +103,15 @@ describe("branch drop", () => {
     expect(stackOnDrop(["docs"], "docs", facts())).toBeNull()
     expect(stackOnDrop(["docs", "auth"], "oauth", facts())).toBeNull()
     expect(stackOnDrop(["docs"], "auth", facts({ stacksEnabled: false }))).toBeNull()
+  })
+
+  it("stacks two or more selected branches together when Stack On is available for each", () => {
+    expect(stackTogetherDrop(["docs", "oauth"], facts())).toEqual({ names: ["docs", "oauth"] })
+    expect(stackTogetherDrop(["docs", "oauth"], facts({ rust: { ...RUST, docs: { "stack-on": "A Safe Push of docs is running" } } }))).toEqual({
+      refusal: "Cannot stack docs: A Safe Push of docs is running",
+    })
+    expect(stackTogetherDrop(["docs"], facts())).toBeNull()
+    expect(stackTogetherDrop(["docs", "oauth"], facts({ stacksEnabled: false }))).toBeNull()
   })
 
   it("blocks the rewrites of a branch with a stack problem by the reason Rust gives, and runs the fixes it offers", () => {

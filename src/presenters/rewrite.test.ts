@@ -16,6 +16,12 @@ describe("presentRewrite", () => {
     })
     expect(presentRewrite({ ...moves, commitIds: ["a"], targetBranch: null }).label).toBe("Moving 1 commit back")
     expect(presentRewrite({ rewrite: "unstack", branchName: "beta", witness: WITNESS }).failure).toBe("Cannot unstack beta")
+    expect(presentRewrite({ rewrite: "stackTogether", branchNames: ["auth", "login", "oauth"], witness: WITNESS })).toEqual({
+      label: "Stacking 3 branches…",
+      phrase: "stacking auth, login and oauth",
+      failure: "Cannot stack branches",
+      done: "Stacked auth, login and oauth",
+    })
     expect(
       presentRewrite({
         rewrite: "park",

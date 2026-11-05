@@ -1,8 +1,9 @@
 // @spec spec/branch/patronus.spec.md
+// @spec spec/branch/stacked-branches.spec.md
 import { describe, expect, it } from "vite-plus/test"
 import type { Intent, RunningOperation, TableWitness } from "@/lib/bindings"
 import type { OperationNames } from "@/presenters/operations"
-import { presentOperationBusy, presentOperationLabel, presentOtherProcess } from "@/presenters/operations"
+import { presentOperationBusy, presentOperationLabel, presentOtherProcess, worksOnRow } from "@/presenters/operations"
 
 /** `intent` that `bd` with pid 4242 runs, as the session shows it from the operations registry of the repository */
 function ofBd(intent: Intent): RunningOperation {
@@ -66,5 +67,17 @@ describe("presentOperationBusy", () => {
     // the "⋯" of the row of a rewrite of `bd` says it as `bd`'s, as an item an operation of `bd` keeps busy names it
     expect(presentOperationLabel(ofAgent, named)).toBe("bd: Renaming auth to login")
     expect(presentOperationBusy(ofAgent, { operations: { agent: ofAgent }, named })).toBe("bd: Renaming auth to login")
+  })
+})
+
+describe("Stack Together rows", () => {
+  it("names every selected branch as a row the rewrite works on", () => {
+    const stack: Intent = { kind: "rewrite", rewrite: "stackTogether", branchNames: ["auth", "login"], witness: WITNESS }
+    const lookup = { branchesOf: () => [], pullRequestOf: () => undefined }
+    const operation = ofBd(stack)
+    expect(worksOnRow(operation, "auth", lookup)).toBe(true)
+    expect(worksOnRow(operation, "login", lookup)).toBe(true)
+    expect(worksOnRow(operation, "oauth", lookup)).toBe(false)
+    expect(worksOnRow(operation, "login", lookup, true)).toBe(false)
   })
 })
