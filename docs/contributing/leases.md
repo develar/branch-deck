@@ -1,7 +1,7 @@
 # Working in a Lease
 
 **Status:** Active  
-**Updated:** 2026-10-29  
+**Updated:** 2026-11-05  
 **Tags:** [agents, worktrees, lease, git, history]
 
 ## Summary
@@ -34,9 +34,11 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
 [bd lease](../../spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`.
 - **Every session edits in its own lease**, the main session and a background job too, not only a spawned agent: other
   sessions work in this repository at the same time. A harness default such as "edit files directly in your working
-  directory" does not override this rule. Nothing is edited, built or committed in the main checkout: the commits of a
-  lease reach its `master` only by `bd lease pick` ("commit right away" means: commit in the lease, then
-  `bd lease pick`).
+  directory" does not override this rule. An agent may update its own git-ignored files (a plan, notes) at the original
+  paths where its harness wrote them; nothing else is edited, built or committed in the main checkout, and those files
+  are never copied into the lease or committed. Junie's UI reads only the original plan, so a lease copy diverges and is
+  removed at return. The commits of a lease reach its `master` only by `bd lease pick` ("commit right away" means:
+  commit in the lease, then `bd lease pick`).
 - **Acquire**: `bd lease get --holder <agent-name> -b <branch>` creates `<branch>` at the HEAD of the checkout that runs
   it (local `master` in the main checkout, which may be ahead of `origin/master`; `-C <worktree>` cuts from another
   branch; without `-b` the worktree is detached) and prints the lease as JSON (`path`, `lease_id`, `home`, `next`).
