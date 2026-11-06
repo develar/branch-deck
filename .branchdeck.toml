@@ -31,7 +31,4 @@ creates = ["node_modules"]
 # `(branch)` prefix, is not a conventional commit (`message_format`, spec/cli/pick.spec.md "The commit rules").
 # release-please reads these subjects.
 [commit]
-check = [
-  '(feat|fix|docs|refactor|perf|test|chore|style|build|ci|revert)(\([^)]+\))?!?: .+',
-  'Revert ".+',
-]
+check = ['(feat|fix|docs|refactor|perf|test|chore|style|build|ci|revert)(\([^)]+\))?!?: .+', 'Revert ".+']

@@ -711,7 +711,7 @@ fn allow_unchecked_lands_a_pick_without_a_check_and_says_why() {
 }
 
 /// The `commitMessageFormat` of the IntelliJ monorepo, the fixture of the commit rules
-const PATRONUS_CONFIG: &str = include_str!("../../commit-rules/src/fixtures/patronus-config.yaml");
+const PATRONUS_CONFIG: &str = include_str!("../../commit-rules/testdata/patronus-config.yaml");
 
 /// A repository whose checkout commits `[commit] check = "patronus"` with the rules of the monorepo, and a worktree
 fn message_gated_repo() -> (TestRepo, TestWorktree) {

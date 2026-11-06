@@ -2,7 +2,7 @@ use crate::{CommitCheck, MessageRules, Severity, load_rules, parse_commit_check,
 use pretty_assertions::assert_eq;
 
 /// The tail of `.patronus/config.yaml` of the IntelliJ monorepo, with its `commitMessageFormat` block as it is
-const PATRONUS_CONFIG: &str = include_str!("fixtures/patronus-config.yaml");
+const PATRONUS_CONFIG: &str = include_str!("../testdata/patronus-config.yaml");
 
 fn patronus() -> MessageRules {
   parse_patronus_rules(PATRONUS_CONFIG).unwrap()
