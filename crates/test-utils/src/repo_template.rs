@@ -610,6 +610,28 @@ pub mod templates {
       )
   }
 
+  pub fn review_long_titles() -> RepoTemplate {
+    let plan = |overview: &str, title: &str| format!("package review\n\nclass Plan {{\n  fun overview(): String = \"{overview}\"\n  fun title(): String = \"{title}\"\n}}\n");
+    RepoTemplate::new("review_long_titles")
+      .branch_prefix("user-name")
+      .commit_with_timestamp("Initial project setup", &[("src/review/Plan.kt", &plan("draft", "draft"))], Some(1704117600))
+      .commit_with_timestamp(
+        "(long) fix(review): explain how the review opening prepares readers for careful review of changed source files\n\nThe opening frames the review story.",
+        &[("src/review/Plan.kt", &plan("complete", "draft"))],
+        Some(1704118200),
+      )
+      .commit_with_timestamp(
+        "(long) fix(review): preserve the reviewers' selected context while navigating files that establish each change\n\nKeep the selected context for navigation.",
+        &[("src/review/Plan.kt", &plan("complete", "selected"))],
+        Some(1704118800),
+      )
+      .commit_with_timestamp(
+        "(long) fix(review): clarify which review chapter owns the updated file content after a later refinement was reviewed\n\nKeep the chapter label clear.",
+        &[("src/review/Plan.kt", &plan("complete", "refined"))],
+        Some(1704119400),
+      )
+  }
+
   /// A branch `rename` whose one commit makes the same edit in three files of the baseline, each of them that edit alone,
   /// and the same edit with a change of its function in a fourth: the files the review plan folds as the same edit
   pub fn repeated_edit() -> RepoTemplate {
