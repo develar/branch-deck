@@ -41,7 +41,7 @@ impl SyncInputs {
 ///   the virtual branches of the prefix, which the sync writes itself;
 /// - the `master` and `main` of every remote and the upstream of HEAD's branch (the baseline, moved by a fetch
 ///   elsewhere), and every remote branch of the prefix (a push from elsewhere), listed apart: the remote status of the
-///   virtual branches, the stack branches (`bd safe-push` of a whole stack) and the unapplied ones (`bd push --unapplied`);
+///   virtual branches, the stack branches (`brd safe-push` of a whole stack) and the unapplied ones (`brd push --unapplied`);
 /// - the issue groups, the stack parents and the parked branches;
 /// - the size and the time of `config` and `config.worktree` (descriptions, `branchdeck.stacks`) and of `.idea/vcs.xml`
 ///   (issue links);

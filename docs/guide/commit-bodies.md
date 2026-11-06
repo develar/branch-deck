@@ -9,7 +9,7 @@ written from it, an IDE shows it beside the change, and the review of Branch Dec
 ([Review Tour](../../spec/branch/review-tour.spec.md#the-story-of-a-commit)). This guide says how to write a body that
 reads well in all of them. Nothing in it needs a tool: it is plain text with a few conventions of Markdown that read
 as text too. Branch Deck reads a body by one grammar ([Commit Row → Message body](../../spec/commit/commit-row.spec.md)),
-which `bd review-plan` prints with the story of each commit.
+which `brd review-plan` prints with the story of each commit.
 
 ## In short
 
@@ -77,7 +77,7 @@ from the name to that place in the diffs:
   (`layout.ts:171`) is read past, the file is the target;
 - a call with its parentheses (`open()`): a plain lowercase word in backticks (`changes`) is never a link, its
   parentheses make it a name;
-- a name the change does not touch resolves to nothing and stays code in the text. `bd review-plan` lists every name
+- a name the change does not touch resolves to nothing and stays code in the text. `brd review-plan` lists every name
   in backticks with what it resolved to, `"target": null` where it resolved nothing: run it before you push to see
   which names do not bind.
 

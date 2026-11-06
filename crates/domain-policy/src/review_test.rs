@@ -69,7 +69,7 @@ fn are_the_suggested_ones_of_the_missing_groups_one_per_group_nobody_is_asked_fo
         candidate("alice-gh", "Alice", &["IJPL Code Platform", "UI"], true),
         candidate("bob", "Bob", &["UI"], false),
       ],
-      // Erin has no GitHub login: `bd request-review` names the group for --reviewer
+      // Erin has no GitHub login: `brd request-review` names the group for --reviewer
       without_reviewer: vec!["Build".to_owned()],
     }
   );

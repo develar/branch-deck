@@ -37,7 +37,7 @@ function stack(patch: Partial<StackBranch> = {}): StackBranch {
 const pullRequest = { number: 12, state: "open" } as PullRequest
 
 describe("the whole stack", () => {
-  it("is named as bd names it", () => {
+  it("is named as Branch Deck names it", () => {
     expect([formatWholeStack("air"), formatWholeStackStart("air")]).toEqual(["the whole air stack", "Whole air stack"])
   })
 

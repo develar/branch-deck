@@ -128,7 +128,7 @@ sequenceDiagram
    that edits `__TAURI_STORE__` changes only what the page starts from.
 
 8. **Decision**: A warm start is the option `warmStart` of `setupRepo`. Before the page opens, a sync without a page
-   (`POST /repositories/{id}/warm-start/build`, as `bd sync` syncs: the session reads no fact without a window) leaves
+   (`POST /repositories/{id}/warm-start/build`, as `brd sync` syncs: the session reads no fact without a window) leaves
    the frame of the repository's session, which the server keeps in the memory of the test repository
    (`TestRepository::frame`, saved again by its sessions from then on); the session closes, as the app quits. A quit
    (`POST …/sessions/close`, `closeSessions`, also that of `reloadWarm`) answers once each session saved its last frame
@@ -260,8 +260,8 @@ Mock implementation:
   cancels; `setDialogPick`), else the test repository; the updater, whose `check_for_updates` and `get_update_status`
   answer the update of `POST /repositories/{id}/update` (`{ availableVersion }`, `setAvailableUpdate`; none: up to
   date, version `0.0.0-test`) and whose install fails, as `restart_app` does after its write of the settings, with the
-  message that the test server has no updater; the agent CLI, `bd` at a fixed path that installs nothing (its skills
-  once `install_agent_cli` ran, the rules of `bd workspace` of the repository's global config); the CLIs of Settings →
+  message that the test server has no updater; the agent CLI, `brd` at a fixed path that installs nothing (its skills
+  once `install_agent_cli` ran, the rules of `brd workspace` of the repository's global config); the CLIs of Settings →
   Tools, the real cores on the fakes of the repository (`cli_tools_fixtures.rs`: `POST /repositories/{id}/cli-tools`
   sets what is installed, `GET` reads what the fakes were asked; `AppHost::tool_environment` of `TestHost`).
 - **Events of the app**: the commands of app-api tell the windows through `AppEvents` of the host
@@ -926,7 +926,7 @@ branch at the commit it was pushed up to.
   the answer of its `execute` (`nextAnswer`, the page's next answer of a command, with the test's timeout), then the
   toast and the button are an assertion's; the steps of a held update are the test's (`holdIntent` holds the `execute`
   of an intent in the page and sends events of its operation on its channel), a fetch held in the backend is the fetch
-  lock an agent's `bd update` holds (`holdFetchLock`); a start of a robot, the end of `execute` (`runAndWaitForAnswer`,
+  lock an agent's `brd update` holds (`holdFetchLock`); a start of a robot, the end of `execute` (`runAndWaitForAnswer`,
   `nextAnswer(page, command, count)` for two starts side by side: the request finished, the last event of its stream,
   so an `execute` that waits for the lock before the call counts too); a restart of a robot that
   runs on an older commit, the answers of its cancel, its push and its restart in turn (`runAndWaitForRestart` of

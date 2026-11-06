@@ -97,8 +97,8 @@ pub enum Intent {
   /// (`refs/branch-deck/review/<n>/{head,base}`) unless both are local, and its range answered (`operations::review_fetch`):
   /// the head and the base GitHub names, as the review requests of the session have them
   FetchReview { number: u32 },
-  /// The commits of another worktree (`source`: its directory as `bd pick --from` named it) or of a range of revisions
-  /// (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`bd pick`, `bd lease pick`): only the
+  /// The commits of another worktree (`source`: its directory as `brd pick --from` named it) or of a range of revisions
+  /// (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`brd pick`, `brd lease pick`): only the
   /// record of a run of `bd` in the operations registry of the repository, which the view and the journal show; the
   /// engine of the app runs none
   Pick { source: String },
@@ -166,7 +166,7 @@ pub struct Push {
   /// The remote tip of the subject the user saw (`RemoteStatusUpdate::remote_tip`): the push replaces the remote branch
   /// only while it is there; `None`: the status showed no remote branch
   pub expect_remote: Option<String>,
-  /// It replaces commits of the remote the branch lacks, someone's work (`bd push --force`, the Force Push the user
+  /// It replaces commits of the remote the branch lacks, someone's work (`brd push --force`, the Force Push the user
   /// chose): its plan asks nothing then; without it a push that drops them asks first (`Confirmation::ForcePushDrops`)
   pub force: bool,
   /// The Safe Push of the branch is restarted on the pushed commit, canceled first while it runs (`--restart-running`,
@@ -740,7 +740,7 @@ pub enum JournalTransition {
   Started { robot: Option<Box<PatronusRobot>> },
   /// A read of Patronus proved that it started no robot
   NotStarted,
-  /// The user forgot it (Forget This Start, `bd operation forget`): Patronus may still run the robot it sent
+  /// The user forgot it (Forget This Start, `brd operation forget`): Patronus may still run the robot it sent
   Forgotten,
 }
 

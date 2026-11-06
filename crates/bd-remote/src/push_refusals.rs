@@ -1,8 +1,8 @@
-//! What `bd push` decides of the branches its intents cover besides their plans, and how it words what it refuses and
+//! What `brd push` decides of the branches its intents cover besides their plans, and how it words what it refuses and
 //! leaves out (docs/design/git-operations.md, "Agent push"). Each covered branch does what the rule of the push says
 //! (`domain_policy::push::push_plan` over `derive::with_push_states`, `derive::alone_push_of`; the stack branch of a
 //! whole stack by `stack_branch_along`): the verdicts the plans of `operations::push` are made of. Where the app's push
-//! leaves a covered branch out to its row, `bd push` refuses the whole push, nothing pushed: a branch the sync didn't
+//! leaves a covered branch out to its row, `brd push` refuses the whole push, nothing pushed: a branch the sync didn't
 //! build (`push_refused`), one a running Safe Push holds (`robot_running`: the branch the push moves, or the commits the
 //! robot lands), one whose push drops remote commits it lacks without `--force` (`push_refused`, with its remote status
 //! and the leased push that replaces it), a named parked branch (`parked`). A branch a merged Safe Push landed whole
@@ -63,7 +63,7 @@ pub(crate) struct Covered {
   pub(crate) stack_warnings: Vec<String>,
 }
 
-/// The plans `bd push` runs as one push, none of them refused, and what it says of the rest
+/// The plans `brd push` runs as one push, none of them refused, and what it says of the rest
 pub(crate) struct Decided {
   pub(crate) plans: Vec<Planned>,
   pub(crate) covered: Covered,
@@ -167,7 +167,7 @@ pub(crate) fn decide(run: &PushRun<'_>, session: &OneShot, intents: &[Push]) -> 
   let left = goes || !covered.up_to_date.is_empty();
   refusals.refuse(run.context, left, &landed, &parked_skipped)?;
   covered.skipped = skipped(run.context, session, landed, parked_skipped);
-  // what bd skips the plans of refuse nothing: they send nothing
+  // what brd skips the plans of refuse nothing: they send nothing
   plans.retain(|planned| planned.plan.blockers.is_empty());
   Ok(Decided { plans, covered })
 }
@@ -274,7 +274,7 @@ impl Refusals {
   fn not_synced(&mut self, run: &PushRun<'_>, name: &str, reason: Option<&Reason>, robots: &[PatronusRobot]) {
     let synced = run.synced.branches.iter().find(|branch| branch.name == name);
     let words = match synced.and_then(|branch| not_synced_reason(&run.synced.report, branch)) {
-      Some(why) => format!("{name} is not synced ({why}): fix it first, `bd sync` says what holds it"),
+      Some(why) => format!("{name} is not synced ({why}): fix it first, `brd sync` says what holds it"),
       None => reason.map_or_else(|| format!("{name} is not synced"), |reason| start_refusal_text(reason, name, robots)),
     };
     self.refused.push(words);
@@ -376,7 +376,7 @@ fn stack_branch_name(run: &PushRun<'_>, root: &str) -> String {
 fn stack_warning(run: &PushRun<'_>, session: &OneShot, root: &str, hold: &Reason) -> String {
   let what = Subject::whole_stack(root).words();
   let why = match hold {
-    Reason::StackNotBuilt { state, .. } => format!("this sync didn't build it ({}; `stacks` of `bd sync` says why)", state_word(*state)),
+    Reason::StackNotBuilt { state, .. } => format!("this sync didn't build it ({}; `stacks` of `brd sync` says why)", state_word(*state)),
     Reason::StackParked { member, .. } => format!("it holds parked {member}; land the stack in pieces"),
     Reason::StackLanded { by, .. } => {
       let landed: Vec<(Subject, &PatronusRobot)> = by.iter().filter_map(|of| Some((of.subject(), session.robot(&of.robot_id)?))).collect();
@@ -435,13 +435,13 @@ fn no_plan(context: &RepoContext, push: &Push) -> CliError {
   match push.scope {
     PushScope::Unapplied => {
       let full = qualified_branch_name(&context.prefix, BranchKind::Unapplied, name).unwrap_or_else(|_| name.to_string());
-      CliError::new(ErrorCode::UnknownBranch, format!("No unapplied branch {full}: `unapplied` of `bd status` lists them"))
+      CliError::new(ErrorCode::UnknownBranch, format!("No unapplied branch {full}: `unapplied` of `brd status` lists them"))
     }
     _ => CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}")),
   }
 }
 
-/// `bd robot <branch>`, or `bd robot <root> --whole-stack`: what follows the robot that runs on `subject`, a read
+/// `brd robot <branch>`, or `brd robot <root> --whole-stack`: what follows the robot that runs on `subject`, a read
 pub(crate) fn robot_command(context: &RepoContext, subject: &Subject) -> String {
   match subject {
     Subject::Branch { name } => format!("{} robot {}", context.bd, shell_word(name)),

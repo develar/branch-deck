@@ -89,7 +89,7 @@ fn unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_th
 fn park_waits_for_the_repository_lock() {
   let repo = baseline_repo(false);
   commits(&repo, &["(auth) Add auth"]);
-  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
+  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(100)),
     ..RewriteOptions::default()

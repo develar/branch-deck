@@ -216,9 +216,9 @@ pub struct TestRepository {
   pub updater: std::sync::Arc<crate::updater::TestUpdater>,
   /// The fakes of the `teamcity` and `youtrack` CLIs and of `brew` (`cli_tools_fixtures`)
   pub cli_tools: std::sync::Arc<crate::cli_tools_fixtures::CliToolsHost>,
-  /// The repository lock the server holds for a test (`hold_lock`), as another process (`bd pick`) would
+  /// The repository lock the server holds for a test (`hold_lock`), as another process (`brd pick`) would
   pub held_lock: std::sync::Mutex<Option<history_rewrite::repository_lock::RepositoryLock>>,
-  /// The fetch lock the server holds for a test (`hold_lock`), as an agent's `bd update` that fetches the baseline
+  /// The fetch lock the server holds for a test (`hold_lock`), as an agent's `brd update` that fetches the baseline
   /// would: a fetch of the page waits for it
   pub fetch_held: std::sync::Mutex<Option<history_rewrite::repository_lock::RepositoryLock>>,
   /// The operation an agent's `bd` runs in the repository for a test (`set_foreign_operation`)

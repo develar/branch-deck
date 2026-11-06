@@ -168,27 +168,27 @@ publisher: choose More info → Run anyway.
 
 ## Agent CLI
 
-`bd` gives a coding agent what the app sees, as JSON: the commits ahead of the baseline, their files, the
+`brd` gives a coding agent what the app sees, as JSON: the commits ahead of the baseline, their files, the
 dependencies between them, by lines and by the names they declare and use in Kotlin, Java, C#, Rust and TypeScript
 ([symbol dependencies](spec/commit/symbol-dependencies.spec.md)), and the branches. It suggests a grouping checked by
 a trial sync, applies it as one rewrite of the commit messages that can be undone, pushes and updates:
 
 ```sh
-bd suggest | jq .plan > plan.json                       # a grouping, already checked by a trial sync
-bd check --plan plan.json                               # after an edit: does every branch still build?
-bd group --expect-head <head> --sync --plan plan.json   # rewrite the prefixes and build the branches
-bd push auth ABC-123                                    # push, parents first
-bd update                                               # onto the baseline; a conflict opens a resolve session
-bd pick --from ../lane --follow                         # land another worktree's commits here, no cherry-pick
-bd pick --remote auth                                   # take in the commits someone else pushed to auth
-bd lease get --holder lane-1                            # a worktree of its own for an agent session, from a pool
+brd suggest | jq .plan > plan.json                       # a grouping, already checked by a trial sync
+brd check --plan plan.json                               # after an edit: does every branch still build?
+brd group --expect-head <head> --sync --plan plan.json   # rewrite the prefixes and build the branches
+brd push auth ABC-123                                    # push, parents first
+brd update                                               # onto the baseline; a conflict opens a resolve session
+brd pick --from ../lane --follow                         # land another worktree's commits here, no cherry-pick
+brd pick --remote auth                                   # take in the commits someone else pushed to auth
+brd lease get --holder lane-1                            # a worktree of its own for an agent session, from a pool
 ```
 
-Help → Install Agent CLI… (or `bd install`) puts `bd` on `PATH` and a skill into `~/.claude/skills` and
-`~/.agents/skills`, so agents know when to use it; `bd help agent` prints the workflow. Agents then work in a worktree
+Help → Install Agent CLI… (or `brd install`) puts `brd` on `PATH` and a skill into `~/.claude/skills` and
+`~/.agents/skills`, so agents know when to use it; `brd help agent` prints the workflow. Agents then work in a worktree
 of their own, land each commit on your branch and name its branch in the subject: both are yours to switch in
-Settings → Agents ([bd workspace](spec/cli/workspace.spec.md)). On macOS and Linux `bd` is
-the app binary (`branch-deck cli`), on Windows `bd.exe` next to it. See the [Agent CLI](docs/contributing/agent-cli.md).
+Settings → Agents ([brd workspace](spec/cli/workspace.spec.md)). On macOS and Linux `brd` is
+the app binary (`branch-deck cli`), on Windows `brd.exe` next to it. See the [Agent CLI](docs/contributing/agent-cli.md).
 
 ## Compared To
 
@@ -209,7 +209,7 @@ the app binary (`branch-deck cli`), on Windows `bd.exe` next to it. See the [Age
   [Remote Status](docs/design/remote-status.md) and more.
 - [Specs](spec/): the exact behaviour of every feature.
 - [Guides](docs/guide/): [Runs on Another Mac](docs/guide/host-runs.md), a command of your checkout on your other
-  Mac with `bd-host`.
+  Mac with `brd-host`.
 - [DEVELOPMENT.md](DEVELOPMENT.md): building, testing and contributing.
 
 ## License

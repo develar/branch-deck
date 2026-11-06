@@ -1,5 +1,5 @@
 //! What the Safe Push statistics count of the robots (`spec/repository/safe-push-statistics.spec.md`): pure functions
-//! over `RobotStatsInput`, no IO, so the app and `bd robot-stats` show the same numbers. It imports only
+//! over `RobotStatsInput`, no IO, so the app and `brd robot-stats` show the same numbers. It imports only
 //! `domain_types`: in stage s8 of the rework it moves to `domain-policy` as it is.
 //!
 //! - A robot counts when a person started it, it is no cherry-pick, no dry run and no emergency robot, it started in

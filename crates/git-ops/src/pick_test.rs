@@ -794,7 +794,7 @@ fn listed<'a>(ids: &'a [String], prefix: Option<SubjectPrefix<'a>>) -> PickReque
   }
 }
 
-/// `bd pick --remote`: only the listed commits are replayed (not the older commit they were made on), and their copies
+/// `brd pick --remote`: only the listed commits are replayed (not the older commit they were made on), and their copies
 /// take the prefix of the branch; the author stays, and the dry run names the commit the pick writes
 #[test]
 fn listed_commits_land_alone_with_the_prefix_of_their_branch() {
@@ -841,7 +841,7 @@ fn listed_commits_apart_replay_each_after_its_parent() {
   assert!(!repo.path().join("skipped.txt").exists());
 }
 
-/// A pick that expects the source at a commit (`bd lease pick` after its check of the tree) refuses a source whose HEAD
+/// A pick that expects the source at a commit (`brd lease pick` after its check of the tree) refuses a source whose HEAD
 /// moved since, before anything is written
 #[test]
 fn a_source_that_moved_from_the_expected_head_is_refused() {

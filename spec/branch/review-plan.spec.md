@@ -1,6 +1,6 @@
 ---
 name: Review Plan
-description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`bd review-plan`), the commits since then, and the API surface the reviewed commits change with its usages from accio, updated in the change or left outside, the facts of each file (its links to the other changed files, a mechanical change, a generated file, a repeated edit, a missing test), the dependency changes of the build files and the files in dependency order.
+description: Requirements for the plan of a review (experimental), what a reviewer of a branch needs first; its start is Mark Reviewed, the base and the tip of a local branch kept in `refs/branch-deck/reviewed/`, the interdiff of its next review (`brd review-plan`), the commits since then, and the API surface the reviewed commits change with its usages from accio, updated in the change or left outside, the facts of each file (its links to the other changed files, a mechanical change, a generated file, a repeated edit, a missing test), the dependency changes of the build files and the files in dependency order.
 style: plain-1
 targets:
   - ../../crates/review-plan/src/lib.rs
@@ -68,13 +68,13 @@ Date: 2026-10-29
 A review of a branch lists its files in tree order, and a branch that agents keep landing commits on is read whole
 again after each round. The review plan shows what the reviewer needs first: what changed since the last review, the
 public declarations the branch adds, removes or changes with the places that use them, the code changed without its
-tests, and the files in the order of their dependencies. It is computed in Rust, once for `bd` and the app
-(`crates/review-plan`), and printed by `bd` as JSON, so that it can be measured over many ranges before the review
+tests, and the files in the order of their dependencies. It is computed in Rust, once for `brd` and the app
+(`crates/review-plan`), and printed by `brd` as JSON, so that it can be measured over many ranges before the review
 windows show it behind a flag.
 
 Its first parts are Mark Reviewed, the base and the tip of a local branch kept when the user says they reviewed it,
 and Since Your Review: the commits of the branch paired with the reviewed ones, unchanged, reworded, rewritten, added or
-dropped, how the message of a reworded or rewritten one changed, and what changed since the review as one diff (`bd review-plan`): the plain range of the commits added on
+dropped, how the message of a reworded or rewritten one changed, and what changed since the review as one diff (`brd review-plan`): the plain range of the commits added on
 top, else the diff from the reviewed change carried onto the base of the branch to its tip, whatever the branch went
 through. Then the API surface: the public
 declarations the reviewed commits add, remove or change in form, ranked by their usages at the head of the range from
@@ -82,7 +82,7 @@ accio that the change left outside, and the facts of each changed file: which ot
 is mechanical, the edit it shares with other files, the usages of the API it removes or changes, and whether it
 changed without its tests. Then the dependency changes: the module, library, plugin, crate and package entries the
 commits add to, remove from or change in the build files, and the build files they add or delete. Then the order of
-the files for `bd`: a file that declares what another uses before it, a test right after its subject. The review
+the files for `brd`: a file that declares what another uses before it, a test right after its subject. The review
 window keeps the tree of the files: each row shows its links and its risk, and the mechanical files fold into one
 group at the end. The overview at the top of the document of the review, before the story of the diffs
 ([Review Tour](review-tour.spec.md#in-the-review-window)), says what can break and what changed since the review. The vision of the review, its progress and the rounds of polish:
@@ -115,7 +115,7 @@ group at the end. The overview at the top of the document of the review, before 
   values it read, and name the pair it replaced; the same base and tip again must move no ref.
   [@test] ../../crates/git-ops/src/reviewed_refs_test.rs (`a_mark_writes_the_pair_of_the_branch_and_a_second_mark_replaces_it`, `the_same_mark_again_moves_no_ref`)
   [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`marks_the_virtual_branch_of_a_name_at_its_merge_base_with_the_baseline`)
-- A branch stacked on another must be markable on the base its review shows, the head of its parent (`bd mark-reviewed
+- A branch stacked on another must be markable on the base its review shows, the head of its parent (`brd mark-reviewed
   <branch> --base <parent>`, the parent named as a branch is, or any commit), so that its reviewed commits are its
   own; the base is then the merge base of the tip and that commit, and no baseline is read.
   [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`a_branch_stacked_on_another_is_marked_on_the_base_its_caller_names`)
@@ -133,19 +133,19 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../crates/git-ops/src/reviewed_refs_test.rs (`a_concurrent_mark_fails_its_compare_and_swap`)
 - The same write must delete the pairs of the branches that are gone, and keep the others.
   [@test] ../../crates/git-ops/src/reviewed_refs_test.rs (`a_mark_prunes_the_pairs_of_gone_branches`)
-- The branch must be named as `bd` names branches: the virtual branch `{prefix}/virtual/<name>` first, else the local
+- The branch must be named as `brd` names branches: the virtual branch `{prefix}/virtual/<name>` first, else the local
   branch `<name>`, or exactly `refs/heads/<name>`; a name of no branch must be `unknown_branch` and write nothing.
   [@test] ../../crates/review-plan/src/mark_reviewed_test.rs (`marks_the_virtual_branch_of_a_name_at_its_merge_base_with_the_baseline`, `an_unknown_branch_is_its_own_error`)
   [@test] ../../crates/bd-rewrite/src/mark_reviewed_test.rs (`an_unknown_branch_is_refused`)
-- `bd mark-reviewed <branch>` must print the branch, its ref, the base, the tip, the pair it replaced (`previous`,
-  `null` the first time), `changed` and `pruned`, and its output must be in `bd schema`.
+- `brd mark-reviewed <branch>` must print the branch, its ref, the base, the tip, the pair it replaced (`previous`,
+  `null` the first time), `changed` and `pruned`, and its output must be in `brd schema`.
   [@test] ../../crates/bd-rewrite/src/mark_reviewed_test.rs (`marks_a_virtual_branch_reviewed_and_again_after_a_new_commit`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - A mark must run a fixed number of git processes: the baseline (only without a base), one `for-each-ref` of the
   reviewed refs with the branches, one `rev-parse --verify` of a base that names no branch, one `merge-base` and one
   `update-ref`; it takes no repository lock and writes no branch, index or working tree.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_mark_reviewed`, `a_mark_reviewed_on_a_base`)
-- An agent must run it only when the user says they reviewed the branch (`bd help worktrees`).
+- An agent must run it only when the user says they reviewed the branch (`brd help worktrees`).
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
 ### Since Your Review
@@ -191,13 +191,13 @@ group at the end. The overview at the top of the document of the review, before 
   or a range rev that names no commit, it is `invalid_arguments` (exit 2).
   [@test] ../../crates/review-plan/src/interdiff_test.rs (`a_range_has_no_interdiff`)
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`, `a_branch_never_marked_and_a_range_have_no_interdiff`)
-- `bd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
+- `brd review-plan` must print the branch, `base`, `head` and the `interdiff` (`reviewed_base`, `reviewed_tip`,
   `commits` with `id`, `reviewed_id`, `subject`, `state`, `new_only`, `reviewed_only`, `message_change`, and `scope`
   with `base`, `head` and `carried`), with
-  `"schema": 18`, and its output must be in `bd schema`. Version 3 has `files` in place of `risk` and `usages` in place
+  `"schema": 18`, and its output must be in `brd schema`. Version 3 has `files` in place of `risk` and `usages` in place
   of `fan_in`, version 4 the `units` ([Review Units](review-units.spec.md)), version 5 the `generated` files with
   why, the lock files among them, version 6 a deletion as real work (no `mechanical: "deleted"`; the units
-  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); the other outputs of `bd` keep `"schema": 2`.
+  `deletedFile` and `deletedFiles`), version 7 the `concerns` ([Review Concerns](review-concerns.spec.md)), version 8 their `elsewhere`, version 9 the name `file`, version 10 the `steps` and the `brief` ([Review Tour](review-tour.spec.md)), version 11 the `api` and `test` of a unit ([Review Units](review-units.spec.md)) in place of its `public`, version 12 the `still_bound` and `by_name` usages and `unbroken` in place of `updated`, version 13 the `reached` and `unreached` tests of a step ([Review Tour](review-tour.spec.md)) in place of `named` and `unnamed`, version 14 the story of each commit once (`steps.commits`, [Review Tour](review-tour.spec.md#the-story-of-a-commit)) in place of the `body` of a commit of a step, and the `newApi` and `moduleLinks` of a step, version 15 the `parts` of a story where they are `told` in place of its `toldIn`, the `joined` units and the `marks` of a stop, the `shownElsewhere` units of a step, the state `reworded`, the `message_change` of a commit, the `change` of a story and the `removals` of its parts, version 16 the `paragraphs` of an entry of the brief, whole and changed by word, with their `links` and `excerpt`, in place of its `added` and `removed`, and its `blocks` in place of its `block` ([Review Tour](review-tour.spec.md#brief)); the other outputs of `brd` keep `"schema": 2`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_commits_since_the_review`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
 - The plan must write no ref and run a fixed number of git processes, whatever the number of commits: the listing and
@@ -363,8 +363,8 @@ group at the end. The overview at the top of the document of the review, before 
 - A test must be told by its path: a directory `test`, `tests`, `__tests__`, `testFixtures`, or a name `*Test`,
   `*Tests`, `*_test`, `*.test`, `*.spec`, `test_*`; it names the stem without that mark, compared without case.
   [@test] ../../crates/review-plan/src/files_test.rs (`a_test_names_its_subject_by_its_path`)
-- `bd review-plan` must print `api`, `files`, `links`, `dependencies`, `repeated_edits` and `index_note`, in
-  `bd schema`.
+- `brd review-plan` must print `api`, `files`, `links`, `dependencies`, `repeated_edits` and `index_note`, in
+  `brd schema`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`, `prints_the_files_in_dependency_order`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_build_files`)
 - The API and the files must add a fixed number of git processes, whatever the number of commits: one `log` of the
@@ -541,7 +541,7 @@ group at the end. The overview at the top of the document of the review, before 
 - A deleted file, a file of no language the summaries read and a degraded one must have no edge: a range of such files
   is in tree order.
   [@test] ../../crates/review-plan/src/order_test.rs (`files_of_no_known_language_keep_the_tree_order`)
-- `bd review-plan` must print `order`, in `bd schema`.
+- `brd review-plan` must print `order`, in `brd schema`.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_files_in_dependency_order`)
 - The order must run no git process: it reads the summaries the API read.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_review_plan_of_a_range`)
@@ -549,7 +549,7 @@ group at the end. The overview at the top of the document of the review, before 
 ### In the App
 
 - The app must read the plan with `get_review_plan` and mark a branch with `mark_branch_reviewed`, through the same
-  `review_plan_core` and `mark_reviewed_core` as `bd`, the branch named with the prefix the app resolves for the
+  `review_plan_core` and `mark_reviewed_core` as `brd`, the branch named with the prefix the app resolves for the
   repository: after a mark and a commit on top, the plan since the review lists that commit as `added` with its scope,
   and the usages come from the index of the host (the fixture `.git/branch-deck-accio.json` in the e2e server).
   [@test] ../../crates/test-server/src/review_plan_test.rs (`the_plan_of_a_review_since_mark_reviewed_reads_the_new_commit_with_its_usages`)
@@ -583,8 +583,8 @@ group at the end. The overview at the top of the document of the review, before 
   `branchdeck.resolveByWords` does (spec/repository/settings.spec.md).
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should turn the review plan on and off for every repository from Diffs & Merge`)
 - The flag must reach the view through each sync (`TableHeader.reviewExperimental`), and a change of it from Settings
-  must sync; with the flag off the review windows must look as they do without the review plan. `bd review-plan` and
-  `bd mark-reviewed` must work without it, and so must the two commands of the app.
+  must sync; with the flag off the review windows must look as they do without the review plan. `brd review-plan` and
+  `brd mark-reviewed` must work without it, and so must the two commands of the app.
   [@test] ../../crates/repository-model/src/table_test.rs (`the_header_takes_the_review_experiments_of_each_grouping`)
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should look as it does without the review plan while the flag is off`)
 
@@ -605,7 +605,7 @@ group at the end. The overview at the top of the document of the review, before 
   [@test] ../../src/lib/range-review.test.ts (`takes the interdiff only of the part's own branch, and only of a plan of the head on screen`)
   [@test] ../../src/lib/review-plan-answer.test.ts (`keeps the whole plan of the same changes while Mark Reviewed reads it again, until the next one has its usages`, `keeps no facts of a plan of another head or scope while the next one is read, but the plan of the branch for its card`, `replaces a plan without its usages by the next read's, and starts a read of another subject without a plan`)
 - Mark Reviewed of the title bar must mark the reviewed branch of the part on the base of its own branch, as
-  `bd mark-reviewed <branch> --base <parent>` does, say so, and read the plan again: nothing is new after it. The
+  `brd mark-reviewed <branch> --base <parent>` does, say so, and read the plan again: nothing is new after it. The
   whole stack has no Mark Reviewed.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should show only the commits added or rewritten since Mark Reviewed, as one range on top or apart`)
 - "Since Your Review" must follow "All Changes" in the commit column only while the part is one branch, marked, with
@@ -734,7 +734,7 @@ group at the end. The overview at the top of the document of the review, before 
   change of the API it removes or changes. When `breaks_complete` is false it must say `breaks N+` ("At least 3 uses
   left outside the change: the search stopped early"), or a quiet `breaks ?` at 0, whose mark is muted: a lower bound
   never reads as safe. A row has no `no test`: the tests that name the code of a change are those of its step
-  ([Review Tour](review-tour.spec.md#tests-that-name-it)); `untested` stays in `bd review-plan`.
+  ([Review Tour](review-tour.spec.md#tests-that-name-it)); `untested` stays in `brd review-plan`.
   [@test] ../../tests/e2e/branch-review/review-plan.spec.ts (`should mark each file row once, warning when it breaks uses outside, and show a linked file from the card of its mark, a file that uses at its first use`, `should keep an API whose uses are unknown under Possible breakage, and say why`)
   [@test] ../../src/presenters/review-plan.test.ts (`says the uses an API leaves outside, as a lower bound where Rust says the count is, never a safe 0`, `lists no file without a badge`)
 - The card of a file of a repeated edit must say `Same edit ×N`, name the edit (the first line removed and the first
@@ -785,18 +785,18 @@ group at the end. The overview at the top of the document of the review, before 
 
 ## User Experience
 
-- `bd mark-reviewed auth` → `{"branch": "jane/virtual/auth", "ref": "refs/heads/jane/virtual/auth", "base": …,
+- `brd mark-reviewed auth` → `{"branch": "jane/virtual/auth", "ref": "refs/heads/jane/virtual/auth", "base": …,
   "tip": …, "previous": null, "changed": true, "pruned": 0}`.
-- `bd mark-reviewed auth --base nope` → `{"error": {"code": "invalid_arguments", "message": "No branch or commit \"nope\"
+- `brd mark-reviewed auth --base nope` → `{"error": {"code": "invalid_arguments", "message": "No branch or commit \"nope\"
   to review the branch on"}}`, exit 2.
-- `bd review-plan auth --since-reviewed` after a body written anew → `"state": "reworded", "message_change":
+- `brd review-plan auth --since-reviewed` after a body written anew → `"state": "reworded", "message_change":
   {"subjectBefore": null, "hunks": [{"start": 0, "added": {"blocks": [{"type": "paragraph", "lines": ["The logout
   clears the session of the user."]}], "code": []}, "removed": {"blocks": [], "code": []}}]}`.
-- `bd review-plan auth --since-reviewed` after one commit on top → `{"branch": "jane/virtual/auth", "base": …, "head":
+- `brd review-plan auth --since-reviewed` after one commit on top → `{"branch": "jane/virtual/auth", "base": …, "head":
   …, "interdiff": {"reviewed_base": …, "reviewed_tip": …, "commits": [{"id": …, "reviewed_id": null, "subject": "Add
   logout", "state": "added"}], "scope": {"base": <reviewed tip>, "head": <tip>, "carried": false}}}`; after an amend
   of a reviewed commit, `"scope": {"base": <carried>, "head": <tip>, "carried": true}`.
-- `bd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
+- `brd review-plan base..head` of a new parameter → `"api": [{"path": "src/a/Api.kt", "line": 3, "name": "open",
   "kind": "changed", "changes": ["parameters"], "before": "fun open(path:String) : Int", "after": "fun
   open(path:String, mode:Int) : Int", "usages": {"inside": 2, "outside": 12, "outside_sites": [{"path":
   "src/b/Client.kt", "line": 8}, …], "still_bound": 3, "by_name": 0, "complete": true, "unbroken": false}}]`, `"files": [{"path": "src/a/Api.kt",
@@ -804,7 +804,7 @@ group at the end. The overview at the top of the document of the review, before 
   "breaks_complete": true, "untested": true, "repeated_edit": null, "repeated_edit_only": false}]`, `"index_note":
   null`; a rendered `AGENTS.md` → `"mechanical": "generated", "generated": {"kind": "header", "line": "Generated by
   tools/render.mjs; edit src/guide.md"}`, a lock file → `"generated": {"kind": "name", "name": "lockFile"}`.
-- `bd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
+- `brd review-plan base..head` of a new `Store` that `User` imports, with its test → `"order": ["src/b/Store.kt",
   "src/test/b/StoreTest.kt", "src/a/User.kt", "README.md"]`, `"links": [{"from": "src/a/User.kt", "to":
   "src/b/Store.kt", "symbols": [{"name": "Store", "line": 3}], "state": "added", "cross_module": false,
   "new_between_modules": false}]`.
@@ -829,7 +829,7 @@ group at the end. The overview at the top of the document of the review, before 
 
 ## Measurements
 
-<!-- The corpus runs of `bd review-plan` and what they found go here. -->
+<!-- The corpus runs of `brd review-plan` and what they found go here. -->
 
 ## Open Questions / Risks
 
@@ -837,7 +837,7 @@ group at the end. The overview at the top of the document of the review, before 
   the branch was gone; the interdiff then compares it with the old branch.
 - An unapplied (`{prefix}/unapplied/<name>`) or archived virtual branch has no `{prefix}/virtual/<name>`, so a mark of
   another branch meanwhile prunes its pair as gone; after a reapply it has no interdiff until it is marked again.
-- Without `--base`, `bd` takes the baseline of the checked out branch for the merge base, so a stacked branch is
+- Without `--base`, `brd` takes the baseline of the checked out branch for the merge base, so a stacked branch is
   marked with the commits of its parents; the app passes the base of the review's segment as `subject.base` and as
   the `base` of `mark_branch_reviewed`.
 - A commit whose subject was reworded and whose lines were amended has neither its identity nor its changed lines: it

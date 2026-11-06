@@ -7,12 +7,12 @@
 //!
 //! The grouping, the stores of the issue groups, the stack parents and the parked branches, the repository lock and the
 //! rewrites that need no sync (regroup, reword, squash, fold) are the crate `history-rewrite`.
-//! Update Project, `bd pick` and the resolve sessions of a conflicting `bd update` are the crate `update-core`; the
+//! Update Project, `brd pick` and the resolve sessions of a conflicting `brd update` are the crate `update-core`; the
 //! baseline, its fetch and the update check every sync runs stay here (`baseline`, `baseline_fetch`), as does the
-//! landed report an update records (`landed`). The trial checks (`bd check`, the conflict fix, the landing gate),
-//! `bd move-hunk` and everything that reads the diffs and the symbols of the commits are the crate `trial-check`; it
+//! landed report an update records (`landed`). The trial checks (`brd check`, the conflict fix, the landing gate),
+//! `brd move-hunk` and everything that reads the diffs and the symbols of the commits are the crate `trial-check`; it
 //! builds with `branch_processor` and `cache_memo` of this crate.
-//! The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`) are the crate
+//! The lease pool of agent worktrees (`brd lease`), its clean rules and the agent workspace (`brd workspace`) are the crate
 //! `lease-pool`; it reads `repository_config`, `uncommitted_changes` and `baseline` of this crate.
 //! The rules of the domain (`domain-policy`) are read above this crate, by the model, the facts and the engine: no
 //! crate of git reaches them (`crates/bd-cli/src/architecture_test.rs`), so what the sync needs of what a push does is
@@ -59,7 +59,7 @@
 //! - `transfer_progress`: the progress of a fetch or a push, from its stderr lines
 //! - `moved_remote`: the fetch of the remote branches whose pull request shows a head their remote-tracking ref lacks
 //!   (someone else pushed to them), with their remote statuses against what it fetched
-//! - `push_lease`: the lease of a virtual branch push and `push_refs`, shared by the app and `bd push`
+//! - `push_lease`: the lease of a virtual branch push and `push_refs`, shared by the app and `brd push`
 //! - `push`: the app's push of a virtual branch
 //! - `push_size`: the size check of every push, refused over `branchdeck.pushSizeLimit` before the network
 //! - `baseline_push`: the push of a copy into the branch of the baseline on its remote, a fast-forward by the push URL,

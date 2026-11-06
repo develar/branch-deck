@@ -17,12 +17,12 @@ jobs:
       matrix:
         include:
           - platform: "macos-latest" # for Apple Silicon macs (M1 and above).
-            # bundles bd-host, the binary of the remote runs (scripts/build-bd-host.mjs)
+            # bundles brd-host, the binary of the remote runs (scripts/build-bd-host.mjs)
             args: "--target aarch64-apple-darwin --config src-tauri/tauri.macos-bd-host.conf.json"
           - platform: "ubuntu-24.04"
             args: ""
           - platform: "windows-latest"
-            # bundles the console bd.exe (scripts/build-bd.mjs)
+            # bundles the console brd.exe (scripts/build-bd.mjs)
             args: "--config src-tauri/tauri.windows-bd.conf.json"
 
     runs-on: ${{ matrix.platform }}

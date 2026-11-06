@@ -312,7 +312,7 @@ async fn the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere() 
   assert_eq!(service.robots("ultimate", "me", None, false, false).await.robots, Vec::new());
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1);
 
-  // `bd safe-push` starts a robot, which no poll of the page knows yet
+  // `brd safe-push` starts a robot, which no poll of the page knows yet
   let started = robot_json("started", "RUNNING", "refs/heads/me/virtual/IJPL-1", "2026-10-14T09:30:00Z");
   *fake.robots.lock().unwrap() = Some(vec![started]);
   assert_eq!(ids(&service.robots_for_checks("ultimate", "me").await), ["started"]);

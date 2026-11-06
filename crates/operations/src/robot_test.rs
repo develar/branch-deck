@@ -266,7 +266,7 @@ async fn a_restart_that_pushes_first_cancels_the_running_robot_pushes_and_restar
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_on_the_remote_branch_takes_no_lock() {
   let fixture = fixture().await;
-  let _held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "bd push auth").unwrap();
+  let _held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "brd push auth").unwrap();
   let (_, started) = fixture.run_restart(fixture.restart(vec![PlannedEffect::RestartRobot { robot_id: "r1".to_owned() }])).await;
   assert_eq!(statuses(&started), [&EffectStatus::Done]);
   assert_eq!(fixture.fake.restarts.lock().unwrap().clone(), ["r1"]);
@@ -279,7 +279,7 @@ async fn a_restart_on_the_remote_branch_takes_no_lock() {
 async fn a_restart_of_a_failing_robot_cancels_it_and_restarts_it_on_the_same_commit() {
   let fixture = fixture().await;
   let remote = fixture.remote_alpha();
-  let _held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "bd push auth").unwrap();
+  let _held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "brd push auth").unwrap();
   let effects = vec![
     PlannedEffect::CancelRobot { robot_id: "r1".to_owned() },
     PlannedEffect::RestartRobot { robot_id: "r1".to_owned() },

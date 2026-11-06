@@ -1,4 +1,4 @@
-//! Resolve sessions of `bd update` (docs/design/git-operations.md, "Resolve session"): an update that conflicts is
+//! Resolve sessions of `brd update` (docs/design/git-operations.md, "Resolve session"): an update that conflicts is
 //! replayed commit by commit outside the working tree, and the agent resolves one conflicting commit per round. All
 //! state lives in git: the session ref `refs/branch-deck/resolve/<worktree id>` points at a state commit whose tree
 //! holds `state.json` and the objects of the open round, and whose parents keep the replayed commits reachable. Every
@@ -40,7 +40,7 @@ pub const SESSION_REF_PREFIX: &str = "refs/branch-deck/resolve/";
 pub const RESOLVE_NOTES_REF: &str = "refs/notes/branch-deck/resolve";
 const STATE_FILE: &str = "state.json";
 /// The version of `state.json`: 2 since a round can resolve itself by words (`Outcome::Words`, `Resolution::words`).
-/// bd is one binary for every session of a machine, so a bd of another version refuses a session by this number
+/// brd is one binary for every session of a machine, so a brd of another version refuses a session by this number
 const STATE_VERSION: u32 = 2;
 /// The modes of a regular file: the only ones a round supports
 const FILE_MODES: [&str; 2] = ["100644", "100755"];
@@ -172,7 +172,7 @@ pub struct RoundConflict {
 }
 
 impl RoundConflict {
-  /// The label after the base markers: the commit's parent, as bd passed it to `merge-tree`
+  /// The label after the base markers: the commit's parent, as brd passed it to `merge-tree`
   pub fn base_label(&self) -> String {
     format!("{}^", self.commit)
   }
@@ -308,7 +308,7 @@ pub struct SessionState {
   pub committer: String,
   /// The directory of the copies (`--dir`); `None` for `branch-deck/resolve` in the worktree's git dir
   pub dir: Option<String>,
-  /// bd created `dir`, so it removes it when it is empty
+  /// brd created `dir`, so it removes it when it is empty
   pub dir_created: bool,
   /// HEAD when the session started
   pub started_head: String,
@@ -320,7 +320,7 @@ pub struct SessionState {
   /// left them out (`landed_pairing::LandedCandidate`)
   pub likely_landed: Vec<String>,
   /// The candidates of `likely_landed`, each with its upstream commit and its fixups: the round of one offers
-  /// `--landed`. A session of an older bd has none
+  /// `--landed`. A session of an older brd has none
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed_candidates: Vec<LandedCandidate>,
   /// How many of `local` are replayed (or resolved) into `tip`
@@ -432,7 +432,7 @@ pub struct Refusal {
   pub paths: Vec<String>,
   /// The absolute `edit` copy of each path, when the caller knows them
   pub edits: Vec<String>,
-  /// The paths that also changed in the working tree, where bd never reads
+  /// The paths that also changed in the working tree, where brd never reads
   pub changed_in_working_tree: Vec<String>,
   /// The round and its commit, with the commit's subject
   pub round: u32,
@@ -464,7 +464,7 @@ impl fmt::Display for Refusal {
       RefusalKind::OutsideConflict => write!(
         f,
         "The resolution of {names} changes lines outside the conflict blocks; change only the lines between the markers. A change \
-         that the commit needs outside the blocks or in another file goes into a `fixup! {}` commit after the update, then `bd fold`",
+         that the commit needs outside the blocks or in another file goes into a `fixup! {}` commit after the update, then `brd fold`",
         self.subject
       )?,
       RefusalKind::LineEnds => write!(
@@ -485,7 +485,7 @@ impl fmt::Display for Refusal {
     if !self.changed_in_working_tree.is_empty() {
       write!(
         f,
-        ". {} changed in the working tree: bd reads only the edit copies, so make that edit in the copy",
+        ". {} changed in the working tree: brd reads only the edit copies, so make that edit in the copy",
         self.changed_in_working_tree.join(", ")
       )?;
     }
@@ -605,7 +605,7 @@ impl fmt::Display for ResolveError {
       Self::Unsupported { message, .. } | Self::Stale { message } | Self::InvalidInput { message } | Self::FinishPending { message } => f.write_str(message),
       Self::RoundMoved { expected, actual } => write!(
         f,
-        "Round {expected} is not open, round {actual} is: run `bd update` to print the open round, then resolve that one"
+        "Round {expected} is not open, round {actual} is: run `brd update` to print the open round, then resolve that one"
       ),
     }
   }
@@ -660,10 +660,10 @@ pub fn read_session(git_executor: &GitCommandExecutor, repo_path: &str, worktree
     bail!("{session_ref} points at a {}, not a state commit", commit.kind);
   }
   let commit = commit.id;
-  // the version first: a state of another version may have fields or values this bd can't parse
+  // the version first: a state of another version may have fields or values this brd can't parse
   let version: StateVersion = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
   if version.version != STATE_VERSION {
-    bail!("{session_ref} has state version {}; this bd reads {STATE_VERSION}", version.version);
+    bail!("{session_ref} has state version {}; this brd reads {STATE_VERSION}", version.version);
   }
   let state: SessionState = serde_json::from_slice(&state.content).map_err(|e| anyhow!("Unreadable {STATE_FILE} of {session_ref}: {e}"))?;
   let mut session = Session::new(session_ref, commit, state);
@@ -750,7 +750,7 @@ pub struct PreparedStart {
 }
 
 impl PreparedStart {
-  /// Write the state of the session, with the directory of its copies (`dir`, which bd created when `dir_created`),
+  /// Write the state of the session, with the directory of its copies (`dir`, which brd created when `dir_created`),
   /// and create its session ref in one transaction that deletes the temporary refs; a ref of the worktree's session
   /// that exists already fails it, and nothing changes. A session that is ready at once finishes there: the update
   /// moves the branch (`finish`)
@@ -1186,7 +1186,7 @@ fn discard(git_executor: &GitCommandExecutor, repo_path: &str, written: Option<&
 }
 
 /// Delete the session ref with compare-and-swap. A session whose branch moved (`applied`) is deleted only when the files
-/// followed and the branch still contains its tip: then nothing is left to roll back, and `bd undo update:` takes the
+/// followed and the branch still contains its tip: then nothing is left to roll back, and `brd undo update:` takes the
 /// update back. Otherwise `FinishPending`
 #[instrument(skip(git_executor, session))]
 pub fn abort_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &Session) -> Result<()> {
@@ -1196,7 +1196,7 @@ pub fn abort_session(git_executor: &GitCommandExecutor, repo_path: &str, session
       Moved::AtTip { .. } => {
         return Err(anyhow::Error::new(ResolveError::FinishPending {
           message: format!(
-            "{} moved already and the files did not follow yet: run `bd update --continue` to let them follow, then `bd undo update:{}..{}` takes the update back",
+            "{} moved already and the files did not follow yet: run `brd update --continue` to let them follow, then `brd undo update:{}..{}` takes the update back",
             session.state.branch, session.state.head, session.state.tip
           ),
         }));
@@ -1216,7 +1216,7 @@ fn ensure_own_worktree(worktree: &Worktree, state: &SessionState) -> Result<()> 
   }
   Err(anyhow::Error::new(ResolveError::Stale {
     message: format!(
-      "The resolve session {} belongs to the worktree with the git dir {}, not to this one; `bd update --abort --worktree {}` removes it",
+      "The resolve session {} belongs to the worktree with the git dir {}, not to this one; `brd update --abort --worktree {}` removes it",
       session_ref(&state.worktree),
       state.git_dir,
       state.worktree
@@ -1269,7 +1269,7 @@ fn follow_head(git_executor: &GitCommandExecutor, repo_path: &str, state: &mut S
 
 fn stale(reason: &str) -> anyhow::Error {
   anyhow::Error::new(ResolveError::Stale {
-    message: format!("{reason}; the resolve session can't continue: `bd update --abort` removes it, then run `bd update` again"),
+    message: format!("{reason}; the resolve session can't continue: `brd update --abort` removes it, then run `brd update` again"),
   })
 }
 
@@ -1670,7 +1670,7 @@ fn open_round(git_executor: &GitCommandExecutor, repo_path: &str, state: &Sessio
     .collect();
   if !unreadable.is_empty() {
     let message = format!(
-      "The conflict can't be resolved in a round of bd update: bd finds no conflict block it wrote in {}. `bd update --abort`, then update in a terminal",
+      "The conflict can't be resolved in a round of brd update: brd finds no conflict block it wrote in {}. `brd update --abort`, then update in a terminal",
       unreadable.join(", ")
     );
     let error = anyhow::Error::new(ResolveError::Unsupported { paths: unreadable, message });
@@ -1775,7 +1775,7 @@ pub(crate) fn conflict_files(merge: &MergeTreeOutput) -> Result<Vec<ConflictFile
   if !unsupported.is_empty() {
     unsupported.dedup();
     let message = format!(
-      "The conflict can't be resolved in a round of bd update: {}. Only text conflicts, modify/delete and rename/delete are supported; `bd update --abort`, then update in a terminal",
+      "The conflict can't be resolved in a round of brd update: {}. Only text conflicts, modify/delete and rename/delete are supported; `brd update --abort`, then update in a terminal",
       unsupported.iter().map(|(path, kind)| format!("{path} ({kind})")).collect::<Vec<_>>().join(", ")
     );
     let mut paths: Vec<String> = unsupported.into_iter().map(|(path, _)| path).collect();
@@ -1833,7 +1833,7 @@ fn state_commit<'a>(state: &'a SessionState, json: &'a [u8], entries: &'a [(&'st
     entries: entries.iter().map(|(mode, id, path)| StoreEntry { mode, id, path }).collect(),
     parent,
     merges,
-    message: "Resolve session of bd update",
+    message: "Resolve session of brd update",
   }
 }
 
@@ -2004,7 +2004,7 @@ fn moved_session(git_executor: &GitCommandExecutor, repo_path: &str, session: &S
   }
   Ok(Moved::Elsewhere(format!(
     "The resolve session moved {} from {} to {}, but HEAD is at {} on {branch} now and the index still holds {} for the paths the \
-     update changes. bd can't finish this session: look at `git status` with the user. `git update-ref -d {} {}` removes the \
+     update changes. brd can't finish this session: look at `git status` with the user. `git update-ref -d {} {}` removes the \
      session",
     state.branch,
     short_id(&state.head),

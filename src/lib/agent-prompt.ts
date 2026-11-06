@@ -10,7 +10,7 @@ export interface AgentPromptInput {
   check: UpdateCheck
   /** When the upstream was fetched (ms), if known */
   fetchTime: number | null
-  /** How this app's bd runs in the repository (`agent_cli_command`); null when the app can't tell its binary */
+  /** How this app's brd runs in the repository (`agent_cli_command`); null when the app can't tell its binary */
   bd: AgentCliCommand | null
 }
 
@@ -41,8 +41,8 @@ function stateLines(check: UpdateCheck, fetchTime: number | null): string {
 
 /**
  * The blocked prompt: other sessions may work in the same tree, so the agent must not stash, reset, check out or
- * commit the files; it asks the user about each. Then bd updates, which writes only the files the update changes, or,
- * without a bd command, the user updates in Branch Deck. Never a stash: it would take the files of the other sessions
+ * commit the files; it asks the user about each. Then brd updates, which writes only the files the update changes, or,
+ * without a brd command, the user updates in Branch Deck. Never a stash: it would take the files of the other sessions
  */
 function blockedPrompt(repositoryPath: string, check: UpdateCheck, state: BlockedState, bd: AgentCliCommand | null): string {
   const { branch, upstream } = check
@@ -68,7 +68,7 @@ function blockedPrompt(repositoryPath: string, check: UpdateCheck, state: Blocke
 const MAX_PROMPT_FILES = 20
 /** The commit ids of one side of a file, then `+N more`: mine the oldest (the first to stop a replay), upstream the newest */
 const MAX_FILE_COMMITS = 3
-/** The upstream commits the prompt without bd describes in full, once, newest first; with bd each round names those of its files */
+/** The upstream commits the prompt without brd describes in full, once, newest first; with brd each round names those of its files */
 const MAX_DESCRIBED_UPSTREAM_COMMITS = 10
 /** `MAX_UPSTREAM_COMMITS` of `update_branch.rs`: a list this long may lack the older upstream commits of a file */
 const BACKEND_UPSTREAM_COMMITS = 50
@@ -122,7 +122,7 @@ function conflictOutline(state: ConflictState): ConflictOutline {
 }
 
 /**
- * `First conflict: bbbbbbbb (auth) Change line 2: src/app.txt, src/config.txt`: where bd opens its first round, the files
+ * `First conflict: bbbbbbbb (auth) Change line 2: src/app.txt, src/config.txt`: where brd opens its first round, the files
  * of its merge, at most `MAX_PROMPT_FILES`, then the count of the rest; each round names the upstream commits of its
  * files
  */
@@ -149,12 +149,12 @@ function upstreamCommitsSection(check: UpdateCheck, commits: readonly UpdateComm
 }
 
 /**
- * The conflict prompt with bd: the agent updates with `bd update --no-fetch` (the baseline the user saw) and resolves
- * each round in the copies bd writes outside the working tree, never in the working tree itself; no `--expect-head`,
- * because peers commit meanwhile and become more rounds. The prompt holds only what bd doesn't know (the repository,
- * the command, what the user saw, the user's rules, what to report); the protocol is bd's own: `bd help update`, the
+ * The conflict prompt with brd: the agent updates with `brd update --no-fetch` (the baseline the user saw) and resolves
+ * each round in the copies brd writes outside the working tree, never in the working tree itself; no `--expect-head`,
+ * because peers commit meanwhile and become more rounds. The prompt holds only what brd doesn't know (the repository,
+ * the command, what the user saw, the user's rules, what to report); the protocol is brd's own: `brd help update`, the
  * `hint` of each file, `session.next`, `ask_user` and `retryable`. So the prompt never restates an exit code, a marker
- * rule or an error code that bd could change, and it asks the user only where bd says `ask_user`
+ * rule or an error code that brd could change, and it asks the user only where brd says `ask_user`
  */
 function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state: ConflictState, fetchTime: number | null, bd: AgentCliCommand): string {
   const { branch, upstream } = check
@@ -162,13 +162,13 @@ function conflictPromptWithBd(repositoryPath: string, check: UpdateCheck, state:
   const fetched = fetchTime === null ? "" : ` (fetched ${new Date(fetchTime).toISOString().replace(/\.\d{3}Z$/, "Z")})`
   const heads = `HEAD (${branch}) ${formatShortHash(check.head)}, ${upstream} ${formatShortHash(check.upstreamHead)}.`
   return [
-    `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.`,
-    `bd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Run \`bd help update\` first and follow it: it explains each field, hint and error. Each run prints one JSON object.`,
+    `Update the branch \`${branch}\` of the Git repository at ${repositoryPath} onto \`${upstream}\` with Branch Deck's brd, and resolve the conflicts. brd replays my commits outside the working tree.`,
+    `brd is \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`brd\` stands for it. Run \`brd help update\` first and follow it: it explains each field, hint and error. Each run prints one JSON object.`,
     [`State${fetched}: ${heads}`, firstConflictLine(state)].join("\n"),
     `Steps:\n${numbered([
-      "`bd update --no-fetch`. When an output or its `error` has `ask_user: true`, show me its `reasons` (or the error's `message`) with `session.blocked_paths` and `session.landed_differs`, and ask me once. A later round of a commit I decided in `landed_differs` takes that answer.",
+      "`brd update --no-fetch`. When an output or its `error` has `ask_user: true`, show me its `reasons` (or the error's `message`) with `session.blocked_paths` and `session.landed_differs`, and ask me once. A later round of a commit I decided in `landed_differs` takes that answer.",
       "While it exits 1: follow the `hint` of each file and of `session.commit`, edit only the copies at `edit`, and run `session.next`.",
-      `Exit 0: build, and run the tests of \`verify.paths\`; without \`verify\`, the build is enough. On a failure, commit only the files you fixed, as \`${fixup}\`${bd.powershell ? " (double each `'` of the subject)" : ""}, and run \`bd fold\`; or run \`bd undo <undo_token>\` and tell me.`,
+      `Exit 0: build, and run the tests of \`verify.paths\`; without \`verify\`, the build is enough. On a failure, commit only the files you fixed, as \`${fixup}\`${bd.powershell ? " (double each `'` of the subject)" : ""}, and run \`brd fold\`; or run \`brd undo <undo_token>\` and tell me.`,
       "Report each edited resolution of `resolutions` and `resolved` with every line of `dropped_upstream_lines` and `dropped_commit_lines`, each drop I decided (`landed_as` with `local_only`), and `dropped` as a count per `proof`.",
     ])}`,
     `Rules:\n${bullets([
@@ -187,10 +187,10 @@ function firstConflictSection(check: UpdateCheck, commit: UpdateCommit): string 
 
 /**
  * The prompt for an external coding agent that does the update Branch Deck refused: a rebase with conflicts, or one
- * blocked by uncommitted changes on files that the upstream changed. Copied to the clipboard. With bd, a conflict is
- * resolved in bd's resolve session, outside the working tree; without, the agent rebases in a terminal, told the exact
+ * blocked by uncommitted changes on files that the upstream changed. Copied to the clipboard. With brd, a conflict is
+ * resolved in brd's resolve session, outside the working tree; without, the agent rebases in a terminal, told the exact
  * state and what it must not change, and asks the user about uncommitted changes instead of stashing them. A blocked
- * update goes to the user about each file, then to bd.
+ * update goes to the user about each file, then to brd.
  */
 export function buildAgentPrompt({ repositoryPath, check, fetchTime, bd }: AgentPromptInput): string {
   const { state, branch, upstream } = check

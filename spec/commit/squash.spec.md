@@ -28,7 +28,7 @@ Date: 2026-10-14
 ## Summary
 
 The user selects two or more commits of one list, a branch or the unassigned commits, and squashes them into one; an
-agent squashes the commits the user named with `bd squash` ([Agent CLI](../cli/agent-cli.spec.md)). The
+agent squashes the commits the user named with `brd squash` ([Agent CLI](../cli/agent-cli.spec.md)). The
 squashed commit takes the place of the oldest selected commit, as `git rebase --autosquash` does with a fixup: the
 newer commits are folded into it and leave the history, and the commits in between stay where they are. The message is
 edited in a dialog, prefilled with the messages of all the commits. Squashing keeps the files of HEAD, so the working
@@ -74,7 +74,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `refusal_after_writing_a_commit_leaves_no_temp_refs`, `squash_refuses_empty_result`, `squash_refuses_kept_commit_that_becomes_empty`)
 - A conflict must be refused as `squash_conflict`, with the commits it names and the files of a conflicting merge,
   and a result without changes or a later commit left empty as `squash_empty`, in the app (`ApiError.code`, the
-  `conflict` details) and in `bd`; the refusal keeps its type also under the error of a core.
+  `conflict` details) and in `brd`; the refusal keeps its type also under the error of a core.
   [@test] ../../crates/git-ops/src/rewrite_plan_test.rs (`squash_conflicting_with_commit_in_between_changes_nothing`, `squash_refuses_empty_result`)
   [@test] ../../crates/app-api/src/api_error_test.rs (`api_error_answers_a_refused_squash_by_its_kind`)
 - A replayed commit whose tree and parent tree stay the ones its mapping note records must keep that note, written
@@ -82,9 +82,9 @@ tree and the index are not touched, and an undo is a move of the branch back.
   change get none, and the original commits keep theirs. A history read without notes carries none.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`the_replayed_commits_whose_trees_stay_keep_their_mapping_notes`, `a_squash_on_a_history_without_notes_writes_none`)
 - The squash and its undo must be the rewrites `squash` and `undo` of the engine (the squash named on the table the
-  window shows) and run under the repository lock: while another process holds it (an agent's `bd pick --follow`,
-  `bd`) or the app's own push, they wait as long as the holder lives; the squash dialog says whom for, the step of its
-  operation ("Waiting for `bd pick` (pid 4242, for 12 s)"), with Stop Waiting (`cancel_operation`), which ends the wait
+  window shows) and run under the repository lock: while another process holds it (an agent's `brd pick --follow`,
+  `brd`) or the app's own push, they wait as long as the holder lives; the squash dialog says whom for, the step of its
+  operation ("Waiting for `brd pick` (pid 4242, for 12 s)"), with Stop Waiting (`cancel_operation`), which ends the wait
   with nothing changed ("Canceled squashing 2 commits before it started"), the dialog kept with its message for the
   next press. Only a
   holder no record names refuses them after 10 s, with nothing changed and the error toast saying that another
@@ -142,7 +142,7 @@ tree and the index are not touched, and an undo is a move of the branch back.
   commit before the squash in one transaction (`branch-deck: undo squash`),
   only if the branch still points at the squashed history and both have the same files; otherwise it is refused. A
   branch that moved on since (a commit on top, also one made between the check and the move) must be refused with
-  `undo_stale` (`retry: no`), as every undo of the app and `bd undo` answer it, never `internal`, in words that say
+  `undo_stale` (`retry: no`), as every undo of the app and `brd undo` answer it, never `internal`, in words that say
   what moved and that it can't be undone any more, never the advice to retry. A transaction that fails while the
   branch stays (a ref that moves with it is elsewhere) is no `undo_stale`.
   [@test] ../../crates/git-ops/src/squash_commits_test.rs (`undo_restores_the_previous_head`, `undo_is_refused_when_the_branch_moved`, `undo_is_refused_when_the_branch_moved_during_the_transaction`, `undo_whose_other_ref_moved_is_not_head_moved`)

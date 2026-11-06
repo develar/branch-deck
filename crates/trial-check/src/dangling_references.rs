@@ -1,6 +1,6 @@
 //! Dangling references: a branch removes a declaration that its virtual tree still uses, because the commit that
 //! changes the use is in another branch. Git merges such a branch cleanly, and it fails only when it is compiled
-//! (`bd check`, `bd suggest`, `bd safe-push`).
+//! (`brd check`, `brd suggest`, `brd safe-push`).
 //!
 //! - **Declarations by the lines.** A removed line of a commit is a declaration when it declares a name that other files
 //!   can use: a top-level type or function, a static member (used as `Stem.NAME`, the file's stem). Instance members and

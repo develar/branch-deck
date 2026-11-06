@@ -1,4 +1,4 @@
-//! `bd robot`: the status of the Patronus robot of a virtual branch, as `bd safe-push` finds it, for an agent that
+//! `brd robot`: the status of the Patronus robot of a virtual branch, as `brd safe-push` finds it, for an agent that
 //! watches a robot the user started or restarted, and, when it failed or fails while it runs, why and which commits of
 //! the checked-out branch it tested (`spec/branch/safe-push-failure-prompt.spec.md`): the same failure and commit map
 //! as the app's Copy Prompt for Agent. Read only: no repository lock and no sync; the commit map compares the virtual
@@ -55,13 +55,13 @@ pub struct RobotArgs {
   /// This robot instead of the newest one of the branch
   #[arg(long, value_name = "ID")]
   pub robot: Option<String>,
-  /// The robot of the whole stack of the branch, as `bd safe-push --whole-stack` starts it: on the stack branch
+  /// The robot of the whole stack of the branch, as `brd safe-push --whole-stack` starts it: on the stack branch
   /// `{prefix}/stack/<root>` of its top-level root, or for a straight chain on its last branch
   #[arg(long)]
   pub whole_stack: bool,
 }
 
-/// `bd robot`
+/// `brd robot`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RobotOutput {
   pub schema: SchemaVersion,
@@ -116,7 +116,7 @@ pub struct ClosedPullRequest {
 pub struct RobotState {
   #[serde(flatten)]
   pub summary: RobotSummary,
-  /// Not finished yet (`running` or `canceling`): run `bd robot` again later
+  /// Not finished yet (`running` or `canceling`): run `brd robot` again later
   pub running: bool,
   /// The merge profile, which decides the checks; left out for the default checks of the target
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,7 +137,7 @@ pub struct RobotState {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RobotProfile {
-  /// What `bd safe-push --profile` takes
+  /// What `brd safe-push --profile` takes
   pub id: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub name: Option<String>,
@@ -183,7 +183,7 @@ pub enum FailureKind {
   /// Patronus detected a massive failure of tests or builds: the branch may break a core module, or the target is
   /// broken
   Massive,
-  /// No check failed, but Patronus reports an error, e.g. the rebase onto the target conflicted (`bd update`)
+  /// No check failed, but Patronus reports an error, e.g. the rebase onto the target conflicted (`brd update`)
   Patronus,
   /// Nothing failed and no error is reported: open the robot page
   Unknown,
@@ -361,7 +361,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   };
   // the stack that forks the branch is a branch of: the robot of the whole stack builds it too
   let stack = stacks.iter().find(|stack| stack.members.iter().any(|member| member == name));
-  // the robots of the user as the app's session reads them (one list, kept for `bd status`)
+  // the robots of the user as the app's session reads them (one list, kept for `brd status`)
   let mut listed = None;
   let robot_id = if let Some(id) = &args.robot {
     id.clone()
@@ -440,7 +440,7 @@ pub fn robot(context: &RepoContext, args: &RobotArgs, environment: &Environment)
   Ok(output)
 }
 
-/// The services of `bd robot` with the Space repository and, for the pull requests, the GitHub repository it resolved
+/// The services of `brd robot` with the Space repository and, for the pull requests, the GitHub repository it resolved
 fn bd_services(context: &RepoContext, environment: &Environment, service: &Arc<PatronusService>, space: &SpaceRepository, github: Option<GitHubRepository>) -> BdServices {
   BdServices {
     patronus: Some(Arc::clone(service)),
@@ -522,8 +522,8 @@ fn check_robot_of(robot: &PatronusRobot, name: &str, descendants: &[&str], stack
     return Ok(());
   }
   let message = match &subject {
-    Subject::WholeStack { root } => format!("Robot {id} runs on {}, not on {name}: `bd robot {root} --whole-stack --robot {id}`", subject.words()),
-    Subject::Branch { name: other } => format!("Robot {id} runs on {other}, not on {name}: `bd robot {other} --robot {id}`"),
+    Subject::WholeStack { root } => format!("Robot {id} runs on {}, not on {name}: `brd robot {root} --whole-stack --robot {id}`", subject.words()),
+    Subject::Branch { name: other } => format!("Robot {id} runs on {other}, not on {name}: `brd robot {other} --robot {id}`"),
   };
   Err(CliError::new(ErrorCode::InvalidArguments, message))
 }

@@ -1,4 +1,4 @@
-//! The files of the client in its directory, `~/.config/bd-host/` by default (spec/cli/host.spec.md, "The files"): the
+//! The files of the client in its directory, `~/.config/brd-host/` by default (spec/cli/host.spec.md, "The files"): the
 //! identity of the client, one host file per alias in `hosts/<alias>.json`, and the last base of each affinity in
 //! `bases/<alias>/<affinity>`. Each directory has the mode 0700 and each file 0600, written whole through a rename
 //! (`sync_utils::private_file`), so a reader never sees a part
@@ -38,9 +38,9 @@ impl Config {
     Self { dir }
   }
 
-  /// `.config/bd-host` in the home directory `home`
+  /// `.config/brd-host` in the home directory `home`
   pub fn in_home(home: &Path) -> Self {
-    Self::new(home.join(".config").join("bd-host"))
+    Self::new(home.join(".config").join("brd-host"))
   }
 
   /// The configuration of the user of this process
@@ -48,7 +48,7 @@ impl Config {
     std::env::home_dir()
       .filter(|home| !home.as_os_str().is_empty())
       .map(|home| Self::in_home(&home))
-      .ok_or_else(|| Refusal::new(Code::Config, "this process has no home directory for ~/.config/bd-host"))
+      .ok_or_else(|| Refusal::new(Code::Config, "this process has no home directory for ~/.config/brd-host"))
   }
 
   pub fn dir(&self) -> &Path {

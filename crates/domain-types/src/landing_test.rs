@@ -61,7 +61,7 @@ fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
 
 #[test]
 fn the_words_of_a_whole_stack_come_only_from_subject_words() {
-  // one wording of "the whole auth stack" in bd and the app: a sentence embeds `Subject::words`, never the format
+  // one wording of "the whole auth stack" in brd and the app: a sentence embeds `Subject::words`, never the format
   let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
   let mut files = Vec::new();
   rust_files(&workspace.join("crates"), &mut files);

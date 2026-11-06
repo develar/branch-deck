@@ -1,7 +1,7 @@
-//! The allow list of an agent: the fingerprints of the clients it accepts (`~/.config/bd-host/agent/clients`).
+//! The allow list of an agent: the fingerprints of the clients it accepts (`~/.config/brd-host/agent/clients`).
 //!
 //! One client per line: the fingerprint, then a space and a name for a person. A line that starts with `#` and an
-//! empty line are skipped. The agent reads the file at each handshake, so `bd-host setup --agent` adds a client without
+//! empty line are skipped. The agent reads the file at each handshake, so `brd-host setup --agent` adds a client without
 //! a restart
 
 use crate::identity::{Fingerprint, create_private_dir};

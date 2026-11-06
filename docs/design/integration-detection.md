@@ -136,7 +136,7 @@ flowchart TB
    `detect_archived_branches` then runs beside the rebuild. Run beside it, the archive raced the rebuild of a renamed
    group: `(foo)` renamed to `(foo/bar)` can't create `virtual/foo/bar` while `virtual/foo` exists (git's
    directory/file rule). Each step is one `RefTransaction` with the tips read as old values (`branch-deck: archive`,
-   `branch-deck: clean up archived branches`); a failure, e.g. a tip `bd` moved in another process (the app's sync takes
+   `branch-deck: clean up archived branches`); a failure, e.g. a tip `brd` moved in another process (the app's sync takes
    no repository lock), leaves everything in place for the next sync and still detects the archived branches. A branch
    checked out in a worktree (`%(worktreepath)` of the one `for-each-ref`) is neither archived nor cleaned up: an
    `update-ref` delete would leave that worktree on an unborn branch. A branch is virtual or archived by its namespace
@@ -178,7 +178,7 @@ flowchart TB
      wsm", the branch row shows "Landed", the commit row "in origin/master".
    - **The update** (`UpdateProjectResult.landed`): the toast leads with what landed.
    - **After it** (`BaselineStatus.landed`): the undismissed report in `branch-deck/landed.json` of the worktree's git
-     directory, shared by the app and `bd`, shown as the Landed island until Dismiss (or 7 days). Each sync keeps where
+     directory, shared by the app and `brd`, shown as the Landed island until Dismiss (or 7 days). Each sync keeps where
      the branch was; when the merge base moved since (an update here or in the IDE, `git pull --rebase`), the commits
      that were local then and match the upstream now are added. Amend, reword and squash keep the merge base, so they
      cost nothing and report nothing.
@@ -211,7 +211,7 @@ flowchart TB
     archived branch of a parent without commits before the placement: a note that holds labels the parent, a
     `NotIntegrated` note the baseline moved on from is rechecked incrementally, a note without a usable `b` is detected
     in full (an archived parent only within the retention period). So the parent is "landed" on the first sync after
-    its merge, and in `bd status`, which writes no notes
+    its merge, and in `brd status`, which writes no notes
 
 - **Performance Optimizations**:
   - Batch fetch all branch data: the tips in one `for-each-ref` that reads no commit (`list_branches`, which a sync

@@ -103,7 +103,7 @@ macro_rules! for_each_command {
       /// from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
       /// (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
       /// (`repeated_edits`), the units of its diff and the files in dependency order
-      /// (`review_plan_core`, as `bd review-plan`), on `events`: `disabled` for a repository that turns it off, else the
+      /// (`review_plan_core`, as `brd review-plan`), on `events`: `disabled` for a repository that turns it off, else the
       /// plan without the usages while the index is asked, then with them; a plan whose every query answered is kept
       /// (`ReviewPlans`). A newer plan of the window or its close supersedes it: `canceled`
       read window get_review_plan(params: review_plan::ReviewPlanParams) [channel events: review_plan::ReviewPlanEvent] -> () = $crate::reads::review_plan::get_review_plan;
@@ -174,7 +174,7 @@ macro_rules! for_each_command {
       read session preview_group(params: domain_types::commit::PreviewGroupParams) -> Option<domain_types::commit::CommitGroup> = $crate::session::view::preview_group;
 
       /// The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
-      /// does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
+      /// does now (`operations::land::prepare`, the rule `brd safe-push` decides by), what the user accepts first, what refuses
       /// it, the facts it waits for and the profiles it offers; the restart or the cancel of a robot, the retarget of a pull
       /// request (`operations::engine::prepare`). A read: no lock, no effect. Null while the session is not open, before its
       /// Patronus view, for a subject its table lacks, a robot it offers no restart of, a pull request it doesn't list
@@ -198,7 +198,7 @@ macro_rules! for_each_command {
       /// Removes a pull request the user added by its link from Reviews, and the session reads Reviews again
       app(SettingsWriter) session(number = params.number) unlink_pull_request(params: domain_types::review_request::UnlinkPullRequestParams) -> () = $crate::session::reviews::unlink_pull_request;
 
-      /// The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
+      /// The text a new pull request of a virtual branch starts with (`brd describe`, else the commits it will show, with the
       /// summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
       read session(head = %params.head, base = %params.base, stack_ancestors = params.stack_ancestors.len()) get_new_pull_request(params: remote_facts::pull_request_create::GetNewPullRequestParams) -> domain_types::pull_request::NewPullRequest = $crate::remote::pull_requests::get_new_pull_request;
 
@@ -277,7 +277,7 @@ macro_rules! for_each_command {
       read window get_settings_changes(since: u32) -> Vec<domain_types::settings::SettingsChange> = $crate::app::settings::get_settings_changes;
 
       /// Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of this Mac with their Bazel output
-      /// bases, and the output bases of gone slots, as `bd lease trim` does (the Disk window)
+      /// bases, and the output bases of gone slots, as `brd lease trim` does (the Disk window)
       app(LeasePools) json trim_pools(params: $crate::app::disk::TrimPoolsParams) -> $crate::app::disk::TrimSummary = $crate::app::disk::trim_pools;
 
       /// Writes one key to the local config of the repository, or to the global config of the user, and answers the settings
@@ -331,8 +331,8 @@ macro_rules! for_each_command {
 
       app(TheApp) json install_agent_cli() -> $crate::app::agent_cli::AgentCliInstall = $crate::app::agent_cli::install_agent_cli;
 
-      /// The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
-      /// the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
+      /// The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
+      /// the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
       read json agent_cli_command(repository_path: String) -> $crate::app::agent_cli::AgentCliCommand = $crate::app::agent_cli::agent_cli_command;
 
       /// The agents of the IDE with Air that has `params.project` open, with their models and efforts (Start in Air); no IDE
@@ -351,7 +351,7 @@ macro_rules! for_each_command {
       /// Stops the watch of the session `session_id` that the calling window runs, if any
       app(CanceledRead) now stop_air_watch(session_id: String) = $crate::app::air_launch::stop_air_watch;
 
-      /// The skill files of `bd install` that exist, without writing anything
+      /// The skill files of `brd install` that exist, without writing anything
       read now agent_cli_status() -> $crate::app::agent_cli::AgentCliStatus = $crate::app::agent_cli::agent_cli_status;
 
       /// The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window

@@ -16,7 +16,7 @@ pub struct CommandStats {
 
 #[derive(Debug)]
 pub struct ProcessStats {
-  /// What is counted, for the log (`sync`, `bd check`)
+  /// What is counted, for the log (`sync`, `brd check`)
   operation: String,
   started: Instant,
   by_command: Mutex<BTreeMap<String, CommandStats>>,

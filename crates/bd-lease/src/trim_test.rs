@@ -1,4 +1,4 @@
-//! `bd lease trim` and the trim of a get below the minimum free space (spec/cli/lease.spec.md, "Trim"): the free slots
+//! `brd lease trim` and the trim of a get below the minimum free space (spec/cli/lease.spec.md, "Trim"): the free slots
 //! past `branchdeck.leaseMaxSlots`, the ones returned longest ago first, go with their Bazel output bases, and so do the
 //! output bases of gone workspaces of a pool. The output bases are fakes: an output user root whose directories name
 //! their workspace in `DO_NOT_BUILD_HERE`, found through the `out/bazel-out` link of the source checkout
@@ -61,7 +61,7 @@ impl TrimFixture {
     self.root.join(name)
   }
 
-  /// `bd lease trim <args>`, which must succeed
+  /// `brd lease trim <args>`, which must succeed
   fn trim(&self, args: &[&str]) -> Value {
     let (exit_code, output) = self.fixture.run(&[&["lease", "trim"][..], args].concat());
     assert_eq!(exit_code, 0, "{output}");

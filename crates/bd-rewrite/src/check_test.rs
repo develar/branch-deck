@@ -33,7 +33,7 @@ fn check(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
   run_in(repo, &args)
 }
 
-/// The schema of `bd check` covers every field of `output`
+/// The schema of `brd check` covers every field of `output`
 fn assert_check_schema(repo: &TestRepo, output: &Value) {
   let (_, schema) = run_in(repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["check"], &schema["outputs"]["check"], output, "check");
@@ -159,7 +159,7 @@ fn the_current_grouping_and_invalid_plans() {
   assert_eq!((exit_code, &output["error"]["code"]), (2, &json!("invalid_plan")));
 }
 
-/// An agent's or a CI's stdin is an open pipe that sends nothing: `bd check` without `--plan` never reads it
+/// An agent's or a CI's stdin is an open pipe that sends nothing: `brd check` without `--plan` never reads it
 #[test_log::test]
 fn without_a_plan_an_open_stdin_is_not_read() {
   let (repo, _) = repo();
@@ -173,7 +173,7 @@ fn without_a_plan_an_open_stdin_is_not_read() {
     }
     if Instant::now() > deadline {
       child.kill().unwrap();
-      panic!("bd check waits for its stdin");
+      panic!("brd check waits for its stdin");
     }
     std::thread::sleep(Duration::from_millis(20));
   };
@@ -204,7 +204,7 @@ fn check_in_a_child(mode: &str, repo: &Path, plan: &Path) -> std::process::Child
     .unwrap()
 }
 
-/// The child of `check_in_a_child`, `bd check` on the stdin of this process; does nothing in a normal run.
+/// The child of `check_in_a_child`, `brd check` on the stdin of this process; does nothing in a normal run.
 /// `current`: no `--plan`, the current grouping; `dash`: `--plan -` gives what `--plan <file>` gives
 #[test_log::test]
 fn bd_check_in_a_child() {
@@ -287,7 +287,7 @@ fn a_branch_that_removes_a_used_declaration_is_dangling_reference() {
   assert_eq!(exit_code, 0, "{output}");
 }
 
-/// `--allow-dangling` counts a dangling reference as building, as `bd safe-push --allow-dangling` starts anyway: the
+/// `--allow-dangling` counts a dangling reference as building, as `brd safe-push --allow-dangling` starts anyway: the
 /// branch keeps its `result` and the reference, `ok` and the exit code take it; a conflict still fails. The change of
 /// the use in `lane-document` imports the class `fake-agent` adds, a missing declaration, which `--allow-missing` takes
 #[test_log::test]
@@ -384,10 +384,10 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
   let (exit_code, output) = run_in(&repo, &["check"]);
   assert_eq!(exit_code, 1, "{output}");
   let fake_agent = branch(&output, "fake-agent");
-  let command = format!("bd move-hunk {} {} {ACP_HOST}", short_id(&fixed_by), short_id(&removed_by));
+  let command = format!("brd move-hunk {} {} {ACP_HOST}", short_id(&fixed_by), short_id(&removed_by));
   assert_eq!(fake_agent["dangling_references"][0]["fix"], json!({ "kind": "move_hunk", "command": command }));
 
-  let args: Vec<&str> = command.strip_prefix("bd ").unwrap().split(' ').collect();
+  let args: Vec<&str> = command.strip_prefix("brd ").unwrap().split(' ').collect();
   let (exit_code, moved) = run_in(&repo, &args);
   assert_eq!(exit_code, 0, "{moved}");
   let (exit_code, output) = run_in(&repo, &["check"]);
@@ -396,7 +396,7 @@ fn a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names() {
 
 /// A later commit of `lane-document` changes the use again: the move of the hunk would leave it without the lines it
 /// changes, so `lane-document` would conflict. The trial build sees it, and no fix is offered (the incident of
-/// 2026-10-17, where the printed `bd move-hunk` would have broken a branch)
+/// 2026-10-17, where the printed `brd move-hunk` would have broken a branch)
 #[test_log::test]
 fn a_move_hunk_fix_that_breaks_another_branch_is_not_offered() {
   let repo = repo_with_baseline(&[("README.md", "readme\n")]);
@@ -478,7 +478,7 @@ fn a_possible_dangling_reference_is_a_warning_and_exit_0() {
 #[test_log::test]
 fn check_build_runs_the_command_on_each_branch_tree() {
   let (repo, _) = repo();
-  // each tree has its own files: `(a)` has shared.txt, `(c)` doesn't; each command in the syntax of the shell bd runs
+  // each tree has its own files: `(a)` has shared.txt, `(c)` doesn't; each command in the syntax of the shell brd runs
   let shared = if cfg!(windows) {
     "if exist shared.txt (echo %BD_BRANCH%) else (exit 1)"
   } else {
@@ -528,7 +528,7 @@ impl BuildRuns {
   }
 }
 
-/// `(name, result, build.cached)` of each branch of a `bd check --build` output
+/// `(name, result, build.cached)` of each branch of a `brd check --build` output
 fn build_results(output: &Value) -> Vec<(String, String, bool)> {
   output["branches"]
     .as_array()
@@ -629,8 +629,8 @@ fn rebuild_runs_the_command_on_a_cached_tree() {
   assert_eq!((runs.count(), build_results(&output)), (4, results(&[("a", "ok", true), ("c", "ok", true)])));
 }
 
-/// A parent that needs a commit of its own child: `bd check` names the case and the fixes that build, each one a plan
-/// for `bd group`
+/// A parent that needs a commit of its own child: `brd check` names the case and the fixes that build, each one a plan
+/// for `brd group`
 #[test_log::test]
 fn a_parent_that_needs_its_child_is_an_inverted_stack() {
   let repo = stacked_repo();
@@ -689,7 +689,7 @@ fn an_inverted_stack_that_no_fix_builds_says_why() {
       "branch": "a",
       "child": "b",
       "fixes": [],
-      "reason": "neither moving its commits into the child nor stacking it on the child builds both: `bd check --fix` searches the regroups",
+      "reason": "neither moving its commits into the child nor stacking it on the child builds both: `brd check --fix` searches the regroups",
     }),
     "{output}"
   );

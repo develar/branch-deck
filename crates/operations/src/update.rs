@@ -1,7 +1,7 @@
 //! The family of Update Project (docs/design/git-operations.md, "Update project"; docs/design/operations.md, "Update
 //! Project"): the fetch of the baseline (`Intent::FetchBaseline`, the Fetch of a merge toast), the update of the
 //! checked out branch onto it (`Intent::UpdateProject`, ⌘T) and the dismissal of what landed with an update
-//! (`Intent::DismissLanded`), as operations of the session, run by the cores `bd update` runs.
+//! (`Intent::DismissLanded`), as operations of the session, run by the cores `brd update` runs.
 //!
 //! A fetch holds the tracking ref of the baseline (`Resource::Ref`): a second Fetch of any window joins it, and the
 //! fetch lock of the repository joins a fetch of another process (`sync_core::fetch_lock`). An update holds nothing
@@ -274,7 +274,7 @@ async fn synced(sync: SyncTicket) -> Option<domain_types::session::Version> {
   sync.wait().await.ok().map(|answer| answer.version)
 }
 
-/// The undo of what `result` moved: the branch back from its new head to the one before (`bd undo update:…`)
+/// The undo of what `result` moved: the branch back from its new head to the one before (`brd undo update:…`)
 fn undo_of(result: &UpdateProjectResult) -> Option<UndoToken> {
   result.applied.as_ref().map(|applied| UndoToken {
     kind: UndoKind::Update,

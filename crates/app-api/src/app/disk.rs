@@ -174,7 +174,7 @@ pub async fn disk_usage(ctx: &AppContext, params: DiskUsageParams) -> Result<Dis
   .await
 }
 
-/// The trim of the pools of this Mac (`lease_pool::trim`), as `bd lease trim` runs it
+/// The trim of the pools of this Mac (`lease_pool::trim`), as `brd lease trim` runs it
 #[instrument(skip(ctx))]
 pub async fn trim_pools(ctx: &AppContext, params: TrimPoolsParams) -> Result<TrimSummary, ApiError> {
   let (git, home) = (ctx.git.clone(), ctx.host.tool_environment().home);

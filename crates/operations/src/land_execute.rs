@@ -617,7 +617,7 @@ fn freeze(services: &StartServices, pushes: &[PushedRef], frozen: &BTreeMap<Stri
   Ok(Some(PreparedPush::leased(&target, branches, options)))
 }
 
-/// What the remote would answer the push of `planned` (`bd push --dry-run`): its blockers refuse it as its run would,
+/// What the remote would answer the push of `planned` (`brd push --dry-run`): its blockers refuse it as its run would,
 /// then `git push --dry-run` of its commits on the tips and the leases it was decided on, which a dry run need not read
 /// again: it moves nothing, so no lock, no witness, no other effect; `None` for a plan that pushes nothing
 ///
@@ -1075,7 +1075,7 @@ impl Run<'_> {
       BaselinePushed::Moved { summary } => {
         // the target as it is now: the fetch of the baseline, which joins a fetch of any process that runs, and the sync
         // that shows it; the copies are built on the fork point of the checked out branch, so the update onto the moved
-        // target builds them anew (`land_direct::update_after`: the app runs it, `bd land` names it)
+        // target builds them anew (`land_direct::update_after`: the app runs it, `brd land` names it)
         let (git, path, upstream) = (self.services.git.clone(), self.services.repository_path.clone(), report.upstream);
         let fetched = blocking(move || fetch_baseline(&git, &path, &upstream, &mut |_| {}, &|| false).map_err(git_failure)).await;
         let after = match fetched {
@@ -1487,7 +1487,7 @@ impl Run<'_> {
   /// The pull request of the subject is opened into `base` (`None`: the target), after its push (GitHub may not know the
   /// branch for a moment)
   async fn create_pull_request(&mut self, base: Option<&str>) -> EffectStatus {
-    // the text the user wrote, else the host's (`bd safe-push --create-pull-request`)
+    // the text the user wrote, else the host's (`brd safe-push --create-pull-request`)
     let text = match &self.planned.plan.intent {
       Intent::CreatePullRequest(create) => PullRequestText {
         head: self.planned.source_ref.trim_start_matches("refs/heads/").to_string(),

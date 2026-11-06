@@ -1,4 +1,4 @@
-//! The process tests of the command line of bd-host (spec/cli/host.spec.md): a real `bd-host serve` on a loopback port
+//! The process tests of the command line of brd-host (spec/cli/host.spec.md): a real `brd-host serve` on a loopback port
 //! with a temporary home, a `TestRepo` whose host slots the keeper fills in the pool of that home, and the client
 //! commands of the same binary in that home. The repository is the checkout of the client and the repository of the
 //! host at once, so the host has every commit and no pack travels
@@ -18,7 +18,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use test_utils::git_test_utils::TestRepo;
 
-const BD_HOST: &str = env!("CARGO_BIN_EXE_bd-host");
+const BD_HOST: &str = env!("CARGO_BIN_EXE_brd-host");
 
 /// The alias of the host file of the tests
 const ALIAS: &str = "local";
@@ -35,14 +35,14 @@ impl World {
     let repo = TestRepo::new();
     repo.create_commit_with_files("first", &[(".gitignore", "out/\n")]);
     repo.git(&["config", "branchdeck.hostSlots", "1"]);
-    let client = Identity::load_or_create(&home.path().join(".config/bd-host")).expect("the client identity");
+    let client = Identity::load_or_create(&home.path().join(".config/brd-host")).expect("the client identity");
     let mut allow = AllowList::default();
     allow.add(client.fingerprint(), "test").expect("a name");
-    allow.write(&home.path().join(".config/bd-host/agent/clients")).expect("the allow list");
+    allow.write(&home.path().join(".config/brd-host/agent/clients")).expect("the allow list");
     Self { home, repo }
   }
 
-  /// `bd-host` with the environment of the tests, in the repository
+  /// `brd-host` with the environment of the tests, in the repository
   fn command(&self) -> Command {
     self.command_of(BD_HOST)
   }
@@ -58,9 +58,9 @@ impl World {
     command
   }
 
-  /// `bd-host <args>` to its end
+  /// `brd-host <args>` to its end
   fn bd_host(&self, args: &[&str]) -> Output {
-    self.command().args(args).output().expect("bd-host ran")
+    self.command().args(args).output().expect("brd-host ran")
   }
 
   /// Starts `serve` on a loopback port, and writes the host file of `ALIAS` for it
@@ -75,7 +75,7 @@ impl World {
       "addresses": [listening.listening.to_string()],
       "repo": self.repo.path_str(),
     });
-    let hosts = self.home.path().join(".config/bd-host/hosts");
+    let hosts = self.home.path().join(".config/brd-host/hosts");
     fs::create_dir_all(&hosts).expect("the hosts directory");
     fs::write(hosts.join(format!("{ALIAS}.json")), host_file.to_string()).expect("the host file");
     Agent { child }
@@ -102,7 +102,7 @@ fn text(bytes: &[u8]) -> String {
   String::from_utf8_lossy(bytes).into_owned()
 }
 
-/// `bd-host <args>` in `dir` with the descriptor 3 open on `report`: the shell opens it, as bt does
+/// `brd-host <args>` in `dir` with the descriptor 3 open on `report`: the shell opens it, as bt does
 fn run_with_report(world: &World, dir: &Path, report: &Path, args: &[&str]) -> Output {
   world
     .command_of("/bin/sh")
@@ -113,7 +113,7 @@ fn run_with_report(world: &World, dir: &Path, report: &Path, args: &[&str]) -> O
     .arg(report)
     .args(args)
     .output()
-    .expect("bd-host ran")
+    .expect("brd-host ran")
 }
 
 fn report_of(path: &Path) -> Value {
@@ -132,7 +132,7 @@ fn wait_until(what: &str, done: impl Fn() -> bool) {
 }
 
 #[test]
-fn stdout_holds_only_the_command_and_the_lines_of_bd_host_go_to_stderr() {
+fn stdout_holds_only_the_command_and_the_lines_of_brd_host_go_to_stderr() {
   let world = World::new();
   let _agent = world.serve();
   let report = world.home.path().join("report.json");
@@ -157,9 +157,9 @@ fn stdout_holds_only_the_command_and_the_lines_of_bd_host_go_to_stderr() {
   assert_eq!(ran.status.code(), Some(3), "{stderr}\nserve: {}", world.serve_log());
   assert_eq!(stdout, "out\n", "stdout holds only the stdout of the command; stderr: {stderr}");
   assert!(stderr.lines().any(|line| line == "err"), "{stderr}");
-  assert!(stderr.lines().any(|line| line.starts_with("bd-host: run ")), "{stderr}");
-  assert!(stderr.lines().any(|line| line.starts_with("bd-host: running in ")), "{stderr}");
-  assert!(stderr.lines().any(|line| line.starts_with("bd-host: phases: ")), "{stderr}");
+  assert!(stderr.lines().any(|line| line.starts_with("brd-host: run ")), "{stderr}");
+  assert!(stderr.lines().any(|line| line.starts_with("brd-host: running in ")), "{stderr}");
+  assert!(stderr.lines().any(|line| line.starts_with("brd-host: phases: ")), "{stderr}");
 
   let report = report_of(&report);
   assert_eq!((report["exit"].as_u64(), report["command_exit"].as_i64()), (Some(3), Some(3)), "{report}");
@@ -179,7 +179,7 @@ fn the_report_goes_to_its_descriptor_on_every_way_out() {
   // no descriptor 9: a usage refusal before anything runs, and no report
   let ran = world.bd_host(&["run", ALIAS, "--report-fd", "9", "--", "true"]);
   assert_eq!(ran.status.code(), Some(2), "{}", text(&ran.stderr));
-  assert!(text(&ran.stderr).contains("bd-host: usage: --report-fd 9"), "{}", text(&ran.stderr));
+  assert!(text(&ran.stderr).contains("brd-host: usage: --report-fd 9"), "{}", text(&ran.stderr));
 
   // no host file: a refusal before the start, reported
   let report = world.home.path().join("report.json");
@@ -231,12 +231,12 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
 
   let fetch = world.bd_host(&["fetch", ALIAS, &id, "--fetch", "out"]);
   assert_eq!(fetch.status.code(), Some(255), "a fetch of a run that goes on");
-  assert!(text(&fetch.stderr).contains("bd-host: bad_request: "), "{}", text(&fetch.stderr));
+  assert!(text(&fetch.stderr).contains("brd-host: bad_request: "), "{}", text(&fetch.stderr));
 
   let cancel = world.bd_host(&["cancel", ALIAS, &id]);
   assert_eq!(cancel.status.code(), Some(0), "{}", text(&cancel.stderr));
   let ended = run.wait_with_output().expect("the run ended");
-  let run_dir = world.home.path().join(".cache/bd-host/runs").join(&id);
+  let run_dir = world.home.path().join(".cache/brd-host/runs").join(&id);
   assert_eq!(
     ended.status.code(),
     Some(130),
@@ -250,7 +250,7 @@ fn follow_cancel_fetch_forget_and_runs_answer_the_runs_of_the_agent() {
   // the run saw its end and forgot itself on the host
   let follow = world.bd_host(&["follow", ALIAS, &id]);
   assert_eq!(follow.status.code(), Some(255));
-  assert!(text(&follow.stderr).contains("bd-host: unknown_run: "), "{}", text(&follow.stderr));
+  assert!(text(&follow.stderr).contains("brd-host: unknown_run: "), "{}", text(&follow.stderr));
   let forget = world.bd_host(&["forget", ALIAS, &id]);
   assert_eq!(forget.status.code(), Some(255));
   assert!(text(&world.bd_host(&["runs", ALIAS]).stdout).starts_with("no runs on local"));
@@ -296,7 +296,7 @@ fn slots_shows_the_lend_table_and_shrinks_it_without_the_agent() {
   assert_eq!(shrunk["table"]["limit"], json!(0));
 }
 
-/// `bd-host trim` deletes the free slots of the pools of the host past `branchdeck.leaseMaxSlots` there, without a `bd`
+/// `brd-host trim` deletes the free slots of the pools of the host past `branchdeck.leaseMaxSlots` there, without a `brd`
 /// on the host; `--plan` only names them, and a host slot, a lease, stays
 #[test]
 fn trim_plans_and_deletes_the_free_slots_of_the_host() {
@@ -345,7 +345,7 @@ fn trim_plans_and_deletes_the_free_slots_of_the_host() {
   drop(agent);
 }
 
-/// `bd-host disk`: the agent answers what the pools of its host hold, as `bd lease disk` writes it; without an alias
+/// `brd-host disk`: the agent answers what the pools of its host hold, as `brd lease disk` writes it; without an alias
 /// every host of the client
 #[test]
 fn disk_reports_the_pools_of_the_host() {
@@ -359,7 +359,7 @@ fn disk_reports_the_pools_of_the_host() {
   let disk: Value = serde_json::from_slice(&disk.stdout).expect("JSON");
   let report = &disk["hosts"][0]["report"];
   assert_eq!(disk["hosts"][0]["alias"], ALIAS, "{disk}");
-  assert_eq!(report["pools"][0]["slots"][0]["holder"], "bd-host/1", "{disk}");
+  assert_eq!(report["pools"][0]["slots"][0]["holder"], "brd-host/1", "{disk}");
   assert_eq!(report["pools"][0]["max_slots"], 10, "{disk}");
   let every = world.bd_host(&["disk"]);
   assert_eq!(every.status.code(), Some(0), "{}", text(&every.stderr));

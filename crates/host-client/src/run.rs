@@ -24,11 +24,11 @@
 //! 6. Copies the staged files of the `fetch` directories, the outputs and the changes into the local checkout (`Fetch`),
 //!    then removes the run on the agent (`Forget`). The fetch takes only what the run record asked for. The client
 //!    removes the run only when it saw the end of the run and every file came. Otherwise the run stays on the agent,
-//!    and the client names `bd-host fetch` and `bd-host forget`.
+//!    and the client names `brd-host fetch` and `brd-host forget`.
 //! 7. Waits for the base sync. With `RunOptions::apply`, it applies the patch of the changes of the command to the
 //!    working tree (the files only, not the index). Then it answers the steps of the run with their durations.
 //!
-//! A refusal carries the exit of `bd-host` by how far the run came (`host_link::refusal::Reached`): a refusal before the
+//! A refusal carries the exit of `brd-host` by how far the run came (`host_link::refusal::Reached`): a refusal before the
 //! command exits 75, so the caller can run it locally instead.
 //!
 //! Ctrl+C after the start, the build of the pack included, cancels the run on the host. The first press sends `Cancel`
@@ -136,7 +136,7 @@ pub struct RunOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunFailure {
   pub refusal: Refusal,
-  /// The exit of `bd-host`: the code of the refusal at the point the run reached
+  /// The exit of `brd-host`: the code of the refusal at the point the run reached
   pub exit: Exit,
   /// The exit code of the command, when it ran and its end came, as for a failed fetch or apply
   pub command_exit: Option<i32>,
@@ -366,7 +366,7 @@ impl Client<'_> {
         let refusal = Refusal::new(
           Code::ApplyFailed,
           format!(
-            "the command of the run {run} exited with {code}, and its changes did not come ({}): `bd-host fetch {alias} {run}` copies them into the git directory of this checkout",
+            "the command of the run {run} exited with {code}, and its changes did not come ({}): `brd-host fetch {alias} {run}` copies them into the git directory of this checkout",
             refusal.message
           ),
         );
@@ -444,7 +444,7 @@ impl Client<'_> {
       Some(named) => match self.present(host, named, checkout, &snapshot.candidates, &extra) {
         Err(refusal) if refusal.code == Code::RepoMissing && request.repo.is_none() => {
           (self.say)(&format!(
-            "bd-host: {} has no {named}; the run goes to {default}, the repository of its host file. --repo names another one",
+            "brd-host: {} has no {named}; the run goes to {default}, the repository of its host file. --repo names another one",
             host.alias()
           ));
           None
@@ -463,13 +463,13 @@ impl Client<'_> {
   /// does not apply stays, and the refusal names it
   fn apply_changes(&self, checkout: &Checkout, run: &str, fetched: &Fetched, code_of_command: i32) -> Result<u64, Refusal> {
     let Some(patch) = &fetched.changes else {
-      (self.say)("bd-host: the command changed no file");
+      (self.say)("brd-host: the command changed no file");
       return Ok(0);
     };
     match checkout.apply(patch) {
       Ok(files) => {
         (self.say)(&format!(
-          "bd-host: applied the changes of the command to {files} files of this working tree; `git apply -R {}` undoes them",
+          "brd-host: applied the changes of the command to {files} files of this working tree; `git apply -R {}` undoes them",
           patch.display()
         ));
         Ok(files as u64)
@@ -543,7 +543,7 @@ impl Client<'_> {
       }
       Err(refusal) => {
         let message = format!(
-          "cannot copy the files of the run {run} from {alias}: {}. The run stays on {alias}: `bd-host fetch {alias} {run}` in this checkout copies its files again, and `bd-host forget {alias} {run}` removes it",
+          "cannot copy the files of the run {run} from {alias}: {}. The run stays on {alias}: `brd-host fetch {alias} {run}` in this checkout copies its files again, and `brd-host forget {alias} {run}` removes it",
           refusal.message
         );
         let code = if refusal.code == Code::FetchFailed || is_link(&refusal) {
@@ -551,7 +551,7 @@ impl Client<'_> {
         } else {
           refusal.code
         };
-        (self.say)(&format!("bd-host: {message}"));
+        (self.say)(&format!("brd-host: {message}"));
         Err(Refusal::new(code, message))
       }
     };
@@ -576,7 +576,7 @@ impl Client<'_> {
     };
     let fate = match cancelled {
       Ok(_) => format!("{alias} has the cancel of the run {run}"),
-      Err(failed) => format!("cannot cancel the run {run} on {alias}: {}. `bd-host cancel {alias} {run}` cancels it", failed.message),
+      Err(failed) => format!("cannot cancel the run {run} on {alias}: {}. `brd-host cancel {alias} {run}` cancels it", failed.message),
     };
     Refusal::new(refusal.code, format!("{what}: {}; {fate}", refusal.message))
   }
@@ -643,7 +643,7 @@ impl Client<'_> {
     if !info.features.iter().any(|known| known == wanted) {
       return Err(Refusal::new(
         Code::AgentFailed,
-        format!("the agent on {alias} has no feature {wanted}: `bd-host upgrade {alias}` sends it this build"),
+        format!("the agent on {alias} has no feature {wanted}: `brd-host upgrade {alias}` sends it this build"),
       ));
     }
     Ok(host)
@@ -709,7 +709,7 @@ impl Client<'_> {
   fn forget_or_say(&self, host: &mut Host, run: &str) {
     if let Err(refusal) = self.forget_on(host, run) {
       (self.say)(&format!(
-        "bd-host: cannot remove the run {run} on {}: {}. `bd-host forget {} {run}` removes it",
+        "brd-host: cannot remove the run {run} on {}: {}. `brd-host forget {} {run}` removes it",
         host.alias(),
         refusal.message,
         host.alias()
@@ -739,7 +739,7 @@ impl Client<'_> {
       let presses = (self.presses)();
       if presses >= 1 && cancel.is_none() {
         (self.say)(&format!(
-          "bd-host: Ctrl+C: cancelling the run {run} on {}; its output follows up to its end. A second Ctrl+C stops the follow",
+          "brd-host: Ctrl+C: cancelling the run {run} on {}; its output follows up to its end. A second Ctrl+C stops the follow",
           host.alias()
         ));
         cancel = Some(start_cancel(host.clone(), run.to_owned(), self.timing, Arc::clone(&watch.finished)));
@@ -777,7 +777,7 @@ impl Client<'_> {
         return Ended::Unseen(Refusal::new(
           Code::Interrupted,
           format!(
-            "a second Ctrl+C stopped the follow of the run {run}; {} has its cancel. `bd-host follow {} {run}` shows its end",
+            "a second Ctrl+C stopped the follow of the run {run}; {} has its cancel. `brd-host follow {} {run}` shows its end",
             host.alias(),
             host.alias()
           ),
@@ -798,7 +798,7 @@ impl Client<'_> {
             return Ended::Unseen(Refusal::new(
               Code::TimedOut,
               format!(
-                "{}; no reply for {} s. The run can go on on the host: `bd-host follow {} {run}` follows it",
+                "{}; no reply for {} s. The run can go on on the host: `brd-host follow {} {run}` follows it",
                 refusal.message,
                 self.timing.reconnect_for.as_secs(),
                 host.alias()
@@ -806,7 +806,7 @@ impl Client<'_> {
             ));
           }
           (self.say)(&format!(
-            "bd-host: {}; following the run {run} again from byte {} in {} s",
+            "brd-host: {}; following the run {run} again from byte {} in {} s",
             refusal.message,
             state.offset,
             state.backoff.as_secs()
@@ -911,18 +911,18 @@ fn cancel_on(host: &mut Host, run: &str, deadline: Duration) -> Result<String, R
 fn start_cancel(mut host: Host, run: String, timing: Timing, finished: Arc<AtomicBool>) -> mpsc::Receiver<String> {
   let (said, lines) = mpsc::channel();
   let failed = said.clone();
-  let cancelling = thread::Builder::new().name("bd-host-cancel".to_owned()).spawn(in_current_span(move || {
+  let cancelling = thread::Builder::new().name("brd-host-cancel".to_owned()).spawn(in_current_span(move || {
     let started = Instant::now();
     let mut backoff = timing.first_backoff;
     loop {
       match cancel_on(&mut host, &run, timing.read) {
         Ok(message) => {
-          let _ = said.send(format!("bd-host: {message}"));
+          let _ = said.send(format!("brd-host: {message}"));
           return;
         }
         Err(refusal) if is_link(&refusal) && started.elapsed() < timing.cancel_for && !finished.load(Ordering::Acquire) => {
           let _ = said.send(format!(
-            "bd-host: cannot send the cancel of the run {run}: {}; again in {} s",
+            "brd-host: cannot send the cancel of the run {run}: {}; again in {} s",
             refusal.message,
             backoff.as_secs()
           ));
@@ -930,14 +930,14 @@ fn start_cancel(mut host: Host, run: String, timing: Timing, finished: Arc<Atomi
           backoff = (backoff * 2).min(timing.max_backoff);
         }
         Err(refusal) => {
-          let _ = said.send(format!("bd-host: cannot cancel the run {run}: {}", refusal.message));
+          let _ = said.send(format!("brd-host: cannot cancel the run {run}: {}", refusal.message));
           return;
         }
       }
     }
   }));
   if let Err(error) = cancelling {
-    let _ = failed.send(format!("bd-host: cannot start the cancel: {error}"));
+    let _ = failed.send(format!("brd-host: cannot start the cancel: {error}"));
   }
   lines
 }
@@ -1020,16 +1020,16 @@ fn vanished(refusal: &Refusal, run: &str, alias: &str) -> Refusal {
   Refusal::new(
     refusal.code,
     format!(
-      "{}: the run {run} started on {alias} and is gone there, so whether its command ran is unknown. `bd-host runs {alias}` lists the runs that {alias} keeps",
+      "{}: the run {run} started on {alias} and is gone there, so whether its command ran is unknown. `brd-host runs {alias}` lists the runs that {alias} keeps",
       refusal.message
     ),
   )
 }
 
-/// The line of a started run: `bd-host: run <id> of <commit> on <alias>`, then the repository when it is not the one of
+/// The line of a started run: `brd-host: run <id> of <commit> on <alias>`, then the repository when it is not the one of
 /// the host file, and what the commit holds beyond HEAD
 fn run_line(run: &str, alias: &str, snapshot: &Snapshot, repo: &str, default_repo: &str) -> String {
-  let mut line = format!("bd-host: run {run} of {} on {alias}", short(&snapshot.commit));
+  let mut line = format!("brd-host: run {run} of {} on {alias}", short(&snapshot.commit));
   if repo != default_repo {
     line.push_str(" in ");
     line.push_str(repo);

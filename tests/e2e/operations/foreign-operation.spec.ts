@@ -9,7 +9,7 @@ import { expectPushedToRemote, pushedBranches } from "../helpers/push-helpers"
 import { safePushPopover, slotSafePush } from "../helpers/safe-push-helpers"
 import { runAndWaitForAnswer, runAndWaitForSync } from "../helpers/sync-helpers"
 
-/** The Safe Push of `branch` that an agent's `bd safe-push` runs */
+/** The Safe Push of `branch` that an agent's `brd safe-push` runs */
 function safePushOf(branch: string): Intent {
   return { kind: "land", subject: { kind: "branch", name: branch }, mode: "rebaseAutosquash", profile: { kind: "default" } }
 }

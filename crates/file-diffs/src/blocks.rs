@@ -1,5 +1,5 @@
 //! The blocks of many blob pairs at once, for the dependency scan of the commits (`trial_check::diff_scan`) and the
-//! patches of `bd commits --patch`: the same blocks as the diff views show, under `Default`, without the scopes.
+//! patches of `brd commits --patch`: the same blocks as the diff views show, under `Default`, without the scopes.
 //!
 //! - **Caches.** A pair that memory or the `file_diff` store has (the view showed it) costs nothing. The others are
 //!   compared and not cached here: their callers cache them per commit (`commit_diff`), and the views need the scopes.

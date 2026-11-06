@@ -1,4 +1,4 @@
-//! Moving the changes of one file from one commit of the checked out branch into another (`bd move-hunk`), without
+//! Moving the changes of one file from one commit of the checked out branch into another (`brd move-hunk`), without
 //! touching the working tree or the index (docs/design/git-operations.md, "Move a hunk"). HEAD's tree never changes, by
 //! construction: a move into an older commit adds the change to the trees of `[to, from)` and `from` keeps its tree (it
 //! now holds only the rest); a move into a newer commit takes it out of the trees of `[from, to)` and `to` keeps its
@@ -35,7 +35,7 @@ pub enum MovedChange<'a> {
   /// binary file
   WholeFile,
   /// These blocks of the diff of the file's two sides in `from` (`text_diff::model::diff_texts`, as the diff views and
-  /// `bd commits --patch` show them), not all of them, in any order. The file exists on both sides of `from`
+  /// `brd commits --patch` show them), not all of them, in any order. The file exists on both sides of `from`
   Blocks(&'a [LineBlock]),
 }
 
@@ -65,7 +65,7 @@ pub enum MoveHunkMode {
   /// Compute and check the new trees (objects only), move no ref and write no note
   DryRun,
   /// Also write the new commits (objects only, without notes), and move no ref: a trial build of the rewritten history
-  /// (`bd check` proving a fix) builds them
+  /// (`brd check` proving a fix) builds them
   Trial,
 }
 
@@ -258,7 +258,7 @@ impl PreparedMoveHunk {
 }
 
 /// `move_hunk` up to the move of the branch: the checks, the new trees and, for `MoveHunkMode::Apply`, the commits with
-/// their notes, the commits on temporary refs (`PreparedMoveHunk`); before the repository lock of `bd move-hunk`
+/// their notes, the commits on temporary refs (`PreparedMoveHunk`); before the repository lock of `brd move-hunk`
 #[instrument(skip(git_executor, request), fields(from = %request.from, to = %request.to, path = %request.path, mode = ?request.mode))]
 pub fn prepare_move_hunk(git_executor: &GitCommandExecutor, repo_path: &str, request: &MoveHunkRequest<'_>) -> Result<PreparedMoveHunk, MoveHunkError> {
   if request.from == request.to {

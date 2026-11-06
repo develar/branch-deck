@@ -1,30 +1,30 @@
-# Runs on Another Mac (`bd-host`)
+# Runs on Another Mac (`brd-host`)
 
 **Updated:** 2026-11-05  
-**Tags:** [bd-host, host, remote-run, setup]
+**Tags:** [brd-host, host, remote-run, setup]
 
-`bd-host` runs a command of your checkout on another Mac of yours, the **host**: a long test suite, flake trials with
+`brd-host` runs a command of your checkout on another Mac of yours, the **host**: a long test suite, flake trials with
 many runs, a measurement that needs a quiet machine. It sends the working tree as it is, committed or not, runs the
 command there in a warm copy of the repository, streams the output back and exits with the exit code of the command.
 Your index, files and branches stay as they are.
 
 This guide sets up a host and walks through the first runs. The exact contract of every command is in the
-[bd-host spec](../../spec/cli/host.spec.md), the why in [Host Runs](../design/host-runs.md).
+[brd-host spec](../../spec/cli/host.spec.md), the why in [Host Runs](../design/host-runs.md).
 
 ## How it works
 
 ```text
  This Mac                                          The host
 +------------------------------------+          +------------------------------------------+
-| bd-host run studio -- <command>    |          | launchd: com.jetbrains.bd-host           |
+| brd-host run studio -- <command>    |          | launchd: com.jetbrains.brd-host           |
 |   |                                |          |   |                                      |
 |   | 1. the working tree as one     |  TLS 1.3 |   v                                      |
-|   |    commit (nothing changes     |  port    | bd-host serve ---- keeper, every minute: |
+|   |    commit (nothing changes     |  port    | brd-host serve ---- keeper, every minute: |
 |   |    in your checkout)           |  7742    |   |                fills the slots,      |
 |   | 2. a thin pack of the commits  | -------> |   |                upgrades git, frees   |
 |   |    the host lacks              |          |   |                the disk)             |
 |   |                                |          |   v                                      |
-|   |                                |          | bd-host supervise, one per run           |
+|   |                                |          | brd-host supervise, one per run           |
 |   | 3. the output, line by line    | <------- |   |                                      |
 |   | 4. the exit code               |          |   v                                      |
 |   | 5. --fetch dirs, [host]        |          | slot 1 | slot 2 | slot 3 | slot 4        |
@@ -32,8 +32,8 @@ This guide sets up a host and walks through the first runs. The exact contract o
 +------------------------------------+          +------------------------------------------+
 ```
 
-- **One binary, both ends.** `bd-host` is the client on this Mac and the agent on the host. The app bundle carries it.
-  The host needs neither the app nor `bd`: the agent keeps its disk too.
+- **One binary, both ends.** `brd-host` is the client on this Mac and the agent on the host. The app bundle carries it.
+  The host needs neither the app nor `brd`: the agent keeps its disk too.
 - **No ssh for a run.** Each end pins the certificate of the other end. ssh is needed once, for the setup.
 - **Commits, not files.** Only the commits that the host does not have travel. A second run of the same tree sends
   nothing.
@@ -44,11 +44,11 @@ This guide sets up a host and walks through the first runs. The exact contract o
 
 On this Mac:
 
-- Branch Deck for macOS, and its agent CLI: Help → Install Agent CLI…, or `bd install`. It links
-  `~/.local/bin/bd-host` to the binary in the app bundle. The Windows app has no bd-host.
+- Branch Deck for macOS, and its agent CLI: Help → Install Agent CLI…, or `brd install`. It links
+  `~/.local/bin/brd-host` to the binary in the app bundle. The Windows app has no brd-host.
 - An ssh alias of the host that logs in without a prompt, with a key in the ssh agent. Only the setup uses it.
 
-On the host, a Mac (on Linux the agent runs only by hand, `bd-host serve`, without `upgrade`):
+On the host, a Mac (on Linux the agent runs only by hand, `brd-host serve`, without `upgrade`):
 
 - Remote Login on, for the setup: System Settings → General → Sharing → Remote Login.
 - [Homebrew](https://brew.sh). The agent keeps the git of Homebrew at the version that Branch Deck needs.
@@ -61,7 +61,7 @@ On the host, a Mac (on Linux the agent runs only by hand, `bd-host serve`, witho
 ### The ssh alias
 
 The alias is a `Host` entry of `~/.ssh/config` on this Mac. The name of the entry becomes the name of the host for
-bd-host (`bd-host run studio`):
+brd-host (`brd-host run studio`):
 
 ```text
 Host studio
@@ -85,41 +85,48 @@ the next run resolves `HostName` again.
 
 ## Set up a host
 
+### Updating an existing host
+
+After updating Branch Deck, run `brd-host setup <alias> --repo <path>` once again on each host and pair it again. The new
+agent uses `~/.config/brd-host/agent/`, `~/.cache/brd-host/` and the LaunchAgent `com.jetbrains.brd-host`; the old
+identity and cache are not migrated. Setup unloads and removes `com.jetbrains.bd-host` only when its plist matches the
+form written by the previous `bd-host setup`; other LaunchAgents are left untouched.
+
 Run this on this Mac. `studio` is the ssh alias, and `--repo` is a repository that the host has:
 
 ```sh
-bd-host setup studio --repo ~/projects/branch-deck
-bd-host hello studio
+brd-host setup studio --repo ~/projects/branch-deck
+brd-host hello studio
 ```
 
 What `setup` does:
 
 ```text
   This Mac                                   The host
-  bd-host setup studio                       (ssh, this one time)
+  brd-host setup studio                       (ssh, this one time)
         |                                          |
-        |--- ssh: shasum ~/.local/bin/bd-host ---->|
+        |--- ssh: shasum ~/.local/bin/brd-host ---->|
         |<-- the build there ----------------------|
         |                                          |
-        |--- ssh: copy the binary ---------------->|  ~/.local/bin/bd-host
+        |--- ssh: copy the binary ---------------->|  ~/.local/bin/brd-host
         |    (only when the build differs)         |
         |                                          |
-        |--- ssh: bd-host setup --agent ---------->|  ~/.config/bd-host/agent/identity.*  (once)
-        |         --client <this Mac>              |  ~/.config/bd-host/agent/clients     (+1 line)
-        |                                          |  the LaunchAgent com.jetbrains.bd-host
+        |--- ssh: brd-host setup --agent ---------->|  ~/.config/brd-host/agent/identity.*  (once)
+        |         --client <this Mac>              |  ~/.config/brd-host/agent/clients     (+1 line)
+        |                                          |  the LaunchAgent com.jetbrains.brd-host
         |                                          |  launchctl bootstrap gui/<uid>
-        |                                          |      `-> bd-host serve, port 7742
+        |                                          |      `-> brd-host serve, port 7742
         |<-- {"fingerprint", "port"} --------------|
         |                                          |
-  ~/.config/bd-host/hosts/studio.json              |
+  ~/.config/brd-host/hosts/studio.json              |
   (the fingerprint, the addresses, --repo)         |
         |                                          |
         |=== hello over TLS, no ssh ==============>|
         |<== the version and the build ============|
 ```
 
-`bd-host hello studio` prints the version and the build of both ends. `same_build: false` is fine: the run goes on
-and says once to run `bd-host upgrade studio`.
+`brd-host hello studio` prints the version and the build of both ends. `same_build: false` is fine: the run goes on
+and says once to run `brd-host upgrade studio`.
 
 Setup again whenever you like: it keeps the identity of the host and adds this Mac to its list. Another Mac of yours
 becomes a client the same way, from that Mac.
@@ -152,10 +159,10 @@ missing. `[host]` installs no tool: the host has its own. Every key is in the sp
 ## Run a command
 
 ```sh
-bd-host run studio -- cargo nextest run --workspace
-bd-host run studio --fetch out/test-results -- zsh -c 'make test > out/test-results/log.txt'
-bd-host run studio --apply -- cargo fmt
-bd-host run studio --head -- pnpm e2e
+brd-host run studio -- cargo nextest run --workspace
+brd-host run studio --fetch out/test-results -- zsh -c 'make test > out/test-results/log.txt'
+brd-host run studio --apply -- cargo fmt
+brd-host run studio --head -- pnpm e2e
 ```
 
 - `--fetch <dir>` copies the new files of `<dir>` of the slot back here. Repeatable.
@@ -164,13 +171,13 @@ bd-host run studio --head -- pnpm e2e
 - `--head` sends the committed HEAD only, and refuses a checkout with local changes.
 - A shell line goes through `zsh -c`. Never use `bash -lc` on macOS: its profile puts the old git of Apple first.
 
-stdout holds only the stdout of the command. bd-host writes its own lines to stderr:
+stdout holds only the stdout of the command. brd-host writes its own lines to stderr:
 
 ```text
-bd-host: run 01M63T… of 5a47e402 on studio          <- keep the run id
-bd-host: running in …/branch-deck (slot 2): load 3.1 on 20 cores, nice 10, 65536 open files, …
+brd-host: run 01M63T… of 5a47e402 on studio          <- keep the run id
+brd-host: running in …/branch-deck (slot 2): load 3.1 on 20 cores, nice 10, 65536 open files, …
 … the output of the command …
-bd-host: phases: pack 0.1s, slot 0.0s, checkout 0.3s, command 3m58s, fetch 0.2s, total 4m00s
+brd-host: phases: pack 0.1s, slot 0.0s, checkout 0.3s, command 3m58s, fetch 0.2s, total 4m00s
 ```
 
 The `phases` line says where the time went: a long `pack` means the host is far behind, a long `slot` that every slot
@@ -180,10 +187,10 @@ was busy, a long `prepare` that a prepare step ran.
 |---|---|---|
 | the code of the command | The command ran to its end. | Read the output as for a local run. |
 | 75 | The host did not run the command: asleep, behind, all slots busy for an hour. | Run it here. |
-| 130 | Ctrl+C before the command started, or a second Ctrl+C. | Before the start nothing ran. After a second Ctrl+C the run goes on: `bd-host follow` shows its end. |
-| 255 | The link broke after the start, or a fetch failed. | The run goes on: `bd-host follow studio <run>`. |
+| 130 | Ctrl+C before the command started, or a second Ctrl+C. | Before the start nothing ran. After a second Ctrl+C the run goes on: `brd-host follow` shows its end. |
+| 255 | The link broke after the start, or a fetch failed. | The run goes on: `brd-host follow studio <run>`. |
 
-The first Ctrl+C cancels the run on the host and shows the output to its end. `bd-host follow`, `cancel`, `fetch`
+The first Ctrl+C cancels the run on the host and shows the output to its end. `brd-host follow`, `cancel`, `fetch`
 and `forget` take the run id. The host keeps an ended run for 24 h.
 
 ## The slots
@@ -213,9 +220,9 @@ borrows one for its own time only, so there is nothing to keep or give back:
  give-back: stop the processes of the run, drop its changes -----------------+
 ```
 
-- `bd-host slots studio` shows each slot, its state, its run and the queue.
-- `bd-host runs studio` lists the runs that the host keeps, with the time of each step.
-- `bd-host slots --local -C <repo> --shrink <n>` on the host gives the slots past `n` back and keeps `n` as the limit.
+- `brd-host slots studio` shows each slot, its state, its run and the queue.
+- `brd-host runs studio` lists the runs that the host keeps, with the time of each step.
+- `brd-host slots --local -C <repo> --shrink <n>` on the host gives the slots past `n` back and keeps `n` as the limit.
 
 ## The disk of the host
 
@@ -227,65 +234,65 @@ git config --global branchdeck.leaseMinFree 200G
 
 Below it the keeper frees space by itself, once a minute: the trash of gone runs, the free worktrees past
 `branchdeck.leaseMaxSlots` (10 by default) with their Bazel output bases, then the build output of free worktrees and
-free worktrees below the limit, the ones returned longest ago first, as a `bd lease get` does on this Mac. A host slot
+free worktrees below the limit, the ones returned longest ago first, as a `brd lease get` does on this Mac. A host slot
 is a lease and stays; after a run, its own clean rules free it. Without a minimum the keeper deletes nothing.
 
 ```sh
-bd-host disk studio            # what the pools of the host hold, and what a trim deletes next
-bd-host trim studio --plan     # what a trim would delete now
-bd-host trim studio --max 6    # delete the free worktrees past 6 in every pool now
+brd-host disk studio            # what the pools of the host hold, and what a trim deletes next
+brd-host trim studio --plan     # what a trim would delete now
+brd-host trim studio --max 6    # delete the free worktrees past 6 in every pool now
 ```
 
 ## Upgrade the host
 
 ```sh
-bd-host upgrade studio
+brd-host upgrade studio
 ```
 
-It sends the `bd-host` of this Mac to the host over the link, without ssh. The host keeps the previous binary as
-`~/.local/bin/bd-host.previous`, and when the new one does not start listening, it brings the previous one back and
+It sends the `brd-host` of this Mac to the host over the link, without ssh. The host keeps the previous binary as
+`~/.local/bin/brd-host.previous`, and when the new one does not start listening, it brings the previous one back and
 the command says `rolled_back`. Runs in flight go on. `--force` sends the same build again, or an older one.
 
-`bd-host skill install` writes the agent skill of this build to `~/.claude/skills/bd-host/`, so a coding agent knows
+`brd-host skill install` writes the agent skill of this build to `~/.claude/skills/brd-host/`, so a coding agent knows
 how to use the host. `upgrade` refreshes a copy that you did not edit.
 
 ## When a run is refused
 
-A refusal prints `bd-host: <code>: <message>` and exits 75 before the command, or 255 after its start.
-`bd-host schema` lists every code.
+A refusal prints `brd-host: <code>: <message>` and exits 75 before the command, or 255 after its start.
+`brd-host schema` lists every code.
 
 | Code | What it means | What to do |
 |---|---|---|
-| `unreachable` | No address of the host answered. | Wake the host or turn it on. When the message names macOS Local Network privacy, give the app that runs bd-host (the terminal, the IDE) the permission in System Settings → Privacy & Security → Local Network. |
-| `untrusted` | The host has another identity, or does not know this Mac. | `bd-host setup studio` again. |
-| `no_host` | This Mac has no host file for the alias. | `bd-host setup studio`. |
+| `unreachable` | No address of the host answered. | Wake the host or turn it on. When the message names macOS Local Network privacy, give the app that runs brd-host (the terminal, the IDE) the permission in System Settings → Privacy & Security → Local Network. |
+| `untrusted` | The host has another identity, or does not know this Mac. | `brd-host setup studio` again. |
+| `no_host` | This Mac has no host file for the alias. | `brd-host setup studio`. |
 | `behind` | The host has none of the commits near your HEAD. | `git fetch` in the clone of the repository on the host. |
-| `schema` | The agent speaks another protocol. | `bd-host upgrade studio`, or setup again. |
+| `schema` | The agent speaks another protocol. | `brd-host upgrade studio`, or setup again. |
 | `old_git` | The git of the host is too old and Homebrew cannot upgrade it. | Install or repair Homebrew on the host. |
-| `slot_timeout` | Every slot stayed busy for an hour. | `bd-host slots studio`, then try again. |
+| `slot_timeout` | Every slot stayed busy for an hour. | `brd-host slots studio`, then try again. |
 | `local_changes` | `--head` with uncommitted changes. | Commit, or drop `--head`. |
 
 ## The files
 
 | Where | File | What |
 |---|---|---|
-| This Mac | `~/.config/bd-host/identity.crt`, `identity.key` | The identity of this client |
-| This Mac | `~/.config/bd-host/hosts/<alias>.json` | The fingerprint, the addresses and the main repository of a host |
+| This Mac | `~/.config/brd-host/identity.crt`, `identity.key` | The identity of this client |
+| This Mac | `~/.config/brd-host/hosts/<alias>.json` | The fingerprint, the addresses and the main repository of a host |
 | This Mac | `<git dir>/branch-deck/host/runs/` | The record of each run and the patch of `--apply`, for 7 days |
-| Host | `~/.local/bin/bd-host` | The binary that launchd runs |
-| Host | `~/.config/bd-host/agent/` | The identity of the agent and `clients`, one line per allowed Mac |
-| Host | `~/Library/LaunchAgents/com.jetbrains.bd-host.plist` | The LaunchAgent |
-| Host | `~/Library/Logs/bd-host.log` | The log of the agent |
-| Host | `~/.cache/bd-host/runs/<run>/` | The events, the exit and the outputs of each run, for 24 h |
+| Host | `~/.local/bin/brd-host` | The binary that launchd runs |
+| Host | `~/.config/brd-host/agent/` | The identity of the agent and `clients`, one line per allowed Mac |
+| Host | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist` | The LaunchAgent |
+| Host | `~/Library/Logs/brd-host.log` | The log of the agent |
+| Host | `~/.cache/brd-host/runs/<run>/` | The events, the exit and the outputs of each run, for 24 h |
 
 ## Remove a host
 
 On the host:
 
 ```sh
-launchctl bootout gui/$(id -u)/com.jetbrains.bd-host
-rm ~/Library/LaunchAgents/com.jetbrains.bd-host.plist ~/.local/bin/bd-host
+launchctl bootout gui/$(id -u)/com.jetbrains.brd-host
+rm ~/Library/LaunchAgents/com.jetbrains.brd-host.plist ~/.local/bin/brd-host
 ```
 
-To remove only one Mac, delete its line from `~/.config/bd-host/agent/clients`: the agent reads the list at each
-connection. On that Mac, delete `~/.config/bd-host/hosts/<alias>.json`.
+To remove only one Mac, delete its line from `~/.config/brd-host/agent/clients`: the agent reads the list at each
+connection. On that Mac, delete `~/.config/brd-host/hosts/<alias>.json`.

@@ -1,6 +1,6 @@
 //! The fix of the conflicts of a sync: the regroup after which the conflicting branches apply cleanly, found by trial
 //! builds (`check.rs`) and never written (spec/branch/conflict-fix.spec.md). Branch Deck offers it; the user, or an agent
-//! with `bd group`, applies it.
+//! with `brd group`, applies it.
 //!
 //! - **What a commit needs.** The commits it depends on by their lines (`dependencies.rs`), with their fixups and what
 //!   they need in turn, that neither its branch nor the branches it is built on have; by the changed files (the missing
@@ -73,7 +73,7 @@ pub struct FixRun<'a> {
   pub started: Instant,
   /// Stops the search before the next branch build
   pub cancel: &'a AtomicBool,
-  /// A line for each phase and each trial (`bd check --fix` prints them on stderr)
+  /// A line for each phase and each trial (`brd check --fix` prints them on stderr)
   pub progress: &'a (dyn Fn(&str) + Sync),
 }
 

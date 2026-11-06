@@ -95,7 +95,7 @@ describe("the toast of a merge", () => {
     expect(toasts()).toEqual([["auth landed in origin/master, squashed", "Updated master: rebased 104 commits", undefined, undefined]])
   })
 
-  it("says in place what a sync found landed after an update elsewhere (bd update, the IDE)", () => {
+  it("says in place what a sync found landed after an update elsewhere (brd update, the IDE)", () => {
     showMergeToast("/repo", ROBOT, "Whole air stack merged into master", "Safe Push", ["air", "bazel"])
     // a landing of a branch of the same name days before is not of this merge
     landedStore.setState({ repositoryPath: "/repo", landed: [landed("air", 1), landed("bazel", 1)], upstream: "origin/master" } as never)

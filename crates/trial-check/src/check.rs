@@ -478,7 +478,7 @@ impl CheckSession {
     self.symbols
   }
 
-  /// The session with the summaries a caller read already for the changes of the same commits (`bd suggest`), so that
+  /// The session with the summaries a caller read already for the changes of the same commits (`brd suggest`), so that
   /// its checks and `symbol_graph` don't read them again; ignored unless `branchdeck.symbols` is `on`
   #[must_use]
   pub fn with_symbol_input(self, input: SymbolInput) -> Self {

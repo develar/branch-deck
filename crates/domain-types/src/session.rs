@@ -1057,7 +1057,7 @@ pub struct BranchHead {
   pub name: String,
   pub latest_commit_time: u32,
   pub summary: String,
-  /// The title of the branch's description (`bd describe`); `None` without one
+  /// The title of the branch's description (`brd describe`); `None` without one
   #[serde(skip_serializing_if = "Option::is_none")]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub description_title: Option<String>,

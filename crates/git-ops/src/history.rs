@@ -220,7 +220,7 @@ impl History {
   }
 
   /// `check_rewrite` for a caller that read the checked out `branch` before this history, whose HEAD it is: HEAD is not
-  /// read again, since the witness of the repository lock checks both before the rewrite is written (`bd move-hunk`)
+  /// read again, since the witness of the repository lock checks both before the rewrite is written (`brd move-hunk`)
   ///
   /// # Errors
   /// As `check_rewrite`, and a history without commits

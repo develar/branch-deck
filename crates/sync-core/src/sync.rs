@@ -232,7 +232,7 @@ pub(crate) fn prepare_branches_for_ui(
   grouped_branches_for_ui
 }
 
-/// What a sync did, for a caller that goes on with its result (`bd sync`, then `bd push` or `bd safe-push`) instead of
+/// What a sync did, for a caller that goes on with its result (`brd sync`, then `brd push` or `brd safe-push`) instead of
 /// reading the repository again; the app takes the events. Everything the sync read at its start, and the virtual
 /// branch tips it left
 #[derive(Debug, Clone, Default)]
@@ -270,14 +270,14 @@ pub struct SyncReport {
   /// Original id -> the virtual copy the sync wrote of it (`CommitSynced`); a commit not here kept the copy its mapping
   /// note names
   pub copies: HashMap<String, String>,
-  /// The `branchdeck.*` settings and the branch descriptions (`bd describe`), as the sync read them
+  /// The `branchdeck.*` settings and the branch descriptions (`brd describe`), as the sync read them
   pub config: ConfigSnapshot,
   /// The stack branches as the `StackBranchUpdate` events sent them: of each stack that forks, then those kept for
   /// their remote branch
   pub stack_branches: Vec<StackBranchUpdate>,
   /// Another process moved (or deleted) a virtual branch or a stack branch while this sync built it
   /// (`BranchMove::MovedElsewhere`): the branch reports an error and its tip is not this sync's build, so the app syncs
-  /// once more, quietly, and the row says `Syncing` until then. `bd sync` reports the error and leaves the retry to
+  /// once more, quietly, and the row says `Syncing` until then. `brd sync` reports the error and leaves the retry to
   /// the caller
   pub retry: bool,
   /// The commit the branches without a parent are built on, as the sync read it; `None` without branches. A trial
@@ -611,7 +611,7 @@ fn prepare_sync<P: ProgressReporter + Clone + 'static>(
   })
 }
 
-/// Branch -> the title of its description (`bd describe`), for each virtual branch under `{branch_prefix}/` that has
+/// Branch -> the title of its description (`brd describe`), for each virtual branch under `{branch_prefix}/` that has
 /// one
 fn description_titles(descriptions: &HashMap<String, Description>, branch_prefix: &str) -> HashMap<String, String> {
   descriptions
@@ -901,7 +901,7 @@ async fn process_branches<P: ProgressReporter + Clone + 'static>(
   // the notes only save copying the commits again; the copies are deterministic, so a lost note costs time, not ids
   // (a copy older than the deterministic dates is kept by checking it against its tree, see `copy_commit`)
   // a stacked branch's base lets the integration detection of its archived branch look at its own commits only
-  // a write that lost to another writer (`bd sync` beside the app's) runs once more, then is a warning; an identity git
+  // a write that lost to another writer (`brd sync` beside the app's) runs once more, then is a warning; an identity git
   // cannot form fails the sync (`no_identity`): without the notes every sync would copy the commits again
   tokio::task::spawn_blocking(in_current_span(move || {
     move_conflict_refs(&context.git_executor, &context.repository_path, &context.conflict_tips, &conflict_refs);

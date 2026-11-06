@@ -1,6 +1,8 @@
 //! The files of the agent under the home directory (spec/cli/host.spec.md, "The files")
 
-use host_link::proto::LAUNCHD_LABEL;
+use host_link::proto::{HOST_NAME, LAUNCHD_LABEL};
+#[cfg(target_os = "macos")]
+use host_link::proto::{LEGACY_HOST_NAME, LEGACY_LAUNCHD_LABEL};
 use host_link::refusal::{Code, Refusal};
 use std::path::{Path, PathBuf};
 
@@ -27,52 +29,52 @@ impl Home {
     &self.dir
   }
 
-  /// The identity of the agent: `~/.config/bd-host/agent/`. A Mac that is a client and a host keeps both pairs apart
+  /// The identity of the agent: `~/.config/brd-host/agent/`. A Mac that is a client and a host keeps both pairs apart
   pub fn identity_dir(&self) -> PathBuf {
-    self.dir.join(".config/bd-host/agent")
+    self.dir.join(".config").join(HOST_NAME).join("agent")
   }
 
-  /// The allow list of the clients: `~/.config/bd-host/agent/clients`
+  /// The allow list of the clients: `~/.config/brd-host/agent/clients`
   pub fn allow_file(&self) -> PathBuf {
     self.identity_dir().join(host_link::allow::CLIENTS_FILE)
   }
 
-  /// The cache of the agent: `~/.cache/bd-host/`
+  /// The cache of the agent: `~/.cache/brd-host/`
   pub fn cache_dir(&self) -> PathBuf {
-    self.dir.join(".cache/bd-host")
+    self.dir.join(".cache").join(HOST_NAME)
   }
 
-  /// The parent of each run directory: `~/.cache/bd-host/runs/`
+  /// The parent of each run directory: `~/.cache/brd-host/runs/`
   pub fn runs_dir(&self) -> PathBuf {
     self.cache_dir().join("runs")
   }
 
-  /// The repositories that a pack or a run went to, one path per line: `~/.cache/bd-host/repos`
+  /// The repositories that a pack or a run went to, one path per line: `~/.cache/brd-host/repos`
   pub fn repos_file(&self) -> PathBuf {
     self.cache_dir().join("repos")
   }
 
-  /// The last capture of the login environment of the user: `~/.cache/bd-host/login-env.json`
+  /// The last capture of the login environment of the user: `~/.cache/brd-host/login-env.json`
   pub fn login_env_file(&self) -> PathBuf {
     self.cache_dir().join("login-env.json")
   }
 
-  /// What `serve` writes once it listens, for the watchdog of an upgrade: `~/.cache/bd-host/listening.json`
+  /// What `serve` writes once it listens, for the watchdog of an upgrade: `~/.cache/brd-host/listening.json`
   pub fn listening_file(&self) -> PathBuf {
     self.cache_dir().join("listening.json")
   }
 
-  /// The outcome of the last watchdog of an upgrade: `~/.cache/bd-host/upgrade.json`
+  /// The outcome of the last watchdog of an upgrade: `~/.cache/brd-host/upgrade.json`
   pub fn upgrade_file(&self) -> PathBuf {
     self.cache_dir().join("upgrade.json")
   }
 
-  /// The flock that a watchdog of an upgrade holds while it lives: `~/.cache/bd-host/upgrade.lock`
+  /// The flock that a watchdog of an upgrade holds while it lives: `~/.cache/brd-host/upgrade.lock`
   pub fn upgrade_lock_file(&self) -> PathBuf {
     self.cache_dir().join("upgrade.lock")
   }
 
-  /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/bd-host/slots/`
+  /// The fingerprints of the prepare steps per host slot (`prepare::Prepared`): `~/.cache/brd-host/slots/`
   pub fn slots_dir(&self) -> PathBuf {
     self.cache_dir().join("slots")
   }
@@ -82,14 +84,29 @@ impl Home {
     self.dir.join(format!("Library/LaunchAgents/{LAUNCHD_LABEL}.plist"))
   }
 
+  #[cfg(target_os = "macos")]
+  pub fn legacy_launch_agent_file(&self) -> PathBuf {
+    self.dir.join(format!("Library/LaunchAgents/{LEGACY_LAUNCHD_LABEL}.plist"))
+  }
+
   /// The log of `serve` under launchd
   pub fn launchd_log_file(&self) -> PathBuf {
-    self.dir.join("Library/Logs/bd-host.log")
+    self.dir.join(format!("Library/Logs/{HOST_NAME}.log"))
+  }
+
+  #[cfg(target_os = "macos")]
+  pub fn legacy_launchd_log_file(&self) -> PathBuf {
+    self.dir.join(format!("Library/Logs/{LEGACY_HOST_NAME}.log"))
   }
 
   /// The binary that `setup <alias>` and an upgrade put on a host, and that the `LaunchAgent` runs
   pub fn binary_file(&self) -> PathBuf {
-    self.dir.join(".local/bin/bd-host")
+    self.dir.join(".local/bin").join(HOST_NAME)
+  }
+
+  #[cfg(target_os = "macos")]
+  pub fn legacy_binary_file(&self) -> PathBuf {
+    self.dir.join(".local/bin").join(LEGACY_HOST_NAME)
   }
 
   /// `path` with a leading `~/` replaced by the home directory

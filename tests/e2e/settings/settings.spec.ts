@@ -102,7 +102,7 @@ async function openTallestSettings(page: Page, repo: TestRepositoryBuilder): Pro
         })
         await routeCommand(window, "get_repository_config", () => ({ status: "ok", data: TALLEST_REPOSITORY_CONFIG }))
         await routeCommand(window, "agent_cli_status", () => ({
-          bd: "/Users/test/.local/bin/bd",
+          bd: "/Users/test/.local/bin/brd",
           skills: ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"],
         }))
       },

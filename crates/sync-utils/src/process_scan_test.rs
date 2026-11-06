@@ -169,7 +169,7 @@ fn the_session_is_the_ancestors_and_their_groups() {
     process(1, 0, &["launchd"]),
     process(100, 1, &["claude"]),
     process(101, 100, &["caffeinate", "-i"]),
-    process(200, 100, &["zsh", "-c", "bd lease return | jq"]),
+    process(200, 100, &["zsh", "-c", "brd lease return | jq"]),
     process(me, 200, &["bd", "lease", "return"]),
     process(201, 200, &["jq"]),
     process(300, 100, &["zsh", "-c", "bazel test //..."]),

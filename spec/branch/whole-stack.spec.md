@@ -1,6 +1,6 @@
 ---
 name: Whole Stack
-description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, taken along by Push with Children of the root once it is on the remote or its pull request is open, and landed in one robot by `bd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its branches "Landed with the whole air stack" after its merge until the update, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
+description: Requirements for the whole stack of stacked branches that fork, as one more virtual branch `{prefix}/stack/<root>` that the sync builds of all their commits in the order of the history, without notes or branch events, remembered by its commits, its state (built, blocked, conflict, stale) and remote status reported per sync, deleted once the stack no longer forks unless it is on the remote, never pushed unless built, taken along by Push with Children of the root once it is on the remote or its pull request is open, and landed in one robot by `brd safe-push --whole-stack` from its own pull request, the robots of the stack and of its branches waiting for each other; in the app the whole stack is an object of its own, "the whole air stack": its robot (polled, told, holding every branch, its branches "Landed with the whole air stack" after its merge until the update, its prompt with the commits of every branch), its pull request (created, opened, closed by content after its merge, one that no longer matches it asked before it is closed), its review and one list of its actions in the island's menu and the root's; and its Safe Push and Dry Run in the app, from the island's header (its slot, its "⋯", S) or the root's menu of a small stack, its popover saying what lands, only its stack branch pushed, its readiness and approval news of its own pull request, "In #12" for a branch without one, a stack branch not built disabling it with the way to land it in pieces.
 style: plain-1
 targets:
   - ../../crates/sync-core/src/stack_branch.rs
@@ -179,9 +179,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 - The archive step and the integration detection must leave the stack branches out: never archived, and a stack tip
   never names the detection note of an archived branch.
   [@test] ../../crates/sync-core/src/detection_archive_step_test.rs (`branches_are_classified_by_their_namespace`)
-- `bd sync` and `bd status` must list them as `stacks`: `root`, `branch`, `state` (`built`, `blocked`, `conflict`,
-  `stale`), `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`, and with `bd sync` the
-  `remote` summary. `bd status` reads the state without a sync and without a git process: blocked by the placement,
+- `brd sync` and `brd status` must list them as `stacks`: `root`, `branch`, `state` (`built`, `blocked`, `conflict`,
+  `stale`), `tip`, `member` and `reason` of a block, `conflict`, `error`, `commits`, `members`, and with `brd sync` the
+  `remote` summary. `brd status` reads the state without a sync and without a git process: blocked by the placement,
   else the remembered build of the current commits when the ref is at it, else stale.
   [@test] ../../crates/bd-remote/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
@@ -194,34 +194,34 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 
 ### The Safe Push of the whole stack
 
-- The whole stack of a branch must be the stack of its root by declared parent, for the app and `bd` alike
+- The whole stack of a branch must be the stack of its root by declared parent, for the app and `brd` alike
   (`domain_policy::stack::whole_stack_of`, D8, the owner's decision: the stack as the user declared it; the parent that
   blocks a branch is a detail of its build): the stack branch of the root while the stack forks, else the straight
   chain from the root, which its last branch that is not parked lands (a parked one at its end stays local). A blocked
   branch whose declared parent has no commits heads a whole stack of its own, never the chain of the branch that blocks
-  it; a fork no stack branch is known of yet waits for the sync that builds it (`bd` refuses it as `stack_not_built`).
+  it; a fork no stack branch is known of yet waits for the sync that builds it (`brd` refuses it as `stack_not_built`).
   The view places the whole stack on the structure of its root (`BranchStructure.wholeStack`), and what its Safe Push
   lands, the branches as a sentence names them (the main line first) less those merged Safe Pushes landed whole, on its
   landing (`StackLanding.rest`, `whole_stack_rest`).
   [@test] ../../crates/domain-policy/src/stack_test.rs (`the_whole_stack_of_a_branch_is_the_stack_of_its_declared_root`, `the_whole_stack_of_a_blocked_branch_follows_its_declared_parent_not_what_blocks_it`, `the_members_of_a_whole_stack_name_its_main_line_first`, `the_rest_of_a_whole_stack_is_what_merged_safe_pushes_left_of_it`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`the_root_of_a_stack_carries_its_whole_stack`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8`)
-- `bd safe-push <branch> --whole-stack` must land the whole stack of the branch in one robot from its stack branch,
+- `brd safe-push <branch> --whole-stack` must land the whole stack of the branch in one robot from its stack branch,
   the only branch it pushes; a straight chain from its last branch; refused unless the stack branch is `built`
   (`conflict`, `stack_not_built`, exit 1), and both ways while a robot of the stack or of a branch of it runs
-  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)). Push with Children of the root, the app's and `bd push <root>
+  ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)). Push with Children of the root, the app's and `brd push <root>
   --with-children`, must take the stack branch along after the branches once it is on the remote or its pull request
   is open, only when the sync built it, so its pull request follows the branches
   ([Stacked Branches](stacked-branches.spec.md#pull-requests)), by one rule (`domain_policy::push::stack_branch_along`:
-  not while its push is held, nor while its remote has commits it lacks, which `bd` pushes over only with `--force`);
-  `bd robot --whole-stack` must print its robot.
+  not while its push is held, nor while its remote has commits it lacks, which `brd` pushes over only with `--force`);
+  `brd robot --whole-stack` must print its robot.
   [@test] ../../crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`, `push_with_children_takes_the_stack_branch_along_while_its_pull_request_is_open`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`with_children_takes_the_stack_branch_along_once_it_is_on_the_remote`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - A robot started on a stack branch must name the root of its stack (`PatronusRobot::stack_root`) and no branch, and
-  must belong to no branch, not even by its revision, in `bd` and the session's view, whose `robotId` the app reads
+  must belong to no branch, not even by its revision, in `brd` and the session's view, whose `robotId` the app reads
   (`RobotIndex::branch_robot` of `domain_policy::robot_match`); `RobotIndex::stack_robot` finds the robot of the whole
   stack.
   [@test] ../../crates/patronus/src/service_test.rs (`a_robot_of_the_stack_branch_names_the_root_of_its_stack_and_no_branch`)
@@ -243,9 +243,9 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
 
 ### The whole stack in the app
 
-- The whole stack is named "the whole air stack" in a sentence and "Whole air stack" at its start, as `bd` names it
+- The whole stack is named "the whole air stack" in a sentence and "Whole air stack" at its start, as `brd` names it
   (`formatWholeStack`, `formatRobotSubject`), wherever the app names the robot or the pull request of a stack branch.
-  [@test] ../../src/lib/whole-stack.test.ts (`is named as bd names it`)
+  [@test] ../../src/lib/whole-stack.test.ts (`is named as Branch Deck names it`)
   [@test] ../../src/lib/patronus.test.ts (`is named the whole stack, at the start of a sentence too`)
 - The robot of the whole stack must be the root's stack's (`robotId` of its stack in the session's view,
   `RobotIndex::stack_robot`: started on its stack branch, or a Safe Push of a temporary ref on the tip of the stack
@@ -315,7 +315,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_restart_restarts_on_the_remote_or_pushes_first_by_what_the_remote_has`)
 - The prompt for an agent of its failure must name the stack branch and the commits of every branch of the stack, each
   with its branch, by identity (`stack_robot_commit_map`: no mapping notes), a commit of a member the stack branch
-  lacks said as not synced; `bd robot --whole-stack` prints the same map.
+  lacks said as not synced; `brd robot --whole-stack` prints the same map.
   [@test] ../../crates/sync-core/src/robot_commits_test.rs (`a_robot_of_the_whole_stack_lists_the_commits_of_every_member_with_its_branch`)
   [@test] ../../src/lib/robot-prompt.test.ts (`names the stack branch and every branch of the whole stack for its robot: it built them all`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
@@ -471,7 +471,7 @@ the sync keeps it up to date like any virtual branch, and says when it can't.
   `crates/domain-policy/src/landed_test.rs`, `src/stores/patronus.test.ts`, `crates/domain-policy/src/next_step_test.rs`.
 - `pnpm e2e tests/e2e/stack-island`: the whole stack in the app (templates `stack_island`, `stack_side_conflict`);
   `tests/e2e/stacked-branches/stacked-branches.spec.ts` for a small stack.
-- `pnpm perf:monorepo`: the full and the unchanged `bd sync` of the pinned monorepo clone, one stack that forks.
+- `pnpm perf:monorepo`: the full and the unchanged `brd sync` of the pinned monorepo clone, one stack that forks.
 
 ## References
 

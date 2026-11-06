@@ -924,7 +924,7 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   upstream.create_commit("Upstream change", "shared.txt", "one\nTWO\nthree\n");
   let head = clone.head();
   // another Branch Deck process (bd) holds the lock for the whole wait
-  let held = lock_repository_as_another_process(&clone.path().join(".git"), "bd pick --follow").unwrap();
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), "brd pick --follow").unwrap();
 
   let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
   let error = result.unwrap_err();
@@ -945,12 +945,12 @@ fn update_takes_the_repository_lock_after_the_fetch_and_says_it_waits() {
   assert_eq!(clone.head(), upstream.head());
 }
 
-/// A writer that holds the lock moves HEAD while the update waits for it (the user's Move, an agent's `bd rename`): once
+/// A writer that holds the lock moves HEAD while the update waits for it (the user's Move, an agent's `brd rename`): once
 /// it is gone, the check runs again under the lock and the step says so, no longer the wait for another operation
 #[test]
 fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
   let Setup { upstream, clone } = fetched_rebase();
-  let held = lock_repository_as_another_process(&clone.path().join(".git"), "bd pick --follow").unwrap();
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), "brd pick --follow").unwrap();
   let (sender, phases) = std::sync::mpsc::channel();
   let options = UpdateOptions {
     fetch: false,
@@ -977,8 +977,8 @@ fn the_check_again_after_the_wait_for_the_lock_is_the_check_step() {
 #[test]
 fn an_update_that_moves_nothing_answers_without_waiting_for_the_lock() {
   let Setup { upstream, clone } = setup();
-  // an agent's `bd push` holds the lock for the whole wait
-  let held = lock_repository_as_another_process(&clone.path().join(".git"), "bd pick --follow").unwrap();
+  // an agent's `brd push` holds the lock for the whole wait
+  let held = lock_repository_as_another_process(&clone.path().join(".git"), "brd pick --follow").unwrap();
 
   let (result, phases) = update_with_phases(&clone, FETCH_AND_A_SHORT_WAIT);
   let result = result.unwrap();
@@ -1079,7 +1079,7 @@ fn assert_the_switch_to_other_is_refused(clone: &TestRepo, plan: &UpdatePlan, he
   assert_eq!(status(clone), "");
 }
 
-/// A detached HEAD (an update onto a local branch, `bd lease pick`) switched after the check to a new branch at another
+/// A detached HEAD (an update onto a local branch, `brd lease pick`) switched after the check to a new branch at another
 /// commit: the transaction fails on the old value of HEAD, and the check after it names the branch (`HeadAttached`);
 /// nothing moved, the files of the lane those of `other`, clean
 #[test]
@@ -1248,8 +1248,8 @@ fn sync_after_a_conflicting_update_does_not_replay_again() {
   assert_eq!(loose_objects(&clone), objects);
 }
 
-/// An update onto a local branch (the home of a lease, `bd lease pick`): a detached worktree goes onto the tip of
-/// `master` without a fetch, its HEAD moved with `option no-deref`, no landed report written; `bd undo` moves the
+/// An update onto a local branch (the home of a lease, `brd lease pick`): a detached worktree goes onto the tip of
+/// `master` without a fetch, its HEAD moved with `option no-deref`, no landed report written; `brd undo` moves the
 /// detached HEAD back by the reflog of `HEAD`
 #[test]
 fn an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back() {
@@ -1364,7 +1364,7 @@ fn fetched_conflict() -> Setup {
   setup
 }
 
-/// `bd update` without a fetch, waiting for the lock as `bd` does: the open round of the session it starts
+/// `brd update` without a fetch, waiting for the lock as `bd` does: the open round of the session it starts
 #[cfg(unix)]
 fn start_a_session(git_executor: &GitCommandExecutor, repo: &TestRepo) -> SessionView {
   let options = UpdateOptions {

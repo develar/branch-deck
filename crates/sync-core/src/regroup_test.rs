@@ -413,7 +413,7 @@ fn restack_needs_stacked_branches() {
 fn waits_for_the_repository_lock() {
   let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
-  let held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
+  let held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let options = RegroupOptions {
     lock_wait: LockWait::Bounded(Duration::from_millis(200)),
     ..RegroupOptions::default()
@@ -436,7 +436,7 @@ fn waits_for_the_repository_lock() {
 fn a_held_lock_is_not_taken_again() {
   let repo = baseline_repo(false);
   let ids = commits(&repo, &["One"]);
-  let held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
+  let held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let one = plan(&[("a", &[&ids[0]])], &[]);
   let without = RegroupOptions {
     lock_wait: LockWait::Bounded(Duration::ZERO),
@@ -445,7 +445,7 @@ fn a_held_lock_is_not_taken_again() {
   let error = regroup_commits_core(repo.git_executor(), path(&repo), &one, &without).unwrap_err();
   assert!(matches!(error, RegroupError::Locked(_)), "{error}");
 
-  // the caller writes more under the same lock after the regroup (`bd group --sync`)
+  // the caller writes more under the same lock after the regroup (`brd group --sync`)
   let with = RegroupOptions {
     held_lock: Some(&held),
     ..without

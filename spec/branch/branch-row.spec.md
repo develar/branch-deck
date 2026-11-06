@@ -211,8 +211,8 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/issue-navigation/issue-navigation.spec.ts (`should render issue links in branch names`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`)
   [@test] ../../tests/e2e/squash-fixups/squash-fixups.spec.ts (`should mark fixups, squash those of a branch from the fixup badge of its row and undo it`)
-- The summary must be the title of the branch's description (`branch.<name>.description`, which `bd describe` and the
-  `descriptions` of a `bd group` plan write) as written, read by the sync. Without one, a branch of an issue shows its
+- The summary must be the title of the branch's description (`branch.<name>.description`, which `brd describe` and the
+  `descriptions` of a `brd group` plan write) as written, read by the sync. Without one, a branch of an issue shows its
   latest subject that is not a cleanup, refactor or format commit, after the issue key, with its conventional-commit
   prefix dimmed; any other branch shows nothing.
   [@test] ../../tests/e2e/branch-row-layout/description-title.spec.ts (`shows the description title of a branch as written, in the row and the preview`)
@@ -369,7 +369,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/pull-requests/pull-requests.spec.ts (`should show each pull request state in the status cell`)
   [@test] ../../tests/e2e/patronus/patronus.spec.ts (`should show each robot state in the Status cell, and the next step in the Safe Push slot`)
 - The first column must say what happens to the branch, as Rust decides it (`RowStatus`, `domain_policy::row_status`,
-  for the app and `bd status` alike; the page words it, `presentRowCell`): its robot while one runs (its ring, its time,
+  for the app and `brd status` alike; the page words it, `presentRowCell`): its robot while one runs (its ring, its time,
   the progress line under it; also a Dry Run, one that will fail and one that cancels) or once it finished on the
   branch as it is ("Failed", "Needs review", "Merged", "Dry run passed", "Canceled"), as the chip of the robot: hover
   for its details, a click opens it in Patronus ([Patronus](patronus.spec.md#robot-of-a-row)). The robot reads as the
@@ -439,7 +439,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
 - A push of a branch the last sync did not build (a merge conflict, an error, a blocked parent) must push nothing and
   say why ("Nothing was pushed: JIRA-456 is not synced (a merge conflict)"): its virtual branch is the build of a sync
   before, of commits it may no longer have. The backend refuses it by the table of the last sync (`not_built`), as
-  `bd push` does, so a push pressed during that sync (the button, P) is refused too; an action that pushes first
+  `brd push` does, so a push pressed during that sync (the button, P) is refused too; an action that pushes first
   (Create Pull Request, Request Review, a Safe Push start) stops with that reason instead of going on with the remote
   branch as it is.
   [@test] ../../tests/e2e/outgoing/outgoing.spec.ts (`should refuse a push pressed during a sync that could not build the branch, its virtual branch an older build`)
@@ -790,7 +790,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   commit whose subject it changed; an unapply once the sync built their copies), in the repository of its start,
   whichever the window shows by then. A remote action whose
   resource an operation holds (a push of a branch a push of the stack sends, a cancel during a restart, an action
-  another process runs) is disabled with its busy state ("Pushing branch login…", "bd: Pushing branch auth…", `Busy`), and a key says
+  another process runs) is disabled with its busy state ("Pushing branch login…", "brd: Pushing branch auth…", `Busy`), and a key says
   so in an info toast; a retarget and a review request of one pull request write other fields of it and run side by
   side, unless the review request pushes first, which may retarget it too. A success toast with Undo comes after the
   sync.
@@ -870,7 +870,7 @@ hang one indent level under it. The commits of an expanded branch sit on its lan
   [@test] ../../tests/e2e/issue-reference.spec.ts (`should add issue reference to branch via context menu`, `should keep the typed reference when adding it fails`)
 - Adding an issue reference rewords the branch's commits, computed before the repository lock and written under it
   after the witness of HEAD: while another process holds the lock
-  (an agent's `bd pick --follow`, `bd`) or the app's own push, the reword waits as long as the holder lives, the
+  (an agent's `brd pick --follow`, `brd`) or the app's own push, the reword waits as long as the holder lives, the
   form's progress row saying whom for with Stop Waiting, which ends the wait with nothing changed and the form kept;
   only a holder no record names refuses it after 10 s, with nothing changed, and the form comes back with the error
   toast that another operation holds the lock.

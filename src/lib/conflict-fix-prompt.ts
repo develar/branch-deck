@@ -12,7 +12,7 @@ export interface ConflictPromptInput {
   files: readonly string[]
   /** The explanation of the conflict view: where the missing commits are */
   explanation: string
-  /** How this app's bd runs in the repository; null when the app can't tell its binary */
+  /** How this app's brd runs in the repository; null when the app can't tell its binary */
   bd: AgentCliCommand | null
 }
 
@@ -26,8 +26,8 @@ const CONFLICT_RULES = [
 const SHOWN_FILES = 20
 
 /**
- * The prompt that hands a sync conflict without a fix to a coding agent: what conflicts and why, then bd's trial builds
- * (`bd check --fix`, `bd check --plan`) to find a regroup or a hunk move, shown to the user before it is applied.
+ * The prompt that hands a sync conflict without a fix to a coding agent: what conflicts and why, then brd's trial builds
+ * (`brd check --fix`, `brd check --plan`) to find a regroup or a hunk move, shown to the user before it is applied.
  */
 export function buildConflictPrompt(input: ConflictPromptInput): string {
   const { repositoryPath, branch, commit, builtOn, files, explanation, bd } = input
@@ -40,9 +40,9 @@ export function buildConflictPrompt(input: ConflictPromptInput): string {
           "Propose a regroup so that the change and what it needs are in one branch or in the branch it is built on: a `(branch)` prefix for a commit, or a stack parent for a branch. Show it to me before you rewrite anything.",
         ]
       : [
-          `\`${bd.command} check --fix\`${bd.powershell ? " (in PowerShell)" : ""}: the trial builds of Branch Deck; \`${bd.command} check --help\` explains each field. Below, \`bd\` stands for this command.`,
-          "No fix is found: find the commits the change needs (`bd commits`), and try plans with `bd check --plan plan.json` until the branch is `ok`: move the change and what it needs into one branch or into the branch it is built on, or move the change of a file from one commit into another with `bd move-hunk`.",
-          "Show me the plan and its `bd check` result. Only when I approve: `bd group --expect-head <head> --sync --plan plan.json`.",
+          `\`${bd.command} check --fix\`${bd.powershell ? " (in PowerShell)" : ""}: the trial builds of Branch Deck; \`${bd.command} check --help\` explains each field. Below, \`brd\` stands for this command.`,
+          "No fix is found: find the commits the change needs (`brd commits`), and try plans with `brd check --plan plan.json` until the branch is `ok`: move the change and what it needs into one branch or into the branch it is built on, or move the change of a file from one commit into another with `brd move-hunk`.",
+          "Show me the plan and its `brd check` result. Only when I approve: `brd group --expect-head <head> --sync --plan plan.json`.",
         ]
   return [
     `Fix the merge conflict of the virtual branch \`${branch}\` of the Git repository at ${repositoryPath}. Branch Deck builds the branch from my commits by their \`(prefix)\`, issue key or issue group, on \`${builtOn}\`.`,

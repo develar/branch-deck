@@ -1,4 +1,4 @@
-//! The blocks of files as `bd commits --patch` and `bd move-hunk` print them: the blocks of the diff views under
+//! The blocks of files as `brd commits --patch` and `brd move-hunk` print them: the blocks of the diff views under
 //! `Default`, each with its id (`text_diff::apply::BlockId`), a hunk header with the label of its scope, and its lines
 //! between up to three lines of context. A block is never merged with its neighbour, so each id moves one block. And the
 //! lines of the blocks alone, for the dangling-reference check (`trial_check::dangling_references`).

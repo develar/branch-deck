@@ -38,8 +38,8 @@ the `peekaboo` CLI. An agent never does that: it checks a copy of its own
 
 ## An agent's check copy
 
-The user works in /Applications/BranchDeck.app, and the `bd` of other agents (`~/.local/bin/bd`) points into it: an
-agent never quits, replaces or relaunches it, never runs `pnpm install-app` or `bd install`. It builds a copy with an
+The user works in /Applications/BranchDeck.app, and the `brd` of other agents (`~/.local/bin/brd`) points into it: an
+agent never quits, replaces or relaunches it, never runs `pnpm install-app` or `brd install`. It builds a copy with an
 identifier of its own and runs it from its lease on a scratch repository.
 - **Build**: `pnpm tauri build --bundles app --no-sign --config
   '{"identifier":"org.develar.branch-deck.check","productName":"BranchDeckCheck","build":{"features":[]}}'` in the

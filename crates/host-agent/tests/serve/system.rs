@@ -113,9 +113,9 @@ fn a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness()
   let version = start.split(", ").find_map(|part| part.strip_prefix("git ")).unwrap_or_else(|| panic!("no git: {start}"));
   assert!(stdout[4].starts_with(&format!("git version {version}")), "{} is not git {version}", stdout[4]);
   assert!(start.contains(&format!("the login environment of {} -l -i from ", shell.display())), "{start}");
-  let kept = fs::read_to_string(world.home.path().join(".cache/bd-host/login-env.json")).expect("the capture");
+  let kept = fs::read_to_string(world.home.path().join(".cache/brd-host/login-env.json")).expect("the capture");
   assert!(kept.contains("FROM_PROFILE") && !kept.contains("\"PWD\""), "{kept}");
-  assert!(START_LINE.starts_with("bd-host: ") && start.starts_with(START_LINE));
+  assert!(START_LINE.starts_with("brd-host: ") && start.starts_with(START_LINE));
 }
 
 fn mode(path: &Path) -> u32 {
@@ -151,15 +151,15 @@ fn the_files_of_the_agent_are_private() {
   let home = world.home.path();
   let run = world.run_dir("3-1");
   let mut paths = Vec::new();
-  tree(&home.join(".cache/bd-host"), &run.join("stage"), &mut paths);
-  for path in [".config/bd-host/agent", ".config/bd-host/agent/identity.key"] {
+  tree(&home.join(".cache/brd-host"), &run.join("stage"), &mut paths);
+  for path in [".config/brd-host/agent", ".config/brd-host/agent/identity.key"] {
     paths.push(home.join(path));
   }
   for name in ["spec.json", "events.log", "exit.json", "phases.json", "pid", "lock", "supervisor.log", "stage"] {
     assert!(paths.contains(&run.join(name)), "{name}: {paths:?}");
   }
   assert!(
-    fs::read_dir(home.join(".cache/bd-host/slots"))
+    fs::read_dir(home.join(".cache/brd-host/slots"))
       .is_ok_and(|mut entries| entries.any(|entry| entry.is_ok_and(|entry| entry.file_name().to_string_lossy().ends_with(".prepared")))),
     "the fingerprints of the slot: {paths:?}"
   );

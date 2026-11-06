@@ -241,8 +241,8 @@ fn a_stored_parent_that_differs_from_a_prefix_is_a_conflict() {
   assert_eq!(
     describe_problem("login", &view),
     format!(
-      "Commits declare different parents: auth ({}), docs (its stack parent); fix: `bd restack login auth`, `bd restack login docs` or \
-       `bd unstack login`",
+      "Commits declare different parents: auth ({}), docs (its stack parent); fix: `brd restack login auth`, `brd restack login docs` or \
+       `brd unstack login`",
       short_id(&format!("{:040}", 2))
     )
   );

@@ -7,7 +7,7 @@
 # installer runs silently and per user (no administrator rights).
 #
 # -Version <x.y.z>  install this release instead of the latest one
-# -WithCli          also install the Agent CLI: bd.exe on the user PATH and the agent skills (`bd install`)
+# -WithCli          also install the Agent CLI: brd.exe on the user PATH and the agent skills (`brd install`)
 # -Manifest <url>   the URL of latest.json instead of the release's (tests)
 
 param(
@@ -19,7 +19,7 @@ param(
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 $Repo = "develar/branch-deck"
-# the Agent CLI (bd.exe next to the app) is in the release since this version
+# the Agent CLI (brd.exe next to the app) is in the release since this version
 $CliSince = [version]"0.12.0"
 
 function Fail([string]$Message) {
@@ -102,12 +102,12 @@ function Install-Release([string]$ManifestUrl, [string]$Temp) {
     Fail "the installer put no branch-deck.exe into $Dir"
   }
   $HasCli = [version]$Release.version -ge $CliSince
-  $Bd = Join-Path $Dir "bd.exe"
+  $Brd = Join-Path $Dir "brd.exe"
   if ($HasCli) {
     # also the proof that the installed binary starts
-    & $Bd version | Out-Null
+    & $Brd version | Out-Null
     if ($LASTEXITCODE -ne 0) {
-      Fail "the installed $Bd does not start"
+      Fail "the installed $Brd does not start"
     }
   }
   Write-Host "Installed Branch Deck $($Release.version) to $Dir"
@@ -130,7 +130,7 @@ function Install-Release([string]$ManifestUrl, [string]$Temp) {
       Write-Host "Branch Deck $($Release.version) has no Agent CLI yet: it comes with $CliSince"
     }
   } elseif ($WithCli) {
-    $Result = (& $Bd install | Out-String) | ConvertFrom-Json
+    $Result = (& $Brd install | Out-String) | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) {
       Fail "the Agent CLI could not be installed"
     }
@@ -139,9 +139,9 @@ function Install-Release([string]$ManifestUrl, [string]$Temp) {
     if ($Entries -notcontains $Dir) {
       [Environment]::SetEnvironmentVariable("Path", (($Entries + $Dir) -join ";"), "User")
       $env:Path = "$env:Path;$Dir"
-      Write-Host "Added $Dir to your PATH: open a new terminal to run bd"
+      Write-Host "Added $Dir to your PATH: open a new terminal to run brd"
     }
-    Write-Host "Installed the Agent CLI as $($Result.bd), and the branch-deck skill for coding agents"
+    Write-Host "Installed the Agent CLI as $($Result.brd), and the branch-deck skill for coding agents"
   } else {
     Write-Host "Agent CLI for coding agents: run the installer with -WithCli, or Help > Install Agent CLI... in the app"
   }

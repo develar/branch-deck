@@ -1,4 +1,4 @@
-//! `bd pick`: land the commits of another worktree (or of a range) on the branch checked out here, without
+//! `brd pick`: land the commits of another worktree (or of a range) on the branch checked out here, without
 //! `git cherry-pick` (docs/design/git-operations.md, "Pick"). A commit with the patch id of a target commit is left out
 //! before the replay; the others are replayed in memory with `git replay` onto the target's HEAD, in segments between
 //! the left out ones, where a commit whose change the target has already becomes empty and drops; a dry run on a copy of
@@ -34,12 +34,12 @@ pub enum PickSource<'a> {
   /// One commit, `<rev>`, or a range, `<a>..<b>`
   Revisions(&'a str),
   /// These commits, full ids, oldest first, each child after its parent: the commits of someone else a remote branch has
-  /// that its virtual branch lacks (`bd pick --remote`), which need not be one range
+  /// that its virtual branch lacks (`brd pick --remote`), which need not be one range
   Commits(&'a [String]),
 }
 
 /// The `(group)` prefix the copies of `commits` get in their subject, so they land in the branch of `group` on the
-/// target (`bd pick --remote`: a colleague's commit on a remote virtual branch has no prefix of it)
+/// target (`brd pick --remote`: a colleague's commit on a remote virtual branch has no prefix of it)
 #[derive(Debug, Clone, Copy)]
 pub struct SubjectPrefix<'a> {
   pub group: &'a str,
@@ -56,10 +56,10 @@ pub struct PickRequest<'a> {
   pub upstream: Option<&'a str>,
   /// Move the source worktree onto the new tip too; only with `PickSource::Worktree`
   pub follow: bool,
-  /// The branch the target must have checked out (`bd lease pick`: the branch the lease was cut from); another one is
+  /// The branch the target must have checked out (`brd lease pick`: the branch the lease was cut from); another one is
   /// refused as `PickRefusal::BranchSwitched`
   pub expect_branch: Option<&'a str>,
-  /// The commit the HEAD of the source worktree must be (`bd lease pick`: the commit whose tree was checked); another one
+  /// The commit the HEAD of the source worktree must be (`brd lease pick`: the commit whose tree was checked); another one
   /// is refused as `PickRefusal::SourceMoved`, and `recheck_pick` holds it under the lock. Only with `PickSource::Worktree`
   pub expect_source_head: Option<&'a str>,
   /// The prefix some copies take in their subject; their messages are rewritten after the replay, before the move
@@ -257,13 +257,13 @@ pub enum PickRefusal {
   /// The target has another branch checked out than `PickRequest::expect_branch`
   #[error("{0}")]
   BranchSwitched(String),
-  /// `bd pick --remote`: the fetched remote branch is not at the head the caller saw; nothing was picked
+  /// `brd pick --remote`: the fetched remote branch is not at the head the caller saw; nothing was picked
   #[error("{0}")]
   RemoteMoved(String),
   /// The HEAD of the source worktree is not `PickRequest::expect_source_head`: it moved after the caller read it
   #[error("{0}")]
   SourceMoved(String),
-  /// `bd pick --remote`: the remote branch has no commit the branch lacks
+  /// `brd pick --remote`: the remote branch has no commit the branch lacks
   #[error("{0}")]
   NothingToPick(String),
 }
@@ -539,7 +539,7 @@ fn worktree_base(git_executor: &GitCommandExecutor, target: &str, branch: &str, 
   {
     return Err(anyhow::Error::new(PickRefusal::SourceOnNewerBaseline(format!(
       "The worktree {dir} stands on a newer baseline than {branch}: its commits may need what {branch} lacks. Update {branch} first \
-       (`bd update`, by the session that owns it), then pick again"
+       (`brd update`, by the session that owns it), then pick again"
     ))));
   }
   if let Some(fork_point) = branch_fork_point(git_executor, target, branch, head, source_head)? {
@@ -553,7 +553,7 @@ fn worktree_base(git_executor: &GitCommandExecutor, target: &str, branch: &str, 
   {
     return Err(anyhow::Error::new(PickRefusal::RangeUnknown(format!(
       "The reflog of {branch} has no fork point of {dir}, and their shared history is local: commits {branch} rewrote since would come \
-       back. Name the commits: `bd pick <first>^..<last>`"
+       back. Name the commits: `brd pick <first>^..<last>`"
     ))));
   }
   Ok(base)

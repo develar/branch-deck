@@ -33,7 +33,7 @@ fn the_phases_are_the_steps_of_both_ends_in_their_order() {
   ];
   assert_eq!(
     phases_line(&phases),
-    "bd-host: phases: pack 3.1s, upload 2.0s, slot 9m02s, pack_wait 0.0s, command 25.1s, fetch 0.4s, total 1h05m09s"
+    "brd-host: phases: pack 3.1s, upload 2.0s, slot 9m02s, pack_wait 0.0s, command 25.1s, fetch 0.4s, total 1h05m09s"
   );
   assert_eq!(phases_short(&phases), "pack 3.1s, upload 2.0s, slot 9m02s, command 25.1s, fetch 0.4s, total 1h05m09s");
   assert_eq!(phases_short(&[step("pack_wait", 99)]), "");

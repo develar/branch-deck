@@ -17,7 +17,7 @@ fn options_of(argv: &[&str]) -> RunOptions {
 /// the outputs
 #[test]
 fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
-  let bt = "bd-host run <alias> --head --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>";
+  let bt = "brd-host run <alias> --head --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>";
   assert!(SPEC.contains(&format!("`{bt}`")), "the spec names the command line of bt");
   let bt = bt.replace("<alias>", "studio").replace("<command…>", "bt test");
   let argv: Vec<&str> = bt.split(' ').collect();
@@ -32,7 +32,7 @@ fn the_command_line_of_bt_gives_niceness_0_and_no_outputs() {
     }
   );
   assert_eq!(
-    options_of(&["bd-host", "run", "studio", "--", "make"]),
+    options_of(&["brd-host", "run", "studio", "--", "make"]),
     RunOptions {
       working_tree: true,
       nice: Some(10),

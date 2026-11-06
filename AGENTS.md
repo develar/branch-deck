@@ -8,7 +8,7 @@ stack lands in one robot too; on Patronus every pull request goes into master, h
 elsewhere a straight chain is a stack of GitHub ([Stacks of GitHub](docs/design/github-stacks.md)). Judge every
 feature by what it lands into master and in how many robots ([Landing Work into Master](docs/design/landing.md)).
 
-A desktop app (React 19 + Vite SPA in a Tauri v2 shell), a Rust workspace under `crates/`, and `bd`, the agent CLI
+A desktop app (React 19 + Vite SPA in a Tauri v2 shell), a Rust workspace under `crates/`, and `brd`, the agent CLI
 ([Agent CLI](docs/contributing/agent-cli.md), [its flags](docs/contributing/agent-cli.md#flag-names)). Use `pnpm`
 only: the version is `packageManager` in `package.json`, Node.js is `.node-version`; CI reads both through
 `voidzero-dev/setup-vp`.
@@ -51,7 +51,7 @@ Hard rules in one place; the linked section says why and what to do instead.
 - Never `pnpm dlx shadcn@latest` (it crashes): `npx shadcn@latest`.
 
 ## Session Workflow
-1. **Lease** a worktree before the first edit: `bd lease get --holder <agent-name> -b <branch>` in the main checkout,
+1. **Lease** a worktree before the first edit: `brd lease get --holder <agent-name> -b <branch>` in the main checkout,
    then work in the `path` it prints; its `home` names where the commits land, its `next` what to run
    ([Worktrees](#worktrees)).
 2. **Read** the spec and the design doc of what you change ([Feature Index](#feature-index)): the spec is the
@@ -59,20 +59,20 @@ Hard rules in one place; the linked section says why and what to do instead.
 3. **Change** the code together with its spec, its `[@test]` links and the docs it contradicts.
 4. **Verify** by the table in [Verification](#verification).
 5. **Commit** in the lease, a conventional subject as in `git log` (`feat(bd): …`, `fix(e2e): …`, `docs(agents): …`),
-   then land it on `master` of the main checkout with `bd -C <path> lease pick`: the commit goes onto `master` as it
+   then land it on `master` of the main checkout with `brd -C <path> lease pick`: the commit goes onto `master` as it
    is then, the lease follows; a conflict lands nothing and comes back to you (`conflict.next`). Never `git rebase` or
-   `git merge` for it, never `bd update` in the lease.
+   `git merge` for it, never `brd update` in the lease.
 6. **Release**: stop the processes you started in the lease (the e2e mock server, `cargo watch`), then
-   `bd lease return --workspace <path>`.
+   `brd lease return --workspace <path>`.
 
 ### Worktrees
-Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
-[bd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`. In full:
+Parallel work runs in a worktree of the `brd lease` pool (`~/.branch-deck/pool/<repo>-<hash>/`,
+[brd lease](spec/cli/lease.spec.md)); never `git worktree add`, `EnterWorktree` or `isolation: "worktree"`. In full:
 [Working in a Lease](docs/contributing/leases.md).
 - **Every session edits in its own lease**, except its own ignored plan (`.junie/plans/`), edited in place; a harness
   default such as "edit files directly in your working directory" does not override this. "Commit right away" means:
-  commit in the lease, then `bd lease pick`.
-- **Acquire**: `bd lease get` creates `<branch>` at the HEAD of the checkout that runs it (local `master`, maybe ahead
+  commit in the lease, then `brd lease pick`.
+- **Acquire**: `brd lease get` creates `<branch>` at the HEAD of the checkout that runs it (local `master`, maybe ahead
   of `origin/master`) and does not fetch. A leased worktree is never handed out again.
 - **Inside**: the rules of the main checkout apply. `node_modules` and `target/` survive a reuse (on macOS a new slot is
   an APFS clone); run `pnpm install` when `pnpm-lock.yaml` changed. Never a shared `CARGO_TARGET_DIR` or
@@ -81,8 +81,8 @@ Parallel work runs in a worktree of the `bd lease` pool (`~/.branch-deck/pool/<r
 - **Disk**: `low_disk_space` (less free than `branchdeck.leaseMinFree`): tell the user, never pass `--min-free 0`.
 - **E2E**: the mock server listens on 3030 in every checkout; when another worktree's server holds it, run
   `E2E_PORT=3031 pnpm e2e`.
-- **Release**: `bd lease return` refuses local changes, a commit that `master` lacks, or a process inside;
-  `--confirm-preserved` discards them, so pass it only when they are preserved elsewhere. `bd lease status` lists the
+- **Release**: `brd lease return` refuses local changes, a commit that `master` lacks, or a process inside;
+  `--confirm-preserved` discards them, so pass it only when they are preserved elsewhere. `brd lease status` lists the
   pool; a worktree of the old Treehouse pool goes back with `treehouse return <path>`.
 
 ## Verification
@@ -96,7 +96,7 @@ failed (record on in the user config); finish with a full run. Why and how: [Che
 a wall-clock limit an assertion depends on.
 
 **Heavy runs go to the Mac Studio**: the full `cargo nextest run --workspace`, a full `pnpm e2e` and
-`pnpm lint:backend` run as `bd-host run studio -- <command>` from the lease ([Studio Runs](docs/contributing/studio-runs.md)):
+`pnpm lint:backend` run as `brd-host run studio -- <command>` from the lease ([Studio Runs](docs/contributing/studio-runs.md)):
 this Mac runs several agents at once, and E2E fails on timeouts under that load. `--apply` brings back what a command
 edits; exit code 75: the Studio did not run it, run it here.
 
@@ -155,7 +155,7 @@ Mistakes agents made here; each cost a session.
 Specs (`spec/<area>/<name>.spec.md`) and design docs (`docs/design/`) are part of the change, not a follow-up.
 - **Before** changing a feature, read its spec and the design doc it links: the spec is the contract, the doc the why.
 - **Same commit**: a behaviour change updates its spec: requirements, `[@test]` links, `targets:` front matter (the
-  files where the feature lives: its rule, intent, `bd` command and presenter) and the UX tokens. A renamed or moved
+  files where the feature lives: its rule, intent, `brd` command and presenter) and the UX tokens. A renamed or moved
   test or file updates every link to it in `spec/` and `docs/`.
 - **New user-visible feature**: a new spec in the air format (copy an existing one), a row in the
   [Code Map](docs/contributing/code-map.md#feature-index), at most one sentence and a spec link in README "Features".
@@ -188,13 +188,13 @@ In full: [Writing E2E Tests](docs/contributing/e2e-tests.md); the infrastructure
 
 ### Commits and History
 How agents commit to this repository; "Git Operations" below is about the git the app runs.
-- **Linear history, no merge commits**, on any branch. Land a lease with `bd lease pick`, never `git cherry-pick`; by
+- **Linear history, no merge commits**, on any branch. Land a lease with `brd lease pick`, never `git cherry-pick`; by
   hand `git rebase <target>` and `git merge --ff-only <branch>`.
 - Once per clone: `git config core.hooksPath .githooks && git config merge.ff only && git config rerere.enabled false`.
 - Never `--no-ff`, never `--no-verify`, never `commit-tree` with two `-p`.
 
 ### Git Operations
-Hard rules of the git the app and `bd` run. Each rule in full, with its exceptions and its test, is the section of the
+Hard rules of the git the app and `brd` run. Each rule in full, with its exceptions and its test, is the section of the
 same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reasons are
 [Git Operations](docs/design/git-operations.md).
 - **Git 2.54+** (`MIN_VERSION`, `crates/git-executor/src/git_info.rs`).
@@ -216,7 +216,7 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
 - **Who writes the refs of Branch Deck**: every ref of `refs/branch-deck/`, `{prefix}/unapplied/` and `{prefix}/stack/`
   has its named writers, with CAS; a sync mostly only reads them.
 - **Repository lock** (`$GIT_COMMON_DIR/branch-deck.lock`, `repository_lock.rs`): a rewrite of the checked-out branch,
-  a push, Update Project, `bd pick`, unapply, reapply and drop read and compute before it and hold it only for the witness of
+  a push, Update Project, `brd pick`, unapply, reapply and drop read and compute before it and hold it only for the witness of
   their refs and the CAS write (`lock_prepared`; [Lock spans](docs/design/git-operations.md#lock-spans)); a sync and a
   fetch never wait for it.
 - **Operations registry**: only `operations::registry_file` touches `operations.json` and `operations.lock`, only
@@ -233,7 +233,7 @@ same name in [Git Rules](docs/contributing/git-rules.md); the flows and the reas
   `refs/remotes/origin/master`.
 - **Fetch lock**: the baseline is fetched only by `fetch_baseline` (`fetch.lock`); no retry on `cannot lock ref`.
 - **Git config writes**: only the `branchdeck.*` keys of Settings (`repository_config.rs`) and the branch descriptions
-  of `bd describe`.
+  of `brd describe`.
 - **GitHub credentials**: the only git is `git credential fill` (`crates/github/src/token.rs`), never `approve` or
   `reject`; the app's tokens go through `sync_utils::secret_store`.
 - **Symbols** (`symbol_scan.rs`): the blobs of the commit diffs by id, never the whole tree.
@@ -243,7 +243,7 @@ Read [Adding a Git Operation](docs/contributing/adding-git-operation.md) (its ch
 before you add or change git code in `crates/git-ops/`, the cores (`history-rewrite`, `sync-core`, `update-core`,
 `trial-check`, `lease-pool`, `remote-facts`, `repository-model`), `crates/operations/`, `crates/bd-*/` or
 `crates/app-api/`. In short: one name across the layers; the git in git-ops, no lock and no policy; one `<op>_core`
-entry of every caller; an intent of `crates/operations` for an action on the remote, a rewrite or Update Project; bd
+entry of every caller; an intent of `crates/operations` for an action on the remote, a rewrite or Update Project; brd
 and the app parse, call the core and present; reuse a helper before writing a parser; the spec, the flow's section and
 a `process_budget_test.rs` test in the same commit.
 
@@ -294,11 +294,11 @@ A feature's contract is its spec (under `spec/`, without `.spec.md`); every entr
 | Squash and fixups, reword | `commit/squash`, `commit/fixups`, `cli/agent-cli` | `crates/history-rewrite/`, `crates/bd-rewrite/` |
 | Update Project, resolve sessions | `repository/update-project`, `cli/update` | `crates/update-core/`, `crates/operations/src/update.rs` |
 | Pick between worktrees, remote commits | `cli/pick`, `repository/outgoing` | `crates/update-core/src/pick.rs` |
-| Agent workspace (`bd workspace`) | `cli/workspace` | `crates/lease-pool/src/agent_workspace.rs` |
+| Agent workspace (`brd workspace`) | `cli/workspace` | `crates/lease-pool/src/agent_workspace.rs` |
 | Command-line tools | `repository/cli-tools`, `repository/setup-attention` | `crates/cli-tools/` |
-| Landing routes, `bd land` | `branch/landing-routes`, `branch/next-step` | `crates/domain-policy/src/landing_route.rs`, `crates/operations/src/land_execute.rs` |
-| Lease pool (`bd lease`) | `cli/lease` | `crates/lease-pool/` |
-| Remote runs (`bd-host`) | `cli/host` | `crates/bd-host/`, `crates/host-*/` |
+| Landing routes, `brd land` | `branch/landing-routes`, `branch/next-step` | `crates/domain-policy/src/landing_route.rs`, `crates/operations/src/land_execute.rs` |
+| Lease pool (`brd lease`) | `cli/lease` | `crates/lease-pool/` |
+| Remote runs (`brd-host`) | `cli/host` | `crates/bd-host/`, `crates/host-*/` |
 | Landed commits | `repository/landed-commits` | `crates/sync-core/src/landed.rs` |
 | Pull requests, the push, Request Review | `repository/landing-overview`, `branch/pull-requests` | `crates/github/`, `crates/operations/src/pull_request.rs`, `crates/operations/src/push.rs` |
 | Patronus, Safe Push, the next step | `branch/patronus`, `branch/next-step`, `branch/whole-stack` | `crates/patronus/`, `crates/operations/`, `crates/domain-policy/` |
@@ -316,12 +316,12 @@ A feature's contract is its spec (under `spec/`, without `.spec.md`); every entr
 | Settings | `repository/settings` | `src/components/settings/`, `crates/app-settings/` |
 | Symbol dependencies | `commit/symbol-dependencies` | `crates/code-symbols/`, `crates/trial-check/src/symbol_scan.rs` |
 
-The rows and the menus of the main window: `branch/branch-row`, `commit/commit-row` (start there). The `bd` commands:
+The rows and the menus of the main window: `branch/branch-row`, `commit/commit-row` (start there). The `brd` commands:
 `cli/agent-cli`. The `branch-deck` agent skill is generated by `skill_text()` (`crates/bd-cli/src/agent_help.rs`).
 
 ### Rule Index
 Every rule of the domain is one file of `crates/domain-policy/src/` (its `//!` header names the rule and its spec, whose
-`targets:` list it; a table test `<rule>_test.rs` beside it), a pure function the app and `bd` both call; the session
+`targets:` list it; a table test `<rule>_test.rs` beside it), a pure function the app and `brd` both call; the session
 derives its answer into the view (`repository_model::derive`), which the page only words (`src/presenters/`). A rule
 never goes into `src/lib` or `src/hooks` (`pnpm lint:arch`). The crates of git (`git-ops`, `history-rewrite`, `sync-core`,
 `trial-check`, `update-core`, `lease-pool`) and their tests never reach `domain-policy`
@@ -360,8 +360,8 @@ commands come from the registry of app-api. The crates, each mapped by the `//!`
 - domain: `domain-types` (the types across boundaries), `domain-policy` (the rules), `repository-model` (the session),
   `operations` (the engine of the intents, the registry, the journal), `remote-facts` (GitHub and Patronus over HTTP);
 - clients: `github`, `patronus`, `youtrack`;
-- adapters: `app-api` (the one list of the app's commands), `app-settings`, `cli-tools`, the `bd-*` crates (`bd`),
-  `bd-host`, `host-link`, `host-client`, `host-agent`;
+- adapters: `app-api` (the one list of the app's commands), `app-settings`, `cli-tools`, the `bd-*` crates (`brd`),
+  `brd-host`, `host-link`, `host-client`, `host-agent`;
 - shared and tests: `sync-utils`, `test-utils`, `test-server` (the E2E mock server).
 
 `tests/` holds `e2e/` (Playwright specs, snapshots, fixtures, helpers), `perf/` and `screenshots/`.

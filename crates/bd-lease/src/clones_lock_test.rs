@@ -23,7 +23,7 @@ use std::thread::ScopedJoinHandle;
 use std::time::{Duration, Instant};
 use test_utils::git_test_utils::TestRepo;
 
-/// `bd lease get --holder <holder>` in the repository of the fixture, each step recorded in `steps`
+/// `brd lease get --holder <holder>` in the repository of the fixture, each step recorded in `steps`
 pub(crate) fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<GetStep>>) -> Result<LeaseGetOutput, CliError> {
   let environment = fixture.environment(fixture.repo.path());
   let context = LeaseContext::resolve(&environment, None)?;
@@ -34,7 +34,7 @@ pub(crate) fn get_with_steps(fixture: &Fixture, holder: &str, steps: &Mutex<Vec<
   lease_get_reporting(&context, &environment, &args, &|step| steps.lock().unwrap().push(step))
 }
 
-/// The output of a get as bd prints it, checked against `bd schema`
+/// The output of a get as brd prints it, checked against `brd schema`
 pub(crate) fn printed(fixture: &Fixture, output: &LeaseGetOutput) -> Value {
   let value = serde_json::to_value(output).unwrap();
   let (_, schema) = fixture.run(&["schema", "--all"]);
@@ -278,7 +278,7 @@ pub(crate) fn wait_for_the_slot<T>(steps: &Mutex<Vec<GetStep>>, get: &ScopedJoin
   step
 }
 
-/// Set the state of the lease of `path` (of this process: the fixture runs bd in it) as a return or a clean marks it
+/// Set the state of the lease of `path` (of this process: the fixture runs brd in it) as a return or a clean marks it
 fn mark_lease(fixture: &Fixture, path: &str, state: LeaseState) {
   let common_dir = canonical_path(&fixture.repo.path().join(".git"));
   Pool::new(Path::new(&common_dir))

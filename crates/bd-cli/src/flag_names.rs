@@ -4,7 +4,7 @@
 //! keeps its old name as an alias, and its use prints one line on stderr (`renamed_in`). A flag that a command lacks is
 //! `invalid_arguments` whose message names the commands that have it and the flags of this one that preview or accept a
 //! refusal (`unknown_argument`), never a similar name alone: clap's edit distance offered `--check`, a preview, for
-//! `bd land --unchecked`.
+//! `brd land --unchecked`.
 
 use clap::Command;
 use clap::error::{ContextKind, ContextValue, Error};
@@ -60,7 +60,7 @@ pub const RENAMED: &[Renamed] = &[
   },
 ];
 
-/// The lines for stderr of the renamed flags that `args` of the command `op` used: `bd: --check of bd land is now
+/// The lines for stderr of the renamed flags that `args` of the command `op` used: `brd: --check of brd land is now
 /// --dry-run`. The arguments after `--` are values
 #[must_use]
 pub fn renamed_in(op: &str, args: &[OsString]) -> Vec<String> {
@@ -73,11 +73,11 @@ pub fn renamed_in(op: &str, args: &[OsString]) -> Vec<String> {
   RENAMED
     .iter()
     .filter(|renamed| renamed.command == op && flags.contains(&renamed.old))
-    .map(|renamed| format!("bd: {} of bd {op} is now {}", renamed.old, renamed.now))
+    .map(|renamed| format!("brd: {} of brd {op} is now {}", renamed.old, renamed.now))
     .collect()
 }
 
-/// The message of an argument the command lacks (`ErrorKind::UnknownArgument`) in `root`, the built command of `bd`:
+/// The message of an argument the command lacks (`ErrorKind::UnknownArgument`) in `root`, the built command of `brd`:
 /// the commands that have the flag, by its name now, and the flags of this command that preview or accept a refusal;
 /// clap's similar name only when neither says more
 #[must_use]
@@ -95,8 +95,8 @@ pub fn unknown_argument(root: &Command, error: &Error, args: &[OsString]) -> Str
     let mut by_flag: Vec<(&str, Vec<String>)> = Vec::new();
     for (command, flag) in &elsewhere {
       match by_flag.iter_mut().find(|(named, _)| named == flag) {
-        Some((_, commands)) => commands.push(format!("`bd {command}`")),
-        None => by_flag.push((flag, vec![format!("`bd {command}`")])),
+        Some((_, commands)) => commands.push(format!("`brd {command}`")),
+        None => by_flag.push((flag, vec![format!("`brd {command}`")])),
       }
     }
     let named = by_flag
@@ -108,11 +108,11 @@ pub fn unknown_argument(root: &Command, error: &Error, args: &[OsString]) -> Str
       })
       .collect::<Vec<_>>()
       .join("; ");
-    let _ = write!(message, "\n  tip: --{name} is no flag of `bd {op}`; {named}\n");
+    let _ = write!(message, "\n  tip: --{name} is no flag of `brd {op}`; {named}\n");
   }
   let previews = preview_and_refusal_flags(command);
   if !previews.is_empty() {
-    let _ = write!(message, "\n  tip: the flags of `bd {op}` that preview or accept a refusal: {}\n", previews.join(", "));
+    let _ = write!(message, "\n  tip: the flags of `brd {op}` that preview or accept a refusal: {}\n", previews.join(", "));
   }
   if elsewhere.is_empty()
     && let Some(ContextValue::String(suggested)) = error.get(ContextKind::SuggestedArg)
@@ -121,7 +121,7 @@ pub fn unknown_argument(root: &Command, error: &Error, args: &[OsString]) -> Str
     let _ = write!(message, "\n  tip: a similar flag exists: '--{flag}'\n");
   }
   let mut command = command.clone();
-  let _ = write!(message, "\n{}\n\nFor more information, try 'bd {op} --help'.", command.render_usage());
+  let _ = write!(message, "\n{}\n\nFor more information, try 'brd {op} --help'.", command.render_usage());
   message
 }
 

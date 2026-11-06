@@ -25,8 +25,8 @@
   "invalid_plan": { "code": "invalid_plan", "message": "The plan names auth twice", "details": null, "retry": "no", "operation_id": null },
   "locked_by_bd": {
     "code": "locked",
-    "message": "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
-    "details": { "type": "locked", "holder": { "tool": "bd", "command": "bd push auth", "pid": 4242, "held_for": 0 } },
+    "message": "`brd push auth` (pid 4242) is changing this repository; try again when it is done",
+    "details": { "type": "locked", "holder": { "tool": "bd", "command": "brd push auth", "pid": 4242, "held_for": 0 } },
     "retry": "same",
     "operation_id": null
   },
@@ -39,7 +39,7 @@
   },
   "locked_without_holder": {
     "code": "locked",
-    "message": "Branch Deck or bd is changing this repository; try again when it is done",
+    "message": "Branch Deck or brd is changing this repository; try again when it is done",
     "details": { "type": "locked", "holder": null },
     "retry": "same",
     "operation_id": null

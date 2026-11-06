@@ -22,14 +22,14 @@ async fn sync(repo: &TestRepo) {
   sync_branches(&git, repo.path_str(), PREFIX, TestReporter::new(), SyncOptions::default()).await.unwrap();
 }
 
-/// `bd check` of the current grouping of `repo` on a counting executor, which it returns
+/// `brd check` of the current grouping of `repo` on a counting executor, which it returns
 fn counted_check(repo: &TestRepo, cache: &ObjectCache) -> GitCommandExecutor {
   let git = counting();
   check_plan(&git, repo.path_str(), PREFIX, None, cache).unwrap();
   git
 }
 
-/// `bd check` without a plan before the first sync, with an empty object cache and then with the one it filled
+/// `brd check` without a plan before the first sync, with an empty object cache and then with the one it filled
 #[test]
 fn a_check() {
   let (repo, _) = alpha_and_beta_on_origin();
@@ -62,7 +62,7 @@ fn a_check() {
   );
 }
 
-/// `bd check` after a sync, with the object cache that sync left empty: the copies of alpha and beta exist, and their
+/// `brd check` after a sync, with the object cache that sync left empty: the copies of alpha and beta exist, and their
 /// commits are read for reuse
 #[tokio::test]
 async fn a_check_of_synced_branches() {
@@ -76,7 +76,7 @@ async fn a_check_of_synced_branches() {
 }
 
 /// The landing needs of every branch after a sync, the fact the session of the repository computes: one session (the
-/// snapshot, the config and the tips, as `bd check` reads them), one trial check of all branches, which reuses the copies
+/// snapshot, the config and the tips, as `brd check` reads them), one trial check of all branches, which reuses the copies
 /// the sync wrote (no `fast-import`, no `merge-tree`), and the names the commits use and add, read once with the changed
 /// lines; with the object cache the first filled, the second reads the changes and the summaries from it
 #[tokio::test]
@@ -130,7 +130,7 @@ async fn the_second_check_of_a_session() {
     session.check(None).unwrap();
   });
   assert_eq!(second, []);
-  // a session of a rewrite (`bd check --fix` tries one) shares them, and the baseline commit
+  // a session of a rewrite (`brd check --fix` tries one) shares them, and the baseline commit
   let rewritten = session.with_rewrite(&[], &[]);
   let third = processes_of(&git, || {
     rewritten.check(None).unwrap();

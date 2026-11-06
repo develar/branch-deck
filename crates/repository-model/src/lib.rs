@@ -48,7 +48,7 @@
 //! - `runtime`: the actor of a session: its mailbox, the runs of its syncs with the mailbox as their reporter, the
 //!   patches at most every 16 ms; `GitSessionHost`, the syncs, the Patronus views and the landing needs of the app's
 //!   sessions with git
-//! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `bd push`: parked, landed
+//! - `push_guard`: the checks of the app's push under the repository lock, by the rules of `brd push`: parked, landed
 //!   whole, held by a running Safe Push; the words of the holds for both sides (the push itself is `operations::push`)
 //! - `session`: the sessions of the process by worktree and branch prefix (`Sessions`, `SessionKey`): open, subscribe,
 //!   snapshot, focus, the demand of each window (`set_demand`), sync tickets, `apply` (the result of an operation, with
@@ -65,7 +65,7 @@
 //! - `table`: the branch table of a session as the events of its syncs leave it (`TableState::apply`), in the parts of
 //!   `domain_types::session`, and what its own operations wrote, which no older run undoes: the outcome of a push
 //!   (`begin_push`, `end_push`), a deleted archived or unapplied branch; the operations of the remote that run or wait
-//!   (`operations`, `apply_operation`), which only `operations::registry` changes; `bd sync` folds its events into one
+//!   (`operations`, `apply_operation`), which only `operations::registry` changes; `brd sync` folds its events into one
 //!   too and summarizes it
 //! - `warm_start`: the frame of a session (`CachedSession`: its key, the parts of its table, the values of its facts) in
 //!   the object cache, one per worktree, which a later start seeds the session from before its first sync

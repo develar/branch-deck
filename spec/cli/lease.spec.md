@@ -1,6 +1,6 @@
 ---
-name: bd lease
-description: Requirements for bd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space before it deletes the build output of the free slots of every pool by their clean rules, the ones returned longest ago first, and then free slots below the limit, disk reports what the pools hold on disk; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of bd-host drives in process.
+name: brd lease
+description: Requirements for brd lease, the pool of worktrees that agent sessions lease, one session per slot: get moves a free slot to the HEAD of the source, else takes over an idle lease whose work landed, else adds one and names where its commits land, pick lands them on the branch of the source, return frees it and applies the clean rules of .branchdeck.toml, status reads the state, adopt adds existing worktrees, clean applies the rules on demand, trim deletes the free slots past branchdeck.leaseMaxSlots of every pool of the machine with their Bazel output bases, which a get does itself below the minimum free space before it deletes the build output of the free slots of every pool by their clean rules, the ones returned longest ago first, and then free slots below the limit, disk reports what the pools hold on disk; the host slots are leases of the pool that a lend table lends to one run at a time, which the agent of brd-host drives in process.
 style: plain-1
 targets:
   - ../../crates/bd-lease/src/lease_command.rs
@@ -43,33 +43,33 @@ targets:
   - ../../crates/git-executor/src/worktree_safety_test.rs
 ---
 
-# bd lease
+# brd lease
 
 Status: Implemented
 Date: 2026-10-19
 
 ## Summary
 
-Agent sessions that share a checkout each work in a worktree of their own and land their commits with `bd lease pick`
-([bd pick](pick.spec.md)). `bd lease` keeps the pool of those worktrees. `bd lease get` leases a slot at the HEAD of
+Agent sessions that share a checkout each work in a worktree of their own and land their commits with `brd lease pick`
+([brd pick](pick.spec.md)). `brd lease` keeps the pool of those worktrees. `brd lease get` leases a slot at the HEAD of
 the source checkout: a free slot is moved there, so only the diff between the two commits is written, and a new slot
 is added only when no slot is free and no idle lease, one whose holder process is gone, holds only landed work. Its
 answer names where the commits of the lease land (`home`) and what the session runs (`next`), so an agent never works
-out the landing itself. `bd lease pick` in the lease lands each commit on that
-branch, onto its tip as it is then, and the lease follows. `bd lease return` frees the slot once its commits landed. The state in
+out the landing itself. `brd lease pick` in the lease lands each commit on that
+branch, onto its tip as it is then, and the lease follows. `brd lease return` frees the slot once its commits landed. The state in
 `$GIT_COMMON_DIR/branch-deck/leases.json` is the authority. A free slot is pool property, and the next get replaces
 its content, so no ancestry check decides whether a slot is free. How it works: "Lease" in
-[Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
+[Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `brd help worktrees`
 ([Agent CLI](agent-cli.spec.md)). Whether an agent leases at all, `branchdeck.agentLease`, says
-[bd workspace](workspace.spec.md), which it runs before its first edit.
+[brd workspace](workspace.spec.md), which it runs before its first edit.
 
 ## Goals
 
 - A get in a repository of 1.4M files takes seconds when a slot is free: one `status` and a move of the slot by the
   diff, never a full checkout and never a scan of the other slots.
 - A slot whose last commit a rewrite of master made unreachable is reused as any other free slot.
-- `bd lease status` answers from the state in milliseconds: no `git status` of any slot.
-- Concurrent gets never get the same slot and never wait for a `bd update`; a get that reuses a slot never waits for
+- `brd lease status` answers from the state in milliseconds: no `git status` of any slot.
+- Concurrent gets never get the same slot and never wait for a `brd update`; a get that reuses a slot never waits for
   another's checkout, and a pool adds one slot at a time, so a burst of gets never clones a large checkout many times
   at once and a slot freed meanwhile wins over a new one.
 - A return never loses work silently: unlanded commits, local changes and a process of another session in the slot
@@ -102,10 +102,10 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 - The answer of a get must name where the commits of the lease land, `home`: `checkout` (the source checkout, its top
   level) and `branch` (the branch it had checked out, `null` for a detached HEAD), and `next`, what the session runs in
-  order: `bd -C <path> lease pick` after each commit that builds and passes its tests, `bd lease return --lease-id
+  order: `brd -C <path> lease pick` after each commit that builds and passes its tests, `brd lease return --lease-id
   <id>` once the task is done. With no branch in `home` there is nothing to pick onto, and `next` is only the return.
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`the_get_names_the_home_of_the_lease_and_the_commands_of_the_session`)
-- `bd lease get` must lease a free slot of the pool of this repository, moved to the exact HEAD commit of `-C` (or the
+- `brd lease get` must lease a free slot of the pool of this repository, moved to the exact HEAD commit of `-C` (or the
   current directory), detached, and print `path`, `lease_id` (a UUID), `holder` (`--holder`, default `agent-<uuid>`),
   `slot` (the worktree id), `source_head`, `leased_at`, `reused`, `seeded` and `processes_checked`. A slot whose
   commit master no longer holds, after a rewrite of master, must be reused like any free slot.
@@ -153,21 +153,21 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_takes_over_an_idle_lease`)
 - The answer of a takeover must name the lease it took over (`took_over`: `lease_id`, `holder`, `leased_at`, its
   `branch`, which stays, and `landed`, each commit with its proof) and the slot keep its record (`reclaimed` of
-  `bd lease status`) until the next get of the free slot. The takeover is a return of the old lease by the pool: its
+  `brd lease status`) until the next get of the free slot. The takeover is a return of the old lease by the pool: its
   seeded paths removed, HEAD detached, the clean rules of the source applied into the trash, which the get leaves for
   the next return or clean to delete (the trash of a run that is gone), then the move of a reused slot.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_get_takes_over_an_idle_lease_whose_commits_landed`)
 - An idle lease with work its home branch lacks must never be taken over: the get skips it (`skipped`, `reason:
   "idle_with_work"`, `idle` with its `commits`, `paths` or `operation`), records the check in the lease
-  (`idle_check`) and adds a slot, and `bd lease status` shows it as `idle_with_work`. A later get checks it again only
+  (`idle_check`) and adds a slot, and `brd lease status` shows it as `idle_with_work`. A later get checks it again only
   when what the verdict rests on moved: the tree work while the slot (its `HEAD`, the length and the mtime of its
   reflog) is unchanged, the commits also while the home tip is; else it costs one `rev-parse`. One get checks at most
   two idle leases in full.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`an_idle_lease_with_unlanded_work_is_kept_and_named`, `a_kept_idle_lease_is_checked_again_only_when_its_slot_or_home_moved`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_that_passes_over_an_idle_lease_it_checked`)
 - While it checks, the get must hold the slot by a `preparing` lease that keeps the idle one (`taking_over`); a check
-  that finds work, an error and a get whose process is gone give it back (from the copy of the get, so a bd that wrote
-  the state without the field loses nothing), in the reserve of the next get, the mark of `bd lease clean`, a return
+  that finds work, an error and a get whose process is gone give it back (from the copy of the get, so a brd that wrote
+  the state without the field loses nothing), in the reserve of the next get, the mark of `brd lease clean`, a return
   and the status alike. Its commit point is under the pool lock: the lease still the get's and the slot as the check
   found it (a commit of a resumed session meanwhile stops the takeover); from there a get that dies leaves the slot
   free, as its work landed.
@@ -182,7 +182,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_deletes_the_trash_without_the_clones_lock`)
 - A get whose volume is still below the minimum free space after the trash must trim the pools of the machine once
   (`deleting the free slots past branchdeck.leaseMaxSlots …`, "Trim" below), never under the clones lock, and measure
-  again; its answer names what went (`trimmed`, the output of `bd lease trim`), and a `low_disk_space` after it names
+  again; its answer names what went (`trimmed`, the output of `brd lease trim`), and a `low_disk_space` after it names
   how many slots it deleted and the bytes it freed.
   [@test] ../../crates/bd-lease/src/trim_test.rs (`a_get_below_the_minimum_free_space_trims_the_pools_first_and_names_what_it_deleted`)
 - A get whose volume is still below the minimum free space after the trim must shrink the pools of the machine once
@@ -190,7 +190,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   every pool, the ones returned longest ago first (`returned_at`; a slot never returned, then one returned before that
   field, first of all), and the slot each pool's next get would take (clean before dirty, returned last first) only
   after every other, each by the clean rules of its own `.branchdeck.toml` with `keep` 0 and `age` 0 under the
-  `cleaning` marker, as `bd lease clean` cleans a free slot: the worktree stays, what the rules name goes through the
+  `cleaning` marker, as `brd lease clean` cleans a free slot: the worktree stays, what the rules name goes through the
   trash of its pool, deleted once the marker is gone. Only the free slots on the volume the get measures (the device of
   its pool directory) are candidates: a pool of `branchdeck.leasePool` or a worktree adopted where it was can live on
   another disk, whose deletes would not raise that free space; two APFS volumes of one container share their free
@@ -205,7 +205,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   it names how many slots it cleaned and the bytes they freed. On 2026-11-03 each free slot of branch-deck held 50 to
   59 GiB, mostly `target/`, and the volume had 227 GiB against a minimum of 200 GiB: the rules of a return keep the 8
   newest units of every group, warm output that the next lease of a slot rarely reuses, as a get takes the slot
-  returned last, and no trim deleted a slot of pools within their limit; `bd lease clean --free --keep 0 --age 1m`
+  returned last, and no trim deleted a slot of pools within their limit; `brd lease clean --free --keep 0 --age 1m`
   freed about 600 GiB.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots_returned_longest_ago_first`, `a_shrink_that_one_slot_lifts_past_the_minimum_cleans_only_that_slot`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_names_what_it_freed`)
@@ -226,8 +226,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   too) and one with a process in it but its Bazel servers stay, and so do three free slots: the one the get takes next
   in its own pool, which it reuses warm where an eviction would make it clone the same worktree again; one marked
   dirty, whose changes made without a lease may be their only copy; and one never returned, such as a worktree that
-  `bd lease adopt` kept where it was. Its answer names the
-  slots it deleted (`evicted`, as `bd lease trim` prints them), and a `low_disk_space` after it names how many and the
+  `brd lease adopt` kept where it was. Its answer names the
+  slots it deleted (`evicted`, as `brd lease trim` prints them), and a `low_disk_space` after it names how many and the
   bytes they freed. A free slot is pool property: after its build output, what is left of it is its worktree, which a
   later get clones again, and the user, told only `low_disk_space`, would delete the slots by hand.
 - A get whose minimum free space is more than the volume holds in all (`f_blocks` of the same `statfs`) must neither
@@ -338,7 +338,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_seeds_its_new_slot_without_the_clones_lock`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_killed_holder_frees_the_clones_lock_with_its_process`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`two_leases_never_get_the_same_slot`)
-- A get must print each step on stderr as it starts (`bd lease get: <step>`): the reserve of a free slot, under the
+- A get must print each step on stderr as it starts (`brd lease get: <step>`): the reserve of a free slot, under the
   clones lock the reserve of a slot freed meanwhile or a new one, the wait for the clones lock, the stop of the Bazel
   servers, the `status` of a slot, the wait for a slot whose return or clean runs, the delete of the trash, the clone
   of a template, the refresh of its index, the checkout and the seed; the JSON goes to stdout at the end. The core
@@ -358,7 +358,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_slot_deleted_by_hand_gives_its_path_to_the_next_new_slot`)
   [@test] ../../crates/git-ops/src/lease_slot_test.rs (`a_new_slot_takes_over_the_registration_of_a_slot_deleted_by_hand`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_of_a_new_slot_by_a_clone`)
-- A get and a return must take no repository lock: a sync of the repository beside them (another agent's `bd sync`,
+- A get and a return must take no repository lock: a sync of the repository beside them (another agent's `brd sync`,
   the app's) neither waits for them nor holds them, and the lease is cut at the HEAD that sync reads.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_and_a_return_beside_a_held_sync_do_not_wait_for_it`)
 - `--branch <name>` (`-b`) must create the branch at the source HEAD and check it out in the slot; a branch that
@@ -378,8 +378,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   one `status` and the HEAD of the slot, plus one `reset` when the slot is at another commit.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_get_and_return`)
 - The process scan must find a process by its working directory, compared by path components, or by the
-  `--workspace_directory` of a Bazel server, and leave out the session that runs `bd`: `bd`, its ancestors and every
-  process of a process group one of them is in (the `jq` of `bd lease return | jq`, the `caffeinate` of the agent;
+  `--workspace_directory` of a Bazel server, and leave out the session that runs `brd`: `brd`, its ancestors and every
+  process of a process group one of them is in (the `jq` of `brd lease return | jq`, the `caffeinate` of the agent;
   not the group of the init process). A background task of the agent leads a group of its own and still counts.
   Three more never work in a slot: git's background maintenance (a `git maintenance` or a `git gc --auto` and every
   git below it in the parent chain, told by argv), which writes only the shared object store; git's fsmonitor daemon
@@ -392,7 +392,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Return
 
-- `bd lease return` must free the lease of the worktree of `--workspace` (default: of `-C`, else of the current
+- `brd lease return` must free the lease of the worktree of `--workspace` (default: of `-C`, else of the current
   directory): remove the seeded paths (`removed`, each moved into the trash as a whole), detach HEAD when it is on a
   branch (`detached_branch`, the branch stays) and leave the slot at its commit.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`the_seed_copies_the_included_ignored_files_and_the_return_removes_them`, `a_lease_on_a_new_branch_keeps_the_branch_after_the_return`)
@@ -405,8 +405,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [{`pid`, `command`, `argv` (at most 200 characters), `kind`: `bazel_server` or `other`, `workspace`?}], the message
   naming each with its argv, so no `ps` is needed to tell them), HEAD
   with commits that no branch, tag or remote branch holds (`unlanded_commits`, exit 4, `commits`, the message naming
-  `bd -C <dir> lease pick`), an open resolve session of the slot (`resolve_in_progress`, exit 4: the next lease of
-  the slot would find it; the message names `bd update --continue` and `--abort`, and `--confirm-preserved` does not
+  `brd -C <dir> lease pick`), an open resolve session of the slot (`resolve_in_progress`, exit 4: the next lease of
+  the slot would find it; the message names `brd update --continue` and `--abort`, and `--confirm-preserved` does not
   pass it), and local changes (`dirty_worktree`, exit 4, `paths`). The commits of the commit
   the slot was leased at never count as unlanded, also after a rewrite of master made them unreachable.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_free_slot_is_reused_after_master_was_rewritten_past_its_commit`)
@@ -417,7 +417,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   no proof finds are unlanded. The proofs, each for the commits the one before left: a commit of the range of a dry
   run of the pick (the fork point in the reflog of the branch, `git replay` onto its tip) that it would not pick; the
   patch id of a commit of the branch's side; a commit of the branch of the same identity (author, author time, subject
-  without the prefix) that is its cherry-pick or changes the same lines; the twin of `bd update`, a commit of the
+  without the prefix) that is its cherry-pick or changes the same lines; the twin of `brd update`, a commit of the
   branch of the same identity that has every changed line of the commit with its fixups (a conflict resolution, an
   autosquash), or every line it adds while the lines it removes and the twin does not are in no line of the file of the
   twin's parent (a removal of lines that another commit had rewritten or removed already: nothing is lost; a file there
@@ -510,25 +510,25 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Pick
 
-- `bd lease pick` inside a lease must be `bd pick --from <lease> --follow` run in the `home.checkout` of the lease,
+- `brd lease pick` inside a lease must be `brd pick --from <lease> --follow` run in the `home.checkout` of the lease,
   onto `home.branch`: the commits the lease has and the branch lacks replayed onto its tip as it is then (whatever
   other sessions landed meanwhile; no test runs again), and the lease moved onto the new tip, its answer that of
-  `bd pick` (`state`, `picked`, `followed`, `undo_token`). With nothing to land the lease only follows
+  `brd pick` (`state`, `picked`, `followed`, `undo_token`). With nothing to land the lease only follows
   (`state: up_to_date`, `followed.state: moved`), so it gets what the other sessions landed. --dry-run writes nothing
   but git objects.
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_lands_the_commits_on_the_home_branch_and_the_lease_follows`)
 - The branch is checked under the repository lock with the rest of the pick's witness: when the home checkout has
   another branch checked out, nothing lands, `home_branch_switched` (exit 4) names both branches, and the agent asks
-  the user. Inside the lease `bd workspace` shows the switch (`home.switched_to`). A lease cut from a detached HEAD has
+  the user. Inside the lease `brd workspace` shows the switch (`home.switched_to`). A lease cut from a detached HEAD has
   no branch to land on: `no_home_branch` (exit 4). Outside a leased slot: `no_lease` (exit 2).
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`the_get_names_the_home_of_the_lease_and_the_commands_of_the_session`, `a_lease_pick_outside_a_lease_is_refused`)
 - A conflict must land nothing (exit 1, `state: conflict`) and come back to the lease: the lease is updated onto the
-  tip of its home branch without a fetch (`update`, what `bd update` prints, [bd update](update.spec.md)), and the
-  conflict there opens a resolve session in the lease; the lease moves only when `bd update --continue` finishes it,
-  whose `next` is `bd -C <lease> lease pick` again, and `bd update --abort` closes it. `conflict.next` says so. An
+  tip of its home branch without a fetch (`update`, what `brd update` prints, [brd update](update.spec.md)), and the
+  conflict there opens a resolve session in the lease; the lease moves only when `brd update --continue` finishes it,
+  whose `next` is `brd -C <lease> lease pick` again, and `brd update --abort` closes it. `conflict.next` says so. An
   update that applies at once (the words resolved the conflict) is picked again at once. While the session is open a
-  `bd lease pick` refuses (`resolve_in_progress`, exit 4). The output is `lease_pick` of `bd schema`.
+  `brd lease pick` refuses (`resolve_in_progress`, exit 4). The output is `lease_pick` of `brd schema`.
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick_that_conflicts`)
 - Its git processes are those of the pick (`a_pick`); the lease itself comes from the state of the pool, without git,
@@ -536,17 +536,17 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_pick`)
 - A repository whose committed `.branchdeck.toml` sets `pick_requires_check = true` in `[lease]` (false by default)
   must land only a tree that a green build or test ran on. The gate is the pick's
-  ([bd pick](pick.spec.md#the-check-of-the-tree)): `bd pick --from <lease>`, what `bd lease pick` runs, passes it
+  ([brd pick](pick.spec.md#the-check-of-the-tree)): `brd pick --from <lease>`, what `brd lease pick` runs, passes it
   too, so no path around it lands an unchecked tree. A check tool (`bt` of the IntelliJ monorepo) appends one JSON
   line per green run to `bd-checks.jsonl` in the git dir of the worktree (`git rev-parse --git-path`):
   `{"schema":1,"tree","head","tool","command","patterns","exit":0,"at"}`, with `host` for a run on another machine.
-  The tree is `HEAD^{tree}` of a clean worktree, else the tree of the worktree with its local changes. bd only reads
+  The tree is `HEAD^{tree}` of a clean worktree, else the tree of the worktree with its local changes. brd only reads
   the file: a line of another schema, with an `exit` other than 0 or that does not parse counts as no record. The
   pick reads the setting from the home checkout, the file of the branch the commits land on, as the return reads its
   clean rules; a file that does not parse is `invalid_arguments` (exit 2). When no record names `HEAD^{tree}` of the
   lease, nothing lands: `unchecked_tree` (exit 4), whose message names the tree and HEAD, the last check (its tree,
   time and command, how many files changed since and the first 10 of them, left out when git no longer has that
-  tree) and both ways on: build and test, then `bd -C <lease> lease pick` again, or `bd -C <lease> lease pick
+  tree) and both ways on: build and test, then `brd -C <lease> lease pick` again, or `brd -C <lease> lease pick
   --allow-unchecked '<reason>'`. The pick expects the lease's HEAD to be the commit it checked (`expect_source_head`, held
   under the lock by the recheck of the pick): a lease that moved between the check and the lock is `head_moved`
   (exit 3), and the pick runs again. The gate stops a stale claim, a check that ran before the last edit; it does not
@@ -614,7 +614,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   of a get, where the cargo rule keeps no unit of the kept profile dirs; a get leaves the removed entries out of a clone.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_of_a_target_dir_keeps_its_profile_dirs_for_the_cargo_rule`, `a_delete_of_the_dir_of_a_cargo_rule_needs_its_kept_entries`, `a_kept_entry_of_a_target_dir_is_its_exact_name`, `a_delete_of_a_profile_dir_keeps_its_unit_dirs_for_the_cargo_rule`)
 - A `delete` must remove a link (a symlink, a junction or a directory symlink of Windows) in place, as the link and
-  never its target, also in a return and `bd lease clean`, which move every other path into the trash: a link is no
+  never its target, also in a return and `brd lease clean`, which move every other path into the trash: a link is no
   cheaper to move than to delete, and a junction moved there stayed ("Access is denied"). It goes only once every
   other path removed with it is moved, so a failed move never leaves a link lost, and its own bytes count in
   `freed_bytes` at once. The trash holds no links; one an earlier version left there goes as the link with the trash
@@ -622,8 +622,8 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_through_the_trash_deletes_bazel_links_in_place_and_keeps_their_targets`, `the_sweep_deletes_a_link_left_in_the_trash_of_a_gone_run`, `a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
 - An unknown key, an unknown kind, a wrong type or a file that does not parse must be an error of the file.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`unknown_keys_and_kinds_are_errors`)
-- The table `[host]` belongs to the remote runs of `bd-host` (spec/cli/host.spec.md), which checks its keys. The rules
-  and `pick_requires_check` must read past it, whatever it holds. A bd before this rule refuses a file with `[host]`
+- The table `[host]` belongs to the remote runs of `brd-host` (spec/cli/host.spec.md), which checks its keys. The rules
+  and `pick_requires_check` must read past it, whatever it holds. A brd before this rule refuses a file with `[host]`
   and then applies no clean rule.
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`the_host_table_of_the_remote_runs_stays_unread`)
 - A rule must be skipped and reported (`error`), never applied, when its path is absolute, leaves the checkout with
@@ -649,18 +649,18 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   (`sync_utils::fs_retry`, which every removal and rename of the app goes through; a read-only attribute, which fails a
   call with the same "Access is denied", is cleared instead, as git clears it) the files of the unit moved before it go
   back, and the `error` of the rule names the path and says that a process holds it (Windows has no process scan
-  to name it): once the process let go, the next `bd lease clean` deletes it. The other paths of the rule go on. Once
-  the slot is free the return, `bd lease clean` once every slot it marked is free again, and `bd lease reclaim` once
+  to name it): once the process let go, the next `brd lease clean` deletes it. The other paths of the rule go on. Once
+  the slot is free the return, `brd lease clean` once every slot it marked is free again, and `brd lease reclaim` once
   every slot it reclaimed is free, delete their trash, counting `freed_bytes` in the same walk, and the trash of a run
   whose process is gone; a path that can't be deleted stays and is named in `trash_left`. `freed_bytes` counts the blocks an APFS clone shares with another checkout too;
-  `bd lease clean` also prints `volume_freed_bytes`, what the volume gained (`statfs` before and after).
+  `brd lease clean` also prints `volume_freed_bytes`, what the volume gained (`statfs` before and after).
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_return_deletes_through_the_trash_and_what_a_gone_run_left_there`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_delete_keeps_its_kept_entries_removes_a_link_and_goes_through_the_trash`)
   [@test] ../../crates/lease-pool/src/lease_clean_test.rs (`a_held_unit_and_a_held_entry_stay_whole_and_the_next_clean_takes_them`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_held_entry_of_a_free_slot_stays_whole_until_its_process_exits`)
   [@test] ../../crates/sync-utils/src/fs_retry_test.rs (`a_process_whose_current_directory_is_in_the_directory_delays_its_removal_until_it_exits`, `a_program_that_keeps_a_file_open_fails_the_removal_on_windows_after_a_second`, `a_read_only_file_and_directory_are_renamed_and_removed_at_once`)
   [@test] ../../crates/git-executor/src/fs_retry_scan_test.rs (`every_removal_and_rename_waits_out_a_holder_on_windows`)
-- `bd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
+- `brd lease clean [--free] [--dry-run] [--keep <n>] [--age <duration>] [<dir>...]` must apply the rules of the checkout
   it runs in, read once, to the free slots (`--free`), to the given worktrees, or to that checkout. A slot of the pool
   with a lease or with a process in it is skipped (`skipped`); a checkout that is no slot is cleaned as asked. A free
   slot it cleans must carry a `cleaning` marker under the pool lock until the clean of it ends, so no get leases it.
@@ -668,15 +668,15 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   (exit 2).
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing`, `a_bad_file_does_not_fail_the_return`)
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`a_slot_that_clean_cleans_is_reserved_against_a_get`)
-- The rules are configured on purpose, so they apply by default: the return and `bd lease clean` delete what they
-  name, as the user decided. `bd lease return --no-clean` applies none. `--keep <n>` and `--age <duration>`, on both
+- The rules are configured on purpose, so they apply by default: the return and `brd lease clean` delete what they
+  name, as the user decided. `brd lease return --no-clean` applies none. `--keep <n>` and `--age <duration>`, on both
   commands, set `keep` and `age` of every cargo rule for that call without an edit of the file; a bad `--age` is
   `invalid_arguments`. These are the only overrides: `except` of a `delete` rule is the file's.
   [@test] ../../crates/bd-lease/src/lease_clean_test.rs (`no_clean_and_the_overrides_change_what_a_call_cleans`)
 
 ### Status
 
-- `bd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
+- `brd lease status` must list every slot from the state alone, with its `path`, `state` (`free`, `preparing`,
   `ready`, `templating`, `returning`, `cleaning`, `abandoned`), `dirty`, `missing`, `lease` (with `holder_pid`,
   `holder_alive`, `idle` for a ready lease whose holder is gone: `idle`, or `idle_with_work` with what a check found,
   and `taking_over` while a get checks one) and `reclaimed`, the `free_bytes` of the volume of the pool and the `trash_bytes` a killed run left; it must run no
@@ -686,21 +686,21 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Reclaim
 
-- `bd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` must apply the rule of the takeover to every
+- `brd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` must apply the rule of the takeover to every
   idle lease of the pool, each checked anew: one whose work landed is returned as the takeover returns it, under a CAS
   on its lease, its holder still gone and its slot as the check found it (`reclaimed`, each with `landed`,
   `stopped_servers`, `cleaned`), its slot free with its record, and the trash of every reclaimed lease deleted once the
   last one is free (`trash_left`), so none waits for the delete of another's build output; one with work is kept and
   its check recorded (`kept`, as `idle_with_work`); one not quiet for an hour, busy, changed meanwhile or whose check
   failed is `skipped` with its reason. `--dry-run` checks the same and writes nothing. The output is `lease_reclaim` of
-  `bd schema`, exit 0.
+  `brd schema`, exit 0.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest`)
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_lease_reclaim`)
 
 ### Trim
 
-- `bd lease trim [--max <n>] [--plan]` must trim every pool of this machine: the pool of `-C`, wherever it lives, and
+- `brd lease trim [--max <n>] [--plan]` must trim every pool of this machine: the pool of `-C`, wherever it lives, and
   each pool under `~/.branch-deck/pool` whose slots name their repository (the `.git` file of a slot). A pool keeps
   `--max`, else `branchdeck.leaseMaxSlots` of its repository's git config (a whole number, the machine's, so never
   `.branchdeck.toml`), else 10 slots; a value that does not parse is the default, named as `config_error`. Past the
@@ -728,7 +728,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 - The deletes must run once every pool is done, side by side (8 threads over the entries of what the trash holds):
   each slot names the bytes its directory and its output bases freed (`freed_bytes`), the output the sum and the
   volume what it gained (`volume_freed_bytes`, `statfs` before and after) and has free now (`free_bytes`). `--plan`
-  must name the same slots and output bases and write and measure nothing. The output is `lease_trim` of `bd
+  must name the same slots and output bases and write and measure nothing. The output is `lease_trim` of `brd
   schema`, exit 0.
   [@test] ../../crates/lease-pool/src/trim_test.rs (`every_path_is_deleted_side_by_side_and_its_bytes_counted`)
   [@test] ../../crates/bd-lease/src/trim_test.rs (`a_trim_plan_names_what_would_go_and_deletes_nothing`)
@@ -736,7 +736,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Disk
 
-- `bd lease disk [--fresh]` must report every pool of this machine (as the trim finds them) without a `du` of a slot:
+- `brd lease disk [--fresh]` must report every pool of this machine (as the trim finds them) without a `du` of a slot:
   per slot its `state`, `holder`, `returned` and the bytes its builds wrote, the directories its clean rules name (the
   outermost of nested ones, `build`) and its Bazel output bases (`output_bases`), each with its bytes, their sum
   (`bytes`), `measured_at` and `cached`; per pool `max_slots`, `past_limit` (the free slots a trim would delete now),
@@ -758,16 +758,16 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
   bases of the main worktree for 15 minutes; a slot that left the pool leaves the file. `--fresh` walks everything
   again. On the user's Mac a report from the file takes half a second, a walk of every slot with its worktree (32
   slots, 12 of them of idea-1 with 1.4M files each, 860 GB) five minutes. It
-  writes nothing else, and counts as a read (`bd help`).
+  writes nothing else, and counts as a read (`brd help`).
 
 ### Reclaimed
 
-- A command of bd in a slot whose lease a get or a reclaim took over must be refused as `lease_reclaimed` (exit 4),
+- A command of brd in a slot whose lease a get or a reclaim took over must be refused as `lease_reclaimed` (exit 4),
   nothing changed, when another session than the one that holds it now runs it: the message names the old lease and
-  holder, the new one, the home branch and the old branch, which stays, and `next_steps` names `bd lease get --holder
+  holder, the new one, the home branch and the old branch, which stays, and `next_steps` names `brd lease get --holder
   <old holder> -C <home>`. The session that holds it is told by its process: refused unless the holder (pid and start
-  time) is an ancestor of bd. A read passes, but `bd workspace`, the first command of a session; `bd lease status`
-  never refuses, and `bd lease return --lease-id <current lease>` passes, for a coordinator. A free slot with the record
+  time) is an ancestor of bd. A read passes, but `brd workspace`, the first command of a session; `brd lease status`
+  never refuses, and `brd lease return --lease-id <current lease>` passes, for a coordinator. A free slot with the record
   refuses every write, and a lease that a get is taking over every command. Checked from the state, no git, with a
   process scan only in such a slot.
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaimed`)
@@ -775,12 +775,12 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Adopt
 
-- `bd lease adopt <dir>...` must add each clean linked worktree of this repository as a free slot, where it is
+- `brd lease adopt <dir>...` must add each clean linked worktree of this repository as a free slot, where it is
   (`adopted`), and list the refused ones with their code (`refused`, exit 4): not a linked worktree of this repository
   (`not_a_slot`), held by the pool already (`slot_in_pool`), a process in it (`slot_busy`), local changes
   (`dirty_worktree`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`adopt_adds_clean_linked_worktrees_and_refuses_the_rest`)
-- `bd lease adopt --move <dir>...` must, after the same checks, move each worktree to the next slot path
+- `brd lease adopt --move <dir>...` must, after the same checks, move each worktree to the next slot path
   `<pool>/<n>/<repository name>` with `git worktree move` (never a plain rename), report `moved_from`, and remove the
   old parent directory when it is left empty (`<treehouse pool>/<n>/`). A worktree on another volume than the pool
   directory (`st_dev`) must be refused as `other_volume` (exit 4): a move there copies every file. The state file of
@@ -792,7 +792,7 @@ its content, so no ancestry check decides whether a slot is free. How it works: 
 
 ### Host slots
 
-The slots that the agent of `bd-host` keeps for the runs of other machines (spec/cli/host.spec.md): it calls the
+The slots that the agent of `brd-host` keeps for the runs of other machines (spec/cli/host.spec.md): it calls the
 functions of `lease_pool::host_slots` in process on the host. A remote slot holds no state of its own, since the commit
 comes from the client and the outputs go back to it, so a slot is lent to one run for the duration of that run only.
 
@@ -827,11 +827,11 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
 
 - A fill must lease the missing host slots up to `branchdeck.hostSlots` (git config of the host, 4 by default) as plain
-  `ready` leases of the holders `bd-host/1`, `bd-host/2`, … at the HEAD of the host checkout, detached, through the get
+  `ready` leases of the holders `brd-host/1`, `brd-host/2`, … at the HEAD of the host checkout, detached, through the get
   of the pool. Its gets must run side by side: a free slot is reused at once, and the clones lock makes the clones one
   at a time. A get that fails frees its number, and the first failure is the error; the slots got stay. `leases.json`
-  keeps its format, so another bd and the app read the pool as before. A plain `bd lease get` never takes a host slot, `bd lease clean --free` skips it, the hint at idle
-  leases does not name it, and a get with a holder `bd-host/…` is refused as `invalid_arguments`.
+  keeps its format, so another brd and the app read the pool as before. A plain `brd lease get` never takes a host slot, `brd lease clean --free` skips it, the hint at idle
+  leases does not name it, and a get with a holder `brd-host/…` is refused as `invalid_arguments`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_alone`)
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_lease_keeps_the_format_of_leases_json`)
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_gets_of_a_fill_run_side_by_side`)
@@ -861,18 +861,18 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
 - After a give-back, the clean rules of the slot's own `.branchdeck.toml` must run when they are due: with
   `branchdeck.hostSlotMaxSize`, when what they would free passes it, or when the volume has less free space than
   `branchdeck.leaseMinFree` plus it; without it, after 50 runs or 7 days since the last clean, or when the volume has
-  less than `branchdeck.leaseMinFree`. `bd lease clean --host` cleans every idle host slot now (`--dry-run` only
+  less than `branchdeck.leaseMinFree`. `brd lease clean --host` cleans every idle host slot now (`--dry-run` only
   measures) and skips a slot that is not idle or has a process in it, with the reason; it conflicts with `--free` and
   `DIR`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs`)
-- `host_slots::keep_free`, which the keeper of bd-host runs once a minute, must keep the minimum free space of the
+- `host_slots::keep_free`, which the keeper of brd-host runs once a minute, must keep the minimum free space of the
   volume of the pool without a get: below `branchdeck.leaseMinFree` the trash, the trim of every pool of the machine,
   the shrink and the eviction, each when the one before left the volume below it, as a get takes them ("Get"). A host
   slot is a lease and stays. Below the minimum after every step it must answer what went and the free space, not the
   `low_disk_space` of a get, whose advice is for an agent that asked for a slot; without a minimum, where the system
   tells no free space, and while a live process upgrades git it deletes nothing. One `ReliefRound` takes each volume
   once: a pool of the round on a volume that it took measures nothing. `host_slots::trim` is the trim of
-  `bd-host trim` ([bd-host](host.spec.md#trim)), with the same guard.
+  `brd-host trim` ([brd-host](host.spec.md#trim)), with the same guard.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_keeper_trims_the_pools_below_the_minimum_free_space_without_a_get`)
 - Only the git of that measure (one `ls-files` of the paths of the rules) may run while the slot is `giving_back`, so
   an upgrade of git waits for it; the walk of the sizes must run once the slot is idle, and the clean then takes the
@@ -888,13 +888,13 @@ comes from the client and the outputs go back to it, so a slot is lent to one ru
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_returns_the_host_slots_past_the_count_also_without_the_agent`)
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_shrink_deletes_the_trash_once_every_slot_it_returns_is_free`)
 - `reclaim` must take up what no process acts on: drop the record of a fill that died before its get, give back an
-  abandoned lend or give-back, run an abandoned clean or shrink again, and return a `bd-host/<n>` lease that the table
+  abandoned lend or give-back, run an abandoned clean or shrink again, and return a `brd-host/<n>` lease that the table
   does not name and whose number no live fill holds. Its steps must run side by side, each on a slot of its own under
   the CAS of its state: a give-back waits up to 10 s for the processes of its run, and no other slot waits for it.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`reclaim_drops_a_dead_fill_and_returns_a_lease_the_table_does_not_name`)
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`the_steps_of_reclaim_run_side_by_side`)
-- A hand `bd lease return` of a host slot (its holder is `bd-host/<n>`, or the table names its lease id) must be refused
-  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `bd-host slots --local --shrink`.
+- A hand `brd lease return` of a host slot (its holder is `brd-host/<n>`, or the table names its lease id) must be refused
+  as `host_slot` (exit 4, `paths`) before any check or git; the refusal names `brd-host slots --local --shrink`.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_hand_return_of_a_host_slot_is_refused`)
 - `checkout` of a run and a commit must move the slot lent to that run to the commit, detached, by the diff, as the
   get of a reused slot does but without a `status`: a give-back, a fill and a clean leave the slot clean (its index,
@@ -946,7 +946,7 @@ commits, and what a commit holds.
   an empty, `.` or `..` component and a file over 1 MiB are refused (`ShowRefusal`).
   [@test] ../../crates/git-ops/src/host_objects_test.rs (`show_answers_the_text_of_a_file_and_the_ids_of_paths`)
 - `find_git` of `run_path` must find the git that the `PATH` of the runs finds first, the `bin` of Homebrew before
-  `/usr/bin`, with its version. The floor of a host is `HOST_MIN_VERSION` (2.56.0, above the 2.54 of bd itself, a
+  `/usr/bin`, with its version. The floor of a host is `HOST_MIN_VERSION` (2.56.0, above the 2.54 of brd itself, a
   constant of the code). A version parses as git prints it (`2.50.1 (Apple Git-155)`, `2.45.1.windows.1`), and a
   release candidate comes before its release.
   [@test] ../../crates/lease-pool/src/host_git_test.rs (`a_version_parses_releases_candidates_and_the_apple_git`, `the_bin_of_homebrew_comes_before_usr_bin`)
@@ -981,7 +981,7 @@ commits, and what a commit holds.
 - While a live process upgrades git, a step that would take a slot or run git for the keeper must skip, with the
   refusal "The git of the host is upgrading" with the command (`GitUpgrading`): a fill adds no slot and runs no git, a clean and the clean after a give-back skip, a shrink sets its limit and refuses each slot
   past it, and each step of `reclaim` but the queue and the dead fills has the refusal as its `error`, so a later
-  `reclaim` takes it up. `bd lease clean --host` skips every host slot with that reason, before any git. The give-back
+  `reclaim` takes it up. `brd lease clean --host` skips every host slot with that reason, before any git. The give-back
   of a lent run still runs, as Homebrew waits for it, but its run ref stays for `reclaim`, and `reclaim` deletes no
   ref meanwhile.
   [@test] ../../crates/bd-lease/src/host_slots_test.rs (`a_fill_a_clean_a_shrink_and_reclaim_skip_while_git_is_upgrading`)
@@ -996,7 +996,7 @@ commits, and what a commit holds.
 
 ### Host runs
 
-The files of a run: on the host the scans of the slot before and after its command, on the client (`bd-host run`,
+The files of a run: on the host the scans of the slot before and after its command, on the client (`brd-host run`,
 `git_ops::host_client`) the commit the run ships, its pack and the apply of its changes. A commit of the files of a worktree
 (`worktree_commit`) is what `git add --all` stages, on HEAD, without a write of the index, the files or the refs of the
 worktree: one `status --porcelain=v1 -z --no-renames` of its index, read only, in the untracked mode of the repository
@@ -1026,7 +1026,7 @@ and one `write-tree`. Both give the same commit for the same tree.
   one `fast-import` and one `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_host_slots_lend_give_back_and_shrink`)
 - `git_ops::host_client::snapshot` must answer `commit` (HEAD; with `Scan::WorkingTree` the commit of the working
-  tree: HEAD when the tree is that of HEAD, else a commit on HEAD by `bd-host <bd-host@bd-host.invalid>`, dated as the
+  tree: HEAD when the tree is that of HEAD, else a commit on HEAD by `brd-host <brd-host@brd-host.invalid>`, dated as the
   committer of HEAD, so the same tree on the same HEAD is the same commit), `head`, `changed` (the status entries; none
   for `Scan::Head`, which reads no status) and `candidates`: HEAD and its first-parent ancestors at the distances 1, 2,
   4 … up to the farthest distance (`FARTHEST`, 65536), then the merge bases of HEAD with `origin/master` and `master`,
@@ -1036,7 +1036,7 @@ and one `write-tree`. Both give the same commit for the same tree.
   [@test] ../../crates/git-ops/src/host_client_test.rs (`the_name_of_a_repository_is_the_directory_of_its_main_worktree`)
   [@test] ../../crates/git-ops/src/host_client_test.rs (`a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit`)
 - `pack_commit_until` must stream `pack-objects --revs --thin --stdout --progress` into a new file of mode 0600 in the
-  directory of its caller (mode 0700; `<git_dir>/branch-deck/host/packs/` for `bd-host run`), never a name of the
+  directory of its caller (mode 0700; `<git_dir>/branch-deck/host/packs/` for `brd-host run`), never a name of the
   shared temporary directory, and answer its `path` and `bytes`; `commit_count` answers the commits (`rev-list
   --count`). Each progress line of git goes to the caller, and a minute without a line kills git. A stop of the caller
   kills git too, fails as cancelled and leaves no file. The caller removes the file; a pack file there older than a day
@@ -1045,7 +1045,7 @@ and one `write-tree`. Both give the same commit for the same tree.
 - `apply_patch` must apply the patch of `changes_run` to the files of the worktree, not its index, all or nothing (`apply
   --whitespace=nowarn`), and answer the count of the files (`apply --numstat`). A patch that does not apply fails and
   changes nothing. It is the one write of the user's working tree beside the guarded update: what the user asked a run
-  for (`bd-host run --apply`).
+  for (`brd-host run --apply`).
   [@test] ../../crates/git-ops/src/host_client_test.rs (`the_patch_of_a_run_applies_to_the_files_all_or_nothing`)
   [@test] ../../crates/git-executor/src/worktree_safety_test.rs (`production_code_never_writes_the_working_tree`)
 - The snapshot of a clean checkout runs HEAD (`log`), one `rev-list`, one `for-each-ref` and a `merge-base` per base
@@ -1059,9 +1059,9 @@ and one `write-tree`. Both give the same commit for the same tree.
 |---|---|
 | 2 | `invalid_arguments`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool` |
 | 3 | `locked` (the pool lock, the lock of the `worktree` commands, a clones lock no record names a live holder of; retryable) |
-| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`, `lease_reclaimed`; `bd lease pick`: `home_branch_switched`, `no_home_branch`, `unchecked_tree` and the refusals of `bd pick` |
+| 4 | `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `no_baseline` (a source without commits), `resolve_in_progress`, `lease_reclaimed`; `brd lease pick`: `home_branch_switched`, `no_home_branch`, `unchecked_tree` and the refusals of `brd pick` |
 
-- The outputs must match `bd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`, `lease_reclaim`, `lease_trim`, `lease_disk`).
+- The outputs must match `brd schema` (`lease_get`, `lease_pick`, `lease_return`, `lease_status`, `lease_adopt`, `lease_clean`, `lease_reclaim`, `lease_trim`, `lease_disk`).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`lease_outputs_match_the_schema`)
   [@test] ../../crates/bd-lease/src/takeover_test.rs (`a_get_takes_over_an_idle_lease_whose_commits_landed`, `reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest`)
   [@test] ../../crates/bd-lease/src/clones_lock_test.rs (`a_get_that_must_add_a_slot_waits_for_the_one_that_adds_a_slot`)
@@ -1083,7 +1083,7 @@ and one `write-tree`. Both give the same commit for the same tree.
 ## Open Questions / Risks
 
 - A git outside the pool that reads every worktree (the user's `git worktree list` or `git checkout` of a branch, the
-  `worktree list` of `bd pick` and of a resolve session) beside the registration of a new slot can read its admin
+  `worktree list` of `brd pick` and of a resolve session) beside the registration of a new slot can read its admin
   directory half written and fail once: git takes no lock for it, and `worktrees.lock` covers only the pool's own
   commands.
 
@@ -1106,9 +1106,9 @@ and one `write-tree`. Both give the same commit for the same tree.
   until something touches a recorded path or the slot moves.
 - A takeover can't tell a resumed session of the old holder from one of the new holder once the new holder is gone
   too, nor any session where no process scan runs (Windows): there `lease_reclaimed` refuses nothing.
-- A bd older than `taking_over`, `idle_check` and `reclaimed` drops them when it writes the state: the get gives the
-  idle lease back from its own copy, but a get that dies meanwhile beside such a bd leaves the slot free.
-- The trash of a takeover stays until the next return or clean, or a get below the minimum free space; `bd lease
+- A brd older than `taking_over`, `idle_check` and `reclaimed` drops them when it writes the state: the get gives the
+  idle lease back from its own copy, but a get that dies meanwhile beside such a brd leaves the slot free.
+- The trash of a takeover stays until the next return or clean, or a get below the minimum free space; `brd lease
   status` names it (`trash_bytes`).
 - The trim finds an output user root only through a `bazel-out` link that some checkout still has: a return deletes
   the links of a slot (`out/` of the clean rules), so with no source checkout or leased slot that built, the output
@@ -1120,4 +1120,4 @@ and one `write-tree`. Both give the same commit for the same tree.
 ## References
 
 - [Git Operations](../../docs/design/git-operations.md): "Lease" and "Pick".
-- [Agent CLI guide](../../docs/contributing/agent-cli.md): `bd lease`.
+- [Agent CLI guide](../../docs/contributing/agent-cli.md): `brd lease`.

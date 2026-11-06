@@ -1,4 +1,4 @@
-//! `bd sync`: `sync_core::sync::sync_branches`, its events folded into the table of the app's session as they come
+//! `brd sync`: `sync_core::sync::sync_branches`, its events folded into the table of the app's session as they come
 //! (`repository_model::table::TableState`), and that table with the report in one compact summary. It rebuilds the
 //! virtual branches, runs the integration detection of archived branches and the update check of the checked out
 //! branch, as the app's sync does, and like it without the repository lock: its refs move by compare-and-swap, so a
@@ -29,14 +29,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use sync_core::sync::{SyncOptions, SyncReport, sync_branches};
 
-/// `bd sync`
+/// `brd sync`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SyncOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
   pub baseline: String,
-  /// In the order of `bd status`
+  /// In the order of `brd status`
   pub branches: Vec<SyncedBranch>,
   /// With stacked branches on: the stack branch of each stack that forks (`{prefix}/stack/<root>`, all its commits in
   /// one branch), then those kept for their remote branch after their stack stopped forking
@@ -52,7 +52,7 @@ pub struct SyncOutput {
   /// Commits that landed in the baseline with an update (here or elsewhere) and that the app hasn't dismissed
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed: Vec<LandedSummary>,
-  /// What the sync read and the tips it left, for a command that goes on after the sync (`bd push`, `bd safe-push`)
+  /// What the sync read and the tips it left, for a command that goes on after the sync (`brd push`, `brd safe-push`)
   #[serde(skip)]
   #[schemars(skip)]
   pub report: SyncReport,
@@ -80,7 +80,7 @@ impl SyncOutput {
     BranchTable::from_report(prefix, &self.report, &self.remote_statuses, &self.landed_section.landing)
   }
 
-  /// A branch the sync could not build (`SyncState::is_built`): the exit code 1 of `bd sync` and of a rewrite with --sync
+  /// A branch the sync could not build (`SyncState::is_built`): the exit code 1 of `brd sync` and of a rewrite with --sync
   pub fn has_unbuilt(&self) -> bool {
     self.branches.iter().any(|branch| !branch.state.is_built())
   }
@@ -140,7 +140,7 @@ pub struct SyncedBranch {
   pub resolved: Vec<ResolvedCommit>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
-  /// The `bd push` that brings the remote branch up to date, to run only after the user approves: with
+  /// The `brd push` that brings the remote branch up to date, to run only after the user approves: with
   /// `--force --expect-remote <remote.head>` when the push drops `dropped_commits`, with `--force` alone when a parent
   /// it takes along has commits for the remote too; omitted when the remote branch is up to date or the branch didn't
   /// sync
@@ -197,7 +197,7 @@ pub struct RemoteSummary {
   /// it was pushed): a Safe Push of the remote branch would land an older piece, so a push replaces it
   #[serde(default, skip_serializing_if = "is_zero")]
   pub ancestors_ahead: u32,
-  /// The remote-tracking commit the counts compare with; `null` without a remote branch. `bd push --force` leases on
+  /// The remote-tracking commit the counts compare with; `null` without a remote branch. `brd push --force` leases on
   /// it, as `--expect-remote` does
   pub head: Option<String>,
   /// The newest of the `behind` commits, newest first, at most ten
@@ -431,7 +431,7 @@ impl ProgressReporter for TableReporter {
   }
 }
 
-/// `bd sync`, and the sync `bd push`, `bd safe-push`, `bd land` and `bd request-review` run first: without the
+/// `brd sync`, and the sync `brd push`, `brd safe-push`, `brd land` and `brd request-review` run first: without the
 /// repository lock, as the app's sync, since each ref moves only from the tip it listed; a push takes the lock after it
 /// only for the witness of the tips it pushes, which a writer that moved them since fails as `plan_changed`
 pub fn sync(context: &RepoContext) -> Result<SyncOutput, CliError> {
@@ -617,7 +617,7 @@ fn update_summary(baseline: &BaselineStatus, landing: &[LandedBranch], short: &S
   })
 }
 
-/// `branches` with the `bd push` each needs. `--expect-remote` pushes the named branch alone, so it pins the lease only
+/// `branches` with the `brd push` each needs. `--expect-remote` pushes the named branch alone, so it pins the lease only
 /// when no branch it is built on has commits for the remote
 fn with_push_commands(mut branches: Vec<SyncedBranch>, bases: &HashMap<String, String>, bd: &str) -> Vec<SyncedBranch> {
   let work: HashMap<&str, bool> = branches

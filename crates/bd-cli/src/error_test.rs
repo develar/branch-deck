@@ -130,7 +130,7 @@ fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
     assert!(!retryable || exit_code == 3 || code == ErrorCode::NetworkError, "{code:?}");
     assert_ne!(exit_code, CONFLICT_EXIT, "{code:?}: a conflict is an output, never an error");
   }
-  // every code is in the table: as many as `bd schema` names
+  // every code is in the table: as many as `brd schema` names
   let directory = tempfile::tempdir().unwrap();
   let (_, schema) = run_json(&environment(directory.path()), &["schema", "--all"]);
   let codes = &schema["outputs"]["error"]["$defs"]["ErrorCode"];
@@ -144,22 +144,22 @@ fn every_error_code_has_the_exit_code_and_the_retry_of_its_class() {
 fn a_next_step_that_writes_needs_the_approval_and_none_starts_anyway() {
   let steps = |steps: Value| json!({"next_steps": steps});
   let read = steps(json!([
-    {"command": "bd -C /repo robot auth --whole-stack", "needs_approval": false},
-    {"command": "bd safe-push auth --dry-run", "needs_approval": false},
-    {"command": "bd sync", "needs_approval": false},
-    {"command": "bd push auth --force --expect-remote 1a2b3c4d", "needs_approval": true},
+    {"command": "brd -C /repo robot auth --whole-stack", "needs_approval": false},
+    {"command": "brd safe-push auth --dry-run", "needs_approval": false},
+    {"command": "brd sync", "needs_approval": false},
+    {"command": "brd push auth --force --expect-remote 1a2b3c4d", "needs_approval": true},
   ]));
   assert_eq!(next_steps(&read).len(), 4);
   assert_eq!(next_steps(&json!({"code": "landed"})), []);
   for refused in [
-    json!({"command": "bd -C /repo push auth", "needs_approval": false}),
-    json!({"command": "bd safe-push auth --cancel-running", "needs_approval": false}),
-    json!({"command": "bd request-review auth", "needs_approval": false}),
-    json!({"command": "bd update", "needs_approval": false}),
-    json!({"command": "bd restack login auth", "needs_approval": false}),
-    json!({"command": "bd safe-push auth --allow-dangling", "needs_approval": true}),
-    json!({"command": "bd safe-push auth --without-approvals", "needs_approval": true}),
-    json!({"command": "bd lease get --min-free 0", "needs_approval": true}),
+    json!({"command": "brd -C /repo push auth", "needs_approval": false}),
+    json!({"command": "brd safe-push auth --cancel-running", "needs_approval": false}),
+    json!({"command": "brd request-review auth", "needs_approval": false}),
+    json!({"command": "brd update", "needs_approval": false}),
+    json!({"command": "brd restack login auth", "needs_approval": false}),
+    json!({"command": "brd safe-push auth --allow-dangling", "needs_approval": true}),
+    json!({"command": "brd safe-push auth --without-approvals", "needs_approval": true}),
+    json!({"command": "brd lease get --min-free 0", "needs_approval": true}),
   ] {
     let checked = std::panic::catch_unwind(|| next_steps(&steps(json!([refused.clone()]))));
     assert!(checked.is_err(), "{refused} passed");

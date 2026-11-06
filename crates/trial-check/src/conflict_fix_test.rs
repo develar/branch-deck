@@ -347,7 +347,7 @@ fn a_restack_on_top_of_a_plan_keeps_the_parent_the_plan_gives() {
   repo.create_commit("(root/a) Change the first line", "lib.txt", "one\n2\n3\n4\n5\n");
   repo.create_commit("(root/p) Change the last line", "lib.txt", "one\n2\n3\n4\nfive\n");
   let leaf = repo.create_commit("(c) Change both lines", "lib.txt", "ONE\n2\n3\n4\nFIVE\n");
-  // the user's plan stacks c on p, as `bd check --fix --plan` gets it
+  // the user's plan stacks c on p, as `brd check --fix --plan` gets it
   let plan = RegroupPlan {
     branches: std::iter::once(("p/c".to_string(), vec![leaf])).collect(),
     ..RegroupPlan::default()

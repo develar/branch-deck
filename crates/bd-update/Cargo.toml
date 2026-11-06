@@ -3,7 +3,7 @@ name = "bd-update"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "`bd update`, `bd pick` and `bd undo`: the moves of the checked out branch and their undo"
+description = "`brd update`, `brd pick` and `brd undo`: the moves of the checked out branch and their undo"
 publish = false
 
 [dependencies]

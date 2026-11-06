@@ -21,7 +21,7 @@
 //! Push start replaces, why the push an action needs can't be made (`push_blocker`), and the restart each robot offers
 //! (`restart_action`, `restart_refusal`). `branch_start` and `stack_start` are the input of a start, which the guards and
 //! `bd` read for their own intent (a restart, a dry run that pushes what `bd` pushes); `branch_subject` and
-//! `stack_subject` the subject part of the decision of a start (`domain_policy::land::decide`), which `bd safe-push`
+//! `stack_subject` the subject part of the decision of a start (`domain_policy::land::decide`), which `brd safe-push`
 //! decides by.
 //!
 //! `lands_of` is what a Safe Push and a Dry Run of each subject do now and what stands in their way, the decisions of
@@ -34,7 +34,7 @@
 //! `next_steps` is the next step and the node of every row and of every whole stack that forks
 //! (`domain_policy::next_step`, `domain_policy::landing_node` over `StepSources`: the table of the last sync, its rows as
 //! they are now, the Patronus view, the robots and the facts of the remote services), which the view derives with
-//! every patch, a sync of a branch included (row 1), and `bd status` and `bd safe-push --dry-run` over what they read
+//! every patch, a sync of a branch included (row 1), and `brd status` and `brd safe-push --dry-run` over what they read
 //! (`grouped_rows`); `wanted_readiness` the shown subjects whose step waits for the readiness, the only ones the
 //! session asks it of.
 //!
@@ -1317,7 +1317,7 @@ fn with_land_facts<'s, T>(
 }
 
 /// What a row of the table says of its subject for its next step and its node: the sync of it, its failure, its
-/// commits, its block and whether it stays local. A session reads it of its rows (`row_of_view`), `bd status` of the
+/// commits, its block and whether it stays local. A session reads it of its rows (`row_of_view`), `brd status` of the
 /// grouping it read without a sync (`grouped_rows`)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RowFacts {
@@ -1365,7 +1365,7 @@ pub(crate) fn blocking_parent(status: BranchStatus, stack: Option<&BranchStack>)
     .or_else(|| stack.declared_parent.clone())
 }
 
-/// The rows of `table` as a grouping read without a sync has them (`bd status`, `bd safe-push --dry-run` over the table of
+/// The rows of `table` as a grouping read without a sync has them (`brd status`, `brd safe-push --dry-run` over the table of
 /// its sync), in its order
 #[must_use]
 pub fn grouped_rows(table: &BranchTable) -> Vec<(String, RowFacts)> {

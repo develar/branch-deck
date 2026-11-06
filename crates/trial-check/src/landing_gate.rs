@@ -1,4 +1,4 @@
-//! What refuses the start of a Safe Push or a Dry Run before anything is pushed, one rule for `bd safe-push` and the
+//! What refuses the start of a Safe Push or a Dry Run before anything is pushed, one rule for `brd safe-push` and the
 //! app (spec/cli/agent-cli.spec.md, spec/branch/patronus.spec.md). One trial check of what the robot lands, in one
 //! `CheckSession`:
 //! - a dangling reference a commit proves (`dangling_references`): the build of the tree it lands fails;
@@ -13,7 +13,7 @@
 //! `landing_needs` asks the same of every branch before any start, in one trial check of all of them: what the Safe
 //! Push of each branch would be refused for, by the same rule (`refuses`). The session of the repository computes it as
 //! a fact after a sync (`landing_needs_of`, through its host), the row says "Needs util" with the fix
-//! (spec/branch/next-step.spec.md), and `bd status` lists it; the start of a branch in the app reuses it, the start of
+//! (spec/branch/next-step.spec.md), and `brd status` lists it; the start of a branch in the app reuses it, the start of
 //! a whole stack in the app checks it in a session of the current grouping (`operations::land_session`).
 
 use crate::check::{CheckReport, CheckSession};
@@ -80,7 +80,7 @@ pub fn check_landing_gate(session: &CheckSession, subject: &Subject, landed: &Ha
 /// What the Safe Push of each branch needs that a branch outside it adds, the refusals `check_landing_gate` would give
 /// its start, from one trial check of every branch and one search of the missing declarations in `session`; `landed` as
 /// there. Only the branches with a refusal are listed. The session of the repository computes it as a fact after a sync
-/// (`landing_needs_of`), `bd status` with its sync
+/// (`landing_needs_of`), `brd status` with its sync
 #[instrument(skip(session, landed))]
 pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result<BTreeMap<String, Vec<LandingRefusal>>, RegroupError> {
   let chains = chains_of(session);
@@ -104,7 +104,7 @@ pub fn landing_needs(session: &CheckSession, landed: &HashSet<String>) -> Result
   Ok(needs)
 }
 
-/// `landing_needs` in a session of the current grouping: the fact of the session of the repository, `bd status`
+/// `landing_needs` in a session of the current grouping: the fact of the session of the repository, `brd status`
 #[instrument(skip(git_executor, cache, landed))]
 pub fn landing_needs_of(
   git_executor: &GitCommandExecutor,

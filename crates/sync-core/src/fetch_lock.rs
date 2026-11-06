@@ -1,5 +1,5 @@
 //! The lock of the fetches of the baseline (docs/design/git-operations.md, "Update project", Fetch lock): a fetch of
-//! the baseline (`baseline::fetch_baseline`: the app's Update Project and Fetch, `bd update`) holds
+//! the baseline (`baseline::fetch_baseline`: the app's Update Project and Fetch, `brd update`) holds
 //! `$GIT_COMMON_DIR/branch-deck/fetch.lock` for its whole fetch, its holder record naming the tracking ref it writes
 //! (`LockHolder::subject`). A second fetch of any process waits for it while the holder lives (the line of its own
 //! process first, then the file lock), its progress naming the holder, and takes the result of a holder of the same
@@ -7,7 +7,7 @@
 //! `fetch-outcomes.json`, which a holder writes before it releases the lock), also when the remote had nothing new, or
 //! the ref moved while it waited. A holder that failed or was killed (which frees the lock with its process) and a
 //! holder of another tracking ref leave the fetch to it, under the lock. The app stops a wait with its operation
-//! (`canceled`, `LockWaitCanceled`). Without the lock, two fetches of one ref (the app beside `bd update` of a lease,
+//! (`canceled`, `LockWaitCanceled`). Without the lock, two fetches of one ref (the app beside `brd update` of a lease,
 //! one common dir) ran two transfers, and the second one to write the ref failed on git's own ref lock (`cannot lock
 //! ref`).
 
@@ -88,7 +88,7 @@ fn unix_millis(time: SystemTime) -> u64 {
 
 /// The turn of a fetch of `upstream`: the lock, after the fetches before it (as long as their holders live; only a lock
 /// that no record names for `DEFAULT_LOCK_TIMEOUT` refuses, `RepositoryLocked`), or the result of one of them.
-/// `on_progress` hears whom the fetch waits for ("Fetching origin/master with `bd update` (pid 4242, for 3 s)…"), when
+/// `on_progress` hears whom the fetch waits for ("Fetching origin/master with `brd update` (pid 4242, for 3 s)…"), when
 /// the holder changes and about once a second; `canceled` (polled as often) ends the wait with `LockWaitCanceled`.
 /// Without a wait no process runs but the `rev-parse` of the common dir when the executor does not know it; a wait for a
 /// holder of the same ref reads the ref when it starts and once the lock is free, the ancestry of a moved ref, and the
@@ -152,7 +152,7 @@ pub(crate) fn take_fetch_turn(
 }
 
 /// The fetch lock of the repository at `git_common_dir` as another process holds it while it fetches `tracking_ref` (an
-/// agent's `bd update`, `lock_as_another_process_for`), its record naming `command`: a fetch of this process waits for
+/// agent's `brd update`, `lock_as_another_process_for`), its record naming `command`: a fetch of this process waits for
 /// it, then takes its result when the ref moved, else fetches itself. For the tests and the E2E server, which hold a fetch
 /// of the app this way
 ///

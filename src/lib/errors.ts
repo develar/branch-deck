@@ -31,7 +31,7 @@ export function getErrorDetails(error: unknown): string {
 
 /**
  * The error in the words of the page, by its code: a held repository lock names its holder from `details`
- * ("`bd push auth` (pid 4242) has held the repository for 40 s"), never the lock file; an operation of another process
+ * ("`brd push auth` (pid 4242) has held the repository for 40 s"), never the lock file; an operation of another process
  * that holds what this one needs names it ("`bd` (pid 4242) has run the Safe Push of auth for 12 s"); any other error is
  * its message (`getErrorDetails`)
  */

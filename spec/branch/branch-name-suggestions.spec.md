@@ -45,7 +45,7 @@ is its 2.5 GB download.
 - A configurable model, binary path or provider, and an API key of the app's own: the user's Claude Code, its login and
   its provider settings decide.
 - Windows `claude.cmd` shims (npm): only `claude.exe` is found.
-- Suggestions anywhere but the Move to… form (`bd suggest` names its clusters without a model).
+- Suggestions anywhere but the Move to… form (`brd suggest` names its clusters without a model).
 
 ## Requirements
 

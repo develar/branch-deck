@@ -65,7 +65,7 @@ fn a_move_locks_only_the_witness_and_the_write() {
   assert_span(&span, &WITNESS_AND_WRITE);
 }
 
-/// A plan of `bd group` (`regroup_commits_core`, through the same `regroup_accepted` as a move)
+/// A plan of `brd group` (`regroup_commits_core`, through the same `regroup_accepted` as a move)
 #[test]
 fn a_group_locks_only_the_witness_and_the_write() {
   let (repo, commits, span) = stacked();

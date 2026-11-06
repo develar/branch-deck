@@ -1,4 +1,4 @@
-//! The target conflict check before a robot starts, of `bd safe-push` and the app's Safe Push: Patronus rebases what it
+//! The target conflict check before a robot starts, of `brd safe-push` and the app's Safe Push: Patronus rebases what it
 //! lands onto the newest target and fails the robot at once when a commit conflicts. The check fetches the target's
 //! remote branch first (as Update Project does), then replays the commits onto its tip as a plain `git rebase` does,
 //! with no resolution by words (`git_ops::trial_rebase`). A fetch that fails does not stop the check: it replays onto

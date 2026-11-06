@@ -15,7 +15,7 @@ fn display(path: &Path) -> String {
   canonical(path).to_string_lossy().into_owned()
 }
 
-/// `bd lease pick` in the slot at `path`
+/// `brd lease pick` in the slot at `path`
 fn lease_pick(fixture: &Fixture, path: &str, args: &[&str]) -> (i32, Value) {
   fixture.run_in(Path::new(path), &[&["--prefix", PREFIX, "lease", "pick"][..], args].concat())
 }
@@ -31,7 +31,7 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
     got["next"],
     json!([
       format!("bd -C {} lease pick", shell_word(&path)),
-      format!("bd lease return --lease-id {}", got["lease_id"].as_str().unwrap()),
+      format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap()),
     ])
   );
   // a source on a detached HEAD names no branch to land on: no pick in `next`
@@ -39,7 +39,7 @@ fn the_get_names_the_home_of_the_lease_and_the_commands_of_the_session() {
   git(&fixture.repo, &["checkout", "-q", "--detach"]);
   let got = fixture.get(&[]);
   assert_eq!(got["home"], json!({ "checkout": display(fixture.repo.path()), "branch": null }));
-  assert_eq!(got["next"], json!([format!("bd lease return --lease-id {}", got["lease_id"].as_str().unwrap())]));
+  assert_eq!(got["next"], json!([format!("brd lease return --lease-id {}", got["lease_id"].as_str().unwrap())]));
   let (exit_code, output) = lease_pick(&fixture, &path_of(&got), &[]);
   assert_error(&output, exit_code, (4, "no_home_branch"));
 }
@@ -78,7 +78,7 @@ fn a_lease_pick_lands_the_commits_on_the_home_branch_and_the_lease_follows() {
   fixture.give_back(&path);
 }
 
-/// The home checkout switched to another branch since the get: the pick lands nothing and names it, and `bd workspace`
+/// The home checkout switched to another branch since the get: the pick lands nothing and names it, and `brd workspace`
 /// in the lease shows the switch; once the branch is back the pick lands
 #[test_log::test]
 fn a_lease_pick_refuses_a_home_that_switched_its_branch() {
@@ -106,7 +106,7 @@ fn a_lease_pick_refuses_a_home_that_switched_its_branch() {
   assert_eq!((exit_code, &output["state"]), (0, &json!("picked")), "{output}");
 }
 
-/// The conflicting copy of `path` in the open round of `update` (the `update` of `bd lease pick`, or a `bd update`)
+/// The conflicting copy of `path` in the open round of `update` (the `update` of `brd lease pick`, or a `brd update`)
 fn edit_of(update: &Value, path: &str) -> String {
   update["session"]["files"]
     .as_array()
@@ -128,7 +128,7 @@ fn conflicting_lease() -> (Fixture, String) {
 }
 
 /// A conflict lands nothing and comes back to the lease: the lease is updated onto the tip of master, the update opens
-/// a resolve session there, and the lease stays where it was until `bd update --continue` applies it; then `bd lease
+/// a resolve session there, and the lease stays where it was until `brd update --continue` applies it; then `brd lease
 /// pick` lands the resolved commit. A return and a pick while the session is open are refused
 #[test_log::test]
 fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it() {
@@ -160,7 +160,7 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   // the update names the lease by its top level, which has forward slashes on Windows
   let repository = done["repository"].as_str().unwrap();
   assert_eq!(display(Path::new(repository)), display(Path::new(&path)));
-  assert_eq!(done["next"], json!([format!("bd -C {} lease pick", shell_word(repository))]), "{done}");
+  assert_eq!(done["next"], json!([format!("brd -C {} lease pick", shell_word(repository))]), "{done}");
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD~1"]), home, "the lease is on the tip of master");
 
   let (exit_code, output) = lease_pick(&fixture, &path, &[]);
@@ -169,8 +169,8 @@ fn a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_af
   fixture.give_back(&path);
 }
 
-/// In a lease `bd update` onto the baseline is refused, it would move the lease past its home; a dry run and the
-/// steps of a resolve session go on, and `bd update --abort` closes the session that a pick opened
+/// In a lease `brd update` onto the baseline is refused, it would move the lease past its home; a dry run and the
+/// steps of a resolve session go on, and `brd update --abort` closes the session that a pick opened
 #[test_log::test]
 fn an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort() {
   let (fixture, path) = conflicting_lease();
@@ -212,14 +212,14 @@ fn tree_of(path: &str) -> String {
   slot_git(path, &["rev-parse", "HEAD^{tree}"])
 }
 
-/// The message of the `unchecked_tree` refusal of `bd lease pick` in the lease at `path`
+/// The message of the `unchecked_tree` refusal of `brd lease pick` in the lease at `path`
 fn unchecked_message(fixture: &Fixture, path: &str) -> String {
   let (exit_code, output) = lease_pick(fixture, path, &[]);
   assert_error(&output, exit_code, (4, "unchecked_tree"));
   output["error"]["message"].as_str().unwrap().to_string()
 }
 
-/// `bd lease pick` that must exit with `exit_code`, and the given field of its `check`
+/// `brd lease pick` that must exit with `exit_code`, and the given field of its `check`
 fn checked_pick(fixture: &Fixture, path: &str, args: &[&str], exit_code: i32, field: &str) -> (Value, Value) {
   let (exit, output) = lease_pick(fixture, path, args);
   assert_eq!(exit, exit_code, "{output}");

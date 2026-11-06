@@ -1,4 +1,4 @@
-//! The run of `bd safe-push` once its plan holds: the start through the engine (`operations::land_execute::execute`,
+//! The run of `brd safe-push` once its plan holds: the start through the engine (`operations::land_execute::execute`,
 //! the app's too) over the one-shot session of the command (`BdStart`), and what its outcome tells in the words of `bd`.
 //! The sync ran under the repository lock and released it; the engine takes it again only for the full witness and the
 //! freeze of the push, so the reads of the remote, the trial and the check against the target kept no other `bd` writer
@@ -6,7 +6,7 @@
 //! nothing done; one after the push and before the start skips the start, and the error says what was pushed. A run of
 //! `bd` is recorded in the operations registry of the repository first (`bd_core::operation_record::admit_planned`), so
 //! it is `busy` while the app or another `bd` runs what it needs, and the other way round; a start whose answer was lost
-//! in its way is settled first by a read of Patronus, or names `bd operation forget <op>`.
+//! in its way is settled first by a read of Patronus, or names `brd operation forget <op>`.
 
 use crate::push_command::push_size_limit;
 use crate::safe_push_command::STACK_REMOTE;

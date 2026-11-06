@@ -1,5 +1,5 @@
 //! Sizes as a setting writes them and a message names them: a number and a binary unit (`200G`, `50MiB`), as `df -h`
-//! counts (`branchdeck.leaseMinFree`, `branchdeck.pushSizeLimit`, `bd lease get --min-free`).
+//! counts (`branchdeck.leaseMinFree`, `branchdeck.pushSizeLimit`, `brd lease get --min-free`).
 
 /// A size: a number and a binary unit, `200G` or `200GiB` (K, M, G, T, P; `B` or none for bytes), as `df -h` counts;
 /// the error says why the text is none

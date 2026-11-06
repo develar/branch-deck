@@ -13,7 +13,7 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
 
 ## Checklist
 
-- One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`); the `//!` headers of
+- One name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `brd move-hunk`); the `//!` headers of
   `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
   `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`,
   `crates/remote-facts/src/lib.rs`, `crates/repository-model/src/lib.rs` and `crates/operations/src/lib.rs` map the
@@ -21,9 +21,9 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
 - **git-ops** has the git: one process per phase, `-z` output, full ids, `--end-of-options` before a revision from
   outside, `--literal-pathspecs` for paths after `--`; no lock and no policy.
 - **The core** `<op>_core` in `crates/history-rewrite/` (a rewrite that needs no sync, GitHub or Patronus),
-  `crates/update-core/` (Update Project, `bd pick`, the resolve sessions), `crates/trial-check/` (the trial checks,
-  `bd move-hunk`, whatever reads the diffs or the symbols of the commits), `crates/lease-pool/` (`bd lease`,
-  `bd workspace`), `crates/remote-facts/` (what GitHub and Patronus answer over HTTP, and the writes to them),
+  `crates/update-core/` (Update Project, `brd pick`, the resolve sessions), `crates/trial-check/` (the trial checks,
+  `brd move-hunk`, whatever reads the diffs or the symbols of the commits), `crates/lease-pool/` (`brd lease`,
+  `brd workspace`), `crates/remote-facts/` (what GitHub and Patronus answer over HTTP, and the writes to them),
   `crates/repository-model/` (the branch table Rust derives, the guards of the app's push and robot actions) or
   `crates/sync-core/` (the sync, the pushes and the rest, with no remote service but git's) is the one
   entry of every caller: a rewrite of the checked-out branch
@@ -36,9 +36,9 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
   to Patronus, GitHub or YouTrack and the leased push are effects of a plan, called only from `crates/operations`
   (`remote_write_scan_test.rs`, exact counts per file). What
   its plan reads of the remote is `needs::needs(intent)`, read by `facts::fill` through the one reader of every host
-  (`remote_facts::service_sources::ServiceFactSources`) into its session; `bd`'s is a one-shot session of its sync
+  (`remote_facts::service_sources::ServiceFactSources`) into its session; `brd`'s is a one-shot session of its sync
   (`repository_model::one_shot::OneShot`, its services `bd_core::services::BdServices`), never a reader of its own.
-- **bd** and **the app** parse, call the core and present its result; no git of their own. A `bd` command answers one
+- **bd** and **the app** parse, call the core and present its result; no git of their own. A `brd` command answers one
   JSON object with `schema`, errors as `CliError` with an `ErrorCode`, and records a rewrite, an update, a pick and an
   operation of the remote in the operations registry (`bd_core::operation_record`); a command of the app is one entry
   of the registry of app-api (`crates/app-api/src/commands.rs`): a read `run_blocking` of the core, a write `execute`
@@ -56,7 +56,7 @@ are [Git Rules](git-rules.md), the flows and the reasons in [Git Operations](../
 
 ## Layers
 
-An operation keeps one name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `bd move-hunk`). The `//!`
+An operation keeps one name across the layers (`git_ops::move_hunk`, `trial_check::move_hunk`, `brd move-hunk`). The `//!`
 headers of `crates/git-ops/src/lib.rs`, `crates/history-rewrite/src/lib.rs`, `crates/sync-core/src/lib.rs`,
 `crates/update-core/src/lib.rs`, `crates/trial-check/src/lib.rs`, `crates/lease-pool/src/lib.rs`,
 `crates/remote-facts/src/lib.rs`, `crates/repository-model/src/lib.rs` and `crates/operations/src/lib.rs` map the
@@ -72,7 +72,7 @@ modules by area; the layers are the
   below before writing a parser; no lock and no policy here.
 - **The core** (`crates/history-rewrite/src/<op>.rs` for a rewrite of the checked-out branch that needs no sync, GitHub
   or Patronus; `crates/update-core/src/<op>.rs` for a move of the checked-out branch onto commits from elsewhere: Update
-  Project, `bd pick`, the resolve sessions; `crates/trial-check/src/<op>.rs` for a trial check, `bd move-hunk` and
+  Project, `brd pick`, the resolve sessions; `crates/trial-check/src/<op>.rs` for a trial check, `brd move-hunk` and
   whatever reads the diffs or the symbols of the commits; `crates/lease-pool/src/<op>.rs` for the lease pool and the agent
   workspace; `crates/remote-facts/src/<op>.rs` for a read or a write of GitHub or Patronus over HTTP, with the git it
   needs through sync-core and git-ops; `crates/repository-model/src/<op>.rs` for what Rust derives of the branch table
@@ -86,10 +86,10 @@ modules by area; the layers are the
   one moved, and the core writes under it: the CAS transaction, then the move of the index. It passes what it computed
   as a `Result` (`options.lock_prepared(git, repo, prepare(), prepare)`): HEAD that another process moved between two
   reads of the computation is its `HeadMoved`, computed once more under the lock too unless the request named its HEAD;
-  a move that the files follow takes `options.lock_prepared_move(..)`, and `bd pick` checks again under the lock
+  a move that the files follow takes `options.lock_prepared_move(..)`, and `brd pick` checks again under the lock
   (`recheck_pick`). An operation reads a repository fact once and passes it
-  down: a step of a sync, or of a `bd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
-  `Snapshot` or the `SyncReport` hold instead of reading them again, a `bd` command takes HEAD's branch, the remotes
+  down: a step of a sync, or of a `brd` command after its sync, takes the facts `RepoFacts`, `ConfigSnapshot`,
+  `Snapshot` or the `SyncReport` hold instead of reading them again, a `brd` command takes HEAD's branch, the remotes
   (and the push URL of `origin` of them) and the baseline of its context (`RepoContext::command_facts`, `baseline`,
   forgotten after a wait for the lock) and passes them to its sync (`SyncOptions::facts`) and its cores, the
   baseline with its upstream comes from one `read_baseline` (with its commit, HEAD's tip and the branch tips from one `read_listed_baseline`), and an operation that reads the directories in several steps takes them once at its entry
@@ -102,13 +102,13 @@ modules by area; the layers are the
   view, its progress to the caller (`EventSink`). The cores it orders are the ones above; before its first effect it
   checks the facts its plan was prepared on (`operations::witness`: one `for-each-ref` of the refs, the pull requests
   and the robots from the session, `plan_changed` when they moved). The families move here one by one
-  (docs/design/rust-domain-authority.md, s9-engine-remote); the app and `bd` call the operation, never the cores of a
+  (docs/design/rust-domain-authority.md, s9-engine-remote); the app and `brd` call the operation, never the cores of a
   family that has one.
 - **bd** (usually `<op>_command.rs` in the crate of its area, e.g. `crates/bd-rewrite/src/`, and a variant of `Command`
   in `crates/bd-cli/src/lib.rs`): clap arguments, one JSON object with
-  `schema` (`bd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
-  `docs/contributing/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); bd's own lock goes to the core
-  as `held_lock` only when bd writes more under it. No git of its own.
+  `schema` (`brd schema`, `schema_test.rs`), errors as `CliError` with an `ErrorCode` (its exit code in
+  `docs/contributing/agent-cli.md`), a read-only command in `read_only!` (`agent_help.rs`); brd's own lock goes to the core
+  as `held_lock` only when brd writes more under it. No git of its own.
 - **The app**: a read is one entry of the registry of app-api (`for_each_command!` in `crates/app-api/src/commands.rs`,
   the grammar in `registry.rs`) with its body in a family module (`crates/app-api/src/reads/`), `async fn(&AppContext,
   params)` that calls `run_blocking(move || <op>_core(..))`; nothing else is written: the app's `#[tauri::command]`
@@ -123,10 +123,10 @@ modules by area; the layers are the
 - **Same commit**: the spec, the flow's section in [Git Operations](../design/git-operations.md), and a test of the
   operation in `process_budget_test.rs` (`crates/sync-core/src/` for a core, of `history-rewrite` too;
   `crates/update-core/src/`, `crates/trial-check/src/`, `crates/remote-facts/src/`, `crates/operations/src/` and
-  `crates/branch-integration/src/` for theirs; `crates/bd-cli/src/` for a `bd` command)
+  `crates/branch-integration/src/` for theirs; `crates/bd-cli/src/` for a `brd` command)
   that pins its processes by subcommand; a core that takes the repository lock, its row of
   [Lock spans](../design/git-operations.md#lock-spans) and the test of its span (`test_utils::lock_span::LockSpan`, a
-  `bd` command on `bd_cli::fixture_test::LockSpanGit`); the scan tests stay green (`worktree_safety_test.rs`,
+  `brd` command on `bd_cli::fixture_test::LockSpanGit`); the scan tests stay green (`worktree_safety_test.rs`,
   `git_usage_scan_test.rs`, [Scan tests](git-rules.md#scan-tests)), and the concurrency scan beside them
   (`concurrency_scan_test.rs`: no guard of an async mutex across another `.await`, no guard of the repository lock
   across `execute_remote_command*`, `fetch_baseline`, `push_baseline`, HTTP or `block_on`, a sync or a wait for the
@@ -158,7 +158,7 @@ Reuse one of these before writing a parser or a process of your own.
 | `resolve_by_words`, `RESOLVE_VERSION` | `git_ops::word_resolve` | a conflicting cherry-pick that its words resolve, all or nothing: the files and the tree |
 | `read_descriptions`, `write_description`, `clear_description` | `git_ops::branch_description` | the pull request text of a branch |
 | `to_final_branch_name`, `qualified_branch_name`, `strip_branch_namespace`, `sanitize_branch_name` | `domain_types::branch_names` | `{prefix}/virtual/<name>` and the other namespaces under the prefix; a group name valid in a ref |
-| `RepoFacts`, `read_baseline_listing`; `read_baseline`; `read_listed_baseline` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync; the baseline and its upstream outside a sync, in one read (a fetch, Update Project); the baseline with its commit, HEAD's tip and the branch tips in one read (a check session, `bd move-hunk`) |
+| `RepoFacts`, `read_baseline_listing`; `read_baseline`; `read_listed_baseline` | `sync_core::repo_facts` | the baseline, HEAD, upstream and the branches under the prefix, read once per sync; the baseline and its upstream outside a sync, in one read (a fetch, Update Project); the baseline with its commit, HEAD's tip and the branch tips in one read (a check session, `brd move-hunk`) |
 | `resolve_baseline_upstream`, `fetch_baseline`, `check_baseline_update`, `baseline_tracking_ref` | `sync_core::baseline` | the remote branch the baseline tracks, its fetch, the update check every sync runs |
 | `resolve_github_repository`, `parse_github_repository` | `sync_core::github_repository` | the GitHub repository of the branches from the config, `origin` or the Space mirror, without HTTP |
 | `read_commit_diffs_cached`, `read_commit_changes` | `trial_check::diff_scan` | the changes of many commits from one `log --raw -z`; only a trial check or a pick reads diffs, never a sync |

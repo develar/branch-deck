@@ -1,6 +1,6 @@
 ---
 name: Safe Push Statistics
-description: Requirements for the statistics of the Safe Pushes of a repository: the user's robots into the target of a period (30 days by default, 14 days to 6 months) against everyone else's as the median person, the time lost in failures, the failure causes and flaky checks of the last 14 days, and the hours robots ran fastest; one Rust core for the app and `bd robot-stats`, Patronus read week by week and kept in the object cache.
+description: Requirements for the statistics of the Safe Pushes of a repository: the user's robots into the target of a period (30 days by default, 14 days to 6 months) against everyone else's as the median person, the time lost in failures, the failure causes and flaky checks of the last 14 days, and the hours robots ran fastest; one Rust core for the app and `brd robot-stats`, Patronus read week by week and kept in the object cache.
 style: plain-1
 targets:
   - ../../crates/domain-types/src/robot_stats.rs
@@ -36,7 +36,7 @@ much time failed robots and the waits after them took, why the robots failed, wh
 at which hours robots run fastest. The user's numbers stand beside everyone else's in the repository, as the median
 person, so a slow week says whether it was the branch or the queue.
 
-One Rust core reads them for the app and `bd robot-stats` (`remote_facts::robot_stats`), the rules that count are pure
+One Rust core reads them for the app and `brd robot-stats` (`remote_facts::robot_stats`), the rules that count are pure
 (`remote_facts::robot_stats_aggregate`), and what Patronus answered is kept in the object cache, so a second read asks
 it for little.
 
@@ -61,7 +61,7 @@ it for little.
 ### What counts
 
 - The period is 14 days, 30 days (the default), 10 weeks or 6 months before now (`StatsPeriod`), one choice of the
-  app and of `bd robot-stats --period`; every number counts it but the runs: the failure causes, the flaky checks and
+  app and of `brd robot-stats --period`; every number counts it but the runs: the failure causes, the flaky checks and
   the commits per merge are of the last 14 days in every period.
   [@test] ../../crates/remote-facts/src/robot_stats_aggregate_test.rs (`the_period_sets_the_window_and_its_weeks_from_the_mondays_inside_it`, `a_period_is_written_by_its_id`)
 - A robot counts when a person started it (no application), it is no cherry-pick, no dry run and no emergency robot,
@@ -140,14 +140,14 @@ it for little.
   [@test] ../../crates/patronus/src/stats_test.rs (`at_most_four_robots_are_read_at_once_and_a_rejected_token_stops_the_reads`)
 - A failure keeps what was kept: the numbers are of it and say they are stale; without a token nothing is asked.
   [@test] ../../crates/remote-facts/src/robot_stats_test.rs (`a_failure_keeps_what_was_kept_and_says_it_is_stale`, `nothing_is_asked_without_a_token_and_nothing_kept_has_no_numbers`)
-- The kept weeks, runs and salt live in the `patronus_history` store of the object cache, which the app and `bd`
+- The kept weeks, runs and salt live in the `patronus_history` store of the object cache, which the app and `brd`
   share (`$GIT_COMMON_DIR/branch-deck/cache`).
 
-### `bd robot-stats`
+### `brd robot-stats`
 
-- `bd robot-stats` must print the statistics as one object (`mine`, `everyone`, `first_try`, `value`, `time`,
+- `brd robot-stats` must print the statistics as one object (`mine`, `everyone`, `first_try`, `value`, `time`,
   `failures`, `start_hours`, `window` with its `period`, `coverage`, `stale`, `fetched_at`), write no ref, config,
-  index or working tree, and match `bd schema` (`robot_stats`); a second run asks Patronus nothing, `--refresh` lists
+  index or working tree, and match `brd schema` (`robot_stats`); a second run asks Patronus nothing, `--refresh` lists
   the weeks that may still change, `--period 14d|30d|10w|6m` chooses the period (30 days by default).
   [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`, `the_period_is_the_days_that_count`)
 - With kept numbers and a failing Patronus it must exit 0 with `stale: true` and a `warning`; without anything kept it
@@ -175,7 +175,7 @@ it for little.
 ## Testing / Local Run
 
 - `cargo nextest run -E 'test(/robot_stats|calendar|stats_test/)'`.
-- `bd robot-stats -C <a clone on Space>`: the first run reads the 5 or 6 weeks of 30 days (a few megabytes each in a
+- `brd robot-stats -C <a clone on Space>`: the first run reads the 5 or 6 weeks of 30 days (a few megabytes each in a
   large repository) and up to 120 robots; later runs read the current week, `--period 6m` once the weeks not kept.
 - Measured on the IntelliJ monorepo (2026-10-23): a week lists 3,000 to 3,700 robots in 0.4 to 6 s; 30 days are about
   10,200 robots, 6 months about 49,900, and Patronus answers the weeks older than 70 days; the 120 runs of a read take

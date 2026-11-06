@@ -1,4 +1,4 @@
-//! `bd lease disk`: what the pools of this machine hold on disk, the bytes the builds of each slot wrote (its clean rule
+//! `brd lease disk`: what the pools of this machine hold on disk, the bytes the builds of each slot wrote (its clean rule
 //! directories and its Bazel output bases), the output bases of the main worktrees and the orphans
 //! (spec/cli/lease.spec.md, "Disk"). The core and the shape of the report are `pool_disk`; read only but for
 //! `disk.json`, the bytes it keeps
@@ -19,7 +19,7 @@ pub struct LeaseDiskArgs {
   pub fresh: bool,
 }
 
-/// `bd lease disk`
+/// `brd lease disk`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseDiskOutput {
   pub schema: SchemaVersion,

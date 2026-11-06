@@ -53,7 +53,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
   test("should wait for the holder in the squash dialog, say whom for, and squash once it released the lock", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setup(page, setupRepo, syncAndWaitForBranches)
     const squashes = await recordRewrites(page, "squash")
-    // another process holds the lock (`bd pick --follow` of an agent): here the test server, whose record names it
+    // another process holds the lock (`brd pick --follow` of an agent): here the test server, whose record names it
     await repo.holdRepositoryLock(true)
     const dialog = await squashTwo(page)
 
@@ -197,7 +197,7 @@ test.describe("Rewrites while another process holds the repository lock", () => 
   test("should sync while another process holds the repository lock, and push once it released it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("issue_links")
     await syncAndWaitForBranches()
-    // an agent's `bd push` holds the lock (its sync and its freeze) after a commit behind the app's back
+    // an agent's `brd push` holds the lock (its sync and its freeze) after a commit behind the app's back
     await repo.commit("(JIRA-456) Raise the pool size", { "pool.cfg": "size=50\n" }, 1704182460)
     await repo.holdRepositoryLock(true)
     // the sync of the app takes no lock: it ends while the other process holds it, and brings the commit into the row

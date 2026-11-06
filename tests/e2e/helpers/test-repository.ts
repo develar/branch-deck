@@ -121,7 +121,7 @@ export type PatronusLog = {
   statusReads: string[]
 }
 
-/** `POST /repositories/{id}/host-disks`: a host with the report of `bd-host disk --json` (snake case), or why it has none */
+/** `POST /repositories/{id}/host-disks`: a host with the report of `brd-host disk --json` (snake case), or why it has none */
 export interface HostDiskFixture {
   alias: string
   report?: unknown
@@ -210,7 +210,7 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Updates the checked out branch onto the fetched baseline behind the app's back, as `bd update` beside the app does:
+   * Updates the checked out branch onto the fetched baseline behind the app's back, as `brd update` beside the app does:
    * the core of Update Project, called by no page, so only the next sync of the page learns what it landed
    */
   async updateOutsideTheApp(): Promise<void> {
@@ -642,7 +642,7 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Takes the repository lock of the repository (`held`) or releases it, as another process holds it (`bd pick
+   * Takes the repository lock of the repository (`held`) or releases it, as another process holds it (`brd pick
    * --follow` of an agent): its holder record names the test server, `test-server`, alive while it runs
    */
   async holdRepositoryLock(held: boolean): Promise<void> {
@@ -650,7 +650,7 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * Takes the fetch lock of the repository (`held`) or releases it, as an agent's `bd update` that fetches the baseline
+   * Takes the fetch lock of the repository (`held`) or releases it, as an agent's `brd update` that fetches the baseline
    * holds it: the fetch of an update or a Fetch of the page waits for it in the backend, then fetches itself
    */
   async holdFetchLock(held: boolean): Promise<void> {
@@ -658,7 +658,7 @@ export class TestRepositoryBuilder {
   }
 
   /**
-   * `bd` of another process runs `intent` in the repository (an agent's `bd safe-push`): its record in the operations
+   * `brd` of another process runs `intent` in the repository (an agent's `brd safe-push`): its record in the operations
    * registry of the repository, naming a child of the test server that runs until the next call; the app's sessions show
    * it from the watch of the registry and refuse what needs what it holds (by default what a start or a push of its branch
    * holds). `unknown`: a start of it whose answer was lost, sent now on the clock of the sessions of the repository, which
@@ -692,7 +692,7 @@ export class TestRepositoryBuilder {
     return ((await (await this.postFixture("journal-gone", {})).json()) as { journal: string }).journal
   }
 
-  /** `bd` did a mutation of the repository behind the app's back (an agent's `bd group`): it touched the stamp of the repository */
+  /** `brd` did a mutation of the repository behind the app's back (an agent's `brd group`): it touched the stamp of the repository */
   async touchStamp(): Promise<void> {
     await this.setFixture("stamp", {})
   }

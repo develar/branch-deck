@@ -116,8 +116,8 @@ the measurements: [Change Review](../../docs/design/change-review.md).
   (`activatesProjectViewOnStartup`).
   [@test] ../../crates/review-plan/src/concerns_test.rs (`a_generated_file_follows_the_concern_of_the_source_its_header_names`, `the_configs_that_drop_one_server_are_one_concern_by_the_identifier_they_share`, `a_sentence_a_config_quotes_joins_by_its_compound_names_alone`)
 
-### In `bd`
-- `bd review-plan` must print `concerns` (`"schema": 18`): per concern its `id`, `name` (`source` `token` with
+### In `brd`
+- `brd review-plan` must print `concerns` (`"schema": 18`): per concern its `id`, `name` (`source` `token` with
   `token`, `replacement` with `removed` and `added`, `declaration` with `name`, `file` with `path`, `directory` with `directory`, `rest`),
   its `parts` (`unit`, `path`, `blocks`), its `paths`, its `elsewhere` (since 8), its `evidence` (`kind`: `uses`, `group`, `token`, `rest`, its
   `detail` and `joins`, the most joins first) and its `fingerprint`. The hidden `--concern-edges uses,tokens,rest`
@@ -208,7 +208,7 @@ The first section of each concern opens with a divider on the canvas above its c
 ## Measurements
 
 The lab of 2026-10-31 (`~/projects/review-concerns-lab`, its `results/scores.md`): four corpora of tangled ranges
-with a label per hunk, `bd review-plan` per range, each hunk mapped to the concern part whose blocks hold it; a part
+with a label per hunk, `brd review-plan` per range, each hunk mapped to the concern part whose blocks hold it; a part
 of `rest` and a mechanical slice count as a group of its own. Purity is the share of groups of more than one hunk that
 hold one task (Wilson 95% lower bound in parentheses); recall the share of the pairs of a task that share a group.
 Merge precision alone says little: one group over a whole range scores 91–98% on it.

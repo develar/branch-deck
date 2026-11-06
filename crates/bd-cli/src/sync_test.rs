@@ -34,7 +34,7 @@ fn syncs_and_reports_each_branch() {
       "commit_count": 1,
       "tip": short_id(&tip),
       "remote": { "exists": false, "unpushed": 1, "behind": 0, "head": null },
-      "push": "bd push auth",
+      "push": "brd push auth",
     }])
   );
 
@@ -94,7 +94,7 @@ fn repo_with_auth() -> (TestRepo, String) {
   (repo, login)
 }
 
-/// An agent's `bd sync`, held in its merges, beside the user's regroup (the app's Move takes the same lock): the regroup
+/// An agent's `brd sync`, held in its merges, beside the user's regroup (the app's Move takes the same lock): the regroup
 /// is done within the bounded wait of the lock (200 ms in the fixture), and the sync then ends
 #[cfg(unix)]
 #[test_log::test]
@@ -126,7 +126,7 @@ impl history_rewrite::repository_lock::LockWaiter for NeverWaits {
   }
 }
 
-/// An agent's `bd sync`, held in its merges, beside the app's squash (`squash_commits_core` with the app's wait for the
+/// An agent's `brd sync`, held in its merges, beside the app's squash (`squash_commits_core` with the app's wait for the
 /// repository lock, as long as its holder lives): the sync holds no lock, so the squash never waits and is done while
 /// the sync is still held; the sync then ends
 #[cfg(unix)]
@@ -170,7 +170,7 @@ fn a_failure_beside_a_held_sync_lets_the_sync_go_and_end() {
   assert!(!auth_tip(&repo).is_empty(), "the sync went on and built auth");
 }
 
-/// Two agents' `bd sync` at once, the first held in its merges: the second builds auth and ends; the first then ends too,
+/// Two agents' `brd sync` at once, the first held in its merges: the second builds auth and ends; the first then ends too,
 /// on the same build, which its compare-and-swap leaves as the second wrote it
 #[cfg(unix)]
 #[test_log::test]
@@ -185,7 +185,7 @@ fn a_sync_beside_a_held_sync_ends_and_both_leave_one_build() {
   assert_eq!(auth_tip(&repo), built);
 }
 
-/// An agent's `bd push`, beside another agent's `bd sync` held in its merges: the sync holds no lock, so the push syncs,
+/// An agent's `brd push`, beside another agent's `brd sync` held in its merges: the sync holds no lock, so the push syncs,
 /// pushes and ends while that sync is still held; the remote has the build both syncs leave
 #[cfg(unix)]
 #[test_log::test]
@@ -295,7 +295,7 @@ fn no_cache_verifies_each_note() {
   assert_eq!(output["branches"][0]["state"], json!("unchanged"));
 }
 
-/// `bd sync` exits with 1 for every branch it could not build, not only a conflict
+/// `brd sync` exits with 1 for every branch it could not build, not only a conflict
 #[test]
 fn a_branch_that_is_not_built_is_exit_1() {
   use bd_core::sync_command::SyncState;
@@ -314,7 +314,7 @@ fn a_branch_that_is_not_built_is_exit_1() {
 }
 
 /// `b` changes the third argument of the call whose first one `a` changed: git stops, but the words resolve. The sync
-/// builds `b` and says what it resolved; `bd status` and `bd commits` tell it from the mapping note; `bd check` agrees
+/// builds `b` and says what it resolved; `brd status` and `brd commits` tell it from the mapping note; `brd check` agrees
 #[test_log::test]
 fn a_conflict_that_its_words_resolve_builds_and_says_so() {
   let (repo, [_, resolved]) = repo_with_commits(

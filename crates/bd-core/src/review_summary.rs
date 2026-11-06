@@ -1,4 +1,4 @@
-//! The code-owner review of a branch as the outputs print it: `bd safe-push`, `bd request-review`, and the error
+//! The code-owner review of a branch as the outputs print it: `brd safe-push`, `brd request-review`, and the error
 //! `approvals_missing`, which carries it
 
 use schemars::JsonSchema;

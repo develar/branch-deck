@@ -25,7 +25,7 @@
 //! runs on the blocking pool with that HEAD expected (`RewriteOptions::expect_head`): it reads and computes before the
 //! repository lock, which it takes itself only for the witness of what it read and its compare-and-swap write, and
 //! computes once more under the lock when a ref moved meanwhile (`history_rewrite::repository_lock::lock_prepared`). A
-//! core that refused a HEAD another process moved while it waited for the lock (`bd update`, a `bd` rewrite, a commit;
+//! core that refused a HEAD another process moved while it waited for the lock (`brd update`, a `bd` rewrite, a commit;
 //! a moved ref, `ErrorCode::moved_ref`, nothing written) ran on a HEAD the rewrite was not resolved on: the rewrite is
 //! resolved again on HEAD as it is now and its core runs once more, on what the other process left (`resolve_and_run`,
 //! at most three runs, none after a Stop Waiting); any other failure is the core's answer. The operation ends once
@@ -264,8 +264,8 @@ const RUNS_ON_A_MOVED_HEAD: usize = 3;
 
 /// `rewrite` resolved on HEAD as it is now and run by its core (`resolve`, `run_core`): its resolution, the HEAD its
 /// core expected and what it answered. A core that refused a moved ref (`ErrorCode::moved_ref`: nothing written) while
-/// HEAD is no longer the one it expected (another process moved it while the rewrite waited for the lock: `bd update`,
-/// `bd pick`, a `bd` rewrite, a commit) ran on a HEAD the rewrite was not resolved on, so the rewrite is resolved again
+/// HEAD is no longer the one it expected (another process moved it while the rewrite waited for the lock: `brd update`,
+/// `brd pick`, a `bd` rewrite, a commit) ran on a HEAD the rewrite was not resolved on, so the rewrite is resolved again
 /// on HEAD as it is now and its core runs once more on what the other one left, up to `RUNS_ON_A_MOVED_HEAD` times.
 /// Any other failure is the core's own, also one after it moved HEAD itself (an amend whose index could not follow):
 /// it answers as it is. A Stop Waiting that came once the wait before had taken the lock runs no core after it, nor the
@@ -919,7 +919,7 @@ impl Core {
       RewriteIntent::Ungroup { .. } => return Err(failed(anyhow::anyhow!("An ungroup runs as the move back of its commits"))),
       RewriteIntent::Undo { token } => self.undo(token, lock_wait).map_err(Failure::Undo)?,
       // refused before its admission (`execute_rewrite`)
-      RewriteIntent::Group { .. } | RewriteIntent::MoveHunk { .. } => return Err(failed(anyhow::anyhow!("Only bd runs it"))),
+      RewriteIntent::Group { .. } | RewriteIntent::MoveHunk { .. } => return Err(failed(anyhow::anyhow!("Only brd runs it"))),
     })
   }
 
@@ -951,11 +951,11 @@ impl Core {
           repository_path: path.to_owned(),
           undo_token: text.to_owned(),
         };
-        // the undo of a pick waits a bounded time, as `bd undo` does
+        // the undo of a pick waits a bounded time, as `brd undo` does
         undo_pick_remote_commits_core(git, &params, DEFAULT_LOCK_TIMEOUT)?;
         false
       }
-      // its short lock, as `bd undo` takes it
+      // its short lock, as `brd undo` takes it
       UndoKind::Update => undo_update_core(git, path, &UpdateUndoToken::parse(text).ok_or_else(not_a_token)?, DEFAULT_LOCK_TIMEOUT)?.already_undone,
     };
     Ok(Ran::of(RewriteResult::Undone { already_undone }, token.kind, None))

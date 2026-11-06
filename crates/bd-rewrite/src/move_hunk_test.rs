@@ -79,8 +79,8 @@ fn the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch(
   assert_undo_restores(&repo, &output, &head);
 }
 
-/// The blocks of `path` in `commit`, as `bd commits <commit> --patch` prints them
-/// `bd move-hunk` reads and computes before the repository lock (the commits ahead, the blocks of the file, the history,
+/// The blocks of `path` in `commit`, as `brd commits <commit> --patch` prints them
+/// `brd move-hunk` reads and computes before the repository lock (the commits ahead, the blocks of the file, the history,
 /// the merges, the commits with their notes); under it only the witness of HEAD (`for-each-ref`) and the move of the
 /// branch (C11 of docs/design/rust-domain-authority.md)
 #[cfg(unix)]
@@ -98,7 +98,7 @@ fn a_move_hunk_locks_only_the_witness_and_the_write() {
   wrapped.assert_before_the_lock("fast-import");
 }
 
-/// Another process that commits between the commits `bd move-hunk` lists and the history it reads (HEAD moved between
+/// Another process that commits between the commits `brd move-hunk` lists and the history it reads (HEAD moved between
 /// two reads before the lock) makes the move compute once more under the lock, on that HEAD: it moves the change and
 /// keeps the commit of the other process; with `--expect-head` the moved HEAD is the answer (`head_moved`)
 #[cfg(unix)]

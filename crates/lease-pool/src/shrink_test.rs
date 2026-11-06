@@ -25,7 +25,7 @@ fn names(order: &[(usize, &Slot)]) -> Vec<(usize, String)> {
   order.iter().map(|(pool, slot)| (*pool, slot.name.clone())).collect()
 }
 
-/// The free slots of every pool go by the time of their return, the never returned ones first and those of a bd
+/// The free slots of every pool go by the time of their return, the never returned ones first and those without a return time
 /// before the time by their number; the slot each pool's next get would take comes last, in the same order; a slot
 /// with a lease and one `usable` refuses (a process in it) are no candidates
 #[test]

@@ -112,7 +112,7 @@ by the next sync the same way.
   local fixup of a proven commit is no candidate: it replays on its own.
   [@test] ../../crates/git-ops/src/landed_pairing_test.rs (`a_fixup_of_a_proven_twin_stays_out_of_the_pairing`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`)
-- A candidate is landed only by a decision: `bd update --continue --landed` in its round drops it as its baseline
+- A candidate is landed only by a decision: `brd update --continue --landed` in its round drops it as its baseline
   commit, at once when the baseline commit has every line it changes, else after the user's yes (`--user`). A drop by
   `--drop-empty` lands only a candidate; any other is the user's drop and did not land.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_twin_that_differs_asks_the_user_and_drops_after_the_yes`, `a_twin_with_every_line_of_the_commit_drops_without_a_question`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`)
@@ -144,7 +144,7 @@ by the next sync the same way.
 - An applied update adds what it landed to the report in `branch-deck/landed.json` of the worktree's git directory and
   returns it; the next sync doesn't add it again.
   [@test] ../../crates/update-core/src/landed_test.rs (`whole_branch_landed_by_a_rebase_upstream`)
-- An update onto a local branch (the update of a lease onto its home after a conflict of `bd lease pick`) adds nothing,
+- An update onto a local branch (the update of a lease onto its home after a conflict of `brd lease pick`) adds nothing,
   at its apply or at the finish of its session: what the local branch has did not reach the baseline by it.
   [@test] ../../crates/update-core/src/update_project_test.rs (`an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back`)
 - Each sync remembers where the branch is; when the merge base moved since the previous sync, the commits that were local
@@ -154,12 +154,12 @@ by the next sync the same way.
   [@test] ../../crates/update-core/src/landed_test.rs (`reword_squash_or_amend_between_syncs_is_not_landed`)
 - The sync sends the landing (`BaselineStatus.landing`) and the undismissed report (`BaselineStatus.landed`).
   [@test] ../../crates/update-core/src/landed_test.rs (`sync_sends_the_landing_and_the_report`)
-- Dismiss clears the report for every window and `bd`, an operation of the session (`Intent::DismissLanded`, under the
+- Dismiss clears the report for every window and `brd`, an operation of the session (`Intent::DismissLanded`, under the
   lock of the report); a report is kept at most 7 days. A new report for a known branch adds its new commits and takes
   the new count of the ones that stay.
   [@test] ../../crates/operations/src/update_test.rs (`dismiss_landed_clears_the_report_of_what_an_update_landed`)
   [@test] ../../src/lib/landed.test.ts (`adds new commits to a known branch and takes its new count of local commits`)
-- `bd sync` prints the landing as `update.landing` and the report as `landed`, with short ids.
+- `brd sync` prints the landing as `update.landing` and the report as `landed`, with short ids.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)
 
 ### Wording
@@ -201,7 +201,7 @@ by the next sync the same way.
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - Such a branch landed, the first answer of what landed it (`domain_policy::landed::landed_state`, the view's
   `landedStates`, [Next Step](../branch/next-step.spec.md#the-table), row 1): its Safe Push and Dry Run are disabled
-  with "Landed in origin/master", and `bd safe-push` refuses it as `landed` (a whole stack: every branch of it).
+  with "Landed in origin/master", and `brd safe-push` refuses it as `landed` (a whole stack: every branch of it).
   [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_whole_stack_landed_when_every_branch_of_it_did`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 
@@ -221,10 +221,10 @@ by the next sync the same way.
   "Updated master: rebased 104 commits", with no action: the update is done, the island has the rest.
   [@test] ../../src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
   [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in place, when the update starts from the header`)
-- A report a sync found after an update elsewhere (`bd update`, the IDE, `git pull`) has no toast of its own: the open
+- A report a sync found after an update elsewhere (`brd update`, the IDE, `git pull`) has no toast of its own: the open
   toast of a merge of its branches says it in place, "auth landed in origin/master" / "Found by a sync", in the words of
   its Activity entry (`foundLandedNews`); with no toast of a merge open nothing shows but the island and Activity.
-  [@test] ../../src/lib/landing-toast.test.ts (`says in place what a sync found landed after an update elsewhere (bd update, the IDE)`)
+  [@test] ../../src/lib/landing-toast.test.ts (`says in place what a sync found landed after an update elsewhere (brd update, the IDE)`)
   [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should say in the toast of a merge what a sync found landed after an update outside the app`)
 - The Landed island sits above the branches: "Landed in origin/master" and when, a row per branch with "1 landed",
   "40 landed · 12 stay local" or "3 landed · squashed", the pull request and Patronus chips and the committer; a row

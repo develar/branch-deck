@@ -9,7 +9,7 @@ fn agent(home: &std::path::Path) -> Agent {
   Agent::new(
     Home::new(home.to_path_buf()),
     ServerTls::new(&identity, home.join("clients")).expect("the TLS setup"),
-    PathBuf::from("bd-host"),
+    PathBuf::from("brd-host"),
     PathBuf::from("launchctl"),
     "0.0.0".to_owned(),
   )

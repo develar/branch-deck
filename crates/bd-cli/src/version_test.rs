@@ -31,5 +31,5 @@ fn version_and_dash_dash_version() {
 #[test]
 fn agent_help_names_the_version() {
   let first_line = AGENT_HELP.lines().next().unwrap();
-  assert!(first_line.starts_with(&format!("bd {VERSION}: ")), "{first_line}");
+  assert!(first_line.starts_with(&format!("brd {VERSION}: ")), "{first_line}");
 }

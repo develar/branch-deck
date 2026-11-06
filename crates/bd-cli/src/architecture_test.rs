@@ -77,7 +77,7 @@ const UNREACHABLE: &[Unreachable] = &[
   Unreachable {
     from: "app-settings",
     forbidden: &["git-ops", "git-executor", "reqwest", "tokio", TAURI, "clap"],
-    why: "the settings of the app are a file: no git, no network, no runtime, no Tauri, so bd reads them without the app",
+    why: "the settings of the app are a file: no git, no network, no runtime, no Tauri, so brd reads them without the app",
   },
   Unreachable {
     from: "air-launch",
@@ -123,7 +123,7 @@ const UNREACHABLE: &[Unreachable] = &[
       TAURI,
       "clap",
     ],
-    why: "the plan of a review reads the commits, the symbols and the local index of accio; it asks no remote service, updates, leases and runs no operation, and serves bd and the app alike",
+    why: "the plan of a review reads the commits, the symbols and the local index of accio; it asks no remote service, updates, leases and runs no operation, and serves brd and the app alike",
   },
   Unreachable {
     from: "lease-pool",
@@ -171,7 +171,7 @@ const UNREACHABLE: &[Unreachable] = &[
   Unreachable {
     from: OPERATIONS,
     forbidden: &[TAURI, APP, APP_API, "clap"],
-    why: "the engine of the operations serves the app and bd alike: no Tauri, no adapter, no CLI",
+    why: "the engine of the operations serves the app and brd alike: no Tauri, no adapter, no CLI",
   },
   Unreachable {
     from: "host-link",
@@ -217,7 +217,7 @@ const UNREACHABLE: &[Unreachable] = &[
   Unreachable {
     from: BD_CLI,
     forbidden: HOST_RUNS,
-    why: "bd carries no remote run: bd-host is a binary of its own",
+    why: "brd carries no remote run: bd-host is a binary of its own",
   },
   Unreachable {
     from: APP,
@@ -467,11 +467,11 @@ fn direct_rule(from: &str, dependency: &Dependency) -> Option<&'static str> {
     return (from != APP || (to != BD_CLI && to != BD_CORE)).then_some("outside the CLI layer only the app depends on it, and only on bd-cli and bd-core");
   }
   if from == BD_CORE {
-    return Some("bd-core is the base of the CLI layer and depends on no other bd crate");
+    return Some("bd-core is the base of the CLI layer and depends on no other brd crate");
   }
   let fixtures = to == BD_CLI && dependency.kind == Kind::Dev && dependency.features.iter().any(|feature| feature == FIXTURES);
   (is_family(from) && to != BD_CORE && !fixtures)
-    .then_some("a bd family depends on bd-core and the libraries, never on another family (a dev-dependency on bd-cli with `fixtures` is fine)")
+    .then_some("a brd family depends on bd-core and the libraries, never on another family (a dev-dependency on bd-cli with `fixtures` is fine)")
 }
 
 /// Every broken rule of `graph` outside `allowed`, one line each
@@ -706,7 +706,7 @@ fn the_architecture_check_follows_an_optional_edge_by_the_name_the_manifest_give
 
 #[test]
 fn the_architecture_check_follows_an_optional_edge_a_build_feature_enables() {
-  // `schemars` of domain-types, which bd-core enables for `bd schema`: an optional git-ops behind it is a reach
+  // `schemars` of domain-types, which bd-core enables for `brd schema`: an optional git-ops behind it is a reach
   let mut graph = graph_of(&[("domain-types", "serde", Kind::Normal, &[]), ("git-ops", "git-executor", Kind::Normal, &[])]);
   let types = graph.get_mut("domain-types").unwrap();
   types.dependencies.push(optional("git-ops", None, &[]));
@@ -734,12 +734,12 @@ fn the_architecture_check_keeps_the_bd_families_apart() {
     ("test-server", "bd-core", Kind::Normal, &[]),
     ("test-server", APP, Kind::Dev, &[]),
   ]);
-  let family = "a bd family depends on bd-core and the libraries, never on another family (a dev-dependency on bd-cli with `fixtures` is fine)";
+  let family = "a brd family depends on bd-core and the libraries, never on another family (a dev-dependency on bd-cli with `fixtures` is fine)";
   let outside = "outside the CLI layer only the app depends on it, and only on bd-cli and bd-core";
   assert_eq!(
     violations(&graph, &[]),
     [
-      "  bd-core depends on bd-update (Dev): bd-core is the base of the CLI layer and depends on no other bd crate".to_owned(),
+      "  bd-core depends on bd-update (Dev): bd-core is the base of the CLI layer and depends on no other brd crate".to_owned(),
       format!("  bd-update depends on bd-cli (Dev): {family}"),
       format!("  bd-update depends on bd-lease (Normal): {family}"),
       format!("  branch-deck depends on bd-update (Normal): {outside}"),

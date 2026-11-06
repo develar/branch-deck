@@ -322,7 +322,7 @@ fn a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order() {
 
   let lines = said.lines();
   assert!(lines.contains(&"progress".to_owned()), "{lines:#?}");
-  assert!(lines.contains(&format!("bd-host: run {} of {} on studio", run_of(&outcome), &head[..12])), "{lines:#?}");
+  assert!(lines.contains(&format!("brd-host: run {} of {} on studio", run_of(&outcome), &head[..12])), "{lines:#?}");
   assert!(lines.contains(&"> studio: pack the commits that studio lacks".to_owned()), "{lines:#?}");
   assert!(lines.iter().any(|line| line.starts_with("> studio: pack of 1 commits, ")), "{lines:#?}");
   assert!(!lines.iter().any(|line| line.contains("warning")), "{lines:#?}");
@@ -337,7 +337,7 @@ fn a_run_starts_follows_packs_syncs_the_base_and_fetches_in_order() {
   assert_eq!(record, serde_json::json!({"commit": head, "fetch": ["out/bt-runs"], "outputs": [], "changes": false}));
 }
 
-/// The working tree ships as one commit of `bd-host` on HEAD, and the index stays. The same tree is the same commit,
+/// The working tree ships as one commit of `brd-host` on HEAD, and the index stays. The same tree is the same commit,
 /// so a host that has it gets no pack
 #[test]
 fn the_working_tree_ships_as_one_commit_and_the_same_tree_sends_no_pack() {
@@ -377,7 +377,7 @@ fn the_working_tree_ships_as_one_commit_and_the_same_tree_sends_no_pack() {
   assert_eq!(std::fs::read(setup.repo.path().join(".git/index")).unwrap(), index, "the index stays");
   assert!(
     said.lines().contains(&format!(
-      "bd-host: run {} of {} on studio: the working tree, HEAD {} and 2 changed paths",
+      "brd-host: run {} of {} on studio: the working tree, HEAD {} and 2 changed paths",
       run_of(&first),
       &commit[..12],
       &head[..12]
@@ -514,7 +514,7 @@ fn the_repository_of_a_run_is_the_one_of_the_same_name_beside_the_host_file() {
     said
       .lines()
       .iter()
-      .any(|line| line.starts_with("bd-host: studio has no ~/projects/") && line.contains("the run goes to ~/projects/idea-1")),
+      .any(|line| line.starts_with("brd-host: studio has no ~/projects/") && line.contains("the run goes to ~/projects/idea-1")),
     "{:#?}",
     said.lines()
   );
@@ -563,7 +563,7 @@ fn a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255() {
   let failure = run_in(&setup, &|_| {}, &calm, &fetch(), RunOptions::default()).unwrap_err();
   assert_eq!((failure.refusal.code, failure.exit), (Code::UnknownRun, Exit::Refused));
   assert!(failure.refusal.message.contains("whether its command ran is unknown"), "{}", failure.refusal.message);
-  assert!(failure.refusal.message.contains("`bd-host runs studio`"), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`brd-host runs studio`"), "{}", failure.refusal.message);
   assert!(!kinds(&setup).contains(&"forget"), "{:?}", kinds(&setup));
 }
 
@@ -589,7 +589,7 @@ fn an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75() {
   };
   let failure = run_timed(&setup, &say, timing).unwrap_err();
   assert_eq!((failure.refusal.code, failure.exit), (Code::TimedOut, Exit::Refused), "{}", failure.refusal.message);
-  assert!(failure.refusal.message.contains("`bd-host follow studio "), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`brd-host follow studio "), "{}", failure.refusal.message);
   assert!(said.lines().iter().any(|line| line.contains("following the run")), "{:#?}", said.lines());
   assert!(!kinds(&setup).contains(&"forget"), "a run whose end the client did not see stays on the host");
 }
@@ -609,7 +609,7 @@ fn a_refusal_of_the_client_after_the_start_never_exits_75() {
 }
 
 /// An agent that stops answering ends the run after the reconnect window with `timed_out` after the start (255), and
-/// the refusal names `bd-host follow`. Each `Follow` of the agent stays silent until the run has ended; the read
+/// the refusal names `brd-host follow`. Each `Follow` of the agent stays silent until the run has ended; the read
 /// deadline ends each connection, and the second one ends past the reconnect window
 #[test]
 fn a_silent_agent_times_out_after_the_reconnect_window() {
@@ -627,7 +627,7 @@ fn a_silent_agent_times_out_after_the_reconnect_window() {
   let failure = run_timed(&setup, &|_| {}, timing).unwrap_err();
   ended.store(true, Ordering::SeqCst);
   assert_eq!((failure.refusal.code, failure.exit), (Code::TimedOut, Exit::Refused));
-  assert!(failure.refusal.message.contains("`bd-host follow studio "), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`brd-host follow studio "), "{}", failure.refusal.message);
   assert!(!kinds(&setup).contains(&"forget"), "a run whose end the client did not see stays on the host");
 }
 
@@ -652,7 +652,7 @@ fn fetching_agent(repo: TestRepo, files: Vec<(String, FileKind, Vec<u8>)>) -> Se
   .0
 }
 
-/// The options of `bd-host run --apply`: the working tree, so a second run ships the changes of the first one
+/// The options of `brd-host run --apply`: the working tree, so a second run ships the changes of the first one
 const APPLY: RunOptions = RunOptions {
   working_tree: true,
   nice: None,
@@ -684,7 +684,7 @@ fn apply_brings_the_changes_back_all_or_nothing() {
     .iter()
     .find_map(|line| {
       line
-        .strip_prefix("bd-host: applied the changes of the command to 1 files of this working tree; `git apply -R ")?
+        .strip_prefix("brd-host: applied the changes of the command to 1 files of this working tree; `git apply -R ")?
         .strip_suffix("` undoes them")
         .map(str::to_owned)
     })
@@ -703,7 +703,7 @@ fn apply_brings_the_changes_back_all_or_nothing() {
   let said = Said::default();
   let say = |line: &str| said.push(line);
   assert_eq!(run_in(&quiet, &say, &calm, &[], APPLY).unwrap().facts.applied_files, Some(0));
-  assert!(said.lines().contains(&"bd-host: the command changed no file".to_owned()), "{:#?}", said.lines());
+  assert!(said.lines().contains(&"brd-host: the command changed no file".to_owned()), "{:#?}", said.lines());
 }
 
 /// Changes that did not come, because the fetch was cut, refuse with `apply_failed` and name the fetch that copies
@@ -735,8 +735,8 @@ fn a_cut_fetch_refuses_after_the_command_and_keeps_the_run() {
   let say = |line: &str| said.push(line);
   let failure = run_in(&setup, &say, &calm, &fetch(), RunOptions::default()).unwrap_err();
   assert_eq!((failure.refusal.code, failure.exit, failure.command_exit), (Code::FetchFailed, Exit::Refused, Some(3)));
-  assert!(failure.refusal.message.contains("`bd-host fetch studio "), "{}", failure.refusal.message);
-  assert!(failure.refusal.message.contains("`bd-host forget studio "), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`brd-host fetch studio "), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`brd-host forget studio "), "{}", failure.refusal.message);
   let root = setup.repo.path();
   assert!(!root.join("out/bt-runs/1/big.log").exists());
   assert!(!root.join("out/bt-runs/1/big.log.bd-host-part").exists());
@@ -794,7 +794,7 @@ fn ctrl_c_cancels_the_run_and_follows_it_to_its_end() {
   let (outcome, lines) = run_with_ctrl_c_after_the_follow(&setup);
   assert_eq!(outcome.code, 130);
   assert!(cancelled.load(Ordering::SeqCst));
-  assert!(lines.iter().any(|line| line.starts_with("bd-host: Ctrl+C: cancelling the run")), "{lines:#?}");
+  assert!(lines.iter().any(|line| line.starts_with("brd-host: Ctrl+C: cancelling the run")), "{lines:#?}");
   assert!(lines.contains(&"interrupted".to_owned()), "{lines:#?}");
 }
 
@@ -822,7 +822,7 @@ fn ctrl_c_before_the_start_reaches_no_host() {
 #[test]
 fn ctrl_c_during_the_build_of_the_pack_cancels_the_run_on_the_host() {
   let Commits { repo, first, .. } = two_commits();
-  let (setup, cancelled) = agent_that_waits_for_the_cancel(repo, known(vec![first]), "bd-host: the run was cancelled before its command");
+  let (setup, cancelled) = agent_that_waits_for_the_cancel(repo, known(vec![first]), "brd-host: the run was cancelled before its command");
   let (count, watcher) = press_after(&setup, "pack", 1);
   let presses = || count.load(Ordering::SeqCst);
   let started = Instant::now();
@@ -852,7 +852,7 @@ fn the_pack_builds_after_the_start_and_keeps_its_connection_alive() {
         true
       }
       Request::Follow { .. } => {
-        output(channel, Stream::Stderr, "bd-host: slot /pool/1 (warm)", 30);
+        output(channel, Stream::Stderr, "brd-host: slot /pool/1 (warm)", 30);
         exit(channel, 0);
         true
       }
@@ -867,7 +867,7 @@ fn the_pack_builds_after_the_start_and_keeps_its_connection_alive() {
   assert!(sent >= 3, "{sent} empty chunks");
   let lines = said.lines();
   let at = |prefix: &str| lines.iter().position(|line| line.starts_with(prefix)).unwrap_or_else(|| panic!("{prefix} in {lines:#?}"));
-  assert!(at("bd-host: slot /pool/1 (warm)") < at("> studio: pack of 1 commits"), "{lines:#?}");
+  assert!(at("brd-host: slot /pool/1 (warm)") < at("> studio: pack of 1 commits"), "{lines:#?}");
   assert_eq!(
     outcome.facts.phases.iter().map(|phase| phase.name.as_str()).collect::<Vec<_>>(),
     ["pack", "upload", "total"]
@@ -891,7 +891,7 @@ fn a_second_ctrl_c_stops_the_follow_at_once() {
   let failure = run_in(&setup, &|_| {}, &presses, &[], RunOptions::default()).unwrap_err();
   watcher.join().unwrap();
   assert_eq!((failure.refusal.code, failure.exit), (Code::Interrupted, Exit::Interrupted));
-  assert!(failure.refusal.message.contains("`bd-host follow studio "), "{}", failure.refusal.message);
+  assert!(failure.refusal.message.contains("`brd-host follow studio "), "{}", failure.refusal.message);
   assert!(!kinds(&setup).contains(&"forget"));
 }
 
@@ -914,7 +914,7 @@ fn a_refusal_of_the_agent_exits_by_how_far_the_run_came() {
   let (before, lines) = refused_after(vec![step("slot", 0), step("prepare", 3_909_000)], Code::AgentError);
   assert_eq!((before.refusal.code, before.exit), (Code::AgentError, Exit::NotRun));
   assert_eq!(before.refusal.message, "studio: the supervisor failed");
-  assert!(lines.contains(&"bd-host: phases: slot 0.0s, prepare 1h05m09s".to_owned()), "{lines:#?}");
+  assert!(lines.contains(&"brd-host: phases: slot 0.0s, prepare 1h05m09s".to_owned()), "{lines:#?}");
   let (after, _) = refused_after(vec![step("prepare", 10), step("command", 10)], Code::AgentError);
   assert_eq!(after.exit, Exit::Refused);
   let (lease, _) = refused_after(vec![step("slot", 10)], Code::LeaseFailed);
@@ -1038,7 +1038,7 @@ fn disk_and_trim_of_an_agent_without_the_feature_send_no_request() {
   let client = older.client(&processes, &|_| {}, &calm);
   for refused in [client.disk(ALIAS, false).unwrap_err(), client.trim(ALIAS, None, false).unwrap_err()] {
     assert_eq!(refused.code, Code::AgentFailed, "{}", refused.message);
-    assert!(refused.message.contains("bd-host upgrade studio"), "{}", refused.message);
+    assert!(refused.message.contains("brd-host upgrade studio"), "{}", refused.message);
   }
   assert_eq!(kinds(&older), Vec::<&str>::new());
 }
@@ -1144,7 +1144,7 @@ fn a_failed_base_sync_only_warns() {
   let warnings: Vec<String> = said.lines().into_iter().filter(|line| line.contains("warning")).collect();
   assert_eq!(warnings.len(), 1, "{warnings:#?}");
   assert!(
-    warnings[0].starts_with("bd-host: warning: cannot sync the base of the next packs to studio (bad_request): "),
+    warnings[0].starts_with("brd-host: warning: cannot sync the base of the next packs to studio (bad_request): "),
     "{}",
     warnings[0]
   );
@@ -1263,6 +1263,6 @@ fn a_failed_cancel_connects_again() {
   let (outcome, lines) = run_with_ctrl_c_after_the_follow(&setup);
   assert_eq!(outcome.code, 130);
   assert_eq!(cancels.load(Ordering::SeqCst), 2);
-  assert!(lines.iter().any(|line| line.starts_with("bd-host: cannot send the cancel of the run ")), "{lines:#?}");
-  assert!(lines.contains(&"bd-host: the host has the cancel".to_owned()), "{lines:#?}");
+  assert!(lines.iter().any(|line| line.starts_with("brd-host: cannot send the cancel of the run ")), "{lines:#?}");
+  assert!(lines.contains(&"brd-host: the host has the cancel".to_owned()), "{lines:#?}");
 }

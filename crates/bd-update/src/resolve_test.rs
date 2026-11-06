@@ -91,7 +91,7 @@ fn a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update() {
   assert_eq!(clone.head(), head);
 }
 
-/// bd with a git wrapper: `arms` are `case " $* " in` arms that run before the real git, with `{dir}` replaced by the
+/// brd with a git wrapper: `arms` are `case " $* " in` arms that run before the real git, with `{dir}` replaced by the
 /// directory of the wrapper (its log and marks)
 #[cfg(unix)]
 struct Wrapped {
@@ -178,7 +178,7 @@ fn linked_worktree(clone: &TestRepo) -> (tempfile::TempDir, std::path::PathBuf) 
   (linked, linked_path)
 }
 
-/// Run bd in the directory `path`
+/// Run brd in the directory `path`
 fn run_at(path: &Path, args: &[&str]) -> (i32, Value) {
   bd_cli::fixture_test::run_json(&bd_cli::fixture_test::environment(path), &[&["--prefix", bd_cli::fixture_test::PREFIX][..], args].concat())
 }
@@ -261,7 +261,7 @@ fn a_second_conflict_opens_a_second_round_with_its_own_copies() {
   assert!(!Path::new(&edit_of(&round1, "shared.txt")).exists(), "the copies of round 1 are gone");
   // the round of the next step
   let (exit_code, stale) = run_in(&clone, &["update", "--continue", "--round", "1"]);
-  // a stale read: `bd update` prints the open round, and the same command for it succeeds
+  // a stale read: `brd update` prints the open round, and the same command for it succeeds
   assert_error(&stale, exit_code, (3, "round_moved"));
   assert_eq!(stale["error"]["retryable"], json!(true));
 
@@ -584,7 +584,7 @@ fn the_copies_go_to_dir_only_outside_every_worktree() {
   let inside = clone.path().join("copies");
   let (exit_code, output) = run_in(&clone, &["update", "--dir", inside.to_str().unwrap()]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  assert!(!inside.exists(), "a refused --dir that bd created is removed");
+  assert!(!inside.exists(), "a refused --dir that brd created is removed");
 
   let outside = tempfile::tempdir().unwrap();
   std::fs::write(outside.path().join("unrelated.txt"), "x").unwrap();
@@ -606,7 +606,7 @@ fn the_copies_go_to_dir_only_outside_every_worktree() {
   std::fs::write(&edit, "one\ntheirs mine\nthree\n").unwrap();
   let (exit_code, _) = run_in(&clone, &["update", "--continue"]);
   assert_eq!(exit_code, 0);
-  assert!(empty.path().exists(), "bd removes only what it wrote");
+  assert!(empty.path().exists(), "brd removes only what it wrote");
   assert_eq!(std::fs::read_dir(empty.path()).unwrap().count(), 0);
 }
 
@@ -688,7 +688,7 @@ fn local_changes_on_the_finish_keep_the_session_ready() {
   let (exit_code, pending) = run_in(&clone, &["update"]);
   assert_eq!(
     (exit_code, &pending["state"], &pending["session"]["next"]),
-    (1, &json!("pending"), &json!("bd update --continue")),
+    (1, &json!("pending"), &json!("brd update --continue")),
     "{pending}"
   );
 
@@ -881,7 +881,7 @@ fn a_session_whose_finish_died_after_the_files_followed_ends_after_a_peer_commit
   }
 }
 
-/// The files did not follow, and a peer committed the old files on top: bd can't finish, and says so
+/// The files did not follow, and a peer committed the old files on top: brd can't finish, and says so
 #[cfg(unix)]
 #[test_log::test]
 fn a_moved_branch_without_its_files_is_finish_pending() {
@@ -1074,7 +1074,7 @@ fn a_take_reports_the_lines_of_the_other_side_it_drops() {
   assert_eq!(checked["resolutions"][0]["files"][0].get("dropped_commit_lines"), None, "{checked}");
 }
 
-/// A local commit that the upstream cherry-picked and then changed further: as `git rebase` does, bd leaves it out by
+/// A local commit that the upstream cherry-picked and then changed further: as `git rebase` does, brd leaves it out by
 /// its patch id instead of opening a round for it
 #[test_log::test]
 fn a_commit_the_upstream_has_with_the_same_patch_is_left_out() {
@@ -1340,7 +1340,7 @@ fn a_round_that_resolves_by_words_is_named_in_the_next_round_the_status_and_the_
   assert_eq!(read(clone.path().join("shared.txt").to_str().unwrap()), "one\nALPHA beta GAMMA\nthree\n");
 }
 
-/// `bd update` of `clone` (its round on `shared.txt`), the copy resolved, then `bd update --continue` under the git that
+/// `brd update` of `clone` (its round on `shared.txt`), the copy resolved, then `brd update --continue` under the git that
 /// logs the state of the lock: the wrapper, the exit code and the output of the continue
 #[cfg(unix)]
 fn continue_logged(clone: &TestRepo) -> (bd_cli::fixture_test::LockSpanGit, i32, Value) {
@@ -1384,9 +1384,9 @@ fn under_the_lock(wrapped: &bd_cli::fixture_test::LockSpanGit) -> Vec<String> {
   under
 }
 
-/// What `bd update --continue` runs under the repository lock, as it is: the read of the session and of the copies, the
+/// What `brd update --continue` runs under the repository lock, as it is: the read of the session and of the copies, the
 /// commit of the round, the replay of the rest and the finish (its exact check, the move of the branch and the files,
-/// the session refs); only the landed report after it. The one core of bd that computes under the lock
+/// the session refs); only the landed report after it. The one core of brd that computes under the lock
 /// (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]
@@ -1418,7 +1418,7 @@ fn a_continue_of_a_resolve_session_holds_the_lock_for_its_round_and_its_finish()
   );
 }
 
-/// `bd update --abort` holds the repository lock for the read of the session and its delete: the compare-and-swap of
+/// `brd update --abort` holds the repository lock for the read of the session and its delete: the compare-and-swap of
 /// the session ref and the sweep of stale temporary refs (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]

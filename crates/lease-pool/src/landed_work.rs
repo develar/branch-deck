@@ -1,14 +1,14 @@
 //! Whether the work of a lease landed (spec/cli/lease.spec.md, "Return" and "Takeover"; "Lease" in
 //! docs/design/git-operations.md): one rule for the return of a lease, the takeover of an idle one by a get and
-//! `bd lease reclaim`. The commits it asks about are the candidates: for a return those no branch, tag or remote holds,
+//! `brd lease reclaim`. The commits it asks about are the candidates: for a return those no branch, tag or remote holds,
 //! for a takeover those the home branch lacks, as the lease's own branch holds them. Each candidate lands only by a
 //! proof against the tip of the home branch, rung by rung, each for the candidates the one before left:
 //!
 //! 1. the dry run of a pick onto it (`pick_dry_run`): a commit of its range the pick would not pick;
 //! 2. the patch id of a commit of the branch (`present_by_patch_id`): a reword, a cherry-pick;
-//! 3. the ladder of `bd update` (`pair_twins`): a commit of the same identity on the branch that is its cherry-pick
+//! 3. the ladder of `brd update` (`pair_twins`): a commit of the same identity on the branch that is its cherry-pick
 //!    (`replayed`) or changes the same lines (`changed_lines`);
-//! 4. the twin of `bd update`: a commit of the same identity whose change, with the fixups of the commit, holds every
+//! 4. the twin of `brd update`: a commit of the same identity whose change, with the fixups of the commit, holds every
 //!    changed line of the commit (`interdiffs`, `local_only` empty), as a conflict resolution or a robot's autosquash
 //!    leaves it; or one that lacks only lines the commit removes and the parent of the twin no longer had, as the
 //!    resolution of a commit that removes lines another commit had rewritten or removed already leaves it (the branch
@@ -55,7 +55,7 @@ pub enum Purpose {
   /// The return of the lease by its holder: work that a branch, a tag or a remote branch holds is not lost, so the
   /// candidates are the commits none holds
   Return,
-  /// The takeover of an idle lease, by a get or `bd lease reclaim`: its work must be in the home branch, so the
+  /// The takeover of an idle lease, by a get or `brd lease reclaim`: its work must be in the home branch, so the
   /// candidates are the commits the home branch lacks, whatever other branch holds them
   TakeOver,
 }
@@ -71,7 +71,7 @@ pub enum Proof {
   Replayed,
   /// A commit of the branch of its identity changes the same lines
   ChangedLines,
-  /// A commit of the branch of its identity has every line it changes, with its fixups (the twin of `bd update`)
+  /// A commit of the branch of its identity has every line it changes, with its fixups (the twin of `brd update`)
   Twin,
   /// A commit of the branch of its identity has every line it adds, with its fixups; the lines it removes and the twin
   /// does not were gone from the parent of the twin already
@@ -116,7 +116,7 @@ impl LandedCheck {
     match self {
       Self::Reachability { reason: None } => "no branch, tag or remote branch holds".to_string(),
       Self::Reachability { reason: Some(reason) } => format!("no branch, tag or remote branch holds (no check by content: {reason})"),
-      Self::Content { branch } => format!("{branch} lacks by content: no pick, patch id, identity, twin of `bd update` or mapping note of a sync proves them there"),
+      Self::Content { branch } => format!("{branch} lacks by content: no pick, patch id, identity, twin of `brd update` or mapping note of a sync proves them there"),
     }
   }
 }
@@ -268,7 +268,7 @@ fn prove(git_executor: &GitCommandExecutor, slot: &str, branch: &str, base: Opti
     return Ok(());
   }
 
-  // 3. and 4. the ladder and the twins of `bd update`, over the commits of the lease the branch lacks
+  // 3. and 4. the ladder and the twins of `brd update`, over the commits of the lease the branch lacks
   let Some(merge_base) = merge_base(git_executor, slot, &head, &tip)? else {
     return Ok(());
   };
@@ -382,7 +382,7 @@ fn subject_twins(reads: &LandedReads, stacks: bool, proofs: &Proofs<'_>) -> Land
 
 /// The local commits a pairing proves landed: its drops with their proof, then each candidate whose upstream commit
 /// holds every changed line of the candidate and its fixups (`interdiffs`, `local_only` empty), with its fixups: the
-/// twin rule of `bd update` (`LandedTwin::is_same` of update-core); then each candidate whose twin lacks only removals
+/// twin rule of `brd update` (`LandedTwin::is_same` of update-core); then each candidate whose twin lacks only removals
 /// that its parent no longer had (`removed_before`)
 fn landed_by_pairing(git_executor: &GitCommandExecutor, slot: &str, pairing: &LandedPairing) -> Result<Vec<(String, Proof)>> {
   let mut landed: Vec<(String, Proof)> = pairing.drops.iter().map(|drop| (drop.commit.clone(), Proof::of(drop.proof))).collect();

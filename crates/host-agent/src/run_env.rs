@@ -94,7 +94,7 @@ fn join(entries: &[OsString]) -> OsString {
   joined
 }
 
-/// The number of a slot: the name of its parent directory when that is a number, as in the pool of `bd lease`
+/// The number of a slot: the name of its parent directory when that is a number, as in the pool of `brd lease`
 /// (`<pool>/<n>/<repo>`), else a number below 100 from the path
 pub(crate) fn slot_number(slot: &Path) -> u16 {
   if let Some(number) = slot

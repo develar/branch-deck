@@ -1,4 +1,4 @@
-//! The run directory: `~/.cache/bd-host/runs/<run>/`.
+//! The run directory: `~/.cache/brd-host/runs/<run>/`.
 //!
 //! | File | Content |
 //! |---|---|

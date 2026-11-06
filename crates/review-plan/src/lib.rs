@@ -25,7 +25,7 @@
 //!   new API and the new links between modules of each step
 //!
 //! The types of the plan: `ReviewPlanParams` names what is reviewed (`ReviewSubject`), `ReviewPlan` is the answer of
-//! `review_plan_core`, the one entry of `bd review-plan` and the app.
+//! `review_plan_core`, the one entry of `brd review-plan` and the app.
 
 pub mod api;
 pub mod brief;
@@ -86,7 +86,7 @@ pub struct ReviewPlanParams {
   #[serde(default)]
   #[cfg_attr(feature = "specta", specta(optional))]
   pub since_reviewed: bool,
-  /// The edges the concerns join their parts by: all of them, unless `bd review-plan --concern-edges` measures a part
+  /// The edges the concerns join their parts by: all of them, unless `brd review-plan --concern-edges` measures a part
   #[serde(skip)]
   #[cfg_attr(feature = "specta", specta(skip))]
   pub concern_edges: ConcernEdges,

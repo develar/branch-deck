@@ -12,7 +12,7 @@
 //!   holds, `PushPlan::with_ancestors`), and Push with Children, the branches stacked on it by declared parent; the
 //!   adapters say each verdict (the page leaves a branch out and its row says why, `bd` refuses where the user must act)
 //! - `start_push`: what a Safe Push or a Dry Run start of a branch pushes, the `Push` effect of `land::decide` that the
-//!   app's start and `bd safe-push` send: Push Stack of it over the holds of every robot but the one the start
+//!   app's start and `brd safe-push` send: Push Stack of it over the holds of every robot but the one the start
 //!   replaces, the ancestors that ask first included (a push that drops remote commits refuses the start unless allowed)
 //! - `branch_push`: the pushes of a branch the view sends (`BranchPush`): Push Stack, the push of the push button and
 //!   of an action (it starts above the nearest branch that asks first), and Push with Children with the stack branch of

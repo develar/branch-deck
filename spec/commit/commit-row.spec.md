@@ -289,7 +289,7 @@ place that shows a commit shows the same way.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save nothing when the commit changed meanwhile, say so, and close the preview of the commit that is gone`)
 - E must work in any keyboard layout (the physical key).
 - The save hint must name the platform shortcut: `⌘↵` on macOS, `Ctrl+Enter` elsewhere.
-- The save must be the reword of `bd reword` ([Agent CLI](../cli/agent-cli.spec.md), `bd reword`): one regroup of the
+- The save must be the reword of `brd reword` ([Agent CLI](../cli/agent-cli.spec.md), `brd reword`): one regroup of the
   commits ahead of the baseline, with its checks. It must replace only the message: the commits after it are recreated
   with the same trees, and the working tree and the index stay as they are.
 - The save must keep the author and the committer of every recreated commit: name, email, date and timezone.
@@ -332,13 +332,13 @@ place that shows a commit shows the same way.
   [@test] ../../tests/e2e/commit-message/commit-message.spec.ts (`should save an unchanged message without a toast`)
   [@test] ../../src/hooks/useRewordCommit.test.ts (`records nothing for an unchanged message`)
 - The save must be the rewrite `reword` of the engine, named on the table the window shows, and run under the
-  repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`) or the app's own push, the save
+  repository lock: while another process holds it (an agent's `brd pick --follow`, `brd`) or the app's own push, the save
   waits as long as the holder lives, the editor saying whom for (the step of its operation) with Stop Waiting
   (`cancel_operation`), which ends the wait with nothing changed; only a holder no record names refuses it after 10 s,
   with nothing changed and the toast "Cannot edit the commit message" saying that another operation holds the lock. A
   save while another rewrite runs (an Unstack from the main window, an issue reference of the same commit) waits
   behind it in the queue of the session and rewords the commit as that one left it, its new id included. A HEAD
-  another process moved while the save waited for the lock (an agent's `bd update`, a commit) makes the core refuse
+  another process moved while the save waited for the lock (an agent's `brd update`, a commit) makes the core refuse
   it, nothing written, and the save is resolved again on that HEAD and rewords the commit as that process left it, by
   its author, author time and subject without the prefix; a commit gone is `plan_changed`. The reword computes before
   the lock (the snapshot, the new commits on temporary refs) and holds it only for the witness of HEAD and the store
@@ -560,7 +560,7 @@ for a message shown again, and only lays out what Rust read.
   [@test] ../../src/lib/diff/view-files.test.ts (`says why a file shows no lines: binary, too large, a submodule, a blob git cannot read, a text that cannot be read, no changed lines`)
   [@test] ../../tests/e2e/conflict-viewer/conflict-viewer.spec.ts (`should keep a stored diff view mode over the Split default`)
 - A commit whose conflict of git the sync resolved by words (`branchdeck.resolveByWords`, on by default; see
-  [Agent CLI](../cli/agent-cli.spec.md), "`bd sync`") must not show a conflict: its row says "Resolved 1 conflict by
+  [Agent CLI](../cli/agent-cli.spec.md), "`brd sync`") must not show a conflict: its row says "Resolved 1 conflict by
   words" ("Resolved 3 conflicts by words"), a button. A click shows "Resolved by Words" under the row: what git stopped
   at, that the sync copied the commit with the result as IntelliJ resolves simple conflicts, and the merge of each
   file in three columns, each file with "1 conflict resolved", the middle "Result (committed)", the blob that the sync

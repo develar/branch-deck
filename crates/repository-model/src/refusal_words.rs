@@ -43,7 +43,7 @@ pub fn start_refusal_text(refusal: &Reason, subject: &str, robots: &[PatronusRob
     Reason::StackNotBuilt { root, .. } => format!("the stack branch of {root} is not the build of its commits; fix it, then sync"),
     Reason::StackParked { member, .. } => format!("{subject} holds parked {member}; land the stack in pieces"),
     Reason::StackHeld { mode, .. } => format!("a {} of {subject} is running on its stack branch", push_mode_name(*mode)),
-    // "auth is not synced (a merge conflict)", as `bd push` says it
+    // "auth is not synced (a merge conflict)", as `brd push` says it
     Reason::CantPush { branch, block } => not_synced_refusal(branch, *block),
     Reason::DropsRemote { branch, behind } => format!("the remote branch of {branch} has {behind} commits {branch} lacks"),
     Reason::RewrittenSincePush { branch } => format!("{branch} was rewritten since its push: it pushes whole"),

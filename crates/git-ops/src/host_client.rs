@@ -1,4 +1,4 @@
-//! The git of a client of a remote run (`bd-host run`, spec/cli/host.spec.md, "run"; spec/cli/lease.spec.md, "Host
+//! The git of a client of a remote run (`brd-host run`, spec/cli/host.spec.md, "run"; spec/cli/lease.spec.md, "Host
 //! runs"): the commit a run ships (HEAD, or a commit of the working tree built in
 //! a copy of the index), the commits the host may have, the base of its later packs, the thin pack of the commit into a
 //! private file, and the patch of the changes of the command applied to the working tree. The apply is the one write of
@@ -17,6 +17,8 @@ use std::time::{Duration, SystemTime};
 
 /// The name of the author and the committer of a commit of the working tree, and the first word of its message
 const SHIPPER_NAME: &str = "bd-host";
+/// The prefix of a commit message for a snapshot of the working tree
+const SHIPPER_PREFIX: &str = "brd-host";
 /// The email of the author and the committer of a commit of the working tree
 const SHIPPER_EMAIL: &str = "bd-host@bd-host.invalid";
 
@@ -36,9 +38,9 @@ const PACK_QUIET: Duration = Duration::from_mins(1);
 /// Author and committer are fixed and dated as the committer of HEAD, so the same tree on the same HEAD is the same
 /// commit, and a second run of it sends no pack. Only the objects of the changed files are new, and no ref names them;
 /// a `gc` prunes them. The author and the committer are `bd-host <bd-host@bd-host.invalid>`, and the message is
-/// `bd-host: the working tree on <HEAD>`
+/// `brd-host: the working tree on <HEAD>`
 pub fn working_tree_commit(git: &GitCommandExecutor, repo: &str, git_dir: &Path, head: &Head, config: &LeaseConfig) -> Result<WorktreeCommit> {
-  let message = format!("{SHIPPER_NAME}: the working tree on {}", head.commit.get(..12).unwrap_or(&head.commit));
+  let message = format!("{SHIPPER_PREFIX}: the working tree on {}", head.commit.get(..12).unwrap_or(&head.commit));
   let text = CommitText {
     name: SHIPPER_NAME,
     email: SHIPPER_EMAIL,

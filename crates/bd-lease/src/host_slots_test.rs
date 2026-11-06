@@ -1,8 +1,8 @@
-//! The host slots (`lease_pool::host_slots`): a fill leases them as plain `ready` leases of `bd-host/<n>` that the other
+//! The host slots (`lease_pool::host_slots`): a fill leases them as plain `ready` leases of `brd-host/<n>` that the other
 //! commands of the pool leave alone, a run gets the slot of its affinity, else the one used longest ago, else waits in
 //! line; a give-back stops the processes of the run and discards its changes, and quarantines the slot for an older
 //! process; `reclaim` takes up what a gone process left; the clean rules run by size, by free space and after 50 runs;
-//! a shrink returns its slots without `--confirm-preserved`, also without `bd-host serve`; a hand return is refused;
+//! a shrink returns its slots without `--confirm-preserved`, also without `brd-host serve`; a hand return is refused;
 //! while a live process upgrades git, a fill, a clean, a shrink and `reclaim` skip, and a host-object call waits
 
 use crate::lease_command::LeaseContext;
@@ -41,7 +41,7 @@ pub(crate) fn host_fixture(slots: u32) -> Fixture {
   fixture
 }
 
-/// The context of bd in the repository of the fixture
+/// The context of brd in the repository of the fixture
 pub(crate) fn context(fixture: &Fixture) -> LeaseContext {
   LeaseContext::resolve(&fixture.environment(fixture.repo.path()), None).unwrap()
 }
@@ -70,7 +70,7 @@ impl Host {
     Self { fixture, context, filled }
   }
 
-  /// The fixture, the context of bd and the parameters of the host slots
+  /// The fixture, the context of brd and the parameters of the host slots
   fn parts(&self) -> (&Fixture, &LeaseContext, HostSlotsParams<'_>) {
     (&self.fixture, &self.context, params(&self.fixture, &self.context))
   }
@@ -124,7 +124,7 @@ fn table_file(fixture: &Fixture) -> PathBuf {
   fixture.repo.path().join(".git/branch-deck/host-slots.json")
 }
 
-/// Rewrite the table as a process that crashed, or time, would have left it: by a rename, as bd writes it, so a bd
+/// Rewrite the table as a process that crashed, or time, would have left it: by a rename, as brd writes it, so a bd
 /// that reads it meanwhile sees one whole table
 pub(crate) fn edit_table(fixture: &Fixture, edit: impl FnOnce(&mut Value)) {
   let mut value: Value = serde_json::from_slice(&std::fs::read(table_file(fixture)).unwrap()).unwrap();
@@ -143,8 +143,8 @@ fn state_of(fixture: &Fixture, n: u32) -> HostState {
     .state
 }
 
-/// A fill leases `bd-host/1` and `bd-host/2` as `ready` leases, one of them in the free slot of the pool. A plain get
-/// adds a slot of its own, `clean --free` skips them, and a get with a holder `bd-host/…` is refused
+/// A fill leases `brd-host/1` and `brd-host/2` as `ready` leases, one of them in the free slot of the pool. A plain get
+/// adds a slot of its own, `clean --free` skips them, and a get with a holder `brd-host/…` is refused
 #[test_log::test]
 fn a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_alone() {
   let fixture = host_fixture(2);
@@ -169,8 +169,8 @@ fn a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_al
   assert_eq!(
     leases,
     [
-      (filled[0].path.clone(), "bd-host/1".to_string(), LeaseState::Ready),
-      (filled[1].path.clone(), "bd-host/2".to_string(), LeaseState::Ready)
+      (filled[0].path.clone(), "brd-host/1".to_string(), LeaseState::Ready),
+      (filled[1].path.clone(), "brd-host/2".to_string(), LeaseState::Ready)
     ]
   );
   assert!(table(&fixture).slots.iter().all(|slot| slot.state == HostState::Idle));
@@ -182,7 +182,7 @@ fn a_fill_leases_the_host_slots_as_ready_leases_that_the_other_commands_leave_al
   assert_eq!(exit_code, 0, "{cleaned}");
   let targets: Vec<&str> = cleaned["targets"].as_array().unwrap().iter().map(|target| target["path"].as_str().unwrap()).collect();
   assert_eq!(targets, [other.as_str()]);
-  let (exit_code, refused) = fixture.run(&["lease", "get", "--holder", "bd-host/9"]);
+  let (exit_code, refused) = fixture.run(&["lease", "get", "--holder", "brd-host/9"]);
   assert_error(&refused, exit_code, (2, "invalid_arguments"));
 }
 
@@ -211,7 +211,7 @@ fn the_gets_of_a_fill_run_side_by_side() {
   assert!(table(&fixture).slots.iter().all(|slot| slot.state == HostState::Idle));
 }
 
-/// A hand `bd lease return` of a host slot is refused with `host_slot`, and the slot stays leased
+/// A hand `brd lease return` of a host slot is refused with `host_slot`, and the slot stays leased
 #[test_log::test]
 fn a_hand_return_of_a_host_slot_is_refused() {
   let host = Host::filled(1);
@@ -500,7 +500,7 @@ fn the_fsmonitor_daemon_of_a_host_slot_outlives_the_give_back_and_the_changes_of
 }
 
 /// With `branchdeck.hostSlotMaxSize`, a give-back cleans the slot when the rules would free more than it; without it,
-/// after 50 runs, or when the volume has less than `branchdeck.leaseMinFree`. `bd lease clean --host` cleans the idle
+/// after 50 runs, or when the volume has less than `branchdeck.leaseMinFree`. `brd lease clean --host` cleans the idle
 /// host slots now, `--dry-run` only measures, and a lent one is skipped
 #[test_log::test]
 fn a_host_slot_is_cleaned_by_size_by_free_space_and_after_fifty_runs() {
@@ -757,7 +757,7 @@ fn reclaim_drops_a_dead_fill_and_returns_a_lease_the_table_does_not_name() {
   assert!(store.slots.iter().any(|slot| &slot.path == path && slot.lease.is_none()), "back in the pool");
 }
 
-/// The lease of a host slot in `leases.json` has the fields of any other lease: an older bd and the app read the pool
+/// The lease of a host slot in `leases.json` has the fields of any other lease: an older brd and the app read the pool
 /// as before
 #[test_log::test]
 fn a_host_slot_lease_keeps_the_format_of_leases_json() {
@@ -804,7 +804,7 @@ fn is_upgrading(error: &anyhow::Error) -> bool {
 }
 
 /// While a live process upgrades git, a fill adds no slot, a clean and the steps of `reclaim` skip
-/// with the refusal, `bd lease clean --host` says that git is upgrading, and a shrink refuses each slot. The upgrade of
+/// with the refusal, `brd lease clean --host` says that git is upgrading, and a shrink refuses each slot. The upgrade of
 /// a gone process holds nothing back
 #[test_log::test]
 fn a_fill_a_clean_a_shrink_and_reclaim_skip_while_git_is_upgrading() {

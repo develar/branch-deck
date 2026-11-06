@@ -50,7 +50,7 @@ Date: 2026-10-16
 A stack parent is stored, not written into the subjects. The ref `refs/branch-deck/stack-parents` holds one
 `child<TAB>parent` line per stacked branch, by branch name, next to the issue groups in
 `refs/branch-deck/issue-groups`. A branch whose commits declare no parent level takes its parent from this map. So
-`bd group` with the plan path `auth/login` writes the line `login<TAB>auth`, and a commit that needs a prefix gets the
+`brd group` with the plan path `auth/login` writes the line `login<TAB>auth`, and a commit that needs a prefix gets the
 bare `(login)`. An issue branch and an issue group can now be stacked: `IJAI-4047<TAB>IJAI-3992` stacks the issue
 branch `IJAI-4047` with no prefix at all. A prefix with a parent level (`(auth/login)`) still declares the parent, as
 before.
@@ -67,7 +67,7 @@ only the stack parents ref.
 - Let an issue branch and an issue group be stacked, so that their subjects keep the rule "issue id plus one sentence".
 - Read and write the stack parents as the issue groups: in the same read, in the same ref transaction as HEAD, with
   compare-and-swap, and with one undo token for all of it.
-- Stay safe next to an older version of the app or `bd`: an older write of the issue groups must not lose a stored
+- Stay safe next to an older version of the app or `brd`: an older write of the issue groups must not lose a stored
   parent.
 - Keep every existing prefix valid: a parent level in a prefix declares the parent as before.
 
@@ -98,7 +98,7 @@ only the stack parents ref.
   removes its child.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`bad_lines_are_problems_and_never_used`)
 - The ref is shared by every branch and worktree. So a write must change only the children that it names. A child that
-  no branch on this HEAD reaches must stay, and `bd status` lists it in `idle_stack_parents`.
+  no branch on this HEAD reaches must stay, and `brd status` lists it in `idle_stack_parents`.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_write_on_one_worktree_keeps_the_parents_of_another`)
 - Without `git config branchdeck.stacks`, the map must be read and not used: every branch stays a root, a `/` in a
   plan path is part of a flat name, and a restack or an `unstack` is `invalid_plan`. A rename does not touch the map.
@@ -113,7 +113,7 @@ only the stack parents ref.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_stacks_a_prefix_branch_an_issue_branch_and_an_issue_group`)
 - A stored parent that differs from a parent that a prefix declares must be the problem "commits declare different
   parents", which names the commits of each parent and the line of the map ("docs (its stack parent)"), and the
-  `bd restack <branch> <parent>` of each that keeps it or the `bd unstack <branch>` that keeps none; `bd status` says
+  `brd restack <branch> <parent>` of each that keeps it or the `brd unstack <branch>` that keeps none; `brd status` says
   the same. The app offers the same fixes as buttons ([Stacked Branches](stacked-branches.spec.md#problems)). The
   branch is not rebuilt.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_that_differs_from_a_prefix_is_a_conflict`)
@@ -126,7 +126,7 @@ only the stack parents ref.
   `login<TAB>auth` and `auth<TAB>core`, `login` is built on `core` while `auth` has no commits. Only the lines that
   this chain reaches are placed; the others are idle.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_stored_parent_without_commits_is_passed`)
-- The sync, `bd status`, `bd commits`, `bd check`, `bd suggest`, the regroup, the fixup plan, the landed commits, the
+- The sync, `brd status`, `brd commits`, `brd check`, `brd suggest`, the regroup, the fixup plan, the landed commits, the
   update check and the grouping preview of the app (`preview_group`) must read the same map.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_sync_reads_the_map_and_never_writes_a_line_it_can_not_prove_dead`)
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`the_preview_with_stacked_branches_reads_the_parent_of_the_prefix_else_the_stack_parent`)
@@ -181,13 +181,13 @@ only the stack parents ref.
 
 ### Restack, unstack, Stack Together and rename
 
-- `bd restack <branch> <parent>` must write the line of `<branch>`, and rewrite only the commits whose prefix declares
+- `brd restack <branch> <parent>` must write the line of `<branch>`, and rewrite only the commits whose prefix declares
   another parent for it.
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`restack_writes_the_store_and_rewrites_only_differing_parent_levels`)
-- `bd unstack <branch>` must remove the line of `<branch>` and the parent levels of its commits; a root is
+- `brd unstack <branch>` must remove the line of `<branch>` and the parent levels of its commits; a root is
   `invalid_plan`.
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`unstack_removes_the_line_and_the_parent_levels`)
-- `bd stack-together <branch> <branch>...` and the app's selection-bar action must use the same `restack_core` as Stack
+- `brd stack-together <branch> <branch>...` and the app's selection-bar action must use the same `restack_core` as Stack
   On and Unstack, through one `RewriteIntent::StackTogether` with one stack-parent update and one undo. The core orders
   branches by their oldest commit, keeps an existing ancestor edge, moves a selected branch from its former parent
   without moving its children, refuses a cycle or an already-complete chain, and rewrites only commits whose prefixes
@@ -197,18 +197,18 @@ only the stack parents ref.
   [@test] ../../crates/operations/src/rewrite_test.rs (`stack_together_is_one_rewrite_of_every_named_branch`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`stack_together_stacks_branches_oldest_first_and_undoes_once`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`stack_together_uses_the_same_number_of_git_processes_as_restack`)
-- `bd rename <old> <new>` must rename `<old>` in the map as a child, and as the parent of a child with commits on this
+- `brd rename <old> <new>` must rename `<old>` in the map as a child, and as the parent of a child with commits on this
   HEAD, in the same transaction as the other changes of the rename: a child of another worktree keeps its parent. As a
   child, `<old>` is renamed also when it is only a level of the prefixes here, without commits of its own.
   Merging into a branch with another stack parent is `invalid_plan`.
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`renaming_a_branch_renames_it_in_the_stored_parents`)
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`a_write_on_one_worktree_keeps_the_parents_of_another`, `renaming_a_level_without_commits_renames_its_stack_parent`)
-- `bd restack` and `bd unstack` of an issue branch and of an issue group must be valid, and rewrite nothing.
+- `brd restack` and `brd unstack` of an issue branch and of an issue group must be valid, and rewrite nothing.
   [@test] ../../crates/sync-core/src/stack_parents_test.rs (`an_issue_group_is_restacked_and_unstacked_without_a_rewrite`)
 - The app's Stack On, Unstack and Rename are the rewrites `restack`, `unstack` and `rename` of the engine
   (`operations::rewrite`, over the same cores), named on the table the window shows: a second click of the same one
   (a double click, three clicks from two windows) runs one rewrite with one outcome, another rewrite waits behind it in
-  the queue of the session, and its toast with Undo comes once the sync it asked showed the branch. `bd unstack` of an
+  the queue of the session, and its toast with Undo comes once the sync it asked showed the branch. `brd unstack` of an
   agent beside the app's waits for the repository lock and changes nothing more.
   [@test] ../../crates/operations/src/rewrite_test.rs (`a_triple_unstack_is_one_rewrite_with_one_outcome`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each`)
@@ -222,9 +222,9 @@ only the stack parents ref.
 
 ### A stacked branch that builds alone
 
-The map does not record why a branch is stacked. `bd suggest` writes a line because a commit needs a commit of the
+The map does not record why a branch is stacked. `brd suggest` writes a line because a commit needs a commit of the
 parent, and Stack On writes the same line on purpose. A later move can take the needed commit into the child, and then
-the line stays without a need. So the app and `bd` offer an unstack and never decide it.
+the line stays without a need. So the app and `brd` offer an unstack and never decide it.
 
 - `stack_independence` must build the branch alone, as the plan `unstack: [branch]` makes it a root, and write commit
   objects only: no ref, note or lock. A clean build is `builds` with the declared parent. With `branchdeck.symbols on`
@@ -253,27 +253,27 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
   Commits](move-commits.spec.md#after-a-move)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should offer to land only a stacked branch that applies alone`, `should offer the move of the commit a stacked branch needs to land it alone, then its unstack, and review the branch alone`)
 
-### `bd status` and `bd suggest`
+### `brd status` and `brd suggest`
 
-- `bd status` must print for each stacked branch its `parent` and `parent_source`: `prefix` or `store`. It must also
+- `brd status` must print for each stacked branch its `parent` and `parent_source`: `prefix` or `store`. It must also
   print `idle_stack_parents` and `stack_parent_problems`.
   [@test] ../../crates/bd-remote/src/status_test.rs (`stored_parents_in_status`)
-- `bd suggest` must read the stored parents as declared parents. A restacked cluster names its path also when no
+- `brd suggest` must read the stored parents as declared parents. A restacked cluster names its path also when no
   commit moves (`"a/b": []`), a cluster unstacked from its stack parent goes into `unstack`, and a commit with the bare
-  leaf stays where it is. Its trial sync must apply the plan as `bd group` does, so that `rewritten` counts only the
+  leaf stays where it is. Its trial sync must apply the plan as `brd group` does, so that `rewritten` counts only the
   commits that need a prefix.
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`)
-- `bd suggest` must mark a cluster `stacked_without_need` when its stored parent stays and it depends on no cluster of
+- `brd suggest` must mark a cluster `stacked_without_need` when its stored parent stays and it depends on no cluster of
   that parent's lineage. The plan must keep the parent.
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`a_stored_parent_without_need_is_reported_and_kept`)
-- `bd safe-push <branch> --dry-run` of a stacked branch must print the trial build of the branch alone as `alone`:
-  `builds` with "`bd unstack <branch>` makes it a root that lands alone", or the commits of its ancestors that it
+- `brd safe-push <branch> --dry-run` of a stacked branch must print the trial build of the branch alone as `alone`:
+  `builds` with "`brd unstack <branch>` makes it a root that lands alone", or the commits of its ancestors that it
   needs, with their branch. Its Safe Push lands it with its ancestors either way; the unstack is the user's choice.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
 
 ### App
 
-- Stack On and Unstack from in the branch menu must write the map, and rewrite only as `bd restack` and `bd unstack`
+- Stack On and Unstack from in the branch menu must write the map, and rewrite only as `brd restack` and `brd unstack`
   do. Their toast names a count only when commits moved: "Stacked ABC-2 on ABC-1".
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should stack an issue branch without a rewrite and undo it`)
 - Stack Together from the selection bar must write one oldest-first chain, show one success toast and undo, and clear the
@@ -302,15 +302,15 @@ the line stays without a need. So the app and `bd` offer an unstack and never de
 
 ## Risks
 
-- `git log` no longer shows a stored parent. `bd status` and the app show it, with `parent_source`.
+- `git log` no longer shows a stored parent. `brd status` and the app show it, with `parent_source`.
 - Every worktree shares the map, by branch name. Stacking a branch in one worktree stacks the branch of that name in
   every worktree. The issue groups already behave so.
 - A peer that edits a subject can add a parent level that differs from the map. That is a reported conflict, not a
   silent restack.
 - An older version ignores `refs/branch-deck/stack-parents`. It shows a stored stack as flat branches and syncs the
-  child on the baseline without the commits of its parent (it may conflict), and its `bd push` retargets the pull
+  child on the baseline without the commits of its parent (it may conflict), and its `brd push` retargets the pull
   request of the child onto the baseline, until the newer version syncs and pushes again. It never loses a stored
-  parent. Install the new app and `bd` together (`pnpm install-app`, then `bd install` for the skill).
+  parent. Install the new app and `brd` together (`pnpm install-app`, then `brd install` for the skill).
 - git keeps no reflog for the stack parents ref. The parent chain of its commits is its history.
 
 ## References

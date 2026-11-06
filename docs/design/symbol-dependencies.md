@@ -8,7 +8,7 @@
 
 Branch Deck decides that commits belong together, or that one branch must stack on another, from text: a commit
 depends on an older one when its hunks touch the lines that commit added (`dependencies.rs`), clusters are scored by
-issue keys, scopes and shared paths (`bd suggest`), and the dangling-reference check finds the uses of a removed
+issue keys, scopes and shared paths (`brd suggest`), and the dangling-reference check finds the uses of a removed
 declaration by per-language regular expressions. git's three-way merge is the only exact oracle, and it sees lines,
 not names: a commit that calls a function another commit added in another file merges cleanly into a branch without
 it, and the branch fails only when it is compiled.
@@ -16,8 +16,8 @@ it, and the branch fails only when it is compiled.
 The regular expressions also see too much. Regrouping 217 commits of the IntelliJ checkout (2026-10-17), the check
 reported a Rust `pub(crate) use …::ControlOwner` as the removal of `ControlOwner` (four false uses), a word in a KDoc
 comment as a use of a removed member, and a local `val turnId` as a use of a private property of another class. The
-false references became repair edges of `bd suggest`, closed a cycle, and stacked a branch on the wrong parent; a
-proposed `bd move-hunk` would have broken a branch.
+false references became repair edges of `brd suggest`, closed a cycle, and stacked a branch on the wrong parent; a
+proposed `brd move-hunk` would have broken a branch.
 
 ## Solution Overview
 
@@ -56,9 +56,9 @@ flowchart TD
     P -->|not truncated| O[(object cache: blob_summary)]
     O --> S
     S --> G[symbol_dependencies: Order edges, entities]
-    G --> B[bd commits: via, symbols]
+    G --> B[brd commits: via, symbols]
     G --> F[conflict fix, stack independence]
-    G --> U[bd suggest: Order edges, entity features]
+    G --> U[brd suggest: Order edges, entity features]
     S2[check session: blobs of the trials] --> M[SyntaxMemo, memory only] --> X[dangling references: subtraction]
     S --> T[declaration checks: removed members, changed forms, duplicates]
     M --> T
@@ -466,7 +466,7 @@ flowchart TD
     removes, changes or declares again, with the oracle of the dangling-reference check: HEAD compiles, and the
     branch's tree differs from it only in the paths of the other branches' commits. A use there that HEAD's tree lacks
     may not compile, and `fixed_by` is the commit outside the branch, older or newer, whose change of the path removes
-    it; a proven one is a dangling reference of its own `kind`, repaired by the same edge in `bd suggest`. Three kinds,
+    it; a proven one is a dangling reference of its own `kind`, repaired by the same edge in `brd suggest`. Three kinds,
     each counted per path like the lines (more such uses in the branch's tree than in HEAD's):
     - `removed`: an instance or static member of a JVM type, or an enum entry, that a commit removes with all its
       overloads and whose key (its type and name) no commit of the tree declares again, used where a use resolves to
@@ -494,7 +494,7 @@ flowchart TD
     **Rationale**: the Safe Push of IJAI-4185 failed on `ledger.cleanup()` in a test that HEAD no longer has, because
     a commit of another branch deleted it, while the branch made `cleanup` suspend: no line dependency, no edge (the
     form of decision 10 has no `suspend`, and `removes_after` needs the whole key gone), no dangling reference (only a
-    removed declaration was searched, and no instance member). A proven reference fails `bd check`, refuses a Safe
+    removed declaration was searched, and no instance member). A proven reference fails `brd check`, refuses a Safe
     Push and adds a repair edge, so it is one only where the summary sees the break: a call the new parameters reject
     (a literal of another family, `fits_literal`), a call only a removed overload took, a suspend call outside a
     coroutine, an extension called on its old receiver. The header leaves out what no use depends on (the body,
@@ -522,7 +522,7 @@ flowchart TD
     name where such a `use` names the item or a glob. A Kotlin top-level function that is no extension (no receiver
     in `KOTLIN_FUN`) counts, by the syntax trees, no call on an expression: an empty `qualifier`. Each reference names
     its declaration (`declared_in`: the file and the line before `removed_by`), read in the same `cat-file`.
-    **Rationale**: a `bd check` of the IntelliJ checkout (2026-10-19) reported `.collect()` of an iterator in a test of
+    **Rationale**: a `brd check` of the IntelliJ checkout (2026-10-19) reported `.collect()` of an iterator in a test of
     `avl-vm` as a use of a `fn collect` another branch removed from `avl-guest`: the whole word matched, and nothing
     else said what the name was. A free function is never called on a receiver, and a crate sees another's items only
     through its name, which the `use` trees show without a resolver; the crates are the module roots the summaries
@@ -710,7 +710,7 @@ flowchart TD
   tree-sitter language by its `Spec::header`), and `Reference::coroutine` by `Walk::coroutine` and `COROUTINE_BUILDERS`
   of `kotlin/summary.rs`.
 - `crates/trial-check/src/dependencies.rs`: `with_symbols` merges the edges into the line dependencies (`Dependency::lines`,
-  `symbols`) for `bd commits`.
+  `symbols`) for `brd commits`.
 - `crates/trial-check/src/check.rs`: `CheckSession::symbol_graph`, read once per session with `on`, for the conflict fix
   (`dependents_in`, `movable`), `missing_declarations` (`crates/trial-check/src/missing_declarations.rs`) and
   `stack_independence` (`Builds.uses`).
@@ -726,17 +726,17 @@ flowchart TD
   neither Kotlin nor Java imports.
 - **Regular expressions per language** (as before): Why not: they can't tell a comment, a string or a local from a use.
 - **The entities two commits change as features of P** (the functions and types around their hunks): Why not: in the
-  IDF-weighted Jaccard of `bd suggest` a shared function adds 0.1–0.2 to P, short of the threshold, and commits of
-  one function already share its file. `bd commits --symbol-stats` still counts the pairs (`entity_pairs`).
+  IDF-weighted Jaccard of `brd suggest` a shared function adds 0.1–0.2 to P, short of the threshold, and commits of
+  one function already share its file. `brd commits --symbol-stats` still counts the pairs (`entity_pairs`).
 - **More checks of a branch's tree beside those of decision 15** (`unimplemented_member`, `non_exhaustive_when`):
   the branch's tree has a class that doesn't override an abstract member of its one supertype while HEAD does, or a
   `when` over an enum without `else` that lacks a branch HEAD has for an entry the tree declares. The oracle is the
-  dangling check's: HEAD builds, the branch's tree is compared with HEAD, and `bd suggest` repairs it with the same
+  dangling check's: HEAD builds, the branch's tree is compared with HEAD, and `brd suggest` repairs it with the same
   edge.
   Why not now: on `86be3572..7dfac19d` 13 commits add 50 abstract members and 8 commits add 15 enum entries; on the
   real pair `f0596b09` 4 commits add 5 members and 4 commits add 7 entries. Every override and every `when` branch
   is in the commit of its member or entry, so neither check fires on a branch of the current grouping or of the
-  plan of `bd suggest`.
+  plan of `brd suggest`.
 
 ## Measurements
 
@@ -752,7 +752,7 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   import 48, qualified 11, type of the same package and module 10. A read of the sample found each a real compile
   dependency: an import of what the older commit adds, a registry line that names an object the older commit declares
   in the same file, a removal of `AirJourneySuites` after the commits that moved the suites off it.
-- Peak memory: `bd commits --brief` alone takes 530 MB on the IntelliJ checkout (the mapped object cache); the scan adds
+- Peak memory: `brd commits --brief` alone takes 530 MB on the IntelliJ checkout (the mapped object cache); the scan adds
   about 160 MB cold and nothing warm.
 - The dangling-reference check on the IntelliJ range at 7dfac19d: by the lines 6 confirmed references (`ControlOwner`
   four times behind a `pub(crate) use`, `scenarios` in a KDoc, the local `turnId`) and two inverted stacks without a
@@ -763,7 +763,7 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   that declaration; a read of 40 of the other 145 (the name occurs in a `BUILD.bazel`, an `.iml`, another crate's
   file, or is an import whose path names the adding module) found no false one either: 141 of 141, a Wilson lower
   bound of 0.97. No compiler checked them.
-- Round 2, `bd suggest` on the same range: with the symbols on and off the same plan, `check.ok`, no repair round;
+- Round 2, `brd suggest` on the same range: with the symbols on and off the same plan, `check.ok`, no repair round;
   the edges by symbols are all satisfied by the stacks the lines already make. Warm, the symbols add 0.5–0.7 s of
   CPU (+20–28 %).
 - Binary: the four grammars add 9.4 MiB to the app (Kotlin 6.2, TSX 2.0, Rust 1.6, Java 0.9; the app is 24.3 MB, was
@@ -773,13 +773,13 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
   - The repro of the IJAI-4074 failure: an override of a new overload, of a new name, through an import and in the same
     file each make exactly one edge by symbols; a call of an overload added in the same file was still none in this
     build, before calls carried their arguments (decision 9 now links it). On the kept
-    override-overload case `bd check` is `ok` with one `missing_declarations` (`buttons`, evidence `override`, the
-    override of the new `paneId` overload), stacks on or off; `bd suggest` with stacks off keeps the plan and warns
+    override-overload case `brd check` is `ok` with one `missing_declarations` (`buttons`, evidence `override`, the
+    override of the new `paneId` overload), stacks on or off; `brd suggest` with stacks off keeps the plan and warns
     `symbol_dependency` ("Safe Push ABC-1 first, or turn on stacked branches"), with `branchdeck.stacks true` it stacks
     XYZ-2 on ABC-1, and the check of that plan is `ok`.
   - The IntelliJ range at 1d7255a6 (60 commits on 596ffa8e): 0 edges by symbols, as before; the file-overlap edges, the
-    `bd commits` and `--brief` output, `bd check` (`ok`, 16 branches, no `missing_declarations`, no dangling
-    reference) and the `bd suggest` plan are the same as the old build's. The range has no edge by symbols to compare,
+    `brd commits` and `--brief` output, `brd check` (`ok`, 16 branches, no `missing_declarations`, no dangling
+    reference) and the `brd suggest` plan are the same as the old build's. The range has no edge by symbols to compare,
     so it says little about precision.
   - Of its overrides 120 (reference, entry) pairs reach `resolve_override`, 9 distinct references pass the kind, the
     overridability and the reach; one is skipped for its class of 5 supertypes. A read of each found its missing edge right:
@@ -790,7 +790,7 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     0.61 s parse, on a heavily loaded machine); warm 429 cached, graph 11–14 ms (was 90); entities 937 and pairs 19
     unchanged.
   - The IntelliJ range 86be3572..7dfac19d (217 commits, the air work of round 1), without the cache (the extractor
-    versions differ), against bd 0.17.0; each new and each lost link (from, to, name, file of the use) read in the
+    versions differ), against brd 0.17.0; each new and each lost link (from, to, name, file of the use) read in the
     commits. With the override entries (decision 8): 3601 links by symbols (was 3604), 728 edges by symbols (445 both,
     283 symbols only; was 732: 448, 284). The 60 new links are all right: 45 `override`, among them
     `getButtonManager(paneId)` of IJAI-4074 on IJPL-257337, the one new symbols-only edge and the failure of
@@ -811,25 +811,25 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     of the 68 lost were false; the 15 right ones are each in an edge that keeps 6–40 other links. The edges against
     0.17.0: one right symbols-only edge more, the two false ones fewer, 3 by lines only instead of both (their lost
     links false), 1 both instead of lines; the same `units`. New links right: 60 of 60, and 4 of 4.
-  - `bd check` on that range is byte for byte the same in all three builds (today's `refs/branch-deck/*` break the
+  - `brd check` on that range is byte for byte the same in all three builds (today's `refs/branch-deck/*` break the
     grouping of the clone: 16 conflicts, 15 blocked, IJAI-4074 among them, so no `missing_declarations` is reached).
-    `bd suggest` differs from 0.17.0's in one place, the same in both builds: `air-lane-document` stacks on
+    `brd suggest` differs from 0.17.0's in one place, the same in both builds: `air-lane-document` stacks on
     IJPL-257337 ("because a branch above needs both"), by the right edge of IJAI-4074, though the whole stack now
     waits on a platform branch for one test commit; `check.ok`. At a low load the three builds take the same time:
     about 1.4 s wall, 130 ms read, 350–380 ms parse, 410–460 ms graph.
   - With the call shapes each of the five repro cases makes exactly one edge by symbols: the call of an overload added
-    in the same file links with `same_file`, and `bd check` reports it as the override case. On the real pair (the
-    IntelliJ checkout at f0596b09) `bd check` names IJAI-4074's `getButtonManager` (evidence `override`, declared in
-    IJPL-257337), the one edge by symbols of 18 in `bd commits --brief`; both outputs byte for byte those of the build
+    in the same file links with `same_file`, and `brd check` reports it as the override case. On the real pair (the
+    IntelliJ checkout at f0596b09) `brd check` names IJAI-4074's `getButtonManager` (evidence `override`, declared in
+    IJPL-257337), the one edge by symbols of 18 in `brd commits --brief`; both outputs byte for byte those of the build
     before.
   - The same range with the forms (decision 10, 2026-10-18): the links, 3596, and the edges, 1143 (729 by symbols: 446
     both, 283 symbols only), are byte for byte those of the call shapes, so no new or lost link to read. Of the steps of
     its entries 12 keep their identity and change their form (the reach 6, parameter names 3, `open` 3, no default or
     vararg), besides 56 that replace one entry by one of other parameters (the call shapes' path); every use of the 12
     is in the commit that makes the change, in the same file, or through a typed receiver, so the range has no use
-    across commits that only the new form accepts, and no new edge is what it should give. `bd check` (7 ok, 16
-    conflicts, 15 blocked) and `bd suggest` (35 clusters, `check.ok`, no repair round) are byte for byte the same; the
-    five repro cases make one edge by symbols each, and on the real pair `bd check` names the same `getButtonManager`.
+    across commits that only the new form accepts, and no new edge is what it should give. `brd check` (7 ok, 16
+    conflicts, 15 blocked) and `brd suggest` (35 clusters, `check.ok`, no repair round) are byte for byte the same; the
+    five repro cases make one edge by symbols each, and on the real pair `brd check` names the same `getButtonManager`.
     At a load average of 27–31, without the cache, interleaved with the build before (the minimum of 6 runs): 688 ms
     read, 412 ms parse, 523 ms graph, against 678, 376 and 488; the graph about 7 % slower, within the noise.
   - The same range with the constructors (decision 11, 2026-10-18): 3574 links, 3564 by (from, to, name, file of the
@@ -845,9 +845,9 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     step that needs the old target (35 `AirAuthoredScope` from a4bf2a2d to e20b1f88, one `AgentHostSettingsApiImpl`),
     23 need a form or a reach that their own commit adds (new parameters of a constructor it calls, an interface it
     makes public for another module), and one was false: a call of a private function its own commit deletes and
-    declares again in another file. Every pair of a lost link keeps its edge, so no order is lost. `bd check` (7 ok,
-    16 conflicts, 15 blocked) and `bd suggest` (35 clusters, `check.ok`, no repair round) are byte for byte those of
-    the forms; the five repro cases make one edge by symbols each; on the real pair `bd check` and `bd commits
+    declares again in another file. Every pair of a lost link keeps its edge, so no order is lost. `brd check` (7 ok,
+    16 conflicts, 15 blocked) and `brd suggest` (35 clusters, `check.ok`, no repair round) are byte for byte those of
+    the forms; the five repro cases make one edge by symbols each; on the real pair `brd check` and `brd commits
     --brief` are byte for byte the same (in that clone the baseline's `ToolWindowManagerImpl` has `isEdtRequired`
     already). The cache of the summaries grows by 1.3 % (410 KB for 2573); without it 618 ms read, 387 ms parse,
     436 ms graph, parse and graph within the noise of the build before.
@@ -865,10 +865,10 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `SettingsState::withLegacyValues`) stay. New links against 0.17.0 right: 154 of 154 (37 `AirAuthoredScope` with
     `agentKeys =` on e20b1f88, the `AgentHostSettingsApiImpl` call on 95e34960, 116 judged in the steps above). The
     rule trades 13 right links for 2 false ones and no right edge; suppressing a call on a value only when a member of
-    the name is known would keep the 13, but only for members of files the range changes. `bd check` and
-    `bd suggest` are byte for byte those of the constructors, `--brief` differs only in the two edges; the five repro
-    cases make one edge by symbols each; on the real pair `bd check` names the same `getButtonManager`, and on the
-    clone `bd commits`, `--brief`, `bd check` and `bd suggest` are byte for byte the baseline's.
+    the name is known would keep the 13, but only for members of files the range changes. `brd check` and
+    `brd suggest` are byte for byte those of the constructors, `--brief` differs only in the two edges; the five repro
+    cases make one edge by symbols each; on the real pair `brd check` names the same `getButtonManager`, and on the
+    clone `brd commits`, `--brief`, `brd check` and `brd suggest` are byte for byte the baseline's.
 - Round 4, 2026-10-18, one bullet per step, each step's release build against the build before it:
   - The checks of a branch's tree (see Alternatives Considered): a throwaway tree-sitter scan of both sides of 1411
     Kotlin and Java file changes on `86be3572..7dfac19d` and 188 on the real pair found 0 overrides and 0 `when`
@@ -882,9 +882,9 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     `AirAcpControlService` on 40744a15, `AirUiTraceAttachmentQueue` on 0a763208), `file` 2 (`AcpControlLaunchFile`,
     `AirLaneServicesFile`), the `const val WHEEL_INTERVAL_MS`, and `AirComposerAcpLaunch.complete` 4, whose commit
     1c4c867a moves the class to the package the uses import. Each is in an edge the import of its class already
-    makes, so `bd commits --brief`, `bd check` and `bd suggest` are byte for byte those of the build before. The range
+    makes, so `brd commits --brief`, `brd check` and `brd suggest` are byte for byte those of the build before. The range
     adds no Java use of a companion or an `INSTANCE`. The five repro cases make one edge by symbols each; on the real
-    pair `bd check` names the same `getButtonManager`, byte for byte. At a load average of 35–43, with the object
+    pair `brd check` names the same `getButtonManager`, byte for byte. At a load average of 35–43, with the object
     cache off on that machine (no System V semaphore set was left, a leak a023d008 fixes), so both builds parse all
     2573 blobs, the minimum of 4 interleaved runs is 317 ms read, 612 ms parse, 1372 ms graph, against 156, 597 and
     1990: within the noise. The review's fixes (a top-level object names a function for Java only when it is
@@ -895,12 +895,12 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     the edges are the same. The new one is right by the lineage of decision 7: `this(coroutineScope, source,
     legacyInput)` in `AgentHostSettingsStateImpl`, whose own commit 0997e182 adds `legacyInput` to the primary
     constructor that 95e34960 gave `firstPullRetryDelay`, links to 95e34960, in the edge the lines of that file
-    already make. `bd commits --brief`, `bd check` and `bd suggest` are byte for byte those of the build before; the
-    five repro cases make one edge by symbols each, and on the real pair `bd check` names the same
+    already make. `brd commits --brief`, `brd check` and `brd suggest` are byte for byte those of the build before; the
+    five repro cases make one edge by symbols each, and on the real pair `brd check` names the same
     `getButtonManager`. At a load average of 38–57 the wall times say nothing (graph 0.9–10 s for either build); the
-    CPU of `bd commits --brief` is 7.5–8.0 s, against 7.3–7.6 s, both parsing all 2573 blobs.
+    CPU of `brd commits --brief` is 7.5–8.0 s, against 7.3–7.6 s, both parsing all 2573 blobs.
   - A call in a subclass of a member its one supertype has (decision 12, `inherited`), against the build before: no new
-    link and none lost, and `bd commits --brief`, `bd check` and `bd suggest` are byte for byte the same, as on the real
+    link and none lost, and `brd commits --brief`, `brd check` and `brd suggest` are byte for byte the same, as on the real
     pair. A probe of the rule on the range: the bare calls of an instance function the range adds or changes, not
     enclosed and in another file than the function, make 3190 (use, key) pairs in 166 files; in 71 files the file
     declares the name and in 15 an import may bring it, and every other one is in an extension function (80 files:
@@ -923,35 +923,35 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
     (`of_another_receiver`). The first build linked `chat.send(claim, key, text)` to the member `send(text: String, …)`
     of `AirAgentChatInIdeDriver`, which the arguments seemed to fit, while an extension
     `AirAgentChatInIdeDriver.send(session, key, text)` of the package takes the call; such links are none now
-    (`sees_extension`), which took 5 links and 3 symbols-only edges. `bd check` and `bd suggest` are byte for byte those
-    of the build before, as is `bd check` on the real pair; the five repro cases make one edge by symbols each. At a
-    load average of 105–115 the CPU of `bd commits --brief` is 8.7 s against 8.4 s, both parsing all 2573 blobs. The
+    (`sees_extension`), which took 5 links and 3 symbols-only edges. `brd check` and `brd suggest` are byte for byte those
+    of the build before, as is `brd check` on the real pair; the five repro cases make one edge by symbols each. At a
+    load average of 105–115 the CPU of `brd commits --brief` is 8.7 s against 8.4 s, both parsing all 2573 blobs. The
     review's fixes (no property behind an extension receiver, a primary-constructor parameter only in initializers, no
     destructured type, `in` no cast, a constructed type only for the factory rule, a call no key entry accepts, a
     same-file subtype) change no link, edge or output of the range.
   - The checks of a branch's tree by the summaries (decision 15), against master: on the real case (idea-1 at
-    1b037aff, 33 commits, IJAI-4185 not stacked on IJAI-4182) `bd check` reports the one `changed_declaration`
+    1b037aff, 33 commits, IJAI-4185 not stacked on IJAI-4182) `brd check` reports the one `changed_declaration`
     `cleanup` at `AcpJourneyLifecycleTest.kt:199`, `removed_by` c372cb86, `fixed_by` aa0fb473, and nothing else, where
-    master says ok; `bd suggest` stacks IJAI-4185 on IJAI-4182 (`IJAI-4182/IJAI-4185`) with `check.ok`. On
-    `86be3572..7dfac19d` `bd check` of the current grouping, of it with every branch unstacked, and of the plan of
-    `bd suggest` (37 branches built) report nothing new, and the plan of `bd suggest` is the master's; on the real
-    pair `f0596b09` `bd check` is byte for byte the master's. The first build reported 4 false duplicates in
+    master says ok; `brd suggest` stacks IJAI-4185 on IJAI-4182 (`IJAI-4182/IJAI-4185`) with `check.ok`. On
+    `86be3572..7dfac19d` `brd check` of the current grouping, of it with every branch unstacked, and of the plan of
+    `brd suggest` (37 branches built) report nothing new, and the plan of `brd suggest` is the master's; on the real
+    pair `f0596b09` `brd check` is byte for byte the master's. The first build reported 4 false duplicates in
     air-lane-document: a declaration added in a file that another branch deletes later (`userModeDefaults`,
     `AirLaneJourneySuiteDocument`), which the tree declares once; a duplicate needs two declarations now. The CPU of
-    `bd suggest` on the range was +5–6 s (10.5 → 16 s) until the searches took the declarations on the changed lines
+    `brd suggest` on the range was +5–6 s (10.5 → 16 s) until the searches took the declarations on the changed lines
     only, looked uses up by name (`references_to`), read the summaries of the commits' blobs before parsing a tree's,
     and read a blob only where its summary names a search (or is unknown) and, for a duplicate, in its module; then
-    10.3–11.0 s against 10.4–10.9 s, and `bd check` 9.3–10.2 s against 8.9–9.1 s, at a load average of 40–60. The
+    10.3–11.0 s against 10.4–10.9 s, and `brd check` 9.3–10.2 s against 8.9–9.1 s, at a load average of 40–60. The
     processes are the same: the searches run on the `diff-tree` and the `cat-file` of the check. The review's fixes (a
     proven `changed` only where the summary sees the break, else `possible`; `Reference::coroutine`; the types of the
     parameters; a removed overload judged by those left; the keys, not the names, of what the tree adds; a removed
     member's use that the file imports otherwise is none; the lines of the branch's hunks; the summaries shared with
     the sessions of a rewrite; the added keys once per commit) keep the real case a proven `cleanup` with `fixed_by`
     aa0fb473 (both uses at lines 199 and 216 are outside a coroutine, 199 in the lambda of `assertThrows`, which makes
-    it unknown) and the stack of `bd suggest`; the range and the pair report nothing new and plan as master. The keys
+    it unknown) and the stack of `brd suggest`; the range and the pair report nothing new and plan as master. The keys
     first made `dynamicAgentOptions` of `AcpDynamicFakeAgentUiTest.kt` a false removed member of IJAI-4012 in the plan of
-    `bd suggest`: eaf5d15d moves a member extension to the top level of another file and imports it there, which the
-    rule of imports now answers. `bd suggest` 10.5–12.1 s CPU against 10.0–11.5 s, `bd check` 9.2–10.4 s against
+    `brd suggest`: eaf5d15d moves a member extension to the top level of another file and imports it there, which the
+    rule of imports now answers. `brd suggest` 10.5–12.1 s CPU against 10.0–11.5 s, `brd check` 9.2–10.4 s against
     8.8–9.8 s (load average 27–37, the object cache off, so every run parses all 2573 blobs; the coroutine context
     costs 40 ms of that parse).
   - The accessors and the facade (decision 14, `facade`), against the build before: no link, edge or output changes, as
@@ -968,25 +968,25 @@ Round 1, 2026-10-17, release build, a machine at a load average of 30–60 (wall
 | Measure | Threshold | Measured |
 |---|---|---|
 | Precision of the edges by symbols only | ≥ 0.95 | 141 / 141 (by `git grep` and reading, no compiler) |
-| `bd suggest` plan with them | not worse | the same plan, `check.ok`, no repair round |
+| `brd suggest` plan with them | not worse | the same plan, `check.ok`, no repair round |
 | Degraded Kotlin files | ≤ 3 % | 0 of 1827 |
 | Symbol phase, warm | ≤ 0.3 s | 0.15 s read + 0.5 s graph |
-| `bd suggest` slowdown, warm | ≤ 25 % | +20–28 % CPU |
+| `brd suggest` slowdown, warm | ≤ 25 % | +20–28 % CPU |
 | Peak memory | ≤ +250 MB | +160 MB cold, nothing warm |
 | Binary | accepted by the user | +9.4 MiB |
 
-The two times miss their thresholds, and the measured range gains nothing in `bd suggest`; the user chose `on` as the
+The two times miss their thresholds, and the measured range gains nothing in `brd suggest`; the user chose `on` as the
 default anyway (2026-10-17): the precision holds, no plan got worse, and the cost is a fraction of a second warm. `on`
-adds the conflict fix by the edges, `missing_declarations` of `bd check`, the `symbol_dependency` warnings and the
-stacking of `bd suggest`, and the uses the Safe Push popover warns of before the unstack of a stacked branch.
-`git config branchdeck.symbols report` keeps only what decides nothing (`bd commits` names the edges, the
+adds the conflict fix by the edges, `missing_declarations` of `brd check`, the `symbol_dependency` warnings and the
+stacking of `brd suggest`, and the uses the Safe Push popover warns of before the unstack of a stacked branch.
+`git config branchdeck.symbols report` keeps only what decides nothing (`brd commits` names the edges, the
 dangling-reference check subtracts by the trees); `off` reads no summary.
 
-A missing declaration first only reported (`bd check`, outside `ok`: names, not a compiler). Two robots failed on one
+A missing declaration first only reported (`brd check`, outside `ok`: names, not a compiler). Two robots failed on one
 anyway: an override of another branch's overload (2026-10-17), and `lane-run`, which used `StillEncoding`, `Stills` and
-`Manifest.stills` of `stills-codec` while `bd check` named `Stills` and said `ok` (2026-10-21). The precision of the
-edges (141 of 141) is the precision of a refusal, so since 2026-10-21 a missing declaration fails `bd check` (result
-`missing_declaration`) and refuses the start of a Safe Push, in `bd` and in the app (the landing gate,
+`Manifest.stills` of `stills-codec` while `brd check` named `Stills` and said `ok` (2026-10-21). The precision of the
+edges (141 of 141) is the precision of a refusal, so since 2026-10-21 a missing declaration fails `brd check` (result
+`missing_declaration`) and refuses the start of a Safe Push, in `brd` and in the app (the landing gate,
 [Git Operations](git-operations.md#landing-gate)), and the user overrides it for a false alarm (`--allow-missing`, Start
 Anyway). The gate is a blocker of the plan of the start (`Reason::LandingRefused`, `domain_policy::land::decide`),
 which the run of the start (`operations::land_execute`) refuses before its first effect; `--allow-missing`,
@@ -997,7 +997,7 @@ A refusal at the press came too late on 2026-10-22: the robot of `stills-codec` 
 `stills-codec`. So the gate has a second consumer: the landing needs, a fact the session of the repository computes
 through its host after a sync ([Git Operations](git-operations.md#session-facts)), run the same rule for every
 branch, from one trial check and one symbol graph of the check session, and the row says "Needs stills-codec" with the restack
-before any press ([Next Step](../../spec/branch/next-step.spec.md#what-the-safe-push-needs)); `bd status` lists them
+before any press ([Next Step](../../spec/branch/next-step.spec.md#what-the-safe-push-needs)); `brd status` lists them
 (`landing_needs`). The edges are the same, so the precision is: a false alarm shows on the row too, and the popover
 starts anyway.
 

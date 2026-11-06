@@ -742,11 +742,11 @@ fn a_std_guard_lives_across_no_git_and_is_handed_to_no_call_that_runs_it() {
 
 // The repository lock across a sync or a wait for the index: a check of its own, beside the one of the network above.
 // A sync (`bd_core::sync_command::sync`, `sync_core::sync::sync_branches`) merges and copies every branch, and its refs
-// move by compare-and-swap, so it takes no lock (`bd push` and `bd safe-push` held it for theirs until 2026-10-31); a
+// move by compare-and-swap, so it takes no lock (`brd push` and `brd safe-push` held it for theirs until 2026-10-31); a
 // wait for the `index.lock` of another process (an IDE's `git status`, up to 30 s) comes before the lock
 // (`update_branch::wait_for_index`, `PickPlan::wait_for_index_locks`, `IndexLock::wait_while_locked`), and under it
 // a move only looks (`index_held`). The guard lives as above; a call inside a function the scope calls is not followed
-// (the fallback wait of a move under the lock its caller holds, `bd update --continue`).
+// (the fallback wait of a move under the lock its caller holds, `brd update --continue`).
 
 /// The calls, by their whole name, that the repository lock never lives across
 const LONG_CALLS: [&str; 5] = ["sync", "sync_branches", "wait_while_locked", "wait_for_index", "wait_for_index_locks"];

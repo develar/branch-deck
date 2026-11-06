@@ -39,7 +39,7 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
     (&output["top_level"], &output["subdir"], &output["shared_checkout"], &output["local_changes"]),
     (&json!(shared), &json!("crates/x"), &json!(shared), &json!(1))
   );
-  assert_eq!(output["next"], json!([format!("bd lease get --holder <your name> -C {}", shell_word(&shared))]));
+  assert_eq!(output["next"], json!([format!("brd lease get --holder <your name> -C {}", shell_word(&shared))]));
   assert_eq!(output["active_leases"], json!([]));
 
   let lease = fixture.get(&["--holder", "lane-1"]);
@@ -55,7 +55,7 @@ fn by_default_the_agent_leases_a_worktree_picks_its_commits_and_returns_it() {
     output["next"],
     json!([
       format!("bd -C {} lease pick", shell_word(&slot)),
-      format!("bd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
+      format!("brd lease return --lease-id {}", lease["lease_id"].as_str().unwrap()),
     ])
   );
   // without a scan of the processes (Windows) the get records no holder process, and the lease names none

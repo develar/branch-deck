@@ -56,7 +56,7 @@ fn describe_errors() {
 }
 
 /// Windows PowerShell 5.1 writes UTF-16 with a byte order mark (`Out-File`) or UTF-8 with one (`Set-Content -Encoding
-/// UTF8`), and reads stdout with a legacy code page: bd reads both and prints only ASCII
+/// UTF8`), and reads stdout with a legacy code page: brd reads both and prints only ASCII
 #[test_log::test]
 fn a_body_from_windows_powershell_is_read_and_printed_as_ascii() {
   let repo = repo_with_login();

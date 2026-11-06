@@ -1,6 +1,6 @@
 //! Whether and how a Safe Push or a Dry Run of a branch or of a whole stack starts, for the app and `bd` alike
 //! (docs/design/rust-domain-authority.md, R4, R6, D2, D3b, D11, D12, D14, D15; spec/branch/patronus.spec.md, "Starting a
-//! Safe Push or a Dry Run"; spec/cli/agent-cli.spec.md, "bd safe-push").
+//! Safe Push or a Dry Run"; spec/cli/agent-cli.spec.md, "brd safe-push").
 //!
 //! Part 1, the refusals of the subject and its robots (`start_refusal`). A start is refused:
 //!

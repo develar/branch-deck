@@ -59,7 +59,7 @@
 //! - `reasons`: the reasons the rules give (`domain_types::reason::Reason`), with the facts their words need
 //! - `readiness`: whether a subject waits for approvals (`awaits_approval`), and which of the shown subjects the
 //!   session asks the readiness of (`wanted`: those whose next step waits for it)
-//! - `review`: whom Request Review… offers and `bd request-review` asks (`candidates`), what an answer of the readiness
+//! - `review`: whom Request Review… offers and `brd request-review` asks (`candidates`), what an answer of the readiness
 //!   means for a start and where the approvals count, a repository only on Space read once (`review_state`), and when a
 //!   Safe Push starts without them (`skips_approvals`)
 //! - `reviewer_groups`: the reviewer groups of a pull request of someone else a review window shows, each approved or not

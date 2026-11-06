@@ -42,7 +42,7 @@ Two words are used for what lands, never for anything else:
   pushes in one atomic push. The first push of a branch is a step of its Safe Push and its Create Pull Request, which
   push it themselves (a step of the plan of their intent, the push of the push button): the row, the preview and the
   review window offer no push of a branch the remote lacks, only its menu does (`isFirstPushInLanding`). A review
-  request pushes what its pull request lacks first too, so the reviewers see it; `bd request-review` only with `--push`
+  request pushes what its pull request lacks first too, so the reviewers see it; `brd request-review` only with `--push`
   (D5), else it refuses (`needs_push`). A push stays a move of its own where it changes what other people see: a remote
   branch that lags, the commits of a live pull request, a force push the landing refuses to make.
 
@@ -81,7 +81,7 @@ The specs are the contract of each part:
   whole stack are what lands on every route; the route only says how.
 - **The route is a fact of the repository.** `branchdeck.landing` of its git config names it (`patronus`, `push`,
   `pull-request`), read by the sync with its config and sent in `BranchesGrouped` with where its remotes push, so the
-  session, `bd` and the rule (`domain_policy::landing_route`) read one value. Unset, the host of `origin` decides:
+  session, `brd` and the rule (`domain_policy::landing_route`) read one value. Unset, the host of `origin` decides:
   Patronus on Space, the pull request elsewhere; never a push, which skips the robot and the CI of a pull request and
   is named only by the repository's own config.
   - *Rationale:* a route is named, not detected, except where the host decides it for good: `origin` does not move off
@@ -101,9 +101,9 @@ The specs are the contract of each part:
   them anew on it, and the step offers the push again. A fetch that already shows the target ahead of the fork point
   refuses the push before it is sent (the gate's `BaselineAhead`): the step is Update Project, a push would cost a round
   trip to be refused. The page tells the push and the update in one toast; Settings →
-  Landing names the route. `bd land` lands by the route of the repository and names `bd update` after it.
+  Landing names the route. `brd land` lands by the route of the repository and names `brd update` after it.
   - *Rationale:* the update is a rule of Rust, not of the page: a landing by a click leaves the branch where the next
-    click lands nothing twice; `bd` never moves the files of an agent's checkout by itself.
+    click lands nothing twice; `brd` never moves the files of an agent's checkout by itself.
 - **Merge #7.** On the pull-request route, where no robot of Patronus lands the repository and a merge on GitHub lands
   into the target, the start of a piece or of a whole stack is a merge of its open pull request on GitHub
   (`land_direct::decide_merge`, the rows `pr`, `merge`, `merge′`, `merge″` of
@@ -143,7 +143,7 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   the push: of new commits the robot doesn't land, or of a baseline that moved, which the robot meets too and fails on
   hours later; a fix doesn't disturb the robot, which lands the remote copy whose push it holds. All of it in master
   outranks a conflict of what is left: the update archives it. One table over every combination pins it
-  (`row_status_test.rs`), and `bd status` says the same cell (`next_step.status`).
+  (`row_status_test.rs`), and `brd status` says the same cell (`next_step.status`).
 - **The filter.** The state chips of the table take the rows by their nodes, in the words of the overview: Your Move,
   Landing, Waiting, In Master ([Branch Filter](../../spec/branch/branch-filter.spec.md)). They replaced To Push,
   Running and Attention: a push is no state, a running robot is Landing (a Dry Run waits), and what needed attention is
@@ -165,7 +165,7 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   its start refusal (`domain_policy::land::start_refusal`) that disables its start.
 - **The start, not a form.** A start of a piece has nothing to ask in the usual case: the piece is the branch the
   user pressed and what it is built on. So "Safe Push" is an action (`requestSafePush`, `src/hooks/useSafePush.ts`),
-  named by what it lands ("Safe Push · 3"), and one decision (`domain_policy::land::decide`, the one of `bd
+  named by what it lands ("Safe Push · 3"), and one decision (`domain_policy::land::decide`, the one of `brd
   safe-push`, which the view carries as `RepositoryView.lands` and `prepare` answers as the plan of the start) says
   whether it starts at once, refuses with the reason every surface says, or confirms first in a popover at the button: a stacked branch always confirms, since it lands more than its row; so do
   a profile other than the default checks, a running Safe Push it cancels, approvals Patronus judges only at the
@@ -176,14 +176,14 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   the merge builds them on master. The trial build of the branch alone (`get_stack_independence`) gives the second
   way: the unstack, a warning when the branch uses a name of its stack, or the move of the commits it needs. An old
   pull request into a virtual branch doesn't stop the start: its retarget to master is the first effect of the start
-  (`PlannedEffect::Retarget` of `domain_policy::land::decide`), then the push and the robot, as `bd safe-push` does;
+  (`PlannedEffect::Retarget` of `domain_policy::land::decide`), then the push and the robot, as `brd safe-push` does;
   the slot offers the retarget alone too (row 5).
 - **Where it opens.** Every surface of a branch (its slot, "⋯", S, the preview, the review window) asks the branch's
   own start; its popover opens at its own row's slot. The header of a stack island asks the start of the whole stack
   (below); of a straight chain, which has no stack branch, the start of its last branch, its popover at the header's
   slot (`SafePushPlacement` `stack-header`), also while the island is collapsed; its holds and its running start stay
   the branch's.
-- **bd.** `bd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
+- **bd.** `brd safe-push <branch>` lands the same piece: no refusal and no flag (the old `stack_not_landed` and
   `--land-stack` are gone, the flag is accepted and ignored), the ancestors with work for the remote pushed first, the
   robot started on the branch's virtual branch. Its start is the run of the app's start (`operations::land_execute`,
   [Push and land](git-operations.md#push-and-land)): the same plan, the same effects in the same order (the retargets,
@@ -191,14 +191,14 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
   only where the facts live differs (the one-shot session of the command, the session of the app's window). `lands` names root..branch, in the start and in `--dry-run`; only
   `--dry-run` adds `alone`, the same trial build of the branch alone as the popover's second way, in the trial session of
   the dangling references, so a start runs no trial ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)).
-  The app's start and `bd safe-push` of one piece never run side by side: the operations registry of the repository
+  The app's start and `brd safe-push` of one piece never run side by side: the operations registry of the repository
   makes the second one `busy`, naming the first ([Running Operations](operations.md)), and a start whose answer was
   lost holds the piece for both until Patronus settles it or the user forgets it.
-  bd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
-  robot bd started included (`CloseLandedPullRequests`, an operation of the session of the robot's repository, D7), so
-  after a bd landing they stay open while the app doesn't run, and the agent says so.
-  What merged Safe Pushes landed, bd decides as the rows do (below): `bd status` names it (`landed_by`), `bd push`
-  leaves a branch landed whole out (`skipped`), `bd safe-push` refuses it (`landed`), and both land only the rest of a
+  brd closes no pull request: the app closes those of the ancestors a merged robot landed when it sees the merge, a
+  robot brd started included (`CloseLandedPullRequests`, an operation of the session of the robot's repository, D7), so
+  after a brd landing they stay open while the app doesn't run, and the agent says so.
+  What merged Safe Pushes landed, brd decides as the rows do (below): `brd status` names it (`landed_by`), `brd push`
+  leaves a branch landed whole out (`skipped`), `brd safe-push` refuses it (`landed`), and both land only the rest of a
   piece or the whole stack.
 - **The readiness.** A stacked branch is asked for its readiness now, for its own pull request. To keep the load on
   Patronus as it was, the session asks only for the subjects a surface shows (`showReviewReadiness` of the demand: a
@@ -209,23 +209,23 @@ The contract is [Landing Routes](../../spec/branch/landing-routes.spec.md).
 ### Every pull request goes into master
 
 The base of every pull request of a virtual branch is the baseline as the remote names it: `pullRequestBaseOf` of
-`src/presenters/pull-request-url.ts`, of the baseline of the view (no branch to ask: it is the same for all), `pull_request.base` of `bd push` and the
-`--create-pull-request` of `bd safe-push`. A stacked branch's pull request holds the commits of the branches it is
+`src/presenters/pull-request-url.ts`, of the baseline of the view (no branch to ask: it is the same for all), `pull_request.base` of `brd push` and the
+`--create-pull-request` of `brd safe-push`. A stacked branch's pull request holds the commits of the branches it is
 built on, which `Create pull request` says under its title ("Includes the commits of auth and login, which oauth is
 built on: 3 branches · 12 commits", `formatPullRequestIncludes`), and its text names them under the items of its own commits ("Built on auth, then login", `pull_request_text`). A child pushed
-alone (`Push oauth Only`, `bd push --alone`, a parent a running Safe Push holds) carries them: nothing waits for a parent
+alone (`Push oauth Only`, `brd push --alone`, a parent a running Safe Push holds) carries them: nothing waits for a parent
 to be on the remote.
 
 Pull requests opened into a parent's branch before this model, or of a parent that landed, still exist. A base under
-`{prefix}/virtual/` (`PullRequestBase::Virtual` of `domain_policy::pull_request::base_of`, for the app and `bd`) is never a choice, so it is retargeted
+`{prefix}/virtual/` (`PullRequestBase::Virtual` of `domain_policy::pull_request::base_of`, for the app and `brd`) is never a choice, so it is retargeted
 to the baseline (`PATCH pulls/<n>`, `operations::pull_request::retarget`):
 
 - the app, right before the push of the branch (`retargetBeforePush`, each branch of a stack push), as the first effect
   of a Safe Push start (`PlannedEffect::Retarget` of `domain_policy::land::decide`, run by the engine,
-  `operations::land_execute`, before the cancel, the push and the robot, as `bd safe-push` runs it), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
+  `operations::land_execute`, before the cancel, the push and the robot, as `brd safe-push` runs it), and from the next step, row 5 "Retarget #7 to master", for any virtual base, the
   current parent's included (`domain_policy::pull_request::base_of`, the intent `Retarget` of the engine,
   [Next Step](../../spec/branch/next-step.spec.md));
-- `bd push`, after the push and the lock, for the pushed branches; `bd safe-push` before its push, for the branch and
+- `brd push`, after the push and the lock, for the pushed branches; `brd safe-push` before its push, for the branch and
   the parents its push takes along, and a refused retarget of the branch's own pull request stops the start: Patronus
   would merge it into the old base. `--create-pull-request` takes the open pull request of the branch whatever its base
   ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-push)).
@@ -233,13 +233,13 @@ to the baseline (`PATCH pulls/<n>`, `operations::pull_request::retarget`):
 Any other base (a release branch) may be meant: the push leaves it, the next step only opens the pull request (row
 5′), and the menu keeps "Retarget #7 to master". A Safe Push that counts approvals refuses it: they don't count in a
 pull request into another base ("Approvals in #7 don't count: its base is release-252", `otherBase`); a start that
-counts none (without review, a profile that skips the review) starts, in the app and in `bd safe-push` alike. The stack branch `{prefix}/stack/<root>` (below) is not under
+counts none (without review, a profile that skips the review) starts, in the app and in `brd safe-push` alike. The stack branch `{prefix}/stack/<root>` (below) is not under
 `virtual/`, so no retarget touches a pull request of it or into it.
 
 A retarget widens the diff of the pull request to what its Safe Push lands, so it may ask more code owners, and GitHub
 may dismiss approvals. The push description says it before ("Retargets #8 to master: GitHub may dismiss its
 approvals."), the push toast and Activity name each retarget after ("Retargeted #8 to master" / "login · it went into
-auth"), and `bd` lists them as `retargeted` with `approved_by`, for the agent to tell the user.
+auth"), and `brd` lists them as `retargeted` with `approved_by`, for the agent to tell the user.
 
 ### The stack branch
 
@@ -258,8 +258,8 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
   blocked or has no commits is still of its parent's stack. So the whole stack of a branch is the stack of its root by
   declared parent: the stack branch of the root while the stack forks, else the straight chain from the root, landed
   by its last branch that is not parked (`domain_policy::stack::whole_stack_of`, the `wholeStack` of the root's
-  structure in the view; `bd safe-push --whole-stack` and `bd robot --whole-stack` read the same). Before, the page
-  took the effective base first and `bd` the parent of the block, so the two named different stacks for one branch.
+  structure in the view; `brd safe-push --whole-stack` and `brd robot --whole-stack` read the same). Before, the page
+  took the effective base first and `brd` the parent of the block, so the two named different stacks for one branch.
 - **A parked member.** A branch the user parked ([Parked Branches](../../spec/branch/parked-branches.spec.md)) lands
   nothing until it is unparked, and neither does a branch built on it, which carries its commits. The stack branch
   holds every member, so a stack with a parked one lands in pieces: its build stays, nothing pushes it.
@@ -273,10 +273,10 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
 - **Its life.** A stack that stops forking loses its stack branch, unless the stack branch is on the remote: its pull
   request may be open, and the user decides on it.
 - **Its Safe Push.** One robot from the stack branch lands the whole stack; only the stack branch is pushed, leased,
-  and the branches of the stack stay as they are on the remote. `bd safe-push <branch> --whole-stack` does it for any
+  and the branches of the stack stay as they are on the remote. `brd safe-push <branch> --whole-stack` does it for any
   branch of the stack ([Agent CLI](../../spec/cli/agent-cli.spec.md#bd-safe-push)); a straight chain starts from its
   leaf. A stack branch that is not `Built` refuses it (`conflict` when its own commit conflicts, `stack_not_built`
-  otherwise): the stack then lands in pieces. Push with Children of the root (the app's and `bd push <root>
+  otherwise): the stack then lands in pieces. Push with Children of the root (the app's and `brd push <root>
   --with-children`) takes the stack branch along once it is on the remote or its pull request is open, and only when
   the sync built it: the pull request of the whole stack follows its branches. A stack branch on no remote and in no
   pull request is no branch to publish by itself.
@@ -293,7 +293,7 @@ beside the branches ([Whole Stack](../../spec/branch/whole-stack.spec.md), "Stac
 
 ### The whole stack in the app
 
-The whole stack is an object of its own in the app, beside its branches, named "the whole air stack" as `bd` names it
+The whole stack is an object of its own in the app, beside its branches, named "the whole air stack" as `brd` names it
 ([Whole Stack](../../spec/branch/whole-stack.spec.md#the-whole-stack-in-the-app)):
 
 - **Its robot** (`RobotSubject` of `src/lib/patronus.ts`: a branch, or the stack of a root) is no branch's. It is
@@ -332,11 +332,11 @@ The whole stack is an object of its own in the app, beside its branches, named "
   piece, every branch of the whole stack) are closed, but only those that hold nothing the branch lacks: the head is the
   branch's tip, or the remote branch has no commit the branch lacks. A head compared by hash alone left a pull request
   of a branch the sync had only rebuilt on a newer baseline open, though all of it landed. Which branches it landed is
-  one rule, in Rust for the app and `bd` (`repository_model::patronus_view`, `landedByRobot` of the repository view),
+  one rule, in Rust for the app and `brd` (`repository_model::patronus_view`, `landedByRobot` of the repository view),
   and so is which pull requests the merge closes (`domain_policy::landed::pull_requests_to_close`: the session of the
   app tells them with the news of the merge and closes them when the page asks, `CloseLandedPullRequests` in
   `operations::close`, each with the comment Rust words and holding the state of its pull request, in the robot's
-  repository whichever one the main window shows by then; `bd robot` lists them as `closes` and closes none): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
+  repository whichever one the main window shows by then; `brd robot` lists them as `closes` and closes none): a piece's ancestors while the robot ran on a commit its branch has (its tip, the
   same commits rebuilt, or one the branch built new commits on since: the copies below are the same objects, so the
   ancestors are as it took them), the whole stack's branches while it ran on the stack branch as it is; after a change
   below its commit, by content (below): the merge toast waits for that answer (the view the session derives after the
@@ -351,7 +351,7 @@ The whole stack is an object of its own in the app, beside its branches, named "
   `repository_model::landed_closes`): a push as it ends, before its update drops the rows, and the fetch after it
   judges nothing of it again; it keeps what landed them, so the close the page asks (`LandingKey::Told`) words its
   comment after the rows are gone ("Landed in master as 4a64f53 with the push of user/virtual/login, which is built on
-  this branch."), and Activity says each. `bd land` lists them as `closes` and closes none.
+  this branch."), and Activity says each. `brd land` lists them as `closes` and closes none.
   - *Rationale:* closing a pull request GitHub is about to mark merged would turn its merge into a close; a head left
     out of the push is never merged by GitHub, and its pull request shows only work that landed.
 - **Landed rows until the update.** The merge toast is gone in seconds, and the update that archives the branches may
@@ -360,8 +360,8 @@ The whole stack is an object of its own in the app, beside its branches, named "
   no restart of a robot, no new pull request and no push: their commits are in master, a second robot or a push would
   land nothing (`getLandedBy`, the repository view's `landedBy`, row 1 of the next step, a `landed` push hold, also of the robot's own branch). It is a
   state of the robots and the branches, not of the merge event, so a robot first seen merged (after a restart, a
-  landing by `bd`) says it too. A pull request GitHub merged with the commits the branch has lands it as well, though
-  no robot of the app merged it: what landed a subject is one rule for the rows and `bd safe-push`
+  landing by `brd`) says it too. A pull request GitHub merged with the commits the branch has lands it as well, though
+  no robot of the app merged it: what landed a subject is one rule for the rows and `brd safe-push`
   (`domain_policy::landed::landed_state`: the fetched baseline first, then the merged Safe Pushes, then the merged pull
   request whose head is the branch's tip or a remote branch without commits it lacks; `RepositoryView.landedStates`). A branch built on
   a landed one lands without it ("Safe Push" where it said "Safe Push · 2"), and pushes without it: a landed branch is
@@ -369,14 +369,14 @@ The whole stack is an object of its own in the app, beside its branches, named "
   stack. A landed commit offers no Push Up to Here on any surface, as a commit the remote has (the view's
   `BranchPush.upTo.commits`: no push arrow and no item in the menu of the commit). Once every branch of
   a stack landed, its stack branch is held too: it carries only commits that are in master, so Push with Children, the
-  island's push, the push of the stack branch alone and `bd push <root> --with-children` leave it and say who landed the stack ("Landed in
+  island's push, the push of the stack branch alone and `brd push <root> --with-children` leave it and say who landed the stack ("Landed in
   master with deploy and side-test: nothing of it is left to push", `domain_policy::holds::stack_branch_hold`), and a
   failed robot of the whole stack restarts no more (`domain_policy::land::restart_refusal`).
 - **Landed by content.** A change below the commit the robot took (a new commit or an amend of a branch it is built
   on, a reword; for the whole stack any change of a branch of it, which rebuilds the stack branch) makes new copies, so
   the hashes no longer tell. Then the content does: the commits the robot tested against each branch as the table has
   it (`robot_landings_of_grouped`, `crates/sync-core/src/robot_landing.rs`, asked by the Patronus view that the session
-  derives for the app and `bd` for itself, [Session facts](git-operations.md#session-facts)), the same
+  derives for the app and `brd` for itself, [Session facts](git-operations.md#session-facts)), the same
   comparison as the robot commit map of a failure prompt (the same commit, a patch-equivalent copy, or a copy with the
   same changes on a newer base). A branch whose oldest commits the robot tested landed, and commits added after them
   are the only work left of it ("Landed with oauth · 1 commit after it"): its push and its Safe Push send those. An

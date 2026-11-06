@@ -3,7 +3,7 @@ use host_link::refusal::Code;
 use pretty_assertions::assert_eq;
 use serde_json::Value;
 
-/// The text of the spec of bd-host, whose fenced blocks hold the golden JSON
+/// The text of the spec of brd-host, whose fenced blocks hold the golden JSON
 const SPEC: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/cli/host.spec.md"));
 
 /// The JSON of the fenced block ```` ```json golden=<name> ```` of the spec
@@ -56,7 +56,7 @@ fn the_report_of_a_run_is_the_golden_json_of_the_spec() {
   assert_eq!(report.line().lines().count(), 1);
 }
 
-/// A refusal carries its code and its message, the exit of bd-host, and `null` for what the client did not learn
+/// A refusal carries its code and its message, the exit of brd-host, and `null` for what the client did not learn
 #[test]
 fn a_refusal_reports_its_code_its_exit_and_what_the_client_knew() {
   let refusal = Refusal::new(Code::Behind, "studio has none of the commits near HEAD");

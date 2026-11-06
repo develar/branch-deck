@@ -1,6 +1,6 @@
 ---
-name: bd pick
-description: Requirements for bd pick, which lands the commits of another worktree on the branch checked out here without git cherry-pick, moves that worktree along with --follow, and takes both back with bd undo.
+name: brd pick
+description: Requirements for brd pick, which lands the commits of another worktree on the branch checked out here without git cherry-pick, moves that worktree along with --follow, and takes both back with brd undo.
 style: plain-1
 targets:
   - ../../crates/bd-update/src/pick_command.rs
@@ -22,23 +22,23 @@ targets:
   - ../../src/lib/git/pick-remote.ts
 ---
 
-# bd pick
+# brd pick
 
 Status: Implemented
 Date: 2026-10-18
 
 ## Summary
 
-Several agent sessions share one checkout. Each one commits in a worktree of its own (a `bd lease` worktree, a detached
+Several agent sessions share one checkout. Each one commits in a worktree of its own (a `brd lease` worktree, a detached
 HEAD that shares the git dir), and its work counts once it is on the branch of the shared checkout, which one owner
-rewrites with `bd update`, `bd fold` and `bd group`. `bd pick --from <worktree>` lands the commits of that worktree on
+rewrites with `brd update`, `brd fold` and `brd group`. `brd pick --from <worktree>` lands the commits of that worktree on
 the branch checked out at `-C`. It replays them in memory with `git replay` and leaves out a commit whose change the
 branch has already. It checks before the repository lock, which every worktree shares, and under it only reads again
 what the check read; then it moves the branch, and the files follow through the guarded working-tree update. `--follow` moves the source worktree onto the new tip the same way. A conflict
-or local changes in the way change nothing; `bd undo` takes the pick back, the worktree too. A lease of the pool lands
-its commits with `bd lease pick`, this pick run in the checkout it was cut from, onto the branch it had checked out
-([bd lease](lease.spec.md)). How it works: "Pick" in
-[Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `bd help worktrees`
+or local changes in the way change nothing; `brd undo` takes the pick back, the worktree too. A lease of the pool lands
+its commits with `brd lease pick`, this pick run in the checkout it was cut from, onto the branch it had checked out
+([brd lease](lease.spec.md)). How it works: "Pick" in
+[Git Operations](../../docs/design/git-operations.md). Working beside other sessions: `brd help worktrees`
 ([Agent CLI](agent-cli.spec.md)).
 
 ## Goals
@@ -67,7 +67,7 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
 
 ### Pick
 
-- `bd pick --from <dir>` must land the commits that the HEAD of the worktree of `dir` has and the checked out branch
+- `brd pick --from <dir>` must land the commits that the HEAD of the worktree of `dir` has and the checked out branch
   lacks: `picked` with each commit, its copy (`new_id`), its subject, the `group` it lands in and what decides it
   (`grouped_by`: `prefix`, `issue_group`, `issue`, or `none` for a subject without a prefix or an issue key). The
   copies keep their author; the committer is the current user. It must print `state: "picked"`, the previous and the
@@ -88,7 +88,7 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
   move.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_commit_the_target_has_already_is_present_with_the_target_commit_of_its_patch`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_dry_run_writes_no_ref_and_a_pick_again_finds_every_commit_present`)
-- A commit that the shared branch has with another message (a `bd reword` after the pick) must be present by its
+- A commit that the shared branch has with another message (a `brd reword` after the pick) must be present by its
   patch id; after a follow the old tip is the fork point, so a later pick lands only the commits after it.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`, `a_session_rewords_its_landed_commit_from_its_lease`)
 - A commit of the range with the patch id of a branch commit above the base must be left out before the replay
@@ -104,20 +104,20 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
   leaves `CHERRY_PICK_HEAD`).
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_conflict_after_a_commit_left_out_by_its_patch_id_names_the_commit_and_lists_the_left_out_one`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_conflict_changes_nothing_and_says_what_to_do`)
-- A pick that names the branch the target must have checked out (`bd lease pick`) must refuse another one as
+- A pick that names the branch the target must have checked out (`brd lease pick`) must refuse another one as
   `home_branch_switched` (exit 4), checked with the branch of the witness under the lock; nothing moves.
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_refuses_a_home_that_switched_its_branch`)
 - A picked commit whose prefix names a branch the branch has already must be listed in `dependencies` when that
   branch is not built on every branch whose commits its hunks depend on (the edges by lines, no symbols), with the
-  copy, `prefix_branch` and `depends_on`, in a `--dry-run` too. `plan`, the `bd group` plan that moves the commit
-  into the branch of the stack that holds all of them, must make the next `bd sync` clean; a commit that also needs
-  its own branch gets `restack`, `bd restack <prefix_branch> <parent>` onto a branch that holds them and its current
+  copy, `prefix_branch` and `depends_on`, in a `--dry-run` too. `plan`, the `brd group` plan that moves the commit
+  into the branch of the stack that holds all of them, must make the next `brd sync` clean; a commit that also needs
+  its own branch gets `restack`, `brd restack <prefix_branch> <parent>` onto a branch that holds them and its current
   parent. The pick never applies either. A prefix of a new branch is not checked: the check reads the diffs only for a
   prefix that names a branch the branch has.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_it`, `a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack`)
 - A `(parent/leaf)` prefix of a picked commit on a branch the branch has as a root (or on another parent) must stack
   the whole branch on `parent`, and the pick must say so in `reparented` (`{"leaf": "parent"}`), in a `--dry-run`
-  too; the next `bd sync` must build the stack.
+  too; the next `brd sync` must build the stack.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_parent_leaf_prefix_on_a_root_group_stacks_the_group_and_says_so`)
 - `groups`, `dependencies` and `reparented` decide nothing: they must be read after the moves and the release of the
   repository lock, from the head the check froze, so the `log` of the commits ahead and the diffs of the dependency
@@ -127,7 +127,7 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
   source in the reflog of the branch, so that a branch folded, regrouped or redated after the worktree was cut gives
   none of its old commits back.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_target_rewritten_after_the_worktree_was_cut_from_it_gives_back_none_of_its_old_commits`)
-- A value that a move of bd (a pick, an update, an unapply, a reapply) put into the reflog of the branch and that its
+- A value that a move of brd (a pick, an update, an unapply, a reapply) put into the reflog of the branch and that its
   rollback or its undo took back must be no fork point: a fast-forward pick that rolled back leaves the source's own
   tip there, which would make its range empty and a `--follow` drop its commits. The base must be the value before
   that move, when the move only added commits to it; a value that any other entry put there (the user, a rewrite, a
@@ -136,7 +136,7 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
   [@test] ../../crates/git-ops/src/pick_test.rs (`an_undone_fast_forward_pick_is_no_fork_point`, `only_a_value_whose_every_move_was_rolled_back_or_undone_gives_way_to_the_value_before`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_return_after_a_pick_that_rolled_back_refuses_the_commit`)
 - Without a fork point, a shared history that is local (not the upstream's) must be refused as `range_unknown`
-  (exit 4), and `bd pick <rev>` or `<a>..<b>` must pick the commits it names. A worktree that stands on a newer
+  (exit 4), and `brd pick <rev>` or `<a>..<b>` must pick the commits it names. A worktree that stands on a newer
   baseline than the branch must be refused as `source_on_newer_baseline` (exit 4).
   [@test] ../../crates/git-ops/src/pick_test.rs (`without_a_fork_point_a_local_shared_history_is_refused_and_a_range_names_the_commits`, `a_worktree_on_a_newer_baseline_is_refused`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_worktree_on_a_newer_baseline_is_refused`)
@@ -161,27 +161,27 @@ its commits with `bd lease pick`, this pick run in the checkout it was cut from,
   repository, a symmetric range, no source and `--follow` without `--from` must be `invalid_arguments` (exit 2).
   [@test] ../../crates/git-ops/src/pick_test.rs (`the_source_is_another_worktree_of_this_repository`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`local_changes_in_the_way_and_a_wrong_source_are_refused`)
-- A pick while a `bd update` resolve session is open on the branch must land, and the finish of the session must carry
+- A pick while a `brd update` resolve session is open on the branch must land, and the finish of the session must carry
   the picked commits as a peer's.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_during_an_open_update_session_is_carried_by_its_finish`)
 
 ### The check of the tree
 
-`pick_requires_check = true` in `[lease]` of the committed `.branchdeck.toml` (the gate of [bd
-lease](lease.spec.md#pick)) is a gate of the pick, not of the lease: an agent that ran `bd pick --from <lease>
---follow`, which the help named as what `bd lease pick` runs, landed a tree that no build saw.
+`pick_requires_check = true` in `[lease]` of the committed `.branchdeck.toml` (the gate of [brd
+lease](lease.spec.md#pick)) is a gate of the pick, not of the lease: an agent that ran `brd pick --from <lease>
+--follow`, which the help named as what `brd lease pick` runs, landed a tree that no build saw.
 
-- With the setting in the checkout the pick runs in (`-C`), `bd pick --from <dir>` must land only a tree of HEAD of
-  the worktree of `dir` that a green record of its `bd-checks.jsonl` names, as `bd lease pick` does: else nothing
-  lands, `unchecked_tree` (exit 4), whose message starts `bd pick:`, names the tree, HEAD and the last check, and both
-  ways on with this pick again (`bd pick --from <dir> [--follow]`, then the same with `--allow-unchecked '<reason>'`).
+- With the setting in the checkout the pick runs in (`-C`), `brd pick --from <dir>` must land only a tree of HEAD of
+  the worktree of `dir` that a green record of its `bd-checks.jsonl` names, as `brd lease pick` does: else nothing
+  lands, `unchecked_tree` (exit 4), whose message starts `brd pick:`, names the tree, HEAD and the last check, and both
+  ways on with this pick again (`brd pick --from <dir> [--follow]`, then the same with `--allow-unchecked '<reason>'`).
   The pick expects the source's HEAD to be the commit it checked (`head_moved` otherwise). The check is one
   `rev-parse` of the git dir, HEAD and its tree, and for a stale tree one `diff-tree`; without the setting and without
   --dry-run the pick reads neither the records nor git for it.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`the_tree_check_of_a_lease_pick`, `a_pick_into_a_branch_the_target_has`)
-- `bd pick <rev>` and `<a>..<b>` with the setting must land nothing, `unchecked_tree` (exit 4): revisions name no
-  worktree whose records bd could read; the message names the pick from the worktree that built them and
+- `brd pick <rev>` and `<a>..<b>` with the setting must land nothing, `unchecked_tree` (exit 4): revisions name no
+  worktree whose records brd could read; the message names the pick from the worktree that built them and
   `--allow-unchecked`. `--dry-run` reports no `check` for revisions and never refuses.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded`)
 - `--dry-run` of `--from` must report the check in `check` (`state` `ok`, `stale` or `missing`, `record`), with or
@@ -189,7 +189,7 @@ lease](lease.spec.md#pick)) is a gate of the pick, not of the lease: an agent th
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded`)
 - `--allow-unchecked <reason>` must land without a check, of a worktree or of revisions: the reason is required (a
   blank one is `invalid_arguments`), the output repeats it (`unchecked`) and stderr names it. `--unchecked`, its name
-  in `bd lease pick` before, must be the same flag. With `--remote` it is `invalid_arguments`: no check gates the
+  in `brd lease pick` before, must be the same flag. With `--remote` it is `invalid_arguments`: no check gates the
   commits someone else pushed, which the user saw (`--expect-remote`), and the app's Pick Remote Commits has no gate
   either.
   [@test] ../../crates/bd-update/src/pick_test.rs (`allow_unchecked_lands_a_pick_without_a_check_and_says_why`)
@@ -197,9 +197,9 @@ lease](lease.spec.md#pick)) is a gate of the pick, not of the lease: an agent th
 ### Remote commits
 
 Someone else pushed to the remote branch of a virtual branch (a fix of a reviewer, a commit of a colleague): a push
-would drop it. `bd pick --remote <branch>` takes it into the checked out branch instead.
+would drop it. `brd pick --remote <branch>` takes it into the checked out branch instead.
 
-- `bd pick --remote <branch>` must sync, fetch the remote branch of `<branch>` alone (before the lock) and pick the
+- `brd pick --remote <branch>` must sync, fetch the remote branch of `<branch>` alone (before the lock) and pick the
   commits a push of it would drop (`commits_behind`, all of them: no older version of a commit the branch has, no
   landed one), oldest first, onto the checked out branch; the copies of those whose subject groups elsewhere get the
   `(<branch>)` prefix, so they land in `<branch>` and its push then drops nothing (no `--force`). The author stays.
@@ -225,7 +225,7 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
   (a conflict, local changes in the way, every commit present) must answer without the lock.
   [@test] ../../crates/bd-update/src/pick_test.rs (`the_check_of_a_pick_runs_before_the_lock`)
   [@test] ../../crates/bd-update/src/pick_test.rs (`another_writer_takes_the_lock_while_a_pick_replays`)
-- A pick must never wait for a sync: another agent's `bd sync` of the target, held in its merges, takes no repository
+- A pick must never wait for a sync: another agent's `brd sync` of the target, held in its merges, takes no repository
   lock, so the pick checks, moves both worktrees and ends meanwhile.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_beside_a_held_sync_does_not_wait_for_it`)
 - A target or a source that moved between the check and the lock must make the pick check again without the lock and
@@ -255,7 +255,7 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
   (`operation_in_progress`); without `--follow` the source is only read.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_pick_lands_the_commits_of_a_worktree_and_the_worktree_follows`, `a_source_on_a_branch_moves_its_branch_and_one_with_a_cherry_pick_in_progress_is_refused`)
 - Both moves must be checked before either moves. A source that moved or switched after the check must leave it where
-  it is while the branch moves: `followed.state` `head_moved` (or `blocked`), exit 0; the same `bd pick` again finds
+  it is while the branch moves: `followed.state` `head_moved` (or `blocked`), exit 0; the same `brd pick` again finds
   every commit present and moves only the source.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_source_that_switched_after_the_check_stays_and_the_same_pick_again_moves_it`, `a_source_that_switched_to_a_branch_at_another_commit_after_the_check_is_attached_and_stays`)
 - A pick or a follow killed between the move of HEAD and its files must leave the mark
@@ -266,7 +266,7 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 ### Undo
 
 - The undo token must be `pick:<previous head>..<new head>` with full ids, with `+follow:<worktree id>:<previous>..<new>`
-  when the source moved. `bd undo` must check both moves, then move the branch and the source back with their files;
+  when the source moved. `brd undo` must check both moves, then move the branch and the source back with their files;
   `follow_undone` says whether the source moved back. Undoing again must be no error (`already_undone`), and the
   worktree's commits must be pickable again.
   [@test] ../../crates/bd-update/src/pick_test.rs (`a_pick_lands_the_worktree_commits_with_their_groups_and_the_undo_moves_both_back`)
@@ -288,7 +288,7 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 | 3 | `head_moved`, `locked` (retryable) |
 | 4 | `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `uncommitted_overlap`, `operation_in_progress`, `detached_head`, `finish_pending`, `undo_stale`; with --remote `lease_rejected`, `nothing_to_pick` |
 
-- The outputs must match `bd schema` (`pick`, `undo`).
+- The outputs must match `brd schema` (`pick`, `undo`).
   [@test] ../../crates/bd-update/src/pick_test.rs (`pick_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
 - A pick must run a fixed number of git processes: one `replay`, the witness, the two moves with their marks, one read
@@ -304,7 +304,7 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 ## Open Questions / Risks
 
 - The dependency check sees lines only, not symbols: a picked commit that calls a function another branch adds in
-  another file is not named; `bd check` names it after the pick (`missing_declarations`).
+  another file is not named; `brd check` names it after the pick (`missing_declarations`).
 
 - A source directly on the branch's HEAD, picked in the same second as its commits were made, replays into the same
   commits: the branch fast-forwards to them and the source does not move (`at_tip`).
@@ -317,4 +317,4 @@ would drop it. `bd pick --remote <branch>` takes it into the checked out branch 
 ## References
 
 - [Git Operations](../../docs/design/git-operations.md): "Pick" and "Update project".
-- [Agent CLI guide](../../docs/contributing/agent-cli.md): `bd pick`.
+- [Agent CLI guide](../../docs/contributing/agent-cli.md): `brd pick`.

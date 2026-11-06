@@ -1,6 +1,6 @@
-//! The stack branches in the output of `bd status` and `bd sync` (`stacks`): of each stack that forks, the branch of
+//! The stack branches in the output of `brd status` and `brd sync` (`stacks`): of each stack that forks, the branch of
 //! all its commits, `{prefix}/stack/<root>` (spec/branch/whole-stack.spec.md); and the whole stack of a branch, which
-//! `bd safe-push --whole-stack` lands and `bd robot --whole-stack` watches, by the rule of the app
+//! `brd safe-push --whole-stack` lands and `brd robot --whole-stack` watches, by the rule of the app
 //! (`domain_policy::stack::whole_stack_of`)
 
 use crate::branch_view::block_reason_name;
@@ -70,12 +70,12 @@ pub struct StackSummary {
   pub commits: u32,
   /// The branches of the stack, the root first, each after its parent; empty for one whose stack no longer forks
   pub members: Vec<String>,
-  /// `bd sync`: what the stack branch has that its remote branch on `origin` lacks and the reverse; `bd status`
+  /// `brd sync`: what the stack branch has that its remote branch on `origin` lacks and the reverse; `brd status`
   /// omits it
   #[serde(skip_serializing_if = "Option::is_none")]
   pub remote: Option<RemoteSummary>,
-  /// `bd status`: the next step of the whole stack of a stack that forks, as the header of its island shows it (the
-  /// rows of its stack branch); omitted for one kept for its remote branch, and by `bd sync`
+  /// `brd status`: the next step of the whole stack of a stack that forks, as the header of its island shows it (the
+  /// rows of its stack branch); omitted for one kept for its remote branch, and by `brd sync`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub next_step: Option<NextStepSummary>,
 }
@@ -149,7 +149,7 @@ pub fn whole_stack<'a>(branches: &'a [GroupedBranchInfo], parked: &'a BTreeMap<S
     None => Err(CliError::new(ErrorCode::UnknownBranch, format!("No branch named {name:?}"))),
     Some(WholeStack::Unbuilt { root, fork }) => Err(CliError::new(
       ErrorCode::StackNotBuilt,
-      format!("The stack of {root} forks at {fork}, but no stack branch of it is known; `bd sync` builds it"),
+      format!("The stack of {root} forks at {fork}, but no stack branch of it is known; `brd sync` builds it"),
     )),
     Some(whole) => Ok(whole),
   }

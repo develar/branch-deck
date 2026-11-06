@@ -3,7 +3,7 @@
 //! once: on macOS through libproc (`proc_listallpids`, `proc_pidinfo`), on Linux from `/proc`. Windows has no scan:
 //! `ProcessScan::Unavailable`, and a lease never waits for it; it tells the start of a process by its pid
 //! (`process_started`), as the other two do. The scan leaves out the session that runs `bd`: this
-//! process, its ancestors and every process of their process groups (the `jq` of `bd lease return | jq`, the
+//! process, its ancestors and every process of their process groups (the `jq` of `brd lease return | jq`, the
 //! `caffeinate` of the agent). It reads the argv of each process too (`KERN_PROCARGS2` on macOS, `/proc/<pid>/cmdline`
 //! on Linux): a Bazel server names its workspace there (`--workspace_directory=`), and serves only that one, since Bazel
 //! derives its output base from the workspace path. The index lock of a worktree asks who has a file open

@@ -1,5 +1,5 @@
 //! Drop commits from the checked out branch, the files following: the unapply of a virtual branch, whose branch moves
-//! to the unapplied namespace in the transaction that moves HEAD, and the drop of commits for good (`bd drop`, the
+//! to the unapplied namespace in the transaction that moves HEAD, and the drop of commits for good (`brd drop`, the
 //! app's Drop Commit; docs/design/git-operations.md, "Drop and unapply"). The drop is the rewrite plan of
 //! `rewrite_plan` (`git replay` of the kept runs, objects only); a dry run on a copy of the index proves the files can
 //! follow, and only then does HEAD move, through the guarded update of `update_branch`. Only `check_drop` builds a
@@ -56,7 +56,7 @@ pub struct DropRefused(pub String);
 pub enum DropKind {
   /// The commits of a virtual branch leave HEAD, the branch kept as unapplied (`apply_unapply`)
   Unapply,
-  /// Commits leave HEAD for good (`apply_drop`), `bd drop` and the app's Drop Commit
+  /// Commits leave HEAD for good (`apply_drop`), `brd drop` and the app's Drop Commit
   Drop,
 }
 

@@ -96,7 +96,7 @@ pub struct RouteFacts<'a> {
   pub refused: Option<&'a str>,
   /// The check of the update of the checked out branch onto the fetched baseline, as the last sync reported it: its
   /// fork point (`base`), which the copies are built on, and the head of the baseline; `None` before one, or without a
-  /// sync (`bd status`)
+  /// sync (`brd status`)
   pub update: Option<&'a UpdateCheck>,
 }
 

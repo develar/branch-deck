@@ -3,11 +3,11 @@ name = "host-agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The agent of the remote runs of bd-host on a host: serve, the supervisor of a run, the run directories, the login environment, the prepare steps, the keeper and the upgrade"
+description = "The agent of the remote runs of brd-host on a host: serve, the supervisor of a run, the run directories, the login environment, the prepare steps, the keeper and the upgrade"
 publish = false
 
-# The binary that the process tests of `tests/serve.rs` start: the agent commands of bd-host and nothing else, so a
-# test needs no build of bd-host. Never shipped
+# The binary that the process tests of `tests/serve.rs` start: the agent commands of brd-host and nothing else, so a
+# test needs no build of brd-host. Never shipped
 [[bin]]
 name = "host-agent-test"
 path = "src/bin/host_agent_test.rs"
@@ -33,7 +33,7 @@ anyhow.workspace = true
 # the run directories and the JSON lines
 serde.workspace = true
 serde_json.workspace = true
-# the agent commands of bd-host (`command`)
+# the agent commands of brd-host (`command`)
 clap = { version = "4.6", features = ["derive"] }
 # flock, process groups, the open-files limit, the niceness, kqueue (`sys`)
 libc = "0.2.191"

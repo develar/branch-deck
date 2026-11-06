@@ -1,4 +1,4 @@
-//! `bd status --stats`: what each branch changes, from at most three processes for all branches: the commit diffs the
+//! `brd status --stats`: what each branch changes, from at most three processes for all branches: the commit diffs the
 //! cache misses (one `log --raw` and one `cat-file --batch`), one `diff-tree --stdin` and one `check-attr`
 
 use crate::numstat::NumstatEntry;
@@ -84,7 +84,7 @@ pub fn branch_stats(
   short: &ShortIds,
 ) -> Result<HashMap<String, BranchStats>, CliError> {
   let ids: Vec<String> = branches.iter().flat_map(|branch| branch.commits).map(|commit| commit.id.clone()).collect();
-  // the per-commit changes `bd commits` caches; the missing commits cost one `log --raw` and one `cat-file` together
+  // the per-commit changes `brd commits` caches; the missing commits cost one `log --raw` and one `cat-file` together
   let numstats: HashMap<String, Vec<NumstatEntry>> = read_commit_diffs_cached(&context.git, &context.repository, &context.cache(), context.file_diffs(), &ids)?
     .into_iter()
     .map(|diff| (diff.id, diff.files.iter().map(NumstatEntry::from).collect()))

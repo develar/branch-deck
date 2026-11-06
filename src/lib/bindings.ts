@@ -100,7 +100,7 @@ export const commands = {
 	 *  from the index of the repository (`accio`), the facts of each file (`files`), the links between the files
 	 *  (`links`), the dependency changes of the build files (`dependencies`), the files that get the same edit
 	 *  (`repeated_edits`), the units of its diff and the files in dependency order
-	 *  (`review_plan_core`, as `bd review-plan`), on `events`: `disabled` for a repository that turns it off, else the
+	 *  (`review_plan_core`, as `brd review-plan`), on `events`: `disabled` for a repository that turns it off, else the
 	 *  plan without the usages while the index is asked, then with them; a plan whose every query answered is kept
 	 *  (`ReviewPlans`). A newer plan of the window or its close supersedes it: `canceled`
 	 */
@@ -180,7 +180,7 @@ export const commands = {
 	previewGroup: (params: PreviewGroupParams) => typedError<CommitGroup | null, ApiError>(__TAURI_INVOKE("preview_group", { params })),
 	/**
 	 *  The plan of an intent over the facts the session of the repository holds: what a start of a Safe Push or a Dry Run
-	 *  does now (`operations::land::prepare`, the rule `bd safe-push` decides by), what the user accepts first, what refuses
+	 *  does now (`operations::land::prepare`, the rule `brd safe-push` decides by), what the user accepts first, what refuses
 	 *  it, the facts it waits for and the profiles it offers; the restart or the cancel of a robot, the retarget of a pull
 	 *  request (`operations::engine::prepare`). A read: no lock, no effect. Null while the session is not open, before its
 	 *  Patronus view, for a subject its table lacks, a robot it offers no restart of, a pull request it doesn't list
@@ -207,7 +207,7 @@ export const commands = {
 	/**  Removes a pull request the user added by its link from Reviews, and the session reads Reviews again */
 	unlinkPullRequest: (params: UnlinkPullRequestParams) => typedError<null, ApiError>(__TAURI_INVOKE("unlink_pull_request", { params })),
 	/**
-	 *  The text a new pull request of a virtual branch starts with (`bd describe`, else the commits it will show, with the
+	 *  The text a new pull request of a virtual branch starts with (`brd describe`, else the commits it will show, with the
 	 *  summaries of their issues from the YouTrack the app is signed in to), and the user of the token it is created with
 	 */
 	getNewPullRequest: (params: GetNewPullRequestParams) => typedError<NewPullRequest, ApiError>(__TAURI_INVOKE("get_new_pull_request", { params })),
@@ -295,7 +295,7 @@ export const commands = {
 	getSettingsChanges: (since: number) => typedError<SettingsChange[], ApiError>(__TAURI_INVOKE("get_settings_changes", { since })),
 	/**
 	 *  Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of this Mac with their Bazel output
-	 *  bases, and the output bases of gone slots, as `bd lease trim` does (the Disk window)
+	 *  bases, and the output bases of gone slots, as `brd lease trim` does (the Disk window)
 	 */
 	trimPools: (params: TrimPoolsParams) => typedError<TrimSummary, ApiError>(__TAURI_INVOKE("trim_pools", { params })),
 	/**
@@ -353,8 +353,8 @@ export const commands = {
 	installUpdate: () => typedError<null, ApiError>(__TAURI_INVOKE("install_update")),
 	installAgentCli: () => typedError<AgentCliInstall, ApiError>(__TAURI_INVOKE("install_agent_cli")),
 	/**
-	 *  The bd command of the prompts the app copies. Writes nothing and needs no install, so the bd of a prompt is always
-	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `bd.exe` next to it)
+	 *  The brd command of the prompts the app copies. Writes nothing and needs no install, so the brd of a prompt is always
+	 *  the version of the app that wrote it; an error when the app can't tell its binary (no `brd.exe` next to it)
 	 */
 	agentCliCommand: (repositoryPath: string) => typedError<AgentCliCommand, ApiError>(__TAURI_INVOKE("agent_cli_command", { repositoryPath })),
 	/**
@@ -375,7 +375,7 @@ export const commands = {
 	airWatchSession: (params: AirWatchParams, statuses: Channel<AirSessionStatus>) => typedError<AirWatchEnd, ApiError>(__TAURI_INVOKE("air_watch_session", { params, statuses })),
 	/**  Stops the watch of the session `session_id` that the calling window runs, if any */
 	stopAirWatch: (sessionId: string) => __TAURI_INVOKE<void>("stop_air_watch", { sessionId }),
-	/**  The skill files of `bd install` that exist, without writing anything */
+	/**  The skill files of `brd install` that exist, without writing anything */
 	agentCliStatus: () => __TAURI_INVOKE<AgentCliStatus>("agent_cli_status"),
 	/**
 	 *  The status of every tool, each read in its own threads, with the newest releases (GitHub, once a day); every window
@@ -465,7 +465,7 @@ export type ActionBlocker =
 
 /**  An action of a branch, of a whole stack or of a robot, by the id its menu item has on every surface */
 export type ActionId = "safe-push" | "safe-push-with-profile" | "dry-run" | "check-approvals" | "safe-push-without-review" | "push" | "push-with-children" | 
-/**  The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`) */
+/**  The commits someone else pushed to its remote branch, taken into the branch (`brd pick --remote`) */
 "pick-remote-commits" | 
 /**
  *  The copy pushed into the target where the repository lands by a push (`Intent::Land`): of a branch, of a whole
@@ -565,22 +565,22 @@ export type AddIssueReferenceResult = {
 	newHead: string | null,
 };
 
-/**  How the prompts the app copies run this app's bd in a repository */
+/**  How the prompts the app copies run this app's brd in a repository */
 export type AgentCliCommand = {
 	/**
-	 *  bd with `-C <repository>`, quoted for the shell, to run as written: the `bd` symlink in `~/.local/bin` when it
-	 *  points at this app, else the app binary with `cli` (on Windows `bd.exe` next to it)
+	 *  brd with `-C <repository>`, quoted for the shell, to run as written: the `brd` symlink in `~/.local/bin` when it
+	 *  points at this app, else the app binary with `cli` (on Windows `brd.exe` next to it)
 	 */
 	command: string,
 	/**  The shell is PowerShell (Windows), where a quoted path runs with `&` */
 	powershell: boolean,
 };
 
-/**  What the "Install Agent CLI…" menu item installed: `bd install` (docs/contributing/agent-cli.md) */
+/**  What the "Install Agent CLI…" menu item installed: `brd install` (docs/contributing/agent-cli.md) */
 export type AgentCliInstall = {
-	/**  The command the skills name: the `bd` symlink (macOS, Linux) or `bd.exe` next to the app (Windows) */
+	/**  The command the skills name: the `brd` symlink (macOS, Linux) or `brd.exe` next to the app (Windows) */
 	bd: string,
-	/**  Whether `bd` resolves to it in the user's shell */
+	/**  Whether `brd` resolves to it in the user's shell */
 	on_path: boolean,
 	/**  The skill files written */
 	skills: string[],
@@ -596,7 +596,7 @@ export type AgentCliStatus = {
 	skills: string[],
 };
 
-/**  The two rules of `bd workspace` (Settings → Agents) */
+/**  The two rules of `brd workspace` (Settings → Agents) */
 export type AgentRules = {
 	/**  `branchdeck.agentLease`: in a worktree of their own, each commit landed on the user's branch */
 	lease: boolean,
@@ -1024,7 +1024,7 @@ export type BranchHead = {
 	name: string,
 	latestCommitTime: number,
 	summary: string,
-	/**  The title of the branch's description (`bd describe`); `None` without one */
+	/**  The title of the branch's description (`brd describe`); `None` without one */
 	descriptionTitle?: string | null,
 	/**
 	 *  `description_title` split at the issue key it starts with, which a row that shows the key leaves out
@@ -2327,27 +2327,27 @@ export type ErrorCode =
 /**  A commit of the request is not ahead of the baseline */
 "not_ahead_of_baseline" | 
 /**
- *  `bd safe-push --whole-stack`: a commit of the stack branch conflicts with the commits of the stack before it
+ *  `brd safe-push --whole-stack`: a commit of the stack branch conflicts with the commits of the stack before it
  *  (`commits`, `paths`), though each branch builds: nothing was pushed or started; land the stack in pieces
  */
 "stack_conflict" | 
 /**
- *  `bd safe-push --whole-stack`: the stack branch is not the build of the stack's commits: a branch of it is blocked or
- *  failed, or the ref is stale (another process moved it); `bd sync` says why. Nothing was pushed or started
+ *  `brd safe-push --whole-stack`: the stack branch is not the build of the stack's commits: a branch of it is blocked or
+ *  failed, or the ref is stale (another process moved it); `brd sync` says why. Nothing was pushed or started
  */
 "stack_not_built" | 
 /**
- *  `bd safe-push`: Patronus can't rebase what the robot lands onto the newest target: a commit (`commits`) conflicts
- *  in files (`paths`) that the target changed after the base of the branch. Nothing was pushed or started; `bd update`
+ *  `brd safe-push`: Patronus can't rebase what the robot lands onto the newest target: a commit (`commits`) conflicts
+ *  in files (`paths`) that the target changed after the base of the branch. Nothing was pushed or started; `brd update`
  *  resolves it locally, then start again
  */
 "target_conflict" | 
 /**
- *  `bd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
+ *  `brd move-hunk`: the change doesn't apply to a commit between the two, which changes the same lines or lacks the
  *  file; `commits` and `paths` name it. Nothing was written: move it by hand, or not at all
  */
 "hunk_conflict" | 
-/**  `bd move-hunk --block` names a block the file in the commit doesn't have now; `blocks` are the ids it has */
+/**  `brd move-hunk --block` names a block the file in the commit doesn't have now; `blocks` are the ids it has */
 "block_not_found" | 
 /**  HEAD moved since the caller read it; read again and retry */
 "head_moved" | 
@@ -2366,58 +2366,58 @@ export type ErrorCode =
 /**
  *  An operation of the remote was prepared over facts that changed before its first effect (a rewrite of another
  *  session, a pull request, a robot, a remote branch): its plan is another one now, and nothing was done. Read the
- *  plan again (`bd safe-push --dry-run`), then retry
+ *  plan again (`brd safe-push --dry-run`), then retry
  */
 "plan_changed" | 
-/**  `bd unpark`: the branch is not parked */
+/**  `brd unpark`: the branch is not parked */
 "not_parked" | 
 /**
- *  `bd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
- *  a commit would leave HEAD without a copy. `bd sync` says why; fix the conflict, then unapply. Nothing was changed
+ *  `brd unapply`: the virtual branch is not the copies of its commits now (a conflict, no sync since a new commit):
+ *  a commit would leave HEAD without a copy. `brd sync` says why; fix the conflict, then unapply. Nothing was changed
  */
 "branch_not_built" | 
-/**  `bd unapply`: a worktree has the virtual branch checked out (the message names it); nothing was changed */
+/**  `brd unapply`: a worktree has the virtual branch checked out (the message names it); nothing was changed */
 "branch_checked_out" | 
 /**
- *  `bd unapply` and `bd drop`: a later commit depends on the changes of a dropped commit or holds only its changes (it
+ *  `brd unapply` and `brd drop`: a later commit depends on the changes of a dropped commit or holds only its changes (it
  *  would become empty), the root would go, or the range holds a merge; nothing was changed. For an unapply move that
- *  commit into the branch first (`bd group`); for a drop name it too, or leave the commits as they are
+ *  commit into the branch first (`brd group`); for a drop name it too, or leave the commits as they are
  */
 "drop_conflict" | 
 /**
- *  `bd squash` and `bd fold`: a squashed commit and a commit in between or after it change the same lines
+ *  `brd squash` and `brd fold`: a squashed commit and a commit in between or after it change the same lines
  *  (`commits`, `paths` when a merge named them); nothing was changed. The user decides: squash other commits, or
  *  leave them as they are
  */
 "squash_conflict" | 
 /**
- *  `bd squash`: the squashed commits cancel each other (a squash gives one commit: drop them with `bd drop`); `bd squash`
- *  and `bd fold`: a later commit would become empty, or a root target its fixups cancel (`commits`); nothing was
+ *  `brd squash`: the squashed commits cancel each other (a squash gives one commit: drop them with `brd drop`); `brd squash`
+ *  and `brd fold`: a later commit would become empty, or a root target its fixups cancel (`commits`); nothing was
  *  changed
  */
 "squash_empty" | 
 /**
- *  `bd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
+ *  `brd reapply`: a commit of the unapplied branch conflicts with HEAD (`commits`, `paths`); nothing was changed. The
  *  user decides: resolve it in the branch elsewhere, or leave it unapplied
  */
 "reapply_conflict" | 
 /**
- *  `bd reapply`: HEAD has every commit of the unapplied branch already, or the branch has no common history with the
+ *  `brd reapply`: HEAD has every commit of the unapplied branch already, or the branch has no common history with the
  *  baseline; nothing was changed
  */
 "nothing_to_reapply" | 
 /**
- *  `bd push` and `bd safe-push` of a branch that is unapplied (`unapplied` of `bd status`): its commits are not in
- *  HEAD, it lands nothing; `bd push --unapplied <name>` keeps a copy on the remote. Nothing was pushed or started
+ *  `brd push` and `brd safe-push` of a branch that is unapplied (`unapplied` of `brd status`): its commits are not in
+ *  HEAD, it lands nothing; `brd push --unapplied <name>` keeps a copy on the remote. Nothing was pushed or started
  */
 "unapplied" | 
 /**
- *  `bd push` and `bd safe-push`: the branch is parked, or built on a parked branch, or the whole stack holds one: its
- *  commits stay local until the user unparks it (`bd unpark`, never on an agent's own). Nothing was pushed or started
+ *  `brd push` and `brd safe-push`: the branch is parked, or built on a parked branch, or the whole stack holds one: its
+ *  commits stay local until the user unparks it (`brd unpark`, never on an agent's own). Nothing was pushed or started
  */
 "parked" | 
 /**
- *  The remote branch is not where the lease expects it; bd fetched it, `branches` says what it has now. Not retryable:
+ *  The remote branch is not where the lease expects it; brd fetched it, `branches` says what it has now. Not retryable:
  *  a push again (with --force) would drop what the remote has now; show `dropped_commits` to the user first
  */
 "lease_rejected" | 
@@ -2434,21 +2434,21 @@ export type ErrorCode =
 /**  HEAD is detached */
 "detached_head" | 
 /**
- *  `bd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
+ *  `brd undo` of a rewrite, an update or a pick the branch (or the issue groups, the stack parents) moved on from: a
  *  commit, another rewrite, a switch. The token can never succeed again
  */
 "undo_stale" | 
 /**
- *  `bd pick --from`: the reflog of the branch has no fork point of the worktree, and their shared history is local:
- *  commits the branch rewrote since would come back. Name the commits: `bd pick <first>^..<last>`
+ *  `brd pick --from`: the reflog of the branch has no fork point of the worktree, and their shared history is local:
+ *  commits the branch rewrote since would come back. Name the commits: `brd pick <first>^..<last>`
  */
 "range_unknown" | 
 /**
- *  `bd pick --from`: the worktree stands on a newer baseline than the branch; the branch is updated first
- *  (`bd update`, by the session that owns it)
+ *  `brd pick --from`: the worktree stands on a newer baseline than the branch; the branch is updated first
+ *  (`brd update`, by the session that owns it)
  */
 "source_on_newer_baseline" | 
-/**  `bd pick --remote`: the remote branch has no commit the branch lacks; nothing was picked */
+/**  `brd pick --remote`: the remote branch has no commit the branch lacks; nothing was picked */
 "nothing_to_pick" | 
 /**
  *  The app's Pick Remote Commits: a commit of the remote branch conflicts with the checked out branch (`details`: the
@@ -2456,45 +2456,45 @@ export type ErrorCode =
  */
 "pick_conflict" | 
 /**
- *  `bd lease pick`: the checkout the lease was cut from has another branch checked out than at the get; nothing was
+ *  `brd lease pick`: the checkout the lease was cut from has another branch checked out than at the get; nothing was
  *  changed. Ask the user: they switched it, and the pick waits until the branch is back
  */
 "home_branch_switched" | 
-/**  `bd lease pick`: the lease was cut from a detached HEAD, so no branch is named to land on */
+/**  `brd lease pick`: the lease was cut from a detached HEAD, so no branch is named to land on */
 "no_home_branch" | 
 /**
- *  `bd lease pick` in a repository whose `.branchdeck.toml` sets `pick_requires_check`: no green build or test
+ *  `brd lease pick` in a repository whose `.branchdeck.toml` sets `pick_requires_check`: no green build or test
  *  recorded the tree of the lease's HEAD (`bd-checks.jsonl` of its git dir); nothing landed. Build and test that
  *  tree, then pick again
  */
 "unchecked_tree" | 
 /**
- *  `bd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `bd lease
+ *  `brd update` in a lease of the pool: the lease follows the branch it was cut from, not the baseline; `brd lease
  *  pick` lands its commits there and moves it onto the tip, and the owner of the shared checkout updates that branch
  */
 "lease_follows_home" | 
 /**
- *  `bd drop` in a lease of the pool of a commit its home branch has: the pick landed it there, so the drop runs in the
- *  shared checkout (`next_steps`: `bd -C <checkout> drop …`, then `bd lease pick`, which moves the lease onto the new
+ *  `brd drop` in a lease of the pool of a commit its home branch has: the pick landed it there, so the drop runs in the
+ *  shared checkout (`next_steps`: `bd -C <checkout> drop …`, then `brd lease pick`, which moves the lease onto the new
  *  tip); nothing was changed
  */
 "drop_in_home" | 
 /**
- *  Uncommitted, staged or untracked files sit on paths `bd update`, `bd pick` (or their undo) writes; `paths` lists
+ *  Uncommitted, staged or untracked files sit on paths `brd update`, `brd pick` (or their undo) writes; `paths` lists
  *  them. Nothing was changed; never stash them, ask the user
  */
 "uncommitted_overlap" | 
-/**  `bd update --continue` or `--abort` without a resolve session of this worktree */
+/**  `brd update --continue` or `--abort` without a resolve session of this worktree */
 "no_session" | 
-/**  `--continue --round <n>` names another round than the open one: `bd update` prints the open round */
+/**  `--continue --round <n>` names another round than the open one: `brd update` prints the open round */
 "round_moved" | 
 /**
  *  The resolve session can't continue: the branch was rewritten, HEAD left the branch, or the session belongs to
- *  another worktree; `bd update --abort` removes it
+ *  another worktree; `brd update --abort` removes it
  */
 "session_stale" | 
 /**
- *  The conflict of a round is of a type bd can't resolve (binary, file/directory, rename, mode, submodule, symlink);
+ *  The conflict of a round is of a type brd can't resolve (binary, file/directory, rename, mode, submodule, symlink);
  *  `paths` lists the files
  */
 "unsupported_conflict" | 
@@ -2509,19 +2509,19 @@ export type ErrorCode =
  *  `--landed` for a commit whose twin the baseline has
  */
 "empty_resolution" | 
-/**  `bd update --continue --landed` on a round whose commit has no twin in the baseline (no `landed_as`) */
+/**  `brd update --continue --landed` on a round whose commit has no twin in the baseline (no `landed_as`) */
 "not_landed_round" | 
 /**
- *  `bd update --continue --landed` without `--user` on a round whose commit changes lines that its twin in the
+ *  `brd update --continue --landed` without `--user` on a round whose commit changes lines that its twin in the
  *  baseline lacks (`landed_as.local_only`): a drop loses them, so the user decides
  */
 "landed_differs" | 
 /**
- *  `bd update --continue --landed` on a round whose commit still changes files with `onto` for every conflicting
+ *  `brd update --continue --landed` on a round whose commit still changes files with `onto` for every conflicting
  *  file: `paths` lists them
  */
 "landed_not_empty" | 
-/**  The branch of a resolve session moved, but the files did not follow and bd can't finish it: show the user */
+/**  The branch of a resolve session moved, but the files did not follow and brd can't finish it: show the user */
 "finish_pending" | 
 /**
  *  A branch can't be pushed: not synced, or behind its remote branch without --force; or the remote refused the push
@@ -2537,176 +2537,176 @@ export type ErrorCode =
 "push_too_large" | 
 /**  No remote to push to */
 "no_remote" | 
-/**  `bd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way */
+/**  `brd install` can't write the symlink or a skill, e.g. a file that is not a symlink is in the way */
 "install_refused" | 
 /**
- *  `bd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
+ *  `brd safe-push`: the code owners haven't approved the branch, and a Safe Push fails without their approvals; nothing
  *  was pushed or started. `review` lists the groups, their reviewers and files, and the merge request; ask the user
  */
 "approvals_missing" | 
 /**
- *  `bd safe-push`: the push of new commits into the pull request the robot starts from dismisses its approvals, which
+ *  `brd safe-push`: the push of new commits into the pull request the robot starts from dismisses its approvals, which
  *  Patronus counts (the rules of the target dismiss stale reviews on push): the robot would start without them and
- *  fail; nothing was pushed or started. Push first (`bd push <branch>`), then ask for the review again
- *  (`bd request-review <branch>`)
+ *  fail; nothing was pushed or started. Push first (`brd push <branch>`), then ask for the review again
+ *  (`brd request-review <branch>`)
  */
 "push_dismisses_approvals" | 
 /**
- *  `bd safe-push`: GitHub didn't answer the rules of the target (no token, no access, an error) for a push of new
+ *  `brd safe-push`: GitHub didn't answer the rules of the target (no token, no access, an error) for a push of new
  *  commits into a pull request someone approved: the push may dismiss the approvals Patronus counts; nothing was
  *  pushed or started. Ask the user; `--allow-unknown-rules` starts anyway
  */
 "rules_unknown" | 
 /**
- *  `bd safe-push`: Patronus couldn't answer the code-owner review of the Safe Push (its pre-check failed): whether the
+ *  `brd safe-push`: Patronus couldn't answer the code-owner review of the Safe Push (its pre-check failed): whether the
  *  approvals count is not known, never "approved"; nothing was pushed or started. Ask the user;
  *  `--allow-unknown-review` starts anyway, and the robot checks the approvals when it starts
  */
 "review_unknown" | 
 /**
- *  `bd safe-push`: the open pull request of the branch goes into another base than the target (a release branch), and
+ *  `brd safe-push`: the open pull request of the branch goes into another base than the target (a release branch), and
  *  Patronus merges a pull request into its base: its approvals count for no Safe Push into the target; nothing was
  *  pushed or started. Retarget it on GitHub once the user approves; `--without-approvals` starts through the API
  */
 "pull_request_other_base" | 
 /**
- *  `bd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
- *  it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `bd push`: a Safe Push
+ *  `brd safe-push`: a robot runs on the last commit of the branch, on a branch it is built on, or on a branch built on
+ *  it; or a Safe Push of an older commit runs, which the push would fail (`--cancel-running`). `brd push`: a Safe Push
  *  runs on the branch or lands it with a branch built on it: a push won't land (`--restart-running`)
  */
 "robot_running" | 
 /**
- *  `bd push` and `bd safe-push`: a merged Safe Push landed all of the branch (its own, one of a branch built on it, or
+ *  `brd push` and `brd safe-push`: a merged Safe Push landed all of the branch (its own, one of a branch built on it, or
  *  of the whole stack), or every branch of the whole stack: its commits are in the target until the update archives
- *  it, a push or a robot would land nothing. `bd status` names who landed it (`landed_by`); `bd update` archives it
+ *  it, a push or a robot would land nothing. `brd status` names who landed it (`landed_by`); `brd update` archives it
  */
 "landed" | 
 /**
- *  `bd safe-push`: the branch, or a branch it is built on, removes a declaration that its tree still uses, and a
- *  commit of another branch changes the use (`bd check` names it); the build would fail. `--allow-dangling` starts
+ *  `brd safe-push`: the branch, or a branch it is built on, removes a declaration that its tree still uses, and a
+ *  commit of another branch changes the use (`brd check` names it); the build would fail. `--allow-dangling` starts
  *  anyway
  */
 "dangling_reference" | 
 /**
- *  `bd safe-push`: a commit of what the robot lands uses a name that a commit of another branch adds, which no merged
- *  Safe Push landed (`bd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
+ *  `brd safe-push`: a commit of what the robot lands uses a name that a commit of another branch adds, which no merged
+ *  Safe Push landed (`brd check` names it in `missing_declarations`); git merges it, the build would fail. Stack the root
  *  of what lands on that branch, or move the commit; `--allow-missing` starts anyway
  */
 "missing_declaration" | 
-/**  `bd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin` */
+/**  `brd safe-push`: the repository is not on Space, or the baseline is not a branch of `origin` */
 "not_on_space" | 
 /**
- *  `bd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
+ *  `brd safe-push`: no Space token for Patronus, it expired, or Patronus rejected it; the user runs `./safePush.cmd`
  *  once
  */
 "not_logged_in" | 
 /**
- *  `bd safe-push`: Patronus can't start the robot: the target is not protected, the pull request is a draft, or the
+ *  `brd safe-push`: Patronus can't start the robot: the target is not protected, the pull request is a draft, or the
  *  `/patronus` comment was rejected
  */
 "patronus_refused" | 
 /**
- *  `bd land`: the token may not push into the repository of the target (`viewerPermission` below write): nothing was
+ *  `brd land`: the token may not push into the repository of the target (`viewerPermission` below write): nothing was
  *  pushed; someone with write access lands it
  */
 "no_write_access" | 
 /**
- *  `bd land`: the rules of the target take a change only through a pull request, and the user may not bypass them:
+ *  `brd land`: the rules of the target take a change only through a pull request, and the user may not bypass them:
  *  nothing was pushed. Land it through its pull request
  */
 "baseline_requires_pull_request" | 
 /**
- *  `bd land`: the target refuses the push: a rule of it no push of the copy passes (the merge queue, restricted
+ *  `brd land`: the target refuses the push: a rule of it no push of the copy passes (the merge queue, restricted
  *  updates, signed commits), or the server refused it (`[remote rejected]`: a hook, a protected branch; the message
  *  says what it said). Nothing was pushed
  */
 "baseline_refused" | 
 /**
- *  `bd land`: the target moved since the copy was built on it (the server refused a push that is no fast-forward):
- *  nothing was pushed, the baseline was fetched. `bd update` brings the branch onto it, then `bd land` again builds
+ *  `brd land`: the target moved since the copy was built on it (the server refused a push that is no fast-forward):
+ *  nothing was pushed, the baseline was fetched. `brd update` brings the branch onto it, then `brd land` again builds
  *  the copy anew
  */
 "baseline_moved" | 
 /**
- *  `bd land`: CI did not pass on the commit the push lands (no open pull request, one that shows another commit, its
+ *  `brd land`: CI did not pass on the commit the push lands (no open pull request, one that shows another commit, its
  *  checks failing or running, GitHub listing none), or changes are requested on its pull request: a push into the
  *  target runs no CI. Nothing was pushed; ask the user, `--allow-checks-not-passed` pushes once they agree
  */
 "checks_not_passed" | 
 /**
- *  `bd land`: the route of the repository (`branchdeck.landing`) lands no branch through `bd land` yet. Nothing was
+ *  `brd land`: the route of the repository (`branchdeck.landing`) lands no branch through `brd land` yet. Nothing was
  *  pushed
  */
 "landing_route_unsupported" | 
 /**
- *  `bd land`: GitHub can't merge the pull request of the branch: a merge would conflict, the base requires its head to
- *  be up to date (`bd update`, then `bd push`), or GitHub refused the merge (the message says what it said). Nothing
+ *  `brd land`: GitHub can't merge the pull request of the branch: a merge would conflict, the base requires its head to
+ *  be up to date (`brd update`, then `brd push`), or GitHub refused the merge (the message says what it said). Nothing
  *  was merged
  */
 "not_mergeable" | 
 /**
- *  `bd land`: the rules of the target hold the merge of the pull request back: approvals or required checks are
+ *  `brd land`: the rules of the target hold the merge of the pull request back: approvals or required checks are
  *  missing, changes are requested, it is a draft. Nothing was merged; it lands once they come
  */
 "merge_blocked" | 
 /**
- *  `bd request-review`: the branch has no open pull request, or only a draft; `bd safe-push <branch>
+ *  `brd request-review`: the branch has no open pull request, or only a draft; `brd safe-push <branch>
  *  --create-pull-request` opens one, a draft is marked ready for review on GitHub
  */
 "no_pull_request" | 
-/**  `bd request-review`: a missing group has no code owner with a GitHub login Patronus names; pass `--reviewer` */
+/**  `brd request-review`: a missing group has no code owner with a GitHub login Patronus names; pass `--reviewer` */
 "no_reviewer" | 
 /**
- *  `bd request-review`: the branch has work its remote branch lacks, which the reviewers would not see; `--push`
+ *  `brd request-review`: the branch has work its remote branch lacks, which the reviewers would not see; `--push`
  *  pushes it first
  */
 "needs_push" | 
 /**
- *  `bd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
+ *  `brd request-review`: GitHub asked nobody, it refused every reviewer (the author, a user without access); the
  *  message names each with the reason
  */
 "review_refused" | 
-/**  `bd lease return`, `bd lease pick`: the worktree holds no lease of the pool, or its get still prepares it */
+/**  `brd lease return`, `brd lease pick`: the worktree holds no lease of the pool, or its get still prepares it */
 "no_lease" | 
 /**
- *  `bd lease return`: a resolve session of the slot is open; finish it (`bd update --continue`) or close it
- *  (`bd update --abort`) first, so the next lease of the slot never finds it
+ *  `brd lease return`: a resolve session of the slot is open; finish it (`brd update --continue`) or close it
+ *  (`brd update --abort`) first, so the next lease of the slot never finds it
  */
 "resolve_in_progress" | 
-/**  `bd lease return --lease-id`: the worktree holds another lease */
+/**  `brd lease return --lease-id`: the worktree holds another lease */
 "lease_mismatch" | 
-/**  `bd lease adopt`: the directory is not the top level of a linked worktree of this repository */
+/**  `brd lease adopt`: the directory is not the top level of a linked worktree of this repository */
 "not_a_slot" | 
-/**  `bd lease adopt`: the pool holds the worktree already */
+/**  `brd lease adopt`: the pool holds the worktree already */
 "slot_in_pool" | 
 /**
- *  `bd lease return` and `adopt`: a process other than bd and its session has its working directory in the worktree;
+ *  `brd lease return` and `adopt`: a process other than brd and its session has its working directory in the worktree;
  *  `processes` names each with its argv and kind. Nothing was changed
  */
 "slot_busy" | 
 /**
- *  `bd lease return`: the slot is one of the host slots that `bd-host` keeps for its runs (`n`); `bd-host slots
+ *  `brd lease return`: the slot is one of the host slots that `bd-host` keeps for its runs (`n`); `bd-host slots
  *  --local --shrink <n>` gives it back to the pool. Nothing was changed
  */
 "host_slot" | 
 /**
- *  `bd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
- *  (`bd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up
+ *  `brd lease return`: HEAD has commits that no branch, tag or remote branch holds (`commits`): land them first
+ *  (`brd pick --from <worktree> --follow` in the shared checkout), or `--confirm-preserved` gives them up
  */
 "unlanded_commits" | 
 /**
- *  `bd lease return` and `adopt`: the worktree has local changes (`paths`); `bd lease return --confirm-preserved`
+ *  `brd lease return` and `adopt`: the worktree has local changes (`paths`); `brd lease return --confirm-preserved`
  *  discards them, once the user agreed
  */
 "dirty_worktree" | 
-/**  `bd lease get --branch`: the branch exists */
+/**  `brd lease get --branch`: the branch exists */
 "branch_exists" | 
-/**  `bd lease adopt --move`: the worktree is on another volume than the pool directory; a move would copy every file */
+/**  `brd lease adopt --move`: the worktree is on another volume than the pool directory; a move would copy every file */
 "other_volume" | 
-/**  `bd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks */
+/**  `brd lease get`: the volume of the pool has less free space than `branchdeck.leaseMinFree` or `--min-free` asks */
 "low_disk_space" | 
 /**
- *  A command in a slot whose lease a get or `bd lease reclaim` took from its dead holder, as its work had landed, run
+ *  A command in a slot whose lease a get or `brd lease reclaim` took from its dead holder, as its work had landed, run
  *  by another session than the one that holds the slot now (a resumed session of the old holder): this worktree is
  *  not the caller's; get a lease of its own. Nothing was changed
  */
@@ -3618,8 +3618,8 @@ export type Intent =
  */
 ({ kind: "fetchReview"; number: number }) & { body?: never; branch?: never; comment?: never; commit?: never; expected?: never; fetch?: never; key?: never; landing?: never; op?: never; pushFirst?: never; reviewers?: never; robotId?: never; source?: never; state?: never; subject?: never; thenLand?: never; verdict?: never } | 
 /**
- *  The commits of another worktree (`source`: its directory as `bd pick --from` named it) or of a range of revisions
- *  (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`bd pick`, `bd lease pick`): only the
+ *  The commits of another worktree (`source`: its directory as `brd pick --from` named it) or of a range of revisions
+ *  (`source`: `<rev>` or `<a>..<b>`) are replayed onto the checked out branch (`brd pick`, `brd lease pick`): only the
  *  record of a run of `bd` in the operations registry of the repository, which the view and the journal show; the
  *  engine of the app runs none
  */
@@ -3728,7 +3728,7 @@ export type JournalTransition =
 { kind: "started"; robot: PatronusRobot | null } | 
 /**  A read of Patronus proved that it started no robot */
 { kind: "notStarted" } | 
-/**  The user forgot it (Forget This Start, `bd operation forget`): Patronus may still run the robot it sent */
+/**  The user forgot it (Forget This Start, `brd operation forget`): Patronus may still run the robot it sent */
 { kind: "forgotten" };
 
 export type KindCount = {
@@ -3763,7 +3763,7 @@ export type Land = {
 	withoutApprovals?: boolean,
 	/**
 	 *  Push and open the pull request of the subject (or take the open one) instead of a start, where the code owners
-	 *  approve (`bd safe-push --create-pull-request`)
+	 *  approve (`brd safe-push --create-pull-request`)
 	 */
 	createPullRequest?: boolean,
 	allow?: LandingAllowances,
@@ -3916,7 +3916,7 @@ export type LandedCommit = {
 /**
  *  An open pull request that holds nothing more than what landed: of a branch a merged Safe Push landed whole besides
  *  its own, of a branch a push into the target landed, of a branch the fetched baseline or a merged pull request has.
- *  The app closes it (`domain_policy::landed::pull_requests_to_close`), `bd robot` and `bd land` list it
+ *  The app closes it (`domain_policy::landed::pull_requests_to_close`), `brd robot` and `brd land` list it
  */
 export type LandedPullRequest = {
 	branch: string,
@@ -3946,7 +3946,7 @@ export type LandedSection = {
 
 /**
  *  What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
- *  `domain_policy::land::decide`), each by the user: the flags of `bd safe-push` (`--allow-dangling`, `--allow-missing`,
+ *  `domain_policy::land::decide`), each by the user: the flags of `brd safe-push` (`--allow-dangling`, `--allow-missing`,
  *  `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
  *  refusals of `trial_check::landing_gate`
  */
@@ -4190,10 +4190,10 @@ export type LinkedSymbol = {
 	line: number,
 };
 
-/**  The holder of the repository lock as the page names it: "`bd push auth` (pid 4242) has held the repository for 40 s" */
+/**  The holder of the repository lock as the page names it: "`brd push auth` (pid 4242) has held the repository for 40 s" */
 export type LockHolderInfo = {
 	tool: HolderTool,
-	/**  Its command line, the program by its file name: `bd check --fix` */
+	/**  Its command line, the program by its file name: `brd check --fix` */
 	command: string,
 	pid: number,
 	/**  Seconds since it took the lock */
@@ -4538,7 +4538,7 @@ export type MovedCommit = {
 
 /**  The text a new pull request of a virtual branch starts with, and what the form says about it */
 export type NewPullRequest = {
-	/**  The `bd describe` title, else the title of the commits the pull request will show (`pull_request_text`) */
+	/**  The `brd describe` title, else the title of the commits the pull request will show (`pull_request_text`) */
 	title: string,
 	body: string,
 	/**  The user of the token the pull request is created with; null when GitHub didn't answer */
@@ -4787,7 +4787,7 @@ export type OperationHolder = {
 	held_for: number,
 	/**
 	 *  A start whose answer was lost (`OperationStep::StartUnknown`): it holds what it held until a read of Patronus tells
-	 *  whether its robot started, or the user forgets it (Forget This Start, `bd operation forget <op>`)
+	 *  whether its robot started, or the user forgets it (Forget This Start, `brd operation forget <op>`)
 	 */
 	unknown?: boolean,
 };
@@ -5382,7 +5382,7 @@ export type PickRemoteCommitsResult = {
 	previousHead: string,
 	newHead: string,
 	picked: CopiedCommit[],
-	/**  `pick:<previous>..<new>` (`bd undo`); none when nothing moved */
+	/**  `pick:<previous>..<new>` (`brd undo`); none when nothing moved */
 	undoToken: string | null,
 };
 
@@ -5847,7 +5847,7 @@ export type Push = {
 	 */
 	expectRemote: string | null,
 	/**
-	 *  It replaces commits of the remote the branch lacks, someone's work (`bd push --force`, the Force Push the user
+	 *  It replaces commits of the remote the branch lacks, someone's work (`brd push --force`, the Force Push the user
 	 *  chose): its plan asks nothing then; without it a push that drops them asks first (`Confirmation::ForcePushDrops`)
 	 */
 	force: boolean,
@@ -6023,12 +6023,12 @@ export type Reason =
 { code: "parked"; branch: string; with: string | null; note: string } | 
 /**
  *  `branch` (a branch, or the root of a whole stack) has work its remote branch lacks: a review request pushes it
- *  first only when asked to (`bd request-review --push`), so the reviewers see the commits (D5)
+ *  first only when asked to (`brd request-review --push`), so the reviewers see the commits (D5)
  */
 { code: "needsPush"; branch: string } | 
 /**
  *  Patronus names no code owner with a GitHub login to ask for the missing approvals of `groups`: the reviewers are
- *  named instead (`bd request-review --reviewer`)
+ *  named instead (`brd request-review --reviewer`)
  */
 { code: "noReviewer"; groups: string[] } | 
 /**  Patronus doesn't protect `target`: no robot pushes into it */
@@ -6540,7 +6540,7 @@ export type ReviewCandidate = {
 	/**  The missing groups that suggest them, in the order of the readiness */
 	groups: string[],
 	/**
-	 *  Chosen when the popover opens, and whom `bd request-review` asks: one suggested code owner of each missing group
+	 *  Chosen when the popover opens, and whom `brd request-review` asks: one suggested code owner of each missing group
 	 *  nobody is asked for yet, each once
 	 */
 	preselected: boolean,
@@ -7196,7 +7196,7 @@ export type RewriteIntent =
  *  showed, which it must still have
  */
 { rewrite: "unapply"; branchName: string; originalCommitIds: string[] | null; witness: TableWitness } | 
-/**  The commits (original ids) and their files leave HEAD for good (Drop Commit, `bd drop`) */
+/**  The commits (original ids) and their files leave HEAD for good (Drop Commit, `brd drop`) */
 { rewrite: "drop"; commitIds: string[]; witness: TableWitness } | 
 /**  The unapplied branch of that name comes back on top of HEAD */
 { rewrite: "reapply"; branchName: string; witness: TableWitness } | 
@@ -7224,12 +7224,12 @@ export type RewriteIntent =
 /**  The rewrite whose outcome gave `token` (`Outcome::undo`) is undone */
 { rewrite: "undo"; token: UndoToken } | 
 /**
- *  The regroup of a plan (`bd group --plan`): only the record of a run of `bd` in the operations registry of the
+ *  The regroup of a plan (`brd group --plan`): only the record of a run of `bd` in the operations registry of the
  *  repository, which the view and the journal show; the engine of the app runs none
  */
 { rewrite: "group"; plan: RegroupPlan; witness: TableWitness } | 
 /**
- *  A hunk of `path` moves from the commit `from` into the commit `to` (`bd move-hunk`): only the record of a run of
+ *  A hunk of `path` moves from the commit `from` into the commit `to` (`brd move-hunk`): only the record of a run of
  *  `bd`, as `Group`
  */
 { rewrite: "moveHunk"; from: string; to: string; path: string; witness: TableWitness } | 
@@ -7405,7 +7405,7 @@ export type RobotResult = {
 	alreadyFinished: boolean,
 };
 
-/**  `bd robot-stats` and the Landing view */
+/**  `brd robot-stats` and the Landing view */
 export type RobotStats = {
 	window: StatsWindow,
 	/**  The user's robots */
@@ -7904,13 +7904,13 @@ export type StackCommit = {
 
 /**  What fixes a stack problem: `bd` prints it as a command, the app offers it as the action of the branch menu */
 export type StackFix = 
-/**  Stack the branch on this parent (`bd restack <branch> <parent>`, Stack On ‹parent›) */
+/**  Stack the branch on this parent (`brd restack <branch> <parent>`, Stack On ‹parent›) */
 { StackOn: string } | 
-/**  Make the branch a root (`bd unstack <branch>`, Unstack) */
+/**  Make the branch a root (`brd unstack <branch>`, Unstack) */
 "Unstack" | 
-/**  Give the branch another name (`bd rename`, Rename…) */
+/**  Give the branch another name (`brd rename`, Rename…) */
 "Rename" | 
-/**  Change the prefix of the commits `StackProblemView::commits` names (`bd reword`, Reword… of the commit) */
+/**  Change the prefix of the commits `StackProblemView::commits` names (`brd reword`, Reword… of the commit) */
 "Reword";
 
 /**  Whether a stacked branch builds on the baseline without its parent (`stack_independence`) */
@@ -8090,7 +8090,7 @@ export type StartRoute =
 { kind: "comment"; number: number };
 
 /**
- *  The period the statistics count, by the days before now; one choice of the app and `bd robot-stats --period`. 30
+ *  The period the statistics count, by the days before now; one choice of the app and `brd robot-stats --period`. 30
  *  days by default: what happens now, with a trend of four weeks
  */
 export type StatsPeriod = "14d" | "30d" | "10w" | "6m";
@@ -8515,7 +8515,7 @@ export type SubWindowUpdate = {
 };
 
 /**
- *  The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`bd safe-push`, the
+ *  The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`brd safe-push`, the
  *  landing gate, the robot of the repository view): a branch with what it is built on, or the whole stack of a root.
  *  Struct variants, as an internally tagged enum can't serialize a newtype variant of a string; on the wire
  *  `{"kind":"branch","name":…}` and `{"kind":"wholeStack","root":…}` (`landing_test.rs`)
@@ -8582,7 +8582,7 @@ export type SymbolMode =
 /**  No summaries are read */
 "off" | 
 /**
- *  `bd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
+ *  `brd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
  *  decides by them
  */
 "report" | 
@@ -8897,7 +8897,7 @@ export type TransferProgress = {
 	speed: string | null,
 	/**
 	 *  The last progress line of git, without the `remote: ` prefix, e.g. "Receiving objects:  45% (136/302)"; while a
-	 *  fetch of the baseline waits for another one (`fetch_lock`), whom for: "Fetching origin/master with `bd update`
+	 *  fetch of the baseline waits for another one (`fetch_lock`), whom for: "Fetching origin/master with `brd update`
 	 *  (pid 4242, for 3 s)…", at 0 percent
 	 */
 	line: string,
@@ -8996,11 +8996,11 @@ export type UndoKind =
 "drop" | 
 /**  Pick Remote Commits (`pick:…`) */
 "pick" | 
-/**  Update Project (`update:<previous>..<new>`): the branch and the files back, as `bd undo` does */
+/**  Update Project (`update:<previous>..<new>`): the branch and the files back, as `brd undo` does */
 "update";
 
 /**
- *  How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
+ *  How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `brd undo` takes,
  *  by the core that undoes it
  */
 export type UndoToken = {

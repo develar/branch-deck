@@ -82,7 +82,7 @@ states are that toast, not new ones.
   repository, whose branch of the same name is another branch (the push, the start, the pull request: Fetch instead of
   Update Project, the toast of a remote that moved without its push); a toast whose object is gone closes (the remote
   that moved of a deleted branch, the review requests none of which waits).
-- **A state that is no news of its own only replaces**: a landing a sync found after an update elsewhere (`bd update`,
+- **A state that is no news of its own only replaces**: a landing a sync found after an update elsewhere (`brd update`,
   the IDE) says itself in the toast of its merge while that one is open ("auth landed in origin/master" / "Found by a
   sync") and shows nothing otherwise; so does a failure told failing before ("A required check of auth failed" becomes
   "Safe Push of auth failed").
@@ -138,7 +138,7 @@ states are that toast, not new ones.
   three and the count ("auth, login, oauth and 2 more", `joinNames`): never "and 1 more", where one name would do.
   Every cut list follows the same rule, a dialog's, a prompt's for an agent ("… and 280 more files"), a hover's
   ("Failed: Fast Tests, Smoke, Compilation and Lint", four of four), a chip row's ("+2 branches"), the dropped
-  commits of a push ("and 2 more" past ten) and `bd`'s output (`files_omitted`, " (2 more: bd check)" after the
+  commits of a push ("and 2 more" past ten) and `brd`'s output (`files_omitted`, " (2 more: brd check)" after the
   dangling references it describes): a list one longer than its limit is given whole, the count of the rest is never 1
   (`cutList`; the backend's lists `sync_utils::list_cut::kept`). An item with no name to stand there is said as such,
   never counted alone ("tests and a check without a name", a GitHub check without one), and a text cut to a budget

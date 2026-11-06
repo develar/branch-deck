@@ -1,8 +1,8 @@
-//! `bd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
+//! `brd fold`: fold the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
 //! (`history_rewrite::autosquash`, spec/commit/fixups.spec.md), recorded in the operations registry; its core takes the
 //! repository lock after it computed the squash, for the witness of HEAD and the move only, and folds the fixups of HEAD
 //! as it finds it there unless `--expect-head` names one. One rewrite that keeps HEAD's tree, so the index and the
-//! working tree stay as they are; `bd undo` takes it back
+//! working tree stay as they are; `brd undo` takes it back
 
 use crate::squash_command::{head_undo_token, squash_error};
 use bd_core::context::RepoContext;
@@ -24,7 +24,7 @@ pub struct FoldArgs {
   /// Only the fixups whose target is in this branch
   #[arg(long)]
   pub branch: Option<String>,
-  /// Fold only if HEAD is still this commit (the `head` that `bd status` printed)
+  /// Fold only if HEAD is still this commit (the `head` that `brd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
   /// Print what would be folded: the fold is built and dropped (`dropped` targets too); no ref moves
@@ -32,7 +32,7 @@ pub struct FoldArgs {
   pub dry_run: bool,
 }
 
-/// `bd fold`
+/// `brd fold`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct FoldOutput {
   pub schema: SchemaVersion,
@@ -47,7 +47,7 @@ pub struct FoldOutput {
   /// Fixups without a target among the older commits ahead of the baseline: left as they are
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub orphans: Vec<String>,
-  /// `<previous_head>..<new_head>`: `bd undo` restores `previous_head`; omitted for a dry run or when nothing was folded
+  /// `<previous_head>..<new_head>`: `brd undo` restores `previous_head`; omitted for a dry run or when nothing was folded
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
 }

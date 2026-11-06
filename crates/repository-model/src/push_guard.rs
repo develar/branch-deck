@@ -3,7 +3,7 @@
 //! view of both, on which the plan decides again what holds the push (`operations::push`, the holds of
 //! `domain_policy::holds` decided into the view by `derive::decide_landing`).
 //!
-//! The words of the holds are `bd`'s too (`bd push`, `bd safe-push`, the refusals of the engine): `parked_words`,
+//! The words of the holds are `bd`'s too (`brd push`, `brd safe-push`, the refusals of the engine): `parked_words`,
 //! `landed_words`, `every_branch_landed`, `own_hold_words`, `span_hold_words`, `stack_hold_words`.
 
 use crate::branch_table::BranchTable;

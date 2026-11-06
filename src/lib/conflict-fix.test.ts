@@ -75,15 +75,15 @@ describe("buildConflictPrompt", () => {
     explanation: "2 commits of api and the branch it is built on changed these files first",
   }
 
-  it("hands a conflict without a fix to bd's trial builds and asks before a rewrite", () => {
-    const prompt = buildConflictPrompt({ ...input, bd: { command: "bd -C /repo", powershell: false } })
+  it("hands a conflict without a fix to brd's trial builds and asks before a rewrite", () => {
+    const prompt = buildConflictPrompt({ ...input, bd: { command: "brd -C /repo", powershell: false } })
     expect(prompt).toContain("The commit “Show the timeout” (abc1234) does not apply cleanly onto `origin/master`. 2 commits of api")
-    expect(prompt).toContain("`bd -C /repo check --fix`")
-    expect(prompt).toContain("Only when I approve: `bd group --expect-head <head> --sync --plan plan.json`")
+    expect(prompt).toContain("`brd -C /repo check --fix`")
+    expect(prompt).toContain("Only when I approve: `brd group --expect-head <head> --sync --plan plan.json`")
     expect(prompt).toContain("- settings.js")
   })
 
-  it("works without bd", () => {
+  it("works without brd", () => {
     expect(buildConflictPrompt({ ...input, bd: null })).toContain("Show it to me before you rewrite anything.")
   })
 })

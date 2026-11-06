@@ -17,7 +17,7 @@ fn landing_by_push() -> (TestRepo, TempDir) {
 
 /// A repository that lands by a push: `--dry-run` names what lands and what CI did not check, pushing nothing; the push
 /// itself refuses what the user didn't accept (`checks_not_passed`); with `--allow-checks-not-passed` the copy of the branch
-/// lands into master as a fast-forward, the remote-tracking ref of master stays, and `bd update` is the next step,
+/// lands into master as a fast-forward, the remote-tracking ref of master stays, and `brd update` is the next step,
 /// which drops the original whose copy landed
 #[test_log::test]
 fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check() {
@@ -39,7 +39,7 @@ fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not
 
   let (exit_code, landed) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_eq!(exit_code, 0, "{landed}");
-  assert_eq!((&landed["landed"], &landed["next"]), (&json!(true), &json!("bd update")));
+  assert_eq!((&landed["landed"], &landed["next"]), (&json!(true), &json!("brd update")));
   let copy = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_eq!(remote_tip(&remote, "master"), copy);
   assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), base, "only a fetch moves it");
@@ -51,14 +51,14 @@ fn lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not
 }
 
 /// A target that moved since the copy was built on it refuses the push as no fast-forward: `baseline_moved`, master
-/// fetched, `bd update` the next step; the server refusing it is `baseline_refused` in its own words
+/// fetched, `brd update` the next step; the server refusing it is `baseline_refused` in its own words
 #[test_log::test]
 fn a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused() {
   let (repo, remote) = landing_by_push();
   let theirs = push_from_elsewhere_to(&remote, "master", "Their fix");
   let (exit_code, moved) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&moved, exit_code, (3, "baseline_moved"));
-  assert_eq!(next_steps(&moved["error"]), [("bd update".to_string(), true)]);
+  assert_eq!(next_steps(&moved["error"]), [("brd update".to_string(), true)]);
   assert_eq!(git(&repo, &["rev-parse", "refs/remotes/origin/master"]), theirs, "the push fetched it");
 
   let (repo, remote) = landing_by_push();
@@ -69,7 +69,7 @@ fn a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused
 }
 
 /// A fetched master with a commit the branch is not built on refuses the push before it is sent, as `baseline_moved`
-/// with `bd update` next: the copy is built on the fork point, so the push would be no fast-forward; `--dry-run` names
+/// with `brd update` next: the copy is built on the fork point, so the push would be no fast-forward; `--dry-run` names
 /// the update as the step
 #[test_log::test]
 fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
@@ -86,12 +86,12 @@ fn a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent() {
   assert_eq!(check["refusals"][0]["code"], json!("baseline_moved"), "{check}");
   let (exit_code, refused) = run_in(&repo, &["land", "auth", "--allow-checks-not-passed"]);
   assert_error(&refused, exit_code, (3, "baseline_moved"));
-  assert_eq!(next_steps(&refused["error"]), [("bd update".to_string(), true)]);
+  assert_eq!(next_steps(&refused["error"]), [("brd update".to_string(), true)]);
   assert_eq!(remote_tip(&remote, "master"), theirs, "nothing was pushed");
 }
 
 /// A push into the target holds the repository lock only for the witness of its refs, one `for-each-ref`: its sync runs
-/// before it, as `bd sync`, and the push of the copy after it (docs/design/git-operations.md, "Lock spans")
+/// before it, as `brd sync`, and the push of the copy after it (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]
 fn a_land_by_a_push_locks_only_the_witness() {
@@ -104,7 +104,7 @@ fn a_land_by_a_push_locks_only_the_witness() {
 }
 
 /// A repository that lands through its pull request whose `origin` is not on GitHub has no pull request a merge lands
-/// into its target: `bd land` merges nothing; Patronus off Space starts nothing
+/// into its target: `brd land` merges nothing; Patronus off Space starts nothing
 #[test_log::test]
 fn a_pull_request_route_off_github_merges_nothing_and_patronus_off_space_starts_nothing() {
   let (repo, _remote) = repo_with_remote(&["(auth) Add login"]);
@@ -115,9 +115,9 @@ fn a_pull_request_route_off_github_merges_nothing_and_patronus_off_space_starts_
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("not_on_space")), "{output}");
 }
 
-/// `bd status` decides the steps by the route of the repository, as `bd land --dry-run` does: a branch of a repository
+/// `brd status` decides the steps by the route of the repository, as `brd land --dry-run` does: a branch of a repository
 /// that lands by a push has no Dry Run of Patronus, and its push into master waits for the pull requests GitHub lists
-/// (whether CI passed on its tip), which `bd status` doesn't read
+/// (whether CI passed on its tip), which `brd status` doesn't read
 #[test_log::test]
 fn bd_status_decides_the_steps_by_the_route_of_the_repository() {
   let (repo, _remote) = landing_by_push();

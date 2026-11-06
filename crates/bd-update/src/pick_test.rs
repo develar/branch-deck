@@ -228,21 +228,21 @@ fn pick_outputs_match_the_schema() {
   assert_covered(pick_schema, pick_schema, &present, "pick of a present commit");
 }
 
-/// `output` matches the `pick` output of `bd schema`
+/// `output` matches the `pick` output of `brd schema`
 fn assert_pick_schema(repo: &TestRepo, output: &Value, what: &str) {
   let (_, schema) = run_json(&environment(repo.path()), &["schema", "--all"]);
   let pick_schema = &schema["outputs"]["pick"];
   assert_covered(pick_schema, pick_schema, output, what);
 }
 
-/// Run `bd group` with `plan` written to a file
+/// Run `brd group` with `plan` written to a file
 fn group(repo: &TestRepo, plan: &Value) -> (i32, Value) {
   let file = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(file.path(), plan.to_string()).unwrap();
   run_in(repo, &["group", "--plan", file.path().to_str().unwrap()])
 }
 
-/// The parent of `name` in `bd status`, and the branch it is built on
+/// The parent of `name` in `brd status`, and the branch it is built on
 fn parent_in_status(repo: &TestRepo, name: &str) -> (Value, Value) {
   let (exit_code, status) = run_in(repo, &["status"]);
   assert_eq!(exit_code, 0, "{status}");
@@ -322,7 +322,7 @@ fn a_picked_commit_that_needs_another_branch_names_it_with_the_plan_that_moves_i
 }
 
 /// How the picked commits land is a report: its `log` of the commits ahead and the diffs of its dependency check run
-/// after the move, outside the lock, so an agent's `bd pick` never makes the app's Update Project or a regroup wait for
+/// after the move, outside the lock, so an agent's `brd pick` never makes the app's Update Project or a regroup wait for
 /// them. It still names the dependency and the groups, from the head the check froze
 #[cfg(unix)]
 #[test_log::test]
@@ -374,7 +374,7 @@ fn counted(commands: &[String]) -> Vec<(String, usize)> {
   counts.into_iter().collect()
 }
 
-/// `bd pick --from <lane> --follow` with its replays held, one per round, until `during` returned for that round;
+/// `brd pick --from <lane> --follow` with its replays held, one per round, until `during` returned for that round;
 /// `during` gets the number of the round
 #[cfg(unix)]
 fn pick_held_in_its_replays(repo: &TestRepo, lane: &TestWorktree, rounds: usize, mut during: impl FnMut(usize)) -> (LockSpanGit, i32, Value) {
@@ -423,7 +423,7 @@ fn the_check_of_a_pick_runs_before_the_lock() {
   let commands = wrapped.commands();
   let dry_runs = commands.iter().filter(|(locked, args)| !locked && args.contains(" read-tree -m -u -n ")).count();
   assert_eq!(dry_runs, 2, "both dry runs before the lock: {commands:#?}");
-  // the marks of interrupted moves, the witness (the target's guards from the directories bd read, HEAD and upstream;
+  // the marks of interrupted moves, the witness (the target's guards from the directories brd read, HEAD and upstream;
   // the source's guards and HEAD),
   // the local changes on `a.txt`, the one path a move changes that the old tree has (its index entry, its content), and
   // each move: the refresh of the stat data, the transaction with its mark and the symref read under its locks, the
@@ -454,7 +454,7 @@ fn another_writer_takes_the_lock_while_a_pick_replays() {
   assert_eq!(read(&repo, "b.txt"), "b\n");
 }
 
-/// A pick beside another agent's `bd sync` of the target held in its merges: a sync takes no repository lock, so the
+/// A pick beside another agent's `brd sync` of the target held in its merges: a sync takes no repository lock, so the
 /// pick checks, moves both worktrees and ends while that sync is still held, which then ends too
 #[cfg(unix)]
 #[test_log::test]
@@ -548,7 +548,7 @@ fn a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack() {
   let dependency = &output["dependencies"][0];
   assert_eq!(
     (&dependency["prefix_branch"], &dependency["depends_on"], &dependency["restack"]),
-    (&json!("client"), &json!(["server"]), &json!("bd restack client server"))
+    (&json!("client"), &json!(["server"]), &json!("brd restack client server"))
   );
   assert!(dependency.get("plan").is_none(), "{output}");
   assert_pick_schema(&repo, &output, "pick with a dependency and its restack");
@@ -558,7 +558,7 @@ fn a_picked_commit_that_needs_its_own_and_another_branch_offers_the_restack() {
   assert_eq!(exit_code, 0, "{sync}");
 }
 
-/// Someone else pushed to the remote branch of auth: `bd pick --remote auth` fetches it and picks their commit onto the
+/// Someone else pushed to the remote branch of auth: `brd pick --remote auth` fetches it and picks their commit onto the
 /// checked out branch with the `(auth)` prefix, so it lands in auth; the push then drops nothing, and a pick again finds
 /// nothing to pick
 #[test_log::test]
@@ -648,9 +648,9 @@ fn record_check(lane: &TestWorktree, exit: i32) {
   bd_cli::fixture_test::record_check(&lane.path, &lane.git(&["rev-parse", "HEAD^{tree}"]), exit);
 }
 
-/// With `pick_requires_check` a pick from any worktree passes the gate of `bd lease pick`: a tree that no green build or
+/// With `pick_requires_check` a pick from any worktree passes the gate of `brd lease pick`: a tree that no green build or
 /// test recorded lands nothing (`unchecked_tree`), whose message names this pick again; --dry-run reports the check
-/// and never refuses; revisions name no worktree whose records bd could read, so they need a reason; a green record of
+/// and never refuses; revisions name no worktree whose records brd could read, so they need a reason; a green record of
 /// the tree lands it
 #[test_log::test]
 fn a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded() {
@@ -661,7 +661,7 @@ fn a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded() {
   assert_error(&output, exit_code, (4, "unchecked_tree"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
-    message.starts_with("bd pick: no green build or test ran") && message.contains(" --follow --allow-unchecked '<reason>'`"),
+    message.starts_with("brd pick: no green build or test ran") && message.contains(" --follow --allow-unchecked '<reason>'`"),
     "{message}"
   );
   let (exit_code, dry) = run_in(&repo, &["pick", "--from", &lane.path, "--dry-run"]);
@@ -692,7 +692,7 @@ fn a_pick_from_a_worktree_lands_only_a_tree_that_a_green_check_recorded() {
 }
 
 /// `--allow-unchecked` lands a pick without a check, of a worktree or of revisions, and the output repeats the reason;
-/// `--unchecked`, its name in `bd lease pick` before, is the same flag; a blank reason is refused, and `--remote` takes
+/// `--unchecked`, its name in `brd lease pick` before, is the same flag; a blank reason is refused, and `--remote` takes
 /// none, as no check gates it
 #[test_log::test]
 fn allow_unchecked_lands_a_pick_without_a_check_and_says_why() {

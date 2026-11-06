@@ -401,7 +401,7 @@ fn count(n: usize) -> u32 {
 }
 
 /// Compute remote status for a single local virtual branch against its remote-tracking branch of `remote` (the sync and
-/// the app compare with `origin`, `bd push --remote` with its remote).
+/// the app compare with `origin`, `brd push --remote` with its remote).
 /// `local_ref` must be in the form "{prefix}/virtual/{name}" (no refs/heads/ prefix). `parent` is the branch a stacked
 /// branch is built on: its commits are the parent's, not unpushed commits of this branch; those the remote branch lacks
 /// are `ancestor_commits_ahead`, since a Safe Push of the remote branch lands the whole piece.
@@ -647,7 +647,7 @@ fn cached_status_key(branch: &BranchCommits<'_>, my_email: Option<&str>, parent:
   Some(hasher.finalize().into())
 }
 
-/// The remote statuses of one operation (a sync, `bd push --remote`) against `remote`, on the commits it read once: the
+/// The remote statuses of one operation (a sync, `brd push --remote`) against `remote`, on the commits it read once: the
 /// remote tips of its branches and the baseline. The status of the same commits is answered without git from the
 /// memory of the process, else from the object cache; a computed one goes to both, and the object cache gets the new
 /// ones in one write when the memo is dropped (one transaction, not one per branch). The push times of all branches are
@@ -778,7 +778,7 @@ pub struct RemoteDropped {
 }
 
 /// The commits the remote branch of `branch` has that the branch lacks and a push would drop, by the walks of its
-/// status (amended, restacked, reworded and landed ones are not among them), all of them: what `bd pick --remote`
+/// status (amended, restacked, reworded and landed ones are not among them), all of them: what `brd pick --remote`
 /// takes in. One `for-each-ref` of the tips, then the walks of `compute`
 pub fn dropped_commits(git_executor: &GitCommandExecutor, repository_path: &str, remote: &str, branch: StatusBranch<'_>, baseline_branch: &str) -> Result<RemoteDropped> {
   let remote_ref = format!("refs/remotes/{remote}/{}", branch.local_ref);

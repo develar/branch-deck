@@ -1,4 +1,4 @@
-use crate::bd_command::bd_command;
+use crate::bd_command::{CLI_NAME, bd_command};
 use crate::error::CliError;
 use crate::output::ShortIds;
 use app_settings::file::{SETTINGS_FILE_NAME, SettingsFile};
@@ -37,28 +37,28 @@ const APP_IDENTIFIER: &str = "org.develar.branch-deck";
 pub struct Environment {
   /// The directory `-C` defaults to
   pub cwd: PathBuf,
-  /// The settings of the app (`app_settings`), read once as `bd` starts (`app_settings_of`): General → Branch prefix
+  /// The settings of the app (`app_settings`), read once as `brd` starts (`app_settings_of`): General → Branch prefix
   /// (`globalUserBranchPrefix`) and Settings → Landing (`patronusNewApi`), with the defaults the app has without them
   pub settings: AppSettings,
   /// The git executable from `BD_GIT`
   pub git: Option<String>,
-  /// The global git config of every git bd starts (`GIT_CONFIG_GLOBAL`): `None` leaves git its own (`GIT_CONFIG_GLOBAL`
+  /// The global git config of every git brd starts (`GIT_CONFIG_GLOBAL`): `None` leaves git its own (`GIT_CONFIG_GLOBAL`
   /// of the process, else `~/.gitconfig`); a test names an empty one or a file of its own, so the developer's
   /// `branchdeck.*` (the branch prefix, the agent rules) never reaches it
   pub git_config_global: Option<PathBuf>,
   /// How long a rewrite waits for the repository lock
   pub lock_timeout: Duration,
-  /// How long `bd lease return` waits for the Bazel servers of a slot to exit
+  /// How long `brd lease return` waits for the Bazel servers of a slot to exit
   pub server_stop_timeout: Duration,
-  /// The home directory `bd install` writes into
+  /// The home directory `brd install` writes into
   pub home: Option<PathBuf>,
-  /// The running binary, which `bd install` links to
+  /// The running binary, which `brd install` links to
   pub executable: Option<PathBuf>,
-  /// The `.AppImage` file the binary runs from (`APPIMAGE`, Linux), which `bd install` links to instead
+  /// The `.AppImage` file the binary runs from (`APPIMAGE`, Linux), which `brd install` links to instead
   pub appimage: Option<PathBuf>,
-  /// `PATH`, to tell whether the installed `bd` is found
+  /// `PATH`, to tell whether the installed `brd` is found
   pub path: Option<OsString>,
-  /// The Patronus instance `bd safe-push` starts robots on: `SAFEPUSH_PATRONUS_URL` (as for the Safe Push CLI), else
+  /// The Patronus instance `brd safe-push` starts robots on: `SAFEPUSH_PATRONUS_URL` (as for the Safe Push CLI), else
   /// the production one
   pub patronus_url: String,
   /// `SPACE_TOKEN`, the Space token when the Safe Push CLI has not logged in (`home` has its token file)
@@ -75,7 +75,7 @@ pub struct Environment {
   /// The wait of a read of GitHub or Patronus before it asks again after a transient failure: `None` keeps the app's
   /// (one second); a test that fakes the failure waits none
   pub remote_retry_delay: Option<Duration>,
-  /// The `teamcity` CLI of `bd robot --full`; `None` looks it up as the app does (`known_tools::TEAMCITY`), and only then
+  /// The `teamcity` CLI of `brd robot --full`; `None` looks it up as the app does (`known_tools::TEAMCITY`), and only then
   pub teamcity: Option<PathBuf>,
   /// Whether a commit of the object cache and a write of the operations registry reach the drive before they return
   /// (`CacheConfig::sync_commits`, `ProcessRegistry::unflushed`): always for the user; a test, whose thousands of
@@ -122,12 +122,12 @@ pub fn app_settings_of(settings_file: Option<&Path>) -> AppSettings {
   settings_file.map_or_default(SettingsFile::load).app
 }
 
-/// The git of bd (`BD_GIT`, `PATH`, Homebrew's) with the global config of `environment`, counting its processes: `bd -v`
+/// The git of brd (`BD_GIT`, `PATH`, Homebrew's) with the global config of `environment`, counting its processes: `brd -v`
 /// logs how many git processes the command started, by subcommand, when the executor is dropped; `git_not_found`
 /// without one
 pub fn counted_git(environment: &Environment) -> Result<GitCommandExecutor, CliError> {
   let info = GitInfo::discover_for_cli(environment.git.as_deref()).map_err(|e| CliError::new(ErrorCode::GitNotFound, e))?;
-  let git = GitCommandExecutor::with_info(info).with_process_stats("bd");
+  let git = GitCommandExecutor::with_info(info).with_process_stats(CLI_NAME);
   Ok(match &environment.git_config_global {
     Some(global) => git.with_env("GIT_CONFIG_GLOBAL", &global.to_string_lossy()),
     None => git,
@@ -166,7 +166,7 @@ pub struct RepoContext {
   pub git_common_dir: PathBuf,
   pub use_cache: bool,
   pub lock_timeout: Duration,
-  /// This bd in this repository, quoted for the shell (`bd -C <repository>`), for the next commands an output names
+  /// This brd in this repository, quoted for the shell (`brd -C <repository>`), for the next commands an output names
   pub bd: String,
   /// Settings → Landing of the app (`patronusNewApi`): the progress of a running robot in one request and the merge
   /// profile from the list, as the app reads them; off without the setting
@@ -187,7 +187,7 @@ pub struct RepoContext {
   /// repository lock (`forget_facts`)
   facts: Mutex<Facts>,
   /// The GitHub repository of the branches (`None` when unknown), resolved by the first that asks: a git process for the
-  /// Space mirror, and `bd push` asks before its push and again for the retargets after it
+  /// Space mirror, and `brd push` asks before its push and again for the retargets after it
   github_repository: OnceLock<Option<GitHubRepository>>,
   /// The runtime of the sync and of the requests to Patronus and GitHub, started by the first that asks
   runtime: OnceLock<Runtime>,
@@ -248,7 +248,7 @@ impl RepoContext {
       lock_timeout: environment.lock_timeout,
       patronus_new_api: environment.settings.patronus_new_api,
       operation_id: OperationId::new(),
-      bd: bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell_in(&repository)),
+      bd: bd_command(environment).map_or_else(|_| CLI_NAME.to_string(), |command| command.for_shell_in(&repository)),
       repository,
       cache: OnceLock::new(),
       file_diffs: OnceLock::new(),

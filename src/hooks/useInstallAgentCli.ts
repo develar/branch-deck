@@ -8,13 +8,13 @@ import { showToast } from "@/lib/toast-message"
 import { refreshAgentCliStatus } from "@/stores/agent-cli"
 
 /**
- * The toast text of an install: where agents find bd, how to run it in a terminal when it is not on PATH, and how agents
+ * The toast text of an install: where agents find brd, how to run it in a terminal when it is not on PATH, and how agents
  * work from now on (Settings → Agents); paths under the home directory as `~`
  */
-export function describeInstall({ bd, on_path, skills, agents }: AgentCliInstall, homeDir: string): string {
-  const found = `Coding agents find bd through the skill${skills.length === 1 ? "" : "s"} in ${skills.map(it => tildePath(it, homeDir)).join(", ")}.`
-  const directory = bd.slice(0, Math.max(bd.lastIndexOf("/"), bd.lastIndexOf("\\")))
-  const terminal = on_path ? "In a terminal, run bd." : `In a terminal, run ${tildePath(bd, homeDir)}, or add ${tildePath(directory, homeDir)} to PATH to run bd.`
+export function describeInstall({ bd: brd, on_path, skills, agents }: AgentCliInstall, homeDir: string): string {
+  const found = `Coding agents find brd through the skill${skills.length === 1 ? "" : "s"} in ${skills.map(it => tildePath(it, homeDir)).join(", ")}.`
+  const directory = brd.slice(0, Math.max(brd.lastIndexOf("/"), brd.lastIndexOf("\\")))
+  const terminal = on_path ? "In a terminal, run brd." : `In a terminal, run ${tildePath(brd, homeDir)}, or add ${tildePath(directory, homeDir)} to PATH to run brd.`
   return `${found} ${terminal} ${describeAgentRules(agents)}`
 }
 
@@ -25,7 +25,7 @@ export function describeAgentRules({ lease, subject_branch }: AgentRules): strin
 }
 
 /**
- * `bd install`, then a toast that says what it installed; from the main window it opens Settings → Agents, where the
+ * `brd install`, then a toast that says what it installed; from the main window it opens Settings → Agents, where the
  * rules change (`openAgentSettings`)
  */
 export async function installAgentCli(openAgentSettings = true): Promise<AgentCliInstall | null> {
@@ -44,7 +44,7 @@ export async function installAgentCli(openAgentSettings = true): Promise<AgentCl
   return result.data
 }
 
-/** Main window: the "Install Agent CLI…" menu item, `bd install` (docs/contributing/agent-cli.md) */
+/** Main window: the "Install Agent CLI…" menu item, `brd install` (docs/contributing/agent-cli.md) */
 export function useInstallAgentCli(): void {
   useAppCommand("install_agent_cli", () => {
     void installAgentCli()

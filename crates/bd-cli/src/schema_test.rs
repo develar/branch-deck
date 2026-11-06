@@ -221,10 +221,10 @@ fn schema_without_a_name_is_the_index_of_the_commands() {
     }
     let keys = index["commands"][subcommand]
       .as_array()
-      .unwrap_or_else(|| panic!("no outputs for `bd {subcommand}` in COMMAND_OUTPUTS"));
+      .unwrap_or_else(|| panic!("no outputs for `brd {subcommand}` in COMMAND_OUTPUTS"));
     for key in keys {
       let key = key.as_str().unwrap();
-      assert!(every.contains(key), "`bd {subcommand}` names the output {key}, which doesn't exist");
+      assert!(every.contains(key), "`brd {subcommand}` names the output {key}, which doesn't exist");
       covered.insert(key.to_string());
     }
   }

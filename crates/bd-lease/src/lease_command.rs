@@ -1,4 +1,4 @@
-//! `bd lease get`, `return`, `status` and `adopt`: the worktrees of the lease pool, one agent session per slot
+//! `brd lease get`, `return`, `status` and `adopt`: the worktrees of the lease pool, one agent session per slot
 //! (spec/cli/lease.spec.md). The core (`lease_pool::lease`) keeps the state in `$GIT_COMMON_DIR/branch-deck/leases.json`
 //! under a pool lock of its own; a lease needs no branch prefix, so these commands resolve only git and the repository
 
@@ -45,7 +45,7 @@ pub enum LeaseCommand {
   /// Lease a worktree of the pool at the HEAD of this checkout: a free slot moved there, else a new one
   Get(LeaseGetArgs),
   /// Land the commits of this lease on the branch of the checkout it was leased from, the lease following onto the new
-  /// tip: `bd pick --from <lease> --follow` run in that checkout. Nothing to land: the lease only follows
+  /// tip: `brd pick --from <lease> --follow` run in that checkout. Nothing to land: the lease only follows
   Pick(LeasePickArgs),
   /// Give the lease of a worktree back; refused while it has unlanded commits, local changes or a process in it
   Return(LeaseReturnArgs),
@@ -218,7 +218,7 @@ impl LeaseContext {
   }
 }
 
-/// `bd lease get`
+/// `brd lease get`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseGetOutput {
   pub schema: SchemaVersion,
@@ -228,7 +228,7 @@ pub struct LeaseGetOutput {
   pub pool: String,
   /// The leased worktree: work there
   pub path: String,
-  /// The lease, for `bd lease return --lease-id`
+  /// The lease, for `brd lease return --lease-id`
   pub lease_id: String,
   pub holder: String,
   /// The slot: its worktree id
@@ -238,9 +238,9 @@ pub struct LeaseGetOutput {
   /// The branch created at `source_head` and checked out; without it HEAD is detached
   #[serde(skip_serializing_if = "Option::is_none")]
   pub branch: Option<String>,
-  /// Where the commits of the lease land (`bd lease pick`)
+  /// Where the commits of the lease land (`brd lease pick`)
   pub home: LeaseHomeOutput,
-  /// What to run, in order: `bd lease pick` in the lease after each commit that builds and passes its tests, `bd lease
+  /// What to run, in order: `brd lease pick` in the lease after each commit that builds and passes its tests, `brd lease
   /// return` once the task is done
   pub next: Vec<String>,
   /// Unix seconds
@@ -264,7 +264,7 @@ pub struct LeaseGetOutput {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stopped_servers: Vec<StoppedServerOutput>,
   /// The free bytes of the volume of the pool before the get, for a new slot measured again once no other get added
-  /// one; omitted where bd can't tell (Windows)
+  /// one; omitted where brd can't tell (Windows)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
   /// The idle lease the get took over: its holder process was gone, its work had landed on its home branch, its tree
@@ -275,14 +275,14 @@ pub struct LeaseGetOutput {
   /// home branch lacks (`idle_with_work`) they are the user's to decide; tell the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_leases: Vec<IdleLeaseOutput>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where brd can't see them (Windows)
   pub processes_checked: bool,
   /// How long the get waited for other gets that added slots (the pool adds one at a time); omitted when it waited for
   /// none
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waited_for_clone_ms: Option<u64>,
   /// The free space was below the minimum: the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine
-  /// and the Bazel output bases that the get deleted first (`bd lease trim`)
+  /// and the Bazel output bases that the get deleted first (`brd lease trim`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub trimmed: Option<crate::trim_command::TrimmedOutput>,
   /// The free space was still below the minimum after the trim: the free slots of the pools of this machine whose build
@@ -291,7 +291,7 @@ pub struct LeaseGetOutput {
   pub shrunk: Option<crate::trim_command::ShrunkOutput>,
   /// The free space was still below the minimum after the shrink: the free slots below `branchdeck.leaseMaxSlots` that
   /// the get deleted with their Bazel output bases, the ones returned longest ago first, one at a time until the volume
-  /// had the minimum (as `bd lease trim` prints them)
+  /// had the minimum (as `brd lease trim` prints them)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub evicted: Option<crate::trim_command::TrimmedOutput>,
 }
@@ -301,11 +301,11 @@ pub struct LeaseGetOutput {
 pub struct LeaseHomeOutput {
   /// The checkout they land on, its top level: the source of the get
   pub checkout: String,
-  /// The branch they land on, checked out there at the get; `null`: the source had a detached HEAD, and `bd lease pick`
+  /// The branch they land on, checked out there at the get; `null`: the source had a detached HEAD, and `brd lease pick`
   /// refuses (`no_home_branch`)
   pub branch: Option<String>,
-  /// `bd workspace`: the branch the checkout has checked out now (`null`: a detached HEAD), when it is not `branch`:
-  /// `bd lease pick` refuses (`home_branch_switched`) until it is back; ask the user
+  /// `brd workspace`: the branch the checkout has checked out now (`null`: a detached HEAD), when it is not `branch`:
+  /// `brd lease pick` refuses (`home_branch_switched`) until it is back; ask the user
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub switched_to: Option<Option<String>>,
 }
@@ -327,11 +327,11 @@ pub fn lease_next(path: &str, home: &LeaseHome, lease_id: &str) -> Vec<String> {
   if home.branch.is_some() && !home.checkout.is_empty() {
     next.push(format!("bd -C {} lease pick", shell_word(path)));
   }
-  next.push(format!("bd lease return --lease-id {lease_id}"));
+  next.push(format!("brd lease return --lease-id {lease_id}"));
   next
 }
 
-/// The checkout and the branch the commits of the lease of this worktree land on (`bd lease pick`): `no_lease` outside
+/// The checkout and the branch the commits of the lease of this worktree land on (`brd lease pick`): `no_lease` outside
 /// a leased slot, `no_home_branch` when its get's source had a detached HEAD, `resolve_in_progress` while the resolve
 /// session of a pick is open in it (one `show-ref`): a pick that lands now would leave that session stale
 pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> {
@@ -339,7 +339,7 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
   let slot = ready_slot_at(Path::new(&context.dirs.git_common_dir), top_level).map_err(lease_error)?.ok_or_else(|| {
     CliError::new(
       ErrorCode::NoLease,
-      format!("{top_level} is no leased worktree of the pool: run bd lease pick in your lease"),
+      format!("{top_level} is no leased worktree of the pool: run brd lease pick in your lease"),
     )
   })?;
   if ref_exists(&context.git, top_level, &session_ref(&slot.name)) {
@@ -363,7 +363,7 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
     _ => Err(CliError::new(
       ErrorCode::NoHomeBranch,
       format!(
-        "The lease was cut from a detached HEAD of {}: there is no branch its commits land on. Check out the branch there and pick them with `bd pick --from {} --follow`",
+        "The lease was cut from a detached HEAD of {}: there is no branch its commits land on. Check out the branch there and pick them with `brd pick --from {} --follow`",
         if home.checkout.is_empty() { "its source" } else { &home.checkout },
         shell_word(&context.dirs.top_level)
       ),
@@ -372,10 +372,10 @@ pub fn lease_home(context: &LeaseContext) -> Result<(String, String), CliError> 
 }
 
 /// A command of `bd` in the worktree at `top_level`: refused as `lease_reclaimed` in a slot whose lease a get or
-/// `bd lease reclaim` took from its dead holder, unless of the session that holds it now
+/// `brd lease reclaim` took from its dead holder, unless of the session that holds it now
 /// (`lease_pool::lease::reclaimed_refusal`): a resumed session of the old holder must not work there. `mutates`: the
 /// command writes (a read passes but while a get takes the lease over); `lease_id`: the lease it names
-/// (`bd lease return --lease-id`), which passes when it is the current one. No git: the state, and a process scan only
+/// (`brd lease return --lease-id`), which passes when it is the current one. No git: the state, and a process scan only
 /// in such a slot
 pub fn refuse_reclaimed(git_common_dir: &Path, top_level: &str, mutates: bool, lease_id: Option<&str>) -> Result<(), CliError> {
   match reclaimed_refusal(git_common_dir, top_level, mutates, lease_id).map_err(lease_error)? {
@@ -391,7 +391,7 @@ fn session_lease_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Lea
   Ok(lease.filter(|lease| !lease.holder.starts_with(HOST_HOLDER_PREFIX)))
 }
 
-/// `bd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
+/// `brd update` in the worktree at `top_level`: refused in a lease of the pool (`lease_follows_home`), which follows the
 /// branch it was cut from, not the baseline: an update onto the baseline would move it past that branch, and its pick
 /// would refuse it (`source_on_newer_baseline`). A host slot of `bd-host` is no session's lease
 pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<(), CliError> {
@@ -411,9 +411,9 @@ pub fn refuse_update_in_lease(git_common_dir: &Path, top_level: &str) -> Result<
   ))
 }
 
-/// `bd drop` in the worktree at `top_level`: in a lease of the pool, a commit that its home branch has already (a pick
+/// `brd drop` in the worktree at `top_level`: in a lease of the pool, a commit that its home branch has already (a pick
 /// landed it) is refused as `drop_in_home`: a drop in the lease would come back with the next pick, which moves the lease
-/// onto the tip of that branch. The drop runs in the shared checkout, then `bd lease pick` moves the lease past it
+/// onto the tip of that branch. The drop runs in the shared checkout, then `brd lease pick` moves the lease past it
 /// (`next_steps`). Commits only the lease has drop there as anywhere. One `rev-parse` and one `merge-base --is-ancestor`
 /// per named commit, only in a lease; a host slot of `bd-host` is no session's lease
 pub fn refuse_drop_of_home_commits(git: &GitCommandExecutor, git_common_dir: &Path, top_level: &str, commits: &[String]) -> Result<(), CliError> {
@@ -555,7 +555,7 @@ pub struct ReclaimedOutput {
   pub branch: Option<String>,
   /// Unix seconds
   pub at: u64,
-  /// The lease of the get that took it over; omitted for `bd lease reclaim`
+  /// The lease of the get that took it over; omitted for `brd lease reclaim`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub by_lease_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -640,15 +640,15 @@ fn stopped_output(servers: &[StoppedServer]) -> Vec<StoppedServerOutput> {
     .collect()
 }
 
-/// `bd lease get`, each step on stderr as it starts: the JSON goes to stdout at the end, and whoever waits for a get of
+/// `brd lease get`, each step on stderr as it starts: the JSON goes to stdout at the end, and whoever waits for a get of
 /// minutes (a clone, the wait for another get that adds a slot) sees where it is
 pub fn lease_get(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs) -> Result<LeaseGetOutput, CliError> {
   lease_get_reporting(context, environment, args, &|step| {
-    let _ = writeln!(std::io::stderr().lock(), "bd lease get: {step}");
+    let _ = writeln!(std::io::stderr().lock(), "brd lease get: {step}");
   })
 }
 
-/// `bd lease get`, each step told to `progress` as it starts
+/// `brd lease get`, each step told to `progress` as it starts
 pub fn lease_get_reporting(context: &LeaseContext, environment: &Environment, args: &LeaseGetArgs, progress: &dyn Fn(GetStep)) -> Result<LeaseGetOutput, CliError> {
   let min_free = match &args.min_free {
     Some(size) => Some(parse_size(size).map_err(|error| CliError::new(ErrorCode::InvalidArguments, format!("--min-free: {error}")))?),
@@ -743,7 +743,7 @@ pub(crate) fn lease_get_output(context: &LeaseContext, got: &LeaseGot) -> Result
   })
 }
 
-/// `bd lease return`
+/// `brd lease return`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseReturnOutput {
   pub schema: SchemaVersion,
@@ -806,7 +806,7 @@ pub struct LeaseReturnOutput {
   /// The branch HEAD was on; HEAD is detached now, the branch stays
   #[serde(skip_serializing_if = "Option::is_none")]
   pub detached_branch: Option<String>,
-  /// Whether the processes were checked; false where bd can't see them (Windows) and for a `joined` return that
+  /// Whether the processes were checked; false where brd can't see them (Windows) and for a `joined` return that
   /// checked nothing
   pub processes_checked: bool,
 }
@@ -822,7 +822,7 @@ pub enum LandedCheckOutput {
 pub struct CleanedOutput {
   /// `cargo <dir>` or `delete <path>`
   pub rule: String,
-  /// The bytes on disk it freed (`bd lease clean --dry-run`: would free); blocks an APFS clone shares with another
+  /// The bytes on disk it freed (`brd lease clean --dry-run`: would free); blocks an APFS clone shares with another
   /// checkout count too, though they are freed only with the last file that holds them
   pub freed_bytes: u64,
   pub ms: u64,
@@ -876,7 +876,7 @@ pub enum LandedProofOutput {
   Replayed,
   /// A commit of the branch of its identity changes the same lines
   ChangedLines,
-  /// A commit of the branch of its identity has every line it changes with its fixups: the twin of `bd update`, a
+  /// A commit of the branch of its identity has every line it changes with its fixups: the twin of `brd update`, a
   /// conflict resolution or an autosquash
   Twin,
   /// A commit of the branch of its identity has every line it adds with its fixups, and the lines it removes and the
@@ -976,7 +976,7 @@ pub fn lease_return(context: &LeaseContext, args: &LeaseReturnArgs) -> Result<Le
   })
 }
 
-/// `bd lease status`
+/// `brd lease status`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseStatusOutput {
   pub schema: SchemaVersion,
@@ -986,14 +986,14 @@ pub struct LeaseStatusOutput {
   pub pool: Option<String>,
   /// In the order they joined the pool
   pub slots: Vec<SlotOutput>,
-  /// The free bytes of the volume of the pool; omitted where bd can't tell it (Windows, no pool directory)
+  /// The free bytes of the volume of the pool; omitted where brd can't tell it (Windows, no pool directory)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
   /// What the trash of the returns and the cleans holds, in bytes: what a run killed before its delete left behind; the
   /// next return or clean deletes it
   #[serde(default, skip_serializing_if = "is_zero_bytes")]
   pub trash_bytes: u64,
-  /// With --processes: whether the processes were checked; false where bd can't see them (Windows)
+  /// With --processes: whether the processes were checked; false where brd can't see them (Windows)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub processes_checked: Option<bool>,
 }
@@ -1004,7 +1004,7 @@ pub struct SlotOutput {
   pub slot: String,
   pub path: String,
   /// `free`, `preparing` (a get moves it), `ready` (leased), `templating` (a get clones it into a new slot),
-  /// `returning` (its return runs), `cleaning` (`bd lease clean` cleans it), or `abandoned` (the get, the return or the
+  /// `returning` (its return runs), `cleaning` (`brd lease clean` cleans it), or `abandoned` (the get, the return or the
   /// clean died while it ran: the next get takes it as free)
   pub state: SlotState,
   /// A get found local changes in the free slot: later gets try it last
@@ -1015,7 +1015,7 @@ pub struct SlotOutput {
   pub missing: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub lease: Option<LeaseOutput>,
-  /// The lease a get or `bd lease reclaim` took from its dead holder, its work landed: a command of another session in
+  /// The lease a get or `brd lease reclaim` took from its dead holder, its work landed: a command of another session in
   /// the slot is refused (`lease_reclaimed`) until the next get of the free slot
   #[serde(skip_serializing_if = "Option::is_none")]
   pub reclaimed: Option<ReclaimedOutput>,
@@ -1104,7 +1104,7 @@ pub fn lease_status(context: &LeaseContext, environment: &Environment, args: &Le
   })
 }
 
-/// `bd lease adopt`
+/// `brd lease adopt`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseAdoptOutput {
   pub schema: SchemaVersion,
@@ -1114,7 +1114,7 @@ pub struct LeaseAdoptOutput {
   /// The worktrees refused, each with the code of its refusal; any refused one makes the exit code 4
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub refused: Vec<RefusedOutput>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where brd can't see them (Windows)
   pub processes_checked: bool,
 }
 
@@ -1191,7 +1191,7 @@ pub fn lease_adopt(context: &LeaseContext, environment: &Environment, args: &Lea
   Ok(output)
 }
 
-/// `bd lease reclaim --idle`
+/// `brd lease reclaim --idle`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseReclaimOutput {
   pub schema: SchemaVersion,
@@ -1201,14 +1201,14 @@ pub struct LeaseReclaimOutput {
   /// The idle leases returned, their work landed on their home branch: their slots are free
   pub reclaimed: Vec<ReclaimedLeaseOutput>,
   /// The idle leases left alone, with the work their home branch lacks (`idle_with_work`): the user decides; their
-  /// holder may resume, or `bd lease return --lease-id <id> --confirm-preserved` gives the work up once the user said
+  /// holder may resume, or `brd lease return --lease-id <id> --confirm-preserved` gives the work up once the user said
   /// it is kept elsewhere
   pub kept: Vec<IdleLeaseOutput>,
   /// The idle leases not checked or not returned now: `not_quiet` (its get or the last move of its HEAD is younger
   /// than an hour), `busy` (`processes`), `changed` (a get or a session acted on it meanwhile), `failed` (`error`)
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub skipped: Vec<SkippedIdleOutput>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where brd can't see them (Windows)
   pub processes_checked: bool,
 }
 
@@ -1315,7 +1315,7 @@ pub fn lease_reclaim(context: &LeaseContext, args: &LeaseReclaimArgs) -> Result<
   })
 }
 
-/// `bd lease clean`
+/// `brd lease clean`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseCleanOutput {
   pub schema: SchemaVersion,
@@ -1327,10 +1327,10 @@ pub struct LeaseCleanOutput {
   /// The sum of `freed_bytes` of every rule of every target
   pub freed_bytes: u64,
   /// How much more the volume of the checkout has free after the clean (`statfs` before and after): what the deletes
-  /// freed in truth, without the blocks APFS clones still share; omitted for a dry run and where bd can't tell
+  /// freed in truth, without the blocks APFS clones still share; omitted for a dry run and where brd can't tell
   #[serde(skip_serializing_if = "Option::is_none")]
   pub volume_freed_bytes: Option<u64>,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where brd can't see them (Windows)
   pub processes_checked: bool,
 }
 
@@ -1452,7 +1452,7 @@ pub(crate) fn refusal_error(refusal: &LeaseRefusal) -> CliError {
     LeaseRefusal::HostSlot { path, .. } => error.paths = vec![path.clone()],
     LeaseRefusal::LeaseReclaimed { reclaimed, .. } if !reclaimed.source.is_empty() => {
       error = error.with_next_step(
-        format!("bd lease get --holder {} -C {}", shell_word(&reclaimed.holder), shell_word(&reclaimed.source)),
+        format!("brd lease get --holder {} -C {}", shell_word(&reclaimed.holder), shell_word(&reclaimed.source)),
         false,
       );
     }

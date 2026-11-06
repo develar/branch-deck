@@ -72,7 +72,7 @@ impl Client<'_> {
       return Err(Refusal::new(
         Code::AgentFailed,
         format!(
-          "the agent on {alias} runs on {}, and only launchd on macOS starts an upgraded agent: `bd-host setup {alias}` installs a new one",
+          "the agent on {alias} runs on {}, and only launchd on macOS starts an upgraded agent: `brd-host setup {alias}` installs a new one",
           info.os
         ),
       ));
@@ -93,12 +93,12 @@ impl Client<'_> {
       return Err(Refusal::new(
         Code::AgentFailed,
         format!(
-          "the agent on {alias} has no feature {}: `bd-host setup {alias}` installs a new one over ssh",
+          "the agent on {alias} has no feature {}: `brd-host setup {alias}` installs a new one over ssh",
           feature::UPGRADE
         ),
       ));
     }
-    (self.say)(&format!("bd-host: sending bd-host ({}) to {alias}", format_size(binary.len() as u64)));
+    (self.say)(&format!("brd-host: sending brd-host ({}) to {alias}", format_size(binary.len() as u64)));
     let (mut channel, _) = host.connect()?;
     let upgrade = Request::Upgrade {
       size: binary.len() as u64,
@@ -122,7 +122,7 @@ impl Client<'_> {
   /// previous build answers at the end
   fn wait_for_new(&self, alias: &str, installed: Installed) -> Result<Upgraded, Refusal> {
     (self.say)(&format!(
-      "bd-host: {alias} installed bd-host {}; waiting for the new agent to answer",
+      "brd-host: {alias} installed brd-host {}; waiting for the new agent to answer",
       short(&installed.sha256)
     ));
     let started = Instant::now();
@@ -155,7 +155,7 @@ impl Client<'_> {
       backoff = (backoff * 2).min(MAX_POLL.min(self.timing.max_backoff));
     }
     let waited = self.timing.upgrade.as_secs();
-    let log = format!("~/.cache/bd-host/upgrade.json on {alias} has the outcome of the watchdog, and ~/Library/Logs/bd-host.log its lines");
+    let log = format!("~/.cache/brd-host/upgrade.json on {alias} has the outcome of the watchdog, and ~/Library/Logs/brd-host.log its lines");
     Err(match answered {
       Some(Some(binary)) if binary == installed.previous_sha256 => Refusal::new(
         Code::RolledBack,

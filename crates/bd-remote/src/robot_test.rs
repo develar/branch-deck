@@ -29,7 +29,7 @@ fn a_failed_robot_says_why_and_which_local_commits_it_tested() {
   let before = writable_state(&space.repo);
 
   let output = space.robot_ok(&["auth"]);
-  assert_eq!(writable_state(&space.repo), before, "bd robot is read only");
+  assert_eq!(writable_state(&space.repo), before, "brd robot is read only");
   assert_eq!(
     output["robot"],
     json!({
@@ -166,7 +166,7 @@ fn a_successful_robot_has_no_failure_and_a_branch_without_one_has_no_robot() {
 
 /// D7: a merged Safe Push lists the open pull requests of the branches it landed whole besides its own (auth, which
 /// login is built on, its pull request at the tip of auth), which the app closes; its own pull request is Patronus' to
-/// close, and bd closes none: nothing is written to GitHub. A robot that didn't merge lists none
+/// close, and brd closes none: nothing is written to GitHub. A robot that didn't merge lists none
 #[test_log::test]
 fn a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none() {
   let space = Space::new(&["(auth) Add auth", "(auth/login) Add form"]);
@@ -200,7 +200,7 @@ fn a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none() {
     .filter(|request| request.method != "GET" && request.path != "/graphql")
     .map(|request| format!("{} {}", request.method, request.path))
     .collect();
-  assert_eq!(writes, Vec::<String>::new(), "bd closes none");
+  assert_eq!(writes, Vec::<String>::new(), "brd closes none");
 }
 
 #[test_log::test]
@@ -221,7 +221,7 @@ fn robot_takes_a_robot_by_id_of_the_branch_only() {
 
   let (exit_code, output) = space.robot(&["auth", "--robot", "finished-login"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("bd robot login --robot finished-login"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("brd robot login --robot finished-login"), "{output}");
 }
 
 #[test_log::test]
@@ -301,7 +301,7 @@ fn the_robot_of_the_whole_stack_is_found_from_any_branch_of_it() {
   // with --whole-stack, only the whole stack's
   let (exit_code, output) = space.robot(&["session", "--whole-stack", "--robot", "own"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("bd robot login --robot own"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("brd robot login --robot own"), "{output}");
 }
 
 /// The branch and the state of each commit of a robot's output, newest first

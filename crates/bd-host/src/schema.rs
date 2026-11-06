@@ -1,4 +1,4 @@
-//! `bd-host schema` (spec/cli/host.spec.md, "version, schema, skill"): one JSON object with the protocol schema and
+//! `brd-host schema` (spec/cli/host.spec.md, "version, schema, skill"): one JSON object with the protocol schema and
 //! port, every refusal code with its exit code and its words, the exit codes, and the JSON schemas of the report of a
 //! run and of the hello. A caller such as bt reads it to act on the codes, never on the words of a message
 
@@ -8,13 +8,13 @@ use host_link::refusal::Code;
 use schemars::{Schema, schema_for};
 use serde::Serialize;
 
-/// The object of `bd-host schema`
+/// The object of `brd-host schema`
 #[derive(Debug, Serialize)]
 pub(crate) struct SchemaOutput {
   /// The schema of the report and of the hello
   pub(crate) schema: u32,
   pub(crate) protocol: Protocol,
-  /// The exit codes of `bd-host` beside the exit code of a command
+  /// The exit codes of `brd-host` beside the exit code of a command
   pub(crate) exits: Vec<ExitText>,
   /// Every refusal code, in the order of the table of the spec
   pub(crate) codes: Vec<CodeText>,
@@ -48,9 +48,9 @@ pub(crate) struct CodeText {
   pub(crate) words: &'static str,
 }
 
-/// The exit codes of `bd-host`. A run that exited has the exit code of its command instead
+/// The exit codes of `brd-host`. A run that exited has the exit code of its command instead
 const EXITS: [(u8, &str); 4] = [
-  (2, "a usage error: a command line that bd-host does not accept"),
+  (2, "a usage error: a command line that brd-host does not accept"),
   (75, "the host did not run the command, so the caller can run it locally"),
   (130, "Ctrl+C before the start, or a second Ctrl+C during the follow"),
   (255, "any other refusal: the command ran, or whether it ran is unknown, or the request is no run"),

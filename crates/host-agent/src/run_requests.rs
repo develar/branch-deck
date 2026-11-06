@@ -39,7 +39,7 @@ const FOLLOW_READ: usize = 1024 * 1024;
 const WRITE_DEADLINE: Duration = Duration::from_secs(60);
 
 impl Agent {
-  /// Makes the run directory, starts `bd-host supervise` in a session of its own, and answers at once. The ref that the
+  /// Makes the run directory, starts `brd-host supervise` in a session of its own, and answers at once. The ref that the
   /// pack of a refused start made stays until the keeper, which deletes a run ref without a lend after an hour
   pub(crate) fn start(&self, spec: &RunSpec) -> Result<Reply, Refusal> {
     if !is_run_id(&spec.run) {

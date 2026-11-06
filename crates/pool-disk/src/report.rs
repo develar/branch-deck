@@ -1,4 +1,4 @@
-//! The disk report as JSON, one shape for every reader: the output of `bd lease disk` (`lease_disk` of `bd schema`),
+//! The disk report as JSON, one shape for every reader: the output of `brd lease disk` (`lease_disk` of `brd schema`),
 //! the reply of the agent of `bd-host` to `Request::Disk`, which `bd-host disk` prints, and what the app reads of both
 //! (the Disk window). `DiskReport::of` writes it from the walk (`DiskUsage`)
 

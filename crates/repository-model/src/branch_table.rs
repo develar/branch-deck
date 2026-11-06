@@ -1,4 +1,4 @@
-//! The branch table a sync left (or a grouping read without one, `bd status`), what the repository view derives from
+//! The branch table a sync left (or a grouping read without one, `brd status`), what the repository view derives from
 //! (docs/design/git-operations.md, "Session facts"): the grouped branches in the order of the table, their virtual
 //! tips, the copies the sync wrote, the stack branches, the parked branches and the branches the fetched baseline has
 //! whole. The app keeps the one of its last sync per repository; `bd` builds it from the report of its sync.
@@ -33,7 +33,7 @@ pub struct BranchTable {
   /// The parked branches, each with the note the user parked it with
   pub parked: BTreeMap<String, String>,
   /// What the sync knows of the remote branches of the table and of its stack branches (`remote_facts`); a table read
-  /// without a sync (`bd status`) has the remote tips only
+  /// without a sync (`brd status`) has the remote tips only
   pub remote: RemoteFacts,
   /// The branches the fetched baseline has whole, by the landing report the sync sent (`in_baseline`): nothing of them is
   /// left to land, so no push of a start, a row or an action sends them (`domain_policy::push::kept`); a table read

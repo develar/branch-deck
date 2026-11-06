@@ -88,7 +88,7 @@ impl Launched {
 
 impl World {
   fn plist(&self) -> PathBuf {
-    self.home.path().join("Library/LaunchAgents/com.jetbrains.bd-host.plist")
+    self.home.path().join("Library/LaunchAgents/com.jetbrains.brd-host.plist")
   }
 }
 
@@ -199,17 +199,17 @@ fn an_upgrade_swaps_the_binary_and_ends_serve_and_a_run_and_the_watchdog_see_the
   assert_eq!(names(&agent_dir), [file_name.clone(), format!("{file_name}.previous")], "{broken}");
   assert_eq!(fs::metadata(agent_dir.join(format!("{file_name}.previous"))).expect("the previous binary").ino(), before);
   assert_ne!(fs::metadata(&target).expect("the binary").ino(), before);
-  assert!(!world.home.path().join(".cache/bd-host/listening.json").exists());
+  assert!(!world.home.path().join(".cache/brd-host/listening.json").exists());
 
   // launchd would start the binary again
   let renewed = launched.serve(&world);
   let short = &sha256[..12];
-  let agent_log = world.home.path().join("Library/Logs/bd-host.log");
+  let agent_log = world.home.path().join("Library/Logs/brd-host.log");
   eventually("the watchdog sees the new serve", || {
     fs::read_to_string(&agent_log).is_ok_and(|log| log.contains(&format!("watchdog: the binary {short} listens with the pid")))
   });
   // the watchdog writes its log line before its outcome
-  let outcome_file = world.home.path().join(".cache/bd-host/upgrade.json");
+  let outcome_file = world.home.path().join(".cache/brd-host/upgrade.json");
   eventually("the outcome of the watchdog", || outcome_file.exists());
   let outcome: Value = serde_json::from_slice(&fs::read(&outcome_file).expect("the outcome")).expect("JSON");
   assert_eq!(outcome["outcome"], "listened");

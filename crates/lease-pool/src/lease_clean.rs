@@ -1,4 +1,4 @@
-//! The clean rules of a slot (`bd lease return`, `bd lease clean`, spec/cli/lease.spec.md): the `[lease]` table of
+//! The clean rules of a slot (`brd lease return`, `brd lease clean`, spec/cli/lease.spec.md): the `[lease]` table of
 //! `.branchdeck.toml`, committed with the build layout it cleans. Two kinds only, and no command: a return must not run
 //! arbitrary code. A get leaves out of a new slot what the `delete` rules delete, when it clones one (`clone_dir`).
 //!
@@ -21,7 +21,7 @@
 //! (a `delete` may name a symlink itself, and removes the link), and git tracks nothing under it (one `ls-files` for
 //! all rules); a rule that breaks one of these is skipped and reported, never applied. The walk follows no symlink and
 //! removes a link, a junction of Windows too, as the link (`fs_retry::remove_entry`), never what it points to. A
-//! return and `bd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
+//! return and `brd lease clean` move what a rule removes into a trash directory first, a rename (a stale unit of a
 //! `cargo` rule as a whole), and delete it once the slot is free again (`Trash`); a link they delete at once, which
 //! costs no more than its move, so the trash holds no links. What a process keeps (on Windows one that works in it or
 //! has a file of it open, which no rename moves) stays whole in the checkout and the error of its rule names it, never
@@ -95,10 +95,10 @@ pub(crate) fn read_parsed<T>(path: &Path, parse: impl FnOnce(&str) -> Result<T>)
   }
 }
 
-/// The key of `[lease]` by which `bd lease pick` refuses a tree that no green build or test recorded (`check_record`)
+/// The key of `[lease]` by which `brd lease pick` refuses a tree that no green build or test recorded (`check_record`)
 const PICK_REQUIRES_CHECK: &str = "pick_requires_check";
 
-/// The tables of `.branchdeck.toml` that another reader owns: `[host]` is the one of the remote runs of `bd-host`
+/// The tables of `.branchdeck.toml` that another reader owns: `[host]` is the one of the remote runs of `brd-host`
 /// (`host_link::config`), which checks its keys itself
 const OTHER_TABLES: [&str; 1] = ["host"];
 
@@ -261,7 +261,7 @@ fn check_entry_name(name: &str) -> Result<(), String> {
   Ok(())
 }
 
-/// The parameters of a call that change the rules of the file without an edit of it (`bd lease clean --keep 2`)
+/// The parameters of a call that change the rules of the file without an edit of it (`brd lease clean --keep 2`)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CleanOverrides {
   /// `keep` of every cargo rule
@@ -586,7 +586,7 @@ pub(crate) fn remove_together(paths: &[PathBuf], mode: CleanMode<'_>, trashed: &
 /// that one holds the path
 fn held_note(error: &std::io::Error) -> &'static str {
   if fs_retry::is_held(error) {
-    "; a process holds it (works in it or has a file of it open): once it is closed, `bd lease clean` deletes it"
+    "; a process holds it (works in it or has a file of it open): once it is closed, `brd lease clean` deletes it"
   } else {
     ""
   }

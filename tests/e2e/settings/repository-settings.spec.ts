@@ -146,7 +146,7 @@ test.describe("Settings → Repository", () => {
     await waitForSyncComplete(page, syncs)
     await expect(symbols.getByRole("button", { name: "On", exact: true })).toHaveAttribute("aria-pressed", "false")
     await expect(symbols.getByTestId("repository-setting-source")).toHaveText("Set in this repository")
-    await expect(symbols).toContainText("Shown by bd commits, never used for the branches")
+    await expect(symbols).toContainText("Shown by brd commits, never used for the branches")
 
     // read from git again: the write is in .git/config
     const read = window.waitForResponse(response => response.url().endsWith("/invoke/get_repository_config"))

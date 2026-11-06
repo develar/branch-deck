@@ -1,6 +1,6 @@
 //! The host slots (spec/cli/lease.spec.md, "Host slots"; "Host slots" in docs/design/git-operations.md): the slots of
-//! the pool that the agent of `bd-host` on a host keeps for the runs of other machines, in process,
-//! each a plain `ready` lease of the holder `bd-host/<n>`
+//! the pool that the agent of `brd-host` on a host keeps for the runs of other machines, in process,
+//! each a plain `ready` lease of the holder `brd-host/<n>`
 //! in `leases.json`, and the lend table in `$GIT_COMMON_DIR/branch-deck/host-slots.json`, which lends a slot to one run
 //! for the duration of that run. A remote slot holds no state of its own: the commit comes from the client, and the
 //! outputs go back to it, so a slot is free once its run ended and its processes are gone.
@@ -43,8 +43,8 @@ use sync_utils::size::parse_size;
 use sync_utils::span::in_current_span;
 use tracing::{debug, warn};
 
-/// The prefix of the holders of the host slots: `bd-host/1`, `bd-host/2`, …
-pub const HOST_HOLDER_PREFIX: &str = "bd-host/";
+/// The prefix of the holders of the host slots: `brd-host/1`, `brd-host/2`, …
+pub const HOST_HOLDER_PREFIX: &str = "brd-host/";
 const STATE_FILE: &str = "host-slots.json";
 const LOCK_FILE: &str = "host-slots.lock";
 /// The host slots of a repository without `branchdeck.hostSlots`
@@ -100,7 +100,7 @@ pub enum HostGitState {
 /// A host slot
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostSlot {
-  /// 1, 2, …: its lease is of the holder `bd-host/<n>`
+  /// 1, 2, …: its lease is of the holder `brd-host/<n>`
   pub n: u32,
   /// The id of its lease in `leases.json`; empty while its fill runs
   #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -285,7 +285,7 @@ pub fn read_host_slots(git_common_dir: &Path) -> Result<HostSlots> {
   table_file(Path::new(&canonical_path(git_common_dir))).read()
 }
 
-/// The host slot that `lease` is, by its holder `bd-host/<n>` or by the table, which names the lease by its id (not by
+/// The host slot that `lease` is, by its holder `brd-host/<n>` or by the table, which names the lease by its id (not by
 /// the path: the record of a shrink that died after the return would name a path that another session leased since).
 /// The table is read without its lock, which is a leaf and never taken under the pool lock
 pub(crate) fn host_slot_number(git_common_dir: &Path, lease: &crate::lease::Lease) -> Result<Option<u32>> {
@@ -1004,7 +1004,7 @@ pub struct CheckedOut {
 /// two commits (`move_clean_slot`), since the give-back of its last run, the fill, or the clean left it clean (index ==
 /// HEAD == worktree), so without a `status`. Every file is checked out (`checkout_slot`, which discards local changes)
 /// only after git refused the diff, and only while the table still lends the slot to the same run with the same lend:
-/// the bd of a supervisor that died is still running, and the slot may be another run's by then. `NotLent` when the
+/// the brd of a supervisor that died is still running, and the slot may be another run's by then. `NotLent` when the
 /// run has no slot, or it has gone meanwhile. The git runs outside the lock of the table, which is a leaf
 pub fn checkout(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, run: &str, commit: &str) -> Result<CheckedOut> {
   let lend_of = |table: &HostSlots| {
@@ -1421,7 +1421,7 @@ fn clean_core(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, n
   })
 }
 
-/// `bd lease clean --host`: the clean rules of each idle host slot's own `.branchdeck.toml` with `overrides`, or with
+/// `brd lease clean --host`: the clean rules of each idle host slot's own `.branchdeck.toml` with `overrides`, or with
 /// `apply` false only measured. A slot that is not idle, or that has a process in it, is skipped with the reason, and
 /// every slot while a live process upgrades git, before any git or process scan
 pub fn clean_host_slots(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, apply: bool, overrides: CleanOverrides) -> Result<(Vec<CleanTarget>, bool)> {
@@ -1485,7 +1485,7 @@ pub struct Filled {
 
 /// Lease the missing host slots, up to `branchdeck.hostSlots` (4 by default) and the limit of the last shrink: each
 /// number reserved as `filling` under the lock of the table, then, without it, the gets of the pool with the holders
-/// `bd-host/<n>` at the HEAD of the host checkout, detached, side by side: a free slot reused at once, the clones one
+/// `brd-host/<n>` at the HEAD of the host checkout, detached, side by side: a free slot reused at once, the clones one
 /// at a time behind the clones lock; then each idle. A get that fails frees its number, and the first failure is the
 /// error; the slots got stay. `progress` hears each step of each get with the number of its slot, from the thread of
 /// that get. While a live process upgrades git, it adds none and runs no git: `GitUpgrading`
@@ -1540,7 +1540,7 @@ pub fn fill(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, pro
 /// The minimum free space of the volume of the pool, kept by the keeper of the host slots: below
 /// `branchdeck.leaseMinFree` it takes the steps a get takes there (`lease::relieve_core`: the trash, the trim of every
 /// pool of the machine, the shrink, the eviction), so a host that only runs keeps its minimum without a get and without
-/// `bd`. `None` when the volume has it, and when `round` took its volume already: the repositories of a host share
+/// `brd`. `None` when the volume has it, and when `round` took its volume already: the repositories of a host share
 /// one, and one relief serves them all. Below it after every step, `Relieved::after` is below `Relieved::required`.
 /// While a live process upgrades git it runs no git: `GitUpgrading`
 pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>, round: &mut ReliefRound) -> Result<Option<Relieved>> {
@@ -1563,7 +1563,7 @@ pub fn keep_free(git_executor: &GitCommandExecutor, params: &HostSlotsParams<'_>
   )
 }
 
-/// The trim of every pool of the host that `bd-host trim` asks for (`trim::trim_core`, as `bd lease trim` runs it):
+/// The trim of every pool of the host that `brd-host trim` asks for (`trim::trim_core`, as `brd lease trim` runs it):
 /// the free slots past `max_slots`, else `branchdeck.leaseMaxSlots` of each repository, with their Bazel output bases,
 /// and the output bases of gone workspaces; `apply` false only says what would go. A host slot is a lease and stays.
 /// While a live process upgrades git it runs no git: `GitUpgrading`
@@ -1852,7 +1852,7 @@ pub enum ReclaimAction {
   Requarantined,
   /// An abandoned clean ran again
   Cleaned,
-  /// An abandoned shrink, or a lease `bd-host/<n>` the table does not name (a fill that died after its get), went back
+  /// An abandoned shrink, or a lease `brd-host/<n>` the table does not name (a fill that died after its get), went back
   /// to the pool
   Returned,
 }
@@ -1860,7 +1860,7 @@ pub enum ReclaimAction {
 /// Take up what no process acts on, a tick of the keeper of the host agent (every 60 s), and in its absence of any
 /// command of the host slots: the tickets of gone processes leave the queue; the record of a fill that died before its
 /// get goes; an abandoned lend or give-back is given back; a slot in quarantine whose processes are gone is given back;
-/// an abandoned clean runs again; an abandoned shrink returns its slot; a `ready` lease of the holder `bd-host/<n>`
+/// an abandoned clean runs again; an abandoned shrink returns its slot; a `ready` lease of the holder `brd-host/<n>`
 /// that the table does not name, and whose number no live fill holds, goes back to the pool. The steps on the slots run
 /// side by side, each on a slot of its own. While a live process upgrades git, each step but the first two is skipped:
 /// its `error` is `GitUpgrading`, and a later `reclaim` takes it up again

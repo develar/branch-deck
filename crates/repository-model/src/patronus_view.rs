@@ -1,6 +1,6 @@
 //! What the robots land and landed of the branch table, the facts the rules of the holds and the starts decide over
 //! (`derive::decide_landing`, `domain_policy::holds`, `domain_policy::land`): the one derivation of the app (the session
-//! derives it, `facts::derive_patronus`) and of `bd` (`bd push`, `bd safe-push`, `bd status`),
+//! derives it, `facts::derive_patronus`) and of `bd` (`brd push`, `brd safe-push`, `brd status`),
 //! spec/branch/patronus.spec.md and docs/design/git-operations.md, "Session facts".
 //!
 //! - A merged robot landed the branch it ran on and those it is built on (for the whole stack every branch of it), the

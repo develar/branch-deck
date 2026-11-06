@@ -94,7 +94,7 @@ fn robot_of(id: &str, status: &str, now: u32, ago: u32) -> Value {
   robot_json(id, status, "refs/heads/test-user/virtual/auth", &format_utc_timestamp(now - ago))
 }
 
-/// The request budget of `bd status` on Patronus: a list kept a minute while a robot of it runs and five while none
+/// The request budget of `brd status` on Patronus: a list kept a minute while a robot of it runs and five while none
 /// does, then a list of the robots started since shortly before it and a poll of the running ones; the first list is of
 /// the last 7 days
 #[test_log::test]
@@ -173,7 +173,7 @@ fn a_rejected_token_and_a_failure_hold_the_requests_and_keep_the_robots() {
   assert_eq!((fixture.read(rejected + 86_400), lists()), (vec!["merged Success".to_string()], 8));
 }
 
-/// `bd status` keeps the robots and asks Patronus once while they hold; `bd push`, which decides on them, asks and keeps
+/// `brd status` keeps the robots and asks Patronus once while they hold; `brd push`, which decides on them, asks and keeps
 /// its list for the statuses after it; `--no-cache` asks every time
 #[test_log::test]
 fn status_asks_patronus_once_while_the_kept_robots_hold() {

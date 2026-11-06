@@ -24,8 +24,8 @@ pub fn attribute_generated_paths<'a>(git: &GitCommandExecutor, repository: &str,
   Ok(generated)
 }
 
-/// The paths that are lock files, or that the attributes of `source` mark generated: what `bd commits` and
-/// `bd status` leave out. The lock files need no process
+/// The paths that are lock files, or that the attributes of `source` mark generated: what `brd commits` and
+/// `brd status` leave out. The lock files need no process
 #[instrument(skip(git, paths))]
 pub fn generated_paths<'a>(git: &GitCommandExecutor, repository: &str, source: &str, paths: impl IntoIterator<Item = &'a str>) -> Result<HashSet<String>> {
   let (locks, others): (Vec<&str>, Vec<&str>) = paths.into_iter().partition(|path| is_lock_file(path));

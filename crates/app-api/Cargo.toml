@@ -19,7 +19,7 @@ git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops" }
 github = { path = "../github" }
 history-rewrite = { path = "../history-rewrite" }
-# the rules of `bd workspace` an install of the agent CLI answers (`agent_defaults`)
+# the rules of `brd workspace` an install of the agent CLI answers (`agent_defaults`)
 lease-pool = { path = "../lease-pool" }
 pool-disk = { path = "../pool-disk" }
 object-cache = { path = "../object-cache" }

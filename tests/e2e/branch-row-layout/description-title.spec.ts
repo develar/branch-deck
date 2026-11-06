@@ -7,7 +7,7 @@ test.describe("Branch summary", () => {
     await setupRepo("long_subjects")
     await syncAndWaitForBranches()
 
-    // `docs` has a description (`bd describe`): its title is the summary, its conventional prefix not dimmed
+    // `docs` has a description (`brd describe`): its title is the summary, its conventional prefix not dimmed
     const docsRow = findBranchRow(page, "docs")
     const title = docsRow.getByTestId("branch-summary")
     await expect(title).toHaveText("docs: fix the typo in the README")

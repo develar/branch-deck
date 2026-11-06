@@ -10,7 +10,7 @@
 //! with the push of user/virtual/login, which is built on this branch."). Each close holds the state of its pull request
 //! (`PullRequestField::State`), is one `GET`, a comment and a `PATCH` (`close_pull_request`: a closed one gets no second
 //! comment, a merged one can't be closed), goes into the session at once (`PullRequestWrite::Closed`), and one GitHub
-//! refuses stops none of the others. `bd` closes none: `bd robot` lists them (`closes`).
+//! refuses stops none of the others. `bd` closes none: `brd robot` lists them (`closes`).
 
 use crate::engine::{check_admitted, outcome_of, run};
 use crate::events::EventSink;

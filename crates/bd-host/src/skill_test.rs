@@ -23,7 +23,7 @@ fn text(dir: &Path, path: &str) -> String {
 #[test]
 fn skill_install_replaces_a_copy_of_another_build_and_keeps_local_edits() {
   let home = tempfile::tempdir().expect("a temporary directory");
-  let dir = home.path().join("skills/bd-host");
+  let dir = home.path().join("skills/brd-host");
   assert_eq!(install(&dir, false), Ok(Installed::Fresh));
   for (path, expected) in FILES {
     assert_eq!(text(&dir, path), expected, "{path}");
@@ -46,7 +46,7 @@ fn skill_install_replaces_a_copy_of_another_build_and_keeps_local_edits() {
   let refusal = install(&dir, false).expect_err("refused");
   assert_eq!(refusal.code, Code::SkillEdited);
   assert!(refusal.message.contains("local edits (SKILL.md)"), "{}", refusal.message);
-  assert!(refusal.message.contains("`bd-host skill install --force`"), "{}", refusal.message);
+  assert!(refusal.message.contains("`brd-host skill install --force`"), "{}", refusal.message);
   assert_eq!(text(&dir, "SKILL.md"), "my own words");
   assert_eq!(install(&dir, true), Ok(Installed::ReplacedEdited));
   assert_eq!(text(&dir, "SKILL.md"), SKILL);
@@ -87,25 +87,25 @@ fn a_marker_path_that_no_skill_file_can_have_counts_as_no_line() {
   assert_eq!(parse_marker(&marker).into_keys().collect::<Vec<_>>(), ["SKILL.md", "references/spec.md"]);
 }
 
-/// The refresh of `bd-host upgrade` replaces only an unedited copy of another build, and installs no missing one
+/// The refresh of `brd-host upgrade` replaces only an unedited copy of another build, and installs no missing one
 #[test]
 fn a_refresh_replaces_only_an_unedited_copy_of_another_build() {
   let home = tempfile::tempdir().expect("a temporary directory");
-  let dir = home.path().join("bd-host");
+  let dir = home.path().join("brd-host");
   assert_eq!(refresh(&dir), None);
   assert!(!dir.exists(), "a refresh installs a missing skill");
 
   let old = install_other(&dir, &[("SKILL.md", "old")]);
   assert_eq!(
     refresh(&dir),
-    Some(format!("bd-host: replaced the skill of build {old} with build {} in {}", build(), dir.display()))
+    Some(format!("brd-host: replaced the skill of build {old} with build {} in {}", build(), dir.display()))
   );
   assert_eq!(text(&dir, "SKILL.md"), SKILL);
   assert_eq!(refresh(&dir), None);
 
   fs::write(dir.join("SKILL.md"), "my own words").expect("written");
   let said = refresh(&dir).expect("a line");
-  assert!(said.starts_with("bd-host: the skill in "), "{said}");
+  assert!(said.starts_with("brd-host: the skill in "), "{said}");
   assert!(said.contains("local edits (SKILL.md)"), "{said}");
   assert_eq!(text(&dir, "SKILL.md"), "my own words");
 }
@@ -121,7 +121,7 @@ fn the_skill_names_itself_bd_host_with_a_short_description() {
     .map(|(frontmatter, _)| frontmatter)
     .expect("a frontmatter");
   let field = |name: &str| frontmatter.lines().find_map(|line| line.strip_prefix(name)?.strip_prefix(": ")).unwrap_or_default();
-  assert_eq!(field("name"), "bd-host");
+  assert_eq!(field("name"), "brd-host");
   let description = field("description");
   assert!(!description.is_empty() && description.len() <= 160, "{} bytes: {description}", description.len());
 }

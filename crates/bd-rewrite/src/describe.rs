@@ -1,4 +1,4 @@
-//! `bd describe`: the pull request text of a virtual branch, kept in git's own `branch.<name>.description` as
+//! `brd describe`: the pull request text of a virtual branch, kept in git's own `branch.<name>.description` as
 //! `git branch --edit-description` writes it (the title, a blank line, the body)
 
 use bd_core::branch_view::read_grouping;
@@ -31,7 +31,7 @@ pub struct DescribeArgs {
   pub clear: bool,
 }
 
-/// `bd describe`
+/// `brd describe`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct DescribeOutput {
   pub schema: SchemaVersion,

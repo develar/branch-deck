@@ -498,7 +498,7 @@ async fn a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one()
   assert_eq!(shown(&log), [(false, Vec::new())]);
   let pipe = path.clone();
   let disk = tokio::task::spawn_blocking(move || hung_disk_writer(&pipe)).await.unwrap();
-  // the operation of bd ends: its entry is in the journal, and the window reads again while the first read waits
+  // the operation of brd ends: its entry is in the journal, and the window reads again while the first read waits
   let written = directory.path().join("written");
   std::fs::copy(journal_path_in(registry.dir()), &written).unwrap();
   std::fs::rename(&written, &path).unwrap();

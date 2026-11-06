@@ -56,26 +56,28 @@ fn api_error_of_each_contract_case_is_its_json_in_the_fixture() {
 #[test]
 fn api_error_names_the_holder_of_a_lock_with_how_long_it_has_held_it() {
   assert_eq!(
-    holder_of(&locked_by("bd push auth", NOW - 40)),
+    holder_of(&locked_by("brd push auth", NOW - 40)),
     LockHolderInfo {
       tool: HolderTool::Bd,
-      command: "bd push auth".to_string(),
+      command: "brd push auth".to_string(),
       pid: 4242,
       held_for: 40,
     }
   );
-  let error = api_error_at(&locked_by("bd push auth", NOW - 40), NOW);
+  let error = api_error_at(&locked_by("brd push auth", NOW - 40), NOW);
   assert_eq!((error.code, error.retry), (ErrorCode::Locked, Retry::Same));
-  assert_eq!(error.message, "`bd push auth` (pid 4242) is changing this repository; try again when it is done");
+  assert_eq!(error.message, "`brd push auth` (pid 4242) is changing this repository; try again when it is done");
 }
 
 #[test]
 fn api_error_tells_a_bd_holder_by_its_program_from_the_app() {
   let tool = |command: &str| holder_of(&locked_by(command, NOW)).tool;
-  assert_eq!(tool("bd check --fix"), HolderTool::Bd);
-  assert_eq!(tool("bd.exe sync"), HolderTool::Bd);
+  assert_eq!(tool("brd check --fix"), HolderTool::Bd);
+  assert_eq!(tool("brd.exe sync"), HolderTool::Bd);
   assert_eq!(tool("branch-deck cli push auth"), HolderTool::Bd);
   assert_eq!(tool("branch-deck"), HolderTool::App);
+  assert_eq!(tool("bd push"), HolderTool::App);
+  assert_eq!(tool("bd.exe sync"), HolderTool::App);
   assert_eq!(tool("bdx push"), HolderTool::App);
 }
 

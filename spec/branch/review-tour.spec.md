@@ -65,7 +65,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 
 ## Non-goals
 
-- A tour a language model writes, or one the author writes with `bd tour`: the next round
+- A tour a language model writes, or one the author writes with `brd tour`: the next round
   ([Change Review → Next](../../docs/design/change-review.md#next)).
 
 ## Requirements
@@ -163,7 +163,7 @@ and the rounds: [Change Review](../../docs/design/change-review.md).
 
 ### Tests That Reach It
 The question a step answers is which tests of the change prove it, not which tests of the repository its code is
-reachable from: that is the impact of the change, `bd impact`'s.
+reachable from: that is the impact of the change, `brd impact`'s.
 - The code of a step is each declaration of a parsed language whose body or form changed or that it adds, and of a
   file it adds each declaration at its top (a new type with its members, as a new type of a changed file is one unit),
   in no test file and no test code (a test, a fixture of its class or of its Rust `mod tests`: the unit is `test`). A
@@ -295,8 +295,8 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   [@test] ../../crates/review-plan/src/steps_test.rs (`the_brief_names_the_issue_and_the_rules_a_spec_adds_with_their_tests`, `a_file_of_prose_is_a_spec_a_decision_a_guide_or_a_doc_by_its_place`, `the_brief_of_a_doc_names_the_section_of_a_changed_value_and_quotes_only_its_prose`)
   [@test] ../../crates/review-plan/src/prose_test.rs (`a_hard_wrapped_paragraph_changed_in_one_line_is_the_whole_paragraph_by_word`, `a_paragraph_wrapped_anew_is_no_change`, `a_new_paragraph_is_added_alone_and_lines_appended_to_one_change_it`, `a_rewritten_paragraph_is_removed_and_added_and_two_blocks_of_one_paragraph_are_one`, `a_paragraph_added_before_a_changed_one_leaves_it_its_pair`, `the_test_lines_of_an_item_name_its_tests`, `a_link_reads_as_its_text_with_its_target`, `a_long_paragraph_changed_in_one_sentence_shows_it_first`)
 
-### In `bd`
-- `bd review-plan` must print `steps` and `brief` (`"schema": 18`), the ids of the commits of the steps and of the
+### In `brd`
+- `brd review-plan` must print `steps` and `brief` (`"schema": 18`), the ids of the commits of the steps and of the
   story as short as the others, every mention of a name in backticks with its `target` (`null` where it resolves
   nothing), and run no git process for them.
   [@test] ../../crates/bd-rewrite/src/review_plan_test.rs (`prints_the_api_and_the_files_of_a_range`)
@@ -581,7 +581,7 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 
 ## Measurements
 
-`bd review-plan` (schema 10, a debug build) on 2026-10-31, every range read without the object cache:
+`brd review-plan` (schema 10, a debug build) on 2026-10-31, every range read without the object cache:
 
 | Ranges | Steps | Source | Follow-ups | Coverage |
 |---|---|---|---|---|
@@ -594,14 +594,14 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
 - A cap of 12 steps that made the concerns the steps of a long branch was measured on `air-local-launch`: its 42
   concerns and a rest of 201 stops were no shorter a list than its 30 steps of commits, and lost their bodies. There
   is no cap.
-- The steps of the message (`bd review-plan` schema 15, a debug build, 2026-11-02): of 31 commits of `develar` in
+- The steps of the message (`brd review-plan` schema 15, a debug build, 2026-11-02): of 31 commits of `develar` in
   idea-1 with a body of 40 words or more and 3 changed files or more, and IJAI-5582 (`terminal-split-url`), 10 are
   told by their parts, their 68 concerns now 48 steps; of the last 15 commits of this repository, 6, 45 concerns now 36
   steps. Every block stays in one stop. On IJAI-5582 the 12 concerns, the core under the token `TerminalOffset` and 7
   of them tests and their helpers, became the marker, the way of the markers, the joiner with its Look closely, the
   batches of the frontend and the tests, each titled by its paragraph, then the DTO field no paragraph names and the
   rest. A body that lists its changes as one list stays on the concerns: the list is one part.
-- The tests that reach the code (`bd review-plan` schema 13, 2026-11-01, the 5 virtual branches of `develar` in
+- The tests that reach the code (`brd review-plan` schema 13, 2026-11-01, the 5 virtual branches of `develar` in
   idea-1 then, 18 steps, 11 of them with code): a test reaches code of 10 of the 11, and in 8 of those a test the
   change did not touch does; no step is marked unproven. The text match of the changed lines of the range's tests it
   replaced had marked 20 of 116 steps of 14 branches, most of them reached through an entry. 9 steps list code no test

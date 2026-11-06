@@ -41,14 +41,14 @@ export interface LandRun {
    * cancel of the robot it replaces); `waiting`: another holder of the repository lock; then its push and its robot
    */
   readonly step: "checking" | "waiting" | "pushing" | "starting"
-  /** While it waits for another holder of the repository lock: whom for, as the view names it ("Waiting for `bd pick` (pid 4242, for 12 s)") */
+  /** While it waits for another holder of the repository lock: whom for, as the view names it ("Waiting for `brd pick` (pid 4242, for 12 s)") */
   readonly waitingFor: string | null
   /** The operation; null while the click waits for its plan */
   readonly op: OperationId | null
   /** The virtual branches its push sends, root first (the refs it reserves); empty without a push */
   readonly pushes: readonly string[]
   /**
-   * Another process of the repository runs it (an agent's `bd safe-push`, `presentOtherProcess`): its words, which the
+   * Another process of the repository runs it (an agent's `brd safe-push`, `presentOtherProcess`): its words, which the
    * slot shows in place of its step; null for a start of this app
    */
   readonly by: OtherProcessRun | null

@@ -109,7 +109,7 @@ export function unionSeconds(processes) {
 
 /**
  * The name of a test binary of a JUnit report as its file, which names the trace directory: the crate of a unit test
- * binary (`bd-remote`), the target of an integration test or a binary (`host-agent::serve`, `bd-host::bin/bd-host`)
+ * binary (`bd-remote`), the target of an integration test or a binary (`host-agent::serve`, `bd-host::bin/brd-host`)
  */
 export function binaryFileName(junitBinary) {
   const [crate, target] = junitBinary.split("::")

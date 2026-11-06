@@ -20,7 +20,7 @@
 //! (`Resource::Head`, which every rewrite holds) is one only within a process: the rewrites of a process run one after
 //! the other, while between processes the repository lock orders them, so a rewrite, an update or a pick of another
 //! process makes none busy, the same one neither (`Intent::ordered_by_repository_lock`): it waits for the lock, and its
-//! core runs on what the other one left (a second `bd unstack beta` beside the app's finds beta a root already).
+//! core runs on what the other one left (a second `brd unstack beta` beside the app's finds beta a root already).
 
 use domain_types::operation::{Admission, Intent, Origin, Resource, RunningOperation};
 

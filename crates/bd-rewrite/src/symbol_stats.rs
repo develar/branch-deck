@@ -1,4 +1,4 @@
-//! `bd commits --symbol-stats` (hidden): what the dependencies by symbols find on the commits ahead of the baseline,
+//! `brd commits --symbol-stats` (hidden): what the dependencies by symbols find on the commits ahead of the baseline,
 //! next to the line dependencies, for the gate that decides whether they order branches (docs/design/
 //! symbol-dependencies.md, "Measurements"). It writes the object cache only.
 

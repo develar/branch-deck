@@ -98,7 +98,7 @@ virtual branch, and holds `auth`'s commits with its own: what its Safe Push land
 Deeper prefixes declare the ancestry (`(auth/login/oauth)`), and a bare `(login)` joins `login` wherever
 its parent is declared. A branch whose prefixes declare no parent, an issue branch and an issue group too, takes its
 stack parent from `refs/branch-deck/stack-parents` ([Stack Parents](stack-parents.spec.md)): Stack On, Unstack and
-`bd group` with a path write it there, without a history rewrite. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
+`brd group` with a path write it there, without a history rewrite. A parent without commits (landed, unapplied, mistyped) is passed: the child is built on the
 nearest ancestor with commits, or the baseline. A branch that can't be placed, or whose parent can't be built, is
 reported and not rebuilt; the other branches still sync. The branch table draws the stacks as a graph, and the branch
 menu stacks, unstacks and renames branches.
@@ -119,7 +119,7 @@ menu stacks, unstacks and renames branches.
   a stack of GitHub, whose layers go into their parents' branches and are judged by the rules of the target
   ([Stacks of GitHub](#stacks-of-github)). An open one into a virtual branch outside such a stack is retargeted
   ([Pull requests](#pull-requests)); one GitHub merged into a parent's branch landed nothing: the next step and
-  `bd push` say so (`mergedIntoBranch`, `merged_elsewhere`), and a new pull request into the baseline lands it
+  `brd push` say so (`mergedIntoBranch`, `merged_elsewhere`), and a new pull request into the baseline lands it
   ([Next Step](next-step.spec.md)).
 - The pull requests of every branch of a stack at once: "Create Pull Request…" creates the pull request of one branch
   ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)), of a layer of a stack of GitHub with those of the
@@ -170,12 +170,12 @@ menu stacks, unstacks and renames branches.
   - a syntax problem.
   [@test] ../../crates/history-rewrite/src/commit_grouper_test.rs (`conflicting_parents_name_their_commits`, `a_branch_can_not_be_its_own_parent`, `a_cycle_marks_each_of_its_branches`, `leaves_that_differ_only_in_case_collide`)
   [@test] ../../crates/sync-core/src/stack_sync_test.rs (`a_problem_is_not_built_and_a_missing_parent_is_passed`)
-- Each problem must be said once, by Rust, for the app and `bd` (`problem_view`, `StackProblemView`): a label (the
+- Each problem must be said once, by Rust, for the app and `brd` (`problem_view`, `StackProblemView`): a label (the
   status of the row), a reason naming the branch ("login has conflicting parents"), a message without commands and its
   fixes (`StackFix`). The fixes must be only those that remove the problem and add none: conflicting parents, Stack On
   each parent except one stacked on the branch (a cycle), or Unstack; a cycle, Unstack; `(a/a)`, Unstack while no
   other parent is declared, else Reword of its commits; a case collision, Rename; an empty level, Reword of its commits.
-  `bd` prints the fixes as commands after the message (`fix: `bd restack login auth` or `bd unstack login``).
+  `brd` prints the fixes as commands after the message (`fix: `brd restack login auth` or `brd unstack login``).
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`each_problem_offers_the_fixes_that_remove_it`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`each_restack_a_stack_problem_offers_removes_it`)
 - A child of a branch with a problem must be blocked with the reason `problem`, its text naming the problem
@@ -193,15 +193,15 @@ menu stacks, unstacks and renames branches.
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_child_is_built_on_its_active_parent`)
 - A parent without commits must be `Unapplied` with an unapplied branch of its name, `Integrated` when its branch is
   integrated, else `Missing`. Its branch is its virtual branch, which the sync is about to archive, else its newest
-  archived branch; a detection note says whether it is integrated. The state is a label (the row, `bd status`); the
+  archived branch; a detection note says whether it is integrated. The state is a label (the row, `brd status`); the
   placement doesn't depend on it.
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`reads_the_state_of_parents_without_commits_from_their_branches`)
 - The branch of a parent without commits (its virtual branch, else its newest archived one) must be detected before the
   branches are placed by the rule of the archive step: when it has no note, a `NotIntegrated` note the baseline moved on
   from (incrementally), or a note without a usable baseline (in full; an archived branch only within the retention
   period), so the first sync after the parent's merge already labels the parent landed, also when the parent was
-  archived a sync before. The sync writes the note, and its archiving reports the parent from it; `bd status` and
-  `bd check` detect without writing.
+  archived a sync before. The sync writes the note, and its archiving reports the parent from it; `brd status` and
+  `brd check` detect without writing.
   [@test] ../../crates/history-rewrite/src/stack_test.rs (`a_parent_whose_virtual_branch_lost_its_commits_is_detected_before_the_placement`)
   [@test] ../../crates/sync-core/src/detection_stack_test.rs (`the_first_sync_after_the_parent_is_integrated_builds_the_child_on_the_baseline`)
   [@test] ../../crates/sync-core/src/detection_recheck_test.rs (`a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent`, `a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent`)
@@ -246,7 +246,7 @@ menu stacks, unstacks and renames branches.
   such a branch along ([Outgoing Commits](../repository/outgoing.spec.md#what-is-outgoing)). The sync builds the
   identities of every branch's ancestors once, from the commits it grouped, along the chain of effective bases; a push
   outside the sync reads them from the parent's virtual branch with one `rev-list`, only while a remote commit
-  matches nothing of the child. `bd` reports them as `remote.restacked` and pushes such a branch without `--force`
+  matches nothing of the child. `brd` reports them as `remote.restacked` and pushes such a branch without `--force`
   ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_child_of_an_amended_parent_is_restacked`, `a_child_of_a_reworded_parent_is_restacked`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
@@ -275,7 +275,7 @@ menu stacks, unstacks and renames branches.
   what its Safe Push lands, so its approvals are the ones Patronus counts ([Landing](../../docs/design/landing.md)).
   "Create Pull Request…" creates it into the baseline ([Pull Requests](pull-requests.spec.md#creating-a-pull-request)),
   and its dialog says what it holds ("Includes the commits of auth and login, which oauth is built on: 3 branches · 12
-  commits"); `bd push` prints its `gh pr create` with `--base master` ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+  commits"); `brd push` prints its `gh pr create` with `--base master` ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../src/lib/stack.test.ts (`is the baseline as the remote names it for every branch, stacked or not`)
   [@test] ../../src/lib/pull-request-dialog.test.ts (`creates the pull request of a stacked branch into the baseline, with the commits of the branches it is built on`, `includes nothing more for a branch built on the baseline`)
   [@test] ../../src/lib/pull-request.test.ts (`opens the pull request form of the pushed branch into its base`)
@@ -297,7 +297,7 @@ menu stacks, unstacks and renames branches.
   Request" ([Activity](../repository/activity.spec.md)). A failed retarget is a "Cannot retarget pull request #802"
   error and the push still runs; its toast then says "the pull request goes into auth: retarget it to master" with
   "Copy gh pr edit". "Copy Retarget Command" in the copy group of the branch menu copies the command before a push.
-  `bd push` and `bd safe-push` retarget the same way ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+  `brd push` and `brd safe-push` retarget the same way ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../src/lib/push-run.test.ts (`retargets a pull request into a virtual branch to the baseline before the push, and says it in the toast of the push`, `pushes and copies the command that retargets a pull request when the retarget fails`)
   [@test] ../../crates/test-server/src/github_host_test.rs (`a_push_retargets_the_pull_request_of_its_branch_out_of_a_virtual_branch_first`)
   [@test] ../../src/presenters/push-button.test.ts (`says which pull requests into a virtual branch the push retargets first, and warns when GitHub may dismiss approvals`)
@@ -344,14 +344,14 @@ menu stacks, unstacks and renames branches.
   branch. The branch menu pushes as the button does, never the whole stack past an ancestor whose push drops remote
   commits: that ancestor asks first in its own row. `Push Stack (3 branches)` of the description of a button that
   pushes the branch alone covers every ancestor with work up to the nearest one a Safe Push holds, the ones that drop
-  remote commits too: the intent forced (`force`), as the description named each drop. `bd push` takes them along too
+  remote commits too: the intent forced (`force`), as the description named each drop. `brd push` takes them along too
   ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] ../../crates/domain-policy/src/stack_test.rs (`the_ancestors_are_the_chain_of_the_effective_bases_in_the_table`)
   [@test] ../../src/hooks/useBranchContextActions.test.ts (`pushes the branch alone above an ancestor whose push drops remote commits: that one asks first in its own row`)
   [@test] ../../crates/operations/src/push_test.rs (`a_push_of_a_stack_leaves_an_ancestor_that_asks_first_unless_forced`)
 - A push of several branches (Push Stack, Push with Children, Push Up to Here) must be one atomic push of all of them,
-  as `bd push` pushes ([Git Operations](../../docs/design/git-operations.md#push-and-land)): all of them or none, never
+  as `brd push` pushes ([Git Operations](../../docs/design/git-operations.md#push-and-land)): all of them or none, never
   a stack pushed up to a failure, which would leave a stale branch in the middle. A sync of the session that runs is
   awaited first, and the branches are decided and pushed as it leaves them. Each branch is leased on the remote head its row shows; a remote branch
   that moved since refuses the whole push and every branch is fetched. When that remote has no commits its branch lacks,
@@ -428,7 +428,7 @@ menu stacks, unstacks and renames branches.
   either: one on no remote and in no pull request is "The branches of the stack are on the remote. Its stack branch
   goes there with the pull request or the Safe Push of the whole stack", one the sync didn't build says why. A refused
   push names a stack branch that moved as the stack branch, apart from its root ("Cannot push the whole stack branch of
-  auth"). `bd push <root> --with-children` follows the same rule ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+  auth"). `brd push <root> --with-children` follows the same rule ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
   [@test] ../../crates/domain-policy/src/push_test.rs (`the_stack_branch_goes_along_once_published_built_not_held_and_behind`)
   [@test] ../../src/lib/stack.test.ts (`names Push with Children by what it pushes`)
   [@test] ../../src/presenters/actions.test.ts (`words every blocker of the catalog as the page says it`, `says why Push with Children leaves the stack branch of the whole stack as it is, and names the children that ask first`)
@@ -475,7 +475,7 @@ menu stacks, unstacks and renames branches.
   offer no Safe Push, no Dry Run and no push, nor does the branch it ran on ("Merged"); a branch built on a landed
   ancestor lands without it ("Safe Push" where it was "Safe Push · 2"). A new commit of an ancestor rebuilds the
   branches built on it: they stay landed by content, the new commit the only work left of its branch ("Landed with
-  oauth · 1 commit after it"). `bd safe-push` lands a stacked branch the same way, with its ancestors in one robot
+  oauth · 1 commit after it"). `brd safe-push` lands a stacked branch the same way, with its ancestors in one robot
   ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
 
@@ -587,7 +587,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
 ### UI
 
 - The branches must come newest first by where each begins in the history ahead of the baseline, for the table and
-  `bd status` alike (`prepare_branches_for_ui`): the branch whose oldest commit is the newest comes first, a stack where
+  `brd status` alike (`prepare_branches_for_ui`): the branch whose oldest commit is the newest comes first, a stack where
   its root comes, an issue family where its first member comes. No time decides it. A rewrite keeps every commit it
   keeps in its place (a reword, an amend and a move of a hunk keep each one, a squash keeps the oldest commit, a fixup
   folds into its older target, Update Project and a pick keep the order of the commits), but gives each commit above
@@ -605,7 +605,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
   branch whose parent has no row, or whose parents form a cycle, stays at the top level.
   [@test] ../../src/stores/branch-table-rows.test.ts (`puts each branch under its parent, depth-first, wherever the parent is in the order`, `keeps a branch whose parent has no row, or whose parents form a cycle, at the top level`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should show the branches of a stack under their parents`, `should carry the commits of a branch on its lane, into the lines of its children`)
-- Where each branch is must be Rust's, for the page and `bd` alike (`domain_policy::stack`, placed once per grouping
+- Where each branch is must be Rust's, for the page and `brd` alike (`domain_policy::stack`, placed once per grouping
   by `repository_model::derive` as the structure of the branch in the session's view): its parent is the branch of the
   table it declares (a `(parent/child)` prefix or its stored parent), so a branch whose declared parent has no commits
   is a root of its own; its children in the order of the table, and its descendants, each after its parent; its
@@ -709,7 +709,7 @@ On a route without Patronus GitHub's own stacks land a piece in one move with th
 - A branch with a stack problem must show the label of the problem as its `destructive` status badge ("conflicting
   parents", "parent cycle", "its own parent", "case clash", "empty prefix level"; never "internal error"), its message
   on hover, and keep its commits in the row and the preview, the commits to reword marked "Error". Expanded, and in
-  the preview in place of "Sync failed", a `destructive` alert says the message, no `bd` command, with a link per fix
+  the preview in place of "Sync failed", a `destructive` alert says the message, no `brd` command, with a link per fix
   (`StackProblemAlert`): "Stack On ci-traces", "Unstack" ("Unstack from lane-b" of a branch with a parent), "Rename…",
   each the very item of the branch menu, with its spinner while it runs; in the preview a fix closes the preview
   first. A reword is the commit's "Reword…". The branch menu offers the same fixes enabled: "Stack On…" lists the

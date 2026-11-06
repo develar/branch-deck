@@ -13,13 +13,13 @@ use test_utils::git_test_utils::{TestRepo, disable_background_maintenance, pre_r
 
 const AUTH: &str = "test-user/virtual/auth";
 
-/// `bd push auth` has nothing to push, and its lease is the remote head its sync saw: the pushed commit
+/// `brd push auth` has nothing to push, and its lease is the remote head its sync saw: the pushed commit
 fn assert_pushes_up_to_date_on_the_seen_head(repo: &TestRepo) {
   let (exit_code, output) = run_in(repo, &["push", "auth"]);
   assert_pushed(&output, exit_code, "up_to_date", &git(repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
-/// `bd push` pushed `auth` with `status`, leased on the remote head `lease` it saw
+/// `brd push` pushed `auth` with `status`, leased on the remote head `lease` it saw
 fn assert_pushed(output: &Value, exit_code: i32, status: &str, lease: &str) {
   assert_eq!(exit_code, 0, "{output}");
   let auth = branch(output, "auth");
@@ -262,10 +262,10 @@ fn all_needs_yes_and_unsynced_branches_are_refused() {
     output["error"]["message"]
       .as_str()
       .unwrap()
-      .contains("c is not synced (conflict in f0.txt): fix it first, `bd sync` says what holds it"),
+      .contains("c is not synced (conflict in f0.txt): fix it first, `brd sync` says what holds it"),
     "{output}"
   );
-  assert_eq!(next_steps(&output["error"]), [("bd sync".to_string(), false)]);
+  assert_eq!(next_steps(&output["error"]), [("brd sync".to_string(), false)]);
 }
 
 /// A parked branch stays local: `--all` and `--with-children` leave it out (`skipped`), and the branches built on it, which
@@ -334,7 +334,7 @@ fn a_plain_push_replaces_a_remote_commit_the_branch_has_by_content() {
   assert_eq!((&auth["lease"], &auth["lease_source"]), (&json!(short_id(&theirs)), &json!("expected")));
 }
 
-/// `bd push auth` went: the remote branch is at the local virtual branch. The output
+/// `brd push auth` went: the remote branch is at the local virtual branch. The output
 fn push_auth_to_its_tip(repo: &TestRepo, remote: &TempDir) -> Value {
   let (exit_code, output) = run_in(repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -367,15 +367,15 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
   assert_error(&output, exit_code, (4, "lease_rejected"));
   assert_eq!(output["error"]["retryable"], json!(false));
   assert_eq!(remote_tip(&remote, AUTH), other, "the remote is unchanged");
-  // bd fetched the branch and says what the remote has now
+  // brd fetched the branch and says what the remote has now
   assert_eq!(git(&repo, &["rev-parse", &format!("refs/remotes/origin/{AUTH}")]), other);
   let rejected = &output["error"]["branches"][0];
   assert_eq!(rejected["name"], json!("auth"));
   assert_eq!((&rejected["remote"]["head"], &rejected["remote"]["behind"]), (&json!(short_id(&other)), &json!(1)));
   assert_eq!(dropped_subjects(&rejected["remote"]), ["Someone else"]);
   assert_eq!(rejected["remote"]["dropped_commits"][0]["author"], json!("Other"));
-  // the push that replaces it, leased on what bd fetched: the user's to approve
-  let replace = format!("bd push auth --force --expect-remote {}", short_id(&other));
+  // the push that replaces it, leased on what brd fetched: the user's to approve
+  let replace = format!("brd push auth --force --expect-remote {}", short_id(&other));
   assert_eq!(next_steps(&output["error"]), [(replace.clone(), true)]);
   assert!(
     output["error"]["message"].as_str().unwrap().contains("once the user approved, push again with --force"),
@@ -399,7 +399,7 @@ fn a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it() {
 }
 
 /// pushes again over the new remote tip when the remote has no commits the branch lacks: nothing is lost. Someone moved
-/// the remote branch back to an older commit of the branch since the sync: the lease the sync saw is refused, bd fetches
+/// the remote branch back to an older commit of the branch since the sync: the lease the sync saw is refused, brd fetches
 /// it and pushes again, once, leased on what the remote has now, and says so (`pushed_over`), as the app's push does
 #[test_log::test]
 fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch() {
@@ -413,7 +413,7 @@ fn pushes_again_over_a_moved_remote_that_lacks_nothing_of_the_branch() {
   assert_covered(&schema["outputs"]["push"], &schema["outputs"]["push"], &output, "push");
 }
 
-/// The push of a stack is atomic: someone else's commit on the remote branch of `login` refuses `auth` too. bd fetched
+/// The push of a stack is atomic: someone else's commit on the remote branch of `login` refuses `auth` too. brd fetched
 /// both, and `lease_rejected` names `login` alone, with what its remote branch has now
 #[test_log::test]
 fn a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved() {
@@ -436,7 +436,7 @@ fn a_moved_lease_refuses_the_whole_stack_and_names_the_branch_that_moved() {
   assert_eq!(dropped_subjects(&rejected[0]["remote"]), ["Someone else"]);
 }
 
-/// `bd push` holds the repository lock while it syncs and decides, not while it pushes: the commits and the leases are
+/// `brd push` holds the repository lock while it syncs and decides, not while it pushes: the commits and the leases are
 /// fixed under it, and the network push sends them after it, so another writer never waits for the network. The hook of
 /// the remote, which runs while the push goes, finds no holder record of the lock (`branch-deck.lock.holder`)
 #[test_log::test]
@@ -460,8 +460,8 @@ fn the_network_push_holds_no_repository_lock() {
   assert_eq!(remote_tip(&remote, AUTH), git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
-/// What `bd push` runs under the repository lock: the witness and the freeze of what it pushes, one `for-each-ref`; its
-/// sync (the grouping, the merges and the copies of the branches) before the lock, as `bd sync`, and the network push
+/// What `brd push` runs under the repository lock: the witness and the freeze of what it pushes, one `for-each-ref`; its
+/// sync (the grouping, the merges and the copies of the branches) before the lock, as `brd sync`, and the network push
 /// after it (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]
@@ -474,8 +474,8 @@ fn a_push_of_bd_locks_only_the_witness_and_the_freeze() {
   wrapped.assert_a_push_locks_only_its_witness("fast-import");
 }
 
-/// `bd push` asks Patronus for the robots that hold its branches with the repository lock released, after its sync: while
-/// the list waits at Patronus, another writer of the repository (`bd park`) takes the lock at once instead of failing as
+/// `brd push` asks Patronus for the robots that hold its branches with the repository lock released, after its sync: while
+/// the list waits at Patronus, another writer of the repository (`brd park`) takes the lock at once instead of failing as
 /// `locked` after its wait, and the push goes on the plan of its sync once Patronus answers, the branch it pushes
 /// unmoved
 #[test_log::test]
@@ -494,7 +494,7 @@ fn the_robot_list_of_a_push_is_read_outside_the_repository_lock() {
   assert_eq!(space.remote_tip(AUTH), git(&space.repo, &["rev-parse", &format!("refs/heads/{AUTH}")]));
 }
 
-/// A push whose commits add more than `branchdeck.pushSizeLimit` of files is `push_too_large` before bd asks the remote,
+/// A push whose commits add more than `branchdeck.pushSizeLimit` of files is `push_too_large` before brd asks the remote,
 /// a dry run too: the message names the directory that holds most of it, `paths` it and the largest files, the remote
 /// has nothing; an invalid limit refuses the push as a wrong argument
 #[test_log::test]
@@ -535,12 +535,12 @@ fn a_push_the_remote_refuses_with_its_leases_holding_is_push_refused() {
   assert_error(&output, exit_code, (4, "push_refused"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("the remote refused the push"), "{output}");
-  assert!(message.ends_with("Show the user what the remote answered: no flag of bd gets past it"), "{output}");
+  assert!(message.ends_with("Show the user what the remote answered: no flag of brd gets past it"), "{output}");
   assert!(message.contains("pre-receive hook declined). remote: protected branch"), "what the hook said: {output}");
   assert_eq!(remote_tip(&remote, AUTH), "");
 }
 
-/// A remote other than `origin`, which the sync compares with: bd compares with it the same way, so the lease, the
+/// A remote other than `origin`, which the sync compares with: brd compares with it the same way, so the lease, the
 /// refusal of a branch behind it and the status of a rejected push are about that remote
 #[test_log::test]
 fn another_remote_is_compared_with_as_origin_is() {
@@ -661,14 +661,14 @@ fn the_app_and_bd_share_the_lease() {
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(branch(&output, "auth")["state"], json!("updated"));
 
-  // bd pushed, then the app
+  // brd pushed, then the app
   write(&repo, "even-more.txt", "more\n");
   commit_all(&repo, "(auth) Add reset", 1_700_000_600);
   run_in(&repo, &["sync"]);
   app_push(&repo, "auth");
   let tip = git(&repo, &["rev-parse", &format!("refs/heads/{AUTH}")]);
   assert_eq!(remote_tip(&remote, AUTH), tip);
-  // bd again: the app's push moved the remote head, so this is not a stale lease
+  // brd again: the app's push moved the remote head, so this is not a stale lease
   let (exit_code, output) = run_in(&repo, &["push", "auth"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(branch(&output, "auth")["state"], json!("up_to_date"));
@@ -710,7 +710,7 @@ fn amended_and_restacked_commits_push_without_force() {
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
   // their next step: a push without --force, also for the restacked branches with no commit of their own
   for name in ["auth", "login", "oauth"] {
-    assert_eq!(branch(&output, name)["push"], json!(format!("bd push {name}")));
+    assert_eq!(branch(&output, name)["push"], json!(format!("brd push {name}")));
   }
 
   let (exit_code, output) = run_in(&repo, &["push", "oauth"]);
@@ -728,7 +728,7 @@ fn amended_and_restacked_commits_push_without_force() {
 
 /// The remote branch of a member of a stack that landed whole has its commits as they were before the landing: older
 /// versions of commits the baseline has, by identity, though one has another patch there, and a copy of one the baseline
-/// has with its patch. Nothing of them is lost, so the sync counts both `landed`, not `behind`, and `bd push` replaces
+/// has with its patch. Nothing of them is lost, so the sync counts both `landed`, not `behind`, and `brd push` replaces
 /// them without --force, naming them in `replaced_landed`; the remote branch gets the baseline and the one new commit
 #[test_log::test]
 fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
@@ -752,7 +752,7 @@ fn a_push_replaces_the_remote_commits_the_baseline_landed_without_force() {
       {"commit": short_id(&pushed_auth), "subject": "Add auth", "baseline_commit": short_id(&landed)},
     ])
   );
-  assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
+  assert_eq!(branch(&output, "auth")["push"], json!("brd push auth"));
   let (_, schema) = run_in(&repo, &["schema", "--all"]);
   assert_covered(&schema["outputs"]["sync"], &schema["outputs"]["sync"], &output, "sync");
 
@@ -795,8 +795,8 @@ fn a_remote_commit_the_baseline_lacks_still_refuses_the_push() {
 }
 
 /// A stack whose parent landed as another commit with its patch (a rebase merge on GitHub), the child then rebuilt on
-/// the baseline alone (`bd unstack`): the child's remote branch is still built on the old baseline, with the old copy of
-/// the parent's commit, which the branch has by content only through the baseline. `bd push` of the child pushes,
+/// the baseline alone (`brd unstack`): the child's remote branch is still built on the old baseline, with the old copy of
+/// the parent's commit, which the branch has by content only through the baseline. `brd push` of the child pushes,
 /// without --force, and names that copy in `replaced_landed`, instead of answering `up_to_date` (#163)
 #[test_log::test]
 fn a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed() {
@@ -833,9 +833,9 @@ fn a_child_rebuilt_on_the_baseline_after_its_parent_landed_is_pushed() {
   );
 }
 
-/// `bd push` with the arguments of a `push` line of the sync output
+/// `brd push` with the arguments of a `push` line of the sync output
 fn run_push_line(repo: &TestRepo, line: &str) -> (i32, Value) {
-  let args: Vec<&str> = line.strip_prefix("bd ").unwrap_or_else(|| panic!("{line}")).split(' ').collect();
+  let args: Vec<&str> = line.strip_prefix("brd ").unwrap_or_else(|| panic!("{line}")).split(' ').collect();
   run_in(repo, &args)
 }
 
@@ -845,7 +845,7 @@ fn run_push_line(repo: &TestRepo, line: &str) -> (i32, Value) {
 fn sync_names_the_push_of_each_branch() {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
   let (_, output) = run_in(&repo, &["sync"]);
-  assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
+  assert_eq!(branch(&output, "auth")["push"], json!("brd push auth"));
   run_in(&repo, &["push", "auth"]);
   let (_, output) = run_in(&repo, &["sync"]);
   assert_eq!(branch(&output, "auth").get("push"), None, "up to date: {output}");
@@ -853,7 +853,7 @@ fn sync_names_the_push_of_each_branch() {
   let theirs = push_from_elsewhere(&remote, "Their fix");
   git(&repo, &["fetch", "-q", "origin"]);
   let (_, output) = run_in(&repo, &["sync"]);
-  let line = format!("bd push auth --force --expect-remote {}", short_id(&theirs));
+  let line = format!("brd push auth --force --expect-remote {}", short_id(&theirs));
   assert_eq!(branch(&output, "auth")["push"], json!(line));
   let (exit_code, output) = run_push_line(&repo, &line);
   assert_eq!(exit_code, 0, "{output}");
@@ -871,9 +871,9 @@ fn a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote(
   commit_all(&repo, "(auth) More auth", 1_700_000_900);
 
   let (_, output) = run_in(&repo, &["sync"]);
-  assert_eq!(branch(&output, "auth")["push"], json!("bd push auth"));
+  assert_eq!(branch(&output, "auth")["push"], json!("brd push auth"));
   let line = branch(&output, "login")["push"].as_str().unwrap().to_string();
-  assert_eq!(line, "bd push login --force");
+  assert_eq!(line, "brd push login --force");
   let (exit_code, output) = run_push_line(&repo, &line);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(
@@ -883,7 +883,7 @@ fn a_child_behind_its_remote_with_a_parent_to_push_forces_without_expect_remote(
 }
 
 /// A branch the sync only rebuilt on a newer baseline: the remote branch has its commits by content, under other hashes,
-/// so `bd push` sends nothing of it, as the app's push button doesn't, and lists it `up_to_date`, leased on the remote
+/// so `brd push` sends nothing of it, as the app's push button doesn't, and lists it `up_to_date`, leased on the remote
 /// head the sync saw
 #[test_log::test]
 fn a_branch_only_rebuilt_on_a_newer_baseline_is_not_pushed_again() {
@@ -917,7 +917,7 @@ fn an_unapplied_branch_whose_remote_has_commits_it_lacks_is_pushed_only_with_for
   let (exit_code, output) = run_in(&repo, &["push", "--unapplied", "docs"]);
   assert_error(&output, exit_code, (4, "push_refused"));
   assert_eq!(dropped_subjects(&output["error"]["branches"][0]["remote"]), ["Someone else"]);
-  assert_eq!(next_steps(&output["error"]), [("bd push docs --force --unapplied".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [("brd push docs --force --unapplied".to_string(), true)]);
   assert_eq!(remote_tip(&remote, unapplied), theirs, "nothing was pushed");
 
   let (exit_code, output) = run_in(&repo, &["push", "--unapplied", "docs", "--force"]);

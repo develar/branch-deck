@@ -74,7 +74,7 @@ pub fn output_bases(roots: &[PathBuf]) -> Vec<OutputBase> {
 }
 
 /// The output bases of `bases` whose slot is gone: the workspace is in one of `pools`, and its slot there
-/// (`<pool>/<n>/<name>`) is not, as a slot removed by hand or by a bd before the trim leaves it. A workspace of a slot
+/// (`<pool>/<n>/<name>`) is not, as a slot removed by hand or by a brd before the trim leaves it. A workspace of a slot
 /// that is there stays, also one that the commit of the slot lacks (`community/` of an older commit): the next get
 /// may move the slot back to it, and the pool deletes it with the slot
 pub fn orphans<'a>(bases: &'a [OutputBase], pools: &[PathBuf]) -> Vec<&'a OutputBase> {

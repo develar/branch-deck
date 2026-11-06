@@ -55,7 +55,7 @@ impl RemoteStatusUpdate {
   }
 
   /// The push drops remote commits the branch lacks that are no older version of a commit it has: someone's work, which
-  /// the push asks for first (the app's Force Push, `bd push --force`)
+  /// the push asks for first (the app's Force Push, `brd push --force`)
   #[must_use]
   pub const fn drops_remote_commits(&self) -> bool {
     self.commits_behind > 0

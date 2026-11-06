@@ -46,7 +46,7 @@ fn first_calls_at_the_same_time_answer_one_identity() {
 #[test]
 fn an_identity_is_created_once_and_loaded_after() {
   let home = tempfile::tempdir().expect("a temporary directory");
-  let dir = home.path().join("bd-host/agent");
+  let dir = home.path().join("brd-host/agent");
   let created = Identity::load_or_create(&dir).expect("created");
   let loaded = Identity::load_or_create(&dir).expect("loaded");
   assert_eq!(loaded.fingerprint(), created.fingerprint());

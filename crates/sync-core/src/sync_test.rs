@@ -610,7 +610,7 @@ async fn test_branches_grouped_carries_the_description_titles() -> anyhow::Resul
     "refs/heads/master",
     &one_file_each([("(vm-lane-daemon) Start the daemon", "daemon.txt", "daemon"), ("(docs) fix typo", "docs.txt", "docs")]),
   );
-  // as `bd describe` writes it, under the full name of the virtual branch
+  // as `brd describe` writes it, under the full name of the virtual branch
   append_config(
     test_repo.path(),
     &[
@@ -1028,7 +1028,7 @@ async fn a_fetch_and_a_commit_during_a_sync_change_nothing_of_what_it_groups() -
   Ok(())
 }
 
-/// `bd sync` beside the app's sync writes the mapping notes while the app's sync writes its own: the notes are a cache,
+/// `brd sync` beside the app's sync writes the mapping notes while the app's sync writes its own: the notes are a cache,
 /// so the sync that lost the ref writes once more from the new tip, finishes, and both writers' notes are there
 #[cfg(unix)]
 #[test(tokio::test)]

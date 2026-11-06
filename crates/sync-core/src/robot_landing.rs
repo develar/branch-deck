@@ -90,7 +90,7 @@ pub(crate) fn robot_spans(
   robot_spans_on(git_executor, repository_path, branch_prefix, baseline_branch, requests, &heads)
 }
 
-/// `robot_spans` on the grouped branches a caller read already (the report of a sync): `bd push` and `bd safe-push`
+/// `robot_spans` on the grouped branches a caller read already (the report of a sync): `brd push` and `brd safe-push`
 #[instrument(skip(git_executor, requests, grouped), fields(robots = requests.len()))]
 pub fn robot_spans_of_grouped(
   git_executor: &GitCommandExecutor,

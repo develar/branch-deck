@@ -1,4 +1,4 @@
-//! `bd lease trim`: the delete of the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine, with
+//! `brd lease trim`: the delete of the free slots past `branchdeck.leaseMaxSlots` of every pool of this machine, with
 //! their Bazel output bases, and of the output bases of gone workspaces (spec/cli/lease.spec.md, "Trim"). A get does
 //! the same once the free space is below `branchdeck.leaseMinFree`; the core is `lease_pool::trim`
 
@@ -24,7 +24,7 @@ pub struct LeaseTrimArgs {
   pub plan: bool,
 }
 
-/// `bd lease trim`
+/// `brd lease trim`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeaseTrimOutput {
   pub schema: SchemaVersion,
@@ -36,7 +36,7 @@ pub struct LeaseTrimOutput {
   /// can't tell
   #[serde(skip_serializing_if = "Option::is_none")]
   pub volume_freed_bytes: Option<u64>,
-  /// The free bytes of the volume after the trim; omitted where bd can't tell
+  /// The free bytes of the volume after the trim; omitted where brd can't tell
   #[serde(skip_serializing_if = "Option::is_none")]
   pub free_bytes: Option<u64>,
 }
@@ -51,7 +51,7 @@ pub struct TrimmedOutput {
   pub orphans: Vec<RemovedBaseOutput>,
   /// The bytes on disk the deletes freed
   pub freed_bytes: u64,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where brd can't see them (Windows)
   pub processes_checked: bool,
 }
 
@@ -167,7 +167,7 @@ pub struct ShrunkOutput {
   pub busy: Vec<BusySlotOutput>,
   /// The bytes on disk the deletes freed
   pub freed_bytes: u64,
-  /// Whether the processes were checked; false where bd can't see them (Windows)
+  /// Whether the processes were checked; false where brd can't see them (Windows)
   pub processes_checked: bool,
 }
 

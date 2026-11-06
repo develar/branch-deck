@@ -247,7 +247,7 @@ pub struct WorktreeHead {
 }
 
 /// The git dir of the worktree of `repo_path`, its HEAD and the tree of HEAD, in one `rev-parse`: what a check record
-/// of the worktree is compared with, for a lease and for any worktree of `bd pick --from`
+/// of the worktree is compared with, for a lease and for any worktree of `brd pick --from`
 pub fn worktree_head(git_executor: &GitCommandExecutor, repo_path: &str) -> Result<WorktreeHead> {
   let output = git_executor.execute_command(&["rev-parse", "--path-format=absolute", "--git-dir", "HEAD", "HEAD^{tree}"], repo_path)?;
   let mut lines = output.lines().map(str::trim);

@@ -12,14 +12,14 @@ vi.mock("@/components/ui/toast", () => ({ toast: { add: vi.fn(), close: vi.fn() 
 function lockedBy(holder: LockHolderInfo | null): ApiError {
   return {
     code: "locked",
-    message: "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
+    message: "`brd push auth` (pid 4242) is changing this repository; try again when it is done",
     details: { type: "locked", holder },
     retry: "same",
     operation_id: null,
   }
 }
 
-const BD_PUSH: LockHolderInfo = { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 }
+const BD_PUSH: LockHolderInfo = { tool: "bd", command: "brd push auth", pid: 4242, held_for: 40 }
 
 /** The `busy` error of an operation, as `operations::registry_file` answers it */
 function busyWith(holder: OperationHolder | null): ApiError {
@@ -117,8 +117,8 @@ describe("isApiError and getErrorCode", () => {
 
 describe("describeError", () => {
   it("names the holder of a held repository lock and how long it has held it, as the lock record says it", () => {
-    expect(describeError(lockedBy(BD_PUSH))).toBe("`bd push auth` (pid 4242) has held the repository for 40 s")
-    expect(describeError(lockedBy({ ...BD_PUSH, held_for: 723 }))).toBe("`bd push auth` (pid 4242) has held the repository for 12 min 3 s")
+    expect(describeError(lockedBy(BD_PUSH))).toBe("`brd push auth` (pid 4242) has held the repository for 40 s")
+    expect(describeError(lockedBy({ ...BD_PUSH, held_for: 723 }))).toBe("`brd push auth` (pid 4242) has held the repository for 12 min 3 s")
     expect(describeError(lockedBy({ tool: "app", command: "branch-deck", pid: 7, held_for: 5 }))).toBe("Branch Deck (pid 7) has held the repository for 5 s")
   })
 
@@ -154,16 +154,16 @@ describe("notifyError", () => {
     const shown = () => vi.mocked(toast.add).mock.lastCall?.[0]
 
     notifyError("Cannot update the project", lockedBy(BD_PUSH))
-    expect(shown()).toMatchObject({ type: "error", title: "Cannot update the project", description: "`bd push auth` (pid 4242) has held the repository for 40 s" })
+    expect(shown()).toMatchObject({ type: "error", title: "Cannot update the project", description: "`brd push auth` (pid 4242) has held the repository for 40 s" })
     // the log keeps the backend's words
     expect(logErrorToBackend).toHaveBeenLastCalledWith("Cannot update the project", {
-      keyValues: { error: "`bd push auth` (pid 4242) is changing this repository; try again when it is done", operation_id: undefined },
+      keyValues: { error: "`brd push auth` (pid 4242) is changing this repository; try again when it is done", operation_id: undefined },
     })
 
     // refused again by the same holder, a while later: its toast changes in place
     const first = shown()?.id
     notifyError("Cannot update the project", lockedBy({ ...BD_PUSH, held_for: 75 }))
-    expect(shown()).toMatchObject({ id: first, description: "`bd push auth` (pid 4242) has held the repository for 1 min 15 s" })
+    expect(shown()).toMatchObject({ id: first, description: "`brd push auth` (pid 4242) has held the repository for 1 min 15 s" })
 
     notifyError("Cannot update the project", lockedBy(null))
     expect(shown()).toMatchObject({ description: "Another Branch Deck operation holds the repository" })

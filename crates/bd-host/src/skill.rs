@@ -1,8 +1,8 @@
-//! The agent skill of bd-host (spec/cli/host.spec.md, "version, schema, skill"): `skill/SKILL.md`, the spec and the
-//! design doc of this build, which `bd-host skill install` writes into `~/.claude/skills/bd-host/`. The binary carries
+//! The agent skill of brd-host (spec/cli/host.spec.md, "version, schema, skill"): `skill/SKILL.md`, the spec and the
+//! design doc of this build, which `brd-host skill install` writes into `~/.claude/skills/brd-host/`. The binary carries
 //! the files, so the install works outside this repository.
 //!
-//! The marker `.bd-host-skill.sha256` in the skill directory lists the SHA-256 of each file as the install wrote it, in
+//! The marker `.brd-host-skill.sha256` in the skill directory lists the SHA-256 of each file as the install wrote it, in
 //! the format of `shasum -a 256`. So an install tells a copy of another build, which it replaces, from a copy with
 //! local edits, which it keeps unless `--force`. The build of a copy is the SHA-256 of its marker. Two builds have no
 //! order: the copy of the running binary always wins
@@ -24,13 +24,13 @@ const FILES: [(&str, &str); 3] = [
 ];
 
 /// The marker of an installed copy
-const MARKER: &str = ".bd-host-skill.sha256";
+const MARKER: &str = ".brd-host-skill.sha256";
 
 /// The directory of the references in the skill directory
 const REFERENCES: &str = "references/";
 
 /// The suffix of a file while it is written. The rename gives it its name
-const PART: &str = ".bd-host-part";
+const PART: &str = ".brd-host-part";
 
 /// The hex digits of a build in an answer
 const BUILD_DIGITS: usize = 12;
@@ -38,11 +38,11 @@ const BUILD_DIGITS: usize = 12;
 /// The text of `SKILL.md` of this build
 pub(crate) const SKILL: &str = FILES[0].1;
 
-/// The skill directory of the user: `~/.claude/skills/bd-host`, or `None` without a home directory
+/// The skill directory of the user: `~/.claude/skills/brd-host`, or `None` without a home directory
 pub(crate) fn user_dir() -> Option<PathBuf> {
   std::env::home_dir()
     .filter(|home| !home.as_os_str().is_empty())
-    .map(|home| home.join(".claude").join("skills").join("bd-host"))
+    .map(|home| home.join(".claude").join("skills").join("brd-host"))
 }
 
 /// The build of the skill of this binary: the first hex digits of the SHA-256 of its marker
@@ -87,40 +87,40 @@ pub(crate) fn install(dir: &Path, force: bool) -> Result<Installed, Refusal> {
   }
 }
 
-/// Replaces a copy of another build in `dir` with the one of this build, for `bd-host upgrade`. A missing copy stays
+/// Replaces a copy of another build in `dir` with the one of this build, for `brd-host upgrade`. A missing copy stays
 /// missing, and a copy with local edits stays. Answers the line to say, or `None` when nothing changed
 pub(crate) fn refresh(dir: &Path) -> Option<String> {
   match found_in(dir) {
     Ok(Found::Missing | Found::Current) => None,
     Ok(Found::Other { paths, build: old }) => Some(write(dir, &paths).map_or_else(
       |refusal| warning(&refusal.message),
-      |()| format!("bd-host: replaced the skill of build {old} with build {} in {}", build(), dir.display()),
+      |()| format!("brd-host: replaced the skill of build {old} with build {} in {}", build(), dir.display()),
     )),
-    Ok(Found::Edited(edits)) => Some(format!("bd-host: {}", edited_text(dir, &edits))),
+    Ok(Found::Edited(edits)) => Some(format!("brd-host: {}", edited_text(dir, &edits))),
     Err(error) => Some(warning(&file_refusal(dir, &error).message)),
   }
 }
 
-/// The answer of `bd-host skill install`
+/// The answer of `brd-host skill install`
 pub(crate) fn installed_text(dir: &Path, installed: &Installed) -> String {
   let (dir, build) = (dir.display(), build());
   match installed {
-    Installed::Fresh => format!("installed the bd-host skill of build {build} in {dir}"),
-    Installed::Replaced(old) => format!("replaced the bd-host skill of build {old} with build {build} in {dir}"),
-    Installed::ReplacedEdited => format!("replaced the edited bd-host skill with build {build} in {dir}"),
-    Installed::Current => format!("the bd-host skill of build {build} in {dir} is current"),
+    Installed::Fresh => format!("installed the brd-host skill of build {build} in {dir}"),
+    Installed::Replaced(old) => format!("replaced the brd-host skill of build {old} with build {build} in {dir}"),
+    Installed::ReplacedEdited => format!("replaced the edited brd-host skill with build {build} in {dir}"),
+    Installed::Current => format!("the brd-host skill of build {build} in {dir} is current"),
   }
 }
 
 fn edited_text(dir: &Path, edits: &str) -> String {
   format!(
-    "the skill in {} has local edits ({edits}), so it stays; `bd-host skill install --force` replaces it",
+    "the skill in {} has local edits ({edits}), so it stays; `brd-host skill install --force` replaces it",
     dir.display()
   )
 }
 
 fn warning(message: &str) -> String {
-  format!("bd-host: warning: {message}")
+  format!("brd-host: warning: {message}")
 }
 
 fn file_refusal(dir: &Path, error: &io::Error) -> Refusal {

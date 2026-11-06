@@ -1,10 +1,10 @@
-//! The plan `bd suggest` prints and `bd check --plan` and `bd pick` read, without the clustering behind it
+//! The plan `brd suggest` prints and `brd check --plan` and `brd pick` read, without the clustering behind it
 
 use schemars::JsonSchema;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// The plan of `bd group` (`RegroupPlan`)
+/// The plan of `brd group` (`RegroupPlan`)
 #[derive(Debug, Default, Serialize, JsonSchema)]
 pub struct SuggestPlan {
   pub branches: BTreeMap<String, Vec<String>>,

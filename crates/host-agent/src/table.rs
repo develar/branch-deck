@@ -1,4 +1,4 @@
-//! The lend table of the host slots for `bd-host slots` (spec/cli/host.spec.md, "slots"): the table of a reply of the
+//! The lend table of the host slots for `brd-host slots` (spec/cli/host.spec.md, "slots"): the table of a reply of the
 //! agent or of a repository of this machine, its lines for a person, and `--shrink` and `--sizes` in process. No
 //! `serve` needs to run, and nothing here writes the table but the shrink
 
@@ -91,7 +91,7 @@ impl ShrunkSlot {
 pub struct RuleSize {
   /// The slot number
   pub n: u32,
-  /// The rule as `bd lease clean` names it: `cargo target`, `delete tests/results`
+  /// The rule as `brd lease clean` names it: `cargo target`, `delete tests/results`
   pub rule: String,
   pub bytes: u64,
 }

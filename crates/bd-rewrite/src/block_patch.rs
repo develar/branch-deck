@@ -1,5 +1,5 @@
-//! The blocks of `bd commits --patch` and `bd move-hunk`: per changed file the blocks of the diff views under `Default`
-//! (`file_diffs::patch`), each with the id that `bd move-hunk --block` takes.
+//! The blocks of `brd commits --patch` and `brd move-hunk`: per changed file the blocks of the diff views under `Default`
+//! (`file_diffs::patch`), each with the id that `brd move-hunk --block` takes.
 
 use file_diffs::blocks::BlobPair;
 use file_diffs::patch::BlockPatch;
@@ -21,7 +21,7 @@ pub struct PatchFile {
   pub old_path: Option<String>,
   /// `A`, `M`, `D`, `R` (rename) or `T` (type change)
   pub status: String,
-  /// No text to compare (binary, a symlink, a submodule, a type change, over 8 MiB): no blocks, and `bd move-hunk`
+  /// No text to compare (binary, a symlink, a submodule, a type change, over 8 MiB): no blocks, and `brd move-hunk`
   /// moves the whole file
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub binary: bool,
@@ -32,7 +32,7 @@ pub struct PatchFile {
 /// A block, as the diff views of the app show it
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PatchBlock {
-  /// `12,3:12,5@1a2b3c4d`, for `bd move-hunk --block`: the lines of the block and a hash of them, so that the id of a
+  /// `12,3:12,5@1a2b3c4d`, for `brd move-hunk --block`: the lines of the block and a hash of them, so that the id of a
   /// block that changed since fails
   pub id: String,
   /// The first old line, 1-based as in a git hunk; for a block without old lines the line before them

@@ -1,8 +1,8 @@
-//! `bd group`, `bd rename`, `bd restack` and `bd unstack`: message-only history rewrites through
+//! `brd group`, `brd rename`, `brd restack` and `brd unstack`: message-only history rewrites through
 //! `history_rewrite::regroup`, which validates before it writes. The rewrite is recorded in the operations registry of
 //! the repository before the lock (`bd_core::operation_record::recorded`: the app's windows show it, the journal keeps
-//! it), then bd holds the repository lock over the rewrite and the descriptions of a plan; with --sync, the record ended
-//! and the lock released, the sync runs, as `bd sync` does
+//! it), then brd holds the repository lock over the rewrite and the descriptions of a plan; with --sync, the record ended
+//! and the lock released, the sync runs, as `brd sync` does
 
 use crate::group_plan::{DescriptionChange, changed_descriptions, check_descriptions, parse_group_plan, write_descriptions};
 use bd_core::branch_view::ParentSourceName;
@@ -31,10 +31,10 @@ pub struct RewriteArgs {
   /// Print the resulting subjects and the stack forest; write nothing
   #[arg(long)]
   pub dry_run: bool,
-  /// Then rebuild the virtual branches as `bd sync` does, after the repository lock is released
+  /// Then rebuild the virtual branches as `brd sync` does, after the repository lock is released
   #[arg(long, conflicts_with = "dry_run")]
   pub sync: bool,
-  /// Rewrite only if HEAD is still this commit (the `head` that `bd status` printed)
+  /// Rewrite only if HEAD is still this commit (the `head` that `brd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
   /// With --expect-head: also accept commits added on top of it since then; they are printed as `appended`
@@ -92,7 +92,7 @@ pub struct StackTogetherArgs {
   pub rewrite: RewriteArgs,
 }
 
-/// The output of `bd group`, `rename`, `restack`, `unstack`, `stack-together` and `reword`
+/// The output of `brd group`, `rename`, `restack`, `unstack`, `stack-together` and `reword`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RewriteOutput {
   pub schema: SchemaVersion,
@@ -109,7 +109,7 @@ pub struct RewriteOutput {
   /// With --allow-append: the commits added on top of --expect-head since then, oldest first, by their new ids
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub appended: Vec<AppendedCommit>,
-  /// Pass to `bd undo` to restore `previous_head`, the issue groups and the stack parents: the parts `H1..H2`,
+  /// Pass to `brd undo` to restore `previous_head`, the issue groups and the stack parents: the parts `H1..H2`,
   /// `groups:G1..G2` and `stacks:S1..S2` of the refs that moved, joined by `+`; omitted for a dry run or when nothing
   /// changed
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -140,14 +140,14 @@ pub struct RewriteOutput {
   /// The branches whose description the plan's `descriptions` wrote (with --dry-run: would write), the ones that differ
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub described: Vec<String>,
-  /// The texts those descriptions replaced, by branch; `bd undo` doesn't restore them, `bd describe` can
+  /// The texts those descriptions replaced, by branch; `brd undo` doesn't restore them, `brd describe` can
   #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
   pub replaced_descriptions: BTreeMap<String, Description>,
-  /// With --sync: the `bd sync` output after the rewrite; exit code 1 when a branch is not built
+  /// With --sync: the `brd sync` output after the rewrite; exit code 1 when a branch is not built
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sync: Option<SyncOutput>,
   /// A step after the rewrite failed: a description write (the sync is skipped then) or the sync. The rewrite stands,
-  /// `undo_token` reverts it, and the exit code is this error's; retry that step (`bd sync`), never the rewrite
+  /// `undo_token` reverts it, and the exit code is this error's; retry that step (`brd sync`), never the rewrite
   #[serde(skip_serializing_if = "Option::is_none")]
   pub after_error: Option<ErrorBody>,
 }

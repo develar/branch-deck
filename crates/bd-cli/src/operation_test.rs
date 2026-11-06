@@ -67,7 +67,7 @@ fn a_safe_push_is_journaled_under_the_operation_id_of_its_json() {
 }
 
 /// A rewrite of `bd` is recorded and journaled under the id of its JSON as the app's are (`bd_core::operation_record`):
-/// `bd unstack beta` is in the journal once, as `bd`'s unstack of beta, with what its core cost (its ref move); a
+/// `brd unstack beta` is in the journal once, as `bd`'s unstack of beta, with what its core cost (its ref move); a
 /// refused one with its error; the registry holds nothing after them, and a dry run is no operation
 #[test]
 fn a_rewrite_is_journaled_under_the_operation_id_of_its_json() {
@@ -106,7 +106,7 @@ fn a_rewrite_is_journaled_under_the_operation_id_of_its_json() {
   assert_eq!(ProcessRegistry::of(&common_dir).unflushed().records().unwrap(), Some(Vec::new()));
 }
 
-/// `bd squash` is journaled as the app's Squash of the same commits (`RewriteIntent::Squash`, full ids, the oldest
+/// `brd squash` is journaled as the app's Squash of the same commits (`RewriteIntent::Squash`, full ids, the oldest
 /// first), with its ref move; its dry run, which builds the squash and drops it, is no operation
 #[test]
 fn a_squash_is_journaled_as_the_squash_of_its_commits() {
@@ -142,7 +142,7 @@ fn a_squash_is_journaled_as_the_squash_of_its_commits() {
 
 #[test]
 fn the_operation_of_a_nested_command_names_both_words() {
-  let matches = crate::Cli::command().try_get_matches_from(["bd", "lease", "status"]).unwrap();
+  let matches = crate::Cli::command().try_get_matches_from(["brd", "lease", "status"]).unwrap();
   assert_eq!(operation_name(&matches), "lease status");
 
   let mut printed = Vec::new();

@@ -119,7 +119,7 @@ flowchart TD
    stack the children of the amended parent had such copies, which read "1 amended" though nobody touched them). With
    the key of a commit of a stack ancestor (the effective base, then its base, down to the baseline) it is restacked;
    the rest stays dropped. `commits_behind` and `dropped_commits` keep their meaning, what a push drops, so the
-   confirmation, the `warning` hue and `bd push`'s refusal without `--force` stay for real drops only.
+   confirmation, the `warning` hue and `brd push`'s refusal without `--force` stay for real drops only.
    **Risk**: a different amend made elsewhere (another clone, the IDE of another machine) with the same author email,
    author time and subject is replaced without a question, as an older version would be. It needs the same author,
    so it is the user's own work in another form; landed commits accept the same rule.
@@ -128,7 +128,7 @@ flowchart TD
    dropped
    **Rationale**: After a Safe Push of the whole stack, a member's remote branch keeps its commits as they were
    before the landing; once Update Project put the branch on the baseline and it got a new commit, every one of them
-   read as dropped and `bd push` asked for `--force`, a separate approval for a push that loses nothing. `--cherry-mark`
+   read as dropped and `brd push` asked for `--force`, a separate approval for a push that loses nothing. `--cherry-mark`
    matches only the ones whose patch the baseline has as it is: the robot rebuilds on a newer target, so a change below
    a commit changes its patch. In the ultimate monorepo, 7 remote commits of `jvm-runner-goes` had a counterpart of the
    same `CommitKey` in master, the copies of the robot; their patch ids with context matched for none, without context
@@ -154,8 +154,8 @@ flowchart TD
     **Rationale**: Decision 5 matches a remote commit by a copy anywhere on the local side of `<remote>...<local>`, the
     baseline commits since the remote branch's base included, and Decision 8 only the ones with another patch. A copy
     the baseline has with the same patch counted nowhere. After the parent of a stack landed by a rebase merge (new
-    ids, the same patches) and the child was rebuilt on the baseline (`bd update`, `bd unstack --sync`), the child's
-    own commits were on the remote by content and the parent's old commits matched the baseline's copies, so `bd push`
+    ids, the same patches) and the child was rebuilt on the baseline (`brd update`, `brd unstack --sync`), the child's
+    own commits were on the remote by content and the parent's old commits matched the baseline's copies, so `brd push`
     of the child answered `up_to_date` and pushed nothing, also with `--force` (#163, the accio repository: a child 23
     commits ahead of main on the remote, 20 locally; and one whose tree differed in 8 files). The remote branch is no
     state of the branch then: a pull request into the baseline from it shows the landed changes again (GitHub reported
@@ -177,7 +177,7 @@ flowchart TD
 
 The remote status calculation uses git's cherry-pick algorithm for patch-equivalent comparison:
 - **Remote tip**: `git for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin/branch
-  refs/heads/branch` (the app's push compares with `origin`, `bd push --remote` with its remote) says whether the
+  refs/heads/branch` (the app's push compares with `origin`, `brd push --remote` with its remote) says whether the
   remote branch exists and returns the commit it points to (`remote_tip`) and the branch's commit, in the one process
   the existence check needs anyway; a ref name holds no glob character, so each pattern matches its ref only. The sync
   reads the remote tips of all its branches with the local ones, in its one `for-each-ref` of `refs/heads/<prefix>/`
@@ -230,10 +230,10 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   apart by their identities (above). In the sync that is the parent's new head the child was built on, never the parent's ref:
   the sync finishes the branches in parallel, so a child can compute its status before its parent's `finish_branch`
   moves the parent's ref, which is then absent (a new stack: the walk failed) or at the old head (the parent's new
-  commits counted as the child's). The app's push and `bd push` pass the parent's ref, which is current there.
+  commits counted as the child's). The app's push and `brd push` pass the parent's ref, which is current there.
 - **Stack ancestors**: the sync passes their identities, built once per sync (`ancestor_keys` in `sync.rs`) from the
   commits of every branch along the chain of effective bases (`AncestorCommits::Known`, no process). The app's push and
-  `bd push` outside the sync read them once per status, only while the walk of the commits ahead lists a line or a
+  `brd push` outside the sync read them once per status, only while the walk of the commits ahead lists a line or a
   behind commit matches nothing of the branch: one `git rev-list ^baseline <parent>` (`AncestorCommits::ReadWhenNeeded`);
   the parent's virtual branch contains the commits of every ancestor.
 - **A failed status**: the sync logs it as a warning with the branch and the error, and sends nothing for the branch,
@@ -247,7 +247,7 @@ The remote status calculation uses git's cherry-pick algorithm for patch-equival
   `update by push`, a literal git never translates, so a fetch that moved the ref later doesn't count, or that the push
   wrote itself where git's push left the ref behind (`branch-deck: push tracking ref`, `git_ops::pushed_tracking`). The time is the
   selector's, `<ref>@{<time>}` with `--date=unix`, cut at the last `@{`: a ref name may hold a `{`, never an `@{`. No
-  push from this clone (or no reflog) is 0. The sync and `bd push --remote` read the push times of all their branches
+  push from this clone (or no reflog) is 0. The sync and `brd push --remote` read the push times of all their branches
   with one process (`PushTimes`), when the first status needs one: `git reflog show --stdin
   '--grep-reflog=^update by push$' --date=unix --format=%gD`, the refs on stdin, so their number is not bounded by the
   command line; `%gD` names the full ref, and the newest time of each ref counts. It reads every push entry of those
@@ -299,7 +299,7 @@ the status of each branch against what it fetched.
 - **The news**: the commits of others a fetch brought (`others_behind`, their authors) are news of the session
   (`NewsEvent::RemoteCommits`), told once per remote tip; the page shows them as the toast of the pushes of the branch.
 - **What it misses**: a branch with no open pull request of the user, the pull request of a whole stack, a session
-  signed out of GitHub, and `bd`, which reads no pull request heads; their remote commits show once a push is refused.
+  signed out of GitHub, and `brd`, which reads no pull request heads; their remote commits show once a push is refused.
 
 ### The remote status in the session
 
@@ -311,7 +311,7 @@ status of that branch waits aside: the outcome of the push replaces it, a push t
 goes into the sync inputs the session knows (`SyncScheduler::pushed`: the remote-tracking ref the push moved), so the
 focus after the app's own push syncs nothing, and no sync follows a push. The Patronus view reads the remote branches
 as the session knows them (`facts::session_remote`: the status the table state holds over the table of the last sync;
-a robot on a remote branch up to date by content took the branch as it is), `bd` the same from its own sync
+a robot on a remote branch up to date by content took the branch as it is), `brd` the same from its own sync
 (`branch_table::remote_facts`). The page writes no remote status and sends none to Rust: it waits for the version the
 push's command answers.
 
@@ -338,13 +338,13 @@ push's command answers.
 ### The action of a push
 What a push does over a remote status is one answer in Rust, the predicates of the status itself
 (`crates/domain-types/src/remote_status.rs`, methods of `RemoteStatusUpdate`, so the sync that computes it reaches no
-rule of `domain-policy`), for the app and `bd` alike: `push_action` answers create (no remote branch), push (a fast-forward), force (`drops`: remote
+rule of `domain-policy`), for the app and `brd` alike: `push_action` answers create (no remote branch), push (a fast-forward), force (`drops`: remote
 commits the branch lacks; `replaces`: older versions of its commits, amended, reworded, restacked or landed ones, or an
 older piece of a stacked branch; neither: only rebased) or up to date (nothing to push, nothing amended, reworded,
 restacked, landed or dropped). `sync_core::remote_status` stores it on the status it computes
 (`RemoteStatusUpdate::action`), so every status that reaches the page (a row, a stack branch, an unapplied branch, a
-push's outcome) and `bd` carries the one answer; `needs_push`, `drops_remote_commits` and `replaces_older_versions` are
-its parts (`bd push`, `bd safe-push`, `bd status`), `pushes_again` the one retry of a push over a remote that
+push's outcome) and `brd` carries the one answer; `needs_push`, `drops_remote_commits` and `replaces_older_versions` are
+its parts (`brd push`, `brd safe-push`, `brd status`), `pushes_again` the one retry of a push over a remote that
 moved ([Git Operations](git-operations.md#push-and-land)). The orders of the pushes of several branches and what keeps
 a branch out of them are the rule `domain_policy::push` (`crates/domain-policy/src/push.rs`), which reads these answers. A robot's restart reads the action too
 (`domain_policy::holds::restart_action`, the view's `restarts`): a branch whose remote is not up to date is pushed first.
@@ -399,8 +399,8 @@ is the same commits on an older baseline: no warning, a quiet line in the detail
     baseline did not move answers its status without git, so the usual sync of the app, on focus, runs no remote
     status process at all. Its push time is the one of the first status of these commits, also after a push of the
     same commit again once the remote branch was elsewhere (push X, fetch Y, push X), a case the app accepts;
-  - **in the object cache** (`remote_status`, `$GIT_COMMON_DIR/branch-deck/cache`), without the push time: every `bd`
-    is a new process, and an unchanged `bd sync` walks no branch, it reads only the push times of all branches with one
+  - **in the object cache** (`remote_status`, `$GIT_COMMON_DIR/branch-deck/cache`), without the push time: every `brd`
+    is a new process, and an unchanged `brd sync` walks no branch, it reads only the push times of all branches with one
     `reflog`. The key is a hash of the commits (full ids only: a status with a ref name is only remembered by the
     process), the email and where the commits of the stack ancestors came from (the sync knows them, a push outside it
     reads them), so those two never share an entry. The value holds the walks' answer, the commits ahead and the first

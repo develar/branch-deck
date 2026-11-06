@@ -1,4 +1,4 @@
-//! `bd operation forget <op>` (spec/cli/agent-cli.spec.md, "Operations of other processes"): a start whose answer was
+//! `brd operation forget <op>` (spec/cli/agent-cli.spec.md, "Operations of other processes"): a start whose answer was
 //! lost, which holds what it held in the operations registry of the repository until a read of Patronus tells whether
 //! its robot started (`operations::reconcile`), leaves the registry, so the subject can start again; Patronus may still
 //! run the robot it sent. The id is the one `busy` names (`error.holder.op`). The same core as Forget This Start of the
@@ -21,7 +21,7 @@ pub struct OperationArgs {
 #[derive(Debug, clap::Subcommand)]
 pub enum OperationCommand {
   /// Forget a start whose answer was lost: its record leaves the operations registry, and what it held is free; only
-  /// when the user asks. Patronus may still run the robot it sent: see `bd robot`
+  /// when the user asks. Patronus may still run the robot it sent: see `brd robot`
   Forget(ForgetArgs),
 }
 
@@ -31,7 +31,7 @@ pub struct ForgetArgs {
   pub id: String,
 }
 
-/// `bd operation forget`
+/// `brd operation forget`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct OperationForgetOutput {
   pub schema: SchemaVersion,

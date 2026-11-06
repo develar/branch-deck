@@ -142,7 +142,7 @@ async function remoteTipOfJira(repo: TestRepositoryBuilder): Promise<string | un
 }
 
 /**
- * The Safe Push of JIRA-456 pressed while another process holds the repository lock (`bd pick --follow` of an agent):
+ * The Safe Push of JIRA-456 pressed while another process holds the repository lock (`brd pick --follow` of an agent):
  * here the test server, whose record names it; the pushes that reach the backend and the step
  */
 async function safePushWhileLocked(page: Page, setupRepo: Parameters<typeof setupRobots>[1], syncAndWaitForBranches: Parameters<typeof setupRobots>[2]) {
@@ -1265,7 +1265,7 @@ test.describe("Patronus actions", () => {
 
     test("should post no comment while bd runs the Safe Push of the branch, and comment once after it ended", async ({ page, setupRepo, syncAndWaitForBranches }) => {
       const repo = await setupCommentStart(page, setupRepo, syncAndWaitForBranches)
-      // an agent's `bd safe-push JIRA-456` of another process holds what the start of #7 lands
+      // an agent's `brd safe-push JIRA-456` of another process holds what the start of #7 lands
       await repo.setForeignOperation({ kind: "land", subject: { kind: "branch", name: "JIRA-456" }, mode: "rebaseAutosquash", profile: { kind: "default" } })
       const slot = slotSafePush(page, "JIRA-456")
       await expect(slot).toHaveText("bd: Safe Push of JIRA-456…")

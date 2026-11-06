@@ -1,6 +1,6 @@
-//! The reword of commits ahead of the baseline (`bd reword` and the app's edit of a message), as one regroup
+//! The reword of commits ahead of the baseline (`brd reword` and the app's edit of a message), as one regroup
 //! (`regroup.rs`). The regroup's guards, its repository lock, its expected HEAD and its validation hold: a new
-//! `(prefix)` moves the commit to that branch as `bd group` does, with the fixups of a target whose prefix changed, and
+//! `(prefix)` moves the commit to that branch as `brd group` does, with the fixups of a target whose prefix changed, and
 //! the stack problems it would introduce, the fixups it would strand (`fixup_targets.rs`) and the issue groups and the
 //! stack parents stay as the regroup keeps them. Message-only: the trees, the index and the working tree stay as they
 //! are, and the undo token restores HEAD. Also the new commits of every regroup (`prepare_reword_at`): the messages
@@ -146,7 +146,7 @@ fn reword_change(snapshot: &Snapshot, rewords: &[CommitReword]) -> Result<Change
   })
 }
 
-/// The fixups of a reworded target whose `(prefix)` changes go with it, as `bd group` moves them (unless the reword
+/// The fixups of a reworded target whose `(prefix)` changes go with it, as `brd group` moves them (unless the reword
 /// gives them their own message): the new prefix of the target, or none
 fn following_fixups(snapshot: &Snapshot, messages: &HashMap<String, String>) -> Assignment {
   let plan = plan_autosquash(snapshot.head.clone(), &snapshot.commits, &snapshot.grouping);

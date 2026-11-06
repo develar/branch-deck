@@ -1,6 +1,6 @@
-//! Moving the changes of one file from one commit ahead of the baseline into another (`bd move-hunk`): the checks of
+//! Moving the changes of one file from one commit ahead of the baseline into another (`brd move-hunk`): the checks of
 //! the request against the commits ahead of the baseline and the blocks of the file in `from` (the ids that
-//! `bd commits --patch` prints) and the rewrite of `git_ops::move_hunk`, which keeps HEAD's tree, computed before the
+//! `brd commits --patch` prints) and the rewrite of `git_ops::move_hunk`, which keeps HEAD's tree, computed before the
 //! repository lock, which holds only the witness of HEAD and the move (docs/design/git-operations.md, "Move a hunk")
 
 use crate::diff_scan::{Renames, blob_pair, read_commit_changes};
@@ -27,9 +27,9 @@ pub struct MoveHunkParams {
   pub from: String,
   /// The commit it moves into
   pub to: String,
-  /// The file, relative to the repository root, as `bd commits --patch` prints it
+  /// The file, relative to the repository root, as `brd commits --patch` prints it
   pub path: String,
-  /// The ids of the blocks of the file in `from` (`12,3:12,5@1a2b3c4d`, as `bd commits --patch` prints them); empty for
+  /// The ids of the blocks of the file in `from` (`12,3:12,5@1a2b3c4d`, as `brd commits --patch` prints them); empty for
   /// the whole change of the file
   pub blocks: Vec<String>,
 }
@@ -42,7 +42,7 @@ pub struct MoveHunkOptions<'a> {
   /// writes a note, nor takes the lock
   pub mode: MoveHunkMode,
   pub lock_timeout: Duration,
-  /// The repository lock the caller holds, so that it can sync under it (`bd move-hunk --sync`); `None` takes the lock
+  /// The repository lock the caller holds, so that it can sync under it (`brd move-hunk --sync`); `None` takes the lock
   /// for the move only
   pub held_lock: Option<&'a RepositoryLock>,
 }
@@ -224,7 +224,7 @@ fn prepare_move(
   })
 }
 
-/// A refusal or a failure of the rewrite of git-ops as `bd move-hunk` names it
+/// A refusal or a failure of the rewrite of git-ops as `brd move-hunk` names it
 fn rewrite_error(error: git_ops::move_hunk::MoveHunkError) -> MoveHunkError {
   match error {
     git_ops::move_hunk::MoveHunkError::Refused(message) => MoveHunkError::InvalidArguments(message),
@@ -279,7 +279,7 @@ fn selected_blocks(ids: &[String], blocks: Option<&[BlockPatch]>, path: &str, fr
   };
   let mut selected = Vec::with_capacity(ids.len());
   for id in ids {
-    let parsed = BlockId::parse(id).ok_or_else(|| MoveHunkError::InvalidArguments(format!("{id} is no block id: `bd commits --patch` prints them, as 12,3:12,5@1a2b3c4d")))?;
+    let parsed = BlockId::parse(id).ok_or_else(|| MoveHunkError::InvalidArguments(format!("{id} is no block id: `brd commits --patch` prints them, as 12,3:12,5@1a2b3c4d")))?;
     let Some(index) = blocks.iter().position(|block| block.id == parsed) else {
       return Err(MoveHunkError::BlockNotFound {
         message: format!(

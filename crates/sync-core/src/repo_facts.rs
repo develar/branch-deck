@@ -329,7 +329,7 @@ pub fn read_baseline_of(git_executor: &GitCommandExecutor, repo_path: &str, fact
 }
 
 /// The baseline of the checked out branch with its commit, the tip of the branch, and the branches under the prefix:
-/// what a trial session and `bd move-hunk` walk the commits ahead from and compare with (`CheckSession::open`)
+/// what a trial session and `brd move-hunk` walk the commits ahead from and compare with (`CheckSession::open`)
 #[derive(Debug, Clone)]
 pub struct ListedBaseline {
   /// As `detect_baseline_branch` names it, e.g. `origin/master`

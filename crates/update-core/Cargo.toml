@@ -3,7 +3,7 @@ name = "update-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Update Project, `bd pick` and the resolve sessions of a conflicting `bd update`: the moves of the checked out branch onto the baseline or another worktree's commits, and their undo"
+description = "Update Project, `brd pick` and the resolve sessions of a conflicting `brd update`: the moves of the checked out branch onto the baseline or another worktree's commits, and their undo"
 publish = false
 
 [dependencies]

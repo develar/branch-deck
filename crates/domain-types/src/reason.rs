@@ -77,10 +77,10 @@ pub enum Reason {
   /// commits; `note` the note of that line, empty without one
   Parked { branch: String, with: Option<String>, note: String },
   /// `branch` (a branch, or the root of a whole stack) has work its remote branch lacks: a review request pushes it
-  /// first only when asked to (`bd request-review --push`), so the reviewers see the commits (D5)
+  /// first only when asked to (`brd request-review --push`), so the reviewers see the commits (D5)
   NeedsPush { branch: String },
   /// Patronus names no code owner with a GitHub login to ask for the missing approvals of `groups`: the reviewers are
-  /// named instead (`bd request-review --reviewer`)
+  /// named instead (`brd request-review --reviewer`)
   NoReviewer { groups: Vec<String> },
   /// Patronus doesn't protect `target`: no robot pushes into it
   Unprotected { target: String },

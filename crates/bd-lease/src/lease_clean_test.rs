@@ -82,7 +82,7 @@ fn the_return_applies_the_clean_rules_of_the_source() {
 }
 
 /// `--no-clean` applies no rule on the return; `--keep` and `--age` change every cargo rule for one call, on the return
-/// and on `bd lease clean`; a bad `--age` is invalid
+/// and on `brd lease clean`; a bad `--age` is invalid
 #[cfg(unix)]
 #[test_log::test]
 fn no_clean_and_the_overrides_change_what_a_call_cleans() {
@@ -151,7 +151,7 @@ fn an_unsafe_rule_is_skipped_and_reported() {
   assert!(!repo.join("tests/results").exists());
 }
 
-/// A file that does not parse never fails the return, which names the error; `bd lease clean` refuses it
+/// A file that does not parse never fails the return, which names the error; `brd lease clean` refuses it
 #[test_log::test]
 fn a_bad_file_does_not_fail_the_return() {
   let fixture = Fixture::new();
@@ -164,7 +164,7 @@ fn a_bad_file_does_not_fail_the_return() {
   assert_error(&output, exit_code, (2, "invalid_arguments"));
 }
 
-/// `bd lease clean --free` cleans the free slots and skips one with a process in it; a leased slot named on the command
+/// `brd lease clean --free` cleans the free slots and skips one with a process in it; a leased slot named on the command
 /// line is skipped; with --dry-run nothing is deleted
 #[cfg(unix)]
 #[test_log::test]
@@ -211,7 +211,7 @@ fn clean_skips_a_busy_and_a_leased_slot_and_a_dry_run_deletes_nothing() {
   assert_eq!(git(&fixture.repo, &["status", "--porcelain"]), "");
 }
 
-/// While `bd lease clean --free` cleans a free slot, the slot is `cleaning`: a get neither leases it, so the clean never
+/// While `brd lease clean --free` cleans a free slot, the slot is `cleaning`: a get neither leases it, so the clean never
 /// deletes in a slot that another agent leased meanwhile, nor adds a slot; it waits for the clean (`waiting for the
 /// clean of <slot>`) and leases the slot once the clean has freed it
 #[cfg(unix)]

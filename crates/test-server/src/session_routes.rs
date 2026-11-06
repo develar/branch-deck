@@ -575,7 +575,7 @@ pub async fn close_sessions(Path(id): Path<String>, State(state): State<Arc<AppS
 }
 
 /// The frame of the repository's session as an earlier run of the app left it (`POST /repositories/{id}/warm-start/build`):
-/// a sync without a page, as `bd sync` syncs (the session reads no fact without a window), whose table the repository
+/// a sync without a page, as `brd sync` syncs (the session reads no fact without a window), whose table the repository
 /// keeps from now on (`TestRepository::frame`), as do the saves of its sessions after it. The session closes then, as
 /// the app quits, so the next start (`warm_start`) opens one seeded from the frame. Answers the rows of the frame
 pub async fn build_warm_start(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

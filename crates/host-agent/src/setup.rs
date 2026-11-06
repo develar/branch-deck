@@ -1,4 +1,4 @@
-//! `bd-host setup --agent` (spec/cli/host.spec.md, "setup"): the client runs it over ssh while the user is at the host.
+//! `brd-host setup --agent` (spec/cli/host.spec.md, "setup"): the client runs it over ssh while the user is at the host.
 //! It creates the identity of the agent, adds the client to the allow list, writes the `LaunchAgent`, and starts or
 //! restarts `serve` under launchd. On a host without launchd it does not start the agent.
 
@@ -8,6 +8,8 @@ use crate::{child, sys};
 use host_link::allow::{self, AllowList};
 use host_link::identity::{Fingerprint, Identity};
 use host_link::proto::LAUNCHD_LABEL;
+#[cfg(target_os = "macos")]
+use host_link::proto::LEGACY_LAUNCHD_LABEL;
 use host_link::refusal::{Code, Refusal};
 use serde::Serialize;
 use std::ffi::OsStr;
@@ -33,7 +35,7 @@ pub struct Setup<'a> {
   pub client: Fingerprint,
   pub name: &'a str,
   pub port: u16,
-  /// The executable of the setup. launchd runs `~/.local/bin/bd-host`, and a copy of this file goes there when it
+  /// The executable of the setup. launchd runs `~/.local/bin/brd-host`, and a copy of this file goes there when it
   /// is missing
   pub exe: &'a Path,
   /// The launchctl program; a test gives a fake one
@@ -75,7 +77,7 @@ impl LaunchdStep {
   }
 }
 
-/// `bd-host setup --agent`
+/// `brd-host setup --agent`
 pub fn setup_agent(home: &Home, setup: &Setup<'_>, out: &mut dyn Write) -> Result<(), Refusal> {
   allow::check_name(setup.name).map_err(|error| Refusal::new(Code::BadRequest, error.to_string()))?;
   let identity = agent_identity(home)?;
@@ -121,7 +123,7 @@ fn start_agent(home: &Home, exe: &Path, port: u16, launchctl: &Path, path: &str,
   Ok(launchd)
 }
 
-/// The binary that launchd runs: `~/.local/bin/bd-host`. When that file is missing, a copy of `exe` goes there by a
+/// The binary that launchd runs: `~/.local/bin/brd-host`. When that file is missing, a copy of `exe` goes there by a
 /// rename. So launchd never runs a file that cargo writes again in place, that the shrink of a slot deletes, or that
 /// is in the bundle of the app. A file that is there stays: `setup <alias>` and an upgrade write it
 pub(crate) fn agent_binary(home: &Home, exe: &Path) -> Result<PathBuf, Refusal> {
@@ -133,7 +135,7 @@ pub(crate) fn agent_binary(home: &Home, exe: &Path) -> Result<PathBuf, Refusal> 
   if let Some(dir) = binary.parent() {
     fs::create_dir_all(dir).map_err(failed)?;
   }
-  let staged = binary.with_extension("bd-host-new");
+  let staged = binary.with_extension("brd-host-new");
   let copied = fs::copy(exe, &staged).and_then(|_| fs_retry::rename(&staged, &binary));
   if let Err(error) = copied {
     let _ = fs_retry::remove_file(&staged);
@@ -157,7 +159,7 @@ pub(crate) fn wait_for_listen(port: u16, wait: Duration) -> Result<(), String> {
     }
     if started.elapsed() >= wait {
       return Err(format!(
-        "launchd started the agent, but nothing listens on {address} after {} s; read ~/Library/Logs/bd-host.log",
+        "launchd started the agent, but nothing listens on {address} after {} s; read ~/Library/Logs/brd-host.log",
         wait.as_secs()
       ));
     }
@@ -166,6 +168,8 @@ pub(crate) fn wait_for_listen(port: u16, wait: Duration) -> Result<(), String> {
 }
 
 fn start_launchd(home: &Home, exe: &Path, port: u16, launchctl_program: &Path, path: &str) -> Result<&'static str, Refusal> {
+  #[cfg(target_os = "macos")]
+  remove_legacy_launch_agent(home, launchctl_program)?;
   let plist_file = home.launch_agent_file();
   let log_file = home.launchd_log_file();
   let plist = plist_text(exe, port, &log_file, &agent_path(home.dir(), path));
@@ -214,6 +218,52 @@ pub(crate) fn launchctl(program: &Path, args: &[&str]) -> Result<(), String> {
   }
 }
 
+#[cfg(target_os = "macos")]
+fn remove_legacy_launch_agent(home: &Home, launchctl_program: &Path) -> Result<(), Refusal> {
+  let plist_file = home.legacy_launch_agent_file();
+  let text = match fs::read_to_string(&plist_file) {
+    Ok(text) => text,
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => return Err(Refusal::new(Code::AgentError, format!("cannot read {}: {error}", plist_file.display()))),
+  };
+  if !legacy_launch_agent_matches(home, &text) {
+    return Err(Refusal::new(
+      Code::LaunchdFailed,
+      format!(
+        "the legacy LaunchAgent {} is not the plist `bd-host setup` writes; refusing to remove it",
+        plist_file.display()
+      ),
+    ));
+  }
+
+  let (_, service) = service(LEGACY_LAUNCHD_LABEL);
+  let run_launchctl = |args: &[&str]| launchctl(launchctl_program, args);
+  let mut loaded = run_launchctl(&["print", &service]).is_ok();
+  if loaded {
+    run_launchctl(&["bootout", &service]).map_err(|message| Refusal::new(Code::LaunchdFailed, message))?;
+    let unloading = Instant::now();
+    while loaded && unloading.elapsed() < UNLOAD_WAIT {
+      std::thread::sleep(Duration::from_millis(200));
+      loaded = run_launchctl(&["print", &service]).is_ok();
+    }
+    if loaded {
+      return Err(Refusal::new(Code::LaunchdFailed, format!("launchd did not unload {service}")));
+    }
+  }
+  fs_retry::remove_file(&plist_file).map_err(|error| Refusal::new(Code::AgentError, format!("cannot remove {}: {error}", plist_file.display())))
+}
+
+#[cfg(target_os = "macos")]
+fn legacy_launch_agent_matches(home: &Home, text: &str) -> bool {
+  let Some(values) = PlistValues::parse(text) else {
+    return false;
+  };
+  if values.exe != home.legacy_binary_file() || values.log != home.legacy_launchd_log_file() {
+    return false;
+  }
+  plist_text_with_label(LEGACY_LAUNCHD_LABEL, &values.exe, values.port, &values.log, &values.path) == text
+}
+
 /// The `PATH` of the agent: the tool directories of the user and of Homebrew first, then `current`, then the system
 /// directories, each once. launchd starts a job with only the system directories, and git lives elsewhere
 pub(crate) fn agent_path(home: &Path, current: &str) -> String {
@@ -232,6 +282,10 @@ pub(crate) fn agent_path(home: &Path, current: &str) -> String {
 /// The `LaunchAgent`: `serve --port <port>` at login and again after each exit, with its output in `log`.
 /// `AbandonProcessGroup` keeps a run alive when launchd restarts the agent; each supervisor has a session of its own too
 pub(crate) fn plist_text(exe: &Path, port: u16, log: &Path, path: &str) -> String {
+  plist_text_with_label(LAUNCHD_LABEL, exe, port, log, path)
+}
+
+fn plist_text_with_label(label: &str, exe: &Path, port: u16, log: &Path, path: &str) -> String {
   let exe = xml_escape(&exe.to_string_lossy());
   let log = xml_escape(&log.to_string_lossy());
   let path = xml_escape(path);
@@ -241,7 +295,7 @@ pub(crate) fn plist_text(exe: &Path, port: u16, log: &Path, path: &str) -> Strin
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>{LAUNCHD_LABEL}</string>
+  <string>{label}</string>
   <key>ProgramArguments</key>
   <array>
     <string>{exe}</string>

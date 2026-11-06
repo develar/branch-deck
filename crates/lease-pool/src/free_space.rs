@@ -32,7 +32,7 @@ pub fn volume_space(path: &Path) -> Option<VolumeSpace> {
 
 /// The volume of a path as a get below the minimum free space counts it: the device (`st_dev`) of the path the get
 /// measures. A free slot of another device frees nothing on it, whatever its delete frees: a pool of
-/// `branchdeck.leasePool` or a worktree that `bd lease adopt` kept where it was can live on another disk. Two APFS
+/// `branchdeck.leasePool` or a worktree that `brd lease adopt` kept where it was can live on another disk. Two APFS
 /// volumes of one container share their free space but not their device, so a slot there is passed over too: a get
 /// frees less than it could, never deletes for nothing. Elsewhere than on Unix every path is on it (no free space is
 /// measured there)

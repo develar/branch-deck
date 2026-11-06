@@ -92,7 +92,7 @@ Everything is read with read-only plumbing, one git process for a whole list, an
 - The paths must be the bytes git stores: spaces, tabs and non-ASCII letters stay as they are.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`lists_the_status_paths_and_line_counts_of_each_file`, `each_file_has_the_blob_ids_of_its_sides`, `a_submodule_has_the_ids_of_its_commits`, `lists_a_merge_against_its_first_parent_and_nothing_for_an_empty_commit`, `parses_numstat_entries_in_another_order_than_the_raw_entries`, `rejects_output_it_does_not_understand`)
 - The files of many commits must be read by one `diff-tree --stdin --raw --numstat -z` process.
-- The files must be cached by commit id in the object cache of the repository, which the app shares with `bd`.
+- The files must be cached by commit id in the object cache of the repository, which the app shares with `brd`.
   A commit read before must cost no git process.
 - A commit git lists nothing for must not be cached: it has no changes, or it is not in the repository yet.
   [@test] ../../crates/git-ops/src/commit_files_test.rs (`reads_through_the_cache_once_per_commit`)

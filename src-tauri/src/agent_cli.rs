@@ -1,4 +1,4 @@
-//! The agent CLI of the app (`AgentCliHost` of app-api): `bd` is this app's own binary, installed by `bd install`
+//! The agent CLI of the app (`AgentCliHost` of app-api): `brd` is this app's own binary, installed by `brd install`
 //! (`bd_cli::install`, docs/contributing/agent-cli.md) and named by the prompts the app copies (`bd_core::bd_command`)
 
 use app_api::app::agent_cli::{AgentCliCommand, AgentCliInstalled, AgentCliStatus, AgentRules};
@@ -9,19 +9,19 @@ use bd_core::context::Environment;
 use domain_types::error::ApiError;
 use sync_utils::child_process::login_shell_path;
 
-/// The `bd` of this app
+/// The `brd` of this app
 pub struct AppAgentCli;
 
 impl AgentCliHost for AppAgentCli {
   fn install(&self) -> Result<AgentCliInstalled, ApiError> {
     let mut environment = Environment::from_process();
-    // an app started from the Finder has a minimal PATH; the user's shell decides whether `bd` runs there
+    // an app started from the Finder has a minimal PATH; the user's shell decides whether `brd` runs there
     if let Some(path) = login_shell_path() {
       environment.path = Some(path);
     }
     let output = install(&environment, &InstallArgs::default()).map_err(|e| ApiError::new(e.code, e.message))?;
     Ok(AgentCliInstalled {
-      bd: output.bd,
+      bd: output.brd,
       on_path: output.on_path,
       skills: output.skills,
       agents: output.agents.map(|agents| AgentRules {

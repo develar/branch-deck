@@ -1,4 +1,4 @@
-//! `bd workspace`: where a coding agent works and how it writes a commit subject, asked before its first edit
+//! `brd workspace`: where a coding agent works and how it writes a commit subject, asked before its first edit
 //! (spec/cli/workspace.spec.md). The core is `lease_pool::agent_workspace`; this module turns it into the rules and the
 //! next commands of the agent
 
@@ -16,14 +16,14 @@ use serde::Serialize;
 use std::path::Path;
 use sync_core::repository_config::{ConfigScope, ConfigSetting};
 
-/// `bd workspace`
+/// `brd workspace`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct WorkspaceOutput {
   pub schema: SchemaVersion,
-  /// Where bd runs: `main` (the shared checkout), `linked` (a worktree of its own outside the pool), `lease` (a leased
+  /// Where brd runs: `main` (the shared checkout), `linked` (a worktree of its own outside the pool), `lease` (a leased
   /// slot of the pool) or `none` (no working tree: nothing to edit)
   pub kind: WorkspaceKindOutput,
-  /// Work in a lease of your own and land each commit with `bd lease pick` (`branchdeck.agentLease`, on by default)
+  /// Work in a lease of your own and land each commit with `brd lease pick` (`branchdeck.agentLease`, on by default)
   pub lease: AgentRule,
   /// Start each commit subject with `(branch)` (`branchdeck.agentSubjectBranch`, off by default); off: write the
   /// subject as the repository does
@@ -33,15 +33,15 @@ pub struct WorkspaceOutput {
   /// The top level of the working tree
   #[serde(skip_serializing_if = "Option::is_none")]
   pub top_level: Option<String>,
-  /// Where bd runs below the top level, `/`-separated: continue there in the lease; empty at the top level
+  /// Where brd runs below the top level, `/`-separated: continue there in the lease; empty at the top level
   pub subdir: String,
   /// The checkout your commits land on: the main worktree, or the source of this lease (`home.checkout`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub shared_checkout: Option<String>,
-  /// In a lease: where its commits land (`bd lease pick`)
+  /// In a lease: where its commits land (`brd lease pick`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub home: Option<LeaseHomeOutput>,
-  /// The lease of this slot, for `bd lease return --lease-id`
+  /// The lease of this slot, for `brd lease return --lease-id`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub lease_id: Option<String>,
   /// The holder of this slot's lease
@@ -107,7 +107,7 @@ pub struct ActiveLeaseOutput {
   pub idle: Option<IdleOutput>,
 }
 
-/// `bd workspace` in `directory`, else in the current directory: no working tree is an answer, not an error
+/// `brd workspace` in `directory`, else in the current directory: no working tree is an answer, not an error
 pub fn workspace(environment: &Environment, directory: Option<&Path>) -> Result<WorkspaceOutput, CliError> {
   workspace_with(&bd_core::context::counted_git(environment)?, environment, directory)
 }
@@ -145,7 +145,7 @@ fn workspace_output(answer: AgentWorkspace) -> WorkspaceOutput {
   let top_level = answer.top_level.clone().unwrap_or_default();
   let this_lease = answer.this_lease.as_ref();
   let next = match kind {
-    WorkspaceKindOutput::Main if lease.on => vec![format!("bd lease get --holder <your name> -C {}", shell_word(&top_level))],
+    WorkspaceKindOutput::Main if lease.on => vec![format!("brd lease get --holder <your name> -C {}", shell_word(&top_level))],
     WorkspaceKindOutput::Lease => this_lease.map_or_else(Vec::new, |lease| lease_next(&top_level, &lease.home, &lease.lease_id)),
     _ => Vec::new(),
   };

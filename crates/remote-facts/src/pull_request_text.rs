@@ -1,5 +1,5 @@
-//! The text of a new pull request of a virtual branch, as the app's form, `bd push` and `bd safe-push
-//! --create-pull-request` start it (spec/branch/pull-requests.spec.md): the `bd describe` description, else the
+//! The text of a new pull request of a virtual branch, as the app's form, `brd push` and `brd safe-push
+//! --create-pull-request` start it (spec/branch/pull-requests.spec.md): the `brd describe` description, else the
 //! commits the pull request lands, written as a reviewer reads them on GitHub. The title keeps the issue key and takes
 //! the issue's summary from YouTrack when it answers; the body links the issues, then has an item per commit with its
 //! body: hard-wrapped lines joined into paragraphs (GitHub shows a newline of a pull request as a line break), the

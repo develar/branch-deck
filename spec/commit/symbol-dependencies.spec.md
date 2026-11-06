@@ -525,8 +525,8 @@ Dependencies](../../docs/design/symbol-dependencies.md).
   a use of it; a commit must not depend on itself; a file with a twentieth of its bytes in parse errors must make no
   edge.
   [@test] ../../crates/trial-check/src/symbol_dependencies_test.rs (`a_commit_needs_no_edge_to_itself_a_moved_declaration_is_no_addition_and_two_owners_are_ambiguous`, `a_use_its_own_commit_may_mean_is_no_edge`, `a_member_of_its_own_commit_is_no_origin_of_an_unqualified_use_outside_its_type`)
-- `bd commits` must name an override of another commit's overload as an edge by symbols, `bd check` as a missing
-  declaration with the evidence `override` and the branch that adds it, and `bd suggest` with stacked branches must
+- `brd commits` must name an override of another commit's overload as an edge by symbols, `brd check` as a missing
+  declaration with the evidence `override` and the branch that adds it, and `brd suggest` with stacked branches must
   stack the branch of the override on that branch.
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`, `an_override_of_a_new_overload_is_an_edge_by_symbols`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`an_override_of_another_branchs_overload_is_a_missing_declaration`)
@@ -538,11 +538,11 @@ Dependencies](../../docs/design/symbol-dependencies.md).
 
 - `branchdeck.symbols` must be `off`, `report` or `on` (the default; Settings → Repository, Symbol dependencies: Off ·
   Report Only · On, [Settings](../repository/settings.spec.md#repository)); another value is an error. `report` must
-  read the summaries for `bd commits` and the dangling-reference check only; `off` must read none.
+  read the summaries for `brd commits` and the dangling-reference check only; `off` must read none.
   [@test] ../../crates/sync-core/src/config_snapshot_test.rs (`the_mode_comes_from_git_config_and_is_on_without_it`)
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
   [@test] ../../crates/trial-check/src/dangling_references_test.rs (`a_word_in_kdoc_is_no_use`)
   [@test] ../../crates/trial-check/src/check_test.rs (`a_stacked_branch_that_applies_on_the_baseline_builds_alone`)
-- `bd commits --symbol-stats` (hidden) must print what the scan read and found: blobs and bytes per language, parse
+- `brd commits --symbol-stats` (hidden) must print what the scan read and found: blobs and bytes per language, parse
   errors, the times, the line, symbol, shared and symbols-only edges, the links by evidence, and a deterministic sample
   of the symbols-only edges per evidence for a human to label. It must write the object cache only.

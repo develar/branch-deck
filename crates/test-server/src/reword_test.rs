@@ -59,7 +59,7 @@ async fn a_reword_answers_the_undo_that_brings_the_old_head_back() {
 }
 
 /// An undo whose branch moved on since the rewrite is stale for good: the rewrite `Undo` answers `undo_stale` with
-/// `retry: no`, as `bd undo` does (`ErrorCode::in_undo`), never `head_moved`, which tells the page that a retry may
+/// `retry: no`, as `brd undo` does (`ErrorCode::in_undo`), never `head_moved`, which tells the page that a retry may
 /// succeed; its words say it can't be undone, not that a retry may help
 #[tokio::test]
 async fn the_undo_of_a_regroup_after_a_new_commit_answers_undo_stale_never_retried() {

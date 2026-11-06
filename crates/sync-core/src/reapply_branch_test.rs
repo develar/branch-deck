@@ -165,7 +165,7 @@ fn a_reapply_token_names_full_ids_and_the_unapplied_branch() {
 #[test]
 fn reapply_waits_for_the_repository_lock_and_fails_with_locked() {
   let repo = unapplied_repo();
-  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap();
+  let _held = lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap();
   let options = RewriteOptions {
     lock_wait: LockWait::Bounded(std::time::Duration::from_millis(100)),
     ..RewriteOptions::default()

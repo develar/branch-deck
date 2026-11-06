@@ -159,7 +159,7 @@ fn a_canceled_wait_for_another_fetch_ends_without_a_transfer() {
   let remote = Remote::new(SERVE);
   remote.upload_pack.release();
   let common_dir = PathBuf::from(remote.clone.git(&["rev-parse", "--path-format=absolute", "--git-common-dir"]));
-  let _other = crate::fetch_lock::hold_fetch_as_another_process(&common_dir, "refs/remotes/origin/master", "bd update").unwrap();
+  let _other = crate::fetch_lock::hold_fetch_as_another_process(&common_dir, "refs/remotes/origin/master", "brd update").unwrap();
   let error = fetch_baseline(&GitCommandExecutor::new(), remote.path(), &master(), &mut |_| {}, &|| true).unwrap_err();
   assert!(error.downcast_ref::<history_rewrite::repository_lock::LockWaitCanceled>().is_some(), "{error:#}");
   assert_eq!(remote.upload_pack.runs(), 0);
@@ -205,7 +205,7 @@ fn a_fetch_after_a_killed_holder_fetches_at_once() {
   fs::create_dir_all(&common_dir).unwrap();
   let record = common_dir.join("fetch.lock.holder");
   let killed = LockHolder {
-    command: "bd update".to_string(),
+    command: "brd update".to_string(),
     pid: std::process::id(),
     process_started: Some(1),
     since: 0,

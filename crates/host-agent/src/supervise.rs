@@ -1,4 +1,4 @@
-//! `bd-host supervise <run dir> --lock-fd <descriptor>`: one run, from the lend of its host slot to `exit.json`
+//! `brd-host supervise <run dir> --lock-fd <descriptor>`: one run, from the lend of its host slot to `exit.json`
 //! (spec/cli/host.spec.md, "serve"). `serve` starts it in a session of its own, so a restart or an upgrade of `serve`
 //! does not end the run. It keeps the host awake for its whole life (`awake`), also when its client is gone. `serve`
 //! takes the flock of the run before the run is visible and hands its descriptor over. The supervisor holds it for its
@@ -35,7 +35,7 @@
 //! to `supervisor.log`. The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the
 //! command starts, the run ends with the exit code 130 after the current step; a checkout and a scan of the slot run to
 //! their end, since the pool runs their git in process. After the command started, the command group gets SIGINT, and
-//! SIGKILL after the grace time. The progress lines go to `events.log` as stderr events with the prefix `bd-host: `. A
+//! SIGKILL after the grace time. The progress lines go to `events.log` as stderr events with the prefix `brd-host: `. A
 //! prepare step writes both of its streams as stderr events, so the stdout of a run holds only the lines of its command
 
 use crate::files::{FILE_MODE, open_private, private_dir, remove_entry, try_flock};
@@ -95,7 +95,7 @@ const KILL_WAIT: Duration = Duration::from_secs(10);
 const INTERRUPTED: i32 = 128 + libc::SIGINT;
 
 /// The prefix of the lines of the agent in the log of a run
-const SAY: &str = "bd-host: ";
+const SAY: &str = "brd-host: ";
 
 /// Runs the run of `run_dir` to its end, and writes `exit.json`. `lock` is the descriptor of the flock of the run that
 /// `serve` took. Without it, the supervisor takes the flock itself

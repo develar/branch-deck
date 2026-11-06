@@ -50,7 +50,7 @@ describe("describeLandingRefusals", () => {
     const decision = describeLandingRefusals([unassigned, dangling, MISSING], "the whole air stack", { allowDangling: true })
     expect(decision).toEqual({
       reason:
-        "“IJAI-4382 lane-run shows each scenario” of lane-run uses StillEncoding (avl-guest/src/lane/build_log/tests.rs:7), which ecebf000 (“IJAI-4382 the bundle manifest names lossy stills”, unassigned) adds: git merges it, but the build of the whole air stack fails. Move ecebf000 into lane-run. 2 more names break it too: bd check lists them.",
+        "“IJAI-4382 lane-run shows each scenario” of lane-run uses StillEncoding (avl-guest/src/lane/build_log/tests.rs:7), which ecebf000 (“IJAI-4382 the bundle manifest names lossy stills”, unassigned) adds: git merges it, but the build of the whole air stack fails. Move ecebf000 into lane-run. 2 more names break it too: brd check lists them.",
       fix: unassigned.fix,
       anyway: { allowDangling: true, allowMissing: true },
     })

@@ -1,10 +1,10 @@
 //! The copies of a resolve round that the agent reads and edits (docs/design/git-operations.md, "Resolve session"):
 //! the only files of a session outside git objects, all rebuildable from the session ref. They live in
-//! `branch-deck/resolve/` of the worktree's git dir, or in the directory of `bd update --dir`. Per round `r<n>/`, each
+//! `branch-deck/resolve/` of the worktree's git dir, or in the directory of `brd update --dir`. Per round `r<n>/`, each
 //! side in its own directory under the flat name `<key>-<basename>` (`ConflictFile::copy_name`), so no tree path can
 //! reach outside or collide with another; `commit.patch` beside them. Bytes are written and read in Rust, as git stores
 //! them (no filters); every write goes to a new temporary file that a rename puts in place, a read or a delete never goes
-//! through a symlink (of the file or of any directory below the git dir or `--dir`), and only what bd wrote is ever
+//! through a symlink (of the file or of any directory below the git dir or `--dir`), and only what brd wrote is ever
 //! deleted, in a directory whose marker names this worktree's git dir.
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -25,7 +25,7 @@ pub const PATCH_FILE: &str = "commit.patch";
 /// Which copies to write
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Materialize {
-  /// Only the missing ones (`bd update --status --materialize`, and a rerun of `bd update`)
+  /// Only the missing ones (`brd update --status --materialize`, and a rerun of `brd update`)
   Missing,
   /// All of them, replacing what is there: a new round, or `--overwrite-edited`
   All,
@@ -83,12 +83,12 @@ fn read_marker(dir: &Path) -> Option<String> {
   }
 }
 
-/// A directory bd may write into: an existing directory that is not a symlink, or a new one
+/// A directory brd may write into: an existing directory that is not a symlink, or a new one
 #[expect(clippy::create_dir, reason = "one level only: `create_dir_all` would also create the parents, through a symlink")]
 fn ensure_dir(path: &Path) -> Result<()> {
   match fs::symlink_metadata(path) {
     Ok(metadata) if metadata.is_dir() => Ok(()),
-    Ok(_) => bail!("{} is not a directory (a symlink or a file); bd writes no copies there", path.display()),
+    Ok(_) => bail!("{} is not a directory (a symlink or a file); brd writes no copies there", path.display()),
     Err(e) if e.kind() == ErrorKind::NotFound => fs::create_dir(path).with_context(|| format!("Cannot create {}", path.display())),
     Err(e) => Err(anyhow!("Cannot read {}: {e}", path.display())),
   }
@@ -194,7 +194,7 @@ fn is_same_file(_a: &fs::Metadata, b: &fs::Metadata) -> bool {
   b.file_type().is_file()
 }
 
-/// Remove the copies bd wrote for `conflict` (round `round` of the session of `state`): only its file names, then the
+/// Remove the copies brd wrote for `conflict` (round `round` of the session of `state`): only its file names, then the
 /// directories left empty. Nothing is removed through a symlinked directory, or in a directory whose marker names
 /// another git dir
 pub fn remove_round(state: &SessionState, round: u32, conflict: &RoundConflict) {
@@ -218,7 +218,7 @@ pub fn remove_round(state: &SessionState, round: u32, conflict: &RoundConflict) 
   let _ = sync_utils::fs_retry::remove_dir(&dir);
 }
 
-/// Remove the marker file and, when bd created it and it is empty, the session directory; only in a directory whose
+/// Remove the marker file and, when brd created it and it is empty, the session directory; only in a directory whose
 /// marker names this session's git dir
 pub fn remove_root(state: &SessionState) {
   if !owns_root(state) {
@@ -233,7 +233,7 @@ pub fn remove_root(state: &SessionState) {
 
 /// Prepare the directory of `--dir` for the session of the worktree with `git_dir`: an absolute path, not a symlink, not
 /// inside a worktree (the git dir aside), empty or marked as bd's for this git dir, and used by no other session;
-/// created when missing. Returns the path and whether bd created it
+/// created when missing. Returns the path and whether brd created it
 pub fn prepare_dir(git_executor: &GitCommandExecutor, repo_path: &str, dir: &Path, git_dir: &str) -> Result<(String, bool)> {
   let invalid = |message: String| anyhow::Error::new(ResolveError::InvalidInput { message });
   if !dir.is_absolute() {

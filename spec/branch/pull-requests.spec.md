@@ -380,13 +380,13 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   has 2 commits that feature-auth lacks: push it from its row, which shows them"; nothing is created. Right after its
   push GitHub may not have the branch yet (a Space mirror copies it a moment later): the creation asks again every 2 s
   for 30 s (`wait_for_mirror`), "Continue on GitHub" waits until GitHub has the branch (the effect `WaitForMirror` of its
-  plan) before the page opens GitHub's form; bd's `safe-push --create-pull-request` waits the same way after its push.
+  plan) before the page opens GitHub's form; brd's `safe-push --create-pull-request` waits the same way after its push.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should create the pull request of a branch not on the remote yet: Create pushes it, Cancel pushes nothing, the move made from the click`, `should open GitHub's form of a branch not on the remote yet from its preview, after the push`, `should keep the dialog, with the reason, when the push would drop commits of the remote branch`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`right_after_a_push_the_creation_waits_for_the_mirror_to_copy_the_branch`, `the_wait_for_the_mirror_ends_with_the_reason`, `waits_until_github_has_the_branch`)
   [@test] ../../crates/operations/src/pull_request_test.rs (`a_creation_pushes_first_what_the_remote_lacks_then_opens_the_pull_request`, `continue_on_github_pushes_and_waits_until_github_has_the_branch`)
   [@test] ../../src/lib/pull-request-run.test.ts (`opens GitHub's form once the run pushed and GitHub has the branch, of the whole stack too`)
-- The text starts as `bd push` and `bd safe-push --create-pull-request` write it (`get_new_pull_request`,
-  `pull_request_text`): the `bd describe` description of the branch, else the text of the commits the pull request
+- The text starts as `brd push` and `brd safe-push --create-pull-request` write it (`get_new_pull_request`,
+  `pull_request_text`): the `brd describe` description of the branch, else the text of the commits the pull request
   will show, those of the local branch the creation pushes (`<remote>/<base>..<head>`). A field the user typed in is
   not replaced by the text that arrives later.
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`the_text_is_the_description_else_the_commits_the_pull_request_will_show`)
@@ -419,7 +419,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
 - A stacked branch's pull request holds the commits of the branches it is built on: its title and items come from its
   own commits, and a last section says "Built on auth, then login: their commits are in this pull request too." with
   the subjects of each ("Built on auth: its commits …" for one). The app sends the chain of the row
-  (`stack_ancestors`), and one `log` splits the commits by the tips of those branches; `bd` takes them from the sync.
+  (`stack_ancestors`), and one `log` splits the commits by the tips of those branches; `brd` takes them from the sync.
   [@test] ../../crates/remote-facts/src/pull_request_text_test.rs (`a_stacked_branch_is_titled_by_its_own_commits_and_names_its_ancestors`)
   [@test] ../../crates/remote-facts/src/pull_request_create_test.rs (`the_commits_up_to_the_tip_of_each_ancestor_are_the_ancestor_s`)
   [@test] ../../crates/remote-facts/src/process_budget_test.rs (`the_text_of_a_new_pull_request`)
@@ -486,7 +486,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   "Pull request #7 of feature-auth is merged"): GitHub's form would open nothing. A disabled Create always says why on
   hover: "Enter a title", "The title must be one line", "Reading the commits of the branch…". The existing one is
   looked up by its head (`GET pulls?head=<owner>:<branch>&state=open`), not by the search, which lists a new pull
-  request only a while later: a retry after a timeout, or the app and `bd safe-push --create-pull-request` at once,
+  request only a while later: a retry after a timeout, or the app and `brd safe-push --create-pull-request` at once,
   find the one just created.
   [@test] ../../src/presenters/pull-request-url.test.ts (`says why GitHub's form and Create can't make a new pull request: a live one; a branch not on the remote can, it is pushed first`)
   [@test] ../../src/lib/pull-request-dialog.test.ts (`lets a new pull request repeat a merged one only while the branch did not land by it, as into a parent's branch`)
@@ -550,7 +550,7 @@ virtual branch to the baseline (before a push of its branch, or the next step's 
   Without Review…" included (`form`, 48rem); in a narrower window the footer wraps, and nothing leaves the dialog.
   [@test] ../../tests/e2e/next-step/next-step.spec.ts (`should keep the pull request dialog's footer in one line inside the dialog`)
 - A copied or printed `gh` command (`gh pr edit` of the toast and of the menu's "Copy Retarget Command", the
-  `gh pr create … --assignee @me` of `bd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one
+  `gh pr create … --assignee @me` of `brd push`) gets `--repo <owner>/<name>` when the GitHub repository is not the one
   `origin` pushes to (a mirror): `gh` finds no GitHub repository among the remotes of a mirrored checkout.
 
 ### Request Review
@@ -587,7 +587,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   owners", a checkbox per suggested code owner with a GitHub login of the groups whose approval is missing (the full name,
   the login beside it, the groups below), never the author, a member asked already or one whose approval counts, each
   once; checked when it opens: one per missing group nobody is asked for yet, each once, as the Create Pull Request
-  dialog chooses them. One rule decides them for the popover and `bd request-review` alike
+  dialog chooses them. One rule decides them for the popover and `brd request-review` alike
   (`domain_policy::review::candidates`, `ReviewCandidate.preselected`), which the view of the session sends with the
   open pull request. A readiness that comes after the opening checks them too, until the
   user checks or unchecks one. While Patronus names none the popover says why, never nothing as if none were needed
@@ -630,7 +630,7 @@ missing waits for nobody. "Request Review…" asks them, on the pull request tha
   in the pull request of the row at once, and a refresh of the pull requests follows: the review readiness reads the
   new request.
   [@test] ../../src/presenters/review.test.ts (`names whom GitHub asked, and whom it refused as a warning`, `is none when GitHub asked nobody: the error says why`)
-- `bd request-review <branch>` runs the same intent from the agent CLI: the same code owners, `--reviewer <login>`
+- `brd request-review <branch>` runs the same intent from the agent CLI: the same code owners, `--reviewer <login>`
   others; work the remote lacks refuses it (`needs_push`) until `--push` pushes it first
   ([Agent CLI](../cli/agent-cli.spec.md#bd-request-review)).
 

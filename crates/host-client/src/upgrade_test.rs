@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// The head of a Mach-O binary of arm64, the platform of the fake agent, and a body
-const MACHO_ARM64: &[u8] = b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01 a bd-host of arm64";
+const MACHO_ARM64: &[u8] = b"\xcf\xfa\xed\xfe\x0c\x00\x00\x01 a brd-host of arm64";
 
 /// The build that the fake agent runs before an upgrade
 const OLD: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -38,7 +38,7 @@ fn upgradable(restarts: bool) -> Setup {
 }
 
 fn binary_file(setup: &Setup, bytes: &[u8]) -> PathBuf {
-  let path = setup.dir.path().join("bd-host");
+  let path = setup.dir.path().join("brd-host");
   std::fs::write(&path, bytes).unwrap();
   path
 }
@@ -76,8 +76,8 @@ fn upgrade_sends_this_executable_once_and_refuses_another_platform() {
   assert_eq!(
     said.lines(),
     [
-      format!("bd-host: sending bd-host ({} B) to studio", MACHO_ARM64.len()),
-      format!("bd-host: studio installed bd-host {}; waiting for the new agent to answer", &sha256[..12]),
+      format!("brd-host: sending brd-host ({} B) to studio", MACHO_ARM64.len()),
+      format!("brd-host: studio installed brd-host {}; waiting for the new agent to answer", &sha256[..12]),
     ]
   );
 
@@ -106,7 +106,7 @@ fn the_previous_build_that_answers_at_the_end_is_a_rollback() {
   let refusal = setup.client(&FakeProcesses::default(), &|_| {}, &calm).upgrade(&request(&binary)).unwrap_err();
   assert_eq!(refusal.code, Code::RolledBack);
   assert!(refusal.message.contains(&OLD[..12]), "{}", refusal.message);
-  assert!(refusal.message.contains("~/.cache/bd-host/upgrade.json on studio"), "{}", refusal.message);
+  assert!(refusal.message.contains("~/.cache/brd-host/upgrade.json on studio"), "{}", refusal.message);
 }
 
 /// An agent without the feature cannot read an upgrade request, so the client refuses before the binary goes
@@ -122,7 +122,7 @@ fn an_agent_without_the_feature_is_refused_before_the_binary_goes() {
   assert_eq!(refusal.code, Code::AgentFailed);
   assert_eq!(
     refusal.message,
-    "the agent on studio has no feature upgrade: `bd-host setup studio` installs a new one over ssh"
+    "the agent on studio has no feature upgrade: `brd-host setup studio` installs a new one over ssh"
   );
   assert_eq!(setup.agent.requests().len(), 0);
 }

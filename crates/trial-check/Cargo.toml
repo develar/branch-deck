@@ -3,7 +3,7 @@ name = "trial-check"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The trial checks of a grouping (`bd check`, the conflict fix, the landing gate): builds that write objects only, and everything that reads the diffs and the symbols of the commits"
+description = "The trial checks of a grouping (`brd check`, the conflict fix, the landing gate): builds that write objects only, and everything that reads the diffs and the symbols of the commits"
 publish = false
 
 [dependencies]

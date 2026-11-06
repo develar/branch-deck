@@ -317,7 +317,7 @@ fn topological_order(nodes: &IndexMap<String, StackNode>, cycle_members: &HashSe
 /// the baseline, or nowhere (blocked by a parent that can't be built, or with a problem of its own). A parent without
 /// commits never blocks: the local history is linear on the baseline, so the child's commits can be picked onto the
 /// ancestor below it like those of any flat branch. `empty_parent_state` tells how a declared ancestor without commits
-/// stands (`Integrated`, `Unapplied` or `Missing`), a label for the row and `bd status`.
+/// stands (`Integrated`, `Unapplied` or `Missing`), a label for the row and `brd status`.
 pub fn place_branches(forest: &StackForest, empty_parent_state: &HashMap<String, ParentState>) -> IndexMap<String, BranchStack> {
   let state_of = |name: &str| {
     if forest.nodes.get(name).is_some_and(|node| node.has_commits) {
@@ -388,7 +388,7 @@ pub struct PendingDetection<'a> {
   pub retention_days: u64,
 }
 
-/// The detection of a read-only command (`bd status`, `bd check`): the strategy of a sync, without writing notes
+/// The detection of a read-only command (`brd status`, `brd check`): the strategy of a sync, without writing notes
 pub fn read_only_detection(baseline_branch: &str) -> PendingDetection<'_> {
   PendingDetection {
     baseline_branch,
@@ -635,10 +635,10 @@ pub fn describe_problem(branch: &str, view: &StackProblemView) -> String {
     .fixes
     .iter()
     .flat_map(|fix| match fix {
-      StackFix::StackOn(parent) => vec![format!("`bd restack {branch} {parent}`")],
-      StackFix::Unstack => vec![format!("`bd unstack {branch}`")],
-      StackFix::Rename => vec![format!("`bd rename {branch} <name>`")],
-      StackFix::Reword => view.commits.iter().map(|id| format!("`bd reword {} --subject <subject>`", short_id(id))).collect(),
+      StackFix::StackOn(parent) => vec![format!("`brd restack {branch} {parent}`")],
+      StackFix::Unstack => vec![format!("`brd unstack {branch}`")],
+      StackFix::Rename => vec![format!("`brd rename {branch} <name>`")],
+      StackFix::Reword => view.commits.iter().map(|id| format!("`brd reword {} --subject <subject>`", short_id(id))).collect(),
     })
     .collect();
   let (last, rest) = commands.split_last().map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));

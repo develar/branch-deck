@@ -38,7 +38,7 @@ Date: 2026-10-16
 
 A virtual branch conflicts when one of its commits changes lines that a commit of another branch changed first. The
 conflict view used to say so ("45 missing commits modified the conflicting files") and to list the ways out as text.
-The fix does the work: it tries regroups in trial builds (`bd check`'s, objects only) and keeps the one after which the
+The fix does the work: it tries regroups in trial builds (`brd check`'s, objects only) and keeps the one after which the
 branches apply cleanly, with the fewest changes the user notices.
 
 In one monorepo checkout, a commit of `IJAI-3852` (stacked on `IJAI-3828`) missed 42 commits of 12 branches, all of
@@ -51,12 +51,12 @@ rewrite.
 - Find a regroup that fixes the conflicts of the current grouping, verified by a trial build, within a bounded time.
 - Prefer the fix the user notices least: no branch that applied cleanly fails, few emptied branches, few moved commits.
 - Say what the fix does in steps (move, pull in, restack), what it fixes and what it empties.
-- Offer it to an agent as a plan for `bd group`.
+- Offer it to an agent as a plan for `brd group`.
 
 ## Non-goals
 
-- Editing a commit. A conflict that no regroup fixes stays; `bd move-hunk` and an agent resolve it.
-- Applying a fix without the user: `bd check --fix` writes no ref.
+- Editing a commit. A conflict that no regroup fixes stays; `brd move-hunk` and an agent resolve it.
+- Applying a fix without the user: `brd check --fix` writes no ref.
 
 ## Requirements
 
@@ -102,8 +102,8 @@ rewrite.
   the dangling references of the plan so far are read once the conflicts are done and time is left (no build again),
   then searched.
   [@test] ../../crates/trial-check/src/conflict_fix_test.rs (`a_dangling_reference_moves_the_removal_to_the_branch_that_fixes_the_use`)
-- The search must stop at a number of trials (the app's 24, 8 per problem; `bd`'s 12 or --max-trials) or a time from
-  the start of the command, its first check included (the app's 60 s; `bd`'s 180 s or --time-budget), checked before
+- The search must stop at a number of trials (the app's 24, 8 per problem; `brd`'s 12 or --max-trials) or a time from
+  the start of the command, its first check included (the app's 60 s; `brd`'s 180 s or --time-budget), checked before
   every branch build of a trial: a trial the time cuts is thrown away, the components are not checked in parts, and
   `search` says `budget` with the best plan so far. Nothing to fix is a complete search without trials.
   [@test] ../../crates/trial-check/src/conflict_fix_test.rs (`a_search_out_of_trials_says_so`, `a_search_out_of_budget_ends_with_the_best_plan_so_far`, `a_search_out_of_time_stops_before_its_first_trial`, `nothing_to_fix_is_a_complete_search_without_components`)
@@ -112,10 +112,10 @@ rewrite.
 - The steps must be grouped into components by the branches they touch; with several, each component's plan alone
   must keep what it fixes, or they become one.
 
-### `bd check --fix`
+### `brd check --fix`
 
-- `bd check --fix` must add `fix` `{search, trials, components, unresolved}`, each component with its `steps`, the
-  whole `plan` (the `--plan` included) for `bd group`, and what it fixes, unblocks and empties; it writes objects and
+- `brd check --fix` must add `fix` `{search, trials, components, unresolved}`, each component with its `steps`, the
+  whole `plan` (the `--plan` included) for `brd group`, and what it fixes, unblocks and empties; it writes objects and
   the object cache only. It prints a line on stderr for the first check and for each trial (`trial 3/12: restack
   <branch> on <parent> … verified (41 s)`, or the conflict it leaves, the branch it breaks), the JSON stays on stdout.
   [@test] ../../crates/trial-check/src/conflict_fix_test.rs (`each_trial_is_a_line_of_progress`)
@@ -156,9 +156,9 @@ rewrite.
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should apply the fix only once Patronus told what its robots hold`)
 - Without a fix the callout says "Branch Deck found no regroup that applies this commit cleanly" (after a cut-short
   search "Branch Deck stopped looking for a fix" with Look Again) and offers "Copy Prompt for Agent": the conflict, the
-  explanation, the files and bd's trial builds (`bd check --fix`, `bd check --plan`), with a `bd group` only after the
+  explanation, the files and brd's trial builds (`brd check --fix`, `brd check --plan`), with a `brd group` only after the
   user approves.
-  [@test] ../../src/lib/conflict-fix.test.ts (`hands a conflict without a fix to bd's trial builds and asks before a rewrite`, `works without bd`)
+  [@test] ../../src/lib/conflict-fix.test.ts (`hands a conflict without a fix to brd's trial builds and asks before a rewrite`, `works without brd`)
 - The menu of a conflicting branch must start with "Fix Conflict…": it opens the row at the commit that does not apply,
   where the fix is.
   [@test] ../../tests/e2e/conflict-fix/conflict-fix.spec.ts (`should open the fix from the menu of the branch`)
@@ -169,7 +169,7 @@ rewrite.
 ## Testing / Local Run
 
 - `cargo nextest run -p trial-check conflict_fix`
-- `bd -C <repo> check --fix` on a repository with a conflict: read-only.
+- `brd -C <repo> check --fix` on a repository with a conflict: read-only.
 - `pnpm e2e tests/e2e/conflict-fix` (the `conflict_fix` template: `ui` needs a commit of `api`).
 
 ## Risks
@@ -180,6 +180,6 @@ rewrite.
 
 ## References
 
-- [Agent CLI](../../docs/contributing/agent-cli.md) (`bd check`)
+- [Agent CLI](../../docs/contributing/agent-cli.md) (`brd check`)
 - [Commit Row](../commit/commit-row.spec.md) (the conflict view)
 - [Stack Parents](stack-parents.spec.md)

@@ -1,7 +1,7 @@
 //! The text of the pull request of the whole stack: the pull request of the stack branch `{prefix}/stack/<root>` into
 //! the target, whose approvals count for the one robot that lands the whole stack (docs/design/landing.md,
 //! spec/branch/whole-stack.spec.md). It is written from what the sync read: the description of the stack branch when it
-//! has one, else the descriptions of its members (`bd describe`, `ConfigSnapshot::descriptions`), else the subjects of
+//! has one, else the descriptions of its members (`brd describe`, `ConfigSnapshot::descriptions`), else the subjects of
 //! their commits; no git process. GitHub refuses a body over 65,536 characters and a title over 256: both are cut.
 
 use anyhow::Result;
@@ -26,7 +26,7 @@ pub struct StackMemberText<'a> {
   pub name: &'a str,
   /// The branch it is built on; `None` for the root
   pub parent: Option<&'a str>,
-  /// Its `bd describe` title and body
+  /// Its `brd describe` title and body
   pub description: Option<&'a Description>,
   /// The subjects of its commits without their prefix, oldest first
   pub subjects: Vec<&'a str>,

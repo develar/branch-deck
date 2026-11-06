@@ -1,4 +1,4 @@
-//! The blocks as `bd commits --patch` prints them: the context, the header with the scope label, the ids.
+//! The blocks as `brd commits --patch` prints them: the context, the header with the scope label, the ids.
 
 use crate::blocks::BlobPair;
 use crate::fixture_test::{commit_all, process_counts, repo_path, unhurried, write};

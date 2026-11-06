@@ -291,7 +291,7 @@ impl Host {
       )),
       Ok(Reply::Hello {
         schema_version, agent_version, ..
-      }) => Err(Attempt::Refused(self.schema_refusal(&format!("bd-host {agent_version} speaks schema {schema_version}")))),
+      }) => Err(Attempt::Refused(self.schema_refusal(&format!("brd-host {agent_version} speaks schema {schema_version}")))),
       Ok(Reply::Refused { code, message }) if code == Code::Schema.name() => Err(Attempt::Refused(self.schema_refusal(&message))),
       Ok(Reply::Refused { code, message }) => Err(Attempt::Refused(self.agent_refusal(&code, &message))),
       Ok(reply) => Err(Attempt::Refused(self.unexpected(&reply))),
@@ -335,7 +335,7 @@ pub(crate) fn resolve(hostname: &str, port: u16, deadline: Duration) -> Result<V
   let (sender, receiver) = mpsc::channel();
   let name = hostname.to_owned();
   thread::Builder::new()
-    .name("bd-host-resolve".to_owned())
+    .name("brd-host-resolve".to_owned())
     .spawn(in_current_span(move || {
       let found = (name.as_str(), port).to_socket_addrs().map(Iterator::collect::<Vec<_>>).map_err(|error| error.to_string());
       let _ = sender.send(found);
@@ -356,11 +356,11 @@ pub(crate) fn resolve(hostname: &str, port: u16, deadline: Duration) -> Result<V
 }
 
 /// The hello of a host and a hint when it runs another build than this client: the run goes on, and one line names
-/// `bd-host upgrade <alias>`
+/// `brd-host upgrade <alias>`
 pub(crate) fn another_build_hint(alias: &str, agent: &AgentInfo, client: Option<&str>) -> Option<String> {
   match (agent.build.as_deref(), client) {
     (Some(agent_build), Some(client_build)) if agent_build != client_build => Some(format!(
-      "bd-host: {alias} runs another build of bd-host ({} {}, this client {}): `bd-host upgrade {alias}` sends this one",
+      "brd-host: {alias} runs another build of brd-host ({} {}, this client {}): `brd-host upgrade {alias}` sends this one",
       agent.version,
       crate::short(agent_build),
       crate::short(client_build)

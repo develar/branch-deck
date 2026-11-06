@@ -482,7 +482,7 @@ impl ViewerPermission {
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub struct NewPullRequest {
-  /// The `bd describe` title, else the title of the commits the pull request will show (`pull_request_text`)
+  /// The `brd describe` title, else the title of the commits the pull request will show (`pull_request_text`)
   pub title: String,
   pub body: String,
   /// The user of the token the pull request is created with; null when GitHub didn't answer
@@ -599,7 +599,7 @@ pub struct ReviewCandidate {
   pub full_name: Option<String>,
   /// The missing groups that suggest them, in the order of the readiness
   pub groups: Vec<String>,
-  /// Chosen when the popover opens, and whom `bd request-review` asks: one suggested code owner of each missing group
+  /// Chosen when the popover opens, and whom `brd request-review` asks: one suggested code owner of each missing group
   /// nobody is asked for yet, each once
   pub preselected: bool,
 }

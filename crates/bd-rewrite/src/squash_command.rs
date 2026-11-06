@@ -1,8 +1,8 @@
-//! `bd squash <into> <commit>…`: the commits the user asked to squash go into the oldest of them, as the app's Squash
+//! `brd squash <into> <commit>…`: the commits the user asked to squash go into the oldest of them, as the app's Squash
 //! does (`history_rewrite::squash`, spec/commit/squash.spec.md), recorded in the operations registry as the same
 //! intent (`RewriteIntent::Squash`); its core takes the repository lock after it computed the squash, for the witness
 //! of HEAD and the move only. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they are;
-//! `bd undo` takes it back. `--dry-run` builds the squash and drops it, so a conflict shows before the user approves
+//! `brd undo` takes it back. `--dry-run` builds the squash and drops it, so a conflict shows before the user approves
 
 use crate::rewrite::{after_rewrite_exit_code, sync_after_rewrite};
 use bd_core::context::RepoContext;
@@ -26,7 +26,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct SquashArgs {
-  /// The commit the others go into, the oldest of them, by the id `bd status` printed (abbreviated or full)
+  /// The commit the others go into, the oldest of them, by the id `brd status` printed (abbreviated or full)
   pub into: String,
   /// The commits squashed into it, newer ones of its branch
   #[arg(required = true)]
@@ -41,18 +41,18 @@ pub struct SquashArgs {
   /// The whole message from a file, `-` for stdin
   #[arg(long, value_name = "FILE")]
   pub message_file: Option<PathBuf>,
-  /// Squash only if HEAD is still this commit (the `head` that `bd status` printed)
+  /// Squash only if HEAD is still this commit (the `head` that `brd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
   /// Build the squash and drop it: a conflict refuses it as the squash would; write nothing
   #[arg(long)]
   pub dry_run: bool,
-  /// Then rebuild the virtual branches as `bd sync` does, after the repository lock is released
+  /// Then rebuild the virtual branches as `brd sync` does, after the repository lock is released
   #[arg(long, conflicts_with = "dry_run")]
   pub sync: bool,
 }
 
-/// `bd squash`
+/// `brd squash`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SquashOutput {
   pub schema: SchemaVersion,
@@ -77,13 +77,13 @@ pub struct SquashOutput {
   /// The branches the next sync builds anew, so a pushed one needs a push again: the branch of the squashed commit and
   /// those of the commits between it and the newest squashed one. The copies of the later commits stay
   pub rebuilt_branches: Vec<String>,
-  /// `<previous_head>..<new_head>`: `bd undo` restores `previous_head`; omitted for a dry run
+  /// `<previous_head>..<new_head>`: `brd undo` restores `previous_head`; omitted for a dry run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
-  /// With --sync: the `bd sync` output after the squash; exit code 1 when a branch is not built
+  /// With --sync: the `brd sync` output after the squash; exit code 1 when a branch is not built
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sync: Option<SyncOutput>,
-  /// The sync after the squash failed: the squash stands, `undo_token` reverts it; retry `bd sync`, never the squash
+  /// The sync after the squash failed: the squash stands, `undo_token` reverts it; retry `brd sync`, never the squash
   #[serde(skip_serializing_if = "Option::is_none")]
   pub after_error: Option<ErrorBody>,
 }
@@ -148,7 +148,7 @@ fn ensure_guards(context: &RepoContext) -> Result<(), CliError> {
   Ok(())
 }
 
-/// The code of an error of a squash (also of `bd fold`) or of its trial: the refusal of the history with the commits and
+/// The code of an error of a squash (also of `brd fold`) or of its trial: the refusal of the history with the commits and
 /// files it names, a HEAD that moved, the lock another process holds
 pub(crate) fn squash_error(error: anyhow::Error) -> CliError {
   if let Some(refused) = refused_in(&error) {

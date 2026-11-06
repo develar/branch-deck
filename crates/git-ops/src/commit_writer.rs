@@ -689,7 +689,7 @@ pub fn write_notes_on_existing(git_executor: &GitCommandExecutor, repo_path: &st
 }
 
 /// A write of notes that only save work (the mapping notes of a sync, the integration detection), which a lost race
-/// never fails: a write that lost a ref to another writer (the app's sync beside `bd sync`: `from <ref>^0` was read
+/// never fails: a write that lost a ref to another writer (the app's sync beside `brd sync`: `from <ref>^0` was read
 /// before the other moved the ref, so `fast-import` refuses the tip that lacks its notes) runs once more, from the new
 /// tip, and keeps the other's notes; a second failure is a warning, and a later run writes them. An identity git
 /// cannot form fails it at once: no later run could write them either, so every sync would copy its commits again

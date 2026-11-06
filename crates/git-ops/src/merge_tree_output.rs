@@ -1,7 +1,7 @@
 //! The `-z` output of `git merge-tree --write-tree` (without `--name-only`): the tree, the conflicted file info (one
 //! entry per stage) and the informational messages, read as bytes. Shared by the sync's cherry-pick and the conflict
-//! rounds of `bd update` (`update_resolve`). `parse_batch_merge` reads one merge of a `--stdin` run, from its whole
-//! output (`parse_merge_tree_batch`, `bd move-hunk`) or from the running process (the sync's `CommitChain`).
+//! rounds of `brd update` (`update_resolve`). `parse_batch_merge` reads one merge of a `--stdin` run, from its whole
+//! output (`parse_merge_tree_batch`, `brd move-hunk`) or from the running process (the sync's `CommitChain`).
 
 use anyhow::{Context, Result, anyhow, bail};
 

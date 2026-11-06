@@ -101,7 +101,7 @@ impl GitCommandExecutor {
 
   /// A clone that counts its git processes, and those of its clones, for `operation`; the summary is logged when the
   /// last of them is dropped (`process_stats.rs`). An executor that counts already keeps its stats: an operation inside
-  /// another (the sync of `bd sync`) counts into the outer one
+  /// another (the sync of `brd sync`) counts into the outer one
   #[must_use]
   pub fn with_process_stats(&self, operation: &str) -> Self {
     if self.stats.is_some() {
@@ -156,7 +156,7 @@ impl GitCommandExecutor {
 
   /// The git command with the base config and environment. stdin is null unless a caller pipes it: git never inherits
   /// ours. A spawned child inherits stdin by default, and on Windows git queries its stdin handle at startup
-  /// (`winansi_init`), which waits while a read of the same pipe is pending in this process (`bd check` reads a plan
+  /// (`winansi_init`), which waits while a read of the same pipe is pending in this process (`brd check` reads a plan
   /// from stdin), so every git started meanwhile would hang
   fn command(&self, args: &[&str], repository_path: &str, env: &[(&str, &str)]) -> Result<Command> {
     if repository_path.is_empty() {

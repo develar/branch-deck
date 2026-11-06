@@ -110,14 +110,14 @@ describe("runRewriteIntent", () => {
     engine.proceed = new Promise(resolve => {
       proceed = resolve
     })
-    const step: RunningOperation["step"] = { kind: "waitingForLock", holder: { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 12 } }
+    const step: RunningOperation["step"] = { kind: "waitingForLock", holder: { tool: "bd", command: "brd pick --follow", pid: 4242, held_for: 12 } }
     engine.events = [{ kind: "step", op: "op-1", step }]
     // the session admitted it: the view has it, which every surface reads
     engine.operations = { "op-1": operation("op-1", UNSTACK, step) }
     const run = runRewriteIntent(SPEC, UNSTACK)
     await vi.waitFor(() => expect(indicatorsStore.getState().runs.dialog?.op).toBe("op-1"))
     const shown = engine.operations["op-1"] as RunningOperation
-    expect(operationBusyOf(shown)).toBe("Waiting for `bd pick --follow` (pid 4242, for 12 s)")
+    expect(operationBusyOf(shown)).toBe("Waiting for `brd pick --follow` (pid 4242, for 12 s)")
     presentStopWaiting(waitingOf(shown), cancelIntent)!.onSelect!({ surface: null })
     await vi.waitFor(() => expect(engine.calls).toContain("cancel op-1"))
     engine.error = { code: "canceled", message: "The wait for the repository lock was stopped; nothing changed", details: null, retry: "no", operation_id: "op-1" }

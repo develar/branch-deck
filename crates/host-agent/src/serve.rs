@@ -1,4 +1,4 @@
-//! `bd-host serve`: the listener of the agent (spec/cli/host.spec.md, "serve"). A thread per connection. Each
+//! `brd-host serve`: the listener of the agent (spec/cli/host.spec.md, "serve"). A thread per connection. Each
 //! connection: the TLS handshake within a total deadline, then `Request::Hello`, then one request. At most
 //! [`MAX_HANDSHAKES`] handshakes go on at a time, and at most [`MAX_HANDSHAKES_PER_PEER`] of one address, so one host of
 //! the network cannot hold all of them. A socket over a cap is closed at once. The sockets over a cap and the failed
@@ -124,7 +124,7 @@ impl ListeningLine {
 /// Starts `command`, a binary with the agent commands, as `serve` on `port` of the loopback address (0: a free one),
 /// with the `serve` options `args` and its stderr into `log`. Each variable of `PROCESS_TEST_ENV` that `command` does not
 /// set gets its value there, so a test can name its own fake, such as a login shell. Answers the child and its first
-/// line. The process tests of the agent and of bd-host start their agent with it
+/// line. The process tests of the agent and of brd-host start their agent with it
 pub fn spawn_on_loopback(mut command: std::process::Command, port: u16, args: &[&str], log: std::fs::File) -> io::Result<(std::process::Child, ListeningLine)> {
   for (name, value) in PROCESS_TEST_ENV {
     if !command.get_envs().any(|(set, _)| set == std::ffi::OsStr::new(name)) {

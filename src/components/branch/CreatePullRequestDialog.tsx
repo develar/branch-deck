@@ -41,7 +41,7 @@ import { closeCreatePullRequestDialog, useCreatePullRequestBranch, useCreatePull
 import { setCreatePullRequestAssignSelf, useAppSettings } from "@/stores/settings/appSettings"
 
 /**
- * The "Create pull request" dialog of the branch the store names: the title and the description (the `bd describe`
+ * The "Create pull request" dialog of the branch the store names: the title and the description (the `brd describe`
  * text, else the commits it will show), the reviewers (the code owners Patronus suggests, one per group chosen at once,
  * and a search of the repository's users), "Assign to me"; ⌘↵ creates it through the GitHub API, "Continue on GitHub"
  * opens GitHub's form with the text instead (it takes no reviewers). Without a token GitHub accepts, it says why and

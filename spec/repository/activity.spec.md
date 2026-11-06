@@ -78,7 +78,7 @@ a side panel beside the branch tables (or a window of its own) with the log of t
 by day, each entry with what happened, the detail and when; chips of the kinds and a search find an entry in a month of
 them. A branch name shows its row, a landed entry
 has the report of the island, a rewrite has its Undo while the toast's lasts. The log is read from journals: the
-operations of the remote, of the app and of `bd`, are the journal of their repository, the rest the page records in the
+operations of the remote, of the app and of `brd`, are the journal of their repository, the rest the page records in the
 journal of the app data directory; no window keeps it. It is the history the landing overview leaves out: the overview
 tells the present, its line of the last day opens Activity at its Robots.
 
@@ -90,7 +90,7 @@ tells the present, its line of the last day opens Activity at its Robots.
 
 ## Non-goals
 
-- No history of the repository (that is `git reflog`): only what this app and `bd` did, as the app says it.
+- No history of the repository (that is `git reflog`): only what this app and `brd` did, as the app says it.
 - No sync and no fetch of their own in the log: they change nothing the user asked for, a failure is an error entry.
 - No Undo after the toast's window, once HEAD moved since or after a restart: the rewrite it would revert may be pushed
   or rewritten again, and its undo moves the refs back only from where the rewrite left them.
@@ -100,7 +100,7 @@ tells the present, its line of the last day opens Activity at its Robots.
 ### Recording
 
 - What Branch Deck did is read from journals, never kept by a window. Every operation of the remote, of the app and of
-  `bd` alike (a push, a start of a Safe Push or a Dry Run, a restart or a cancel of a robot, a retarget, a pull request
+  `brd` alike (a push, a start of a Safe Push or a Dry Run, a restart or a cancel of a robot, a retarget, a pull request
   created, closed or reviewed), is the journal of its repository (`operations::journal`,
   `$GIT_COMMON_DIR/branch-deck/journal.jsonl`): an entry once it ended, with each effect and what it answered. What only
   the page knows (an error it told, an update, what landed, a rewrite, a review request, an approval, the news of a
@@ -165,10 +165,10 @@ tells the present, its line of the last day opens Activity at its Robots.
   repository it rewrote, and every error toast (`notifyError`, with its reason). An operation of the remote that failed
   is the entry of its error toast, which names it (`operationId`), in the projects of the journal of the operation,
   whichever repository the main window showed when the toast came (a Safe Push of one repository that fails while
-  another is shown is in the log of the first only); one no toast told (of `bd`) says what it was for and why it failed
-  ("Cannot push branch auth" / "The remote refused the push: …"); a canceled one is no entry. A rewrite or a pick of `bd`
+  another is shown is in the log of the first only); one no toast told (of `brd`) says what it was for and why it failed
+  ("Cannot push branch auth" / "The remote refused the push: …"); a canceled one is no entry. A rewrite or a pick of `brd`
   (its journal entry, `tool: bd`), which no toast told, is an entry of kind `rewrite` in the words of the rewrite
-  ("Unstacked beta", "Picked commits"; `presentRewrite`), an agent's marked as any other; an update of `bd` tells
+  ("Unstacked beta", "Picked commits"; `presentRewrite`), an agent's marked as any other; an update of `brd` tells
   nothing of what it moved and is no entry. Clear Log of a repository forgets the errors the page told of the
   operations of its journal too.
   [@test] ../../src/stores/activity.test.ts (`records the errors the user was told about, in the repository the main window shows`)
@@ -184,7 +184,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   log line of the error carries it as `operation_id`. A page step that throws what a command returned throws it as a
   `commandFailure` (`src/lib/errors.ts`), which keeps the id up to the `notifyError` of its caller, and a review write
   hands the error of its effect itself to its feedback. An entry of an operation of the remote is its id (the
-  `operation_id` of its log lines, of its entry in the journal, of the JSON of `bd`). Copy Diagnostics of the entry
+  `operation_id` of its log lines, of its entry in the journal, of the JSON of `brd`). Copy Diagnostics of the entry
   copies it (below); an error raised outside a command has none.
   [@test] ../../src/stores/activity.test.ts (`keeps the operation a failed command names, for its lines in the log`)
   [@test] ../../src/stores/review-requests.test.ts (`hands the error of a failed approval to its feedback as the engine answered it, and starts nothing`)
@@ -215,7 +215,7 @@ tells the present, its line of the last day opens Activity at its Robots.
 - The Undo is the session's (`RepositoryView.undo`): it offers the Undo of the last rewrite of this process that has
   one, while HEAD is still the head that rewrite left, as the rewrites of this process and the syncs after it saw HEAD.
   A second rewrite takes its place (its own Undo, or none after an amend that moved HEAD), an undo leaves none, and a
-  commit, an update or a rewrite of `bd` takes it back once a sync read the HEAD it left; a sync that started before
+  commit, an update or a rewrite of `brd` takes it back once a sync read the HEAD it left; a sync that started before
   the rewrite ended read HEAD before it and changes nothing. Then the Undo goes from the toast, which still tells what
   was done until its time ends, and from the entry, as after the window; a press of the Activity window that came late
   is refused with "Cannot undo …: the branch moved since". An Undo pressed before is not taken back while it runs: its
@@ -244,7 +244,7 @@ tells the present, its line of the last day opens Activity at its Robots.
   journal of a slow disk shows once it answered, never "unavailable" for good because the machine was loaded. The journal of the page comes with them. The main window and
   the Activity window each read the log themselves (`useActivityReads`): when they open, and again when a journal
   changes (`activity-changed`: a write of the page, or the watch of the operations registry of a repository a window
-  shows sees its journal change, an operation of the app or of `bd` ended); the main window also after each operation
+  shows sees its journal change, an operation of the app or of `brd` ended); the main window also after each operation
   and each write of its own. The log of a settings file of before (the key `activity`) is dropped by the load.
   [@test] ../../crates/operations/src/journal_test.rs (`activity_reads_the_journal_of_each_repository_once_and_lists_one_it_cannot_read`, `a_journal_that_answers_after_the_bound_shows_once_it_answered`, `a_read_asked_while_one_runs_shows_the_journal_as_it_is_after_that_one`, `the_journal_of_a_repository_that_is_gone_is_unavailable_and_one_not_written_yet_is_empty`)
   [@test] ../../crates/app-settings/src/journals_test.rs (`the_recent_projects_have_the_journals_remembered_for_them_and_one_opened_before_has_none`, `no_recent_projects_have_no_journals`)
@@ -391,11 +391,11 @@ tells the present, its line of the last day opens Activity at its Robots.
   `activity-day`, `activity-entry` with `activity-title`, `activity-description`, `activity-branch`, `activity-agent`,
   `activity-undo`, `activity-undone`, `activity-landed-toggle`, `activity-landed-dismiss`, `activity-landed-report`;
   `activity-unavailable` with `activity-unavailable-path`, `activity-clear`. The fixtures of the test server journal an agent's operation in a slot of
-  the pool of the repository (`journalAgentOperation`, through the registry as `bd` does) and remember the journal of
+  the pool of the repository (`journalAgentOperation`, through the registry as `brd` does) and remember the journal of
   the repository on a disk that is gone (`loseJournalDisk`); the test server tells the pages of the repository
   `activity-changed` on their event streams after `record_activity` and `clear_activity`, and when the watch of the
   operations registry sees the journal of the repository change, as the backend does; a test fires it for an operation
-  of `bd` it journals itself.
+  of `brd` it journals itself.
   [@test] ../../crates/test-server/src/app_events_test.rs (`an_operation_journaled_in_the_repository_a_window_shows_tells_its_pages`)
 
 ## Open Questions / Risks

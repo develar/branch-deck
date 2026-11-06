@@ -269,7 +269,7 @@ pub trait Updater: Send + Sync {
 /// The agent CLI of the app, `bd` (docs/contributing/agent-cli.md): the app's is its own binary; the e2e server's a fixed
 /// path that installs nothing
 pub trait AgentCliHost: Send + Sync {
-  /// `bd install`: the `bd` command and the skills; the agent rules where it wrote them. Blocking: call within
+  /// `brd install`: the `bd` command and the skills; the agent rules where it wrote them. Blocking: call within
   /// `run_blocking`
   ///
   /// # Errors
@@ -282,6 +282,6 @@ pub trait AgentCliHost: Send + Sync {
   /// The app cannot tell its binary
   fn command(&self, repository_path: &str) -> Result<AgentCliCommand, ApiError>;
 
-  /// The skill files of `bd install` that exist, without writing anything
+  /// The skill files of `brd install` that exist, without writing anything
   fn status(&self) -> AgentCliStatus;
 }

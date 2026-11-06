@@ -270,7 +270,7 @@ test.describe("Onboarding", () => {
     await emitTauriEvent(page, "install_agent_cli")
     const toast = page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })
     await expect(toast.locator("[data-slot=toast-description]")).toHaveText(
-      "Coding agents find bd through the skills in /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md. In a terminal, run bd. Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.",
+      "Coding agents find brd through the skills in /Users/test/.claude/skills/branch-deck/SKILL.md, /Users/test/.agents/skills/branch-deck/SKILL.md. In a terminal, run brd. Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.",
     )
     await toast.getByRole("button", { name: "Open Agent Settings" }).click()
     await expectSettingsOpened(page, { page: "agents" })
@@ -286,7 +286,7 @@ test.describe("Onboarding", () => {
 
     await hint.getByRole("button", { name: "Install Agent CLI" }).click()
     await expect(page.locator("[data-slot=toast]", { hasText: "Agent CLI installed" })).toBeVisible()
-    await expect(hint).toContainText("You work in this checkout. Coding agents such as Claude Code lease worktrees of their own through bd and land each commit on your branch.")
+    await expect(hint).toContainText("You work in this checkout. Coding agents such as Claude Code lease worktrees of their own through brd and land each commit on your branch.")
     await expect(hint.getByRole("button", { name: "Install Agent CLI" })).toHaveCount(0)
     await hint.getByRole("button", { name: "Open Agent Settings" }).click()
     await expectSettingsOpened(page, { page: "agents" })

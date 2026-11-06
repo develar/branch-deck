@@ -14,7 +14,7 @@ use test_utils::history::{HistoryCommit, HistoryStream};
 
 pub const PREFIX: &str = "test-user";
 
-/// The global git config of bd in a test (`Environment::git_config_global`), empty
+/// The global git config of brd in a test (`Environment::git_config_global`), empty
 pub const EMPTY_GLOBAL_CONFIG: &str = "/dev/null";
 
 /// No app settings and no global git config, the git of the fixtures, started in `cwd`
@@ -23,7 +23,7 @@ pub fn environment(cwd: &Path) -> Environment {
     cwd: cwd.to_path_buf(),
     settings: domain_types::settings::AppSettings::default(),
     // the git the fixtures run (`GitCommandExecutor`'s, Homebrew's first on macOS, where `PATH` may name an older one):
-    // bd and its test run one git, which answers its version once per test process
+    // brd and its test run one git, which answers its version once per test process
     git: Some(fixture_git()),
     // an empty global config, as CI has: the developer's `branchdeck.branchPrefix` never gives a test its prefix (git
     // for Windows reads `/dev/null` as `nul`)
@@ -34,7 +34,7 @@ pub fn environment(cwd: &Path) -> Environment {
     executable: None,
     appimage: None,
     path: None,
-    // nothing to answer: a test of `bd safe-push` starts its own Patronus
+    // nothing to answer: a test of `brd safe-push` starts its own Patronus
     patronus_url: "http://127.0.0.1:9".to_string(),
     space_token: None,
     // nothing to answer and no token: a test of a GitHub pull request starts its own GitHub
@@ -45,7 +45,7 @@ pub fn environment(cwd: &Path) -> Environment {
     youtrack_token_file: None,
     // a failure the fakes answer is asked again at once, not after the app's second
     remote_retry_delay: Some(std::time::Duration::ZERO),
-    // no `teamcity` CLI: a test of `bd robot --full` writes a fake one
+    // no `teamcity` CLI: a test of `brd robot --full` writes a fake one
     teamcity: Some(cwd.join("no-teamcity")),
     // a test survives no power loss: its commits of the object cache do not wait for the drive
     flush_to_drive: false,
@@ -96,7 +96,7 @@ pub fn run_operation(environment: &Environment, args: &[&str]) -> (i32, Value, S
 }
 
 /// The line of the stdout of a child process of a test that carries the exit code and the output of its `bd`
-const CHILD_ANSWER: &str = "bd of a child process: ";
+const CHILD_ANSWER: &str = "brd of a child process: ";
 
 /// The answer of `bd` in a child process of a test (`TestChild`): its exit code and its output, on a line of its own
 pub fn print_child_answer(exit_code: i32, output: &Value) {
@@ -270,7 +270,7 @@ pub fn canonical(path: &Path) -> std::path::PathBuf {
   std::path::PathBuf::from(sync_utils::paths::display_path(&std::fs::canonicalize(path).unwrap()))
 }
 
-/// The `undo_token` of `output` is `<head>..<HEAD now>`, and `bd undo` with it moves HEAD back to `head`
+/// The `undo_token` of `output` is `<head>..<HEAD now>`, and `brd undo` with it moves HEAD back to `head`
 pub fn assert_undo_restores(repo: &TestRepo, output: &Value, head: &str) {
   let token = output["undo_token"].as_str().unwrap_or_else(|| panic!("no undo token: {output}"));
   assert_eq!(token, format!("{head}..{}", repo.head()));
@@ -296,7 +296,7 @@ pub fn run_in(repo: &TestRepo, args: &[&str]) -> (i32, Value) {
   run_json(&environment(repo.path()), &all_args)
 }
 
-/// Runs `during` while an agent's `bd sync` of `repo` is held in its first merge, asserts the sync is still held after
+/// Runs `during` while an agent's `brd sync` of `repo` is held in its first merge, asserts the sync is still held after
 /// it, then lets the sync go on and asserts it ended; the sync must merge (a commit of no branch below the branch's). A
 /// panic of `during` or of an assertion lets the sync go as it leaves (`LetGo`), so the test fails at once instead of
 /// waiting for a sync nobody lets go
@@ -335,7 +335,7 @@ impl Drop for LetGo<'_> {
   }
 }
 
-/// bd with a git wrapper that logs every command with the state of the repository lock when it started: `locked` while
+/// brd with a git wrapper that logs every command with the state of the repository lock when it started: `locked` while
 /// the holder record of `$GIT_COMMON_DIR/branch-deck.lock` exists (a holder writes it once it has the lock and deletes
 /// it before the release), so a test reads the lock span of a command. `arms` are `case " $* " in` arms that run before
 /// the real git, with `{dir}` replaced by the directory of the wrapper (a barrier, a failure)
@@ -522,10 +522,10 @@ pub fn commit_all(repo: &TestRepo, message: &str, timestamp: i64) -> String {
   repo.commit_with(&["-m", message], &[("GIT_AUTHOR_DATE", &date), ("GIT_COMMITTER_DATE", &date)])
 }
 
-/// The repository lock, held as another process holds it (an agent's `bd pick --follow`, outside the line of this
+/// The repository lock, held as another process holds it (an agent's `brd pick --follow`, outside the line of this
 /// process, `lock_repository_as_another_process`), until the guard is dropped; refused at once while it is held
 pub fn hold_the_lock(repo: &TestRepo) -> RepositoryLock {
-  lock_repository_as_another_process(&repo.path().join(".git"), "bd pick --follow").unwrap()
+  lock_repository_as_another_process(&repo.path().join(".git"), "brd pick --follow").unwrap()
 }
 
 /// A dry run's output: it says so, its `new_head` is `head` (abbreviated) and it has no undo token
@@ -732,7 +732,7 @@ pub fn assert_covered(root: &Value, schema: &Value, value: &Value, path: &str) {
   }
 }
 
-/// The branch `name` of the `branches` of an output (`bd check`, `bd push`)
+/// The branch `name` of the `branches` of an output (`brd check`, `brd push`)
 pub fn branch<'a>(output: &'a Value, name: &str) -> &'a Value {
   output["branches"]
     .as_array()

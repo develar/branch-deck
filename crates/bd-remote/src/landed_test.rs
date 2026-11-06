@@ -19,7 +19,7 @@ fn sync(space: &Space) {
 }
 
 /// What a refusal of a branch that landed says to do
-const UPDATE: &str = "once the user approved, `bd update` archives what landed";
+const UPDATE: &str = "once the user approved, `brd update` archives what landed";
 
 /// `bd --prefix test-user <args>` in the repository of `space`
 pub(crate) fn bd(space: &Space, args: &[&str]) -> (i32, Value) {
@@ -28,7 +28,7 @@ pub(crate) fn bd(space: &Space, args: &[&str]) -> (i32, Value) {
   run_json(&space.environment(), &all_args)
 }
 
-/// `landed_by` of `name` in `bd status`
+/// `landed_by` of `name` in `brd status`
 fn landed_by<'a>(status: &'a Value, name: &str) -> &'a Value {
   let branch = status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap();
   &branch["landed_by"]
@@ -39,7 +39,7 @@ fn short(space: &Space, rev: &str) -> String {
   git(&space.repo, &["rev-parse", rev])[..8].to_string()
 }
 
-/// `bd status` of `space`, every field of it in `bd schema`
+/// `brd status` of `space`, every field of it in `brd schema`
 fn covered_status(space: &Space) -> Value {
   let (exit_code, status) = bd(space, &["status"]);
   assert_eq!(exit_code, 0, "{status}");
@@ -112,11 +112,11 @@ fn push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole() {
     assert_error(&output, exit_code, (4, "landed"));
     assert_eq!(output["error"]["message"], json!(message), "{args:?}");
     // the update moves the checked out branch: the user's to approve
-    assert_eq!(next_steps(&output["error"]), [("bd update".to_string(), true)], "{args:?}");
+    assert_eq!(next_steps(&output["error"]), [("brd update".to_string(), true)], "{args:?}");
   }
   let (exit_code, check) = bd(&space, &["safe-push", "login", "--dry-run"]);
   assert_eq!((exit_code, check["refusals"][0]["code"].clone()), (0, json!("landed")), "{check}");
-  assert_eq!(next_steps(&check["refusals"][0]), [("bd update".to_string(), true)]);
+  assert_eq!(next_steps(&check["refusals"][0]), [("brd update".to_string(), true)]);
 
   // a new commit of auth is work left: auth pushes and lands it, login stays landed
   write(&space.repo, "token.txt", "token\n");
@@ -261,13 +261,13 @@ fn push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once
   assert_eq!(space.remote_tip(STACK), space.local_tip(STACK));
 }
 
-/// `branch` of `bd status` by name
+/// `branch` of `brd status` by name
 fn status_branch<'a>(status: &'a Value, name: &str) -> &'a Value {
   status["branches"].as_array().unwrap().iter().find(|branch| branch["name"] == json!(name)).unwrap()
 }
 
-/// On Space `bd status` says what the Safe Push of each branch needs of a branch outside what it lands, as
-/// `bd safe-push` would refuse it: `flow` uses a name `util` adds, `ui` is built on `flow`; `util` needs nothing
+/// On Space `brd status` says what the Safe Push of each branch needs of a branch outside what it lands, as
+/// `brd safe-push` would refuse it: `flow` uses a name `util` adds, `ui` is built on `flow`; `util` needs nothing
 #[test_log::test]
 fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
   let space = Space::new(&[]);
@@ -287,14 +287,14 @@ fn status_names_what_the_safe_push_of_a_branch_needs_of_a_branch_outside_it() {
     "at": "src/b/Use.kt:3",
     "needs": declares,
     "needs_branch": "util",
-    "fix": "bd restack flow util",
+    "fix": "brd restack flow util",
   }]);
   assert_eq!(status_branch(&status, "flow")["landing_needs"], need);
   assert_eq!(status_branch(&status, "ui")["landing_needs"], need);
   assert_eq!(status_branch(&status, "util")["landing_needs"], json!([]));
 }
 
-/// `next_step` of a branch or a whole stack of `bd status`
+/// `next_step` of a branch or a whole stack of `brd status`
 fn next_step_of<'a>(status: &'a Value, key: &str, name: &str) -> &'a Value {
   let found = status[key]
     .as_array()
@@ -305,9 +305,9 @@ fn next_step_of<'a>(status: &'a Value, key: &str, name: &str) -> &'a Value {
   &found["next_step"]
 }
 
-/// `bd status` gives every branch and whole stack the next step the app's row shows (`domain_policy::next_step`) over
+/// `brd status` gives every branch and whole stack the next step the app's row shows (`domain_policy::next_step`) over
 /// what it read: a branch merged Safe Pushes landed has nothing to start (row 1); one with work waits for the pull
-/// requests, which `bd status` doesn't list (row 0), as the whole stack of a stack that forks does
+/// requests, which `brd status` doesn't list (row 0), as the whole stack of a stack that forks does
 #[test_log::test]
 fn status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row() {
   let space = merged_login();

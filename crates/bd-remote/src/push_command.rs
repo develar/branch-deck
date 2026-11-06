@@ -1,4 +1,4 @@
-//! `bd push`: sync, then push the virtual branches as the app's push does, through the same engine
+//! `brd push`: sync, then push the virtual branches as the app's push does, through the same engine
 //! (docs/design/git-operations.md, "Push and land", "Agent push"): an intent `Push` per named branch over the one-shot
 //! session of the command's sync (`operations::push::push_planned`: Push Stack of it by default, the branch alone with
 //! `--alone` and `--expect-remote`, Push with Children beside Push Stack with `--with-children`, the unapplied branch
@@ -9,13 +9,13 @@
 //! commits a branch lacks (D4), the restart. It prints a ready `gh pr create` per branch, into the baseline: every pull
 //! request of a virtual branch goes there, a stacked branch's with the commits of the branches it is built on.
 //!
-//! The sync takes no repository lock, as `bd sync`; the facts the plans read (the user's robots, the pull requests of
+//! The sync takes no repository lock, as `brd sync`; the facts the plans read (the user's robots, the pull requests of
 //! the branches: `operations::needs`, one request each, side by side) and the texts of the pull requests are asked
 //! after it, so no other writer waits for the sync, Patronus, GitHub or the network. A rewrite or a sync of another
 //! session between the sync and the witness changes the plan: `plan_changed` (exit 3), nothing done.
 //!
 //! The lease is the remote head the sync compared with (`remote.head`, the session's), or the one `--expect-remote`
-//! names. Where the app's push leaves a branch its scope covers out to its row, `bd push` refuses the push (`push_plan`
+//! names. Where the app's push leaves a branch its scope covers out to its row, `brd push` refuses the push (`push_plan`
 //! of `domain_policy::push` decides what each branch does, `push_refusals` words it): a branch the sync didn't build, a
 //! branch a running Safe Push holds, a branch whose push drops remote commits it lacks without `--force`; the branches
 //! merged Safe Pushes landed and the parked ones it leaves out (`skipped`), refused only when nothing else is left. With
@@ -105,14 +105,14 @@ pub struct PushArgs {
   /// Without it such a branch is refused (`robot_running`): a push won't land, and it fails the Safe Push at the end
   #[arg(long)]
   pub restart_running: bool,
-  /// Push the unapplied branch `{prefix}/unapplied/<name>` (one name, as `unapplied` of `bd status` names it) to
+  /// Push the unapplied branch `{prefix}/unapplied/<name>` (one name, as `unapplied` of `brd status` names it) to
   /// `origin` under its own name, leased on the remote head the last fetch saw or --expect-remote: the remote keeps a
   /// copy. It lands nothing, and no pull request is drafted
   #[arg(long, requires = "branches", conflicts_with_all = ["all", "with_children", "alone", "remote", "dry_run", "restart_running"])]
   pub unapplied: bool,
 }
 
-/// `bd push`
+/// `brd push`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PushOutput {
   pub schema: SchemaVersion,
@@ -149,7 +149,7 @@ pub struct PushOutput {
   /// are open ([Stacks of GitHub](docs/design/github-stacks.md))
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub github_stacks: Vec<GitHubStackDraft>,
-  /// A stack branch `--with-children` left out: not built by this sync (`stacks` of `bd sync` says why), or pushed to
+  /// A stack branch `--with-children` left out: not built by this sync (`stacks` of `brd sync` says why), or pushed to
   /// another remote than `origin`, which its remote status compares with
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stack_warnings: Vec<String>,
@@ -170,7 +170,7 @@ pub struct GitHubStackDraft {
   pub command: String,
 }
 
-/// A branch `bd push` left out (`skipped`)
+/// A branch `brd push` left out (`skipped`)
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SkippedBranch {
   pub name: String,
@@ -178,7 +178,7 @@ pub struct SkippedBranch {
   pub code: ErrorCode,
   /// "auth landed in master with the Safe Push of login (<robot>): nothing of it is left to push", "auth is parked: …"
   pub message: String,
-  /// The merged Safe Push that landed it, as `landed_by` of `bd status`; omitted for a parked branch
+  /// The merged Safe Push that landed it, as `landed_by` of `brd status`; omitted for a parked branch
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<LandedBySummary>,
 }
@@ -213,10 +213,10 @@ pub struct PushedBranch {
   /// not exist)
   pub lease_source: String,
   /// The remote commits the push replaced (with `--dry-run`: replaces) that landed in the baseline (`remote.landed` of
-  /// `bd sync`), each with the baseline commit that has it: no --force was needed, nothing of them is lost
+  /// `brd sync`), each with the baseline commit that has it: no --force was needed, nothing of them is lost
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub replaced_landed: Vec<LandedRemoteCommitSummary>,
-  /// The remote branch had moved since the sync, without commits the branch lacks: bd fetched it and pushed again, once,
+  /// The remote branch had moved since the sync, without commits the branch lacks: brd fetched it and pushed again, once,
   /// leased on the head it had then (`lease`; `null`: it was deleted), which the push replaced. Tell the user; omitted
   /// when the first push went
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -232,7 +232,7 @@ pub struct PullRequestDraft {
   /// stacked branch's includes the commits of the branches it is built on
   pub base: String,
   pub head: String,
-  /// The `bd describe` title, else the title of its commits (`pull_request_text`)
+  /// The `brd describe` title, else the title of its commits (`pull_request_text`)
   pub title: String,
   /// Pipe it into the command (`--body-file -`)
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -242,7 +242,7 @@ pub struct PullRequestDraft {
 }
 
 /// An open pull request whose base was a virtual branch, retargeted to the baseline (D3a: every pull request of a
-/// virtual branch goes into the baseline, with the commits of the branches it is built on; `bd push` and `bd safe-push`)
+/// virtual branch goes into the baseline, with the commits of the branches it is built on; `brd push` and `brd safe-push`)
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct RetargetedPullRequest {
   pub branch: String,
@@ -314,7 +314,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   if !args.unapplied {
     for name in &args.branches {
       if !synced.branches.iter().any(|branch| &branch.name == name) {
-        return Err(unknown_or_unapplied(context, name, "push it with `bd push --unapplied`"));
+        return Err(unknown_or_unapplied(context, name, "push it with `brd push --unapplied`"));
       }
     }
   }
@@ -402,7 +402,7 @@ pub fn push(context: &RepoContext, args: &PushArgs, environment: &Environment) -
   run.output(&facts, Some((&planned, started.pushed.as_ref())), told, decided.covered)
 }
 
-/// The arguments `bd push` refuses before it syncs
+/// The arguments `brd push` refuses before it syncs
 fn check_arguments(args: &PushArgs) -> Result<(), CliError> {
   if args.branches.is_empty() && !args.all {
     return Err(CliError::new(ErrorCode::InvalidArguments, "Name the branches to push, or pass --all --yes"));
@@ -445,7 +445,7 @@ fn base_on_remote<'a>(baseline: &'a str, remote: &str) -> &'a str {
   baseline.strip_prefix(remote).and_then(|rest| rest.strip_prefix('/')).unwrap_or(baseline)
 }
 
-/// The remote status of each branch the sync built against `remote`, by name, as `bd sync` summarizes it: the sync's for
+/// The remote status of each branch the sync built against `remote`, by name, as `brd sync` summarizes it: the sync's for
 /// `origin`, which it compares with; for another remote computed now the same way on the commits the sync left (one
 /// `for-each-ref` of its remote-tracking refs, then `RemoteStatusMemo`), with the statuses the session applies, so the
 /// plans, the refusals and the leases are about that remote
@@ -481,7 +481,7 @@ fn remote_statuses(context: &RepoContext, synced: &SyncOutput, remote: &str) -> 
   Ok((statuses, summaries))
 }
 
-/// What a run of `bd push` decides and tells on: its arguments, its sync, the remote it pushes to and the remote status
+/// What a run of `brd push` decides and tells on: its arguments, its sync, the remote it pushes to and the remote status
 /// of each branch of the sync against it
 pub(crate) struct PushRun<'a> {
   pub(crate) context: &'a RepoContext,
@@ -503,7 +503,7 @@ struct Told {
 }
 
 impl PushRun<'_> {
-  /// What the commands the run names add to `bd push <branch>`: ` --unapplied` of an unapplied branch, ` --remote
+  /// What the commands the run names add to `brd push <branch>`: ` --unapplied` of an unapplied branch, ` --remote
   /// <remote>` for another remote than `origin`, which the sync compares with; empty otherwise
   pub(crate) fn option(&self) -> String {
     if self.args.unapplied {
@@ -901,7 +901,7 @@ fn draft_of(repository_option: &str, base: String, head: &str, title: String, bo
 }
 
 /// The pull request of the grouped branch `name`, the remote branch `head`, into `base` (the baseline without the
-/// remote), as the printed `gh pr create` opens it, with the text of `pull_request_text`: the `bd describe` text, else
+/// remote), as the printed `gh pr create` opens it, with the text of `pull_request_text`: the `brd describe` text, else
 /// the text of its commits, with the branches it is built on, whose commits it holds too. `issues` are the texts of
 /// their issues (`pull_request_issues`). From what the sync read: no git process.
 fn pull_request_draft(
@@ -1003,7 +1003,7 @@ pub(crate) fn pull_request_issues(context: &RepoContext, report: &SyncReport, yo
   Ok(context.runtime()?.block_on(issue_texts(&keys, links.as_ref(), youtrack)))
 }
 
-/// The pull request draft of a branch whose remote branch is up to date by content, which `bd safe-push` doesn't push:
+/// The pull request draft of a branch whose remote branch is up to date by content, which `brd safe-push` doesn't push:
 /// what `push_locked` returns for a pushed one
 pub(crate) fn unpushed_pull_request_draft(context: &RepoContext, synced: &SyncOutput, name: &str, youtrack: Option<&YouTrackService>) -> Result<PullRequestDraft, CliError> {
   let mut drafts = pull_request_drafts(context, synced, &[name], youtrack)?;
@@ -1074,7 +1074,7 @@ fn resolve_expected(context: &RepoContext, rev: &str) -> Result<String, CliError
   resolve_commit(&context.git, &context.repository, rev)?.ok_or_else(|| {
     CliError::new(
       ErrorCode::InvalidArguments,
-      format!("--expect-remote {rev} is not a commit: pass the `remote.head` bd printed"),
+      format!("--expect-remote {rev} is not a commit: pass the `remote.head` brd printed"),
     )
   })
 }
@@ -1084,19 +1084,19 @@ pub(crate) struct PushedName {
   /// The branch, or the stack branch `{prefix}/stack/<root>`
   pub(crate) name: String,
   pub(crate) commit_count: usize,
-  /// The root of the stack branch, which `bd push --with-children` pushes
+  /// The root of the stack branch, which `brd push --with-children` pushes
   pub(crate) stack_root: Option<String>,
 }
 
 /// What to do about a push the remote refused with every lease held (a hook, a protected branch)
-pub(crate) const REMOTE_REFUSED_NEXT: &str = "Show the user what the remote answered: no flag of bd gets past it";
+pub(crate) const REMOTE_REFUSED_NEXT: &str = "Show the user what the remote answered: no flag of brd gets past it";
 
 /// Why a dry run would be rejected, and how to see what the remote has
 pub(crate) const WOULD_REJECT_NEXT: &str =
   "a remote branch is not where its lease expects it, or the remote refuses the push. Nothing was pushed, and a dry run fetches nothing: show it to the user";
 
 /// What to do about a branch merged Safe Pushes landed whole
-pub(crate) const LANDED_NEXT: &str = "once the user approved, `bd update` archives what landed";
+pub(crate) const LANDED_NEXT: &str = "once the user approved, `brd update` archives what landed";
 
 /// `lease_rejected` for the refs at `moved` (of `pushed`), whose remote branch is not where its lease expects it:
 /// nothing was pushed. `push_leased` fetched the branches, and the error lists what each moved one has now
@@ -1108,7 +1108,7 @@ pub(crate) fn lease_rejected(context: &RepoContext, pushed: &[PushedName], moved
   let mut error = CliError::new(
     ErrorCode::LeaseRejected,
     format!(
-      "The remote rejected {names}: it is not where the lease expects it. Nothing was pushed; bd fetched it, and \
+      "The remote rejected {names}: it is not where the lease expects it. Nothing was pushed; brd fetched it, and \
        `branches` says what the remote has now (`dropped_commits`: the commits a push drops). Show them to the user; once \
        the user approved, push again with --force --expect-remote <remote.head> to replace them"
     ),
@@ -1194,7 +1194,7 @@ pub(crate) fn unknown_or_unapplied(context: &RepoContext, name: &str, what: &str
 }
 
 /// `unapplied` when `name` has no virtual branch but an unapplied one: before a command asks anything of the network
-/// (`bd safe-push` asks Patronus for its token first)
+/// (`brd safe-push` asks Patronus for its token first)
 pub(crate) fn refuse_an_unapplied_name(context: &RepoContext, name: &str, what: &str) -> Result<(), CliError> {
   let virtual_exists = to_final_branch_name(&context.prefix, name).is_ok_and(|full| ref_exists(&context.git, &context.repository, &format!("refs/heads/{full}")));
   if virtual_exists {

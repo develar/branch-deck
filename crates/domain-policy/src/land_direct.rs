@@ -1,5 +1,5 @@
 //! The start of a branch or of a whole stack in a repository that lands by a push of the copy into the target, for the
-//! app and `bd land` alike (spec/branch/landing-routes.spec.md, "Push to master"; docs/design/landing.md): the tail of
+//! app and `brd land` alike (spec/branch/landing-routes.spec.md, "Push to master"; docs/design/landing.md): the tail of
 //! `land::decide` for `LandingRoute::Push`. What lands is the copy the sync built on the baseline: the tip of the virtual
 //! branch of the piece (the branch with the branches it is built on), of a whole stack its stack branch; the push is a
 //! fast-forward of the target, which the server takes or refuses whole.
@@ -40,7 +40,7 @@
 //! refuses the merge (`plan_changed`).
 //!
 //! After a push that landed, after a target that moved refused it, and after a merge by the click, Update Project follows
-//! as an operation of its own (`update_after`): the app runs it, `bd land` names it as the next step. An auto-merge that
+//! as an operation of its own (`update_after`): the app runs it, `brd land` names it as the next step. An auto-merge that
 //! GitHub completes later runs none: the news of the session tells it (`news::auto_merged`).
 
 use crate::facts::RemoteBranch;

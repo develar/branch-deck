@@ -1,4 +1,4 @@
-//! `bd pick` and `bd undo pick:…`: the commits of another worktree landed on the branch checked out here, without
+//! `brd pick` and `brd undo pick:…`: the commits of another worktree landed on the branch checked out here, without
 //! `git cherry-pick` (spec/cli/pick.spec.md). The core (`update_core::pick`) takes the repository lock, which every
 //! worktree shares, replays the commits in memory, and moves the branch (and, with --follow, the source worktree)
 //! through the guarded working-tree update; a conflict or local changes in the way change nothing. A pick that writes is
@@ -41,7 +41,7 @@ pub struct PickArgs {
   /// One commit, `<rev>`, or a range, `<a>..<b>`, instead of --from
   #[arg(value_name = "REVISIONS", conflicts_with = "remote")]
   pub revisions: Option<String>,
-  /// The virtual branch whose remote branch has commits it lacks (someone else pushed to it): bd fetches it and picks
+  /// The virtual branch whose remote branch has commits it lacks (someone else pushed to it): brd fetches it and picks
   /// those commits here, with the branch's `(name)` prefix on the ones that group elsewhere
   #[arg(long, value_name = "BRANCH")]
   pub remote: Option<String>,
@@ -64,7 +64,7 @@ pub struct PickArgs {
   pub allow_unchecked: Option<String>,
 }
 
-/// `bd pick`
+/// `brd pick`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct PickOutput {
   pub schema: SchemaVersion,
@@ -114,7 +114,7 @@ pub struct PickOutput {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub unchecked: Option<String>,
   /// `pick:<previous_head>..<new_head>` with full ids, `+follow:<worktree>:<previous>..<new>` when the worktree moved:
-  /// `bd undo` moves both back; omitted when nothing moved
+  /// `brd undo` moves both back; omitted when nothing moved
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
 }
@@ -126,21 +126,21 @@ impl PickOutput {
   }
 }
 
-/// `bd lease pick`: the pick of the lease's commits onto its home branch, and after a conflict the update of the lease
+/// `brd lease pick`: the pick of the lease's commits onto its home branch, and after a conflict the update of the lease
 /// onto that branch
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LeasePickOutput {
   #[serde(flatten)]
   pub pick: PickOutput,
-  /// With a conflict of the pick: the update of the lease onto the tip of its home branch, as `bd update` prints it. A
-  /// conflict there opens a resolve session in the lease (`state: conflict`, `session`): resolve it, `bd update
-  /// --continue`, build and test, then `bd lease pick` again; `bd update --abort` closes it, nothing moved. An update
+  /// With a conflict of the pick: the update of the lease onto the tip of its home branch, as `brd update` prints it. A
+  /// conflict there opens a resolve session in the lease (`state: conflict`, `session`): resolve it, `brd update
+  /// --continue`, build and test, then `brd lease pick` again; `brd update --abort` closes it, nothing moved. An update
   /// that applies (the words resolved the conflict) moved the lease onto the tip: build and test, then `next`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub update: Option<UpdateOutput>,
 }
 
-/// The check of the tree of HEAD of the worktree the commits come from: a lease, or the worktree of `bd pick --from`
+/// The check of the tree of HEAD of the worktree the commits come from: a lease, or the worktree of `brd pick --from`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct TreeCheckOutput {
   /// `ok`: a green build or test recorded this tree; `stale`: records exist, none of this tree; `missing`: no record
@@ -275,11 +275,11 @@ pub struct DependencyOutput {
   pub prefix_branch: String,
   /// The branches it needs that `prefix_branch` is not built on
   pub depends_on: Vec<String>,
-  /// The plan for `bd group --plan`: the commit moves into the branch of the stack that holds all of them. The plans
-  /// of several commits go into one `bd group`, their `branches` merged: a rewrite gives the commits new ids
+  /// The plan for `brd group --plan`: the commit moves into the branch of the stack that holds all of them. The plans
+  /// of several commits go into one `brd group`, their `branches` merged: a rewrite gives the commits new ids
   #[serde(skip_serializing_if = "Option::is_none")]
   pub plan: Option<SuggestPlan>,
-  /// The commit needs its own branch too: `bd restack <prefix_branch> <parent>` stacks the branch on one that holds
+  /// The commit needs its own branch too: `brd restack <prefix_branch> <parent>` stacks the branch on one that holds
   /// all of them and its parent
   #[serde(skip_serializing_if = "Option::is_none")]
   pub restack: Option<String>,
@@ -293,7 +293,7 @@ pub struct FollowedOutput {
   pub new_head: String,
   /// `moved`, `at_tip` (it was at the new tip already), `would_move` (--dry-run), or, after the branch moved:
   /// `head_moved` (its HEAD moved or switched since the check) or `blocked` (its files could not follow). The same
-  /// `bd pick` again moves only the worktree then
+  /// `brd pick` again moves only the worktree then
   pub state: FollowedState,
   /// Why it did not move
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -319,14 +319,14 @@ pub fn pick(context: &RepoContext, args: &PickArgs, environment: &Environment) -
   pick_into(context, args, environment, None)
 }
 
-/// Where `bd lease pick` lands a lease's commits: the branch the lease was cut from, and the command that picks again
+/// Where `brd lease pick` lands a lease's commits: the branch the lease was cut from, and the command that picks again
 #[derive(Debug, Clone)]
 pub struct HomePick {
   /// The branch the target must have checked out, else `home_branch_switched`
   pub branch: String,
   /// `bd -C <lease> lease pick`: what a conflict's `next` runs again
   pub again: String,
-  /// The check of the lease's tree that `bd lease pick` made already, after the update of a conflict: the gate reads
+  /// The check of the lease's tree that `brd lease pick` made already, after the update of a conflict: the gate reads
   /// it instead of asking git again
   pub check: Option<TreeCheck>,
 }
@@ -382,7 +382,7 @@ fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&H
     PickFrom::Revisions(revisions) if gated && !args.dry_run => Err(CliError::new(
       ErrorCode::UncheckedTree,
       format!(
-        "bd pick: `.branchdeck.toml` sets `pick_requires_check`, and the revisions {revisions} name no worktree whose green build or test bd could \
+        "brd pick: `.branchdeck.toml` sets `pick_requires_check`, and the revisions {revisions} name no worktree whose green build or test brd could \
          read. Pick them from the worktree that built them (`{bd} pick --from <worktree> --follow`), or land them without a check: `{bd} pick \
          {revisions} --allow-unchecked '<reason>'`.",
         bd = context.bd,
@@ -394,13 +394,13 @@ fn gate(context: &RepoContext, from: &PickFrom, args: &PickArgs, home: Option<&H
 }
 
 /// `unchecked_tree`: the pick from the worktree of `dir` lands nothing, as no green build or test recorded its tree; the
-/// message names the command of the path the agent took, `bd lease pick` in a lease, else `bd pick --from`
+/// message names the command of the path the agent took, `brd lease pick` in a lease, else `brd pick --from`
 fn unchecked_tree(context: &RepoContext, dir: &str, check: &TreeCheck, args: &PickArgs, lease: bool) -> CliError {
   let (command, again) = if lease {
-    ("bd lease pick", format!("bd -C {} lease pick", shell_word(dir)))
+    ("brd lease pick", format!("bd -C {} lease pick", shell_word(dir)))
   } else {
     let follow = if args.follow { " --follow" } else { "" };
-    ("bd pick", format!("{} pick --from {}{follow}", context.bd, shell_word(dir)))
+    ("brd pick", format!("{} pick --from {}{follow}", context.bd, shell_word(dir)))
   };
   let mut message = format!(
     "{command}: no green build or test ran on the tree of {dir} (tree {}, HEAD {}).",
@@ -429,7 +429,7 @@ fn unchecked_tree(context: &RepoContext, dir: &str, check: &TreeCheck, args: &Pi
   CliError::new(ErrorCode::UncheckedTree, message)
 }
 
-/// The check of a worktree's tree as `bd pick` and `bd lease pick` print it
+/// The check of a worktree's tree as `brd pick` and `brd lease pick` print it
 #[must_use]
 pub fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
   TreeCheckOutput {
@@ -450,7 +450,7 @@ pub fn tree_check_output(check: &TreeCheck) -> TreeCheckOutput {
   }
 }
 
-/// `bd pick`, or with `home` the pick of `bd lease pick` (`args.from` the lease, `args.follow` set)
+/// `brd pick`, or with `home` the pick of `brd lease pick` (`args.from` the lease, `args.follow` set)
 pub fn pick_into(context: &RepoContext, args: &PickArgs, environment: &Environment, home: Option<&HomePick>) -> Result<PickOutput, CliError> {
   let intent = match (&args.from, &args.revisions, &args.remote) {
     _ if args.dry_run => None,
@@ -490,7 +490,7 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
   if let Some(reason) = &args.allow_unchecked
     && !args.dry_run
   {
-    let command = if home.is_some() { "bd lease pick" } else { "bd pick" };
+    let command = if home.is_some() { "brd lease pick" } else { "brd pick" };
     let _ = writeln!(std::io::stderr().lock(), "{command}: the tree lands without a check: {reason}");
   }
   let params = PickParams {
@@ -513,8 +513,8 @@ fn picked(context: &RepoContext, args: &PickArgs, environment: &Environment, hom
   Ok(output)
 }
 
-/// The branch of `bd pick --remote` as the sync places it: its full name, the branch it is built on and its author. The
-/// sync runs first, as for `bd push`, so the branch is built and its remote status is the one bd shows
+/// The branch of `brd pick --remote` as the sync places it: its full name, the branch it is built on and its author. The
+/// sync runs first, as for `brd push`, so the branch is built and its remote status is the one brd shows
 fn remote_pick(context: &RepoContext, branch: &str, expected_remote: Option<String>) -> Result<RemotePick, CliError> {
   let synced = sync(context)?;
   let info = synced
@@ -522,7 +522,7 @@ fn remote_pick(context: &RepoContext, branch: &str, expected_remote: Option<Stri
     .branches
     .iter()
     .find(|info| info.name == branch)
-    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No virtual branch {branch}: `bd status` lists them")))?;
+    .ok_or_else(|| CliError::new(ErrorCode::UnknownBranch, format!("No virtual branch {branch}: `brd status` lists them")))?;
   let full_name = |name: &str| to_final_branch_name(&context.prefix, name).map_err(|e| CliError::new(ErrorCode::UnknownBranch, format!("{e:#}")));
   let parent = info.stack.as_ref().and_then(|stack| stack.effective_base.as_deref()).map(full_name).transpose()?;
   Ok(RemotePick {
@@ -673,7 +673,7 @@ fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds, home:
   let onto = short.get(&check.head);
   let base = short.get(&check.base);
   let resolve = "resolve it there: regenerate a generated file, never keep one side of a code hunk";
-  let no_cherry_pick = "Never `git cherry-pick` here: it leaves CHERRY_PICK_HEAD, which blocks every bd rewrite";
+  let no_cherry_pick = "Never `git cherry-pick` here: it leaves CHERRY_PICK_HEAD, which blocks every brd rewrite";
   match (&check.follow, home) {
     (Some(_), Some(home)) => format!(
       "Nothing landed. The lease is updated onto {onto} (`update`): resolve the conflict of its session there ({resolve}), `{bd} update --continue`, \
@@ -691,7 +691,7 @@ fn next_step(context: &RepoContext, result: &PickResult, short: &ShortIds, home:
   }
 }
 
-/// `bd undo pick:<previous head>..<new head>[+follow:<worktree>:<previous>..<new>]`; `None` for a token of another kind
+/// `brd undo pick:<previous head>..<new head>[+follow:<worktree>:<previous>..<new>]`; `None` for a token of another kind
 pub fn undo_pick(context: &RepoContext, token: &str) -> Option<Result<(PickUndoToken, UndonePick), CliError>> {
   if !PickUndoToken::is_pick_token(token) {
     return None;
@@ -703,7 +703,7 @@ fn undo_pick_token(context: &RepoContext, text: &str) -> Result<(PickUndoToken, 
   let token = PickUndoToken::parse(text).ok_or_else(|| {
     CliError::new(
       ErrorCode::InvalidArguments,
-      format!("{text:?} is not a pick token: pick:<previous head>..<new head>, with the full ids bd pick printed"),
+      format!("{text:?} is not a pick token: pick:<previous head>..<new head>, with the full ids brd pick printed"),
     )
   })?;
   let undone = undo_pick_core(&context.git, &context.repository, &token, context.lock_timeout).map_err(undo_core_error)?;

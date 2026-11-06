@@ -7,7 +7,7 @@ import { getBranch } from "@/stores/branch-sync"
 import { getSelectedRepositoryPath } from "@/stores/repository"
 
 /**
- * Pick Remote Commits (`bd pick --remote`): the commits someone else pushed to the remote branch, which a push would
+ * Pick Remote Commits (`brd pick --remote`): the commits someone else pushed to the remote branch, which a push would
  * drop, picked onto HEAD with the `(branch)` prefix, so the sync puts them into the branch and its push then drops
  * nothing. The rewrite `pickRemote` of the engine, queued behind the other rewrites by the session: the fetch and the
  * pick in Rust, leased on the remote tip the row shows (a remote that moved again picks nothing), the sync, then the

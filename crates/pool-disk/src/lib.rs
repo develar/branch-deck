@@ -1,4 +1,4 @@
-//! `pool-disk`: what the pools of this machine hold on disk (`bd lease disk`, the Disk window of the app; spec/cli/lease.spec.md,
+//! `pool-disk`: what the pools of this machine hold on disk (`brd lease disk`, the Disk window of the app; spec/cli/lease.spec.md,
 //! "Disk"). A `du` of a pool takes minutes (two for the pools of the user's Mac, 1.25 TB) and says little: the tracked
 //! tree of a slot is an APFS clone that shares its blocks with the others. What a slot holds of its own is what a delete
 //! of it frees: the private size of its worktree (`walk`: the blocks no clone shares, as `getattrlistbulk` tells them),
@@ -158,7 +158,7 @@ struct Measured {
   /// Whether it was leased then
   leased: bool,
   at: u64,
-  /// `SlotUsage::worktree`; `None` in the file of a bd that did not walk the worktree, which is stale then
+  /// `SlotUsage::worktree`; `None` in the file of a brd that did not walk the worktree, which is stale then
   #[serde(default, skip_serializing_if = "Option::is_none")]
   worktree: Option<u64>,
   build: Vec<DirUsage>,

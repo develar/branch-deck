@@ -12,7 +12,7 @@ remote-facts = { path = "../remote-facts" }
 sync-core = { path = "../sync-core" }
 history-rewrite = { path = "../history-rewrite" }
 trial-check = { path = "../trial-check" }
-# Update Project, `bd pick` and their undo, of the family `Rewrite` (`rewrite`): the pick of remote commits
+# Update Project, `brd pick` and their undo, of the family `Rewrite` (`rewrite`): the pick of remote commits
 update-core = { path = "../update-core" }
 # the diffs a pick of remote commits reads (`rewrite::RewriteHost`)
 file-diffs = { path = "../file-diffs" }

@@ -1,4 +1,4 @@
-//! `bd robot-stats`: the Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`), the
+//! `brd robot-stats`: the Safe Push statistics of the repository (`spec/repository/safe-push-statistics.spec.md`), the
 //! numbers of the app's Landing view from the same core (`remote_facts::robot_stats`): the user's robots into the target
 //! of a period against everyone else's, where the time went, why they failed and the hours they ran fastest.
 //! Read only: no lock, no sync; what Patronus answered is kept in the object cache (none with --no-cache).
@@ -33,7 +33,7 @@ fn period_parser() -> impl TypedValueParser<Value = StatsPeriod> {
   PossibleValuesParser::new(StatsPeriod::ALL.map(StatsPeriod::id)).map(|id| StatsPeriod::from_id(&id).unwrap_or_default())
 }
 
-/// `bd robot-stats`
+/// `brd robot-stats`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RobotStatsOutput {
   pub schema: SchemaVersion,

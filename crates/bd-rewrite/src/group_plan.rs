@@ -1,4 +1,4 @@
-//! The plan of `bd group` and `bd check`: a `RegroupPlan` plus the `descriptions` of the branches, which bd writes
+//! The plan of `brd group` and `brd check`: a `RegroupPlan` plus the `descriptions` of the branches, which brd writes
 //! itself after the rewrite, under the same repository lock
 
 use crate::describe::{description_branch, write_description};
@@ -57,7 +57,7 @@ pub fn check_descriptions(descriptions: &BTreeMap<String, Description>, commits:
   }
   let unknown: Vec<&str> = descriptions.keys().map(String::as_str).filter(|branch| !branches.contains(branch)).collect();
   if !unknown.is_empty() {
-    // a stacked branch is described by its leaf, as `bd describe` names it
+    // a stacked branch is described by its leaf, as `brd describe` names it
     let leaves: Vec<String> = unknown
       .iter()
       .filter_map(|branch| branch.rsplit_once('/').map(|(_, leaf)| leaf))

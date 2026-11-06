@@ -8,9 +8,9 @@ use std::time::Duration;
 /// The steps of a run that a list shows: each step of 0.1 s or more
 const SHORT_FROM_MS: u64 = 100;
 
-/// The line of the steps of a run on the stderr: `bd-host: phases: pack 3.1s, upload 2.0s, … total 10m13s`
+/// The line of the steps of a run on the stderr: `brd-host: phases: pack 3.1s, upload 2.0s, … total 10m13s`
 pub fn phases_line(phases: &[Phase]) -> String {
-  format!("bd-host: phases: {}", join(phases.iter()))
+  format!("brd-host: phases: {}", join(phases.iter()))
 }
 
 /// The steps of a run in a short form for a list: `slot 9m02s, checkout 41.0s, command 25.1s`, without the steps under

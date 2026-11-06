@@ -34,7 +34,7 @@ pub struct CommitsArgs {
   /// The changed files of each commit: status, path, added and deleted lines
   #[arg(long, conflicts_with = "brief")]
   pub files: bool,
-  /// The changed files of each commit with their blocks, as the diff views show them: the ids for `bd move-hunk
+  /// The changed files of each commit with their blocks, as the diff views show them: the ids for `brd move-hunk
   /// --block`, and the lines with three lines of context
   #[arg(long, conflicts_with = "brief")]
   pub patch: bool,
@@ -62,7 +62,7 @@ pub struct CommitsArgs {
   pub sample: usize,
 }
 
-/// What `bd commits` and `bd commits --brief` start with
+/// What `brd commits` and `brd commits --brief` start with
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct CommitsHeader {
   pub schema: SchemaVersion,
@@ -72,7 +72,7 @@ pub struct CommitsHeader {
   pub baseline: String,
 }
 
-/// `bd commits`: every commit ahead of the baseline, oldest first, with what ties them together
+/// `brd commits`: every commit ahead of the baseline, oldest first, with what ties them together
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct CommitsOutput {
   #[serde(flatten)]
@@ -193,14 +193,14 @@ pub struct ClusterOverlap {
   pub files: Vec<String>,
 }
 
-/// `bd commits --brief`: the commits of `bd commits` without bodies, authors and files, small enough to read whole
+/// `brd commits --brief`: the commits of `brd commits` without bodies, authors and files, small enough to read whole
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct CommitsBrief {
   #[serde(flatten)]
   pub header: CommitsHeader,
   /// Oldest first
   pub commits: Vec<BriefCommit>,
-  /// `from` depends on `to`, as the `dependencies` of `bd commits`
+  /// `from` depends on `to`, as the `dependencies` of `brd commits`
   pub dependencies: Vec<BriefEdge>,
   /// The commits that must stay together: the connected components of the dependencies and of the fixups with their
   /// targets, computed over every commit. Only components of two or more commits, ordered by their oldest commit, each
@@ -242,7 +242,7 @@ pub struct BriefEdge {
   pub from: String,
   /// The commit it depends on
   pub to: String,
-  /// As `via` of `bd commits`
+  /// As `via` of `brd commits`
   #[serde(skip_serializing_if = "Option::is_none")]
   pub via: Option<String>,
 }
@@ -345,7 +345,7 @@ pub(crate) fn resolve_ids(ids: &[String], commit_ids: &[String]) -> Result<HashS
   Err(error)
 }
 
-/// What `bd commits` and `bd commits --brief` both read: HEAD, the grouping, the changes and the fixup targets
+/// What `brd commits` and `brd commits --brief` both read: HEAD, the grouping, the changes and the fixup targets
 struct Reading {
   head: String,
   grouping: BranchGrouping,

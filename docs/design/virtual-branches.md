@@ -82,7 +82,7 @@ flowchart TD
    **Rationale**: Natural organization, easy cleanup of old branches, clear timeline
 
 4. **Decision**: Order the branches newest first by where each begins in the history: the branch whose oldest commit
-   is the newest first (`prepare_branches_for_ui` in `crates/sync-core/src/sync.rs`, for the table and `bd status`)
+   is the newest first (`prepare_branches_for_ui` in `crates/sync-core/src/sync.rs`, for the table and `brd status`)
    **Rationale**: A row stays where it is while the user works on its commits. A rewrite keeps every commit it keeps in
    its place but gives each commit above the oldest one it rewrites a new committer time; an order by the newest commit
    time moved every row after a squash of one fixup, under the pointer that pressed Squash. A branch of new commits still
@@ -137,7 +137,7 @@ Only a regroup writes the map: a plan's `issue_groups` and `ungroup_issues`, and
 of the old name. It writes under the repository lock and in the ref transaction that moves HEAD, with
 compare-and-swap on both refs (see [Git Operations](git-operations.md)). A sync never writes it. The ref is shared by
 every branch and worktree, so a write changes only the keys it names. A key that groups no commit on this HEAD is
-`idle` in `bd status`, because it may group the commits of another branch; only `ungroup_issues` removes it. An issue
+`idle` in `brd status`, because it may group the commits of another branch; only `ungroup_issues` removes it. An issue
 group can be a stack parent, and it is stacked by the stack parents below, without a rewrite. See
 [Issue Groups](../../spec/branch/issue-groups.spec.md).
 
@@ -150,8 +150,8 @@ parent, a bare `(login)`, an issue branch or an issue group, takes its parent fr
 level in a prefix still declares the parent, and a line that disagrees with it is the problem "commits declare
 different parents". `StackDeclarations::into_forest` walks the chain of lines up from every branch with commits, so a
 stored parent without commits is passed like a declared one; the lines that no chain reaches are idle, they may stack
-a branch of another worktree. A plan path `auth/login`, Stack On, Unstack, Stack Together, `bd restack`, `bd unstack`
-and `bd stack-together` write the map and rewrite only the commits whose prefix declares another parent; a sync drops the line of a branch once its archived
+a branch of another worktree. A plan path `auth/login`, Stack On, Unstack, Stack Together, `brd restack`, `brd unstack`
+and `brd stack-together` write the map and rewrite only the commits whose prefix declares another parent; a sync drops the line of a branch once its archived
 branch is integrated. See [Stack Parents](../../spec/branch/stack-parents.spec.md).
 
 ### Stacked Branches
@@ -160,9 +160,9 @@ With `git config branchdeck.stacks true`, a `/` in a prefix stacks branches: `(a
 whose virtual branch is built on `auth`'s (`crates/history-rewrite/src/stack.rs`). The ref is the leaf,
 `user/virtual/login`, so no level is a ref directory of another. The grouper records every declared edge with its
 commits; `StackForest` holds the declared parents, the problems (conflicting parents, cycles, `(a/a)`, leaves that
-differ in case, empty levels) and a parents-first order. `problem_view` says each problem once for the app and `bd`
+differ in case, empty levels) and a parents-first order. `problem_view` says each problem once for the app and `brd`
 (`StackProblemView`: the label of the row, the reason that blocks the other rewrites, the message, and the fixes the
-forest allows, `StackFix`); the app offers the fixes as the actions of the branch menu, `bd` prints them as commands, so
+forest allows, `StackFix`); the app offers the fixes as the actions of the branch menu, `brd` prints them as commands, so
 neither keeps a rule of its own. `place_branches` decides where each branch goes: on its active
 parent, on the nearest active ancestor of a parent without commits, on the baseline, or nowhere (`blocked_by`: a parent
 with a problem, a conflict, a failure or a block). A parent without commits never blocks: the local history is linear
@@ -199,7 +199,7 @@ tip and is never pushed. See "Stack branch" in [Git Operations](git-operations.m
 
 ### Line Dependencies
 
-`bd commits` (its `units`) and `bd suggest` keep together the commits that `compute_dependencies`
+`brd commits` (its `units`) and `brd suggest` keep together the commits that `compute_dependencies`
 (`crates/trial-check/src/dependencies.rs`, the rules in its header) links by lines: a newer commit depends on an older
 one when one of its blocks replaces or deletes a line the older one added, or lies next to one. The blocks are those of
 the diff views under `Default` (`file_diffs::blocks`). The adjacency
@@ -208,9 +208,9 @@ IntelliJ checkout: of 731 and 860 line edges, 239 and 203 rest on adjacency only
 oracle replays the commits between the two onto the parent of the older one, without it and without the commits that
 conflict without it, then merges the newer one with `merge-tree`: 83 and 55 conflict because of the older commit
 itself (merge-ort conflicts on adjacent changes too), 153 and 148 because they need commits that need it, 3 and 0 are
-inconclusive. The one false edge of both ranges came from the diff algorithm: bd then cut its hunks with git's myers,
+inconclusive. The one false edge of both ranges came from the diff algorithm: brd then cut its hunks with git's myers,
 merge-ort with histogram, and in a large rewrite myers gave the older commit a line that histogram keeps unchanged.
-Without it no `units` and no `bd suggest` plan change. The measurement used the `-U0` hunks of git. On the last 300
+Without it no `units` and no `brd suggest` plan change. The measurement used the `-U0` hunks of git. On the last 300
 commits of both repositories, 6 of 1,496 and 2 of 388 edges of the blocks are not edges of those hunks, and 6 and 1
 edges of the hunks are not edges of the blocks.
 

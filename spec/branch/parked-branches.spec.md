@@ -57,7 +57,7 @@ Date: 2026-10-20
 Some commits stay on the local branch only because they must not land yet: they wait for a proper fix elsewhere, a
 workaround the user needs locally, a change kept for a later review. Before, such a branch looked like any other: a
 filled node, a move in Your Move, a Safe Push offered on its row. A user had to remember not to press it, and an agent
-running `bd push --all` pushed it.
+running `brd push --all` pushed it.
 
 A parked branch is a virtual branch the user keeps local. Its commits stay where they are, and the sync builds it as
 before, so its conflicts still show. No push sends it, no robot lands it, and it never counts as the user's move. A
@@ -66,7 +66,7 @@ branch built on it carries its commits, so it is parked with it.
 ## Goals
 
 - Keep a branch local by one action, with an optional note that says why, and let it go by another.
-- Make no push, Safe Push or Dry Run send it, in the app and in `bd`, and so no agent.
+- Make no push, Safe Push or Dry Run send it, in the app and in `brd`, and so no agent.
 - Keep it out of every count of the user's moves.
 - Store it as the other per-branch facts of Branch Deck: shared by every worktree, versioned, never pushed.
 
@@ -92,7 +92,7 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../crates/sync-core/src/parked_test.rs (`unpark_drops_the_line_of_a_branch_without_commits_and_keeps_other_lines_as_they_are`)
 - The store must decide no group: a sync builds a parked branch as any other.
   [@test] ../../crates/sync-core/src/parked_test.rs (`a_sync_keeps_every_line_it_can_not_prove_dead`)
-- The ref must be in the inputs of a sync, so a park in `bd` syncs the window on its next focus.
+- The ref must be in the inputs of a sync, so a park in `brd` syncs the window on its next focus.
   [@test] ../../crates/sync-core/src/sync_inputs_test.rs (`changes_with_what_a_sync_reads_and_not_with_what_it_writes`)
 
 ### Park and unpark
@@ -108,7 +108,7 @@ branch built on it carries its commits, so it is parked with it.
   processes don't grow with the number of branches.
   [@test] ../../crates/sync-core/src/parked_test.rs (`several_branches_park_and_unpark_in_one_store_commit_or_not_at_all`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`a_park_and_an_unpark`)
-- A park must wait for the repository lock as a rewrite does: `bd park` up to 10 s, then `locked`; the app's park and
+- A park must wait for the repository lock as a rewrite does: `brd park` up to 10 s, then `locked`; the app's park and
   unpark (the rewrites `park` and `unpark` of the engine, `operations::rewrite`) as long as the holder lives, the
   row's "⋯" saying whom for with Stop Waiting (`cancel_operation`), which ends the wait with nothing changed.
   [@test] ../../crates/sync-core/src/parked_test.rs (`park_waits_for_the_repository_lock`)
@@ -130,10 +130,10 @@ branch built on it carries its commits, so it is parked with it.
   commits is built on that parent's parent, carries its commits, and is parked with it; a chain that loops parks
   nothing.
   [@test] ../../crates/domain-policy/src/parked_test.rs (`a_branch_built_on_a_parked_one_is_parked_with_it`, `a_branch_is_parked_by_the_chain_it_is_built_on_not_the_declared_one`)
-- The app and `bd` must read one rule (`domain_policy::parked`): the session's view places each branch with its
+- The app and `brd` must read one rule (`domain_policy::parked`): the session's view places each branch with its
   parked state and its section (`BranchView.structure`), and the stack branch of a whole stack with the first of its
   members that is parked (`stackParked` of its root); the page splits the order of the table into the rows of each
-  section by it and decides nothing; `bd status`, `bd push` and `bd safe-push` and the app's checks in Rust ask the
+  section by it and decides nothing; `brd status`, `brd push` and `brd safe-push` and the app's checks in Rust ask the
   same rule over their grouping.
   [@test] ../../crates/domain-policy/src/parked_test.rs (`the_first_parked_member_keeps_a_stack_branch_local`)
   [@test] ../../crates/repository-model/src/derive_test.rs (`a_grouping_places_every_branch_with_its_section`, `a_patch_carries_only_the_structures_that_changed`)
@@ -150,20 +150,20 @@ branch built on it carries its commits, so it is parked with it.
   a rename passes over those drops; a park after the rename makes it `parked_moved`.
   [@test] ../../crates/sync-core/src/parked_test.rs (`a_sync_keeps_every_line_it_can_not_prove_dead`, `an_undo_of_a_rename_passes_over_the_drops_of_a_sync`)
 
-### `bd`
+### `brd`
 
-- `bd park <branch> [--note]` and `bd unpark <branch>` must print one object (`park` in `bd schema`); `bd status`
+- `brd park <branch> [--note]` and `brd unpark <branch>` must print one object (`park` in `brd schema`); `brd status`
   names `parked: {note, with}` per branch and `idle_parked`, `--brief` too.
   [@test] ../../crates/bd-rewrite/src/park_test.rs (`park_and_unpark_print_the_note_and_status_names_the_parked_branches`)
-- `bd push` must refuse a named parked branch, or one built on a parked branch, with `parked` (exit 4), nothing
+- `brd push` must refuse a named parked branch, or one built on a parked branch, with `parked` (exit 4), nothing
   pushed; with `--all` or `--with-children` it leaves it out (`skipped`, `code: parked`) and pushes the others, and
   refuses only when nothing else is left. The stack branch of a stack with a parked member stays local.
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_parked_branch_and_what_is_built_on_it_are_never_pushed`)
-- `bd safe-push` must refuse a parked branch, a branch built on one and a whole stack with a parked member with
+- `brd safe-push` must refuse a parked branch, a branch built on one and a whole stack with a parked member with
   `parked`, `--dry-run` and `--patronus-dry-run` included, before Patronus is asked.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_parked_branch_and_a_branch_built_on_it_start_nothing`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`, `the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
-- `bd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.
+- `brd help agent` and the skill must tell an agent never to push or unpark a parked branch on its own.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
 ### The app
@@ -191,7 +191,7 @@ branch built on it carries its commits, so it is parked with it.
   [@test] ../../src/presenters/reasons.test.ts (`words every reason of the catalog Rust writes as the page says it`)
   [@test] ../../tests/e2e/parked-branches/parked-branches.spec.ts (`should park a branch from its menu with a note, leave it out of every move, and take the park back with Undo`, `should park a stack root with the branches built on it, edit its note and unpark it from the menus`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
-- The app's push must refuse it in Rust too, as `bd push` does (`repository_model::push_guard`, under the repository
+- The app's push must refuse it in Rust too, as `brd push` does (`repository_model::push_guard`, under the repository
   lock): a push of a parked branch, of a branch built on one, or of the stack branch of a stack that holds one pushes
   nothing ("Nothing was pushed: login is parked: IJPL-1; it stays local until the user unparks it", "… holds parked
   login; land the stack in pieces"), so a push the page did not check (a race, IPC) never sends it; an unapplied branch
@@ -230,7 +230,7 @@ branch built on it carries its commits, so it is parked with it.
 - Drag a branch row → "Park docs" in the drag bar at the bottom of the window, the Parked card ringed → drop on either
   → toast "Parked docs" · Undo, the row scrolled into view in the card; drag a parked row → "Unpark docs" in the bar.
 - Select branches → Park or Unpark in the selection bar.
-- `bd park docs --note '…'`, `bd unpark docs`; an agent never parks or unparks on its own.
+- `brd park docs --note '…'`, `brd unpark docs`; an agent never parks or unparks on its own.
 
 ## Open Questions / Risks
 

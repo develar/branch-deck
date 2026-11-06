@@ -1,5 +1,5 @@
-//! The agent commands of bd-host without the client, for the process tests of `tests/serve.rs`: the commands that
-//! `bd-host` flattens (`host_agent::command`), `version --json`, and `setup --agent` as bd-host parses it. Never shipped
+//! The agent commands of brd-host without the client, for the process tests of `tests/serve.rs`: the commands that
+//! `brd-host` flattens (`host_agent::command`), `version --json`, and `setup --agent` as brd-host parses it. Never shipped
 
 #[cfg(unix)]
 mod agent {
@@ -80,7 +80,7 @@ mod agent {
     match outcome {
       Ok(()) => ExitCode::SUCCESS,
       Err(refusal) => {
-        let _ = writeln!(std::io::stderr(), "bd-host: {refusal}");
+        let _ = writeln!(std::io::stderr(), "brd-host: {refusal}");
         ExitCode::from(refusal.code.exit(Reached::Nothing).code())
       }
     }

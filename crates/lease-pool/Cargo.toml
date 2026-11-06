@@ -3,7 +3,7 @@ name = "lease-pool"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The lease pool of agent worktrees (`bd lease`), its clean rules and the agent workspace (`bd workspace`)"
+description = "The lease pool of agent worktrees (`brd lease`), its clean rules and the agent workspace (`brd workspace`)"
 publish = false
 
 [dependencies]
@@ -34,7 +34,7 @@ libc = "0.2.191"
 
 [features]
 default = []
-# `AgentDefaults` in the JSON schema of `bd install`
+# `AgentDefaults` in the JSON schema of `brd install`
 schemars = ["dep:schemars"]
 
 [dev-dependencies]

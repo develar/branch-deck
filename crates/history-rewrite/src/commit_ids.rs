@@ -1,4 +1,4 @@
-//! Commit ids in a request (a regroup plan, `bd commits <id>…`): full, or abbreviated to at least `MIN_ID_LENGTH`
+//! Commit ids in a request (a regroup plan, `brd commits <id>…`): full, or abbreviated to at least `MIN_ID_LENGTH`
 //! characters, and resolved against the commits ahead of the baseline only
 
 use std::collections::HashSet;

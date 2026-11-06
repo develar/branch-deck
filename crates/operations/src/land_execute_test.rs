@@ -411,7 +411,7 @@ async fn a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothi
   fixture.repo.git(&["update-ref", ALPHA, &fixture.repo.rev_parse("test/virtual/beta").unwrap()]);
   assert_eq!(fixture.run(&moved, &Steps::none()).await.unwrap_err().code, ErrorCode::PlanChanged);
 
-  let held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "bd push auth").unwrap();
+  let held = lock_repository_as_another_process(&fixture.repo.path().join(".git"), "brd push auth").unwrap();
   let locked = Fixture::host(fixture.planned(replace_and_start()));
   assert_eq!(fixture.run(&locked, &Steps::none()).await.unwrap_err().code, ErrorCode::Locked);
   drop(held);

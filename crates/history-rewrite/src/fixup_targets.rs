@@ -1,7 +1,7 @@
 //! The `fixup!`, `squash!` and `amend!` commits of a regroup or a reword: a rewrite of messages may not change what they
 //! fold into. A fixup finds its target by subject or by id (`autosquash.rs`), so a new subject, a new id of a recreated
 //! target or a marker added or removed would fold it elsewhere or nowhere, and a waiting `amend!` would replace a new
-//! message at the next `bd fold`
+//! message at the next `brd fold`
 
 use crate::autosquash::{AutosquashPlan, FixupKind, plan_autosquash};
 use crate::commit_grouper::GroupingInputs;

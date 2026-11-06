@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use test_utils::git_test_utils::refuse_every_push;
 
-/// `bd push` with `args`
+/// `brd push` with `args`
 fn bd_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX, "push"];
   all_args.extend_from_slice(args);
@@ -64,7 +64,7 @@ fn missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway() {
   assert!(message.contains("Needs review by Air Plugin Release Team (suggested: Alice)"), "{message}");
   // without a GitHub repository nothing can collect them
   assert!(message.contains("git config branchdeck.githubRepository"), "{message}");
-  assert!(message.contains("bd safe-push auth --create-pull-request"), "{message}");
+  assert!(message.contains("brd safe-push auth --create-pull-request"), "{message}");
   assert!(message.ends_with("--without-approvals starts anyway, only when the user says so"), "{message}");
   // a pull request can't be opened yet, and the config is the user's: no step
   assert_eq!(next_steps(&output["error"]), []);
@@ -162,13 +162,13 @@ fn the_profile_of_the_last_robot_is_the_default_and_none_drops_it() {
   assert_eq!(space.last_start()["mergeProfileId"], Value::Null);
 }
 
-/// A Safe Push of auth runs on `revision`: `bd safe-push auth` refuses to start another one on the same commits
+/// A Safe Push of auth runs on `revision`: `brd safe-push auth` refuses to start another one on the same commits
 fn assert_refused_for_a_robot_on(space: &Space, revision: &str) {
   space.set_robots(vec![robot("running", "RUNNING", "auth", revision)]);
   let (exit_code, output) = space.run(&["auth"]);
   assert_error(&output, exit_code, (4, "robot_running"));
   assert_eq!(output["error"]["message"], json!("A Safe Push of the last commit is running"));
-  assert_eq!(next_steps(&output["error"]), [("bd robot auth".to_string(), false)]);
+  assert_eq!(next_steps(&output["error"]), [("brd robot auth".to_string(), false)]);
 }
 
 #[test_log::test]
@@ -193,7 +193,7 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
   );
   assert_eq!(
     next_steps(&output["error"]),
-    [("bd robot auth".to_string(), false), ("bd safe-push auth --cancel-running".to_string(), true)]
+    [("brd robot auth".to_string(), false), ("brd safe-push auth --cancel-running".to_string(), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "");
   // a Dry Run replaces no Safe Push: its push into the branch is refused, --cancel-running or not
@@ -211,7 +211,7 @@ fn a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_whe
   assert_eq!(output["robot"]["id"], json!("started"));
 }
 
-/// Pushes auth (`bd push`), then moves the baseline on and the user's branch onto it, so the next sync rebuilds auth on
+/// Pushes auth (`brd push`), then moves the baseline on and the user's branch onto it, so the next sync rebuilds auth on
 /// it: the remote branch has its commits by content, under other hashes. Returns the pushed commit.
 fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment) -> String {
   let (exit_code, output) = run_json(environment, &["--prefix", PREFIX, "push", "auth"]);
@@ -226,7 +226,7 @@ fn push_and_rebuild_on_a_newer_baseline(space: &Space, environment: &Environment
   pushed
 }
 
-/// `bd safe-push auth` after a failed robot on `pushed`: it starts a new one
+/// `brd safe-push auth` after a failed robot on `pushed`: it starts a new one
 fn start_auth_after_a_failed_robot(space: &Space, pushed: &str) -> Value {
   space.set_robots(vec![robot("older", "FAILURE", "auth", pushed)]);
   let (exit_code, output) = space.run(&["auth"]);
@@ -265,7 +265,7 @@ fn a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_witho
   assert_eq!(space.remote_tip(AUTH), pushed, "nothing was pushed");
 }
 
-/// `bd safe-push auth --dry-run` of a branch whose remote branch is not as it is: a push is due, nothing refuses the
+/// `brd safe-push auth --dry-run` of a branch whose remote branch is not as it is: a push is due, nothing refuses the
 /// start, and the output matches the schema; returns the remote state of auth in `remotes`
 fn check_auth_needs_a_push(space: &Space) -> Value {
   let (exit_code, output) = space.run(&["auth", "--dry-run"]);
@@ -299,8 +299,8 @@ fn a_branch_reworded_since_its_push_is_pushed_before_the_start() {
   assert_eq!(space.remote_tip(AUTH), space.local_tip(AUTH), "the reworded commit is on the remote");
 }
 
-/// The same through `bd reword --sync`: the check counts the reworded commit as a push (`remote.reworded`), and
-/// `bd push --dry-run` would replace the remote commit
+/// The same through `brd reword --sync`: the check counts the reworded commit as a push (`remote.reworded`), and
+/// `brd push --dry-run` would replace the remote commit
 #[test_log::test]
 fn a_branch_reworded_by_bd_reword_needs_a_push() {
   let space = Space::new(&["(auth) Add the auth module with a subject that is far longer than the rule allows"]);
@@ -350,7 +350,7 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   assert_eq!(output["refusals"][0]["code"], json!("push_refused"), "{output}");
   let message = output["refusals"][0]["message"].as_str().unwrap();
   assert!(
-    message.contains(&format!("`bd push auth --force --expect-remote {}`", git_ops::revs::short_id(&theirs))),
+    message.contains(&format!("`brd push auth --force --expect-remote {}`", git_ops::revs::short_id(&theirs))),
     "{message}"
   );
   assert_eq!(
@@ -365,8 +365,8 @@ fn check_counts_the_remote_commits_the_baseline_landed_and_refuses_a_drop() {
   assert_eq!(
     next_steps(&output["error"]),
     [
-      (format!("bd push auth --force --expect-remote {}", git_ops::revs::short_id(&theirs)), true),
-      ("bd safe-push auth --force".to_string(), true)
+      (format!("brd push auth --force --expect-remote {}", git_ops::revs::short_id(&theirs)), true),
+      ("brd safe-push auth --force".to_string(), true)
     ]
   );
   assert_eq!(
@@ -422,7 +422,7 @@ fn login_on_auth() -> Space {
   space
 }
 
-/// `bd safe-push login --dry-run`, which lands auth with login and refuses nothing; the output matches the schema
+/// `brd safe-push login --dry-run`, which lands auth with login and refuses nothing; the output matches the schema
 fn check_login_lands_auth(space: &Space) -> Value {
   let (exit_code, output) = space.run(&["login", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -457,7 +457,7 @@ fn a_stacked_branch_lands_its_parents_with_it() {
   assert_eq!(
     output["alone"],
     json!({"result": "builds", "parent": "auth", "symbols": true,
-      "message": "login builds alone on the baseline and uses no name its stack adds: `bd unstack login` makes it a root that lands alone (not checked by a compiler)"})
+      "message": "login builds alone on the baseline and uses no name its stack adds: `brd unstack login` makes it a root that lands alone (not checked by a compiler)"})
   );
   // the obsolete --land-stack is accepted and changes nothing
   let (exit_code, landed_stack) = space.run(&["login", "--land-stack", "--dry-run"]);
@@ -492,7 +492,7 @@ fn a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it() {
     json!({"result": "needs", "parent": "auth",
       "conflict": {"commit": uses, "subject": "Use auth", "files": ["f0.txt"]},
       "needs": [{"commit": auth, "subject": "Add auth", "branch": "auth"}], "movable": true,
-      "message": format!("login needs {auth} (auth): move it into the branch, then `bd unstack login`")})
+      "message": format!("login needs {auth} (auth): move it into the branch, then `brd unstack login`")})
   );
 }
 
@@ -530,7 +530,7 @@ fn open_pull_request_on_github() -> (Space, Arc<FakeGitHub>, Environment) {
   (space, github, environment)
 }
 
-/// `bd safe-push auth --create-pull-request`, which succeeds
+/// `brd safe-push auth --create-pull-request`, which succeeds
 fn create_pull_request(environment: &Environment) -> Value {
   let (exit_code, output) = safe_push(environment, &["auth", "--create-pull-request"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -604,9 +604,9 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
 
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("bd safe-push auth --create-pull-request"), "{output}");
+  assert_safe_push_error_mentions(&output, "brd safe-push auth --create-pull-request");
   // it pushes the branch: the user's to approve
-  assert_eq!(next_steps(&output["error"]), [("bd safe-push auth --create-pull-request".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [("brd safe-push auth --create-pull-request".to_string(), true)]);
 
   let output = create_pull_request(&environment);
   assert_eq!(
@@ -625,7 +625,7 @@ fn the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_fro
   list_pull_requests(&github, &[pull_request_json(&[])]);
   let (exit_code, output) = safe_push(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "approvals_missing"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("pull request #7"), "{output}");
+  assert_safe_push_error_mentions(&output, "pull request #7");
   assert_eq!(next_steps(&output["error"]), [], "the approvals come in the open pull request");
 
   // a Patronus that doesn't evaluate the pull request can't tell whether alice counts: the robot decides
@@ -695,12 +695,16 @@ fn approved_pull_request_with_rules(counted: bool, rules: FakeAnswer) -> (Space,
   (space, github, environment)
 }
 
+fn assert_safe_push_error_mentions(output: &Value, expected: &str) {
+  assert!(output["error"]["message"].as_str().unwrap().contains(expected), "{output}");
+}
+
 /// The comments the start posted on pull request #7
 fn comments_on_seven(github: &FakeGitHub) -> usize {
   github.requests_to("POST", "/repos/acme/monorepo/issues/7/comments").len()
 }
 
-/// `bd safe-push <args>`, which starts from a comment on pull request #7
+/// `brd safe-push <args>`, which starts from a comment on pull request #7
 fn started_from_the_pull_request(environment: &Environment, args: &[&str]) -> Value {
   let (exit_code, output) = safe_push(environment, args);
   assert_eq!((exit_code, &output["started_via"]), (0, &json!("pull_request")), "{output}");
@@ -723,10 +727,10 @@ fn a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push() {
   assert_error(&output, exit_code, (4, "push_dismisses_approvals"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(message.contains("pull request #7"), "{message}");
-  assert!(message.contains("`bd push auth`") && message.contains("`bd request-review auth`"), "{message}");
+  assert!(message.contains("`brd push auth`") && message.contains("`brd request-review auth`"), "{message}");
   assert_eq!(
     next_steps(&output["error"]),
-    [("bd push auth".to_string(), true), ("bd request-review auth".to_string(), true)]
+    [("brd push auth".to_string(), true), ("brd request-review auth".to_string(), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "", "nothing is pushed");
   assert_eq!(comments_on_seven(&github), 0, "nothing is started");
@@ -939,12 +943,12 @@ fn a_name_another_branch_adds_refuses_the_safe_push_unless_allowed() {
   assert_eq!(
     output["error"]["message"],
     json!(format!(
-      "Nothing was pushed or started: {used} (Start with controlUrl) of flow uses controlUrl (src/b/Use.kt:3), which {declared} (Add controlUrl) of util adds; git merges it, but the build fails. `bd restack flow util` lands util with it, after the user approves, or move one of the two; --allow-missing starts anyway, only when the user says it is a false alarm",
+      "Nothing was pushed or started: {used} (Start with controlUrl) of flow uses controlUrl (src/b/Use.kt:3), which {declared} (Add controlUrl) of util adds; git merges it, but the build fails. `brd restack flow util` lands util with it, after the user approves, or move one of the two; --allow-missing starts anyway, only when the user says it is a false alarm",
       used = &uses[..8],
       declared = &declares[..8],
     ))
   );
-  assert_eq!(next_steps(&output["error"]), [("bd restack flow util".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [("brd restack flow util".to_string(), true)]);
   assert_eq!(space.remote_tip("test-user/virtual/flow"), "", "nothing was pushed");
 
   let (_, output) = space.run(&["flow", "--dry-run"]);
@@ -1006,7 +1010,7 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   assert!(message.contains("once the user approved, --restart-running cancels it, pushes and restarts it"), "{output}");
   assert_eq!(
     next_steps(&output["error"]),
-    [("bd robot auth".to_string(), false), ("bd push auth --restart-running".to_string(), true)]
+    [("brd robot auth".to_string(), false), ("brd push auth --restart-running".to_string(), true)]
   );
   assert_eq!(space.remote_tip(AUTH), "");
 
@@ -1030,7 +1034,7 @@ fn push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told() {
   assert_eq!(exit_code, 0, "{output}");
 }
 
-/// The refusals of `bd safe-push --dry-run` by their codes
+/// The refusals of `brd safe-push --dry-run` by their codes
 fn refusal_codes(output: &Value) -> Vec<Value> {
   output["refusals"]
     .as_array()
@@ -1312,7 +1316,7 @@ fn push_retargets_before_it_pushes_and_a_refused_push_keeps_the_retarget() {
   assert_eq!(retargets_sent(&github), [("/repos/acme/monorepo/pulls/8".to_string(), json!({"base": "master"}))]);
 }
 
-/// `bd push <root> --with-children` takes the stack branch of the whole stack along while its pull request is open,
+/// `brd push <root> --with-children` takes the stack branch of the whole stack along while its pull request is open,
 /// also before this clone has its remote branch, as the app's Push with Children does: the pull request follows the
 /// branches. GitHub is searched once, under the lock, and the listing serves the retargets after the push too
 #[test_log::test]
@@ -1525,7 +1529,7 @@ fn the_whole_stack_lands_in_one_robot_from_its_stack_branch() {
 }
 
 /// The remote stack branch moved after the sync to an older build of the stack (a push from the app in another window):
-/// it has nothing the stack branch lacks, so the start pushes again over what the remote has now, once, as `bd push
+/// it has nothing the stack branch lacks, so the start pushes again over what the remote has now, once, as `brd push
 /// --with-children` and the app's start do (D4), and the robot starts
 #[test_log::test]
 fn the_whole_stack_pushes_again_over_a_moved_remote_that_lacks_nothing_of_its_stack_branch() {
@@ -1579,7 +1583,7 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
     "a stack branch that is not built has no commits to review"
   );
   // the branch of the commit that conflicts lands with what it is built on: its check reads only
-  let piece = [("bd safe-push session --dry-run".to_string(), false)];
+  let piece = [("brd safe-push session --dry-run".to_string(), false)];
   assert_eq!(next_steps(&output["refusals"][0]), piece);
   let (exit_code, output) = space.run(&["login", "--whole-stack"]);
   assert_error(&output, exit_code, (4, "stack_conflict"));
@@ -1609,10 +1613,10 @@ fn a_whole_stack_that_conflicts_is_refused_with_the_conflict() {
   assert_eq!(
     output["error"]["message"],
     json!(
-      "Nothing was pushed or started: the stack branch of auth is not the build of its commits: auth conflicts, so the stack branch was not rebuilt. `bd sync` says what to fix"
+      "Nothing was pushed or started: the stack branch of auth is not the build of its commits: auth conflicts, so the stack branch was not rebuilt. `brd sync` says what to fix"
     )
   );
-  assert_eq!(next_steps(&output["error"]), [("bd sync".to_string(), false)]);
+  assert_eq!(next_steps(&output["error"]), [("brd sync".to_string(), false)]);
   assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
 }
 
@@ -1664,19 +1668,19 @@ fn the_pull_request_of_the_whole_stack_is_its_stack_branchs_and_the_start_commen
 }
 
 /// A Safe Push holds the repository lock only for the witness of its refs and the freeze of its push, one
-/// `for-each-ref`: its sync runs before it, as `bd sync`, and a check takes none; while bd asks Patronus for the start
-/// options, another bd writer takes the lock, in a check and in a start alike
+/// `for-each-ref`: its sync runs before it, as `brd sync`, and a check takes none; while brd asks Patronus for the start
+/// options, another brd writer takes the lock, in a check and in a start alike
 #[cfg(unix)]
 #[test_log::test]
 fn a_safe_push_locks_only_the_witness_and_the_freeze() {
   let space = Space::new(&["(auth) Add auth"]);
-  // while bd asks Patronus for the start options, another bd writer tries the lock
+  // while brd asks Patronus for the start options, another brd writer tries the lock
   let taken = Arc::new(std::sync::Mutex::new(Vec::new()));
   let git_common_dir = space.repo.path().join(".git");
   *space.fake.on_start_options.lock().unwrap() = Some(Box::new({
     let taken = Arc::clone(&taken);
     move || {
-      let lock = history_rewrite::repository_lock::lock_repository_as_another_process(&git_common_dir, "bd group");
+      let lock = history_rewrite::repository_lock::lock_repository_as_another_process(&git_common_dir, "brd group");
       taken.lock().unwrap().push(lock.is_ok());
     }
   }));
@@ -1735,7 +1739,7 @@ fn a_target_that_moved_with_a_conflicting_change_after_the_last_sync_refuses_the
     )),
     "{message}"
   );
-  assert!(message.contains("`bd update`") && message.contains("`bd safe-push auth` again"), "{message}");
+  assert!(message.contains("`brd update`") && message.contains("`brd safe-push auth` again"), "{message}");
   assert_eq!((space.fake.starts.lock().unwrap().len(), space.remote_tip(AUTH)), (0, String::new()));
 }
 
@@ -1810,7 +1814,7 @@ fn a_branch_switched_during_the_fetch_of_the_target_is_checked_as_not_fetched() 
   assert_eq!(space.fake.starts.lock().unwrap().len(), 0);
 }
 
-/// `bd safe-push <args>` whose git runs `other` once, before the fetch of the target; the run moved HEAD
+/// `brd safe-push <args>` whose git runs `other` once, before the fetch of the target; the run moved HEAD
 #[cfg(unix)]
 fn safe_push_with_head_moved_before_the_fetch(space: &Space, other: &str, args: &[&str]) -> (bd_cli::fixture_test::LockSpanGit, i32, Value) {
   let wrapped = bd_cli::fixture_test::LockSpanGit::new(&space.repo, &test_utils::wrapped_git::WrappedGit::move_head_before("fetch", 1, other));
@@ -1838,7 +1842,7 @@ fn assert_clean_on_the_last_fetched(output: &Value, baseline: &str) -> String {
   message.to_string()
 }
 
-/// On a route without Patronus a straight chain is a stack of GitHub (docs/design/github-stacks.md): `bd push` drafts
+/// On a route without Patronus a straight chain is a stack of GitHub (docs/design/github-stacks.md): `brd push` drafts
 /// the pull request of each layer into the branch below it, with only its own commits, the bottom's into master, and
 /// prints the `gh stack link` of the chain; on the route of Patronus every draft goes into master as before
 #[test_log::test]

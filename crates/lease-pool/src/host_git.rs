@@ -1,5 +1,5 @@
 //! The git of a host that serves remote runs (spec/cli/lease.spec.md, "Host objects"): its floor, above `MIN_VERSION`
-//! of bd itself, and the Homebrew install or upgrade that `host_slots::ensure_host_git` runs below it. The runs of other
+//! of brd itself, and the Homebrew install or upgrade that `host_slots::ensure_host_git` runs below it. The runs of other
 //! machines and the agent of the host use the git that their `PATH` finds first, with the `bin` directory of Homebrew
 //! before `/usr/bin`, so a host keeps one floor that moves only on purpose instead of a check of each feature they use.
 //! The floor is the newest release of git when the user set the policy (2026-10-27): "a minimum in the code, and `brew
@@ -205,7 +205,7 @@ pub enum GitPlan {
   Install,
   /// `brew upgrade git`: the git of Homebrew is too old
   Upgrade,
-  /// bd cannot get a new git; the message says what the user does
+  /// brd cannot get a new git; the message says what the user does
   Refuse(String),
 }
 
@@ -230,7 +230,7 @@ pub fn plan(found: Option<&FoundGit>, floor: Version, brew: Option<&Path>, brew_
   let Some(brew) = brew else {
     return GitPlan::Refuse(if macos {
       format!(
-        "The git of this host is {what}, older than {floor}, the floor of a host of remote runs. bd upgrades git with Homebrew, and this host has no Homebrew. Install Homebrew once at the host (it asks for the password of an administrator): /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\". Then run `brew install git`"
+        "The git of this host is {what}, older than {floor}, the floor of a host of remote runs. brd upgrades git with Homebrew, and this host has no Homebrew. Install Homebrew once at the host (it asks for the password of an administrator): /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\". Then run `brew install git`"
       )
     } else {
       format!(

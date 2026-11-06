@@ -2,11 +2,11 @@
   {
     "id": "push-dismisses-the-counted-approvals",
     "group": "discrepancies",
-    "title": "a push of a new commit into #7, whose approvals Patronus counts, while the rules of the repository dismiss stale reviews: the app refuses and offers the push, bd started; both refuse now, bd with push_dismisses_approvals",
+    "title": "a push of a new commit into #7, whose approvals Patronus counts, while the rules of the repository dismiss stale reviews: the app refuses and offers the push, brd started; both refuse now, brd with push_dismisses_approvals",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "discrepancy": "D1",
     "closed": "s1-holes",
@@ -33,8 +33,8 @@
     "id": "skips-review-profile-of-the-api-start",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "a profile that skips the code-owner review: the app skipped the approvals, bd refused approvals_missing without --without-approvals or --create-pull-request; both skip them on the API route now",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "title": "a profile that skips the code-owner review: the app skipped the approvals, brd refused approvals_missing without --without-approvals or --create-pull-request; both skip them on the API route now",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#safe-push-without-review", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "discrepancy": "D2",
     "closed": "s1-holes",
     "today": {
@@ -46,8 +46,8 @@
     "id": "retarget-before-or-after-the-push",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the order of the retarget of a pull request into a virtual branch and the push: the app retargeted before the push, bd push after it, bd safe-push before. Since s9-engine-remote bd push retargets before the push too, after the lock, and the push of the app is a plan whose retarget comes before its push (s9-12); a retarget GitHub refuses is a warning of the push and stops the start of its own pull request",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-push"],
+    "title": "the order of the retarget of a pull request into a virtual branch and the push: the app retargeted before the push, brd push after it, brd safe-push before. Since s9-engine-remote brd push retargets before the push too, after the lock, and the push of the app is a plan whose retarget comes before its push (s9-12); a retarget GitHub refuses is a warning of the push and stops the start of its own pull request",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#brd-push"],
     "discrepancy": "D3a",
     "today": {
       "app": ["crates/operations/src/push.rs#its pull request goes into the target first, where every pull request of a virtual branch goes (D3a)"],
@@ -63,11 +63,11 @@
     "id": "pull-request-into-another-base",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "an open pull request into another base (a release branch): its approvals count for no Safe Push into the target; closed in s8-policy: both refuse a start that counts them (the app by row 5′, bd with pull_request_other_base) and let a start without review or a profile that skips it go through the API",
+    "title": "an open pull request into another base (a release branch): its approvals count for no Safe Push into the target; closed in s8-policy: both refuse a start that counts them (the app by row 5′, brd with pull_request_other_base) and let a start without review or a profile that skips it go through the API",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "discrepancy": "D3b",
     "today": {
@@ -80,8 +80,8 @@
     "id": "push-over-a-moved-remote",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "a push over a remote branch that moved without commits the branch lacks: the app pushed again once in TS, bd answered lease_rejected. Since s8-policy both push again once in Rust by one rule (over_moved_remote) and say what they went over (pushed_over); a remote with someone's commits stays lease_rejected for bd and the toast for the app",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/cli/agent-cli.spec.md#bd-push", "spec/repository/outgoing.spec.md#push"],
+    "title": "a push over a remote branch that moved without commits the branch lacks: the app pushed again once in TS, brd answered lease_rejected. Since s8-policy both push again once in Rust by one rule (over_moved_remote) and say what they went over (pushed_over); a remote with someone's commits stays lease_rejected for brd and the toast for the app",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/cli/agent-cli.spec.md#brd-push", "spec/repository/outgoing.spec.md#push"],
     "discrepancy": "D4",
     "closed": "s8-policy",
     "today": {
@@ -99,8 +99,8 @@
     "id": "request-review-pushes-first",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "Request Review of a branch the remote lags: one intent of both sides (RequestReview) pushes first, the app always, bd only with --push (needs_push without); the candidates are one rule of both (domain_policy::review::candidates)",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#request-review", "spec/cli/agent-cli.spec.md#bd-request-review"],
+    "title": "Request Review of a branch the remote lags: one intent of both sides (RequestReview) pushes first, the app always, brd only with --push (needs_push without); the candidates are one rule of both (domain_policy::review::candidates)",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#request-review", "spec/cli/agent-cli.spec.md#brd-request-review"],
     "discrepancy": "D5",
     "today": {
       "app": [
@@ -118,8 +118,8 @@
     "id": "create-pull-request-waits-for-the-mirror",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "Create Pull Request: one intent (CreatePullRequest) pushes first, then the creation waits for the mirror (wait_for_mirror), Continue on GitHub until GitHub has the branch (WaitForMirror); bd's safe-push --create-pull-request runs the same effect",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "title": "Create Pull Request: one intent (CreatePullRequest) pushes first, then the creation waits for the mirror (wait_for_mirror), Continue on GitHub until GitHub has the branch (WaitForMirror); brd's safe-push --create-pull-request runs the same effect",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/pull-requests.spec.md#creating-a-pull-request", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "discrepancy": "D6",
     "today": {
       "app": ["crates/operations/src/pull_request.rs#(true, true, _) => vec![PlannedEffect::WaitForMirror { branch: first.head.clone() }],"],
@@ -131,7 +131,7 @@
     "id": "close-the-pull-requests-a-robot-landed",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the pull requests a merged robot landed with it: only the app closes them, by the news of the merge; bd closed and listed none. Since s8-policy one rule, domain_policy::landed::pull_requests_to_close, names them: the merge news of the session carries them (RobotMerged.closes), bd robot lists them (closes) and closes none",
+    "title": "the pull requests a merged robot landed with it: only the app closes them, by the news of the merge; brd closed and listed none. Since s8-policy one rule, domain_policy::landed::pull_requests_to_close, names them: the merge news of the session carries them (RobotMerged.closes), brd robot lists them (closes) and closes none",
     "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/patronus.spec.md#merged", "docs/design/landing.md#every-pull-request-goes-into-master"],
     "discrepancy": "D7",
     "today": {
@@ -140,7 +140,7 @@
         "crates/repository-model/src/facts.rs#pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {"
       ],
       "bd": ["crates/bd-remote/src/robot_command.rs#let closes = pull_requests_to_close(&Landing::Robot { robot, landed }, |branch| {"],
-      "why": "the rule is one; only the app closes, bd lists (owner decision 4: docs/design/landing.md keeps the close the app's)"
+      "why": "the rule is one; only the app closes, brd lists (owner decision 4: docs/design/landing.md keeps the close the app's)"
     },
     "closed": "s9-engine-remote"
   },
@@ -148,7 +148,7 @@
     "id": "d8-whole-stack-parent",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the whole stack of C, blocked by A, whose declared parent B has no commits (stacked on A by bd restack): bd followed blocked_by and landed the chain A → C, the app followed declaredParent B, which no row has. Since s8-policy both read one rule by the declared parent (the owner's decision 5): C is a root of its own, and the whole stack of A is A alone",
+    "title": "the whole stack of C, blocked by A, whose declared parent B has no commits (stacked on A by brd restack): brd followed blocked_by and landed the chain A → C, the app followed declaredParent B, which no row has. Since s8-policy both read one rule by the declared parent (the owner's decision 5): C is a root of its own, and the whole stack of A is A alone",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/stacked-branches.spec.md#placement",
@@ -170,11 +170,11 @@
   {
     "id": "rules-unknown-keep-the-approvals",
     "group": "discrepancies",
-    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app read it as \"keeps the approvals\" and started; now it confirms rulesUnknown, bd refuses rules_unknown unless --allow-unknown-rules",
+    "title": "a push of a new commit into the approved #7 while the rules of the repository can't be read: the app read it as \"keeps the approvals\" and started; now it confirms rulesUnknown, brd refuses rules_unknown unless --allow-unknown-rules",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "discrepancy": "D9",
     "closed": "s1-holes",
@@ -202,12 +202,12 @@
     "id": "direct-ipc-skips-the-checks",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the IPC of a start, a restart, a cancel and a push ran without the checks of the decision; bd checks in its commands. Since s1-holes the app's commands check in Rust too: the push under the repository lock refuses parked, landed and held branches, the start, the restart and the cancel refuse parked, landed, not built and overlapped subjects on the robots Rust lists itself; since s9-engine-remote the start, the restart and the cancel are intents of the engine, decided again by execute over the facts of the session",
+    "title": "the IPC of a start, a restart, a cancel and a push ran without the checks of the decision; brd checks in its commands. Since s1-holes the app's commands check in Rust too: the push under the repository lock refuses parked, landed and held branches, the start, the restart and the cancel refuse parked, landed, not built and overlapped subjects on the robots Rust lists itself; since s9-engine-remote the start, the restart and the cancel are intents of the engine, decided again by execute over the facts of the session",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
       "spec/branch/patronus.spec.md#restart-and-cancel",
-      "spec/cli/agent-cli.spec.md#bd-push"
+      "spec/cli/agent-cli.spec.md#brd-push"
     ],
     "discrepancy": "D10",
     "closed": "s1-holes",
@@ -228,8 +228,8 @@
     "id": "pull-request-into-a-virtual-base",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "an open pull request into a virtual branch (of the parent, of another branch of the table, of one that landed): the app refused the Safe Push and offered the retarget as the step (row 5), bd retargeted it as a step of the start; closed in s8-policy: both decide by land::decide, whose first effect retargets it into the target (PlannedEffect::Retarget), and start from it; the readiness of both is asked with it (pull_request::start_pull_request)",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:5", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "title": "an open pull request into a virtual branch (of the parent, of another branch of the table, of one that landed): the app refused the Safe Push and offered the retarget as the step (row 5), brd retargeted it as a step of the start; closed in s8-policy: both decide by land::decide, whose first effect retargets it into the target (PlannedEffect::Retarget), and start from it; the readiness of both is asked with it (pull_request::start_pull_request)",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:5", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "discrepancy": "D11",
     "today": {
       "app": [
@@ -244,11 +244,11 @@
     "id": "push-over-the-commits-of-someone-else",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app read no dropped commits and started with a force push (the push button alone asked), bd refused push_refused unless --force; closed in s8-policy: both decide by land::decide, the app's start is refused with the words of the push button (Reason::DropsRemote), bd's unless --force, which makes the drop a confirmation and the push a force push",
+    "title": "the remote branch has a commit of someone else that the branch lacks: the decision of the app read no dropped commits and started with a force push (the push button alone asked), brd refused push_refused unless --force; closed in s8-policy: both decide by land::decide, the app's start is refused with the words of the push button (Reason::DropsRemote), brd's unless --force, which makes the drop a confirmation and the push a force push",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "discrepancy": "D12",
     "today": {
@@ -264,8 +264,8 @@
     "id": "merged-pull-request-of-the-commits",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "GitHub merged the pull request with the commits the branch has: the app held the branch (row 1), bd read only the open pull requests and the robots and started through the API; closed in s8-policy: one rule, domain_policy::landed::landed_state, lands the branch at both sides (the view's landedStates, bd's landed refusal), as the case row-1-merged-pull-request shows",
-    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "title": "GitHub merged the pull request with the commits the branch has: the app held the branch (row 1), brd read only the open pull requests and the robots and started through the API; closed in s8-policy: one rule, domain_policy::landed::landed_state, lands the branch at both sides (the view's landedStates, brd's landed refusal), as the case row-1-merged-pull-request shows",
+    "spec": ["docs/design/rust-domain-authority.md#реестр-расхождений", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "discrepancy": "D13",
     "today": {
       "app": ["crates/repository-model/src/derive.rs#pub fn landed_states_of", "crates/domain-policy/src/landed.rs#fn by_pull_request("],
@@ -280,12 +280,12 @@
     "id": "review-without-an-answer",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirmed with the review line and let the robot decide, bd refused; closed in s8-policy: both decide by land::decide, a failed pre-check is the confirmation ReviewUnknown (the popover's line, bd's --allow-unknown-review, owner decision 10), a Space merge request the approvals it misses (approvals_missing at both)",
+    "title": "the review Patronus can't answer (the pre-check fails) or answers for a Space merge request: the app confirmed with the review line and let the robot decide, brd refused; closed in s8-policy: both decide by land::decide, a failed pre-check is the confirmation ReviewUnknown (the popover's line, brd's --allow-unknown-review, owner decision 10), a Space merge request the approvals it misses (approvals_missing at both)",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#code-owner-review",
       "spec/branch/next-step.spec.md#the-table:11",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "discrepancy": "D14",
     "today": {
@@ -301,11 +301,11 @@
     "id": "dry-run-pushes-into-a-held-branch",
     "group": "discrepancies",
     "kind": "recorded",
-    "title": "a Dry Run whose push goes into a branch a running Safe Push of a branch built on it lands: the app refused the start, because the push would fail that Safe Push (the hold of the view); bd refused only the last commit for a dry run, pushed and started. Since s8-policy both refuse it by one rule (land::start_refusal: the span hold of the push a Dry Run makes)",
+    "title": "a Dry Run whose push goes into a branch a running Safe Push of a branch built on it lands: the app refused the start, because the push would fail that Safe Push (the hold of the view); brd refused only the last commit for a dry run, pushed and started. Since s8-policy both refuse it by one rule (land::start_refusal: the span hold of the push a Dry Run makes)",
     "spec": [
       "docs/design/rust-domain-authority.md#реестр-расхождений",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "discrepancy": "D15",
     "closed": "s8-policy",

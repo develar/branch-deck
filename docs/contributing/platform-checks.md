@@ -24,7 +24,7 @@ tree-sitter finds no Windows headers.
   `Z:`. Rust, nextest, git, MSVC Build Tools and LLVM are under `C:\dev\tools`. A `.bat` sets
   `CARGO_HOME=C:\dev\tools\cargo`, `RUSTUP_HOME=C:\dev\tools\rustup`, `CARGO_TARGET_DIR=C:\dev\bd-target` and `PATH`
   (`C:\dev\tools\cargo\bin`, `C:\dev\tools\git\cmd`, `C:\Program Files\LLVM\bin`), copies the worktree with
-  `robocopy Z:\<path> C:\dev\bd /MIR /XD target node_modules .git dist /XF .git`, writes an empty `dist\index.html`
+  `robocopy Z:\<path> C:\dev\brd /MIR /XD target node_modules .git dist /XF .git`, writes an empty `dist\index.html`
   for `src-tauri` and runs cargo with its output in a file under `Z:`; start it with
   `prlctl exec "Windows 11" --current-user cmd /c Z:\<path>.bat`. `/XF .git` matters: the `.git` of a lease is a file
   that names a Mac path, and a copied one fails every git whose cwd is in the copy ("not a git repository: (NULL)").

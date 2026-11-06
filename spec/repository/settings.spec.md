@@ -102,7 +102,7 @@ Appearance, Diffs & Merge, Notifications, GitHub, YouTrack, and Repository for t
 not modal: the main window stays usable, and a change applies at once in every window. The main window opens it, from
 the menu (⌘,), the keys of a custom title bar and the buttons that need a setting ("Notification Settings…", "Sign
 In…", "Set GitHub Repository…"), which name the page they need. Repository shows the `branchdeck.*` git config of the
-repository, which `bd` reads too, and writes it to its `.git/config`.
+repository, which `brd` reads too, and writes it to its `.git/config`.
 
 The settings were a modal dialog before, whose six sections scrolled in a 32rem column; the toolbar had a popover of its
 own for one switch. The toolbar has one Settings button now, after Sync.
@@ -211,11 +211,11 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/commit-files/commit-files.spec.ts (`should break a long line with Soft Wraps on in Settings, and scroll it with them off`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should set every diff from Diffs & Merge, the Whitespace menu naming its choice`)
 - Diffs & Merge, "Merge": "Resolve conflicts by words", the git key `branchdeck.resolveByWords`, on by default (the
-  sync, Update Project and `bd update` commit a conflict of git that its words resolve,
+  sync, Update Project and `brd update` commit a conflict of git that its words resolve,
   [Git Operations](../../docs/design/git-operations.md#resolve-by-words)). It is one value for every repository, so
-  the switch writes the global git config (`set_repository_config` with `scope: "global"`), which `bd` reads too. The
+  the switch writes the global git config (`set_repository_config` with `scope: "global"`), which `brd` reads too. The
   line under it says where the value comes from and where a change goes: "On by default. A change goes to your global
-  Git config, which bd reads too", "Set in your global Git config, which bd reads too", "Set in the system Git config.
+  Git config, which brd reads too", "Set in your global Git config, which brd reads too", "Set in the system Git config.
   A change goes to your global Git config, which wins over it". A repository whose `.git/config` sets the key keeps
   its own value, as git reads it: the line says "Set in .git/config of <repository>, which overrides your global Git
   config" (or "…, for this repository only"), the switch changes that value, and "Use Global" (or "Use Default")
@@ -337,7 +337,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   array left empty removes its key. Keys the backend does not know are kept as they are. The defaults of the fields
   Rust reads (the app's prefix, the new Patronus API, the zoom, the sync on focus, the system title bar) are Rust's
   alone: the page takes them from the bindings (`APP_SETTINGS_DEFAULTS`), so a value the page sends back as its default
-  is the one Rust and `bd` read as the default too.
+  is the one Rust and `brd` read as the default too.
   [@test] ../../crates/app-settings/src/service_test.rs (`a_field_patch_merges_into_the_key_and_a_null_field_is_removed`, `a_field_patch_that_removes_the_last_field_removes_the_key`)
   [@test] ../../crates/app-settings/src/file_test.rs (`unknown_keys_round_trip`)
   [@test] ../../src/stores/settings/appSettings.test.ts (`takes the defaults of the fields Rust reads from Rust, so a value back at its default means the same to both`)
@@ -346,7 +346,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   had, how long the steps of a sync and of Update Project took, when Branch Deck fetched the baseline last, up to when
   the Landed island hides what landed) lives in a file of its own, `repository-state.json`
   beside `settings.json`, behind the same writer and its versions, and only the main window has it: a sync writes that
-  file alone, never `settings.json`, which `bd` reads beside it. A `settings.json` of before that kept these fields in
+  file alone, never `settings.json`, which `brd` reads beside it. A `settings.json` of before that kept these fields in
   its recent projects is read once: the writer moves them (a value the state file has for the repository wins), saves
   the state file, and `settings.json` loses them with its next save; every other key of it is kept.
   [@test] ../../crates/app-settings/src/service_test.rs (`a_patch_of_the_repository_state_leaves_the_settings_file_untouched`, `a_settings_file_of_before_moves_the_fields_of_a_sync_to_the_repository_state_and_drops_them_on_its_next_save`, `the_moved_values_of_a_settings_file_of_before_are_saved_without_a_change`)
@@ -374,15 +374,15 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 - The page shows the `branchdeck.*` git config of the selected repository (`get_repository_config`, one
   `git config --show-scope --get-regexp`, [Git Operations](../../docs/design/git-operations.md#repository-settings)),
-  read when the page shows, when the window gets the focus (a `git config` or `bd` meanwhile) and on a switch of the
-  repository, under the line "Saved in `.git/config` of <repository>, which bd reads too". Without a repository it says
+  read when the page shows, when the window gets the focus (a `git config` or `brd` meanwhile) and on a switch of the
+  repository, under the line "Saved in `.git/config` of <repository>, which brd reads too". Without a repository it says
   "Select a repository to see its settings"; a failed read is a `destructive` callout "Cannot read the settings of
   <repository>" with the reason and Retry.
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should say what to do without a repository`, `should write nothing when the repository is switched while a field holds typing`, `should save Report Only, its source this repository, which the main window syncs, and read it again when the window gets the focus`)
 - Four rows, each with its git key (muted `InlineCode`) after what it does, one line each: Stacked branches (a switch,
   "(auth/login) in a commit builds login on top of auth", `branchdeck.stacks`,
   [Stacked Branches](../branch/stacked-branches.spec.md)), Symbol dependencies (Off · Report Only · On, `aria-pressed`
-  buttons, the sentence of the mode chosen: "Commits depend only on the lines they change", "Shown by bd commits,
+  buttons, the sentence of the mode chosen: "Commits depend only on the lines they change", "Shown by brd commits,
   never used for the branches", "Commits also depend on the commits that add the
   symbols they use"; `branchdeck.symbols`, [Symbol Dependencies](../commit/symbol-dependencies.spec.md)), GitHub
   repository (`owner/name`, "Where pull requests are opened", the detected one as the placeholder;
@@ -391,7 +391,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
 - The route into master, `branchdeck.landing` (`patronus`, `push`, `pull-request`; unset: Patronus on Space, the pull
   request elsewhere), is read and written with these keys (`RepositoryConfig.landing`, the change `landing`; "Cannot
-  change how app lands into master"), and a sync and every `bd` command read it in their one read of the config; its
+  change how app lands into master"), and a sync and every `brd` command read it in their one read of the config; its
   row is on Landing ([Landing](#landing), [Landing Routes](../branch/landing-routes.spec.md)). A `push` is taken only from the
   repository's own config: a global write of it is refused, and a global or system one reads as unset, with the reason.
   [@test] ../../crates/sync-core/src/repository_config_test.rs (`the_route_is_one_of_three_and_a_push_of_the_global_config_is_unset`, `a_push_route_is_written_only_to_the_local_config`)
@@ -439,7 +439,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   its read (`seq`, one counter of the process for the local and the global config), and the page shows an answer only
   if it counts as many as the settings shown or more (`newer`). So a prefix saved while a switch's write runs is not
   taken back when the switch answers last, with the prefix it read before, nor by a read a focus started before a
-  write; a read again of as many writes is taken, with what a `git config` or `bd` changed meanwhile. A failed write
+  write; a read again of as many writes is taken, with what a `git config` or `brd` changed meanwhile. A failed write
   changes nothing shown, and an answer for another repository is dropped.
   [@test] ../../src/lib/repository-config.test.ts (`keeps the newest of answers that arrive in reverse order`, `takes an answer of as many writes: a read again finds a git config of meanwhile`)
   [@test] ../../tests/e2e/settings/repository-settings.spec.ts (`should keep a prefix saved while a switch's write runs, when the switch's older answer comes last`)
@@ -484,17 +484,17 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   [@test] ../../tests/e2e/settings/landing-settings.spec.ts (`should land the repository by a push into master once chosen, the main window taking the step, and back to the default`)
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
 - Below "Land by", only while a Safe Push lands the repository (and without a repository, or before its settings
-  answer), how Branch Deck and bd read the robots of Patronus: the switch "New Patronus API"
+  answer), how Branch Deck and brd read the robots of Patronus: the switch "New Patronus API"
   (`appSettings.patronusNewApi`, off by default): the progress of a running robot in one request and its merge profile
-  in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `bd` reads
+  in the robot list, the old requests while Patronus has them off ([Patronus](../branch/patronus.spec.md)). `brd` reads
   the setting from the settings file ([Agent CLI](../../docs/contributing/agent-cli.md)).
   [@test] ../../tests/e2e/settings/settings.spec.ts (`should fit every page at 720 × 540 without scrolling`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
-- A last section, "Push" ("A push of the app or bd that adds more files is refused before it is sent ·
+- A last section, "Push" ("A push of the app or brd that adds more files is refused before it is sent ·
   `branchdeck.pushSizeLimit`"), after it: "Push size limit", a size (`50M` the placeholder and the default, `1G`, `512K`), `0` or `off` for none
   ([Outgoing](outgoing.spec.md#push)). As "Resolve conflicts by words", it is one value for every repository, written
-  to the global git config, which `bd` reads too, and the line under it says where the value comes from ("50M by
-  default. A change goes to your global Git config, which bd reads too", "Set in your global Git config, which bd
+  to the global git config, which `brd` reads too, and the line under it says where the value comes from ("50M by
+  default. A change goes to your global Git config, which brd reads too", "Set in your global Git config, which brd
   reads too", "Set in .git/config of <repository>, which overrides your global Git config"); a repository whose
   `.git/config` sets the key keeps its own value, which the field changes, and "Use Global" (or "Use Default") removes
   it. The worktree config and the command line disable the field with the reason of Repository; an invalid value says
@@ -511,10 +511,10 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ### Agents
 
-- One section, "Coding agents", "Agents such as Claude Code and Codex ask bd workspace before their first edit; what
-  you tell an agent wins" ([bd workspace](../cli/workspace.spec.md)). Its first line says whether the skill is
+- One section, "Coding agents", "Agents such as Claude Code and Codex ask brd workspace before their first edit; what
+  you tell an agent wins" ([brd workspace](../cli/workspace.spec.md)). Its first line says whether the skill is
   installed (`agent_cli_status`, asked on each open of the window and when it gets the focus): "Installed: agents find
-  bd (<bd>) through <the skill files>" with a copy button of the path of bd, paths under the home directory as `~`; or
+  brd (<bd>) through <the skill files>" with a copy button of the path of bd, paths under the home directory as `~`; or
   "The agent skill is not installed" with "Install Agent CLI", the install of Help → Install Agent CLI…, whose toast
   has no action here. The same status and button tell the main window where agents work on the way to the first
   branches ([Onboarding](onboarding.spec.md#agents)).
@@ -524,9 +524,9 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   commit subject" ("(auth) Add login form: the commit goes into the branch auth", `branchdeck.agentSubjectBranch`, on
   by default). The switch is the value of every repository: it writes the global git config (`set_repository_config`
   with `scope: "global"`), and shows the global or system value, else the default, with the line of Diffs & Merge ("On
-  by default. A change goes to your global Git config, which bd reads too", "Off by default. …" for a rule off by
+  by default. A change goes to your global Git config, which brd reads too", "Off by default. …" for a rule off by
   default, "Set in your global Git
-  config, which bd reads too", "Set in the system Git config. …"). With a repository selected, "In <repository>" has
+  config, which brd reads too", "Set in the system Git config. …"). With a repository selected, "In <repository>" has
   Like Global · On · Off (`aria-pressed`): On and Off write `.git/config`, Like Global removes the value there; the
   repository's value is read again when the window gets the focus.
   [@test] ../../tests/e2e/settings/agents-settings.spec.ts (`should change a rule for every repository in the global config, and give the repository its own value`)
@@ -544,13 +544,13 @@ own for one switch. The toolbar has one Settings button now, after Sync.
 
 ### Branch prefix order
 
-- The branches of a repository are named by the specific prefix first, in the app as in `bd`, resolved in Rust only
+- The branches of a repository are named by the specific prefix first, in the app as in `brd`, resolved in Rust only
   (`resolve_branch_prefix` in `crates/app-settings/src/resolve.rs`): the repository's own `branchdeck.branchPrefix` (its
   local or worktree git config, or `git -c` and `GIT_CONFIG_*`), else the app's prefix (General,
   `globalUserBranchPrefix`), else the one of the global or system git config. Each is named as the branches are
   (trimmed, no trailing slash), and one that nothing is left of counts as unset. The resolved prefix names its source
   (`ResolvedBranchPrefix { prefix, source }`: `cli`, `repository_config`, `app_setting`, `global_config`, or `none`
-  exactly when there is no prefix), as `prefix_source` of `bd status` does.
+  exactly when there is no prefix), as `prefix_source` of `brd status` does.
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_is_named_as_the_branches_are_and_one_of_slashes_only_is_unset`, `the_source_is_written_in_snake_case`)
 - The prefix of git is read with its scope (one `git config --show-scope`; the global config alone for an empty path).
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`, `the_scope_of_the_prefix_is_read_with_it`, `a_prefix_of_git_c_is_repository_scoped`)
@@ -569,7 +569,7 @@ own for one switch. The toolbar has one Settings button now, after Sync.
   one in Settings → General"). The commands of Patronus, of a push, of a pull request, of the branch review and of the
   independence of a stack name the repository only too and resolve the prefix the same way (`PrefixInputs` of
   `crates/app-api/src/context.rs`, [Patronus](../branch/patronus.spec.md)). The conflict fix
-  (`find_conflict_fix`), whose parameters `bd` shares, gets the prefix the page shows, the one of the view of its
+  (`find_conflict_fix`), whose parameters `brd` shares, gets the prefix the page shows, the one of the view of its
   session.
   [@test] ../../crates/app-settings/src/branch_prefixes_test.rs (`git_is_read_once_per_repository_and_the_app_prefix_of_each_command_applies`, `a_failed_read_keeps_nothing`, `a_refresh_replaces_the_git_prefix_and_a_clear_forgets_every_repository`)
   [@test] ../../crates/test-server/src/branch_prefix_test.rs (`the_sync_names_the_branches_by_the_app_prefix_where_the_repository_sets_none`, `the_repository_s_own_prefix_wins_and_a_repository_without_any_is_not_synced`)

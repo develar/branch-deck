@@ -11,7 +11,7 @@ fn the_digest_of_parts_is_the_digest_of_the_whole_and_a_file_has_the_digest_of_i
   assert_eq!(digest.hex(), ABC);
 
   let dir = tempfile::tempdir().expect("a temporary directory");
-  let file = dir.path().join("bd-host");
+  let file = dir.path().join("brd-host");
   std::fs::write(&file, b"abc").expect("a file");
   assert_eq!(sha256_file(&file).expect("the digest"), ABC);
   sha256_file(&dir.path().join("missing")).expect_err("no file");

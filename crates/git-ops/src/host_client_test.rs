@@ -43,7 +43,7 @@ fn the_commit_of_the_working_tree_is_head_or_the_same_commit_on_head_for_the_sam
   assert_eq!(
     described,
     format!(
-      "{head}|bd-host <bd-host@bd-host.invalid>|bd-host <bd-host@bd-host.invalid>|{committed}|bd-host: the working tree on {}",
+      "{head}|bd-host <bd-host@bd-host.invalid>|bd-host <bd-host@bd-host.invalid>|{committed}|brd-host: the working tree on {}",
       &head[..12]
     )
   );
@@ -165,7 +165,7 @@ fn a_snapshot_of_bd_host_reads_what_its_scan_names_and_ships_its_own_commit() {
   assert_ne!(shipped.commit, head);
   assert_eq!(
     repo.git(&["log", "-1", "--format=%P|%an <%ae>|%s", &shipped.commit]),
-    format!("{head}|bd-host <bd-host@bd-host.invalid>|bd-host: the working tree on {}", &head[..12])
+    format!("{head}|bd-host <bd-host@bd-host.invalid>|brd-host: the working tree on {}", &head[..12])
   );
   assert_eq!(repo.head(), head, "no ref moves");
 }

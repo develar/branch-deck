@@ -69,7 +69,7 @@ pub struct UpdateOptions<'a> {
   /// How the update waits for the repository lock, which it takes after the fetch: `bd` at most its timeout, the app
   /// as long as the holder lives
   pub lock_wait: LockWait<'a>,
-  /// A local branch to update onto instead of the baseline, never fetched: the home of a lease (`bd lease pick`). The
+  /// A local branch to update onto instead of the baseline, never fetched: the home of a lease (`brd lease pick`). The
   /// update may run on a detached HEAD, and writes no landed report: nothing reached the baseline by it
   pub onto: Option<&'a str>,
 }
@@ -122,7 +122,7 @@ pub fn update_project_with(git_executor: &GitCommandExecutor, repo_path: &str, o
   }
 }
 
-/// What `bd update` did: an update as the app's, with every local commit it dropped and its subject and proof (those the
+/// What `brd update` did: an update as the app's, with every local commit it dropped and its subject and proof (those the
 /// replay left out because the upstream proves it has them, and those the replay dropped as empty, `landed`), or a
 /// step of a resolve session
 #[derive(Debug)]
@@ -142,7 +142,7 @@ enum Resolve<'a> {
   },
 }
 
-/// `bd update`: `update_project_with`, but a conflict starts a resolve session under the same lock, with its copies in
+/// `brd update`: `update_project_with`, but a conflict starts a resolve session under the same lock, with its copies in
 /// `dir` (`--dir`) or in the worktree's git dir. With a session open already, nothing is fetched or changed: the open
 /// round is shown again, and its missing copies written
 #[instrument(skip(git_executor))]

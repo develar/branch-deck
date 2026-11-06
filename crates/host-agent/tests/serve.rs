@@ -1,6 +1,6 @@
 //! The process tests of the agent (spec/cli/host.spec.md, "serve"): a real `serve` of `host-agent-test` on a loopback
 //! port with a temporary home, a `TestRepo` whose host slots the keeper fills in the pool of that home, and commands of
-//! `/bin/sh`. The client is the `Channel` of host-link. No fake `bd` exists: the lend table, the refs and the git of the
+//! `/bin/sh`. The client is the `Channel` of host-link. No fake `brd` exists: the lend table, the refs and the git of the
 //! host run in process
 #![cfg(unix)]
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]
@@ -55,7 +55,7 @@ const AFFINITY: &str = "checkout-0123456789ab";
 const ALL_PHASES: [&str; 6] = ["slot", "pack_wait", "checkout", "prepare", "command", "stage"];
 
 /// The start of the line that the agent writes right before the command
-const START_LINE: &str = "bd-host: running in ";
+const START_LINE: &str = "brd-host: running in ";
 
 /// A temporary home, a repository of the host with `slots` host slots, and the identity of a client in the allow list
 struct World {
@@ -75,7 +75,7 @@ impl World {
     let client = Identity::generate().expect("the client identity");
     let mut allow = AllowList::default();
     allow.add(client.fingerprint(), "test").expect("a name");
-    allow.write(&home.path().join(".config/bd-host/agent/clients")).expect("the allow list");
+    allow.write(&home.path().join(".config/brd-host/agent/clients")).expect("the allow list");
     Self { home, repo, client }
   }
 
@@ -92,7 +92,7 @@ impl World {
   }
 
   fn run_dir(&self, run: &str) -> PathBuf {
-    self.home.path().join(".cache/bd-host/runs").join(run)
+    self.home.path().join(".cache/brd-host/runs").join(run)
   }
 
   /// Starts `serve` on a loopback port
@@ -178,7 +178,7 @@ impl Followed {
     self
       .lines
       .iter()
-      .filter(|(of, text)| *of == stream && !text.starts_with("bd-host: "))
+      .filter(|(of, text)| *of == stream && !text.starts_with("brd-host: "))
       .map(|(_, text)| text.as_str())
       .collect()
   }
@@ -494,7 +494,7 @@ fn the_changes_of_a_command_come_back_as_a_patch_without_the_prepare_steps() {
   assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("3-1"));
   assert_eq!(followed.of(Stream::Stdout), ["yes 3-1"]);
   assert!(
-    followed.lines.iter().any(|(_, text)| text == "bd-host: prepare: made (made.txt is missing)"),
+    followed.lines.iter().any(|(_, text)| text == "brd-host: prepare: made (made.txt is missing)"),
     "{followed:?}"
   );
   let files = agent.fetch("3-1");

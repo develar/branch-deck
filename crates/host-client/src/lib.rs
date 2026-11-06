@@ -1,10 +1,10 @@
 //! The client of the remote runs (spec/cli/host.spec.md, "run" to "upgrade"; docs/design/host-runs.md): a run of a
 //! checkout on a host, its commit of the working tree, its thin pack, its follow, its fetch and the sync of its base,
 //! the host files, `setup <alias>` over ssh and the upgrade over the link. Its git runs in process through
-//! `git_ops::host_client`, `git_ops::host_objects` and `git_ops::worktree_snapshot`: no `bd` child.
+//! `git_ops::host_client`, `git_ops::host_objects` and `git_ops::worktree_snapshot`: no `brd` child.
 //!
 //! - `config`: the identity of the client, one host file per alias, and the last base of each affinity, under
-//!   `~/.config/bd-host/`
+//!   `~/.config/brd-host/`
 //! - `host`: the address choice and the hello of each connection to an agent
 //! - `git`: the git of the checkout of a run: the snapshot, the thin pack, `[host]` of the commit and the apply
 //! - `run`: a run, its follow, the requests of one reply, and the end of a run as `RunOutcome` or `RunFailure`
@@ -19,7 +19,7 @@
 //! Each failure is a `host_link::refusal::Refusal` with a code of the table of the spec. The exit of a run follows how
 //! far it came (`RunFailure`); the exit of another request is `request_exit`.
 //!
-//! Only on Unix, as the agent: the app bundles bd-host on macOS only, and a `Closer` ends a blocked read only where
+//! Only on Unix, as the agent: the app bundles brd-host on macOS only, and a `Closer` ends a blocked read only where
 //! `shutdown` wakes it (spec/cli/host.spec.md, "Non-goals")
 #![cfg(unix)]
 
@@ -53,7 +53,7 @@ use process::Processes;
 use std::path::Path;
 use std::time::Duration;
 
-/// The exit of `bd-host` for a refusal of a request that is no run: `follow`, `cancel`, `fetch`, `forget`, `runs`,
+/// The exit of `brd-host` for a refusal of a request that is no run: `follow`, `cancel`, `fetch`, `forget`, `runs`,
 /// `hello`, `slots`, `setup` and `upgrade` exit 2 for `usage`, 130 for `interrupted`, else 255
 pub const fn request_exit(refusal: &Refusal) -> Exit {
   match refusal.code {
@@ -65,7 +65,7 @@ pub const fn request_exit(refusal: &Refusal) -> Exit {
 
 /// The words that name how a host gets its agent and its host file
 pub(crate) fn setup_hint(alias: &str) -> String {
-  format!("`bd-host setup {alias}` installs the agent and writes the host file")
+  format!("`brd-host setup {alias}` installs the agent and writes the host file")
 }
 
 /// The build of this client: what its hello sends, and what `hello --json` and `upgrade` compare
@@ -93,7 +93,7 @@ pub(crate) struct Timing {
   /// The first wait before a new connection of `Follow`. It doubles up to `max_backoff`
   pub(crate) first_backoff: Duration,
   pub(crate) max_backoff: Duration,
-  /// How long `setup` waits for the agent that `bd-host setup --agent` started
+  /// How long `setup` waits for the agent that `brd-host setup --agent` started
   pub(crate) agent_start: Duration,
   /// How often the connection of a pack gets an empty chunk while git builds the pack
   pub(crate) keepalive: Duration,
@@ -208,7 +208,7 @@ impl<'a> Client<'a> {
 
 /// The affinity of a local checkout on a host: `checkout-<12 hex digits>`, one per checkout path, so a run prefers the
 /// slot that its checkout used last. The hash is FNV-1a, stable across builds and platforms, unlike the hasher of the
-/// standard library. bt and `bd-host run` name the same affinity for one checkout
+/// standard library. bt and `brd-host run` name the same affinity for one checkout
 pub fn affinity(checkout: &Path) -> String {
   let hash = checkout
     .to_string_lossy()

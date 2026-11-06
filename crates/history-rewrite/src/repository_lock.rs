@@ -10,7 +10,7 @@
 
 use crate::commit_ids::MIN_ID_LENGTH;
 use anyhow::{Context, Result};
-use domain_types::error::{HolderTool, LockHolderInfo};
+use domain_types::error::{AGENT_CLI_NAME, HolderTool, LockHolderInfo};
 use git_executor::git_command_executor::GitCommandExecutor;
 use git_ops::copy_commit::CopyCommitError;
 use git_ops::revs::{checked_out_branch, git_common_dir, head_and_tips, with_dirs_of};
@@ -65,7 +65,7 @@ pub struct LockWaitCanceled {
 /// released. The lock file itself can't carry it: on Windows another process can't read a locked file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LockHolder {
-  /// The command line of the holder, its program by its file name: `bd check --fix`
+  /// The command line of the holder, its program by its file name: `brd check --fix`
   pub command: String,
   pub pid: u32,
   /// When the process started (`process_started`): a pid that the system gave to another process tells apart
@@ -81,7 +81,7 @@ pub struct LockHolder {
 }
 
 impl fmt::Display for LockHolder {
-  /// "`bd check --fix` (pid 4242, for 12 min 3 s)"
+  /// "`brd check --fix` (pid 4242, for 12 min 3 s)"
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let held = now_seconds().saturating_sub(self.since);
     let held = if held >= 60 {
@@ -128,14 +128,14 @@ impl LockHolder {
     }
   }
 
-  /// The holder as the page names it (`LockHolderInfo`): `bd` when its program is `bd` or the app binary runs the CLI
+  /// The holder as the page names it (`LockHolderInfo`): `brd` when its program is `brd` or the app binary runs the CLI
   /// (`branch-deck cli`), else the app; `held_for` in whole seconds at `now` (seconds since the epoch), 0 for a record
   /// ahead of that clock
   #[must_use]
   pub fn info_at(&self, now: u64) -> LockHolderInfo {
     let mut words = self.command.split(' ');
     let program = words.next().unwrap_or_default();
-    let is_bd = program.strip_suffix(".exe").unwrap_or(program) == "bd" || words.next() == Some("cli");
+    let is_bd = program.strip_suffix(".exe").unwrap_or(program) == AGENT_CLI_NAME || words.next() == Some("cli");
     LockHolderInfo {
       tool: if is_bd { HolderTool::Bd } else { HolderTool::App },
       command: self.command.clone(),
@@ -235,7 +235,7 @@ pub fn lock_repository_as_another_process(git_common_dir: &Path, command: &str) 
 }
 
 /// The lock of `$GIT_COMMON_DIR` for the app: after the operations of this process before it in its line, as long as
-/// they take, it waits, without a bound, while the record of the holder names a live process (`LockHolder`: `bd pick
+/// they take, it waits, without a bound, while the record of the holder names a live process (`LockHolder`: `brd pick
 /// --follow` of an agent), calling `on_holder` when the holder changes and about once a second (its time grows), in the
 /// line too (the record of the one before it, which names this process or the other one it waits for), and refuses only
 /// when the user canceled (`canceled`, polled in the line too, `LockWaitCanceled`) or when no record names a live holder
@@ -488,7 +488,7 @@ fn try_lock_file(path: &Path) -> Result<Option<RepositoryLock>> {
   }
 }
 
-/// The lock of the file `path` as another process holds it (an agent's `bd pick --follow`), its record naming `command`
+/// The lock of the file `path` as another process holds it (an agent's `brd pick --follow`), its record naming `command`
 /// and this process: taken on a descriptor of its own, outside the line of this process, so the operations of this
 /// process wait for it as they wait for another process, name it by its record, and refuse after their bound. For the
 /// tests and the E2E server, whose app runs in the process that holds it; a held lock refuses it at once

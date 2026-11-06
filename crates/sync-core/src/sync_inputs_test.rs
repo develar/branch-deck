@@ -48,7 +48,7 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   let mut known = fetched;
   known.set_remote_ref("refs/remotes/origin/test/virtual/auth".to_string(), Some(head.clone()));
   assert_eq!(known, pushed);
-  // `bd safe-push` of a whole stack pushes only its stack branch, `bd push --unapplied` an unapplied branch
+  // `brd safe-push` of a whole stack pushes only its stack branch, `brd push --unapplied` an unapplied branch
   git(&executor, &repo, &["update-ref", "refs/remotes/origin/test/stack/auth", &head]);
   let stack_pushed = fingerprint(&executor, &repo);
   assert_ne!(stack_pushed, pushed);
@@ -60,7 +60,7 @@ async fn changes_with_what_a_sync_reads_and_not_with_what_it_writes() -> anyhow:
   assert_eq!(fingerprint(&executor, &repo), unapplied_pushed);
   let pushed = unapplied_pushed;
 
-  // `bd describe` writes the config; the stack parents and the parked branches are refs of their own
+  // `brd describe` writes the config; the stack parents and the parked branches are refs of their own
   git(&executor, &repo, &["config", "branch.test/virtual/auth.description", "Login and logout"]);
   let described = fingerprint(&executor, &repo);
   assert_ne!(described, pushed);

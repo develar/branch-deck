@@ -45,7 +45,7 @@ use std::collections::BTreeMap;
 use sync_core::sync::{SyncOptions, sync_branches};
 use test_utils::git_test_utils::{TestRepo, TestWorktree, append_config};
 
-/// The context `bd --prefix test-user` resolves in `repo`; its executor counts every process of the command
+/// The context `brd --prefix test-user` resolves in `repo`; its executor counts every process of the command
 fn context(repo: &TestRepo) -> RepoContext {
   let options = RepoOptions {
     repo: None,
@@ -126,11 +126,11 @@ fn stack_together_uses_the_same_number_of_git_processes_as_restack() {
   assert_eq!(process_counts(&together_context), restack_process_counts);
 }
 
-/// A build that passes in the shell of `bd check --build` on every OS: `sh -c`, and `cmd` on Windows, which has no `true`
+/// A build that passes in the shell of `brd check --build` on every OS: `sh -c`, and `cmd` on Windows, which has no `true`
 /// unless Git's `usr\bin` is on `PATH`
 const PASSING_BUILD: &str = "exit 0";
 
-/// `bd check` of the current grouping with `build` and `build_paths`
+/// `brd check` of the current grouping with `build` and `build_paths`
 fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> RepoContext {
   let context = context(repo);
   let args = CheckArgs {
@@ -143,7 +143,7 @@ fn run_check(repo: &TestRepo, build: Option<&str>, build_paths: &[&str]) -> Repo
   context
 }
 
-/// The processes of `bd check` of the current grouping of `repo_with_branches` after a check wrote the object cache
+/// The processes of `brd check` of the current grouping of `repo_with_branches` after a check wrote the object cache
 const WARM_CHECK: [(&str, u32); 7] = [
   ("cat-file", 2),
   ("config", 1),
@@ -154,7 +154,7 @@ const WARM_CHECK: [(&str, u32); 7] = [
   ("rev-parse", 2),
 ];
 
-/// The processes of `bd check` of the current grouping of `repo_with_branches`, with an empty object cache: one
+/// The processes of `brd check` of the current grouping of `repo_with_branches`, with an empty object cache: one
 /// `cat-file` reads the blobs of the commits' blocks
 const CHECK: [(&str, u32); 8] = [
   ("cat-file", 2),
@@ -174,7 +174,7 @@ fn changed<'a>(processes: &[(&'a str, u32)], changes: &[(&'a str, u32)]) -> Vec<
   all.into_iter().collect()
 }
 
-/// `bd check` of the current grouping, with an empty object cache
+/// `brd check` of the current grouping, with an empty object cache
 #[test]
 fn a_check() {
   let repo = repo_with_branches();
@@ -182,7 +182,7 @@ fn a_check() {
   assert_processes(&context, &CHECK);
 }
 
-/// `bd check` with the branch prefix of the repository's config (no `--prefix`): the one `git config` of the context
+/// `brd check` with the branch prefix of the repository's config (no `--prefix`): the one `git config` of the context
 /// names the prefix, and the session takes the settings from it (`CheckSession::open_on`), so the check runs the
 /// processes of `a_check`
 #[test]
@@ -194,15 +194,15 @@ fn a_check_with_the_prefix_of_the_config() {
   assert_processes(&context, &CHECK);
 }
 
-/// `bd commits` with the branch prefix of the repository's config: the one `git config` of the context names the
+/// `brd commits` with the branch prefix of the repository's config: the one `git config` of the context names the
 /// prefix, the stack setting and the symbol setting
 #[test]
 fn commits_with_the_prefix_of_the_config() {
   let repo = repo_with_branches();
   let context = context_with_the_config_prefix(&repo);
-  // the arguments of `bd commits`, with the defaults of its flags
-  let Command::Commits(args) = Cli::parse_from(["bd", "commits"]).command else {
-    unreachable!("bd commits parses as Command::Commits")
+  // the arguments of `brd commits`, with the defaults of its flags
+  let Command::Commits(args) = Cli::parse_from(["brd", "commits"]).command else {
+    unreachable!("brd commits parses as Command::Commits")
   };
   let output = commits(&context, &args).unwrap();
   assert_eq!(output.commits.len(), 3);
@@ -220,7 +220,7 @@ fn commits_with_the_prefix_of_the_config() {
   );
 }
 
-/// `bd check --build` of two paths, which the tree of each branch is extracted with: one `archive` per branch, one
+/// `brd check --build` of two paths, which the tree of each branch is extracted with: one `archive` per branch, one
 /// `cat-file` for which paths each tree has
 #[test]
 fn a_check_with_a_build() {
@@ -229,7 +229,7 @@ fn a_check_with_a_build() {
   assert_processes(&context, &changed(&CHECK, &[("archive", 2), ("cat-file", 3)]));
 }
 
-/// `bd check --build` again on the same trees: the passes are cached, so no `archive`; the one `cat-file` that reads the
+/// `brd check --build` again on the same trees: the passes are cached, so no `archive`; the one `cat-file` that reads the
 /// tree ids for the key, over what a warm check without a build runs
 #[test]
 fn a_warm_check_with_a_build() {
@@ -251,14 +251,14 @@ impl ProgressReporter for Discard {
   }
 }
 
-/// `bd sync` with the branch prefix of the repository's config (no `--prefix`): the processes of the core
+/// `brd sync` with the branch prefix of the repository's config (no `--prefix`): the processes of the core
 /// (`sync_branches` of the same repository), nothing else: the `rev-parse` of the context's directories takes the
 /// place of the core's (`with_dirs_of`), in which the guards find the markers of an operation in progress and the
 /// facts `FETCH_HEAD` and the landed state. The lock is taken in the common git directory the context resolved; the one `git config`
 /// of the context reads the prefix, and the sync takes the settings and the descriptions from it
 #[test]
 fn a_sync_with_the_prefix_of_the_config() {
-  // the global config of bd in a test, so that the core reads the settings bd reads
+  // the global config of brd in a test, so that the core reads the settings brd reads
   let core = GitCommandExecutor::new().with_env("GIT_CONFIG_GLOBAL", EMPTY_GLOBAL_CONFIG).with_process_stats("core");
   let core_repo = repo_with_branches();
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
@@ -281,7 +281,7 @@ fn a_sync_with_the_prefix_of_the_config() {
   assert_processes(&context, &core);
 }
 
-/// `bd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, the stack
+/// `brd status` of the synced branches: HEAD, the grouping, whose one listing has the virtual tips too, the stack
 /// setting and the descriptions from the one `git config` of the command, and the remotes of the command (`remote -v`),
 /// which the listing and the push URL of `origin` share: whether Patronus is asked what merged Safe Pushes landed
 /// (`landed_by`); not on Space here
@@ -298,7 +298,7 @@ fn a_status() {
   );
 }
 
-/// `bd status` of a stack that forks: its stack branch is read from the listing and the object cache, without a git
+/// `brd status` of a stack that forks: its stack branch is read from the listing and the object cache, without a git
 /// process of its own
 #[test]
 fn a_status_of_a_forking_stack() {
@@ -314,7 +314,7 @@ fn a_status_of_a_forking_stack() {
   );
 }
 
-/// `bd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
+/// `brd push --dry-run auth` to a local bare remote: the sync, then the push it asks the remote about. The push takes the
 /// stack, the tips, the remote tips, the remotes and the descriptions from the sync's report, the push URL of `origin`
 /// (for the Space and the GitHub repository) from the remotes of the command, which the sync took (`remote -v`, one
 /// `remote` for both); besides the push only the Space settings (`cat-file`, for the GitHub mirror `--repo` names: the
@@ -362,7 +362,7 @@ fn a_push() {
   );
 }
 
-/// `bd push auth` over a remote branch someone moved back to an older commit of the branch since the sync: the witness of
+/// `brd push auth` over a remote branch someone moved back to an older commit of the branch since the sync: the witness of
 /// its plan, the tip of the branch read before the repository lock and again under it (one `for-each-ref` each, the
 /// lock held for that read and the freeze only; each push that goes checks its remote-tracking ref, one `for-each-ref`),
 /// then the refused push fetches it (into a temporary ref, its
@@ -406,7 +406,7 @@ fn a_push_over_a_moved_remote() {
   );
 }
 
-/// `bd push --dry-run env --alone` on Space while the Safe Push of auth runs, started before a restack placed the new
+/// `brd push --dry-run env --alone` on Space while the Safe Push of auth runs, started before a restack placed the new
 /// root env below auth: the sync of branches it built already (no build), the push and its size check (`log`,
 /// `cat-file`), and what the robot's commit lands of the branches as they are now, one `cat-file --batch-check` of its
 /// commit and the virtual branch and the two walks against it (`robot_spans`); a robot at the tip the sync left needs
@@ -457,7 +457,7 @@ fn a_push_beside_a_robot_started_before_a_restack() {
   );
 }
 
-/// `bd fold`: the guards and the plan of the command, whose range the squash of the fixups takes (one listing of the
+/// `brd fold`: the guards and the plan of the command, whose range the squash of the fixups takes (one listing of the
 /// commits ahead), then the squash, which reads the witness of HEAD under the lock
 #[test]
 fn a_fold() {
@@ -489,7 +489,7 @@ fn a_fold() {
   );
 }
 
-/// `bd squash` after a sync: the guards, the commits ahead and their grouping (the selection), then the squash, which
+/// `brd squash` after a sync: the guards, the commits ahead and their grouping (the selection), then the squash, which
 /// reads its history with the mapping notes and writes the notes of the commit after the squashed ones (`notes get-ref`
 /// and one `fast-import`) before the move, under the lock with the witness of HEAD
 #[test]
@@ -524,7 +524,7 @@ fn a_squash() {
   );
 }
 
-/// `bd reword` of the oldest of three commits: the regroup's snapshot and one `fast-import` of the recreated commits,
+/// `brd reword` of the oldest of three commits: the regroup's snapshot and one `fast-import` of the recreated commits,
 /// then under the lock the witness of the snapshot's refs and one ref transaction
 #[test]
 fn a_reword() {
@@ -558,7 +558,7 @@ fn a_reword() {
   );
 }
 
-/// `bd mark-reviewed auth` after a sync, whatever the number of branches and of reviewed pairs: the baseline
+/// `brd mark-reviewed auth` after a sync, whatever the number of branches and of reviewed pairs: the baseline
 /// (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates without an upstream), one `for-each-ref` of the
 /// reviewed refs with the branches, one `merge-base` of the tip and the baseline, and one ref transaction that also
 /// prunes the pair of a branch that is gone
@@ -582,7 +582,7 @@ fn a_mark_reviewed() {
   assert_processes(&context, &[("for-each-ref", 2), ("merge-base", 1), ("remote", 1), ("rev-parse", 2), ("update-ref", 1)]);
 }
 
-/// `bd mark-reviewed auth --base <commit>` (a stack parent): no baseline, so one `for-each-ref`, the `rev-parse
+/// `brd mark-reviewed auth --base <commit>` (a stack parent): no baseline, so one `for-each-ref`, the `rev-parse
 /// --verify` of a base that names no branch, one `merge-base` and one ref transaction; a base that names a branch costs
 /// no `rev-parse` (its tip is in the listing)
 #[test]
@@ -600,7 +600,7 @@ fn a_mark_reviewed_on_a_base() {
   assert_processes(&context, &[("for-each-ref", 1), ("merge-base", 1), ("rev-parse", 2), ("update-ref", 1)]);
 }
 
-/// `bd review-plan auth --since-reviewed` after a mark, an amend of the reviewed `(auth) Add c` and a new commit on top:
+/// `brd review-plan auth --since-reviewed` after a mark, an amend of the reviewed `(auth) Add c` and a new commit on top:
 /// a fixed number of git processes, whatever the number of commits: the baseline (`remote`, the `@{u}` probe, a `for-each-ref` of its candidates), one `for-each-ref` of the reviewed refs
 /// with the branches, one `merge-base`, one `rev-list` per side, one `diff-tree` with one `patch-id` for the changed
 /// lines of the commits that are not the same on both sides, and one `diff-tree` for the interdiff of the rewritten
@@ -618,7 +618,7 @@ fn a_review_plan_since_the_review() {
   assert_processes(&context, SINCE_THE_REVIEW);
 }
 
-/// The processes of `bd review-plan auth --since-reviewed` after an amend on the same base: the reviewed tip is the
+/// The processes of `brd review-plan auth --since-reviewed` after an amend on the same base: the reviewed tip is the
 /// reviewed change carried onto it, and the diff from it to the tip one `diff-tree`
 const SINCE_THE_REVIEW: &[(&str, u32)] = &[
   ("cat-file", 1),
@@ -632,7 +632,7 @@ const SINCE_THE_REVIEW: &[(&str, u32)] = &[
   ("rev-parse", 2),
 ];
 
-/// `bd review-plan auth --since-reviewed` after an amend and a move of the baseline: the reviewed change carried onto the
+/// `brd review-plan auth --since-reviewed` after an amend and a move of the baseline: the reviewed change carried onto the
 /// new base adds one `merge-tree` and one `fast-import`
 #[test]
 fn a_review_plan_since_the_review_on_a_moved_baseline() {
@@ -663,7 +663,7 @@ fn amended_since_the_review() -> TestRepo {
   repo
 }
 
-/// A sync, then `bd review-plan auth --since-reviewed` in a new context: the context, whose processes it counted, the
+/// A sync, then `brd review-plan auth --since-reviewed` in a new context: the context, whose processes it counted, the
 /// states of the commits since the review, and whether the scope is carried
 fn plan_since_the_review(repo: &TestRepo) -> (RepoContext, Vec<String>, bool) {
   sync(&context(repo)).unwrap();
@@ -743,7 +743,7 @@ fn commit_each<'a>(repo: &TestRepo, files: impl IntoIterator<Item = (&'a str, St
   }
 }
 
-/// `bd review-plan` of a range of seven Kotlin commits, the same for four: one `rev-parse --verify` per rev, one
+/// `brd review-plan` of a range of seven Kotlin commits, the same for four: one `rev-parse --verify` per rev, one
 /// `rev-list` of the commits, one `log` of their changes, one `cat-file` of their blobs, one `check-attr` of the files
 /// the attributes may mark generated (every plan has it, whatever the number of files), and the reads of the syntax
 /// summaries (`read_symbol_input`: the trees above the files and the blobs no cache has, one `rev-parse`); accio asks no
@@ -804,7 +804,7 @@ fn modified_files_plans(extension: &str, manifest: Option<(&str, &str)>, source:
   })
 }
 
-/// `bd review-plan` of a range of four commits that modify source files: the text of their hunks makes the mechanical
+/// `brd review-plan` of a range of four commits that modify source files: the text of their hunks makes the mechanical
 /// kinds. The first plan reads the diffs itself, so that text is in memory: no process more than
 /// `a_review_plan_of_a_range`. A second plan, a new process, finds the diffs and the summaries in the object cache:
 /// the blobs of the hunks join the batch of the summaries (`read_symbol_input_with`). In a Kotlin repository that batch
@@ -831,7 +831,7 @@ fn a_review_plan_of_modified_files() {
   assert_processes(&rust[1], &[("cat-file", 2), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
-/// `bd review-plan` of a range of three commits that change the dependencies of an `*.iml`, a plugin descriptor and a
+/// `brd review-plan` of a range of three commits that change the dependencies of an `*.iml`, a plugin descriptor and a
 /// `package.json`, and of a fourth that adds a crate: the dependency changes come from the texts of these build files
 /// before and after the commits. The first plan reads the diffs itself (one `cat-file` of their blobs) and finds those
 /// texts in memory, no process more. A second plan, a new process, finds the diffs in the object cache and reads the
@@ -875,7 +875,7 @@ fn a_review_plan_of_build_files() {
   assert_processes(&plans[1], &[("cat-file", 1), ("check-attr", 1), ("rev-list", 1), ("rev-parse", 3)]);
 }
 
-/// `bd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the
+/// `brd move-hunk` of a file change from the newest commit into the oldest, over `between` commits that don't touch the
 /// file: its context, which counted its processes
 fn move_hunk_context(between: usize) -> RepoContext {
   let (repo, ids) = repo_with_subjects(&[("README.md", "readme\n")], &["(auth) Add a"]);
@@ -900,7 +900,7 @@ fn move_hunk_context(between: usize) -> RepoContext {
   context
 }
 
-/// `bd move-hunk`: a fixed number of processes, whatever the number of commits between the two. The baseline with its
+/// `brd move-hunk`: a fixed number of processes, whatever the number of commits between the two. The baseline with its
 /// commit and HEAD come from one listing (`read_listed_baseline`: `remote`, `for-each-ref`), the commits ahead from one
 /// `log` between the two ids
 #[test]
@@ -910,7 +910,7 @@ fn a_move_hunk() {
   }
 }
 
-/// The processes of `bd move-hunk` (`a_move_hunk`)
+/// The processes of `brd move-hunk` (`a_move_hunk`)
 const MOVE_HUNK: [(&str, u32); 12] = [
   ("cat-file", 2),
   ("diff-tree", 2),
@@ -926,7 +926,7 @@ const MOVE_HUNK: [(&str, u32); 12] = [
   ("var", 1),
 ];
 
-/// `bd pick --from <lane>` with the options `options` sets, in a counting context
+/// `brd pick --from <lane>` with the options `options` sets, in a counting context
 fn pick_from(repo: &TestRepo, lane: TestWorktree, options: impl FnOnce(&mut PickArgs)) -> (RepoContext, PickOutput) {
   let context = context(repo);
   let mut args = PickArgs {
@@ -966,7 +966,7 @@ fn assert_followed_pick(context: &RepoContext, output: &PickOutput) {
   );
 }
 
-/// `bd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
+/// `brd pick --from <worktree> --follow`: before the lock the baseline, the marks of both worktrees and the check (HEAD
 /// with its committer date, the fork point and whether the tip has it, the range with the patch id marks, one `replay`, the copies, both dry runs); under it the
 /// marks again, the witness (the guards and HEAD of both worktrees, the upstream; the local changes of added paths need
 /// no git) and the two moves with their marks (`update-ref`, `read-tree`); after it the grouping of the picked commits
@@ -983,7 +983,7 @@ fn a_pick() {
   assert_followed_pick(&context, &output);
 }
 
-/// `bd pick --remote auth` of a commit someone else pushed: the sync of `bd sync` first, then the fetch of the branch
+/// `brd pick --remote auth` of a commit someone else pushed: the sync of `brd sync` first, then the fetch of the branch
 /// before the lock (its remote-tracking ref moved from the tip read before: one `for-each-ref`, one `update-ref`), the walks of its remote status (the commits it lacks), the grouping inputs (whose subject groups
 /// elsewhere), the check (the listed commits, one `replay`, the copies, one `cat-file` and one `fast-import` of the
 /// prefixed copies, whose temporary ref goes at once), then the move under the lock and the grouping of the picked commit
@@ -1021,7 +1021,7 @@ fn a_remote_pick() {
   );
 }
 
-/// The environment of bd in `repo` with the lease pool in a temporary home, which lives as long as the guard
+/// The environment of brd in `repo` with the lease pool in a temporary home, which lives as long as the guard
 fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, bd_core::context::Environment) {
   let home = tempfile::tempdir().unwrap();
   let mut environment = environment(repo.path());
@@ -1029,7 +1029,7 @@ fn lease_environment(repo: &TestRepo) -> (tempfile::TempDir, bd_core::context::E
   (home, environment)
 }
 
-/// The slot of a `bd lease get` in the repository of `environment`
+/// The slot of a `brd lease get` in the repository of `environment`
 fn leased_slot(environment: &bd_core::context::Environment) -> std::path::PathBuf {
   let context = LeaseContext::resolve(environment, None).unwrap();
   std::path::PathBuf::from(lease_get(&context, environment, &LeaseGetArgs::default()).unwrap().path)
@@ -1045,7 +1045,7 @@ fn free_slots(environment: &bd_core::context::Environment, count: usize) -> Vec<
   slots
 }
 
-/// `bd lease get` of a free slot and its `bd lease return`: the repository, the source HEAD and the pool config, one
+/// `brd lease get` of a free slot and its `brd lease return`: the repository, the source HEAD and the pool config, one
 /// `status` and the HEAD of the slot, which is at the source HEAD already, so no move; the return reads whether a resolve session of the slot is open, the
 /// unlanded commits, the untracked mode of the config, the `status` and HEAD. No `status` of another slot, no full checkout
 #[test]
@@ -1064,7 +1064,7 @@ fn a_lease_get_and_return() {
   assert_git_processes(&context.git, &[("config", 1), ("log", 1), ("rev-parse", 2), ("show-ref", 1), ("status", 1)]);
 }
 
-/// `bd lease return` of a commit that landed on master with a conflict resolution (the twin of `bd update`): the return
+/// `brd lease return` of a commit that landed on master with a conflict resolution (the twin of `brd update`): the return
 /// of a free slot, then the proofs, each for what the one before left: the dry run of the pick (its tip, the upstream,
 /// the fork point, the merges, the range and the replay that conflicts), the patch id (`rev-list --cherry-mark` of
 /// master's side, nothing marked), the reads of the ladder (the local and the upstream `log`, the stack setting), the
@@ -1181,7 +1181,7 @@ fn a_lease_get_that_passes_over_an_idle_lease_it_checked() {
   );
 }
 
-/// `bd lease reclaim --idle` of one idle lease whose commit landed: the config, the check of `check_idle`, the return
+/// `brd lease reclaim --idle` of one idle lease whose commit landed: the config, the check of `check_idle`, the return
 #[test]
 fn a_lease_reclaim() {
   let (_repo, _home, _environment, context) = idle_landed_lease();
@@ -1197,7 +1197,7 @@ fn a_lease_reclaim() {
   assert_git_processes(&context.git, &idle_lease_processes(&[("rev-parse", 5)]));
 }
 
-/// `bd lease trim --max 1` of a pool of two free slots: the `rev-parse` of its context and one `worktree remove` of the
+/// `brd lease trim --max 1` of a pool of two free slots: the `rev-parse` of its context and one `worktree remove` of the
 /// slot that goes once its directory is in the trash; with `--max` no config of the pool, and no `status`, no `worktree
 /// list`, nothing per kept slot
 #[test]
@@ -1264,7 +1264,7 @@ fn a_lease_get_that_shrinks_and_evicts() {
   assert_git_processes(&context.git, &[("config", 3), ("ls-files", 3), ("rev-parse", 3), ("status", 1), ("worktree", 1)]);
 }
 
-/// `bd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto
+/// `brd lease return` with `branchdeck.leaseMaintenance`: the processes of a return and one `maintenance run --auto
 /// --detach` in the common dir, once the slot is free
 #[test]
 fn a_lease_return_that_starts_the_maintenance() {
@@ -1286,10 +1286,10 @@ fn a_lease_return_that_starts_the_maintenance() {
 }
 
 /// The host slots of `bd-host`, each step after the `rev-parse` of its context: a fill of a free slot reads the config of
-/// the host slots, then gets the slot as `bd lease get` does; a lend runs no git; the checkout of a run reads the config
+/// the host slots, then gets the slot as `brd lease get` does; a lend runs no git; the checkout of a run reads the config
 /// and HEAD and moves by the diff with one `reset`, no `status`; a give-back reads the config and one `status`, and only
 /// a dirty slot adds `reset` and `clean`; a shrink reads the config, one `status` and HEAD, which is at the leased commit
-/// again, then returns the slot as `bd lease return` does (with its `show-ref` of the slot's resolve session), but
+/// again, then returns the slot as `brd lease return` does (with its `show-ref` of the slot's resolve session), but
 /// without a second config and `status`: the shrink checked the slot. The agent
 /// lends on macOS and Linux only; on Windows, where git has no file mode and no symlinks, a scan stages a copy of the
 /// index instead, another budget
@@ -1380,7 +1380,7 @@ fn the_host_slots_lend_give_back_and_shrink() {
   assert_git_processes(&git, &[("config", 1), ("log", 1), ("reset", 1), ("rev-parse", 3), ("show-ref", 1), ("status", 1)]);
 }
 
-/// `bd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of
+/// `brd workspace` in the shared checkout: the repository, the `branchdeck.*` config, the pool config and one `status` of
 /// the checkout; in a lease the same without the pool config, the `status` of the shared checkout
 #[test]
 fn a_workspace() {
@@ -1409,7 +1409,7 @@ fn leased_repo() -> (TestRepo, tempfile::TempDir, bd_core::context::Environment,
   (repo, home, environment, got)
 }
 
-/// `bd lease pick` whose pick conflicts: the check of the pick in the home checkout (no lock, nothing moves), then the
+/// `brd lease pick` whose pick conflicts: the check of the pick in the home checkout (no lock, nothing moves), then the
 /// update of the lease onto the home branch without a fetch: the check of the update (a binary search of `replay`) and
 /// the start of a resolve session in the lease under the lock. The two commits have subjects of their own: with one
 /// subject they share an identity (`CommitKey`: the author, the second and the subject without the prefix) whenever they
@@ -1489,7 +1489,7 @@ fn a_lease_pick_that_conflicts() {
   );
 }
 
-/// The check of `bd lease pick` and `bd pick --from` with `pick_requires_check` (beside the resolve of the lease, one
+/// The check of `brd lease pick` and `brd pick --from` with `pick_requires_check` (beside the resolve of the lease, one
 /// `rev-parse`): one `rev-parse` of the git dir, HEAD and its tree, and for a tree that only an older record names one
 /// `diff-tree` that counts the files changed since
 #[test]
@@ -1511,7 +1511,7 @@ fn the_tree_check_of_a_lease_pick() {
   assert_git_processes(&lease.git, &[("diff-tree", 1), ("rev-parse", 2)]);
 }
 
-/// `bd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `bd pick --from <lease>
+/// `brd lease pick`: the lease from the state of the pool and whether its resolve session is open (`show-ref`); then the processes of `brd pick --from <lease>
 /// --follow` in the checkout it was cut from (`a_pick`)
 #[test]
 fn a_lease_pick() {
@@ -1537,7 +1537,7 @@ fn a_lease_pick() {
   assert_followed_pick(&context, &output);
 }
 
-/// `bd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
+/// `brd lease get` of a new slot by an APFS clone of the source (macOS): the repository, the source HEAD and the pool
 /// config, `worktree add --force --no-checkout --lock` and its `worktree unlock` once the clone is in place (no
 /// `worktree prune`), the refresh of the copied index, one `checkout` of the diff, the `status` of the clean in the
 /// untracked mode of the repository, which runs no `clean -fd` with nothing untracked, and the `status` of the clone
@@ -1555,7 +1555,7 @@ fn a_lease_get_of_a_new_slot_by_a_clone() {
   );
 }
 
-/// `bd lease get` of a new slot that waited for the clones lock, which the test held: the processes of a new slot (on
+/// `brd lease get` of a new slot that waited for the clones lock, which the test held: the processes of a new slot (on
 /// macOS a clone, elsewhere the registration and the full checkout) and one `config` more, the minimum free space read
 /// again once its turn came
 #[test]
@@ -1591,7 +1591,7 @@ fn a_lease_get_that_waited_for_the_clones_lock() {
   }
 }
 
-/// `bd pick --dry-run` of a commit whose prefix names a branch the target has, a fast-forward: the check without a
+/// `brd pick --dry-run` of a commit whose prefix names a branch the target has, a fast-forward: the check without a
 /// replay and without the follow, the grouping, the diffs of the dependency check (`log --raw` of the commits ahead
 /// and the copy, one `cat-file` of their blobs), and the check of the worktree's tree that the dry run reports (one
 /// `rev-parse` of its git dir, HEAD and tree; no record, no `diff-tree`)
@@ -1621,14 +1621,14 @@ fn a_pick_into_a_branch_the_target_has() {
   );
 }
 
-/// The processes of the target conflict check of `bd safe-push`: before the lock, the fetch of the target takes the
+/// The processes of the target conflict check of `brd safe-push`: before the lock, the fetch of the target takes the
 /// baseline and its upstream of the command (`RepoContext::baseline`: one `for-each-ref` beside HEAD's branch and the
 /// remotes, which the sync takes too), then fetches it (`fetch`); HEAD's branch does not outlive the fetch
 /// (`RepoContext::over_network`), so the guards of the sync read it again under the lock (`symbolic-ref`); after the
 /// sync, one `replay` of the branch onto the target tip that the sync read
 const TARGET_CHECK: &[(&str, u32)] = &[("fetch", 1), ("for-each-ref", 1), ("replay", 1), ("symbolic-ref", 1)];
 
-/// What `bd safe-push auth --dry-run` runs besides the target conflict check (`a_safe_push_check`)
+/// What `brd safe-push auth --dry-run` runs besides the target conflict check (`a_safe_push_check`)
 const SAFE_PUSH_CHECK: &[(&str, u32)] = &[
   ("cat-file", 3),
   ("config", 1),
@@ -1657,7 +1657,7 @@ fn with_more(base: &[(&'static str, u32)], more: &[(&'static str, u32)]) -> Vec<
   all.into_iter().collect()
 }
 
-/// `assert_processes` of a `bd safe-push` that runs `expected` and the target conflict check (`TARGET_CHECK`)
+/// `assert_processes` of a `brd safe-push` that runs `expected` and the target conflict check (`TARGET_CHECK`)
 #[track_caller]
 fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
   let mut all: BTreeMap<&str, u32> = expected.iter().copied().collect();
@@ -1668,7 +1668,7 @@ fn assert_safe_push_processes(context: &RepoContext, expected: &[(&str, u32)]) {
   assert_processes(context, &all);
 }
 
-/// `bd safe-push auth --dry-run` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
+/// `brd safe-push auth --dry-run` on Space: the sync, then what the start is decided on, nothing pushed. The target, the
 /// stack and the tips come from the sync's report, the Space and the GitHub repository from the push URL of `origin` in
 /// the remotes of the command (`remote -v`, which the sync takes too) and the Space settings (`cat-file`); the dangling
 /// references take the grouping from the report too and read the commits with their new mapping notes (`log`) and the
@@ -1698,7 +1698,7 @@ fn a_safe_push_check() {
   assert_safe_push_processes(&context, SAFE_PUSH_CHECK);
 }
 
-/// `bd safe-push auth`, a start through the API: what `a_safe_push_check` decides on, then the run of the engine
+/// `brd safe-push auth`, a start through the API: what `a_safe_push_check` decides on, then the run of the engine
 /// (`operations::land_execute`): the cheap witness before the lock and the full one under it, each one `for-each-ref` of
 /// the refs of the plan, the push of the commit they froze after the lock (`push`, with the size check of what it adds:
 /// `log`, `cat-file`, and the check of its remote-tracking ref, `for-each-ref`), and the late witness of the pushed branch before the start (`for-each-ref`); the start is HTTP
@@ -1716,7 +1716,7 @@ fn a_safe_push_start() {
   assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("cat-file", 1), ("for-each-ref", 4), ("log", 1), ("push", 1)]));
 }
 
-/// `bd land auth` with the flags `flags` sets, in a repository whose `origin` (off GitHub and off Space) has its master
+/// `brd land auth` with the flags `flags` sets, in a repository whose `origin` (off GitHub and off Space) has its master
 /// and that lands by a push into it: the context the command ran in, and what it answered
 fn land_by_push(flags: impl FnOnce(&mut LandArgs)) -> (RepoContext, LandOutput) {
   let (repo, remote) = repo_with_remote(&["(auth) Add login"]);
@@ -1732,7 +1732,7 @@ fn land_by_push(flags: impl FnOnce(&mut LandArgs)) -> (RepoContext, LandOutput) 
   (context, output)
 }
 
-/// `bd land auth --dry-run` of a repository that lands by a push into a remote off GitHub and off Space: the sync, then
+/// `brd land auth --dry-run` of a repository that lands by a push into a remote off GitHub and off Space: the sync, then
 /// what the push is decided on, nothing pushed
 #[test]
 fn a_land_check_by_a_push() {
@@ -1741,7 +1741,7 @@ fn a_land_check_by_a_push() {
   assert_processes(&context, LAND_CHECK);
 }
 
-/// `bd land auth --allow-checks-not-passed`: what `a_land_check_by_a_push` decides on, then the run of the engine: the witness
+/// `brd land auth --allow-checks-not-passed`: what `a_land_check_by_a_push` decides on, then the run of the engine: the witness
 /// before the lock and under it (`for-each-ref` each, the checked out branch `symbolic-ref`), the push of the copy into
 /// master by the push URL of `origin` (the upstream of the baseline and its URL, read again after the lock, where the
 /// engine refuses a baseline that tracks another branch now: `for-each-ref`, `remote` twice; `push`, with the size
@@ -1754,7 +1754,7 @@ fn a_land_by_a_push() {
   assert_processes(&context, &with_more(LAND_CHECK, &run));
 }
 
-/// What `bd land auth --dry-run` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
+/// What `brd land auth --dry-run` runs by a push (`a_land_check_by_a_push`): the sync, with the remotes of the command and
 /// their push URLs (`remote -v`), from which the push URL of `origin` for Space comes too, and the trial of the landing
 /// gate in the session of the sync's report (`log`, `cat-file`); no fetch, no check against the newest target: a push
 /// is its own
@@ -1775,7 +1775,7 @@ const LAND_CHECK: &[(&str, u32)] = &[
   ("var", 1),
 ];
 
-/// `bd safe-push form --dry-run` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
+/// `brd safe-push form --dry-run` of a branch stacked on auth: what `a_safe_push_check` runs, and the trial build of form
 /// alone (`alone`) in the same trial session as the dangling references, so no second `log` or `for-each-ref`: its
 /// build (`merge-tree`, `fast-import`) and the changes of the commits for the names they use (`log`). The sync of the
 /// stack builds form on auth without a merge and looks for the notes of the stack (`show-ref`). The `stack_not_landed`
@@ -1798,7 +1798,7 @@ fn a_safe_push_check_of_a_stacked_branch() {
   assert_safe_push_processes(&context, &with_more(SAFE_PUSH_CHECK, &[("fast-import", 1), ("show-ref", 1)]));
 }
 
-/// `bd safe-push auth --whole-stack --dry-run` of a stack that forks into form and side: what `a_safe_push_check` runs,
+/// `brd safe-push auth --whole-stack --dry-run` of a stack that forks into form and side: what `a_safe_push_check` runs,
 /// with the sync of three stacked branches and their stack branch (one more `fast-import` and `update-ref` each for
 /// the second child and the stack branch, a remote status walk each, `rev-list`, and the notes of the stack,
 /// `show-ref`), and the review of the stack branch's commits; the stack, its stack branch and its remote status come
@@ -1842,7 +1842,7 @@ fn a_safe_push_check_of_the_whole_stack() {
   );
 }
 
-/// `bd safe-push auth --whole-stack` over a stack branch someone moved back on the remote to an older build since the
+/// `brd safe-push auth --whole-stack` over a stack branch someone moved back on the remote to an older build since the
 /// sync (D4): the sync of a stack it built already (no build), what the start is decided on and the review of the stack
 /// branch's commits, then the refused push of the stack branch, the fetch of what the remote has now (its
 /// remote-tracking ref moved from the tip read before: one `for-each-ref`, one `update-ref`) and its remote status,
@@ -1895,7 +1895,7 @@ fn space_context(environment: &bd_core::context::Environment) -> RepoContext {
   RepoContext::resolve(environment, &options).unwrap()
 }
 
-/// `bd robot auth` of a synced branch without a robot: the grouping (HEAD, then the baseline and the branches under the
+/// `brd robot auth` of a synced branch without a robot: the grouping (HEAD, then the baseline and the branches under the
 /// prefix with their local and pushed tips in one listing, `log`, the stores) and the Space repository (`cat-file`);
 /// the listing and the push URL of `origin` share the remotes of the command (`remote -v`)
 #[test]
@@ -1920,7 +1920,7 @@ fn a_robot() {
   );
 }
 
-/// `bd robot-stats`: the Space repository from the remotes of the command (`remote -v`), the baseline and the branch of
+/// `brd robot-stats`: the Space repository from the remotes of the command (`remote -v`), the baseline and the branch of
 /// origin it tracks from HEAD's branch (`symbolic-ref`) and one listing with the same remotes (`for-each-ref`); no
 /// grouping, no sync
 #[test]
@@ -1932,7 +1932,7 @@ fn a_robot_stats() {
   assert_processes(&context, &[("for-each-ref", 1), ("remote", 1), ("rev-parse", 1), ("symbolic-ref", 1)]);
 }
 
-/// `bd request-review auth --push --dry-run`: the sync, which says the remote lacks auth, the plan of its push, and the
+/// `brd request-review auth --push --dry-run`: the sync, which says the remote lacks auth, the plan of its push, and the
 /// review of Patronus (`log`, `diff-tree`, the `OWNERSHIP` files)
 #[test]
 fn a_request_review_check() {
@@ -1962,7 +1962,7 @@ fn a_request_review_check() {
   );
 }
 
-/// `bd group --dry-run` of a plan with a description, with the prefix of the config: the current descriptions come from
+/// `brd group --dry-run` of a plan with a description, with the prefix of the config: the current descriptions come from
 /// the one `git config` of the command, the regroup's snapshot reads its own
 #[test]
 fn a_group_dry_run_with_a_description() {

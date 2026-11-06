@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 
 const REVIEWERS: &str = "/repos/acme/monorepo/pulls/7/requested_reviewers";
 
-/// `bd request-review` with `args`
+/// `brd request-review` with `args`
 fn request_review(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX, "request-review"];
   all_args.extend_from_slice(args);
@@ -106,7 +106,7 @@ fn a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused() {
   let (exit_code, output) = request_review(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "no_pull_request"));
   assert!(
-    output["error"]["message"].as_str().unwrap().contains("`bd safe-push auth --create-pull-request`"),
+    output["error"]["message"].as_str().unwrap().contains("`brd safe-push auth --create-pull-request`"),
     "{output}"
   );
 
@@ -141,7 +141,7 @@ fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() 
   let (exit_code, output) = request_review(&environment, &["auth"]);
   assert_error(&output, exit_code, (4, "needs_push"));
   // the push is the user's to approve
-  assert_eq!(next_steps(&output["error"]), [("bd request-review auth --push".to_string(), true)]);
+  assert_eq!(next_steps(&output["error"]), [("brd request-review auth --push".to_string(), true)]);
 
   let (exit_code, output) = request_review(&environment, &["auth", "--push", "--dry-run"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -158,7 +158,7 @@ fn a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it() 
 }
 
 /// A request holds the repository lock only for the witness and the freeze of the push of `--push`, one `for-each-ref`:
-/// its sync runs before it, as `bd sync`, and the network push and the request after it; without a push it takes none
+/// its sync runs before it, as `brd sync`, and the network push and the request after it; without a push it takes none
 /// (docs/design/git-operations.md, "Lock spans")
 #[cfg(unix)]
 #[test_log::test]

@@ -1,5 +1,5 @@
 //! The machine answers of the client (spec/cli/host.spec.md, "The report of a run", "hello"): the report of a run that
-//! `bd-host run --report-fd <n>` writes to its descriptor, and the hello of `bd-host hello --json`. A caller such as bt
+//! `brd-host run --report-fd <n>` writes to its descriptor, and the hello of `brd-host hello --json`. A caller such as bt
 //! acts on the codes and the exit codes of these objects, never on the words of a message. The golden JSON of each one
 //! is a fenced block of the spec, which the tests read
 
@@ -29,7 +29,7 @@ pub struct RunReport {
   pub working_tree: bool,
   /// The repository of the run on the host; `null` before the host answered
   pub repository: Option<String>,
-  /// The exit code of `bd-host`
+  /// The exit code of `brd-host`
   pub exit: u8,
   /// The exit code of the command; `null` when it did not run or its end is unknown. A command that a signal ended
   /// answers 128 plus the signal number
@@ -44,7 +44,7 @@ pub struct RunReport {
 }
 
 impl RunReport {
-  /// The report of a run whose command exited: `bd-host` exits with the code of the command
+  /// The report of a run whose command exited: `brd-host` exits with the code of the command
   pub fn of_outcome(alias: &str, outcome: &RunOutcome) -> Self {
     Self::of_facts(alias, &outcome.facts, command_exit_code(outcome.code), Some(outcome.code), None)
   }
@@ -87,12 +87,12 @@ impl RunReport {
   }
 }
 
-/// The exit of `bd-host` for a command that exited with `code`: the code itself, and 255 for a code outside 0 to 255
+/// The exit of `brd-host` for a command that exited with `code`: the code itself, and 255 for a code outside 0 to 255
 pub fn command_exit_code(code: i32) -> u8 {
   u8::try_from(code).unwrap_or(u8::MAX)
 }
 
-/// The hello of `bd-host hello --json`
+/// The hello of `brd-host hello --json`
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HelloReport {
@@ -158,7 +158,7 @@ impl HelloReport {
   }
 }
 
-/// The answer of `bd-host hello --json` for a refusal: `{"schema": 1, "alias", "refusal": {"code", "message"}}`
+/// The answer of `brd-host hello --json` for a refusal: `{"schema": 1, "alias", "refusal": {"code", "message"}}`
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HelloRefusal {

@@ -1,4 +1,4 @@
-//! `bd pick`: the commits of another worktree landed on the checked out branch, the source worktree following with
+//! `brd pick`: the commits of another worktree landed on the checked out branch, the source worktree following with
 //! `follow` (`git_ops::pick`, spec/cli/pick.spec.md), and the undo of both. The check runs before the repository lock,
 //! the witness and the moves under it. After the moves, one read of how the branch groups tells the group of each
 //! picked commit, the branches whose stack parent a `(parent/leaf)` prefix changes, and the picked commits whose branch
@@ -33,14 +33,14 @@ use tracing::{debug, info, instrument, warn};
 use trial_check::dependencies::compute_dependencies;
 use trial_check::diff_scan::read_commit_diffs_cached;
 
-/// Where `bd pick` takes the commits from
+/// Where `brd pick` takes the commits from
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickFrom {
   /// The HEAD of the worktree that holds this directory
   Worktree(String),
   /// `<rev>` or `<a>..<b>`
   Revisions(String),
-  /// The commits a remote virtual branch has that the branch lacks (`bd pick --remote`, Pick Remote Commits)
+  /// The commits a remote virtual branch has that the branch lacks (`brd pick --remote`, Pick Remote Commits)
   Remote(RemotePick),
 }
 
@@ -71,9 +71,9 @@ pub struct PickParams {
   pub follow: bool,
   /// Check only: nothing is written but git objects, and no lock is taken
   pub dry_run: bool,
-  /// The branch the target must have checked out (`bd lease pick`), else `PickRefusal::BranchSwitched`
+  /// The branch the target must have checked out (`brd lease pick`), else `PickRefusal::BranchSwitched`
   pub expect_branch: Option<String>,
-  /// The commit the HEAD of the source worktree must be (`bd lease pick`), else `PickRefusal::SourceMoved`
+  /// The commit the HEAD of the source worktree must be (`brd lease pick`), else `PickRefusal::SourceMoved`
   pub expect_source_head: Option<String>,
 }
 
@@ -115,9 +115,9 @@ pub struct PickDependency {
 /// How a picked commit gets the branches it needs; offered, never applied by the pick
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencyFix {
-  /// Move the commit into this branch, which is built on all of them (a `bd group` plan)
+  /// Move the commit into this branch, which is built on all of them (a `brd group` plan)
   Move(String),
-  /// The commit needs its own branch too: stack `prefix_branch` on this branch (`bd restack <prefix_branch> <parent>`),
+  /// The commit needs its own branch too: stack `prefix_branch` on this branch (`brd restack <prefix_branch> <parent>`),
   /// which is built on all of them and on the current parent
   Restack(String),
 }
@@ -317,7 +317,7 @@ pub struct UndoPickRemoteCommitsParams {
   pub undo_token: String,
 }
 
-/// The undo of the app's Pick Remote Commits: `undo_pick_core` of its token (`bd undo` of it does the same)
+/// The undo of the app's Pick Remote Commits: `undo_pick_core` of its token (`brd undo` of it does the same)
 pub fn undo_pick_remote_commits_core(git_executor: &GitCommandExecutor, params: &UndoPickRemoteCommitsParams, lock_timeout: Duration) -> Result<()> {
   let token = PickUndoToken::parse(&params.undo_token).ok_or_else(|| anyhow!("Not an undo token of a pick: {}", params.undo_token))?;
   undo_pick_core(git_executor, &params.repository_path, &token, lock_timeout).map(drop)

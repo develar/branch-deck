@@ -1,4 +1,4 @@
-//! `bd request-review`: ask GitHub users to review the open pull request of a virtual branch, as the app's Request
+//! `brd request-review`: ask GitHub users to review the open pull request of a virtual branch, as the app's Request
 //! Review… does (`spec/branch/pull-requests.spec.md#request-review`): the same intent of the engine
 //! (`Intent::RequestReview`, `operations::pull_request`), planned over the one-shot session of the command and run as
 //! the app runs it. Without `--reviewer` it asks the code owners Patronus suggests that the app's popover preselects
@@ -57,7 +57,7 @@ pub struct RequestReviewArgs {
   pub dry_run: bool,
 }
 
-/// `bd request-review`
+/// `brd request-review`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct RequestReviewOutput {
   pub schema: SchemaVersion,
@@ -65,7 +65,7 @@ pub struct RequestReviewOutput {
   pub prefix: String,
   pub branch: String,
   pub pull_request: ReviewedPullRequest,
-  /// The code-owner review before the request, as `bd safe-push` names it (`missing`, `approved`, `not_required`,
+  /// The code-owner review before the request, as `brd safe-push` names it (`missing`, `approved`, `not_required`,
   /// `unknown`); `null` with `--reviewer`, which doesn't ask Patronus
   pub readiness: Option<String>,
   /// Whom it asks: the `--reviewer` logins, else one suggested code owner of each missing group nobody is asked for
@@ -103,7 +103,7 @@ pub struct RefusedSummary {
 }
 
 /// An unapplied branch has no pull request to review: its commits are not in HEAD
-const UNAPPLIED_REVIEW: &str = "nobody was asked to review: reapply it first (`bd reapply`)";
+const UNAPPLIED_REVIEW: &str = "nobody was asked to review: reapply it first (`brd reapply`)";
 
 pub fn request_review(context: &RepoContext, args: &RequestReviewArgs, environment: &Environment) -> Result<RequestReviewOutput, CliError> {
   let name = args.branch.as_str();
@@ -321,7 +321,7 @@ fn logins_of(reviewers: &[String]) -> Result<Vec<String>, CliError> {
 fn no_pull_request(name: &str) -> CliError {
   CliError::new(
     ErrorCode::NoPullRequest,
-    format!("{name} has no open pull request: `bd safe-push {name} --create-pull-request` pushes the branch and opens it, with `--reviewer`"),
+    format!("{name} has no open pull request: `brd safe-push {name} --create-pull-request` pushes the branch and opens it, with `--reviewer`"),
   )
 }
 

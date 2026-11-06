@@ -737,7 +737,7 @@ fn anonymize_keeps_the_clustering_and_no_name() {
   assert_eq!(anonymous.commits[0].scope.as_ref().map(String::len), Some(16), "64 bits");
 }
 
-/// The anonymized input of a large monorepo branch (`bd suggest --fresh --dump-input`) and the grouping a human made of
+/// The anonymized input of a large monorepo branch (`brd suggest --fresh --dump-input`) and the grouping a human made of
 /// it (`expected`, by commit position); `apart` pairs expected groups that must stay apart. With --fresh the clustering
 /// must find the human grouping: the pairs of commits it puts together must be together there (precision), and it
 /// must find most of the pairs there (recall)

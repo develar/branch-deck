@@ -400,7 +400,7 @@ pub fn own_pull_request() -> Value {
   pull_request
 }
 
-/// `bd safe-push` with `args`
+/// `brd safe-push` with `args`
 pub fn safe_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
   let mut all_args = vec!["--prefix", PREFIX, "safe-push"];
   all_args.extend_from_slice(args);
@@ -408,14 +408,14 @@ pub fn safe_push(environment: &Environment, args: &[&str]) -> (i32, Value) {
 }
 
 impl Space {
-  /// `bd robot` with `args`
+  /// `brd robot` with `args`
   pub fn robot(&self, args: &[&str]) -> (i32, Value) {
     let mut all_args = vec!["--prefix", PREFIX, "robot"];
     all_args.extend_from_slice(args);
     run_json(&self.environment(), &all_args)
   }
 
-  /// `bd robot` with `args`, which succeeds with an output of its schema
+  /// `brd robot` with `args`, which succeeds with an output of its schema
   pub fn robot_ok(&self, args: &[&str]) -> Value {
     let (exit_code, output) = self.robot(args);
     assert_eq!(exit_code, 0, "{output}");
@@ -451,7 +451,7 @@ impl Space {
   }
 }
 
-/// The output matches the schema of `bd robot`
+/// The output matches the schema of `brd robot`
 pub fn assert_schema(space: &Space, output: &Value) {
   let (_, schema) = run_json(&environment(space.repo.path()), &["schema", "--all"]);
   assert_covered(&schema["outputs"]["robot"], &schema["outputs"]["robot"], output, "robot");

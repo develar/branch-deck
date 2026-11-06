@@ -66,7 +66,7 @@ Update Project (`⌘T`, as in IntelliJ) fetches the baseline (e.g. `origin/maste
 onto it: a fast-forward without local commits, otherwise a rebase of the local commits. It works with uncommitted and
 staged changes as long as the upstream doesn't change those files. A conflict or an overlap changes nothing; a dialog
 explains it and copies a ready prompt for a coding agent. With the app's bd, the agent resolves a conflict in a resolve
-session of `bd update`, outside the working tree ([bd update](../cli/update.spec.md)).
+session of `brd update`, outside the working tree ([brd update](../cli/update.spec.md)).
 
 The header shows whether an update would apply cleanly, from a check that every sync runs against the last fetch.
 
@@ -82,8 +82,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   applies cleanly, conflicts in N files, or blocked by uncommitted changes. The user's own commits that the baseline
   already has are named, not counted as incoming ([Landed Commits](landed-commits.spec.md)).
 - The app does not resolve conflicts and does not launch an agent; it copies a prompt. The agent resolves a conflict
-  with `bd update` and its resolve session, and a blocked update goes to the user, then to `bd update`; neither
-  stashes. Without a bd command, a conflict gets the git steps, which never stash either.
+  with `brd update` and its resolve session, and a blocked update goes to the user, then to `brd update`; neither
+  stashes. Without a brd command, a conflict gets the git steps, which never stash either.
 - No merge of the upstream (`pull --no-rebase`), no update of submodules.
 
 ## Requirements
@@ -175,7 +175,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/update-core/src/update_project_test.rs (`parses_the_forced_update_line_of_fetch`)
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_failed_fetch_is_fetch_failed`)
   [@test] ../../crates/sync-core/src/baseline_fetch_test.rs (`a_failed_fetch_is_not_repeated`)
-- A fetch beside another fetch of the same tracking ref, of any process (`bd update` in a lease while the app updates
+- A fetch beside another fetch of the same tracking ref, of any process (`brd update` in a lease while the app updates
   or fetches: one common dir), must wait for it while its process lives and take its result once it ended well,
   also when the remote had nothing new, or once the ref moved: one transfer, both succeed, and a forced update gives
   both the old tip. A fetch whose holder failed or was killed, or fetched another tracking ref, fetches itself once the
@@ -186,8 +186,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/bd-update/src/update_test.rs (`the_fetch_of_the_app_beside_bd_update_takes_its_transfer`)
 - After the fetch, the update must check (the replay, the resolution by words, the landed candidates) without the
   repository lock, on the HEAD and the upstream it read once, then take the lock only for the witness, the local
-  changes on the paths it writes and the move, so the app, `bd update` and the rewrites of either never interleave
-  with the move, while a regroup, a push or an agent's `bd` goes on during the check; the fetch, the counts and notes
+  changes on the paths it writes and the move, so the app, `brd update` and the rewrites of either never interleave
+  with the move, while a regroup, a push or an agent's `brd` goes on during the check; the fetch, the counts and notes
   of what the update did and the record of what landed never run under the lock. A late record of an update that
   another update already moved past only adds what it landed: the state keeps naming the later update, whose undo
   restores the report from before it. A check that moves nothing (up to date, or a conflict, which starts no session in
@@ -198,8 +198,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   stat data of the whole worktree once under the lock: the refresh of the index that its check of the local changes
   copies and its move takes as it is. A lock held for the whole wait
   (10 s in the app) is an error with only the fetch and the check done, `locked` with the holder its record names
-  (`details.holder`: `bd` or the app, its command, pid and how long it has held the lock; none once the record is
-  gone): the app shows "Cannot update the project" with "`bd push auth` (pid 4242) has held the repository for 40 s"
+  (`details.holder`: `brd` or the app, its command, pid and how long it has held the lock; none once the record is
+  gone): the app shows "Cannot update the project" with "`brd push auth` (pid 4242) has held the repository for 40 s"
   (the app's own holder as "Branch Deck (pid 7) …"; "Another Branch Deck operation holds the repository" without a
   record; never the lock file path), worded by the page from the code and its data, and keeps the time of the fetch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_takes_the_repository_lock_after_the_fetch_and_says_it_waits`, `an_update_that_moves_nothing_answers_without_waiting_for_the_lock`)
@@ -209,7 +209,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/errors.test.ts (`toasts a held repository lock with its holder, without the holder the other operation, and a plain Error with its message`)
   [@test] ../../crates/update-core/src/landed_test.rs (`a_late_record_of_an_update_keeps_the_record_of_the_update_after_it`)
   [@test] ../../crates/bd-update/src/update_test.rs (`the_update_waits_for_the_repository_lock_after_its_fetch`, `the_check_of_an_update_runs_before_the_lock`, `a_regroup_during_the_replay_of_an_update_is_done_and_the_update_checks_again_without_the_lock`, `a_file_edited_during_the_replay_of_an_update_blocks_it`)
-  [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
+  [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while brd holds the repository`)
 - An update refused after its fetch by an error that the same request may pass (`retry: same`, a held lock) offers
   "Retry Without Fetch" on its toast: the check and the apply against the baseline that fetch got (the intent
   `updateProject` with `fetch: false`, no second fetch), which a second retry joins, and only while the main window
@@ -218,7 +218,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   (`retry: after_reread`, the branch moved) offers no retry: a new Update reads it again.
   [@test] ../../src/stores/update-project.test.ts (`offers Retry Without Fetch for a held lock after the fetch, which checks and applies without a second fetch; a moved branch gets none`, `retries without a fetch only the repository the main window shows`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should name the holder of the repository lock and retry the update without a fetch`, `should offer no retry when the branch moved under the update`)
-- `bd update --no-fetch` must update onto the last fetched baseline ([bd update](../cli/update.spec.md)).
+- `brd update --no-fetch` must update onto the last fetched baseline ([brd update](../cli/update.spec.md)).
   [@test] ../../crates/update-core/src/update_project_test.rs (`update_without_a_fetch_goes_onto_the_last_fetched_state`)
 - A fast-forward must move the branch and update the files.
   [@test] ../../crates/update-core/src/update_project_test.rs (`fast_forward_updates_the_working_tree`)
@@ -251,7 +251,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   after a check that HEAD is still on the checked branch.
   [@test] ../../crates/update-core/src/update_project_test.rs (`rolls_back_when_a_file_changes_between_the_check_and_the_update`)
 - The index lock of another process must make the move wait (at most 30 s per write) and an ownerless one be removed,
-  as for `bd pick`; one that stays must move the branch back and answer `locked`, nothing changed. The wait must come
+  as for `brd pick`; one that stays must move the branch back and answer `locked`, nothing changed. The wait must come
   before the repository lock, so no other writer waits for it; a lock that appears while the update takes the
   repository lock must release it and wait outside it.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
@@ -272,7 +272,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 ### Undo
 
-- `bd undo update:<previous head>..<new head>` must move the branch back and let the files follow through the same
+- `brd undo update:<previous head>..<new head>` must move the branch back and let the files follow through the same
   guarded two-way update with the trees swapped (`branch-deck: undo update`); local changes on the other paths stay.
   Its check (the guards, the reflog, the dry run of the files) runs before the repository lock, which holds only the
   witness of HEAD and of the mark of an interrupted move, and the move back; the landed report after it.
@@ -379,12 +379,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../src/lib/update-state.test.ts (`names the whole run with one word and its percent, the toast's Fetch as a fetch`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should show one progress from the click to the end of its sync, its steps in the tooltip`)
   [@test] ../../tests/e2e/repository/header.spec.ts (`should keep its controls apart while an update runs`)
-- While another process holds the repository lock (an agent's `bd pick --follow`, `bd`) or the app's own push, the
+- While another process holds the repository lock (an agent's `brd pick --follow`, `brd`) or the app's own push, the
   update must wait after its fetch and its check as long as the holder lives, never refused after 10 s: its tooltip
-  step says whom for ("Waiting for `bd pick` (pid 4242, for 12 s)…"), and Stop Waiting beside the Update button ends
+  step says whom for ("Waiting for `brd pick` (pid 4242, for 12 s)…"), and Stop Waiting beside the Update button ends
   the wait with nothing changed but the fetch ("Canceled the update before it started"): `cancel_operation` of its
   operation, whose update is the failed effect of its outcome, `canceled`. Only a holder no record names refuses it
-  after 10 s; `bd update` waits 10 s, then `locked`.
+  after 10 s; `brd update` waits 10 s, then `locked`.
   [@test] ../../src/lib/update-state.test.ts (`names whom an update waits for while another holder has the repository lock, with Stop Waiting, until its next step`)
   [@test] ../../src/stores/update-project.test.ts (`names whom it waits for while another holder has the repository lock, and Stop Waiting cancels its operation`)
   [@test] ../../crates/operations/src/update_test.rs (`stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved`)
@@ -419,8 +419,8 @@ The header shows whether an update would apply cleanly, from a check that every 
 - While the update runs, its tooltip lists its steps instead of the state of the last check and "fetch and update":
   those done ("Fetched origin/master · 5.79 MiB", "Checked the update onto origin/master"), the running one ("Fetching
   origin/master…", or git's last progress line once git reports a stage, or whom the fetch waits for while another
-  fetch of the baseline runs: "Fetching origin/master with `bd update` (pid 4242, for 3 s)…"; "Waiting for Branch Deck
-  or bd to finish…", "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and
+  fetch of the baseline runs: "Fetching origin/master with `brd update` (pid 4242, for 3 s)…"; "Waiting for Branch Deck
+  or brd to finish…", "Checking the update onto origin/master…", "Updating to origin/master…", "Syncing branches…") and
   those left, muted ("Check the update", "Update to origin/master", "Sync branches"). Every step is listed from the
   start of the run, the update of the files and the sync too, so one look shows the whole run: a check that finds
   nothing to apply ends the run before them. A wait that ended is no step of its own, and a step that ran again (the
@@ -500,7 +500,7 @@ The header shows whether an update would apply cleanly, from a check that every 
   say what happened, the sync only rebuilds the rows.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should end the progress at the result when there is nothing to apply, its sync on Sync`)
   [@test] ../../crates/operations/src/update_test.rs (`stop_waiting_ends_the_wait_of_an_update_for_the_lock_with_nothing_moved`)
-  [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository`)
+  [@test] ../../src/stores/update-project.test.ts (`keeps the fetch time when the update fails after its fetch, e.g. while brd holds the repository`)
 - The footer of the landing overview must show the same state in one line, with the state icon of the button, named
   as incoming and with the fetch time, "Incoming from origin/master: rebases cleanly · fetched 5 minutes ago" (up to
   date: "nothing new"), with an Update button. Below the rows of the work on its way, a bare "origin/master: up to date"
@@ -515,7 +515,7 @@ The header shows whether an update would apply cleanly, from a check that every 
 ### Conflict and blocked dialog
 
 - A conflict or a block after a click opens a dialog in the frame of the previews: it says nothing was changed and
-  when the baseline was fetched. It reads the app's bd command in the repository when it opens (`agent_cli_command`),
+  when the baseline was fetched. It reads the app's brd command in the repository when it opens (`agent_cli_command`),
   so the copy needs no wait; Copy waits until it is read.
 - The conflict title counts all files of the first conflict, "1 file conflicts with origin/master" or "6 files
   conflict with origin/master";
@@ -525,8 +525,8 @@ The header shows whether an update would apply cleanly, from a check that every 
   that change it. An upstream commit shows its author and both times when they differ by more than an hour,
   "Daniil Bubnov · authored 13 days ago · landed 2 hours ago", else one, "Daniil Bubnov, 13 days ago": a commit
   written long ago can have reached the upstream just now. A file that only a merge of the whole branch would name is
-  never listed. The line above says to rebase in a terminal or the IDE, or, with a bd command, that the prompt
-  resolves each commit with bd, outside the working tree.
+  never listed. The line above says to rebase in a terminal or the IDE, or, with a brd command, that the prompt
+  resolves each commit with brd, outside the working tree.
   [@test] ../../src/lib/update-conflict.test.ts (`gives each file the commits of each side that change it, in their order`)
   [@test] ../../src/lib/update-conflict.test.ts (`names when the commit was written and when it landed, if that was more than an hour later`)
   [@test] ../../src/lib/update-conflict.test.ts (`gives one time when the commit landed within an hour of being written`)
@@ -542,23 +542,23 @@ The header shows whether an update would apply cleanly, from a check that every 
   [@test] ../../crates/update-core/src/update_project_test.rs (`a_conflict_one_file_wider_than_the_list_reports_every_file_with_its_commits`, `many_blocking_paths_are_counted`)
   [@test] ../../src/lib/text.test.ts (`keeps a list one longer than its limit whole and cuts a longer one at the limit, counting the rest of all`)
 - A block lists the overlapping paths and says to commit or stash them; changes to other files don't block. It says
-  that the prompt asks about each file, then updates with bd, or, without a bd command, that you update again.
+  that the prompt asks about each file, then updates with brd, or, without a brd command, that you update again.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
 - The primary button "Copy Prompt for Agent" copies a prompt and confirms in place: it says "Copied" (`CopyCheckIcon`)
   for a moment, as a copy button does, and no toast covers the dialog. Both cases offer it: an overlap of uncommitted
   changes with the upstream needs the same merge as a conflict.
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
-- With a bd command, the conflict prompt must send the agent to bd's resolve session and keep it out of the working
-  tree. It holds only what bd does not know and leaves the protocol to bd (`bd help update`, the `hint` of each file
-  and of the commit, `session.next`, `ask_user`, `retryable`): a prompt that restated it drifted from bd (it put
+- With a brd command, the conflict prompt must send the agent to brd's resolve session and keep it out of the working
+  tree. It holds only what brd does not know and leaves the protocol to brd (`brd help update`, the `hint` of each file
+  and of the commit, `session.next`, `ask_user`, `retryable`): a prompt that restated it drifted from brd (it put
   `round_moved`, exit 3, under exit 2, and its "exit 3 retries" then sent the agent back to the same refused round),
   and its "ask the user" on an empty result made the agent ask about every commit that upstream had already. It names
-  the repository path, the branch and the upstream; bd once, as the command to run as written (in PowerShell on
-  Windows), with "bd is `<command>`; below, `bd` stands for it", "Run `bd help update` first and follow it", one JSON
+  the repository path, the branch and the upstream; brd once, as the command to run as written (in PowerShell on
+  Windows), with "brd is `<command>`; below, `brd` stands for it", "Run `brd help update` first and follow it", one JSON
   object per run; the state the user saw on one line ("State (fetched <time>): HEAD (<branch>) <id>, <upstream>
-  <id>."), then "First conflict: <id> <subject>: <files>." (the commit where bd opens its first round, with the files
+  <id>."), then "First conflict: <id> <subject>: <files>." (the commit where brd opens its first round, with the files
   of its merge; each round names the upstream commits of its files, so the prompt describes none); the steps:
-  1. `bd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); when an
+  1. `brd update --no-fetch` (the upstream the user saw, no `--expect-head`, because peers commit meanwhile); when an
      output or its `error` has `ask_user: true`, show the user its `reasons` (or the error's `message`) with
      `session.blocked_paths` and `session.landed_differs`, and ask once; a later round of a commit decided in
      `landed_differs` takes that answer;
@@ -567,24 +567,24 @@ The header shows whether an update would apply cleanly, from a check that every 
   3. on exit 0, build, and run the tests of `verify.paths` (without `verify`, the build is enough), and on a failure
      a `fixup! <subject>` commit of only the fixed files (`git -C <repository> commit -m 'fixup! <subject>' --
      <paths>`, the repository quoted for the shell, and in PowerShell each `'` of the subject doubled; never the
-     changes of other sessions) with `bd fold`, or `bd undo <undo_token>`;
+     changes of other sessions) with `brd fold`, or `brd undo <undo_token>`;
   4. report each edited resolution of `resolutions` and `resolved` with its dropped lines, each drop the user decided
      (`landed_as` with `local_only`), and `dropped` as a count per `proof`.
 
   The rules: other sessions work in the tree, so never `git rebase`, `git stash`, `git checkout` or `git reset`, and
   never edit a conflicting file in the working tree; keep every message with its `(prefix)`; don't squash, reorder or
-  split commits, and don't drop a commit yourself, because bd drops a commit it proves landed and `--landed` drops one
-  after the user's yes (`UPDATE_RULES`; the prompt without bd and the robot prompt keep "don't squash, reorder, split
+  split commits, and don't drop a commit yourself, because brd drops a commit it proves landed and `--landed` drops one
+  after the user's yes (`UPDATE_RULES`; the prompt without brd and the robot prompt keep "don't squash, reorder, split
   or drop commits"); don't push; on an error, `retryable` goes back to step 1, else the agent does what its `message`
   says or stops and shows the error. The prompt names no exit code above 1, no error code and no rule of the markers:
-  `bd help update` has them, the PowerShell way to write a copy too.
-  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, resolves a conflict in bd's session, outside the working tree`)
+  `brd help update` has them, the PowerShell way to write a copy too.
+  [@test] ../../src/lib/agent-prompt.test.ts (`with brd, resolves a conflict in brd's session, outside the working tree`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for a conflict on Windows`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain a conflict and copy a prompt for an agent`)
 - A conflict prompt stays a few kilobytes however large the conflict (hundreds of files with 50 upstream commits each
-  were hundreds of kilobytes): it is a map, not the record; bd names the files and the upstream commits of each round,
-  git the rest. With bd the first conflict names at most 20 files, then ", and <n> more files", counted as in the
-  title. Without bd at most 20 files, then "… and <n> more files: `git status` names them when the rebase stops"; per
+  were hundreds of kilobytes): it is a map, not the record; brd names the files and the upstream commits of each round,
+  git the rest. With brd the first conflict names at most 20 files, then ", and <n> more files", counted as in the
+  title. Without brd at most 20 files, then "… and <n> more files: `git status` names them when the rebase stops"; per
   file at most 3 commits a side, by id: mine the oldest (the first to stop a replay), upstream the newest, then
   "+<n> more", "+<n> or more" when the backend kept only the newest 50 upstream commits; each upstream commit is
   described once, at most the 10 newest, then "… and <n> more:" with where the rest are (`git log --oneline
@@ -592,12 +592,12 @@ The header shows whether an update would apply cleanly, from a check that every 
   50 paths, then "… and <n> more: `git status` lists them", and asks about "these files". No list leaves out only one:
   one more than its limit is given whole (`cutList`), so the prompt never says "… and 1 more files".
   [@test] ../../src/lib/agent-prompt.test.ts (`never counts one where the item would stand: a list one longer than its limit is given whole`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, names the first conflict with its first files`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`without bd, names the first conflict and the commits of its files`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`with brd, names the first conflict with its first files`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`without brd, names the first conflict and the commits of its files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`counts the rest exactly when the backend did not cut the upstream list`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names the first conflict without known files`)
   [@test] ../../src/lib/agent-prompt.test.ts (`caps the paths of a blocked update`)
-- Without a bd command, the conflict prompt must contain the repository path, the branch, the upstream with the ids of
+- Without a brd command, the conflict prompt must contain the repository path, the branch, the upstream with the ids of
   HEAD, the upstream and the merge base and the fetch time, the first conflict ("First conflict: my commit <id>
   <subject>, where the rebase stops first", with `git log --reverse --oneline <base>..<head>` for the other commits),
   the files of the first conflict ("Files of the first conflict"), the rules (keep every message with its `(prefix)`, don't squash, reorder, split or drop commits, don't push;
@@ -616,9 +616,9 @@ The header shows whether an update would apply cleanly, from a check that every 
   it runs `<bd> -C <repository> update --no-fetch` (quoted for the shell, `& '…'` in PowerShell on Windows) and
   continues as its output says; if that prints `state: conflict`, the agent runs `<bd> help update`, follows it and
   edits only the files at `edit`. Without one, it tells the user to update in Branch Deck again.
-  [@test] ../../src/lib/agent-prompt.test.ts (`with bd, sends a blocked update to the user and then to bd, never to a stash`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`with brd, sends a blocked update to the user and then to brd, never to a stash`)
   [@test] ../../src/lib/agent-prompt.test.ts (`names PowerShell for the command of Windows`)
-  [@test] ../../src/lib/agent-prompt.test.ts (`without bd, sends a blocked update to the user and back to Branch Deck, never to a stash`)
+  [@test] ../../src/lib/agent-prompt.test.ts (`without brd, sends a blocked update to the user and back to Branch Deck, never to a stash`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should explain uncommitted changes that block the update`)
 
 ## User Experience
@@ -665,5 +665,5 @@ The header shows whether an update would apply cleanly, from a check that every 
 
 - [Git Operations](../../docs/design/git-operations.md): "Update project", the exception to invariant 1, and "Resolve
   session".
-- [bd update](../cli/update.spec.md): the agent's update and its resolve session.
+- [brd update](../cli/update.spec.md): the agent's update and its resolve session.
 - [Outgoing Commits](outgoing.spec.md): the overview whose footer shows the update state.

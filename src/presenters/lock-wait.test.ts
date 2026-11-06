@@ -11,7 +11,7 @@ import {
   presentStopWaiting,
 } from "@/presenters/lock-wait"
 
-const BD_PICK: LockHolderInfo = { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 12 }
+const BD_PICK: LockHolderInfo = { tool: "bd", command: "brd pick --follow", pid: 4242, held_for: 12 }
 
 /** A push of auth of the session in `step` */
 function pushIn(step: OperationStep): RunningOperation {
@@ -26,19 +26,19 @@ function pushIn(step: OperationStep): RunningOperation {
 }
 
 describe("presentLockWait", () => {
-  it("says whom an operation waits for as the rewrites of the app say it: bd by its command line, the app by its name", () => {
-    expect(presentLockWait(BD_PICK)).toBe("Waiting for `bd pick --follow` (pid 4242, for 12 s)")
-    expect(presentLockWait({ ...BD_PICK, held_for: 723 })).toBe("Waiting for `bd pick --follow` (pid 4242, for 12 min 3 s)")
+  it("says whom an operation waits for as the rewrites of the app say it: brd by its command line, the app by its name", () => {
+    expect(presentLockWait(BD_PICK)).toBe("Waiting for `brd pick --follow` (pid 4242, for 12 s)")
+    expect(presentLockWait({ ...BD_PICK, held_for: 723 })).toBe("Waiting for `brd pick --follow` (pid 4242, for 12 min 3 s)")
     expect(presentLockWait({ tool: "app", command: "branch-deck", pid: 17, held_for: 0 })).toBe("Waiting for Branch Deck (pid 17, for 0 s)")
     expect(presentLockWait(null)).toBe("Waiting for another holder of the repository lock")
   })
 
   it("names the holder a command was refused by, and how long it has held the repository", () => {
-    expect(presentLockHolder({ ...BD_PICK, held_for: 40 })).toBe("`bd pick --follow` (pid 4242) has held the repository for 40 s")
+    expect(presentLockHolder({ ...BD_PICK, held_for: 40 })).toBe("`brd pick --follow` (pid 4242) has held the repository for 40 s")
   })
 
   it("reads whom an operation of the view waits for from its step, and nothing of another step", () => {
-    expect(presentOperationLockWait(pushIn({ kind: "waitingForLock", holder: BD_PICK }))).toBe("Waiting for `bd pick --follow` (pid 4242, for 12 s)")
+    expect(presentOperationLockWait(pushIn({ kind: "waitingForLock", holder: BD_PICK }))).toBe("Waiting for `brd pick --follow` (pid 4242, for 12 s)")
     expect(presentOperationLockWait(pushIn({ kind: "waitingForLock", holder: null }))).toBe("Waiting for another holder of the repository lock")
     expect(presentOperationLockWait(pushIn({ kind: "pushing" }))).toBeNull()
     expect(presentOperationLockWait(undefined)).toBeNull()
@@ -47,7 +47,7 @@ describe("presentLockWait", () => {
 
 describe("presentStopWaiting", () => {
   it("offers Stop Waiting of an operation of the session only while it waits for a holder, and stops it by its id", () => {
-    const waiting = "Waiting for `bd pick --follow` (pid 4242, for 12 s)"
+    const waiting = "Waiting for `brd pick --follow` (pid 4242, for 12 s)"
     const cancel = vi.fn(async (_op: string) => true)
     expect(presentStopWaiting(undefined, cancel)).toBeNull()
     expect(presentStopWaiting({ op: "op-1", lockWait: null }, cancel)).toBeNull()

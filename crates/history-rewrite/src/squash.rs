@@ -1,5 +1,5 @@
 //! The squash of commits into the oldest of them, which keeps its place and its author (`git_ops::squash_commits`):
-//! the app's and `bd squash`'s, whose commits `select_squash` finds among the commits ahead of the baseline; its trial
+//! the app's and `brd squash`'s, whose commits `select_squash` finds among the commits ahead of the baseline; its trial
 //! (`check_squash_commits_core`) and its undo, a move of the branch back. The squash and the undo compute before the
 //! repository lock and hold it for the witness of HEAD and the move only.
 
@@ -100,7 +100,7 @@ fn checked_message(params: &SquashCommitsParams) -> Result<String> {
   Ok(message)
 }
 
-/// The message a `bd squash` asks for the squashed commit
+/// The message a `brd squash` asks for the squashed commit
 #[derive(Debug, Clone)]
 pub enum SquashText {
   /// The message of the commit the others go into
@@ -111,7 +111,7 @@ pub enum SquashText {
   Message(String),
 }
 
-/// The commits of a `bd squash` among the commits ahead of the baseline, by the ids `bd status` printed (abbreviated or
+/// The commits of a `brd squash` among the commits ahead of the baseline, by the ids `brd status` printed (abbreviated or
 /// full): the commit the others go into, the oldest, and the message of the result
 #[derive(Debug, Clone)]
 pub struct SquashSelection {
@@ -126,7 +126,7 @@ pub struct SquashSelection {
   pub rebuilt_branches: Vec<String>,
 }
 
-/// A `bd squash` whose commits or message don't make one squash; nothing was read but the commits ahead
+/// A `brd squash` whose commits or message don't make one squash; nothing was read but the commits ahead
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SquashSelectionRefused {
   #[error("Ambiguous commit ids: {}", .0.join(", "))]
@@ -137,9 +137,9 @@ pub enum SquashSelectionRefused {
   TooFew,
   #[error("Commit {into} is not the oldest one: commits are squashed into the oldest, {oldest}")]
   NotOldest { into: String, oldest: String },
-  #[error("Commits {} are not in the branch of the commit they would go into ({}): move them first with `bd group`, or squash commits of one branch", .commits.join(", "), branch_name(.branch.as_deref()))]
+  #[error("Commits {} are not in the branch of the commit they would go into ({}): move them first with `brd group`, or squash commits of one branch", .commits.join(", "), branch_name(.branch.as_deref()))]
   OtherBranch { commits: Vec<String>, branch: Option<String> },
-  #[error("The message would move the squashed commit from {} to {}: keep its `(prefix)`, or change it afterwards with `bd reword`", branch_name(.from.as_deref()), branch_name(.to.as_deref()))]
+  #[error("The message would move the squashed commit from {} to {}: keep its `(prefix)`, or change it afterwards with `brd reword`", branch_name(.from.as_deref()), branch_name(.to.as_deref()))]
   MovesBranch { from: Option<String>, to: Option<String> },
   #[error("The commit message must start with a subject line")]
   NoSubject,
@@ -169,7 +169,7 @@ impl SquashSelectionRefused {
   }
 }
 
-/// The squash `bd squash <into> <commit>…` asks for: the commits ahead of the baseline and their grouping, read once
+/// The squash `brd squash <into> <commit>…` asks for: the commits ahead of the baseline and their grouping, read once
 /// (`CommitsAhead`, the stores), with no lock; the squash itself reads its history again (`squash_commits_core`). The
 /// folded commits must be in the branch of `into`, and the message must keep the squashed commit there: a squash never
 /// moves work between branches

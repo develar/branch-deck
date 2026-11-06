@@ -137,7 +137,7 @@ enum AsymmetryKind {
 
 /// The one expectation of a case: `step` a subset of the next step of the subject (`step_answer`), `land` of the
 /// decision of its start (`land_answer`); `null` where the side has none. `status`, where a case names it, the Status
-/// cell of a branch, the main fact first, by the names of `bd status` (`NextStepSummary::status`)
+/// cell of a branch, the main fact first, by the names of `brd status` (`NextStepSummary::status`)
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Expect {
@@ -155,7 +155,7 @@ struct BdExpect {
   step: Option<Value>,
   land: Option<Value>,
   error: Option<String>,
-  /// What `bd status` says of the Status cell: it reads the grouping without a sync, so no failure of one
+  /// What `brd status` says of the Status cell: it reads the grouping without a sync, so no failure of one
   status: Option<Vec<String>>,
 }
 
@@ -414,7 +414,7 @@ enum Readiness {
   Unavailable,
   Unlisted,
   Space,
-  /// The app's session didn't ask yet; bd always asks: the pre-check needs no approval
+  /// The app's session didn't ask yet; brd always asks: the pre-check needs no approval
   NotAsked,
 }
 
@@ -439,9 +439,9 @@ enum Flag {
   AllowMissing,
   AllowDangling,
   AllowUnknownRules,
-  /// `--allow-checks-not-passed` of `bd land`: what CI did not check, accepted
+  /// `--allow-checks-not-passed` of `brd land`: what CI did not check, accepted
   WithoutChecks,
-  /// `--bypass-rules` of `bd land`: what the gate of the route asks, accepted
+  /// `--bypass-rules` of `brd land`: what the gate of the route asks, accepted
   BypassRules,
 }
 
@@ -587,7 +587,7 @@ impl Given {
     }
   }
 
-  /// The arguments of `bd land`, of a case of the push route
+  /// The arguments of `brd land`, of a case of the push route
   fn land_args(&self, check: bool) -> LandArgs {
     LandArgs {
       branch: self.branch.clone(),
@@ -620,7 +620,7 @@ impl Given {
   }
 }
 
-/// The repository of a case, its fakes and the environment bd runs in
+/// The repository of a case, its fakes and the environment brd runs in
 struct Situation {
   /// Serves the fakes while the case runs; its Patronus URL names the robot pages
   space: Space,
@@ -1021,7 +1021,7 @@ impl Situation {
     })
   }
 
-  /// `bd status`: the Status cell of `branch` by its names
+  /// `brd status`: the Status cell of `branch` by its names
   fn status(&self, branch: &str) -> Result<Vec<String>, CliError> {
     let output = status(&self.context()?, &StatusArgs::default(), &self.environment)?;
     let branch = output.branches.unwrap_or_default().into_iter().find(|it| it.name == branch);
@@ -1040,7 +1040,7 @@ impl Situation {
     )
   }
 
-  /// `bd safe-push` without `--dry-run`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
+  /// `brd safe-push` without `--dry-run`: `{started_via, canceled}` (whether it canceled a robot first) or `{error}`
   fn start(&self, given: &Given) -> Value {
     if given.route.is_some() {
       let mut args = vec!["--prefix", PREFIX, "land", given.branch.as_str()];
@@ -1288,7 +1288,7 @@ impl AppSession<'_> {
   }
 
   /// What the session derives of the case: the next step of the subject, the decision of its start, the Status cell of
-  /// the branch by the names of `bd status`
+  /// the branch by the names of `brd status`
   fn answer(&self, given: &Given) -> (Value, Value, Vec<String>) {
     let prefix = &self.context.prefix;
     let Some((key, subject)) = self.subject(given) else {
@@ -1536,7 +1536,7 @@ fn answer(case: &Case) -> Vec<String> {
     _ => return named(vec!["an exercised case has given and expect, a recorded one neither, nor bd".to_string()]),
   };
   if case.asymmetry.is_some() != case.bd.is_some() {
-    return named(vec!["bd answers otherwise only by design: an asymmetry, with the answer bd".to_string()]);
+    return named(vec!["brd answers otherwise only by design: an asymmetry, with the answer bd".to_string()]);
   }
   let situation = Situation::of(given);
   let (step, land, status) = situation.app(given);
@@ -1549,8 +1549,8 @@ fn answer(case: &Case) -> Vec<String> {
     let expected = case.bd.as_ref().and_then(|bd| bd.status.as_ref()).unwrap_or(expected);
     match situation.status(&given.branch) {
       Ok(bd) if bd == *expected => {}
-      Ok(bd) => failures.push(format!("bd status: the status cell: expected {expected:?}, answers {bd:?}")),
-      Err(error) => failures.push(format!("bd status: {}", error.message)),
+      Ok(bd) => failures.push(format!("brd status: the status cell: expected {expected:?}, answers {bd:?}")),
+      Err(error) => failures.push(format!("brd status: {}", error.message)),
     }
   }
   let bd = case.bd.as_ref();
@@ -1932,7 +1932,7 @@ fn assert_d8_placement(stack: Option<&BranchStack>) {
 }
 
 /// D8, closed (the registry's entry `d8-whole-stack-parent`): the whole stack of C, whose declared parent B has no
-/// commits and is stacked on A by `bd restack`, while A has a stack problem, is the stack as the user declared it (the
+/// commits and is stacked on A by `brd restack`, while A has a stack problem, is the stack as the user declared it (the
 /// owner's decision 5): B, which no row has, makes C a root of its own, never the chain A → C its block names. The app
 /// reads the same rule (`domain_policy::stack::whole_stack_of`, the whole stack of each root in the view)
 #[test_log::test]
@@ -1953,7 +1953,7 @@ fn the_whole_stack_of_a_blocked_branch_with_an_inactive_declared_parent_is_d8() 
   let placed = place_branches(&forest, &HashMap::new());
   assert_d8_placement(placed.get("C"));
 
-  // the same through the fixtures: B gets a commit for `bd restack B A`, which refuses a branch without commits, then
+  // the same through the fixtures: B gets a commit for `brd restack B A`, which refuses a branch without commits, then
   // the reword drops its prefix
   let space = Space::new(&[]);
   let repo = &space.repo;

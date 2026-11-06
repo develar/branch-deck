@@ -4,7 +4,7 @@
 //! Each file goes to `<name>.bd-host-part` first, and only a file of the size that the agent named takes its name. So a
 //! cut connection leaves no file that looks whole. A stream writes at most the size that the agent named, and the rest
 //! is read and dropped. A fetch that did not copy every file fails with `fetch_failed`, and the run then keeps its
-//! stage on the agent for another `bd-host fetch`.
+//! stage on the agent for another `brd-host fetch`.
 //!
 //! No write follows a local link: a target with a link in a parent directory below the checkout is refused, and the
 //! part is a new file that the open makes itself (`create_new`, and `O_NOFOLLOW` on Unix). A part that a cut fetch left
@@ -66,7 +66,7 @@ impl Client<'_> {
     let mut host = self.host(alias)?;
     let fetched = self.fetch_run(&mut host, run, checkout.root(), &record, &files.patch(run))?;
     if let Some(changes) = &fetched.changes {
-      (self.say)(&format!("bd-host: the changes of the run {run} are in {}: `git apply` applies them", changes.display()));
+      (self.say)(&format!("brd-host: the changes of the run {run} are in {}: `git apply` applies them", changes.display()));
     }
     Ok(fetched.files)
   }
@@ -98,7 +98,7 @@ impl Client<'_> {
               if replaced.insert(output.clone())
                 && let Err(error) = remove_output(root, output)
               {
-                (self.say)(&format!("bd-host: cannot remove the local output {output}: {error}"));
+                (self.say)(&format!("brd-host: cannot remove the local output {output}: {error}"));
               }
             }),
             FileKind::Changes if record.changes => Ok(patch.to_path_buf()),
@@ -112,13 +112,13 @@ impl Client<'_> {
               Ok(()) => fetched.files.push(path),
               Err(Received::Link(error)) => return Err(host.link_refusal(&error)),
               Err(Received::Local(said)) => {
-                (self.say)(&format!("bd-host: cannot write {}: {said}", target.display()));
+                (self.say)(&format!("brd-host: cannot write {}: {said}", target.display()));
                 missed.push(path);
               }
             },
             Err(said) => {
               channel.recv_stream(&mut io::sink()).map_err(|error| host.link_refusal(&error))?;
-              (self.say)(&format!("bd-host: skipped {path:?} of the run {run}: {said}"));
+              (self.say)(&format!("brd-host: skipped {path:?} of the run {run}: {said}"));
               missed.push(path);
             }
           }

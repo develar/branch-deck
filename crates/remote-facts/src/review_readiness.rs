@@ -1,5 +1,5 @@
 //! The review readiness of virtual branches, shared by the sessions of the app (the scheduler of the facts, through the
-//! `FactSources` of each host) and `bd safe-push`: the commits of the branches (`patronus_review`), the pre-check of
+//! `FactSources` of each host) and `brd safe-push`: the commits of the branches (`patronus_review`), the pre-check of
 //! Patronus with the pull request each would start from, cached on disk by what Patronus decides on, then
 //! `patronus::review_readiness`. The whole stack is asked as its stack branch (`ReviewReadinessBranch::source`,
 //! `{prefix}/stack/<root>`) with its pull request, a pull request of someone else a review window shows as its head

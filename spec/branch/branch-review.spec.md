@@ -459,7 +459,7 @@ session, a form of a row by the main window at that row; the footer holds the ke
 - Until Patronus sends `paths` per group, a group named in `review-rules.yaml` as the reviewer of another owner, or
   one Patronus delegates to, shows no files.
 - A form of a row needs the main window: it switches to the repository of the review to open it.
-- The tips are those of the app's session; a `bd` sync in a terminal moves the virtual branches without telling the
+- The tips are those of the app's session; a `brd` sync in a terminal moves the virtual branches without telling the
   window until the app syncs.
 - A change of the branch prefix while the window is open leaves it on the session of the old prefix: it follows no
   sync until it opens again.

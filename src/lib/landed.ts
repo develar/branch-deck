@@ -144,7 +144,7 @@ export function landedNews(landed: readonly LandedBranch[], upstream: string): U
 }
 
 /**
- * What a sync found landed after an update elsewhere (the IDE, `git pull`, `bd update`), as Activity records it and the
+ * What a sync found landed after an update elsewhere (the IDE, `git pull`, `brd update`), as Activity records it and the
  * toast of the merge says it in place: "wsm landed in origin/master" / "Found by a sync". Null when nothing landed.
  */
 export function foundLandedNews(found: readonly LandedBranch[], upstream: string): Required<UpdateToast> | null {

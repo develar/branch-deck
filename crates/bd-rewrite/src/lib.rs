@@ -1,15 +1,15 @@
-//! The bd commands that read and rewrite the commits ahead of the baseline, by their messages: the rewrites through
+//! The brd commands that read and rewrite the commits ahead of the baseline, by their messages: the rewrites through
 //! `history_rewrite::regroup` and the checks and plans before them. bd-cli parses the arguments and prints the outputs;
-//! the tests run bd through the whole Cli, with the fixtures of bd-cli
-//! - `rewrite`: `bd group`, `bd rename`, `bd restack` and `bd unstack`, and the sync after a rewrite
-//! - `reword_command`, `fold_command`, `move_hunk_command`, `park_command`: `bd reword`, `bd fold`, `bd move-hunk`,
-//!   `bd park` and `bd unpark`
-//! - `check_command`: `bd check`, the trial sync and builds of a plan
-//! - `suggest`: `bd suggest`, the clustering of commit-clustering checked by `bd check`
-//! - `commits`, `block_patch`, `symbol_stats`: `bd commits`, its patches and its symbol statistics
-//! - `describe`, `group_plan`: `bd describe`, and the plans and descriptions a rewrite reads
-//! - `mark_reviewed_command`: `bd mark-reviewed`, the reviewed pair of a branch (`review_plan::mark_reviewed`)
-//! - `review_plan_command`: `bd review-plan`, the plan of a review and the interdiff since the reviewed pair
+//! the tests run brd through the whole Cli, with the fixtures of bd-cli
+//! - `rewrite`: `brd group`, `brd rename`, `brd restack` and `brd unstack`, and the sync after a rewrite
+//! - `reword_command`, `fold_command`, `move_hunk_command`, `park_command`: `brd reword`, `brd fold`, `brd move-hunk`,
+//!   `brd park` and `brd unpark`
+//! - `check_command`: `brd check`, the trial sync and builds of a plan
+//! - `suggest`: `brd suggest`, the clustering of commit-clustering checked by `brd check`
+//! - `commits`, `block_patch`, `symbol_stats`: `brd commits`, its patches and its symbol statistics
+//! - `describe`, `group_plan`: `brd describe`, and the plans and descriptions a rewrite reads
+//! - `mark_reviewed_command`: `brd mark-reviewed`, the reviewed pair of a branch (`review_plan::mark_reviewed`)
+//! - `review_plan_command`: `brd review-plan`, the plan of a review and the interdiff since the reviewed pair
 //!   (`review_plan::review_plan_core`)
 
 pub mod block_patch;

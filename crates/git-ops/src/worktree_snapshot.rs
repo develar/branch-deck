@@ -301,7 +301,7 @@ struct WrittenTree {
 
 /// One `fast-import` of the commit on `head` whose tree is `base_tree` with `edits`, by `text`, dated as the committer
 /// of HEAD, its objects loose (`fastimport.unpackLimit` above any import, where git's 100 packs a wide change): a pack
-/// per snapshot would leave the repository a small pack per run, and 306 small packs made a warm `bd check` of idea-1
+/// per snapshot would leave the repository a small pack per run, and 306 small packs made a warm `brd check` of idea-1
 /// take 1.70 s instead of 1.53 s (`fastimport.unpackLimit=0` in docs/design/git-operations.md); a `gc` prunes the
 /// loose objects that no ref names. Then one ref transaction deletes its temporary ref, so no ref names the commit
 fn write_commit(git: &GitCommandExecutor, repo: &str, head: &Head, base_tree: &str, edits: &[TreeEdit<'_>], text: CommitText<'_>) -> Result<WrittenTree> {

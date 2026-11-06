@@ -118,7 +118,7 @@ export interface Branch {
   readonly errorDetails?: BranchError
   readonly latestCommitTime: number
   readonly summary: string
-  /** The title of the branch's description (`bd describe`), shown as written instead of the summary; null without one */
+  /** The title of the branch's description (`brd describe`), shown as written instead of the summary; null without one */
   readonly descriptionTitle: string | null
   /** The title split at the issue key it starts with, which a row that shows the key leaves out; null for none */
   readonly descriptionLead: IssueLead | null

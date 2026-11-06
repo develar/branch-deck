@@ -171,7 +171,7 @@ const STOP_WORDS: &[&str] = &[
   "your",
 ];
 
-/// The edges a plan joins its nodes by, all on; `bd review-plan --concern-edges` picks them for a measurement
+/// The edges a plan joins its nodes by, all on; `brd review-plan --concern-edges` picks them for a measurement
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConcernEdges {
   pub uses: bool,

@@ -24,7 +24,7 @@ pub(crate) struct Fixture {
   pub(crate) global_config: tempfile::NamedTempFile,
 }
 
-/// bd started in `cwd`, the pool in `home`, `global_config` its global git config: the environment of a `Fixture`, also
+/// brd started in `cwd`, the pool in `home`, `global_config` its global git config: the environment of a `Fixture`, also
 /// in a child process that has only its paths
 pub(crate) fn pool_environment(cwd: &Path, home: &Path, global_config: &Path) -> Environment {
   let mut environment = environment(cwd);
@@ -54,7 +54,7 @@ impl Fixture {
     }
   }
 
-  /// bd started in `cwd`, the pool in the fixture's home
+  /// brd started in `cwd`, the pool in the fixture's home
   pub(crate) fn environment(&self, cwd: &Path) -> Environment {
     pool_environment(cwd, self.home.path(), self.global_config.path())
   }
@@ -68,14 +68,14 @@ impl Fixture {
     run_json(&self.environment(cwd), args)
   }
 
-  /// `bd lease get <args>`, which must succeed
+  /// `brd lease get <args>`, which must succeed
   pub(crate) fn get(&self, args: &[&str]) -> Value {
     let (exit_code, output) = self.run(&[&["lease", "get"][..], args].concat());
     assert_eq!(exit_code, 0, "{output}");
     output
   }
 
-  /// `bd lease return` run inside the slot, which must succeed
+  /// `brd lease return` run inside the slot, which must succeed
   pub(crate) fn give_back(&self, path: &str) -> Value {
     let (exit_code, output) = self.run_in(Path::new(path), &["lease", "return"]);
     assert_eq!(exit_code, 0, "{output}");
@@ -110,7 +110,7 @@ pub(crate) fn path_of(output: &Value) -> String {
   output["path"].as_str().unwrap_or_else(|| panic!("no path: {output}")).to_string()
 }
 
-/// The `state` of each slot of `bd lease status`, by path
+/// The `state` of each slot of `brd lease status`, by path
 pub(crate) fn states(status: &Value) -> Vec<(String, String)> {
   status["slots"]
     .as_array()
@@ -602,7 +602,7 @@ pub(crate) fn commit_in(path: &str, subject: &str, file: &str) -> String {
   commit_content(path, subject, file, &format!("{subject}\n"))
 }
 
-/// A lease whose commits landed by `bd pick --follow`, on master with a peer commit, after which a peer rewrote master:
+/// A lease whose commits landed by `brd pick --follow`, on master with a peer commit, after which a peer rewrote master:
 /// the slot's HEAD is reachable from no branch. Returns the fixture and the slot
 fn followed_then_rewritten() -> (Fixture, String) {
   let fixture = Fixture::new();
@@ -651,7 +651,7 @@ pub(crate) fn proofs(landed: &Value) -> Vec<(String, String)> {
     .collect()
 }
 
-/// A commit of the slot landed on master with a conflict resolution, as the twin of `bd update`: the same identity, and
+/// A commit of the slot landed on master with a conflict resolution, as the twin of `brd update`: the same identity, and
 /// a change that holds every line of the commit and its fixup, with a line more. Its pick conflicts, its patch id
 /// differs, and the ladder proves nothing; the twin proves both
 #[test_log::test]
@@ -821,7 +821,7 @@ fn a_return_after_a_pick_that_rolled_back_refuses_the_commit() {
   assert_unlanded_after_a_move_taken_back("branch-deck: pick", "branch-deck: pick rolled back");
 }
 
-/// A session lands a commit with `bd pick --follow`, then fixes its message on the shared branch from its own worktree
+/// A session lands a commit with `brd pick --follow`, then fixes its message on the shared branch from its own worktree
 /// (`bd -C <shared checkout> reword`): the worktree needs nothing, its old tip is landed by content, a later pick
 /// lands only a new commit and moves the worktree, and the return passes
 #[test_log::test]
@@ -861,7 +861,7 @@ fn a_session_rewords_its_landed_commit_from_its_lease() {
   assert_eq!(returned.get("given_up"), None, "{returned}");
 }
 
-/// A session drops its own commit after the pick landed it: `bd drop` in the lease refuses it as `drop_in_home` and names
+/// A session drops its own commit after the pick landed it: `brd drop` in the lease refuses it as `drop_in_home` and names
 /// the two steps; the drop in the shared checkout takes it and its file out there, and the next pick lands nothing,
 /// moves the lease past it and lets the lease go back
 #[test_log::test]
@@ -1133,7 +1133,7 @@ fn a_get_stops_the_bazel_server_of_a_free_slot_and_leases_it() {
   assert_eq!(states(&fixture.status())[0], (first, "free".to_string()));
 }
 
-/// A process in the slot that runs in the process group of bd (the `jq` of `bd lease return | jq`, the `caffeinate` of
+/// A process in the slot that runs in the process group of bd (the `jq` of `brd lease return | jq`, the `caffeinate` of
 /// the agent) is of the session that returns the slot: it keeps no slot busy
 #[cfg(unix)]
 #[test_log::test]
@@ -1302,12 +1302,12 @@ impl ShrinkFixture {
     Path::new(slot).join("target/debug/build/git-ops/0123456789abcdef/fingerprint/dep")
   }
 
-  /// `bd lease get` on `volume`, each step recorded in `steps`
+  /// `brd lease get` on `volume`, each step recorded in `steps`
   fn get(&self, volume: Volume, steps: &std::sync::Mutex<Vec<GetStep>>) -> anyhow::Result<lease_pool::lease::LeaseGot> {
     self.get_reporting(volume, &|step| steps.lock().unwrap().push(step))
   }
 
-  /// `bd lease get` on `volume`, each step told to `progress`
+  /// `brd lease get` on `volume`, each step told to `progress`
   fn get_reporting(&self, volume: Volume, progress: &(dyn Fn(GetStep) + Sync)) -> anyhow::Result<lease_pool::lease::LeaseGot> {
     let environment = self.fixture.environment(self.fixture.repo.path());
     let context = LeaseContext::resolve(&environment, None).map_err(|error| anyhow::anyhow!("{}", error.message))?;
@@ -1349,7 +1349,7 @@ impl ShrinkFixture {
     }
   }
 
-  /// The output of `got` as bd prints it, checked against `bd schema`
+  /// The output of `got` as brd prints it, checked against `brd schema`
   fn printed(&self, got: &lease_pool::lease::LeaseGot) -> Value {
     let environment = self.fixture.environment(self.fixture.repo.path());
     let context = LeaseContext::resolve(&environment, None).unwrap();
@@ -1434,7 +1434,7 @@ fn a_get_below_the_minimum_free_space_deletes_the_build_output_of_the_free_slots
 }
 
 /// A free slot with a process in it stays as it is (`busy`, with the process), and so does one without clean rules: the
-/// shrink goes on to the next slot, here the one the get takes, and the answer names both, as bd prints it
+/// shrink goes on to the next slot, here the one the get takes, and the answer names both, as brd prints it
 #[cfg(unix)]
 #[test_log::test]
 fn a_shrink_passes_over_a_free_slot_with_a_process_in_it_and_one_without_rules() {
@@ -1549,7 +1549,7 @@ fn a_get_still_below_the_minimum_after_the_shrink_deletes_free_slots_below_the_l
   assert_eq!((&got.slot.path, got.free_bytes), (third, Some(113 * GIB)));
   assert_eq!(kinds(&steps)[..4], ["trim", "shrink", "evict", "reserve"]);
   assert_eq!(states(&shrink.fixture.status()), [(third.clone(), "ready".to_string())]);
-  // as bd prints it: the shrink of the three slots, and the eviction as `bd lease trim` prints its slots
+  // as brd prints it: the shrink of the three slots, and the eviction as `brd lease trim` prints its slots
   let output = shrink.printed(&got);
   assert_eq!(output["shrunk"]["slots"].as_array().map(Vec::len), Some(3), "{output}");
   let removed: Vec<&Value> = output["evicted"]["pools"][0]["removed"].as_array().unwrap().iter().map(|slot| &slot["path"]).collect();
@@ -1609,7 +1609,7 @@ fn a_get_still_below_the_minimum_after_the_shrink_and_the_eviction_refuses_and_n
 }
 
 /// The eviction keeps a free slot marked dirty, whose changes made without a lease may be their only copy, and one
-/// never returned, such as a worktree `bd lease adopt` kept where it was: with the get's next slot kept too, it deletes
+/// never returned, such as a worktree `brd lease adopt` kept where it was: with the get's next slot kept too, it deletes
 /// nothing here, and the get refuses
 #[test_log::test]
 fn the_eviction_keeps_dirty_and_never_returned_free_slots() {
@@ -1698,7 +1698,7 @@ fn two_leases_never_get_the_same_slot() {
 #[cfg(unix)]
 const HELD_GET_ENV: &str = "BD_HELD_GET_CHILD";
 
-/// The child of `no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`: a `bd lease get` of
+/// The child of `no_worktree_command_of_the_pool_runs_beside_the_registration_of_a_new_slot`: a `brd lease get` of
 /// another process, held at the `worktree add` of its new slot by the git `held_environment` wrote; does nothing in a
 /// normal run
 #[cfg(unix)]
@@ -1936,7 +1936,7 @@ fn the_seed_copies_the_included_ignored_files_and_the_return_removes_them() {
   assert!(!seeded.exists());
 }
 
-/// `bd lease adopt` adds a linked worktree of this repository where it is, and refuses the main worktree, a worktree
+/// `brd lease adopt` adds a linked worktree of this repository where it is, and refuses the main worktree, a worktree
 /// of another repository, one the pool holds, a dirty one and a busy one; the next get reuses the adopted slot
 #[test_log::test]
 fn adopt_adds_clean_linked_worktrees_and_refuses_the_rest() {
@@ -1977,7 +1977,7 @@ fn adopt_adds_clean_linked_worktrees_and_refuses_the_rest() {
   assert_eq!((path_of(&got), &got["reused"], &got["slot"]), (slot_path(&lane.path), &json!(true), &json!("lane")));
 }
 
-/// `bd lease adopt --move` moves a linked worktree into the pool directory with `git worktree move`: git knows the new
+/// `brd lease adopt --move` moves a linked worktree into the pool directory with `git worktree move`: git knows the new
 /// path, the old directory and its empty parent are gone, and the next get reuses the slot there
 #[test_log::test]
 fn adopt_with_move_moves_the_worktree_into_the_pool() {
@@ -1998,7 +1998,7 @@ fn adopt_with_move_moves_the_worktree_into_the_pool() {
   assert_eq!((path_of(&got), &got["reused"]), (path, &json!(true)));
 }
 
-/// `bd lease adopt --move` holds no pool lock across `git worktree move`, only the lock of the pool's `worktree`
+/// `brd lease adopt --move` holds no pool lock across `git worktree move`, only the lock of the pool's `worktree`
 /// commands: while the move is held, the state can be written at once, and the target path is `preparing` under an
 /// entry of the adopt, so no get takes it; once the move is done the entry is the free slot
 #[cfg(unix)]
@@ -2033,7 +2033,7 @@ fn git_path(path: &str) -> String {
   path.replace('\\', "/")
 }
 
-/// `bd lease status` reads the state file: the repository and the pool config, no `status` of any slot
+/// `brd lease status` reads the state file: the repository and the pool config, no `status` of any slot
 #[test_log::test]
 fn the_status_reads_the_state_without_a_git_status() {
   let fixture = Fixture::new();
@@ -2121,7 +2121,7 @@ fn a_get_removes_the_index_lock_a_killed_git_left_in_the_slot() {
   assert_eq!(slot_git(&path, &["rev-parse", "HEAD"]), head);
 }
 
-/// The outputs match `bd schema`, with their optional parts
+/// The outputs match `brd schema`, with their optional parts
 #[test_log::test]
 fn lease_outputs_match_the_schema() {
   let fixture = Fixture::new();
@@ -2161,7 +2161,7 @@ fn lease_outputs_match_the_schema() {
   assert_covered(&outputs["error"], &outputs["error"], &error, "error");
 }
 
-/// bd of the fixture in `cwd` with a git that holds its first command whose arguments match `pattern` (a `case`
+/// brd of the fixture in `cwd` with a git that holds its first command whose arguments match `pattern` (a `case`
 /// pattern of `" $* "`) until the test writes `<dir>/go`; `<dir>/held` tells it is held. It waits outside the slot, so
 /// the process scan of another command finds no process in it
 #[cfg(unix)]
@@ -2213,7 +2213,7 @@ pub(crate) fn trash_of_a_run(fixture: &Fixture, gone: bool) -> PathBuf {
   dir
 }
 
-/// `bd lease return` in `path`, held as `held_environment` holds it, while `during` runs; its exit code and output
+/// `brd lease return` in `path`, held as `held_environment` holds it, while `during` runs; its exit code and output
 #[cfg(unix)]
 fn return_held_while(fixture: &Fixture, path: &str, pattern: &str, during: impl FnOnce()) -> (i32, Value) {
   let dir = tempfile::tempdir().unwrap();
@@ -2314,7 +2314,7 @@ fn a_running_return_reserves_the_slot_against_a_get() {
   assert_eq!(states(&fixture.status()), [(slot_path(&path), "ready".to_string())]);
 }
 
-/// An agent leases a worktree and gives it back while another agent's `bd sync` of the repository is held in its
+/// An agent leases a worktree and gives it back while another agent's `brd sync` of the repository is held in its
 /// merges: a sync takes neither the repository lock nor the pool lock, so the get and the return end while that sync is
 /// still held, which then ends too
 #[cfg(unix)]

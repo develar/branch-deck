@@ -1,10 +1,10 @@
-//! `bd update` and `bd undo update:<id>..<id>`: the app's Update Project for agents (spec/cli/update.spec.md). The
+//! `brd update` and `brd undo update:<id>..<id>`: the app's Update Project for agents (spec/cli/update.spec.md). The
 //! fetch and the check (the replay, the resolution by words, the landed candidates) run first, without the repository
 //! lock; under it run only the witness that HEAD and the upstream did not move (else the check once more, under the
 //! lock), the local changes on the paths the update writes and the move, through the guarded working-tree update of
 //! `git_ops::update_branch`; what the update did and landed is read after the release. A conflict starts a resolve
 //! session (`--continue`, `--abort`, `--status`) under the lock: the rounds are resolved outside the working tree,
-//! which only the finish writes. A block changes nothing; bd never stashes. A run that writes is recorded in the
+//! which only the finish writes. A block changes nothing; brd never stashes. A run that writes is recorded in the
 //! operations registry of the repository before the fetch (`Intent::UpdateProject`, `bd_core::operation_record`)
 
 use bd_core::bd_command::shell_word;
@@ -127,7 +127,7 @@ pub enum SessionStateName {
   Applied,
 }
 
-/// `bd update`
+/// `brd update`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateOutput {
   pub schema: SchemaVersion,
@@ -139,7 +139,7 @@ pub struct UpdateOutput {
   pub upstream: String,
   /// `rebase` also for the finish of a resolve session; with --dry-run what the update would do. `conflict` (exit 1): a
   /// round of the resolve session is open; with --dry-run the update would conflict, nothing was changed. `pending`
-  /// (exit 1): every commit is resolved, `bd update --continue` finishes
+  /// (exit 1): every commit is resolved, `brd update --continue` finishes
   pub state: UpdateOutcome,
   pub dry_run: bool,
   /// When the baseline was fetched, Unix seconds, if known
@@ -155,14 +155,14 @@ pub struct UpdateOutput {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub replayed: Option<u32>,
   /// The local commits the update dropped, each with its `proof`: in the first output of a resolve session (and its
-  /// repeat by `bd update`), at the finish and after an update that applies at once; a round of --continue prints
+  /// repeat by `brd update`), at the finish and after an update that applies at once; a round of --continue prints
   /// `dropped_count` only
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub dropped: Vec<DroppedOutput>,
   /// How many local commits the update dropped (so far)
   #[serde(default, skip_serializing_if = "is_zero")]
   pub dropped_count: u32,
-  /// `update:<previous_head>..<head>` with full ids: `bd undo` moves the branch and the files back; omitted when
+  /// `update:<previous_head>..<head>` with full ids: `brd undo` moves the branch and the files back; omitted when
   /// nothing changed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
@@ -194,7 +194,7 @@ pub struct UpdateOutput {
   /// Why the user decides, one entry per decision
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub reasons: Vec<AskReason>,
-  /// After an update of a lease onto its home branch (`bd lease pick`): `bd lease pick`, which lands the commits once
+  /// After an update of a lease onto its home branch (`brd lease pick`): `brd lease pick`, which lands the commits once
   /// they build and pass their tests
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub next: Vec<String>,
@@ -272,7 +272,7 @@ pub struct UpdateSession {
   /// The conflicting files of the open round. Edit only the files at `edit`, never the same path in the working tree
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub files: Vec<SessionFile>,
-  /// `bd update --status`: the rounds resolved so far. A round prints only its own resolution (`resolutions` of the
+  /// `brd update --status`: the rounds resolved so far. A round prints only its own resolution (`resolutions` of the
   /// output), so a long session doesn't repeat every earlier round
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub resolutions: Vec<UpdateResolution>,
@@ -295,7 +295,7 @@ pub struct UpdateSession {
   /// each, `--landed <commit> --user` is the user's yes
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub landed_differs: Vec<LandedDiffersOutput>,
-  /// The command that continues, e.g. `bd -C /repo update --continue --round 2`; `--landed <commit>` in the round of a
+  /// The command that continues, e.g. `brd -C /repo update --continue --round 2`; `--landed <commit>` in the round of a
   /// commit whose twin the baseline has
   pub next: String,
 }
@@ -311,7 +311,7 @@ pub struct DroppedOutput {
   pub proof: DropProof,
 }
 
-/// How bd knows that a dropped local commit is not lost
+/// How brd knows that a dropped local commit is not lost
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DropProof {
@@ -360,7 +360,7 @@ pub struct PathLinesOutput {
   pub lines: Vec<String>,
 }
 
-/// The text after `<<<<<<<`, `|||||||` and `>>>>>>>` in the `edit` copies (the full ids bd passed to the merge)
+/// The text after `<<<<<<<`, `|||||||` and `>>>>>>>` in the `edit` copies (the full ids brd passed to the merge)
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct MarkerLabelsOutput {
   /// The new parent (`onto`)
@@ -465,13 +465,13 @@ pub struct ResolvedFile {
   pub dropped_commit_lines: Vec<String>,
 }
 
-/// `bd update --status`
+/// `brd update --status`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateStatusOutput {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// The session of this worktree, as a round of `bd update` prints it; absent without one
+  /// The session of this worktree, as a round of `brd update` prints it; absent without one
   #[serde(skip_serializing_if = "Option::is_none")]
   pub session: Option<UpdateSession>,
   /// The local commits the session dropped so far, each with its `proof`
@@ -489,7 +489,7 @@ pub struct UpdateStatusOutput {
 pub struct PendingUpdateOutput {
   /// The commit the index and the files are at
   pub files_at: String,
-  /// The command that lets them follow (any `bd update` or `bd undo` does it first)
+  /// The command that lets them follow (any `brd update` or `brd undo` does it first)
   pub next: String,
 }
 
@@ -501,13 +501,13 @@ pub struct SessionEntry {
   pub git_dir: String,
   pub state: SessionStateName,
   pub round: u32,
-  /// Its worktree is gone: `bd update --abort --worktree <worktree>` removes it
+  /// Its worktree is gone: `brd update --abort --worktree <worktree>` removes it
   pub orphaned: bool,
   /// The session of this worktree
   pub own: bool,
 }
 
-/// `bd update --abort`
+/// `brd update --abort`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UpdateAbortOutput {
   pub schema: SchemaVersion,
@@ -520,7 +520,7 @@ pub struct UpdateAbortOutput {
   pub round: u32,
 }
 
-/// What `bd update` prints: one of three objects
+/// What `brd update` prints: one of three objects
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum UpdateCommandOutput {
@@ -574,7 +574,7 @@ fn updated(context: &RepoContext, args: &UpdateArgs) -> Result<UpdateCommandOutp
   if args.force && !args.materialize && !args.abort {
     return Err(CliError::new(
       ErrorCode::InvalidArguments,
-      "--force is no flag of bd update: --overwrite-edited goes with --status --materialize, --allow-live-session with --abort --worktree",
+      "--force is no flag of brd update: --overwrite-edited goes with --status --materialize, --allow-live-session with --abort --worktree",
     ));
   }
   // the command an agent runs next: this binary in this repository, as the app's prompt names it
@@ -647,8 +647,8 @@ fn update_or_resolve(context: &RepoContext, options: UpdateOptions<'_>, dir: Opt
   }
 }
 
-/// The update of the lease of `context` onto `branch`, its home, without a fetch: what `bd lease pick` runs after its
-/// pick conflicted. A conflict opens a resolve session in the lease (`bd update --continue` goes on there); a replay
+/// The update of the lease of `context` onto `branch`, its home, without a fetch: what `brd lease pick` runs after its
+/// pick conflicted. A conflict opens a resolve session in the lease (`brd update --continue` goes on there); a replay
 /// that applies (the words resolved the conflict) moves the lease onto the tip of the branch
 pub fn update_lease_onto(context: &RepoContext, branch: &str) -> Result<UpdateOutput, CliError> {
   let options = UpdateOptions {
@@ -1311,7 +1311,7 @@ fn omitted(count: usize, shown: usize) -> u32 {
 }
 
 /// `uncommitted_overlap` with the paths, at most the first `MAX_BLOCKED_PATHS` of `count` (all of them when only one
-/// more, `list_cut::kept`): bd never stashes them, the user decides
+/// more, `list_cut::kept`): brd never stashes them, the user decides
 pub(crate) fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operation: &str) -> CliError {
   let mut error = CliError::new(
     ErrorCode::UncommittedOverlap,
@@ -1328,7 +1328,7 @@ pub(crate) fn uncommitted_overlap(mut paths: Vec<String>, count: usize, operatio
   error
 }
 
-/// `bd undo update:<previous head>..<new head>`; `None` for a token of another kind
+/// `brd undo update:<previous head>..<new head>`; `None` for a token of another kind
 pub fn undo_update(context: &RepoContext, token: &str) -> Option<Result<UndoneUpdateOutput, CliError>> {
   if !UpdateUndoToken::is_update_token(token) {
     return None;
@@ -1336,7 +1336,7 @@ pub fn undo_update(context: &RepoContext, token: &str) -> Option<Result<UndoneUp
   Some(undo_update_token(context, token))
 }
 
-/// What `bd undo` of an update token did
+/// What `brd undo` of an update token did
 pub struct UndoneUpdateOutput {
   pub head: String,
   pub undone: String,
@@ -1349,7 +1349,7 @@ fn undo_update_token(context: &RepoContext, text: &str) -> Result<UndoneUpdateOu
   let token = UpdateUndoToken::parse(text).ok_or_else(|| {
     CliError::new(
       ErrorCode::InvalidArguments,
-      format!("{text:?} is not an update token: update:<previous head>..<new head>, with the full ids bd update printed"),
+      format!("{text:?} is not an update token: update:<previous head>..<new head>, with the full ids brd update printed"),
     )
   })?;
   let UndoneUpdate {

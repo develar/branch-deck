@@ -86,7 +86,7 @@ test.describe("The toast of a landing", () => {
     syncAndWaitForBranches,
   }) => {
     const { repo, toast } = await mergeFeatureAuth(page, setupRepo, syncAndWaitForBranches, { otherProject: true })
-    // another repository is shown: the toast fetches the baseline of its own, while an agent's `bd update` fetches it
+    // another repository is shown: the toast fetches the baseline of its own, while an agent's `brd update` fetches it
     await switchRepository(page, OTHER_REPOSITORY)
     await repo.holdFetchLock(true)
     const executions = await recordCommand(page, "execute")
@@ -105,7 +105,7 @@ test.describe("The toast of a landing", () => {
 
   test("should say in the toast of a merge what a sync found landed after an update outside the app", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const { repo, toast } = await mergeFeatureAuth(page, setupRepo, syncAndWaitForBranches)
-    // `bd update` beside the app: the page learns it from the next sync
+    // `brd update` beside the app: the page learns it from the next sync
     await repo.updateOutsideTheApp()
     await syncAndWaitForBranches()
     // the landing of its branch, in place: the merge was its news

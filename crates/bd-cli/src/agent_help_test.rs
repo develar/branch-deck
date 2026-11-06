@@ -7,7 +7,7 @@ use domain_types::error::ErrorCode;
 use std::collections::{BTreeMap, BTreeSet};
 use test_utils::history::HistoryCommit;
 
-/// Options `bd help agent` leaves to `--help` (paging, tuning, rare variants), as `<command> --<option>`, or
+/// Options `brd help agent` leaves to `--help` (paging, tuning, rare variants), as `<command> --<option>`, or
 /// `--<option>` for a global one; `--verbose` is named by its short form `-v`
 const NOT_IN_AGENT_HELP: &[&str] = &[
   "--verbose",
@@ -56,7 +56,7 @@ fn options_of_commands() -> (BTreeSet<String>, BTreeMap<String, BTreeSet<String>
   (global, commands)
 }
 
-/// The commands the help names (`` `bd <command> ``, `` `bd lease get ``, after -C <dir> too), and each `--option` with
+/// The commands the help names (`` `brd <command> ``, `` `brd lease get ``, after -C <dir> too), and each `--option` with
 /// the command named last before it, `start` before the first (the command whose `--help` the text is); `--help`
 /// itself is no option of a command
 fn named_in<'a>(text: &'a str, start: Option<&'a str>, commands_of: &BTreeMap<String, BTreeSet<String>>) -> (BTreeSet<&'a str>, Vec<(Option<&'a str>, &'a str)>) {
@@ -67,7 +67,7 @@ fn named_in<'a>(text: &'a str, start: Option<&'a str>, commands_of: &BTreeMap<St
   let mut index = 0;
   while index < text.len() {
     let rest = &text[index..];
-    if let Some(after) = rest.strip_prefix("`bd ")
+    if let Some(after) = rest.strip_prefix("`brd ")
       && after.starts_with(|c: char| c.is_ascii_lowercase())
     {
       let first = word(after);
@@ -80,7 +80,7 @@ fn named_in<'a>(text: &'a str, start: Option<&'a str>, commands_of: &BTreeMap<St
       // a nested command names its parent too
       commands.insert(&after[..first]);
       commands.extend(command);
-      index += 4;
+      index += 5;
     } else if let Some(after) = rest.strip_prefix("--")
       && after.starts_with(|c: char| c.is_ascii_lowercase())
     {
@@ -99,7 +99,7 @@ fn named_in<'a>(text: &'a str, start: Option<&'a str>, commands_of: &BTreeMap<St
 #[test]
 fn agent_help_names_every_command_and_option_that_exists() {
   let (global, commands) = options_of_commands();
-  // `bd help update` holds the options of the session, `bd help worktrees` the work beside other sessions, the
+  // `brd help update` holds the options of the session, `brd help worktrees` the work beside other sessions, the
   // `--help` of a command its outputs and refusals; together the texts name everything
   let command_helps = command_helps();
   let texts = [(None, AGENT_HELP), (None, UPDATE_HELP), (None, WORKTREES_HELP)]
@@ -121,7 +121,7 @@ fn agent_help_names_every_command_and_option_that_exists() {
   }
   for (command, options) in &commands {
     if !named_commands.contains(command.as_str()) {
-      missing.push(format!("bd {command}"));
+      missing.push(format!("brd {command}"));
     }
     let named_as = SAME_OPTIONS_AS.iter().find(|(same, _)| same == command).map_or(command.as_str(), |(_, other)| other);
     for option in options {
@@ -132,24 +132,24 @@ fn agent_help_names_every_command_and_option_that_exists() {
   }
   assert!(
     missing.is_empty(),
-    "neither in `bd help agent`, `bd help update`, `bd help worktrees`, the `--help` of a command nor in NOT_IN_AGENT_HELP: {missing:?}"
+    "neither in `brd help agent`, `brd help update`, `brd help worktrees`, the `--help` of a command nor in NOT_IN_AGENT_HELP: {missing:?}"
   );
 
   // every command and option the help names exists, an option for the command it follows
   let stale: Vec<String> = named
     .iter()
     .filter(|(command, option)| !global.contains(*option) && command.is_none_or(|command| !commands.get(command).is_some_and(|options| options.contains(*option))))
-    .map(|(command, option)| format!("{} --{option}", command.unwrap_or("bd")))
+    .map(|(command, option)| format!("{} --{option}", command.unwrap_or("brd")))
     .chain(
       named_commands
         .iter()
         .filter(|command| !commands.contains_key(**command))
-        .map(|command| format!("bd {command}")),
+        .map(|command| format!("brd {command}")),
     )
     .collect();
   assert!(
     stale.is_empty(),
-    "`bd help agent`, `bd help update`, `bd help worktrees` or the `--help` of a command names what doesn't exist: {stale:?}"
+    "`brd help agent`, `brd help update`, `brd help worktrees` or the `--help` of a command names what doesn't exist: {stale:?}"
   );
 
   let wrong: Vec<&&str> = NOT_IN_AGENT_HELP
@@ -296,7 +296,7 @@ fn every_refusal_is_in_the_help_of_its_command() {
         "help agent" => AGENT_HELP,
         "help update" => UPDATE_HELP,
         "help worktrees" => WORKTREES_HELP,
-        command => command_helps.get(command).unwrap_or_else(|| panic!("`bd {command} --help` has no outputs and refusals")),
+        command => command_helps.get(command).unwrap_or_else(|| panic!("`brd {command} --help` has no outputs and refusals")),
       };
       if !text.contains(&format!("`{name}`")) {
         missing.push(format!("{name} in {place}"));
@@ -306,7 +306,7 @@ fn every_refusal_is_in_the_help_of_its_command() {
   assert!(missing.is_empty(), "refusals that their help doesn't name: {missing:?}");
 }
 
-/// `bd help <topic>` prints its text; an unknown topic names every topic
+/// `brd help <topic>` prints its text; an unknown topic names every topic
 #[test]
 fn every_help_topic_prints_its_text() {
   let directory = tempfile::tempdir().unwrap();
@@ -320,24 +320,24 @@ fn every_help_topic_prints_its_text() {
   let mut out = Vec::new();
   assert_eq!(crate::run_with(["help", "push"].map(std::ffi::OsString::from), &environment, &mut out), 0);
   let push_help = String::from_utf8(out).unwrap();
-  assert!(push_help.contains("Usage: bd push") && push_help.contains("`push_too_large`"), "{push_help}");
+  assert!(push_help.contains("Usage: brd push") && push_help.contains("`push_too_large`"), "{push_help}");
   let (exit_code, output) = crate::fixture_test::run_json(&environment, &["help", "lanes"]);
   assert_eq!(exit_code, 2, "{output}");
-  assert!(output["error"]["message"].as_str().unwrap().contains("`bd help worktrees`"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("`brd help worktrees`"), "{output}");
 }
 
-/// `bd help worktrees` puts the prefix at commit time first, lands commits only with `bd pick`, and checks by content
+/// `brd help worktrees` puts the prefix at commit time first, lands commits only with `brd pick`, and checks by content
 #[test]
 fn the_worktrees_help_writes_the_prefix_first_and_checks_by_content() {
   let prefix = WORKTREES_HELP.find("write the prefix\n   when you commit, never later").unwrap();
-  let pick = WORKTREES_HELP.find("`bd pick --from <your worktree> --follow`").unwrap();
+  let pick = WORKTREES_HELP.find("`brd pick --from <your worktree> --follow`").unwrap();
   assert!(prefix < pick, "{WORKTREES_HELP}");
   for needed in [
     "never with `git cherry-pick`",
     "--dry-run",
     "Never compare by date",
     "branch-deck: pick",
-    "`bd workspace` says `lease.on`",
+    "`brd workspace` says `lease.on`",
   ] {
     assert!(WORKTREES_HELP.contains(needed), "{needed}");
   }
@@ -405,33 +405,33 @@ fn read_only_commands_write_no_ref_config_index_or_working_tree() {
 
 /// The command of `allowed-tools` is a YAML string, also when its shell quoting holds ` #`, a quote or a backslash
 #[test]
-fn the_skill_allows_every_bd_command_as_named() {
-  assert!(skill_text("bd").contains("\nallowed-tools: \"Bash(bd:*)\"\n---\n"));
-  assert!(skill_text("'/Apps/Branch #Deck.app/bd' cli").contains("\nallowed-tools: \"Bash('/Apps/Branch #Deck.app/bd' cli:*)\"\n"));
-  assert!(skill_text(r#"& 'C:\Apps\a\"b\bd.exe'"#).contains(r#"allowed-tools: "Bash(& 'C:\\Apps\\a\\\"b\\bd.exe':*)""#));
+fn the_skill_allows_every_brd_command_as_named() {
+  assert!(skill_text("brd").contains("\nallowed-tools: \"Bash(brd:*)\"\n---\n"));
+  assert!(skill_text("'/Apps/Branch #Deck.app/brd' cli").contains("\nallowed-tools: \"Bash('/Apps/Branch #Deck.app/brd' cli:*)\"\n"));
+  assert!(skill_text(r#"& 'C:\Apps\a\"b\brd.exe'"#).contains(r#"allowed-tools: "Bash(& 'C:\\Apps\\a\\\"b\\brd.exe':*)""#));
 }
 
 /// The description says when to load the skill, first of all before the first edit, within the 1024 characters of the
 /// Agent Skills format, where an agent truncates or refuses a longer one
 #[test]
 fn the_skill_description_starts_with_the_first_edit_and_fits_the_limit() {
-  let skill = skill_text("bd");
+  let skill = skill_text("brd");
   let description = skill.lines().find_map(|line| line.strip_prefix("description: ")).unwrap();
   assert!(
-    description.starts_with("Use before the first edit or commit in a Git repository: `bd workspace`"),
+    description.starts_with("Use before the first edit or commit in a Git repository: `brd workspace`"),
     "{description}"
   );
   assert!(description.chars().count() <= 1024, "{} characters", description.chars().count());
 }
 
 /// A repository needs no instructions of its own for the isolation: the skill says that a lease is the only worktree
-/// of the agent's own, also when bd fails, how a sandbox writes the lease, how Claude Code enters it, and how an agent
+/// of the agent's own, also when brd fails, how a sandbox writes the lease, how Claude Code enters it, and how an agent
 /// works there when its shell does not keep the current directory. The rule of the lease is the same for every agent:
 /// it names none, and a note per agent follows it
 #[test]
-fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() {
-  let skill = skill_text("bd");
-  assert!(skill.contains("never `git worktree add` or a clone for it on your own initiative, also not\n  when a bd command fails"));
+fn the_skill_keeps_the_agent_to_its_lease_also_when_brd_fails_and_in_a_sandbox() {
+  let skill = skill_text("brd");
+  assert!(skill.contains("never `git worktree add` or a clone for it on your own initiative, also not\n  when a brd command fails"));
   assert!(skill.contains("ask for write\n  access to exactly `path` (`request_permissions`), never the pool or full access. Refused, return the untouched lease."));
   // `EnterWorktree` asks on every lease, since the pool is outside `.claude/worktrees/`; a `cd` into a working
   // directory asks nothing, so it comes first
@@ -447,7 +447,7 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() 
   let rule_start = skill.find("- `lease.on`: work in a worktree of your own.").unwrap();
   let rule_end = rule_start + 2 + skill[rule_start + 2..].find("\n- ").unwrap();
   let rule = &skill[rule_start..rule_end];
-  assert!(rule.contains("`bd -C <path> lease pick`"), "{rule}");
+  assert!(rule.contains("`brd -C <path> lease pick`"), "{rule}");
   for agent_word in ["Claude", "Codex", "Junie", "EnterWorktree", "request_permissions"] {
     assert!(!rule.contains(agent_word), "the rule of the lease names `{agent_word}`: {rule}");
   }
@@ -456,7 +456,7 @@ fn the_skill_keeps_the_agent_to_its_lease_also_when_bd_fails_and_in_a_sandbox() 
 
 #[test]
 fn the_skill_keeps_the_agents_plan_in_the_shared_checkout() {
-  let skill = skill_text("bd");
+  let skill = skill_text("brd");
   assert!(skill.contains(
     "Your own files ignored by git and kept by your harness in the shared checkout (a plan,\n  notes) are not `local_changes`; editing them there is allowed: read and update them at the path where the harness\n  wrote them, never copy them into the lease or commit them."
   ));
@@ -464,11 +464,11 @@ fn the_skill_keeps_the_agents_plan_in_the_shared_checkout() {
 }
 
 /// Below the commit subject and its settings the skill says how to write the body a review reads
-/// (docs/guide/commit-bodies.md): the lead, code names in backticks that `bd review-plan` resolves, `Look closely:`, the
+/// (docs/guide/commit-bodies.md): the lead, code names in backticks that `brd review-plan` resolves, `Look closely:`, the
 /// labels of the verification and the trailers last, in five lines
 #[test]
 fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject() {
-  let skill = skill_text("bd");
+  let skill = skill_text("brd");
   let subject = skill.find("- `subject_branch.on`: start each commit subject with `(branch) `").unwrap();
   let start = skill.find("- The body is what a review reads first").unwrap();
   let end = start + 2 + skill[start + 2..].find("\n- ").unwrap();
@@ -478,7 +478,7 @@ fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject(
   for words in [
     "a lead of 1–3 sentences with the new\n  state and why",
     "code names in backticks as the code spells them (`Owner.member`,\n  a path)",
-    "`bd review-plan` lists those that resolve nothing (`target: null`)",
+    "`brd review-plan` lists those that resolve nothing (`target: null`)",
     "`Look closely:` where the reviewer must decide",
     "`Tests:`, `Evidence:`, `Left out:` each right before its list",
     "the trailers last",
@@ -487,34 +487,34 @@ fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject(
   }
 }
 
-/// `bd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
-/// master, which is `bd land` (spec/cli/agent-cli.spec.md, `bd push`)
+/// `brd push` pushes a virtual branch to its own remote branch: with push rights an agent must not read it as a push into
+/// master, which is `brd land` (spec/cli/agent-cli.spec.md, `brd push`)
 #[test]
-fn the_help_of_bd_push_says_it_pushes_the_virtual_branches_never_into_master() {
-  assert!(AGENT_HELP.contains("4. Push the branches, never into master (`bd land`)."));
-  assert!(PUSH_HELP.starts_with("`bd push` pushes virtual branches, each to its own remote branch (the app's Push Branch), never into master: `bd land`\nlands a branch there."));
+fn the_help_of_brd_push_says_it_pushes_the_virtual_branches_never_into_master() {
+  assert!(AGENT_HELP.contains("4. Push the branches, never into master (`brd land`)."));
+  assert!(PUSH_HELP.starts_with("`brd push` pushes virtual branches, each to its own remote branch (the app's Push Branch), never into master: `brd land`\nlands a branch there."));
   let command = Cli::command();
   let about = command.find_subcommand("push").and_then(clap::Command::get_about).map_or_default(ToString::to_string);
-  assert!(about.contains("never into master: `bd land`"), "{about}");
+  assert!(about.contains("never into master: `brd land`"), "{about}");
 }
 
-/// `bd help agent` is what every agent reads before grouping or pushing, so it stays a core of at most 10 KB; the
+/// `brd help agent` is what every agent reads before grouping or pushing, so it stays a core of at most 10 KB; the
 /// fields of an output go into the `--help` of its command. A rule that waits for the user never leaves it: an agent
 /// acts on the error it gets and seldom reads a `--help` first
 #[test]
 fn the_agent_help_is_a_short_core_with_every_guard() {
   assert!(
     AGENT_HELP.len() <= 10_240,
-    "`bd help agent` has {} bytes: move the fields of an output into the `after_long_help` of its command",
+    "`brd help agent` has {} bytes: move the fields of an output into the `after_long_help` of its command",
     AGENT_HELP.len()
   );
   for guard in [
     "never raise `branchdeck.pushSizeLimit` yourself",
     "never push, start or unpark a parked branch on your own",
-    "dropped_commits`; `bd push --force --expect-remote <remote.head>` for\n  that one branch only once the user approved",
+    "dropped_commits`; `brd push --force --expect-remote <remote.head>` for\n  that one branch only once the user approved",
     "`--without-approvals` only\n  when the user says so",
     "only when the user says it is a false alarm",
-    "never pass `bd lease get --min-free 0` on your own",
+    "never pass `brd lease get --min-free 0` on your own",
     "each `error.next_steps` entry with\n  `needs_approval`",
     "Never stash, reset, check out or commit the\n  user's files",
   ] {
@@ -523,8 +523,8 @@ fn the_agent_help_is_a_short_core_with_every_guard() {
   // the core sends the agent to the `--help` of each command that has its outputs and refusals there
   for (command, _) in command_helps() {
     assert!(
-      AGENT_HELP.contains(&format!("`bd {command} --help`")),
-      "`bd {command} --help` is not named by `bd help agent`"
+      AGENT_HELP.contains(&format!("`brd {command} --help`")),
+      "`brd {command} --help` is not named by `brd help agent`"
     );
   }
 }

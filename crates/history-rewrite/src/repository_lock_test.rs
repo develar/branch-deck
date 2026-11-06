@@ -18,7 +18,7 @@ use test_log::test;
 use test_utils::git_test_utils::TestRepo;
 
 /// The command line the record of another process names: an agent's push
-const AGENT_PUSH: &str = "bd push auth";
+const AGENT_PUSH: &str = "brd push auth";
 
 /// How many operations of this process wait in the line of the lock file `path`
 fn waiting(path: &Path) -> usize {
@@ -166,13 +166,13 @@ fn only_another_process_refuses_a_bounded_wait() {
     .and_then(|locked| locked.holder.clone())
     .expect("the holder is named");
   assert_eq!((holder.command.as_str(), holder.pid), (AGENT_PUSH, std::process::id()));
-  assert!(error.to_string().starts_with("`bd push auth` (pid "), "{error}");
+  assert!(error.to_string().starts_with("`brd push auth` (pid "), "{error}");
 
-  let error = lock_repository_as_another_process(dir.path(), "bd sync").unwrap_err();
+  let error = lock_repository_as_another_process(dir.path(), "brd sync").unwrap_err();
   assert!(error.downcast_ref::<RepositoryLocked>().is_some(), "{error:#}");
   drop(other);
   let held = lock_repository_in(dir.path(), Duration::ZERO, &|| {}).unwrap();
-  assert!(lock_repository_as_another_process(dir.path(), "bd sync").is_err(), "this process holds it");
+  assert!(lock_repository_as_another_process(dir.path(), "brd sync").is_err(), "this process holds it");
   drop(held);
 }
 
@@ -320,7 +320,7 @@ fn a_move_whose_files_follow_waits_for_the_index_lock_before_the_repository_lock
       while !log.text().contains("the index lock of another process is there: the move waits for it") {
         std::thread::sleep(Duration::from_millis(10));
       }
-      let taken = lock_repository_as_another_process(&git_dir, "bd group").is_ok();
+      let taken = lock_repository_as_another_process(&git_dir, "brd group").is_ok();
       // closed first: Windows keeps the name of a removed file while it is open
       drop(held);
       std::fs::remove_file(&index_lock).unwrap();
@@ -345,7 +345,7 @@ fn a_witness_that_missed_computes_once_more_without_the_lock() {
   let moved = "0000000000000000000000000000000000000000";
   let free_meanwhile = std::cell::RefCell::new(Vec::new());
   let computed_on = |at: &str| {
-    free_meanwhile.borrow_mut().push(lock_repository_as_another_process(&git_dir, "bd group").is_ok());
+    free_meanwhile.borrow_mut().push(lock_repository_as_another_process(&git_dir, "brd group").is_ok());
     anyhow::Ok(fixture.computed(2, at))
   };
 

@@ -189,7 +189,7 @@ reports in it and closes it once merged.
   failed robot carries its builds, problems and failed tests ([Safe Push Failure Prompt](safe-push-failure-prompt.spec.md)).
 - Other push modes than Safe Push (rebase with autosquash) and Dry Run, cherry-picks into other branches: the web UI
   and the CLI do them. An emergency profile is offered only by a Safe Push without review ([below](#safe-push-without-review)),
-  told in red; `bd safe-push` never takes one.
+  told in red; `brd safe-push` never takes one.
 - Knowing before a start which profile skips the code-owner review: Patronus tells it only of an emergency profile
   (`isEmergency`) and, once a robot runs, in its options (`patronus.review.approval.check.skip`).
 
@@ -212,7 +212,7 @@ reports in it and closes it once merged.
 - The robots are `GET /app/rest/v1/robots?owner=me&repository=<name>&start=<time>`, newest first. A robot belongs to the
   virtual branch whose pushed name, `{prefix}/virtual/{name}`, is its source branch; a robot on a temporary ref (a Safe
   Push of the IDE or the CLI) belongs to the branch whose local or pushed tip it took. A running robot wins over a
-  finished one, then the newest. `bd` and the session of the repository match them with one rule
+  finished one, then the newest. `brd` and the session of the repository match them with one rule
   (`domain_policy::robot_match`: one index per list of robots); the session names the robot of each row in its view
   (`robotId` of the Patronus part), so the page matches none itself.
   [@test] ../../crates/patronus/src/service_test.rs (`lists_the_robots_newest_first_and_names_the_virtual_branch`)
@@ -245,7 +245,7 @@ reports in it and closes it once merged.
   every other list asks only for the robots started since 2 minutes before the previous list started. A full list asked again within 10 s (a second window of the
   repository) is answered from the last one, unless the robots changed since (a start, a restart, a cancel, a poll
   that saw a change). The list of a check before an action of the app's page (its push, a restart, a cancel) is asked
-  anew every time, never answered from a kept one: a robot the IDE or `bd` started since the page's list must hold, and
+  anew every time, never answered from a kept one: a robot the IDE or `brd` started since the page's list must hold, and
   the list it fetched answers the page's next list. A start of a Safe Push or a Dry Run asks none of its own (C2): it
   is an operation of the session (`execute`), whose plan, witness, push and start read the robots the session holds,
   and whose robot goes into them at once.
@@ -319,7 +319,7 @@ reports in it and closes it once merged.
   a running check whose build waits for an agent or for its next attempt), whether one probably hangs; a robot
   without a running or waiting check has no progress, as before its checks run. The answer is kept for 60 s per
   robot, as a build's is. The endpoint is behind the `robot.progress.enabled` flag of Patronus: a 404 means it is off
-  for the user, then the builds are asked as above and the endpoint rests for 10 minutes. `bd robot` reads the setting
+  for the user, then the builds are asked as above and the endpoint rests for 10 minutes. `brd robot` reads the setting
   from the app's settings file ([Agent CLI](../../docs/contributing/agent-cli.md)).
   [@test] ../../crates/patronus/src/actions_test.rs (`with_the_new_api_the_progress_of_a_running_robot_is_one_request_kept_for_a_minute`, `while_patronus_has_no_progress_of_robots_the_builds_are_asked_and_the_endpoint_rests`, `the_progress_patronus_folded_reads_as_the_one_from_the_builds`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`the_details_a_window_demands_ask_the_folded_progress_only_with_the_new_api_of_the_settings`)
@@ -328,14 +328,14 @@ reports in it and closes it once merged.
   20 s, actions and merge requests 30 s) and the user agent
   `Branch Deck/<version> (<os>; <arch>)`, so Patronus can tell its load apart. `SAFEPUSH_PATRONUS_URL` (as for the
   CLI) points it at a staging instance.
-- `bd status` (`landed_by`, [Agent CLI](../cli/agent-cli.spec.md#bd-status)) asks Patronus by the same rules,
+- `brd status` (`landed_by`, [Agent CLI](../cli/agent-cli.spec.md#bd-status)) asks Patronus by the same rules,
   though every call is a process of its own: the user's robots are kept in the `patronus_robots` store of the object
   cache (`robot_list.rs`), keyed by a hash of the server, the token, the Space repository and the branch prefix. A
   kept list holds for a minute while a robot of it runs and for five minutes while none does (only a running robot can
   merge); then one list of the robots started since 2 minutes before the kept list was asked and one poll of the
   running ones it knows (`fetch-updates`) are merged into it; the first list asks for the last 7 days. A rejected
   token is not sent again until it changes (another key); after a failure nothing is asked for 1 s, doubled up to 10
-  minutes, reset by the next answer, and the kept robots stay. `bd push`, `bd safe-push` and `bd robot` decide on the
+  minutes, reset by the next answer, and the kept robots stay. `brd push`, `brd safe-push` and `brd robot` decide on the
   robots: they list them fresh and keep the list. `--no-cache` asks every time.
   [@test] ../../crates/bd-remote/src/robot_list_test.rs (`the_robots_are_kept_while_they_hold_then_the_new_ones_are_listed_and_the_running_ones_polled`, `a_rejected_token_and_a_failure_hold_the_requests_and_keep_the_robots`, `status_asks_patronus_once_while_the_kept_robots_hold`)
 - An answer patches only the robots it changed, so the page keeps the objects of the others and only the chips of
@@ -578,7 +578,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   ancestor (side-fix built on bazel waits for the Safe Push of runtime, built on bazel too); and while a robot that
   pushes runs on a branch built on it (`getLandingSpan`, the `span` of the view) whose commit has commits of the branch, which lands
   them ("A Safe Push of oauth is running: it lands 1 commit of login with it", the reason before the ancestor's; what
-  a robot lands, [below](#pushing-into-a-branch-whose-safe-push-runs)); a dry run waits for neither. `bd safe-push` asks
+  a robot lands, [below](#pushing-into-a-branch-whose-safe-push-runs)); a dry run waits for neither. `brd safe-push` asks
   the same rule (`repository_model::patronus_view`, its `start` refusal, `took_as_is` with the remote facts of an
   up-to-date remote status).
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on`)
@@ -602,12 +602,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should wait for the Safe Push of an ancestor, which lands its commits`)
   [@test] ../../tests/e2e/stack-island/stack-island.spec.ts (`should say what the stack holds in the header, each state a way to its first branch`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
-- One decision then says what the start does, Rust's (`domain_policy::land::decide`, the rule `bd safe-push` decides
+- One decision then says what the start does, Rust's (`domain_policy::land::decide`, the rule `brd safe-push` decides
   by) over the facts the session holds: the table and the robots, the merge profiles, the remote statuses, the holds,
   the pull requests, the review as Patronus answered it for the branch as it is (a stale answer is not acted on), the
   rules of the repository, the landing needs. A start and its popover ask the session for the plan of their intent
   (`prepare` of a `Land`, `operations::land`: the decision with the profiles it offers and the fingerprint of what it
-  was decided on; a read: no lock, no effect), the popover again with each patch of the view; `bd safe-push` plans its
+  was decided on; a read: no lock, no effect), the popover again with each patch of the view; `brd safe-push` plans its
   start with the same function over what it read. The view carries the decisions of the default starts of every branch
   and whole stack (`RepositoryView.lands`: a Safe Push with the default profile, a Dry Run), which the actions and the
   first check of a click read.
@@ -632,7 +632,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   the push, then the robot, from the pull request or through the API with the profile.
 - The page runs the plan it showed (`execute` of its intent on the plan's fingerprint, every confirmation of it
   accepted, `startPlanned` of `src/hooks/useSafePush.ts`): one operation of the session of the repository
-  (`operations::engine::execute_land`, the run `bd safe-push` runs, `operations::land_execute`), admitted over the
+  (`operations::engine::execute_land`, the run `brd safe-push` runs, `operations::land_execute`), admitted over the
   operations that run there (a second start of the same subject joins it, one that lands a part of it waits for it),
   the plan prepared again from the facts now; a fingerprint or a confirmation the plan no longer has refuses it as
   `plan_changed` before any effect, in the words of the start ("What the Safe Push of auth was decided on changed
@@ -756,7 +756,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   ask for the review again", and "Push Branch" alone is offered (the action of the `info` toast, the button of the popover).
   The toast of a start that can't run is of the robots of its subject: a later start takes its place, and its Push
   closes it when pressed (a step of the start, which the row shows, and no Push is left behind that pushes nothing).
-  `bd safe-push` reads the same rules with the same function before the same start, refuses
+  `brd safe-push` reads the same rules with the same function before the same start, refuses
   `push_dismisses_approvals` where the app refuses, says the dismissed approvals Patronus doesn't count in `rules`, and
   refuses rules GitHub doesn't answer with `rules_unknown` unless `--allow-unknown-rules`
   ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
@@ -771,7 +771,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/repository-model/src/pull_request_facts_test.rs (`the_rules_are_of_the_bases_of_the_approved_open_pull_requests`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should warn before a push that dismisses the approvals of the pull request`)
 - git merges a branch that uses a name only another branch adds, and the robot's build fails (the robots of
-  2026-10-17 and 2026-10-21). So no start runs past the landing gate, the rule of `bd safe-push` in Rust
+  2026-10-17 and 2026-10-21). So no start runs past the landing gate, the rule of `brd safe-push` in Rust
   (`trial_check::landing_gate`): a trial check of what lands, with the proven dangling references and, with
   `branchdeck.symbols on`, the missing declarations, the uses by a commit of what lands of a name that a commit outside
   it adds, which no merged Safe Push landed (the commits the repository view names landed, on the robots of the
@@ -781,7 +781,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   `dangling_reference`, with every refusal and its fix, `ErrorDetails::Landing`): the error toast "Cannot start the
   Safe Push of the whole lane-run stack" says "“Show each scenario” of lane-run uses Stills (lane/src/BuildLog.kt:3),
   which “Name lossy stills” of stills-codec adds: git merges it, but the build of the whole lane-run stack fails. Stack
-  lane-run on stills-codec to land it too." (one more refusal: "One more name breaks it too: bd check lists them."),
+  lane-run on stills-codec to land it too." (one more refusal: "One more name breaks it too: brd check lists them."),
   with the fix as its action, "Stack lane-run on stills-codec", a restack of the root of what lands, so the next start
   lands that branch too, and "Start Anyway" below it, the same start with the override of what refused it (a name the
   user knows is a false alarm), planned again. A commit unassigned, stacked branches off or a restack that would close
@@ -814,7 +814,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once
   ("Rebase … onto master is impossible"). A branch is built on the base of the checked out branch, not on the newest
   target, and the target moves every minute. So the engine checks the rebase before the effects of a start, on its
-  own thread, outside the repository lock (`operations::land_session`, the check of `bd safe-push`,
+  own thread, outside the repository lock (`operations::land_session`, the check of `brd safe-push`,
   `sync_core::target_conflict`). It fetches only the target's remote branch, as Update Project does, then replays what
   lands onto its tip as a plain `git rebase` does, with no resolution by words, because Patronus can't resolve by words.
   Meanwhile the slot button says "Checking…". A conflict starts nothing and pushes nothing (`target_conflict`, the
@@ -839,13 +839,13 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   policy `NEVER`), so a restart takes the newest commit of the branch; the request names the profile chosen
   (`mergeProfileId`, null for the default checks), the mode (`REBASE_AUTOSQUASH`, `DRY_RUN`) and the Space merge request
   whose approvals count (`spaceReview`). The robot goes into the session at once and is polled.
-- `execute` decides the start again in Rust before any effect, by the rules of `bd safe-push`, over the facts of the
-  session, never the page's: what its plan refuses refuses it, in the words of `bd` (`start_refusal_text`): a parked
+- `execute` decides the start again in Rust before any effect, by the rules of `brd safe-push`, over the facts of the
+  session, never the page's: what its plan refuses refuses it, in the words of `brd` (`start_refusal_text`): a parked
   branch, one built on parked and a whole stack with a parked member ("Nothing was pushed or started: login is parked:
   IJPL-1"), a branch or a whole stack merged Safe Pushes landed whole, a branch the sync did not build and a stack
   branch that is not built or conflicts as one branch, then the robot part of the repository view ("A Safe Push of the
   last commit is running", "A Safe Push of login is running: wait until it merges"; a Dry Run waits only for a robot on
-  the last commit). A start that raced with another one (the IDE, `bd`) or came by IPC is refused the same way, and a
+  the last commit). A start that raced with another one (the IDE, `brd`) or came by IPC is refused the same way, and a
   refused one comments on no pull request either.
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_start_its_plan_refuses_is_refused_before_patronus_or_github_is_asked`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`)
@@ -881,7 +881,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   (its robot lands it as it took it: a push into it would fail it at the end) and past one that landed (a merged Safe
   Push landed it whole, or the fetched baseline has every commit of it), as Push Stack of its row covers them; one
   whose push drops remote commits refuses the start (the `push` effect of `domain_policy::land::decide`, one rule,
-  `domain_policy::push::start_push`, which `bd safe-push` pushes too, and no other branch). Every surface asks the start of the branch
+  `domain_policy::push::start_push`, which `brd safe-push` pushes too, and no other branch). Every surface asks the start of the branch
   itself, its popover at its own row: its slot, "⋯", S, the preview footer and the review window. The header of a stack
   island asks the start of the whole stack, one robot of its stack branch, its popover at the header ([Stack
   Island](stack-island.spec.md#header), [Whole Stack](whole-stack.spec.md#the-safe-push-of-the-whole-stack-in-the-app));
@@ -963,14 +963,14 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start a Safe Push from the pull request with a /patronus merge comment`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should not offer a Safe Push of a draft pull request: its step opens it, a dry run runs`)
 - The bot answers the comment with a reaction: 👍 started, 👎 not, with a comment starting `⚠️` that says why. The
-  engine of the start reads it (`operations::robot_start`, the same for `bd safe-push`): right after the comment, then
+  engine of the start reads it (`operations::robot_start`, the same for `brd safe-push`): right after the comment, then
   every 3 s on the clock of the session (`domain_policy::refresh`, never a timer of the page) for up to a minute counted
   from the comment (the checks of the start before it take none of it), the reactions of its comment (`GET
   repos/<owner>/<name>/issues/comments/<id>`, conditional: a poll that sees no change costs no rate limit); after 👎 the
   first later `⚠️` comment of a bot is the reason, looked for once more if it isn't there yet; after 👍 an incremental
   list (`since` shortly before the comment) finds the robot of the pull request (`githubPrUrl`), which goes into the
   session and is polled: of that pull request, a Dry Run for a Dry Run and a Safe Push for a Safe Push, none the
-  session listed finished before the comment nor the one the start replaced, the newest (`comment_robot`, as `bd
+  session listed finished before the comment nor the one the start replaced, the newest (`comment_robot`, as `brd
   safe-push` matches it), so a Dry Run of #7 canceled a minute before is never the new robot. A refusal is the error
   toast "Cannot start the Safe Push of auth" with the bot's reason; no answer within a minute is a start whose answer
   was lost (below): the warning toast "Cannot tell whether the Safe Push of auth started", "Patronus did not answer the
@@ -1036,10 +1036,10 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [Landed Commits](../repository/landed-commits.spec.md#after-the-update), several merges in one), or "master is
   already up to date with origin/master"; a run that ended otherwise (a conflict, whose dialog says it, an error toast,
   the fetch of a repository not shown) closes it. A landing of its branches that a sync found after an update
-  elsewhere (`bd update`, the IDE) says itself in place: "auth landed in origin/master" / "Found by a sync", the words
+  elsewhere (`brd update`, the IDE) says itself in place: "auth landed in origin/master" / "Found by a sync", the words
   of its Activity entry; one that came before the toast showed (it waits for the focus) is said at once. Activity
   keeps both entries, the merge and the landing.
-  [@test] ../../src/lib/landing-toast.test.ts (`is one toast from the merge to the landing: Update Project, Updating… while the update runs, then what the update landed in place`, `says in place what a sync found landed after an update elsewhere (bd update, the IDE)`, `closes after an update that ended without an outcome of its own: the dialog of the conflict says it`, `shows the landing at once when an update elsewhere landed it before the toast showed: the toast waited for the focus`)
+  [@test] ../../src/lib/landing-toast.test.ts (`is one toast from the merge to the landing: Update Project, Updating… while the update runs, then what the update landed in place`, `says in place what a sync found landed after an update elsewhere (brd update, the IDE)`, `closes after an update that ended without an outcome of its own: the dialog of the conflict says it`, `shows the landing at once when an update elsewhere landed it before the toast showed: the toast waited for the focus`)
   [@test] ../../src/stores/patronus.test.ts (`takes the place of the toast of the robot's start: one toast of the robot`)
   [@test] ../../src/stores/update-project.test.ts (`takes the place of the toasts of the merges of its repository it brought in: what landed, or up to date`)
   [@test] ../../tests/e2e/update-project/landing-toast.spec.ts (`should turn the toast of a merge into what the update landed, in place, when its Update Project is pressed`, `should turn the toast of a merge into what the update landed, in place, when the update starts from the header`, `should say in the toast of a merge what a sync found landed after an update outside the app`)
@@ -1053,7 +1053,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   gets no second comment, a merged one can't be closed), and the toast and Activity say it ("Safe Push · closes the
   pull request of auth: it landed with oauth", "closes the pull requests of 6 branches: they landed with the whole
   stack"). One rule decides which, in Rust (`domain_policy::landed::pull_requests_to_close`, D7), for the app and
-  `bd robot` (`closes`, which `bd` lists and never closes): by content, the branches the robot landed whole besides its
+  `brd robot` (`closes`, which `brd` lists and never closes): by content, the branches the robot landed whole besides its
   own, as the Patronus view of the robots it merged in names them (`landedByRobot`: while the robot ran on the branch,
   the stack branch, as it is, its tip or the same commits rebuilt on a newer baseline, or a commit of it the branch built
   new ones on since; after a change below its commit by the commits it tested), so a branch with commits added after the
@@ -1094,7 +1094,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
 - A change below the commit the robot took (a new commit or an amend of a branch it is built on, a reword; for the
   whole stack any change of a branch of it) gives the branches new copies, so the hashes no longer tell what landed:
   the repository view asks by content (`robot_landings_of_grouped` of `crates/sync-core/src/robot_landing.rs`, the
-  same for `bd`, [Agent CLI](../cli/agent-cli.spec.md#bd-status)): the robot's tested commits (the same commit, a
+  same for `brd`, [Agent CLI](../cli/agent-cli.spec.md#bd-status)): the robot's tested commits (the same commit, a
   patch-equivalent copy, or a copy with the same changes on a newer base, as the robot commit map compares them)
   against each branch as the table has it. A branch whose oldest
   commits the robot tested and whose other commits were added after them landed, those commits the only work left:
@@ -1197,12 +1197,12 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   of the target branch, PAT-A-109): the problem "Changes require review approval". The approvals count only in the
   review linked to the robot: the pull request whose comment started it, else the Space merge request of the start. A
   dry run is not checked.
-- Patronus is the only judge of whose approvals count; the app and `bd` ask it and render its answer
+- Patronus is the only judge of whose approvals count; the app and `brd` ask it and render its answer
   ([Git Operations](../../docs/design/git-operations.md#patronus-review-pre-check)).
 - A Safe Push checks the review before the start (never a dry run, never for the chip) with the readiness the session
   of the repository reads ([Next Step](next-step.spec.md#the-readiness-store): what a surface needs at once in a call
   of its own, the rest a queue of at most 4 at a time after the answers the object cache keeps), with the core
-  `bd safe-push` shares (`remote_facts::review_readiness`): the commits of the branches at the tips of the session's
+  `brd safe-push` shares (`remote_facts::review_readiness`): the commits of the branches at the tips of the session's
   view (an answer is keyed by its branch and tip), from one `git log --topo-order` of all the branches of a call (a
   stacked branch shares its parents' commits; 500 commits or more of a branch skip its check, as the IDE does), their
   changed paths from the `commit_files` store of the object cache (one `diff-tree --stdin` for the commits it misses; a
@@ -1237,7 +1237,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   (`approvalsNotEvaluated`), and the robot decides.
   [@test] ../../crates/patronus/src/review_readiness_test.rs (`an_answer_without_the_evaluation_is_certain_only_without_approvals`)
 - The pre-check is the heaviest call of the API: its answer is kept on disk, in the `review_answer.v1` store of the
-  object cache the app and `bd` share, keyed by a hash of what Patronus decides on: the Patronus server and token, the
+  object cache the app and `brd` share, keyed by a hash of what Patronus decides on: the Patronus server and token, the
   Space repository, the target, the sorted changed paths, and with a pull request its number, its author and its
   reviews (login, state, request). A sync onto a new baseline keeps the key; a new review changes it, and Patronus is
   asked once. An answer with the evaluation of the pull request holds 24 hours; one without it 2 minutes while
@@ -1257,7 +1257,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/patronus/src/review_test.rs (`names_the_missing_approvals_and_checks_again_with_the_merge_request`)
   [@test] ../../crates/patronus/src/review_test.rs (`a_required_review_is_asked_again_on_a_recheck`)
   [@test] ../../crates/patronus/src/review_test.rs (`an_unavailable_review_check_is_not_asked_again_by_itself`)
-- `bd safe-push` checks the same review before a Safe Push, always asked again (the answer is kept for the app), and
+- `brd safe-push` checks the same review before a Safe Push, always asked again (the answer is kept for the app), and
   `missing` refuses its start (`approvals_missing`) unless `--without-approvals`: an agent never sends a robot that
   fails for them. `unknown` lets it start, as the robot decides. `unavailable` (the pre-check failed) is no answer: it
   refuses the start as `review_unknown` until the user says to start anyway (`--allow-unknown-review`, the decision's
@@ -1266,7 +1266,7 @@ Push it cancels, approvals nobody can judge yet), and says it in a popover at th
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`patronus_judges_the_approvals_of_the_pull_request`, `a_review_patronus_cannot_answer_refuses_the_safe_push_unless_allowed`)
 - Space merge requests are deprecated: the approvals go into the GitHub pull request of the branch, and Branch Deck
   never creates a merge request. One Patronus finds open still counts: the start links it.
-- Where the approvals a start misses count is one rule of the app and `bd` (`domain_policy::review::review_state`): the
+- Where the approvals a start misses count is one rule of the app and `brd` (`domain_policy::review::review_state`): the
   pull request the robot starts from, else the GitHub pull request the branch doesn't have yet; a repository only on
   Space is read once there, whatever reason the answer gives: the merge request Patronus found open, else nowhere known
   (its GitHub repository unknown). No answer is pending, never missing.
@@ -1415,7 +1415,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   with the warning triangle: "Emergency skips all checks of the Safe Push, not only the code-owner review: Patronus
   pushes into the target without testing it." The start is the REST start, announced and recorded in Activity as any;
   a profile that checks the review fails it before any build, told as [failed](#failed) with the profile named. Once a
-  pull request is open or the approvals are no longer missing, the popover is the usual one. `bd safe-push` decides the
+  pull request is open or the approvals are no longer missing, the popover is the usual one. `brd safe-push` decides the
   same: a start through the API with a profile known to skip the review (`--profile`, or the last robot's) starts
   without the approvals, its `review.skipped_by` `profile` ([Agent CLI](../cli/agent-cli.spec.md#bd-safe-push)).
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_start_offers_the_profiles_of_its_mode_and_without_approvals_the_emergency_ones_and_a_skipping_default`)
@@ -1533,19 +1533,19 @@ explicit choice of the user, offered only where the approvals count in a pull re
   fails it at the end ("branch was modified"). A dry run and a canceling robot hold nothing. The Safe Push of the whole
   stack (on its stack branch) holds every branch of the stack its commit has: "A Safe Push of the whole air stack is
   running: it lands 1 commit of auth with it" ([Whole Stack](whole-stack.spec.md#the-whole-stack-in-the-app)). The
-  reason counts the commits of the branch the robot lands once that is told, as `bd` does. A branch a merged Safe Push
+  reason counts the commits of the branch the robot lands once that is told, as `brd` does. A branch a merged Safe Push
   landed whole ([Merged](#merged)), the branch it ran on included, is held too, before any other hold, until the update
   archives it: "Landed in master with oauth: nothing of it is left to push", "Merged by Patronus: nothing of it is left
   to push"; one with commits added after the landed ones is not: they are work for the remote. A landed branch is only
   left out of the pushes of a stack: the branches built on it push without it (Push with Children of a landed root,
   [Stacked Branches](stacked-branches.spec.md#pull-requests)), while a running Safe Push holds every push of its stack.
-  The hold is a rule of Rust, one for the app and `bd` (`domain_policy::holds::branch_hold`, the view's
+  The hold is a rule of Rust, one for the app and `brd` (`domain_policy::holds::branch_hold`, the view's
   `landing.hold`): a landing that left nothing, else the branch's own running Safe Push, else the first running Safe
   Push that lands it; the page only words it (`src/presenters/reasons.ts`).
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_branch_is_held_by_what_landed_it_whole_then_its_own_safe_push_then_one_that_lands_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - The stack branch of a whole stack ([Whole Stack](whole-stack.spec.md)) is held as a branch is, by one rule of Rust
-  for the app and `bd push --with-children` (`domain_policy::holds::stack_branch_hold`, the view's `landing.hold` of
+  for the app and `brd push --with-children` (`domain_policy::holds::stack_branch_hold`, the view's `landing.hold` of
   the stack): a parked member keeps it local ("Holds parked login: land the stack in pieces"); then merged Safe
   Pushes, of pieces or of the whole stack, that landed every branch of the stack whole, which says who landed them,
   each robot once, in the order they merged ("Landed in master with deploy and side-test: nothing of it is left to
@@ -1556,7 +1556,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/domain-policy/src/holds_test.rs (`a_stack_branch_is_held_by_a_parked_member_then_landed_members_then_its_robot_then_no_build`, `every_member_landed_by_the_robot_of_the_whole_stack_is_its_own_landing`)
   [@test] ../../src/stores/patronus.test.ts (`holds the stack branch once merged Safe Pushes landed every branch of the whole stack, and says who landed them`)
   [@test] ../../src/presenters/reasons.test.ts (`says that nothing is left to push of a stack branch merged Safe Pushes landed, and nothing for no hold`)
-- The app and `bd` decide what the robots land, landed and hold with one rule over the branch table of the last sync
+- The app and `brd` decide what the robots land, landed and hold with one rule over the branch table of the last sync
   (`repository_model::facts::derive_patronus`, [Session facts](../../docs/design/git-operations.md#session-facts)):
   the session of the repository derives it again when its table committed, its robots changed or a push moved a
   remote branch, in the blocking pool, and sends it as the part `patronus` of its view; until Patronus answered and
@@ -1573,7 +1573,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
     on it lands it, then that a robot lands an ancestor (`domain_policy::land::start_refusal`, the view's
     `landing.start`); a Dry Run says the first two, then, while its start pushes, that a running Safe Push of a branch
     built on it lands the branch: its push would fail that Safe Push at the end, as any push into what a running Safe
-    Push lands (`landing.dryRun`, D15: `bd safe-push --mode dry-run` refuses it too, `robot_running`);
+    Push lands (`landing.dryRun`, D15: `brd safe-push --mode dry-run` refuses it too, `robot_running`);
   - the push an action needs (a pull request, a review request, a start) is refused, before it is made, by a branch of
     its chain up to the first held ancestor, past one that landed (a merged Safe Push landed it whole, or the fetched
     baseline has every commit of it, as the decision of a start passes it), that the sync did not build or whose push
@@ -1631,18 +1631,18 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should open and restart the robot from the description of the preview's push, which says why it can't push`)
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`, `push_with_children_leaves_out_what_asks_first_is_held_or_landed`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should offer no push: it won't land, and the menu says why`)
-- A push that raced with a start (the IDE, `bd`, another window) goes to Rust, which reads the user's robots now
+- A push that raced with a start (the IDE, `brd`, another window) goes to Rust, which reads the user's robots now
   (below): still running, it pushes nothing and says why ("Cannot push branch auth", with "Open in Patronus" of the robot the
   view says holds it); finished meanwhile, it pushes. A branch a merged Safe Push landed is refused by the plan of the
   push (the hold `landed`): the robot finished, its commits are in the target. Nothing asks: no dialog.
   [@test] ../../src/lib/push-run.test.ts (`is refused in the words of its blocker, and the toast opens the Safe Push that holds the branch`)
   [@test] ../../crates/test-server/src/remote_fixtures_test.rs (`a_push_into_a_branch_whose_safe_push_runs_is_refused_before_git_pushes`)
 - The app's push itself (`execute` of the intent `Push`, of a branch alone and of a stack, the E2E server's route of
-  it) checks the same in Rust before it pushes, by the rules of `bd push` (the plan of the push, `derive::alone_push_of`
+  it) checks the same in Rust before it pushes, by the rules of `brd push` (the plan of the push, `derive::alone_push_of`
   and `domain_policy::push::push_plan` over the holds of `push_guard::guard_facts`, one sequence of both hosts,
   `operations::push::execute_push`): it reads the user's robots first (one full list asked as it starts, while it waits
   for the rewrites before it and the running sync, never one kept for the page, a background request: none off Space, without a token, while Patronus fails or its requests back
-  off, as `bd push` reads its holds; none for unapplied branches alone, on which no Safe Push runs; no network request
+  off, as `brd push` reads its holds; none for unapplied branches alone, on which no Safe Push runs; no network request
   runs under the repository lock), then under the lock refuses a branch the last sync has no row of ("… is no branch of the last
   sync"), a branch a merged Safe Push landed whole ("… merged into master with its Safe Push (…): nothing of it is left
   to push"), a branch whose own Safe Push runs, one a Safe Push of a branch built on it or of its whole stack lands,
@@ -1650,7 +1650,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   `built` (a sync since the page's decision left it conflicted or stale): "Nothing was pushed: …", shown in the error
   toast of the push ("Cannot push branch auth"). The robots are the ones Rust read for the push, never the page's and never a
   list kept before it: a robot the page canceled before its restart is canceling and holds nothing, a robot that
-  finished holds nothing, and a robot the IDE or `bd` started since the page's list holds. A push raced with a start,
+  finished holds nothing, and a robot the IDE or `brd` started since the page's list holds. A push raced with a start,
   or one that came by IPC without the page's checks, pushes nothing then.
   [@test] ../../crates/patronus/src/service_test.rs (`the_checks_ask_patronus_every_time_and_see_a_robot_started_elsewhere`, `the_checks_send_nothing_while_the_requests_back_off`)
   [@test] ../../crates/operations/src/push_test.rs (`the_push_of_an_unapplied_branch_reads_no_robots`)
@@ -1673,9 +1673,9 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/operations/src/push_test.rs (`a_push_that_sends_holds_no_lock_and_sends_the_commit_it_froze`)
   [@test] ../../crates/sync-core/src/push_test.rs (`a_prepared_push_sends_the_commit_it_was_prepared_for`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should start the Safe Pushes of two branches pressed one after the other, side by side`)
-- While another holder has the repository lock (`bd pick --follow` of an agent for 48 s, a rewrite of the app), the
+- While another holder has the repository lock (`brd pick --follow` of an agent for 48 s, a rewrite of the app), the
   push must wait as long as the holder lives, never refused after 10 s, and say whom it waits for: the step of the
-  Safe Push and the push button show "Waiting…", their name and hover "Waiting for `bd pick` (pid 4242, for 12 s)",
+  Safe Push and the push button show "Waiting…", their name and hover "Waiting for `brd pick` (pid 4242, for 12 s)",
   updated about once a second, in every window (the step of the operation in the view names the holder,
   `WaitingForLock`), also for a start that waits behind another start of the app in the app's line; once the holder
   releases the lock, the push goes. Only a lock that no record names a live holder of (a holder that writes none)
@@ -1684,7 +1684,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../crates/operations/src/push_test.rs (`a_push_waits_while_the_holder_of_the_lock_lives_and_stops_when_told`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`the_wait_for_a_live_holder_names_it_ends_when_canceled_and_refuses_an_unnamed_one`)
   [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`every_wait_of_this_process_names_the_other_process_that_holds_the_lock`)
-  [@test] ../../src/presenters/lock-wait.test.ts (`says whom an operation waits for as the rewrites of the app say it: bd by its command line, the app by its name`)
+  [@test] ../../src/presenters/lock-wait.test.ts (`says whom an operation waits for as the rewrites of the app say it: brd by its command line, the app by its name`)
   [@test] ../../src/presenters/lock-wait.test.ts (`reads whom an operation of the view waits for from its step, and nothing of another step`)
   [@test] ../../src/lib/transfer-progress.test.ts (`names the holder of the repository lock the push waits for, without a percent`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should wait for another holder of the repository lock as long as it lives, and then start`)
@@ -1699,17 +1699,17 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should stop the wait of a Safe Push for another holder of the repository lock with Stop Waiting beside its step, nothing pushed or started`)
   [@test] ../../tests/e2e/repository/repository-lock.spec.ts (`should say whom a push waits for in the hover of its button, whose Stop Waiting pushes nothing`)
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should run two Safe Pushes and a move started while another process holds the repository lock once it released it`)
-- A Safe Push, a Dry Run or a push that another process of the repository runs (an agent's `bd safe-push auth`, in this
+- A Safe Push, a Dry Run or a push that another process of the repository runs (an agent's `brd safe-push auth`, in this
   worktree or another one under the same branch prefix) must show on its row in every window while it runs: the slot
-  of the row busy with "bd: Safe Push of auth…", its hover naming the process ("`bd` (pid 4242) runs the Safe Push of
+  of the row busy with "brd: Safe Push of auth…", its hover naming the process ("`brd` (pid 4242) runs the Safe Push of
   auth, which holds what it needs until it ends"). S, a click and the menu say why the start can't start in an info
   toast ("Safe Push of auth can't start" with those words) and open no popover; the push of the branch, which needs
-  what it holds, is disabled with it before Rust is asked (`Busy`: "bd: Safe Push of auth…" on its item and its
+  what it holds, is disabled with it before Rust is asked (`Busy`: "brd: Safe Push of auth…" on its item and its
   button, P says it in an info toast), and a push or a start of the app that reaches Rust all the same is refused as
-  `busy` before anything runs, its toast naming it ("Cannot push branch auth: `bd` (pid 4242) has run the Safe Push of auth
+  `busy` before anything runs, its toast naming it ("Cannot push branch auth: `brd` (pid 4242) has run the Safe Push of auth
   for 12 s"); another branch pushes and starts beside it. Once the other process
   ended (its record left the operations registry of the repository), the row offers the start again and it starts once.
-  The other way round, `bd safe-push auth` beside the app's Safe Push of auth is `busy` naming the app's operation.
+  The other way round, `brd safe-push auth` beside the app's Safe Push of auth is `busy` naming the app's operation.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`)
   [@test] ../../crates/operations/src/registry_watch_test.rs (`a_window_shows_the_operations_another_process_runs_under_its_prefix_while_it_watches`)
@@ -1726,8 +1726,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   between its push and its start: the row of every window shows "Start Unknown" in its slot ("Cannot tell whether the
   Safe Push of auth started: its answer was lost. It holds until Patronus lists its robot, or until Forget This Start;
   Patronus may still run it"), with "Open in Patronus" ("Open Pull Request #7" for a comment) and "Forget This Start"
-  beside it; S says it can't start, and a start of `bd` or the app that needs what it holds is `busy` naming it
-  ("Cannot tell whether the Safe Push of auth that `bd` (pid 4242) sent started", `bd operation forget <op>`).
+  beside it; S says it can't start, and a start of `brd` or the app that needs what it holds is `busy` naming it
+  ("Cannot tell whether the Safe Push of auth that `brd` (pid 4242) sent started", `brd operation forget <op>`).
   A read of Patronus settles it: at an admission it holds back, and after each list of the robots of the session. Its
   robot is one of the user's robots of its source ref in its mode started since it was sent (on its commit when
   Patronus names one), or of its pull request; found, it is started (the admission is refused as `plan_changed`, the
@@ -1740,7 +1740,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   starts of the prefix, since the oldest), and no list kept from before hides the robot it finds. A comment is settled
   by the reply of the bot to it (found by its text among the comments of its pull request since it was sent when its
   post lost its answer): accepted started, rejected or never posted failed. Forget This Start (and
-  `bd operation forget`) takes the record out without asking Patronus: the toast "Forgot the start of auth" says
+  `brd operation forget`) takes the record out without asking Patronus: the toast "Forgot the start of auth" says
   Patronus may still run it.
   [@test] ../../crates/patronus/src/actions_test.rs (`a_start_whose_answer_was_lost_is_lost_and_sent_once`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_lists_its_robot`)
@@ -1761,8 +1761,8 @@ explicit choice of the user, offered only where the approvals count in a pull re
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should open the pull request of a comment start whose answer was lost`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`a_list_the_service_kept_from_before_a_lost_start_settled_never_proves_it_absent`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`the_lost_starts_of_a_prefix_settle_by_one_list_since_the_oldest`)
-- After a mutation of `bd` (an agent's `bd group`, `bd push`), the session a window shows must sync once what a sync
-  reads changed, without a focus: `bd` touched the stamp of the repository, which the window watches.
+- After a mutation of `brd` (an agent's `brd group`, `brd push`), the session a window shows must sync once what a sync
+  reads changed, without a focus: `brd` touched the stamp of the repository, which the window watches.
   [@test] ../../crates/operations/src/registry_watch_test.rs (`a_stamp_of_bd_syncs_the_session_a_window_shows`)
   [@test] ../../crates/repository-model/src/sync_scheduler_test.rs (`a_stamp_of_bd_runs_only_when_the_inputs_changed_as_a_focus`)
   [@test] ../../tests/e2e/operations/foreign-operation.spec.ts (`should sync when bd touched the stamp of the repository after a mutation, without a focus`)
@@ -1798,7 +1798,7 @@ explicit choice of the user, offered only where the approvals count in a pull re
   Push is canceled: the push restarts it."). With nothing left to push it is restarted at once, and the toast says that
   instead ("The Safe Push restarted on it.") with "Open in Patronus".
   [@test] ../../tests/e2e/patronus/patronus-actions.spec.ts (`should restart a robot canceled for a push the remote refused once the toast pushes`)
-- `bd push` holds the same branches ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
+- `brd push` holds the same branches ([Agent CLI](../cli/agent-cli.spec.md#bd-push)).
 
 ### Branch preview
 

@@ -21,7 +21,7 @@
 //!   (`clear`)
 //! - `reconcile`: what a start whose answer was lost did, read of Patronus and GitHub, at an admission it holds back
 //!   (`admit_settled`) and after a list of the robots of a session; settled, its record leaves the registry
-//! - `forget`: a start whose answer was lost forgotten (`Intent::ForgetStart`, `bd operation forget`): its record leaves
+//! - `forget`: a start whose answer was lost forgotten (`Intent::ForgetStart`, `brd operation forget`): its record leaves
 //!   the registry, Patronus may still run it
 //! - `engine`: the frame of every family: admitted, the body of the family runs and ends the operation with its answer;
 //!   joined, the answer of the operation it joined; `prepare` and `execute` by the family of the intent; the start of
@@ -40,7 +40,7 @@
 //! - `land_execute`: the run of a start, one for the app and `bd` (`execute`): the plan prepared again, the cheap
 //!   witness, the lock only for the full witness and the freeze of the push, then the retargets, the cancel, the push,
 //!   the late witness and the start, each effect with its status in the outcome; `StartHost` is where its facts live;
-//!   `dry_run`, what the remote would answer the push of a plan (`bd push --dry-run`)
+//!   `dry_run`, what the remote would answer the push of a plan (`brd push --dry-run`)
 //! - `land_session`: the `StartHost` of the app and the E2E server, the session of the repository (`SessionStart`), and
 //!   what a start of theirs runs on (`session_start`)
 //! - `robot_start`: the start of the robot through the API, or as a `/patronus` comment whose reply is read on the
@@ -49,7 +49,7 @@
 //!   full and its commits and leases are fixed, the network push after it (`send`, once more over a remote that moved
 //!   without commits a branch lacks); the intent `Push` of a branch alone, of a stack (`domain_policy::push::push_plan`),
 //!   up to a commit, of an unapplied branch and of the stack branch of a whole stack; the plans of several as one push
-//!   (`push_together`, `bd push`)
+//!   (`push_together`, `brd push`)
 //! - `robot`: the restart of a robot of the user, with its push first while the branch has work the remote lacks, run as
 //!   a start runs, and its cancel (`cancel`: one that finished is as it ended, the cancel of a start too)
 //! - `pull_request`: the writes of pull requests an operation makes: the retarget into the target, a step of a start and

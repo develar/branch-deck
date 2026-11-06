@@ -284,7 +284,7 @@ pub async fn execute_land(registry: &Registry, key: &SessionKey, land: Land, acc
 }
 
 /// The plan pushes the copy of its subject into the target, or GitHub merges its pull request: no robot of Patronus
-/// starts (`bd land` too)
+/// starts (`brd land` too)
 #[must_use]
 pub fn pushes_into_target(plan: &Plan) -> bool {
   plan.effects.iter().any(|effect| {
@@ -362,11 +362,11 @@ fn pick_request(intent: &Intent) -> OperationRequest {
 /// operations registry is the view's and the journal's, the engine of the app has no run of it
 pub(crate) fn runs_only_in_bd(intent: &Intent) -> ApiError {
   let what = match intent {
-    Intent::Rewrite(rewrite) if matches!(**rewrite, RewriteIntent::Group { .. }) => "the regroup of a plan (`bd group`)",
-    Intent::Rewrite(_) => "the move of a hunk (`bd move-hunk`)",
-    _ => "a pick of commits (`bd pick`)",
+    Intent::Rewrite(rewrite) if matches!(**rewrite, RewriteIntent::Group { .. }) => "the regroup of a plan (`brd group`)",
+    Intent::Rewrite(_) => "the move of a hunk (`brd move-hunk`)",
+    _ => "a pick of commits (`brd pick`)",
   };
-  ApiError::new(ErrorCode::InvalidArguments, format!("Only bd runs {what}: the app shows its record and runs none"))
+  ApiError::new(ErrorCode::InvalidArguments, format!("Only brd runs {what}: the app shows its record and runs none"))
 }
 
 /// What a start of `subject` reserves: the branches its plan lands, the refs its push writes, the robot it cancels

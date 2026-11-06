@@ -1,151 +1,151 @@
-/// What the reading commands write, for `bd --help` and `bd help agent`; a macro, so that `concat!` takes it
+/// What the reading commands write, for `brd --help` and `brd help agent`; a macro, so that `concat!` takes it
 macro_rules! read_only {
   () => {
-    "Read only: `bd status`, `bd commits`, `bd suggest`, `bd check`, `bd robot`, `bd robot-stats`, `bd schema`,
-`bd version`, `bd describe <branch>` without a setter, `bd update --status` without
---materialize, `bd lease status`, `bd workspace`, and
-`bd group`, `bd rename`, `bd restack`, `bd unstack`, `bd stack-together`, `bd update` (also with its --continue), `bd pick`, `bd fold`,
-`bd drop`, `bd unapply`, `bd reapply`, `bd move-hunk` and `bd reword` with --dry-run
+    "Read only: `brd status`, `brd commits`, `brd suggest`, `brd check`, `brd robot`, `brd robot-stats`, `brd schema`,
+`brd version`, `brd describe <branch>` without a setter, `brd update --status` without
+--materialize, `brd lease status`, `brd workspace`, and
+`brd group`, `brd rename`, `brd restack`, `brd unstack`, `brd stack-together`, `brd update` (also with its --continue), `brd pick`, `brd fold`,
+`brd drop`, `brd unapply`, `brd reapply`, `brd move-hunk` and `brd reword` with --dry-run
 write no ref, config, index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the
-object cache (none with --no-cache); `bd check --build` runs its command in a temporary copy of each tree.
-`bd push --dry-run`, `bd safe-push --dry-run` and `bd request-review --dry-run` sync first."
+object cache (none with --no-cache); `brd check --build` runs its command in a temporary copy of each tree.
+`brd push --dry-run`, `brd safe-push --dry-run` and `brd request-review --dry-run` sync first."
   };
 }
 
-/// The read-only line of `bd --help`
+/// The read-only line of `brd --help`
 pub const READ_ONLY: &str = read_only!();
 
-/// `bd help agent`: the rules and the workflow of an agent that groups commits into virtual branches
+/// `brd help agent`: the rules and the workflow of an agent that groups commits into virtual branches
 /// (docs/contributing/agent-cli.md), a core of at most 10 KB: every rule that waits for the user stays here, the fields
 /// of an output and the other refusals are in the `--help` of its command (`after_long_help`). The first line names the
 /// version (`version::VERSION`). `agent_help_test.rs` checks it against the commands and options
 pub const AGENT_HELP: &str = concat!(
-  "bd ",
+  "brd ",
   env!("BD_VERSION"),
   ": Branch Deck for agents. JSON on stdout, one object per run (each has \"schema\": 2 and \"operation_id\"); logs on stderr
-(-v for debug). `bd <command> --help` says what a command prints and what each of its refusals asks.
+(-v for debug). `brd <command> --help` says what a command prints and what each of its refusals asks.
 
 Branch Deck groups commits ahead of the baseline by `(name)`, else issue group, else issue key, into
 `{prefix}/virtual/{name}`; sync never touches the working tree. Stacks (`git config branchdeck.stacks true`) name a
 parent in `(parent/leaf)` or `refs/branch-deck/stack-parents` with `(leaf)`; the leaf names the branch.
 
 Rules
-- Ask the user first, and run only what the user approved: a push (`bd push`, also --force and --restart-running), a
-  Safe Push or a Patronus Dry Run (`bd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
-  --allow-missing and --create-pull-request), `bd request-review`, a `gh pr create` that bd prints, `bd park`,
-  `bd unpark`, `bd unapply`, `bd reapply`, and any change of a commit that another session made, a `bd reword` of its
-  message too. Show what bd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask.
-- A branch `parked` in `bd status` stays local, and so do a branch built on it (`with` names the parked one) and the
-  stack that holds it. `bd park <branch> --note '<why>'` and `bd unpark <branch>` only when the user asks (no rewrite;
+- Ask the user first, and run only what the user approved: a push (`brd push`, also --force and --restart-running), a
+  Safe Push or a Patronus Dry Run (`brd safe-push`, also --cancel-running, --without-approvals, --allow-dangling,
+  --allow-missing and --create-pull-request), `brd request-review`, a `gh pr create` that brd prints, `brd park`,
+  `brd unpark`, `brd unapply`, `brd reapply`, and any change of a commit that another session made, a `brd reword` of its
+  message too. Show what brd printed (`lands`, `review`, `dropped_commits`, the plan) when you ask.
+- A branch `parked` in `brd status` stays local, and so do a branch built on it (`with` names the parked one) and the
+  stack that holds it. `brd park <branch> --note '<why>'` and `brd unpark <branch>` only when the user asks (no rewrite;
   `idle_parked` lists the lines of branches without commits here).
-- `bd unapply <branch>` (`--dry-run`, `--expect-head <id>`) takes a branch and its files out of the checked out
-  branch, kept as `{prefix}/unapplied/{name}` (`unapplied` of `bd status`); `bd reapply <name>` (`--dry-run`,
-  `--expect-head <id>`) puts it back on top; `bd undo <undo_token>` takes either back. Only when the user asks. `bd push` and `bd safe-push`
-  refuse an unapplied name (`unapplied`); `bd push --unapplied <name>` keeps a copy on the remote when the user asks.
+- `brd unapply <branch>` (`--dry-run`, `--expect-head <id>`) takes a branch and its files out of the checked out
+  branch, kept as `{prefix}/unapplied/{name}` (`unapplied` of `brd status`); `brd reapply <name>` (`--dry-run`,
+  `--expect-head <id>`) puts it back on top; `brd undo <undo_token>` takes either back. Only when the user asks. `brd push` and `brd safe-push`
+  refuse an unapplied name (`unapplied`); `brd push --unapplied <name>` keeps a copy on the remote when the user asks.
   `branch_not_built` (sync first), `branch_checked_out`, `drop_conflict`, `reapply_conflict` and `nothing_to_reapply`
   change nothing: tell the user.
-- Never reorder or squash commits yourself (`bd fold` folds fixup!, squash! and amend!; `bd update` drops landed
-  ones); move a change only with `bd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
+- Never reorder or squash commits yourself (`brd fold` folds fixup!, squash! and amend!; `brd update` drops landed
+  ones); move a change only with `brd move-hunk`, never with plumbing. Never stash, reset, check out or commit the
   user's files: on `uncommitted_overlap` (exit 4) show `paths` to the user and ask.
-- Only `bd update`, `bd pick`, `bd unapply`, `bd reapply`, `bd drop` and their undo write the working tree.
+- Only `brd update`, `brd pick`, `brd unapply`, `brd reapply`, `brd drop` and their undo write the working tree.
 - Branch on `error.code` and the exit code, never on the message. 0 ok. 1 a conflict, never an error object: the
   output says what conflicts (`state: \"conflict\"`, a branch not built, `ok: false`). 2 invalid input: fix the
   arguments or the plan. 3 stale (`head_moved`, `locked`, `busy`, `plan_changed`): read again and retry. 4 refused:
   do what the table below or the `--help` of the command says for the code, else stop and show `message` to the user.
   5 git or network error: show it. Retry only when `retryable` is true, whatever the exit code. A `git_error` \"not
-  updating refs/branch-deck/tmp/chain\": a ref of bd 0.21 or older; `git update-ref -d` that ref, then retry.
+  updating refs/branch-deck/tmp/chain\": a ref of brd 0.21 or older; `git update-ref -d` that ref, then retry.
 - An error is {\"schema\":2,\"error\":{\"code\",\"message\",\"commits\",\"paths\",\"branches\",\"review\",\"blocks\",\"processes\",
   \"next_steps\",\"retryable\"}}; `paths`, `branches`, `review`, `blocks`, `processes` and `next_steps` only where they
   apply.
-- Printed commands: run the `next` of `bd workspace`, `bd update` and `bd pick` as it says. Any other ready command
-  waits for the user's approval when it pushes, starts or cancels a robot, or rewrites: the `push` of `bd sync`, the
-  `fix` of `landing_needs` (`bd status --help`) and of `bd check`, and each `error.next_steps` entry with
+- Printed commands: run the `next` of `brd workspace`, `brd update` and `brd pick` as it says. Any other ready command
+  waits for the user's approval when it pushes, starts or cancels a robot, or rewrites: the `push` of `brd sync`, the
+  `fix` of `landing_needs` (`brd status --help`) and of `brd check`, and each `error.next_steps` entry with
   `needs_approval`.
-- `bd fold --expect-head <id>`, as every write that takes it, refuses unless HEAD is still the `head` (or `new_head`)
+- `brd fold --expect-head <id>`, as every write that takes it, refuses unless HEAD is still the `head` (or `new_head`)
   you read last: `head_moved` (exit 3). Every write prints `previous_head`, `new_head` and an `undo_token` (full ids:
   pass it as printed). A write whose step after it failed (a sync) keeps its output with `after_error`: retry that
-  step, never the write. `bd undo <undo_token>` takes a write back, `undo_stale` (exit 4) once anything moved on.
+  step, never the write. `brd undo <undo_token>` takes a write back, `undo_stale` (exit 4) once anything moved on.
 - Ids are abbreviated per output: compare them by prefix, or pass --full-ids.
 
 Refusals that wait for the user (exit 4); the `--help` of the command has the rest:
 - `push_too_large`: show `paths`; never raise `branchdeck.pushSizeLimit` yourself.
 - `parked`: tell the user; never push, start or unpark a parked branch on your own.
-- `lease_rejected`: show `error.branches[].remote.dropped_commits`; `bd push --force --expect-remote <remote.head>` for
+- `lease_rejected`: show `error.branches[].remote.dropped_commits`; `brd push --force --expect-remote <remote.head>` for
   that one branch only once the user approved.
-- `robot_running`: wait until the robot merges; `bd push --restart-running` or `bd safe-push --cancel-running` only once
+- `robot_running`: wait until the robot merges; `brd push --restart-running` or `brd safe-push --cancel-running` only once
   the user approved.
 - `approvals_missing`: show `error.review`; `--create-pull-request` once the user approved; `--without-approvals` only
   when the user says so: Patronus fails it.
-- `dangling_reference`, `missing_declaration`: fix the plan (`bd check --help`); `bd safe-push --allow-dangling` or
-  `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `bd safe-push
+- `dangling_reference`, `missing_declaration`: fix the plan (`brd check --help`); `brd safe-push --allow-dangling` or
+  `--allow-missing` only when the user says it is a false alarm. `rules_unknown`: ask the user; `brd safe-push
   --allow-unknown-rules` only when the user says so.
-- `low_disk_space`: tell the user; never pass `bd lease get --min-free 0` on your own.
+- `low_disk_space`: tell the user; never pass `brd lease get --min-free 0` on your own.
 
 Global options: -C <repo>, --prefix <p> (else `branchdeck.branchPrefix` of the git config or the app setting;
-`prefix_source` of `bd status` names which), --full-ids, --no-cache, -v.
+`prefix_source` of `brd status` names which), --full-ids, --no-cache, -v.
 ",
   read_only!(),
   "
-`bd schema <command>` prints the JSON Schema of the outputs of a command (every `state` with its values), `bd schema`
-the index of the commands, `bd version` the version of bd and git.
+`brd schema <command>` prints the JSON Schema of the outputs of a command (every `state` with its values), `brd schema`
+the index of the commands, `brd version` the version of brd and git.
 
 Workflow: the commits into pull requests
-1. Look. `bd suggest` prints a plan checked by a trial sync (exit 1: edit the plan): quote the `why` of a cluster to
-   the user, review the `weak` ones first; `bd suggest --help` has its fields.
+1. Look. `brd suggest` prints a plan checked by a trial sync (exit 1: edit the plan): quote the `why` of a cluster to
+   the user, review the `weak` ones first; `brd suggest --help` has its fields.
 2. Plan and check. A plan is {\"branches\": {\"<path>\": [ids]}, \"unassign\": [ids], \"issue_groups\": {\"<name>\":
    [keys]}, \"ungroup_issues\": [keys], \"unstack\": [branches], \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}};
-   a path is a branch, or `parent/leaf` for a stacked one. Run `bd check --plan plan.json` until the `result` of every
-   branch is `ok`; `bd check --fix` searches the regroup that fixes the rest. First run `bd check --help`: what each
+   a path is a branch, or `parent/leaf` for a stacked one. Run `brd check --plan plan.json` until the `result` of every
+   branch is `ok`; `brd check --fix` searches the regroup that fixes the rest. First run `brd check --help`: what each
    `result` asks.
-3. Apply. `bd group --expect-head <head of bd suggest> --sync --plan plan.json`: one message-only rewrite, then a sync.
-   `bd rename <old> <new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options;
-   `bd stack-together <branch> <branch>...` stacks oldest-first.
-   `bd describe <branch> --title ... --body ...` sets the pull request text of one branch. `bd group --help`: its
+3. Apply. `brd group --expect-head <head of brd suggest> --sync --plan plan.json`: one message-only rewrite, then a sync.
+   `brd rename <old> <new>`, `brd restack <branch> <parent>` and `brd unstack <branch>` take the same options;
+   `brd stack-together <branch> <branch>...` stacks oldest-first.
+   `brd describe <branch> --title ... --body ...` sets the pull request text of one branch. `brd group --help`: its
    refusals and its undo.
-4. Push the branches, never into master (`bd land`). Show the result to the user; once approved,
-   `bd push <branch>...`, and name every branch of `branches`. Each has a ready `gh pr create` into the baseline; pipe
-   its `body` into it. `bd push --help`: the refusals and the stack branches.
-5. Safe Push (Patronus). First, always, `bd safe-push <branch> --dry-run`; show the user `lands` (a stacked branch lands
+4. Push the branches, never into master (`brd land`). Show the result to the user; once approved,
+   `brd push <branch>...`, and name every branch of `branches`. Each has a ready `gh pr create` into the baseline; pipe
+   its `body` into it. `brd push --help`: the refusals and the stack branches.
+5. Safe Push (Patronus). First, always, `brd safe-push <branch> --dry-run`; show the user `lands` (a stacked branch lands
    what it is built on, in one robot; `--whole-stack` the whole stack) and `review`. Once approved,
-   `bd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). `bd safe-push --help`: the fields of --dry-run and every
-   refusal. Any route: `bd land --help`.
-6. Review. `bd request-review <branch> --dry-run` names whom it would ask; once approved, run it without
-   (`bd request-review --help`).
-7. Robot. `bd robot <branch>` (`--full` after a failure says why and what to fix; `bd robot --help`).
-8. Statistics. `bd robot-stats` (`bd robot-stats --help`).
+   `brd safe-push <branch>` (`--patronus-dry-run`: a Dry Run). `brd safe-push --help`: the fields of --dry-run and every
+   refusal. Any route: `brd land --help`.
+6. Review. `brd request-review <branch> --dry-run` names whom it would ask; once approved, run it without
+   (`brd request-review --help`).
+7. Robot. `brd robot <branch>` (`--full` after a failure says why and what to fix; `brd robot --help`).
+8. Statistics. `brd robot-stats` (`brd robot-stats --help`).
 
 Other tasks
-- Before the first edit of a session: `bd workspace` says whether to work in a lease of your own
+- Before the first edit of a session: `brd workspace` says whether to work in a lease of your own
   (`branchdeck.agentLease`, on by default) and whether to start each subject with `(branch)`
   (`branchdeck.agentSubjectBranch`, on by default), and `next` what to run; the user's words win over it.
-- Update the branch onto its baseline: `bd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
-  a resolve session (exit 1), which `bd help update` explains.
-- Several sessions on one branch: `bd lease get` leases a worktree, `bd lease pick` in it lands its commits where it
-  was cut from, `bd lease return` gives it back; `bd pick --from <worktree> --follow` (or `bd pick <rev>`,
-  `<a>..<b>`, --remote; --expect-head, --dry-run: `bd pick --help`), never `git cherry-pick` (`bd help worktrees`).
-- Squash: `bd fold --help` (fixups), `bd squash --help` (what the user names). Your commit that must not land:
-  `bd drop --help`, never `git revert`.
-- A message to change: `bd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
-  or plumbing for it (`bd reword --help`).
-- A change in the wrong commit: `bd move-hunk <from> <to> <path>` (`bd move-hunk --help`).
-- `bd install` puts `bd` on PATH and the skill where agents find it; `bd help skill` prints the skill.
+- Update the branch onto its baseline: `brd update` (--no-fetch, --dry-run), the app's Update Project; a conflict opens
+  a resolve session (exit 1), which `brd help update` explains.
+- Several sessions on one branch: `brd lease get` leases a worktree, `brd lease pick` in it lands its commits where it
+  was cut from, `brd lease return` gives it back; `brd pick --from <worktree> --follow` (or `brd pick <rev>`,
+  `<a>..<b>`, --remote; --expect-head, --dry-run: `brd pick --help`), never `git cherry-pick` (`brd help worktrees`).
+- Squash: `brd fold --help` (fixups), `brd squash --help` (what the user names). Your commit that must not land:
+  `brd drop --help`, never `git revert`.
+- A message to change: `brd reword <commit> --subject '<subject>'`, its `(prefix)` kept; never an empty `amend!` commit
+  or plumbing for it (`brd reword --help`).
+- A change in the wrong commit: `brd move-hunk <from> <to> <path>` (`brd move-hunk --help`).
+- `brd install` puts `brd` on PATH and the skill where agents find it; `brd help skill` prints the skill.
 "
 );
 
-/// `bd help update`: the update and its resolve session (spec/cli/update.spec.md); `agent_help_test.rs` checks it with
+/// `brd help update`: the update and its resolve session (spec/cli/update.spec.md); `agent_help_test.rs` checks it with
 /// `AGENT_HELP` against the commands and options
 pub const UPDATE_HELP: &str = "\
-bd update: bring the checked out branch onto its baseline (e.g. origin/master, `upstream` in the output), as the app's
-Update Project, and resolve its conflicts outside the working tree. Other sessions may work in the same tree: bd never
+brd update: bring the checked out branch onto its baseline (e.g. origin/master, `upstream` in the output), as the app's
+Update Project, and resolve its conflicts outside the working tree. Other sessions may work in the same tree: brd never
 stashes, resets or checks out, and only the finish writes the working tree, through the guarded update (only the files
 the update changes; local changes on them refuse it, `uncommitted_overlap` with `paths`).
 
-`bd update` fetches the baseline (--no-fetch: the last fetched state; --dry-run: the check only, no fetch, nothing
+`brd update` fetches the baseline (--no-fetch: the last fetched state; --dry-run: the check only, no fetch, nothing
 written but git objects). Exit 0: `state` is up_to_date, fast_forward or rebase, the last two with an `undo_token`.
 Exit 1: a commit conflicts, and a resolve session opens, one round per conflicting commit. The session belongs to this worktree
-and branch, and keeps the baseline it started with (in a lease, the session of `bd lease pick`: the branch it was cut
-from, `upstream`, on its detached HEAD; its finish names `bd lease pick` in `next`); peers' commits on top of HEAD join it as more rounds. Running
-`bd update` again prints the open round (and writes its missing copies); `state: pending` (exit 1) means every
+and branch, and keeps the baseline it started with (in a lease, the session of `brd lease pick`: the branch it was cut
+from, `upstream`, on its detached HEAD; its finish names `brd lease pick` in `next`); peers' commits on top of HEAD join it as more rounds. Running
+`brd update` again prints the open round (and writes its missing copies); `state: pending` (exit 1) means every
 commit is resolved and `session.next` finishes. A conflict of git that its words resolve (`branchdeck.resolveByWords`, on by
 default) needs no round: the update commits the result and lists the commit in `resolved` (`commit`, `new_id`,
 `conflicts`, `files`); tell the user. When every conflict resolves so, the update applies with exit 0.
@@ -153,13 +153,13 @@ default) needs no round: the update commits the result and lists the commit in `
 Dropped commits: `dropped[]` names each local commit the update dropped, with the baseline commit it landed as
 (`upstream`) and its `proof`: `patch_id`, `replayed` or `changed_lines` (the baseline proves it has the change, so
 the replay left it out, as `git rebase` does), `empty` (its replay left it without a change), `landed` (a round of
---landed) or `user` (--drop-empty). The first output of a session, its repeat, `bd update --status` and the finish
+--landed) or `user` (--drop-empty). The first output of a session, its repeat, `brd update --status` and the finish
 list them; a round of --continue prints `dropped_count` only. You never drop a commit yourself.
 
-Ask the user only when bd says so, and only once. An output with `ask_user: true` lists its `reasons`: `blocked_paths`
+Ask the user only when brd says so, and only once. An output with `ask_user: true` lists its `reasons`: `blocked_paths`
 (local files on paths the finish writes, `session.blocked_paths`) and `landed_differs` (a drop as landed loses lines).
 An error with `ask_user: true` (`uncommitted_overlap`, `empty_resolution`, `landed_differs`) names the decision in
-`message`. Show the user that output and ask about all of it at once; follow everything else as bd says.
+`message`. Show the user that output and ask about all of it at once; follow everything else as brd says.
 
 A round (`state: conflict`, `session`):
 - `session.commit`: the local commit being replayed, its `subject`, `body` and `patch` (the commit as a patch: the
@@ -167,7 +167,7 @@ A round (`state: conflict`, `session`):
   and subject; also for a fixup of such a commit), its `local_only` lines (what this commit changes and the baseline
   commit does not: what a drop loses; `+` added, `-` removed) and `upstream_only` lines. Without `local_only`,
   `session.next` drops the commit with --landed: run it, no question. With `local_only`, `ask_user` is true: with the
-  user's yes, run `next` with --user; with a no, resolve the files and run `bd update --continue --round <n>`. The
+  user's yes, run `next` with --user; with a no, resolve the files and run `brd update --continue --round <n>`. The
   first output of a session lists every such commit in `session.landed_differs[]` (`commit`, `subject`,
   `landed_as`): ask once about all of them, then use each answer in its round.
 - `session.files[]`: `path`, `kind`, and absolute paths: `edit` (the merge result with zdiff3 markers, the file to
@@ -175,27 +175,27 @@ A round (`state: conflict`, `session`):
   `commit` (the commit's version), `markers` (blocks left), `upstream_commits` (who changed it upstream), `hint`.
   `session.marker_labels` names the ids after the markers. `session.blocked_paths`: local changes that will block the
   finish (the first 100, all 101 rather than one left out; `blocked_paths_omitted` counts the rest). `session.next`
-  is the command that continues. A round prints only its own files; `bd update --status` adds the rounds resolved so
+  is the command that continues. A round prints only its own files; `brd update --status` adds the rounds resolved so
   far. `session.resolved` lists the rounds that resolved themselves by words: they count in `round`, so round 3 can
   be your first.
 - Edit only the files at `edit`, never the same path in the working tree. Keep the change of `onto` and reapply the
   intent of the commit; change only the lines between the markers, keep the line ends, and remove every marker. A
   change that the commit needs outside the blocks or in another file goes into a `fixup! <subject>` commit after the
-  update, folded with bd fold. Write a copy as UTF-8 without a byte order mark: in Windows PowerShell with
+  update, folded with brd fold. Write a copy as UTF-8 without a byte order mark: in Windows PowerShell with
   `[IO.File]::WriteAllText(<edit>, $text)`, because `Set-Content` and `Out-File` add a BOM or write UTF-16.
 - `kind` content: edit `edit`. `kind` modify_delete or rename_delete (one side deleted the file; `renamed_from`
   names its path before a rename): `--take onto:<path>`,
   `--take commit:<path>` or `--delete <path>` on the --continue command, or edit `edit`. Every file needs a
   resolution: a missing file is never a delete.
 
-`bd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
+`brd update --continue --round <n>` commits the round's resolution, replays the rest and opens the next round (exit 1)
 or applies the update (exit 0). --take and --delete resolve a file without an edit (repeatable). --landed <commit>
 takes `onto` for every file and drops the commit as landed; --user adds the user's yes.
-`bd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
+`brd update --continue --dry-run` checks the resolution; it moves no ref and writes nothing but git objects. Exit 2:
 `unresolved_markers`, `resolution_outside_conflict` (a line outside the blocks changed) or `missing_resolution`, with
 `paths` and the copies in the message: fix those copies and run it again. A refusal changes nothing: the round stays
 open and the copies keep your edits (`edited` in the round). `round_moved` (exit 3):
-another round is open; `bd update` prints it. `empty_resolution` (exit 2, `ask_user`): the resolution leaves the
+another round is open; `brd update` prints it. `empty_resolution` (exit 2, `ask_user`): the resolution leaves the
 commit without changes; with `landed_as`, use --landed <commit> instead; else ask the user, then add --allow-empty
 (keep an empty commit) or --drop-empty <commit> (drop it). `not_landed_round` (exit 2): the round has no `landed_as`.
 `landed_differs` (exit 2, `ask_user`): `local_only` is not empty and --user is missing. `landed_not_empty` (exit 2):
@@ -206,31 +206,31 @@ with `words` on the round) with `dropped_upstream_lines` and `dropped_commit_lin
 that the result lost; a round of --landed has `landed_as` and `local_only` instead. Report each resolution to the
 user, these lines first. `verify.paths` names the files whose result no side had as it is (edited, commit, deleted,
 words): build, and run the tests of these files; without `verify`, the build is enough. On a failure commit the fix
-as `fixup! <subject>` and run `bd fold`, or take the update back with `bd undo <undo_token>`.
+as `fixup! <subject>` and run `brd fold`, or take the update back with `brd undo <undo_token>`.
 
 `uncommitted_overlap` at the finish (exit 4) keeps the session: once the user moved those files, run
-`bd update --continue` again. `finish_pending` (exit 4): the branch moved, but its files did not follow; the message
+`brd update --continue` again. `finish_pending` (exit 4): the branch moved, but its files did not follow; the message
 says what is left.
 `session_stale` (exit 4): the branch was rewritten or HEAD left it; `unsupported_conflict` (exit 4): a binary,
-file/directory, rename, mode, symlink or submodule conflict, or an invalid path. Both: stop and show the user. `bd update --abort` removes the session
+file/directory, rename, mode, symlink or submodule conflict, or an invalid path. Both: stop and show the user. `brd update --abort` removes the session
 and its copies (nothing else changed); --worktree <id> removes an orphaned session of another worktree, a live one
 only with --allow-live-session, once the user approved.
-`bd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
+`brd update --status` prints this worktree's session and every session of the repository (`orphaned` ones too), and
 changes nothing; --materialize writes the missing copies, with --overwrite-edited all of them. --dir <path> puts the copies of a
 new session into an empty directory outside every worktree, for a sandbox that keeps .git read only.
 ";
 
-/// `bd help worktrees`: how agent sessions that share a checkout work beside each other, each in a worktree of its own
+/// `brd help worktrees`: how agent sessions that share a checkout work beside each other, each in a worktree of its own
 /// (spec/cli/pick.spec.md); `agent_help_test.rs` checks it with `AGENT_HELP` against the commands and options
 pub const WORKTREES_HELP: &str = "\
-bd help worktrees: several sessions on one branch. Each session commits in a worktree of its own (a lease: a linked
+brd help worktrees: several sessions on one branch. Each session commits in a worktree of its own (a lease: a linked
 worktree, often a detached HEAD, sharing the git dir); its work counts once it is on the shared branch of the shared
-checkout. One owner rewrites that branch: `bd update`, `bd fold`, `bd group`, `bd rename`, `bd reword`. Every other
-session only adds commits to it, with `bd pick`, never with `git cherry-pick`, a rebase or a reset in the shared
-checkout; the rewrites it may run are a `bd reword` and a `bd drop` of its own landed commit (step 4).
+checkout. One owner rewrites that branch: `brd update`, `brd fold`, `brd group`, `brd rename`, `brd reword`. Every other
+session only adds commits to it, with `brd pick`, never with `git cherry-pick`, a rebase or a reset in the shared
+checkout; the rewrites it may run are a `brd reword` and a `brd drop` of its own landed commit (step 4).
 
-0. Lease your worktree when `bd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
-   command): `bd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
+0. Lease your worktree when `brd workspace` says `lease.on` (`branchdeck.agentLease`, on by default; its `next` is the
+   command): `brd lease get --holder <your name>` in the shared checkout (or -C <shared checkout>). It
    prints `path`, a worktree of the pool at the HEAD of the shared checkout, detached, `lease_id`, `home` (the
    `checkout` and the `branch` your commits land on) and `next` (the pick of step 2, the return of step 5); work and
    commit only there, never `git worktree add`. A free slot is moved to that HEAD (`reused`: only the diff is written); with
@@ -243,73 +243,73 @@ checkout; the rewrites it may run are a `bd reword` and a `bd drop` of its own l
    `low_disk_space` (exit 4): the volume of the pool has less free space than `branchdeck.leaseMinFree` asks; tell the
    user, never pass --min-free 0 on your own. Before it adds a slot the get takes over an idle lease, one whose
    holder process has been gone for an hour, when every commit of it is on its home branch (by a pick, a patch id,
-   the identity and the twin of `bd update`, the mapping note of a sync) and its tree is clean: `took_over` names its
+   the identity and the twin of `brd update`, the mapping note of a sync) and its tree is clean: `took_over` names its
    holder, its lease and the commits it found landed (`landed`, each with its `proof`). One with work its home branch
    lacks is never touched: `skipped` (`idle_with_work`) and `idle_leases` name it with its `commits`, `paths` or
-   `operation`; tell the user, never give it up with `bd lease return --confirm-preserved` on your own. `bd lease reclaim --idle`
+   `operation`; tell the user, never give it up with `brd lease return --confirm-preserved` on your own. `brd lease reclaim --idle`
    returns every idle lease whose work landed (`reclaimed`) and names the rest (`kept`); --dry-run only reports,
    --keep and --age as for the return.
    `lease_reclaimed` (exit 4): your lease was taken over while your session was gone, as its work had landed; that
    worktree is another session's now (its branch stays): stop working there and get a lease of your own (`next`).
 
-1. When `bd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, on by default), write the prefix
+1. When `brd workspace` says `subject_branch.on` (`branchdeck.agentSubjectBranch`, on by default), write the prefix
    when you commit, never later; off, write the subject as the repository does, and the owner groups the commits
-   (`bd suggest`, issue keys). A subject is `(branch) <one sentence>`. With stacked branches
+   (`brd suggest`, issue keys). A subject is `(branch) <one sentence>`. With stacked branches
    (`branchdeck.stacks`) a new stack is declared once, `(parent/leaf) <one sentence>`; once the stack parents know the
-   leaf, `(leaf) <one sentence>` is enough, as a plan of `bd suggest` writes it. `(parent/leaf)` on a commit of a
+   leaf, `(leaf) <one sentence>` is enough, as a plan of `brd suggest` writes it. `(parent/leaf)` on a commit of a
    branch that is a root stacks the whole branch on `parent` (`reparented` in the pick); two parents for one branch
-   are conflicting parents, `bd restack <leaf> <parent>` keeps one. The branch is a readable name of a few words, never an issue
+   are conflicting parents, `brd restack <leaf> <parent>` keeps one. The branch is a readable name of a few words, never an issue
    id as the name; an issue id stays in the subject after the prefix, or in the body. A series of commits is a stack
    root with one leaf per logical group; a change on its own gets a root of its own. One deliberate commit per change:
-   no `fixup!` subject on the shared branch, `bd fold` would fold it into its target. Rename a branch with
-   `bd rename <old> <new>`, which rewrites every prefix, children included. `bd suggest` is for commits that came
+   no `fixup!` subject on the shared branch, `brd fold` would fold it into its target. Rename a branch with
+   `brd rename <old> <new>`, which rewrites every prefix, children included. `brd suggest` is for commits that came
    without a prefix.
-2. Land each commit that builds and passes its tests at once, from your lease: `bd -C <your lease> lease pick`, the
-   `next` of `bd lease get` and `bd workspace`. It is `bd pick --from <your lease> --follow` run in `home.checkout`,
+2. Land each commit that builds and passes its tests at once, from your lease: `brd -C <your lease> lease pick`, the
+   `next` of `brd lease get` and `brd workspace`. It is `brd pick --from <your lease> --follow` run in `home.checkout`,
    onto `home.branch`, whatever moved there since: no test again on the new tip, a conflict comes back to you. From a
-   worktree that is no lease, with -C <shared checkout>: `bd pick --from <your worktree> --follow`. bd replays the
+   worktree that is no lease, with -C <shared checkout>: `brd pick --from <your worktree> --follow`. brd replays the
    commits onto the branch in memory, under the repository lock that every worktree shares, so no fold or update runs
    halfway through it; the files follow, and --follow moves your worktree onto the new tip (its local changes on
-   other paths stay). With nothing to land, `bd lease pick` only moves your lease onto the tip (`up_to_date`,
+   other paths stay). With nothing to land, `brd lease pick` only moves your lease onto the tip (`up_to_date`,
    `followed.state: moved`): the commits of the other sessions.
    - `picked[]`: the copies, each with the `group` it lands in; `grouped_by: none` is a commit without a prefix: fix
      the subject before the owner groups it.
    - `dependencies[]`: a commit whose prefix names a branch that is not built on the branches it needs (`depends_on`:
      its hunks change what their commits wrote), so that branch can't sync. Fix the prefix in your worktree before
-     the pick (--dry-run says it too), or after it run `bd group` with its `plan` (the commit moves into the branch
+     the pick (--dry-run says it too), or after it run `brd group` with its `plan` (the commit moves into the branch
      that holds them) or its `restack`.
    - `already_present[]`: commits whose change the branch has already (`on`: its commit with the same patch; `by`:
      `patch_id`, left out before the replay, or `empty`, the change in another form); never an empty commit.
      `state: up_to_date`: nothing was left to pick.
-   - `state: conflict` (exit 1): nothing landed. `bd lease pick` gives the conflict back to your lease: it updates the
-     lease onto the tip of `home.branch` (`update`), and the conflict opens a resolve session there (`bd help
-     update`); the lease moves only when `bd update --continue` finishes it, `bd update --abort` closes it. Resolve it
-     (regenerate a generated file, never keep one side of a code hunk), build and test, then `bd lease pick` again (the
+   - `state: conflict` (exit 1): nothing landed. `brd lease pick` gives the conflict back to your lease: it updates the
+     lease onto the tip of `home.branch` (`update`), and the conflict opens a resolve session there (`brd help
+     update`); the lease moves only when `brd update --continue` finishes it, `brd update --abort` closes it. Resolve it
+     (regenerate a generated file, never keep one side of a code hunk), build and test, then `brd lease pick` again (the
      `next` of the finish). An update that applies at once (the words resolved it) is picked again at once. From a
      worktree that is no lease, do what `conflict.next` says: move the worktree onto the branch, make the commit again
      there, pick again. Never `git cherry-pick` it into the shared checkout: it leaves `CHERRY_PICK_HEAD`, which blocks
      every rewrite.
    - `uncommitted_overlap` (exit 4): local files of the named worktree sit on paths the pick writes; ask the user.
-     `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`bd pick <first>^..<last>`), or ask the
-     owner to update the branch first. In a lease `bd update` onto the baseline is `lease_follows_home` (exit 4): it
-     would move the lease past its branch; `bd lease pick` brings it onto the tip, the owner updates the branch.
-   - `bd lease pick`: `home_branch_switched` (exit 4): the shared checkout has another branch checked out than at the
-     get, nothing landed; ask the user, and pick again once the branch is back (`bd workspace` shows
+     `range_unknown` or `source_on_newer_baseline` (exit 4): name the commits (`brd pick <first>^..<last>`), or ask the
+     owner to update the branch first. In a lease `brd update` onto the baseline is `lease_follows_home` (exit 4): it
+     would move the lease past its branch; `brd lease pick` brings it onto the tip, the owner updates the branch.
+   - `brd lease pick`: `home_branch_switched` (exit 4): the shared checkout has another branch checked out than at the
+     get, nothing landed; ask the user, and pick again once the branch is back (`brd workspace` shows
      `home.switched_to`). `no_home_branch` (exit 4): the lease was cut from a detached HEAD, no branch is named; ask
      the user where the commits go. `no_lease` (exit 2): run it inside your lease. `resolve_in_progress` (exit 4): the
      session of its conflict is still open; finish or close it first.
-   - `unchecked_tree` (exit 4), of `bd lease pick` and `bd pick` alike: the repository sets `pick_requires_check` in
+   - `unchecked_tree` (exit 4), of `brd lease pick` and `brd pick` alike: the repository sets `pick_requires_check` in
      `.branchdeck.toml`, and no green build or test recorded the tree of your HEAD (the check tool writes
      `bd-checks.jsonl`; a raw build writes nothing); run the build and the tests on this tree, then pick again. A pick
-     of revisions (`bd pick <rev>`) names no worktree whose records bd could read: pick from the worktree that built
-     them. `--dry-run` shows `check` (`ok`, `stale`, `missing`). `bd lease pick --allow-unchecked '<reason>'`
-     (`bd pick --from <worktree> --allow-unchecked '<reason>'`) lands without a check: only when the user agreed or
+     of revisions (`brd pick <rev>`) names no worktree whose records brd could read: pick from the worktree that built
+     them. `--dry-run` shows `check` (`ok`, `stale`, `missing`). `brd lease pick --allow-unchecked '<reason>'`
+     (`brd pick --from <worktree> --allow-unchecked '<reason>'`) lands without a check: only when the user agreed or
      the change cannot break a build (docs only), and the reason says which.
    - `followed.state` `head_moved` or `blocked`: the branch moved, your worktree did not; the same command again moves
      only the worktree. A build daemon or a file watcher of the worktree may need a restart after it moved.
-   - `bd undo <undo_token>` moves the branch and your worktree back.
-3. Check that the branch still holds your work after the owner rewrote it: `bd lease pick --dry-run` in your lease
-   (elsewhere `bd pick --from <your worktree> --dry-run`)
+   - `brd undo <undo_token>` moves the branch and your worktree back.
+3. Check that the branch still holds your work after the owner rewrote it: `brd lease pick --dry-run` in your lease
+   (elsewhere `brd pick --from <your worktree> --dry-run`)
    (`up_to_date`, every commit `already_present`). Never compare by date (a `git log` limited by time): a rewrite can
    change the dates, and a fold changes the ids; compare subjects without the `(prefix) ` only as a hint, the content
    decides.
@@ -317,17 +317,17 @@ checkout; the rewrites it may run are a `bd reword` and a `bd drop` of its own l
    the shared checkout (`operation_in_progress`). After a rewrite, the owner tells the other sessions its new HEAD
    (`new_head`); they pick again or check with --dry-run. Nobody squashes, amends or redates another session's
    commit. A rewrite gives the commits after it new ids: the next write of a session that read the old HEAD gets
-   `head_moved` (exit 3), and `bd group --allow-append` does not help, the old HEAD is gone: read the status again.
-   To fix the message of your own commit after it landed, run `bd reword <commit> --expect-head <head> --subject
+   `head_moved` (exit 3), and `brd group --allow-append` does not help, the old HEAD is gone: read the status again.
+   To fix the message of your own commit after it landed, run `brd reword <commit> --expect-head <head> --subject
    '...'` from your worktree with -C <shared checkout>, without --sync (the owner syncs); your worktree needs nothing,
    a later pick or return finds the commit landed by content. To drop your own commit after it landed (one that must
-   not land, never a revert), `bd drop <commit>` in your lease refuses it as `drop_in_home` and names the two steps:
-   `bd -C <shared checkout> drop <commit> --expect-head <head>`, whose files follow there (`uncommitted_overlap` when
-   the user's files are in the way: ask), then `bd lease pick`, which moves your lease onto the new tip. A reword or a
-   drop of a commit that another session made is the user's to approve. The user reviews what the sessions landed: `bd mark-reviewed
+   not land, never a revert), `brd drop <commit>` in your lease refuses it as `drop_in_home` and names the two steps:
+   `brd -C <shared checkout> drop <commit> --expect-head <head>`, whose files follow there (`uncommitted_overlap` when
+   the user's files are in the way: ask), then `brd lease pick`, which moves your lease onto the new tip. A reword or a
+   drop of a commit that another session made is the user's to approve. The user reviews what the sessions landed: `brd mark-reviewed
    <branch>` (experimental, no rewrite) keeps the base and the tip of a branch as reviewed, so that the next review
    starts there (`mark-reviewed --base <parent>` for a stacked branch: only its own commits); run it only when the
-   user says they reviewed the branch. `bd review-plan <branch> --since-reviewed` (moves no ref; `review-plan --base
+   user says they reviewed the branch. `brd review-plan <branch> --since-reviewed` (moves no ref; `review-plan --base
    <parent>` as for the mark) lists the commits added, rewritten or reworded since then (`message_change`: what their
    message added and removed), and `scope`, what changed since as one
    diff: `git diff <base> <head>` of it, the plain range of commits added on top, or with `carried` the reviewed
@@ -336,87 +336,87 @@ checkout; the rewrites it may run are a `bd reword` and a `bd drop` of its own l
    `dependencies` the entries the commits add to, remove from or change in the build files;
    `order` lists the files to read, each declaration before its uses, and `units` the changes to read once in that
    order (a form, a body, a new or removed declaration, one unit per mechanical kind and repeated edit).
-5. Return your worktree once your commits landed: `bd lease return` inside it (or --workspace <dir>; --lease-id <id>
+5. Return your worktree once your commits landed: `brd lease return` inside it (or --workspace <dir>; --lease-id <id>
    refuses another lease, and alone returns the slot of that lease from any checkout). It frees the slot, removes the `seeded` files and detaches a branch, which stays. Refusals
    change nothing: `unlanded_commits` (exit 4, `commits`): commits that the branch of the shared checkout lacks by
-   content (a dry run of the pick, the patch id, the identity and the twin of `bd update` or the mapping note of a sync
+   content (a dry run of the pick, the patch id, the identity and the twin of `brd update` or the mapping note of a sync
    prove a commit there, also after the owner rewrote the branch or a robot landed it with a conflict resolution); land
    them with step 2 first; `resolve_in_progress` (exit 4): the
-   resolve session of a pick is open in it, finish it (`bd update --continue`, then `bd lease pick`) or close it (`bd update --abort`); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
+   resolve session of a pick is open in it, finish it (`brd update --continue`, then `brd lease pick`) or close it (`brd update --abort`); `dirty_worktree` (exit 4, `paths`): commit and land them, or ask the user; `slot_busy` (exit 4,
    `processes`: each with `argv` and `kind`): a process of another session works in it (a shell, a build, a test run);
    read `processes`, never `ps` or `lsof`, and wait until it is done; never kill it. `host_slot` (exit 4, `paths`):
    the worktree is a host slot (holder `bd-host/<n>`) that `bd-host` lends to the runs of other machines, never yours. A repeat after a timed-out call is
-   safe: it waits for the running return and answers `joined: true`. Not counted: your own session (bd, its ancestors
-   and their process groups: the `jq` of `bd lease return | jq`), git's background maintenance (`maintenance`: a
+   safe: it waits for the running return and answers `joined: true`. Not counted: your own session (brd, its ancestors
+   and their process groups: the `jq` of `brd lease return | jq`), git's background maintenance (`maintenance`: a
    repack after a commit, which writes only the shared object store; `maintenance_started`: the return started it
    between leases, `branchdeck.leaseMaintenance`) and `caffeinate`. The Bazel servers of the
    worktree (`--workspace_directory` in it, `kind: bazel_server`) serve only it, with an output base of their own: the
    return stops them with SIGTERM (`bazel shutdown` on Windows) once no other process is there (`stopped_servers`; their output bases stay), so
    never run `bazel shutdown` or kill one first. --confirm-preserved discards the changes and gives up the
-   commits, only when the user said so. `bd lease status` lists the slots and their leases from the pool state
+   commits, only when the user said so. `brd lease status` lists the slots and their leases from the pool state
    (--processes adds the processes in each; `holder_alive`, `idle` with `idle_with_work`, `reclaimed`, `free_bytes`). The return applies the clean rules of
    `.branchdeck.toml` (`cleaned`: stale cargo units, build output, test artifacts; a `delete` moves its paths into the
    trash and deletes them once the slot is free; `clean_error` when the file does not parse, the return still
    succeeds); notes that must outlive the return go outside the paths of the rules:
-   `bd lease return --no-clean` applies none, and `bd lease return --keep <n> --age <duration>` changes every cargo
-   rule for this call. `bd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
-   --keep, --age as for the return). `bd lease trim` deletes the free slots past `branchdeck.leaseMaxSlots` (10; --max <n> for this call) of every pool of the
-   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` does it itself (`trimmed`), then deletes the build output of the free slots by their clean rules with keep 0, the ones returned longest ago first (`shrunk`), then free slots below the limit (`evicted`); `bd lease disk` (--fresh) says what each slot holds. The rules are the user's choice: pass `bd lease return --no-clean` only when
-   the user asks. `bd lease adopt <dir>...` adds clean linked worktrees of the repository as
+   `brd lease return --no-clean` applies none, and `brd lease return --keep <n> --age <duration>` changes every cargo
+   rule for this call. `brd lease clean` applies the rules now (--free: the free slots; --host: the idle host slots; --dry-run only reports;
+   --keep, --age as for the return). `brd lease trim` deletes the free slots past `branchdeck.leaseMaxSlots` (10; --max <n> for this call) of every pool of the
+   machine with their Bazel output bases (--plan only reports); a get below `branchdeck.leaseMinFree` does it itself (`trimmed`), then deletes the build output of the free slots by their clean rules with keep 0, the ones returned longest ago first (`shrunk`), then free slots below the limit (`evicted`); `brd lease disk` (--fresh) says what each slot holds. The rules are the user's choice: pass `brd lease return --no-clean` only when
+   the user asks. `brd lease adopt <dir>...` adds clean linked worktrees of the repository as
    free slots, where they are, or with --move in the pool directory (`moved_from`; the same volume only,
    `other_volume`).
 6. The reflog of the branch tells who moved it: `branch-deck: pick`, `undo pick`, `update project`, `undo update`,
-   `squash fixups` (`bd fold` or the app's Squash Fixups), `reword <n> commits` (`bd group`, `bd rename`,
-   `bd restack`, `bd unstack`, `bd reword`), `undo`,
-   `squash <n> commits` (`bd squash` or the app's Squash), `drop <n> commits`, `amend <id>`, `move hunk`; a move whose files could not follow (`pick`,
+   `squash fixups` (`brd fold` or the app's Squash Fixups), `reword <n> commits` (`brd group`, `brd rename`,
+   `brd restack`, `brd unstack`, `brd reword`), `undo`,
+   `squash <n> commits` (`brd squash` or the app's Squash), `drop <n> commits`, `amend <id>`, `move hunk`; a move whose files could not follow (`pick`,
    `update project`, `unapply`, `reapply` and their undo) also with ` rolled back`. A line without the
    `branch-deck: ` prefix came from outside Branch Deck.
 ";
 
-/// `bd status --help`: the fields an agent acts on, `landing_needs` first
+/// `brd status --help`: the fields an agent acts on, `landing_needs` first
 pub const STATUS_HELP: &str = "\
-`bd status` prints the branches and the unassigned commits ahead of the baseline; `bd status --brief` is small
-enough to read whole, `bd status --stats` adds the size of each branch. On Space it lists per branch `landing_needs`:
-what its Safe Push needs of a commit outside what it lands, the refusals `bd safe-push` would give (a name only
+`brd status` prints the branches and the unassigned commits ahead of the baseline; `brd status --brief` is small
+enough to read whole, `brd status --stats` adds the size of each branch. On Space it lists per branch `landing_needs`:
+what its Safe Push needs of a commit outside what it lands, the refusals `brd safe-push` would give (a name only
 another branch adds, a dangling use), each with its `fix` and `landing_in` (a running Safe Push lands that branch: a
-start beside it fails too). Tell the user before a Safe Push and run the fix (`bd restack …`) only after they
+start beside it fails too). Tell the user before a Safe Push and run the fix (`brd restack …`) only after they
 approve; `[]` is nothing, absent is unknown. `landed_by`: a merged Safe Push landed the branch, only its `after`
-commits are left (`bd safe-push --help`); `parked`: it stays local until the user unparks it; `unapplied`: the
-branches `bd unapply` took out; `stacks`: the stack branch of each stack that forks (`bd push --help`);
+commits are left (`brd safe-push --help`); `parked`: it stays local until the user unparks it; `unapplied`: the
+branches `brd unapply` took out; `stacks`: the stack branch of each stack that forks (`brd push --help`);
 `prefix_source`: where the branch prefix came from. `next_step.status`: what the app's Status cell says of the branch,
 the main fact first (`robot_running` before `blocked`): a Safe Push that runs is said even where the step is `settled`.
 ";
 
-/// `bd suggest --help`: the fields of the plan
+/// `brd suggest --help`: the fields of the plan
 pub const SUGGEST_HELP: &str = "\
-`bd suggest` prints a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the
+`brd suggest` prints a plan, clustered and checked by a trial sync (exit 1: `check.ok` is false, edit the
 plan). Per cluster: `change` (kept, renamed, merged, split, new) against its `current_branches`; its commits in
 `kept`, `moved` ({commit, leaves}: the branch it leaves, null if unassigned) and `new_path` (the same branch,
 another stacked path in the subject): with `moved`, what the plan changes; `why`, one line to quote to the user;
 `weak`, review these first; `issue_keys` and `areas`; with stacked branches `parent`, `restacked` (it stacks each
 branch on the branches it needs) and `stacked_without_need` (a stack parent the branch needs nothing of: the plan
 keeps it, ask the user before an unstack). Whole issue branches that belong together go into `issue_groups`: no
-subject changes. `bd suggest --fresh` ignores the current prefixes and issue groups. To look closer:
-`bd status --brief`, `bd status --stats` (the size of each branch), `bd commits --brief` (per commit its group,
+subject changes. `brd suggest --fresh` ignores the current prefixes and issue groups. To look closer:
+`brd status --brief`, `brd status --stats` (the size of each branch), `brd commits --brief` (per commit its group,
 issue key, fixup target and `areas`; `units`, the commits that must stay together; `dependencies` {from, to, via}:
 `from` touches lines `to` added, or with `via` `symbols` uses a name `to` adds, which a stack satisfies too), and
-`bd commits <id>... --patch` (the blocks of each file, with their ids) or `bd commits --unassigned` for unclear
+`brd commits <id>... --patch` (the blocks of each file, with their ids) or `brd commits --unassigned` for unclear
 commits.
 ";
 
-/// `bd check --help`: the plan and the result of each branch
+/// `brd check --help`: the plan and the result of each branch
 pub const CHECK_HELP: &str = "\
-`bd check --plan plan.json` checks a plan by a trial sync. A plan is {\"branches\": {\"<path>\": [ids]},
+`brd check --plan plan.json` checks a plan by a trial sync. A plan is {\"branches\": {\"<path>\": [ids]},
 \"unassign\": [ids], \"issue_groups\": {\"<name>\": [keys]}, \"ungroup_issues\": [keys], \"unstack\": [branches],
 \"descriptions\": {\"<branch>\": {\"title\", \"body\"}}}; a path is a branch, or `parent/leaf` for a stacked one. Fixups follow their targets; a commit goes with, or stacks
 on, the commits it depends on. In Windows PowerShell write the plan to a file and pass the file (a PowerShell 5.1
 pipe turns non-ASCII into `?`). After any change of `branches`, `unassign`, `issue_groups` or `ungroup_issues`, run
-`bd check --plan plan.json`: exit 1 until the `result` of every branch is `ok`.
+`brd check --plan plan.json`: exit 1 until the `result` of every branch is `ok`.
 - `conflict` {commit, subject, files, missing_commits}: move the missing commits into the branch, or stack it on
   the branch that has them. A conflict of git whose every file the words resolve is no conflict: with `git config
   branchdeck.resolveByWords` on (the default) the sync commits the result as IntelliJ resolves it, all or nothing
-  per commit, and the branch is `ok`. `bd sync` lists such commits in `resolved` of the branch, `bd status` and
-  `bd commits` in `resolved_by_words` of the commit; nothing to do.
+  per commit, and the branch is `ok`. `brd sync` lists such commits in `resolved` of the branch, `brd status` and
+  `brd commits` in `resolved_by_words` of the commit; nothing to do.
 - `dangling_reference` (`dangling_references` {kind, identifier, file, line, removed_by, fixed_by, mutual,
   declared_in}): git merges it, the build fails. The branch removes (`removed_declaration`) or changes
   (`changed_declaration`, e.g. made `suspend`) a declaration (`declared_in` {file, line}) its tree still uses, or
@@ -424,9 +424,9 @@ pipe turns non-ASCII into `?`). After any change of `branches`, `unassign`, `iss
   use or deletes that file. Move `fixed_by` into the branch, or stack it on that branch; `mutual`: that change needs
   the branch too, so `fix` moves it into the branch, as `move_commit` (its `branches` into the plan) or `move_hunk`
   (a ready `command`, once the user approved), each proven by a trial build; no `fix`: none builds. When the user
-  says the use means another declaration, `bd check --allow-dangling` keeps the `result` and exits 0.
+  says the use means another declaration, `brd check --allow-dangling` keeps the `result` and exits 0.
 - `blocked` (`blocked_by`: the parent it can't be built on), `problems`, `error`; `build_failed` (below).
-`bd check --fix` searches, by trial builds, the regroup that fixes the conflicts and dangling references: each
+`brd check --fix` searches, by trial builds, the regroup that fixes the conflicts and dangling references: each
 `fix.components[].plan` is a whole plan for the next step, and its `steps` say what moves where (show them before
 applying one). A branch that conflicts as a whole is restacked on the branch (or a chain of the branches) that
 holds the commits it needs, in one trial; dangling references are searched after the conflicts. Each trial is a
@@ -439,47 +439,47 @@ fixes, reason}: the branch needs a commit of a branch stacked on it; each fix (`
 proves: tell the user. `missing_declarations` {branch, identifier, file, used_by, declared_by, declared_in}, the
 branch's `result` `missing_declaration` (none when `git config branchdeck.symbols` is `report` or `off`): a use
 whose declaration is outside the branch's tree, git merges it and the build fails: stack the branch on
-`declared_in`, or move one of the two; when the user says it is a false alarm, `bd check --allow-missing` keeps the
-`result` and exits 0. `bd check --build '<command>'`
+`declared_in`, or move one of the two; when the user says it is a false alarm, `brd check --allow-missing` keeps the
+`result` and exits 0. `brd check --build '<command>'`
 (--build-paths <path>...) also builds a temporary copy of each tree (`build_failed`): slow on a large repository,
 but a build that passed on the same tree is not run again (`cached`; --rebuild runs it after a change outside the
 tree).
 ";
 
-/// `bd group --help`: applying a plan
+/// `brd group --help`: applying a plan
 pub const GROUP_HELP: &str = "\
-`bd group` applies a plan. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
-`bd status`); replace one only when the user asks. Then `bd group --expect-head <head of bd suggest> --sync --plan
+`brd group` applies a plan. Add `descriptions` (pull request title and body) for the branches that have none (`description` in
+`brd status`); replace one only when the user asks. Then `brd group --expect-head <head of brd suggest> --sync --plan
 plan.json`: one message-only rewrite, the issue groups and the descriptions under one lock, then a sync. It
 prints the new `groups`, `replaced_descriptions` and `sync` (per branch `state`; a `conflict` names the commit, the
-files and the commits it needs). Exit 1, a branch not built: `bd check --fix`, or regroup so that a change and what
-it needs are in one branch or its parent, then `bd sync`. `head_moved`, `groups_moved`, `stacks_moved` or `locked`
-(exit 3): read again and retry; a peer that only added commits on top: `bd group --expect-head <head>
---allow-append` takes them along (`appended`). `bd group --dry-run` prints the changed subjects. `bd rename <old>
-<new>`, `bd restack <branch> <parent>` and `bd unstack <branch>` take the same options. `bd describe <branch>
+files and the commits it needs). Exit 1, a branch not built: `brd check --fix`, or regroup so that a change and what
+it needs are in one branch or its parent, then `brd sync`. `head_moved`, `groups_moved`, `stacks_moved` or `locked`
+(exit 3): read again and retry; a peer that only added commits on top: `brd group --expect-head <head>
+--allow-append` takes them along (`appended`). `brd group --dry-run` prints the changed subjects. `brd rename <old>
+<new>`, `brd restack <branch> <parent>` and `brd unstack <branch>` take the same options. `brd describe <branch>
 --title ... --body ...` sets the text of one branch. The undo token of a regroup moves HEAD, the issue groups and
 the stack parents back (`<head>..<head>`, `groups:<id>..<id>`, `stacks:<id>..<id>`, joined by `+`); the
 descriptions stay, and the virtual branches change with the next sync.
 ";
 
-/// `bd push --help`: what it pushes, its refusals and the stack branches
-/// The outputs and refusals of `bd pick` beyond `bd help worktrees` (spec/cli/pick.spec.md, "Remote commits")
+/// `brd push --help`: what it pushes, its refusals and the stack branches
+/// The outputs and refusals of `brd pick` beyond `brd help worktrees` (spec/cli/pick.spec.md, "Remote commits")
 pub const PICK_HELP: &str = "\
-Outputs and refusals: `bd help worktrees` for the pick of a worktree or of revisions, and for `bd pick --remote <branch>`:
+Outputs and refusals: `brd help worktrees` for the pick of a worktree or of revisions, and for `brd pick --remote <branch>`:
 - --remote <branch>: someone else pushed to the remote branch of a virtual branch (`remote.others_behind` of its
-  status). bd syncs, fetches that branch and picks the commits a push would drop onto the checked out branch, with
+  status). brd syncs, fetches that branch and picks the commits a push would drop onto the checked out branch, with
   the `(branch)` prefix on those that group elsewhere: they land in the branch, and its push then drops nothing.
   `picked[]` as for any pick. Show the user what the remote has first.
 - --expect-remote <id>: only from the remote head the user saw; another one is `lease_rejected` (exit 4), nothing
   picked: show what the remote has now and ask again. --dry-run fetches the branch and writes nothing else.
 - `nothing_to_pick` (exit 4): the remote branch has no commit the branch lacks.
 - `state: conflict` (exit 1): nothing changed; resolve it in a lease cut from HEAD (cherry-pick the commits there),
-  then `bd lease pick`, or ask the user whether a force push may drop them. `bd undo <undo_token>` takes a pick back.
+  then `brd lease pick`, or ask the user whether a force push may drop them. `brd undo <undo_token>` takes a pick back.
 ";
 
 pub const PUSH_HELP: &str = "\
-`bd push` pushes virtual branches, each to its own remote branch (the app's Push Branch), never into master: `bd land`
-lands a branch there. Show the result to the user; once approved, `bd push <branch>...` (or --all --yes; --with-children adds the
+`brd push` pushes virtual branches, each to its own remote branch (the app's Push Branch), never into master: `brd land`
+lands a branch there. Show the result to the user; once approved, `brd push <branch>...` (or --all --yes; --with-children adds the
 branches stacked on them) syncs, takes the parents along that have commits for the remote (--alone does not: the
 branch carries their commits), and pushes parents first in one atomic push with a lease per ref; name every branch
 of `branches` to the user (one the remote has as it is is `up_to_date`, nothing of it pushed). Every pull request goes into the baseline: each branch has a ready `gh pr create`; pipe
@@ -497,11 +497,11 @@ nothing of it landed, its `pull_request` draft opens a new one into the baseline
 - `push_too_large` (exit 4): the commits add more files than `branchdeck.pushSizeLimit` (50 MiB unless set), mostly
   build output committed by mistake; `paths` names the directory and the largest files. Show the user; never raise
   the limit yourself.
-- `pushed_over: true` on a pushed branch: its remote had moved without commits it lacks; bd pushed again over it.
-- `lease_rejected` (exit 4): the remote changed; bd fetched it. For a branch behind or rejected,
+- `pushed_over: true` on a pushed branch: its remote had moved without commits it lacks; brd pushed again over it.
+- `lease_rejected` (exit 4): the remote changed; brd fetched it. For a branch behind or rejected,
   `error.branches[].remote.dropped_commits` lists what a push drops: show it; once approved, --force
   --expect-remote <remote.head> for that one branch. Commits of someone else (`remote.others_behind`): offer
-  `bd pick --remote <branch>` first, which takes them into the branch, then `bd push` again.
+  `brd pick --remote <branch>` first, which takes them into the branch, then `brd push` again.
 - `robot_running` (exit 4): a Safe Push runs on the branch (the push would fail it at the end), or on a branch
   built on it whose commit has commits of it (the message names them; a parent restacked below it after its start
   is pushed). Wait until it merges, or, once approved, --restart-running cancels the branch's own robot, pushes the
@@ -509,21 +509,21 @@ nothing of it landed, its `pull_request` draft opens a new one into the baseline
 - `plan_changed` (exit 3): another session moved a branch after the sync; nothing was pushed: push again.
 - `parked` (exit 4): a named branch is parked, or built on a parked one; with --all or --with-children a parked
   branch is only left out, named in `skipped` with `code: parked`. Tell the user, never unpark it.
-- `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `bd status`):
-  nothing of them is left to push until they are archived. With others to push, `bd push` only leaves a landed
+- `landed` (exit 4): merged Safe Pushes landed all of every branch asked for (`landed_by` in `brd status`):
+  nothing of them is left to push until they are archived. With others to push, `brd push` only leaves a landed
   one out (with `--with-children` its children too), named in `skipped` with who landed it; tell the user. A
   branch it is built on that landed is not pushed along.
-`bd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
-in `bd sync` and `bd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
+`brd sync` prints the push each branch needs as `push`, ready to run once approved. With stacked branches, `stacks`
+in `brd sync` and `brd status` is the stack branch of each stack that forks, `{prefix}/stack/<root>`: all its commits
 in one branch, for a Safe Push of the whole stack (`state`: `built`, `blocked` by `member`, `conflict`, `stale`);
-push none that isn't `built`. `bd push <root> --with-children` pushes it in the same atomic push once it is on the
+push none that isn't `built`. `brd push <root> --with-children` pushes it in the same atomic push once it is on the
 remote or its pull request is open, when this sync built it (`stack_warnings` names one left out).
 ";
 
-/// `bd safe-push --help`: the fields of --dry-run, its refusals and the branches it landed
+/// `brd safe-push --help`: the fields of --dry-run, its refusals and the branches it landed
 pub const SAFE_PUSH_HELP: &str = "\
-`bd safe-push` starts a Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`). First, always,
-`bd safe-push <branch> --dry-run`: it syncs and starts nothing, and prints
+`brd safe-push` starts a Patronus Safe Push (the repository on Space, the Safe Push CLI logged in once, else `not_logged_in`). First, always,
+`brd safe-push <branch> --dry-run`: it syncs and starts nothing, and prints
 - `profile` (default: the one of the last robot of the branch) and the `profiles` to choose from (--profile
   <id|name|none>);
 - `review`: `readiness` (`not_required`, `approved`, `missing`, `unknown`), `groups` with their `reviewers` and
@@ -532,14 +532,14 @@ pub const SAFE_PUSH_HELP: &str = "\
 - `push_needed` and the `refusals` a start would meet; `remotes`, what the push replaces and drops of each remote
   branch (a drop refuses with `push_refused`; --force pushes the dropped commits away with the start, only once the
   user approved); a reworded branch needs a push, the robot lands the remote's messages;
-- `target_check`: bd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
+- `target_check`: brd fetches the target and replays what lands onto its tip, as Patronus rebases it before its
   checks: `result` `clean`, `conflict` or `not_run`; `fetched: false` means the check used the last fetched tip;
 - `lands`, what the one robot lands into the target, root first: a stacked branch lands the branches it is built
   on with it, and the branches built on it stay. `alone` (a stacked branch): `builds` (it could land alone once
   unstacked, unless `uses` names a name of its stack) or `needs` (the commits of its parents it needs, `movable`
   into it). Landing what it is built on is right: name `lands` to the user, and offer the branch alone only as a
   second way.
-Once approved, `bd safe-push <branch>` pushes first when `push_needed` (the parents with commits for the remote,
+Once approved, `brd safe-push <branch>` pushes first when `push_needed` (the parents with commits for the remote,
 by content), then starts the robot: `robot.url` is its page; a branch with an open pull request into the target
 starts from a `/patronus` comment there, where its approvals count (`started_via`); one into a virtual branch is
 retargeted first (`retargeted`). --patronus-dry-run starts a Dry Run instead: the checks without the push into the
@@ -562,21 +562,21 @@ Refusals, nothing pushed or started:
 - `dangling_reference` (exit 4, also in `refusals`): what the check of step 2 reports for the branch or a branch it
   lands: fix it there, or, when the user says it is a false alarm, --allow-dangling.
 - `missing_declaration` (exit 4, also in `refusals`): a commit of what lands uses a name that a commit of a branch
-  outside it adds (`missing_declarations` of `bd check`); the message names the restack that lands that branch too
-  (`bd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
-  alarm, `bd safe-push --allow-missing`.
+  outside it adds (`missing_declarations` of `brd check`); the message names the restack that lands that branch too
+  (`brd restack <root> <branch>`, after the user approves) or the commit to move. When the user says it is a false
+  alarm, `brd safe-push --allow-missing`.
 - `push_dismisses_approvals` (exit 4, also in `refusals`): the push of new commits into the approved pull request the
-  robot starts from dismisses the approvals Patronus counts (`rules`): push first (`bd push <branch>`), then ask for
-  the review again (`bd request-review <branch>`). A push that dismisses approvals Patronus doesn't count starts;
+  robot starts from dismisses the approvals Patronus counts (`rules`): push first (`brd push <branch>`), then ask for
+  the review again (`brd request-review <branch>`). A push that dismisses approvals Patronus doesn't count starts;
   tell the user `rules.message`.
 - `rules_unknown` (exit 4, also in `refusals`): GitHub didn't answer the rules of the target, so the push may dismiss
-  the approvals: ask the user; `bd safe-push --allow-unknown-rules` starts anyway, beside --allow-missing.
+  the approvals: ask the user; `brd safe-push --allow-unknown-rules` starts anyway, beside --allow-missing.
 - `pull_request_other_base` (exit 4, also in `refusals`): the open pull request of the branch goes into another base
   (a release branch), so its approvals count for no Safe Push into the target: ask the user; the retarget `gh pr edit`
   of the message once approved, or --without-approvals (a start through the API) only when the user says so. A pull
   request into a virtual branch is retargeted to the target as a step of the start (`retargeted`).
 - `target_conflict` (exit 4, `error.commits`, `error.paths`, also in `refusals`): Patronus can't rebase what lands
-  onto the newest target; the message names the commits of the target that change the files. `bd update` resolves
+  onto the newest target; the message names the commits of the target that change the files. `brd update` resolves
   it locally (after the user approves), then run the Safe Push again.
 - `stack_conflict` (exit 4, `error.commits`, `error.paths`): the stack branch conflicts though each branch builds;
   `stack_not_built` (exit 4): a branch of it is blocked or failed, or the stack branch is stale. Land the stack in
@@ -585,29 +585,29 @@ Refusals, nothing pushed or started:
   left to land. `lands` leaves out what merged Safe Pushes landed already.
 - `busy` (exit 3, `error.holder`): another process runs what the start needs; retry once it is done. A start whose
   answer was lost (`holder.unknown`: its request went out, no answer came) holds until Patronus lists its robot; see
-  `bd robot <branch>`, and only when the user says so `bd operation forget <holder.op>` (Patronus may still run it).
-  A start of `bd` whose answer was lost says so in `start_unknown` and is never sent again by itself.
-After a merge, until `bd update` archives them, `bd status` names the branches a merged Safe Push landed
+  `brd robot <branch>`, and only when the user says so `brd operation forget <holder.op>` (Patronus may still run it).
+  A start of `brd` whose answer was lost says so in `start_unknown` and is never sent again by itself.
+After a merge, until `brd update` archives them, `brd status` names the branches a merged Safe Push landed
 (`landed_by`: the `branch` whose Safe Push it was, or the root with `whole_stack`, the `robot`, the `commits` it
 landed, and `after`: commits added since, decided by content, the only work left, which a push and a Safe Push
-send). bd closes no pull request after the merge: the app closes those of the parents that landed when it sees the
+send). brd closes no pull request after the merge: the app closes those of the parents that landed when it sees the
 merge; when the app isn't running, tell the user that they stay open.
 ";
 
-/// `bd land --help`: the routes, the fields of --dry-run and the refusals of a push into the target
+/// `brd land --help`: the routes, the fields of --dry-run and the refusals of a push into the target
 pub const LAND_HELP: &str = "\
-`bd land <branch>` lands the branch into master by the route of the repository (`branchdeck.landing`, `route`): a
-Safe Push of Patronus (`patronus`: what `bd safe-push` does, its output in `safe_push`), or a push of the copy into
+`brd land <branch>` lands the branch into master by the route of the repository (`branchdeck.landing`, `route`): a
+Safe Push of Patronus (`patronus`: what `brd safe-push` does, its output in `safe_push`), or a push of the copy into
 the target (`push`: the commit the sync built of the branch on the baseline, `commit`, pushed into `target` as a
 fast-forward; it lands without the robot and without the CI of a pull request), or a merge of its pull request on
 GitHub (`pull-request`: `pull_request` merges by rebase, else a merge commit, else squash; while its required checks
 run, or after the push of a branch its pull request shows an older commit of, `auto_merge: true`: GitHub merges it once
-they pass, nothing landed yet). First, always, `bd land <branch> --dry-run`: it
+they pass, nothing landed yet). First, always, `brd land <branch> --dry-run`: it
 syncs and pushes nothing, and prints `lands` (a stacked branch lands the branches it is built on with it;
 --whole-stack the whole stack, from its stack branch once the sync built it), `confirmations` and the `refusals` a
 push would meet. A push into master is as final as a merge: show `lands` and every confirmation to the user, and push
-only after they approved, as any push. A push that landed prints `landed: true` and `next: bd update`, which brings
-the branch onto the target and drops the commits that landed; bd land never updates itself.
+only after they approved, as any push. A push that landed prints `landed: true` and `next: brd update`, which brings
+the branch onto the target and drops the commits that landed; brd land never updates itself.
 Refusals, nothing pushed:
 - `checks_not_passed` (exit 4, also in `refusals`): CI did not pass on the commit it lands (no open pull request, one
   that shows another commit, failing or running checks, GitHub listing none), or changes are requested on its pull
@@ -619,35 +619,35 @@ Refusals, nothing pushed:
 - `baseline_refused` (exit 4): the target refuses the push: a rule no push of the copy passes (the merge queue,
   restricted updates, signed commits), or the server refused it (a hook, a protected branch; the message says what it
   said). Tell the user.
-- `baseline_moved` (exit 3): the target moved since the copy was built on it (no fast-forward); bd fetched it. `bd
-  update` brings the branch onto it (after the user approves), then `bd land` again builds the copy anew.
+- `baseline_moved` (exit 3): the target moved since the copy was built on it (no fast-forward); brd fetched it. `brd
+  update` brings the branch onto it (after the user approves), then `brd land` again builds the copy anew.
 - `push_refused` (exit 4): the baseline is a local branch, the branch is not synced, or the required status checks of
-  the target (--bypass-rules once the user agrees); `landed` (exit 4): the baseline has all of it already: `bd update`.
-- `dangling_reference`, `missing_declaration`: as for `bd safe-push`; `bd land --allow-dangling` or `bd land
+  the target (--bypass-rules once the user agrees); `landed` (exit 4): the baseline has all of it already: `brd update`.
+- `dangling_reference`, `missing_declaration`: as for `brd safe-push`; `brd land --allow-dangling` or `brd land
   --allow-missing` only when the user says it is a false alarm. `parked`, `robot_running`, `stack_not_built`: as
-  for `bd safe-push`.
+  for `brd safe-push`.
 - `busy` (exit 3): another process lands into the same target; retry once it is done.
-- `no_pull_request` (exit 4): a merge needs an open pull request into the target: `bd safe-push <branch>
+- `no_pull_request` (exit 4): a merge needs an open pull request into the target: `brd safe-push <branch>
   --create-pull-request` opens one. `merge_blocked` (exit 4): approvals, required checks, changes requested or a
   draft hold the merge back: tell the user, it lands once they come. `not_mergeable` (exit 4): a conflict, a head
-  behind its base (`bd update`, then `bd push`), or GitHub refused the merge (its words). `landing_route_unsupported`
+  behind its base (`brd update`, then `brd push`), or GitHub refused the merge (its words). `landing_route_unsupported`
   (exit 4): the pull requests are off GitHub or on a mirror `origin` doesn't push to.
 ";
 
-/// `bd request-review --help`: whom it asks and its refusals
+/// `brd request-review --help`: whom it asks and its refusals
 pub const REQUEST_REVIEW_HELP: &str = "\
-A pull request that asks no code owner of a missing group: `bd request-review <branch> --dry-run` names whom
+A pull request that asks no code owner of a missing group: `brd request-review <branch> --dry-run` names whom
 it would ask (`reviewers`: one suggested code owner of each such group) and what it would push first (`pushed`);
-once approved, `bd request-review <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these
+once approved, `brd request-review <branch>` asks them on GitHub (--reviewer <login>, repeatable, asks these
 instead): `requested`, `refused` with GitHub's reason, `waiting_for`. `needs_push` (exit 4): the branch has commits
 its remote lacks, which the reviewers would not see; once the user approves the push, --push pushes them first
 (`pushed`). `no_pull_request`: none is open, or a draft; `no_reviewer`: Patronus names no GitHub login, ask the
 user whom; `review_refused`: GitHub asked nobody.
 ";
 
-/// `bd robot --help`: the robot of a branch and why it failed
+/// `brd robot --help`: the robot of a branch and why it failed
 pub const ROBOT_HELP: &str = "\
-`bd robot <branch>` prints the robot of the branch (`robot.state`; `running`: ask again later; --robot <id>
+`brd robot <branch>` prints the robot of the branch (`robot.state`; `running`: ask again later; --robot <id>
 for another one; a newer robot of the whole stack names `stack_root`), and --whole-stack the robot of the whole
 stack. After a failed Safe Push, --full says why (`failure`: `kind`, the failed `checks` with their build ids,
 `problems`, the failed `builds` with their failed tests and log tails) and which commits it tested (`commits`, by
@@ -657,87 +657,87 @@ restarts it. A merged one lists `closes`: the pull requests of the branches it l
 close them yourself.
 ";
 
-/// `bd robot-stats --help`: the statistics
+/// `brd robot-stats --help`: the statistics
 pub const ROBOT_STATS_HELP: &str = "\
-`bd robot-stats` prints how the user's Safe Pushes went over the last 30 days (`--period 14d`, `10w`,
+`brd robot-stats` prints how the user's Safe Pushes went over the last 30 days (`--period 14d`, `10w`,
 `6m`) against everyone else's (`mine`, `everyone`: robots per merge, the time to merge), the time lost (`time`),
 why robots of the last 14 days failed and which checks passed only on a retry (`failures`), and the fastest hours
 (`start_hours`); --refresh asks Patronus again for the weeks it may still change.
 ";
 
-/// `bd fold --help`: folding the fixups
+/// `brd fold --help`: folding the fixups
 pub const FOLD_HELP: &str = "\
-`bd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
+`brd fold` (--branch, --expect-head, --dry-run) folds the fixup!, squash! and amend! commits into their
 targets and keeps HEAD's tree. Fixups that cancel their target take it out of the history with them (`dropped: true`,
 no `new_id`; --dry-run says it too). A fold whose fixup conflicts with a commit in between or after it
 (`squash_conflict`, `commits`, `paths`) or that would leave a later commit empty (`squash_empty`) folds nothing: tell
 the user.
 ";
 
-/// `bd drop --help`: the commits out of HEAD for good
+/// `brd drop --help`: the commits out of HEAD for good
 pub const DROP_HELP: &str = "\
-`bd drop <commit>...` takes commits ahead of the baseline out of the checked out branch with their files, as the app's
+`brd drop <commit>...` takes commits ahead of the baseline out of the checked out branch with their files, as the app's
 Drop Commit does; the commits after them are replayed. For a commit of yours that must not land, never a revert, which
 lands both into master; with a revert of it, drop both. A commit of another session or of the user, or one on a branch
-that is pushed or under a robot (`bd status`): ask the user first.
-- Run `bd drop --dry-run` first: it builds the drop and drops it. `dropped` (each `commit`, `subject`, `branch`),
+that is pushed or under a robot (`brd status`): ask the user first.
+- Run `brd drop --dry-run` first: it builds the drop and drops it. `dropped` (each `commit`, `subject`, `branch`),
   `files_changed` (false when the commits cancel each other, a commit and its revert), `rebuilt_branches` (the next
   sync builds them anew: a pushed one needs a push again, its open pull request keeps the commits until then) and
   `emptied_branches` (left without a commit, archived by the next sync). Drop with --expect-head <previous_head>.
-- Prints `previous_head`, `new_head` and an `undo_token`: `bd undo <undo_token>` brings the commits and their files
+- Prints `previous_head`, `new_head` and an `undo_token`: `brd undo <undo_token>` brings the commits and their files
   back.
 - `drop_conflict` (exit 4): a later commit depends on a dropped one, or holds only its changes (name it too), or the
   root would go. `uncommitted_overlap` (exit 4): local changes on files the drop writes (`paths`): ask the user.
   `not_ahead_of_baseline`: the commit landed; a revert of it is the user's to decide. `drop_in_home` (exit 4, in a
-  lease): the pick landed the commit on the shared branch; run its `next_steps`: the drop there, then `bd lease pick`.
+  lease): the pick landed the commit on the shared branch; run its `next_steps`: the drop there, then `brd lease pick`.
   All change nothing.
 ";
 
-/// `bd squash --help`: the squash the user asked for
+/// `brd squash --help`: the squash the user asked for
 pub const SQUASH_HELP: &str = "\
-`bd squash <into> <commit>...` squashes commits into `<into>`, the oldest of them, as the app's Squash does: the
+`brd squash <into> <commit>...` squashes commits into `<into>`, the oldest of them, as the app's Squash does: the
 others leave the history, the commits in between stay, HEAD's tree stays, so the files and the index are not touched.
 Only for commits the user asked to squash. All of them are ahead of the baseline (`not_ahead_of_baseline`) and in the
-branch of `<into>`, else `invalid_arguments` (move them first with `bd group`).
-- `bd squash` keeps the message of `<into>`; --subject '<subject>' (the `(prefix)` included) replaces its subject and
+branch of `<into>`, else `invalid_arguments` (move them first with `brd group`).
+- `brd squash` keeps the message of `<into>`; --subject '<subject>' (the `(prefix)` included) replaces its subject and
   keeps its body; --message '<message>' or --message-file <file> (`-` for stdin) is the whole message. A message that
   moves the commit to another branch is refused (`invalid_arguments`).
-- Run `bd squash --dry-run` first: it builds the squash and drops it. Show the user `squashed`, `subject` and
+- Run `brd squash --dry-run` first: it builds the squash and drops it. Show the user `squashed`, `subject` and
   `rebuilt_branches`, the branches the next sync builds anew (a pushed one needs a push again), and squash once they
   approve, with --expect-head <previous_head>; --sync syncs after it.
-- Prints `new_id`, `previous_head`, `new_head` and an `undo_token`: `bd undo <undo_token>` takes it back.
+- Prints `new_id`, `previous_head`, `new_head` and an `undo_token`: `brd undo <undo_token>` takes it back.
 - `squash_conflict` (exit 4): a squashed commit and a commit in between or after it change the same lines (`commits`,
-  `paths`); `squash_empty` (exit 4): the commits cancel each other (a squash gives one commit: `bd drop` them), or a
+  `paths`); `squash_empty` (exit 4): the commits cancel each other (a squash gives one commit: `brd drop` them), or a
   later commit would become empty. Both change nothing: tell the user, never squash another way.
 ";
 
-/// `bd reword --help`: the change of a message
+/// `brd reword --help`: the change of a message
 pub const REWORD_HELP: &str = "\
-A message to change (a subject too long, a typo): `bd reword <commit> --subject '<subject>'` (the body stays),
+A message to change (a subject too long, a typo): `brd reword <commit> --subject '<subject>'` (the body stays),
 --message '<message>' or --message-file <file> (`-` for stdin), or several commits in one rewrite with --plan <file>
 (`-` for stdin) of {\"rewrites\": [{\"commit\": \"<id>\", \"subject\": \"...\"}]} (or `message` for the whole
-message); --expect-head, --allow-append, --dry-run, --sync, --map as for `bd group`. The subject is the whole line:
+message); --expect-head, --allow-append, --dry-run, --sync, --map as for `brd group`. The subject is the whole line:
 keep its `(prefix)`, unless the commit should move to another branch (`changes[].moved` says it, check with
 --dry-run first). Every tree, the index and the files stay; the commits after it get new ids. Never an empty
 `amend!` commit, an amend with `git commit`, `commit-tree` or `update-ref` for it. `invalid_plan` (exit 2) when a
 fixup would fold elsewhere: fold it first, or reword it in the same plan.
 ";
 
-/// `bd move-hunk --help`: the move of a change and its refusals
+/// `brd move-hunk --help`: the move of a change and its refusals
 pub const MOVE_HUNK_HELP: &str = "\
-A change in the wrong commit: `bd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
+A change in the wrong commit: `brd move-hunk <from> <to> <path>` (--block <id>, repeatable; --expect-head, --dry-run;
 --sync rebuilds the virtual branches at once, else the next sync does) moves the changes of the file `path`, or
-only its blocks by the ids that `bd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
+only its blocks by the ids that `brd commits <from> --patch` prints, into the commit `to`, older or newer; HEAD's
 tree, the index and the working tree stay, and the commits between keep their diff. `hunk_conflict` (exit 4): a
-commit between changes the same lines, or lacks the file, also when the words would resolve it: bd can't move it; `block_not_found` (exit 2): the file
+commit between changes the same lines, or lacks the file, also when the words would resolve it: brd can't move it; `block_not_found` (exit 2): the file
 changed since the id was read, `error.blocks` are its ids now.
 ";
 
-/// The skill `bd install` writes and `bd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
-/// and others), naming bd by `command`, its full path. It says when to use bd, what `bd workspace` asks, the rules an
+/// The skill `brd install` writes and `brd help skill` prints (`SKILL.md`, the Agent Skills format of Claude Code, Codex
+/// and others), naming brd by `command`, its full path. It says when to use brd, what `brd workspace` asks, the rules an
 /// agent must not miss before it reads any help, and where the workflow is; the rest lives in the binary, so it can't
-/// fall out of date: `bd help agent` is the workflow, `bd <command> --help` the outputs and refusals. `allowed-tools` (Claude Code) lets the agent
-/// run every bd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
+/// fall out of date: `brd help agent` is the workflow, `brd <command> --help` the outputs and refusals. `allowed-tools` (Claude Code) lets the agent
+/// run every brd command without a permission prompt while the skill is active, also the ones that rewrite the branch or
 /// push: a push still waits for the user, by the rule of the body
 pub fn skill_text(command: &str) -> String {
   let allowed_tools = yaml_quoted(&format!("Bash({command}:*)"));
@@ -745,9 +745,9 @@ pub fn skill_text(command: &str) -> String {
     "\
 ---
 name: branch-deck
-description: Use before the first edit or commit in a Git repository: `bd workspace` of Branch Deck says whether to \
+description: Use before the first edit or commit in a Git repository: `brd workspace` of Branch Deck says whether to \
 work in a leased worktree of your own and how to write the commit subject. Also use to group, split or stack the \
-commits of a branch into virtual branches and pull requests, to stack selected branches together with `bd stack-together`, \
+commits of a branch into virtual branches and pull requests, to stack selected branches together with `brd stack-together`, \
 to sync or push them, to fold fixup commits, to change \
 the message of a commit or move a hunk into another commit, to drop a commit that must not land, to update or rebase a branch onto master or main and \
 resolve its conflicts, to land the commits of a worktree onto a shared branch, to lease or return a worktree, to start \
@@ -756,24 +756,24 @@ user mentions Branch Deck.
 allowed-tools: {allowed_tools}
 ---
 
-# Branch Deck (`bd`)
+# Branch Deck (`brd`)
 
-bd is `{command}`; run it as written, it is quoted for the shell. Below, `bd` stands for it.
+brd is `{command}`; run it as written, it is quoted for the shell. Below, `brd` stands for it.
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
-of their subjects. bd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
-virtual branches, pushes them and starts their Patronus Safe Push. Only `bd update` (the branch onto its baseline),
-`bd pick` (the commits of another worktree onto the branch), `bd unapply` and `bd reapply` (a branch out of it and back),
-`bd drop` (commits out of it for good) and their undo write the working tree, through the guarded update.
+of their subjects. brd reads those groups and the commits, regroups the commits by rewriting the prefixes, rebuilds the
+virtual branches, pushes them and starts their Patronus Safe Push. Only `brd update` (the branch onto its baseline),
+`brd pick` (the commits of another worktree onto the branch), `brd unapply` and `brd reapply` (a branch out of it and back),
+`brd drop` (commits out of it for good) and their undo write the working tree, through the guarded update.
 
-Before the first edit or commit in a repository, run `bd workspace` and follow it; what the user says in the session
+Before the first edit or commit in a repository, run `brd workspace` and follow it; what the user says in the session
 wins over it:
-- `lease.on`: work in a worktree of your own. Run the first command of `next` (`bd lease get --holder <your name>`, a
+- `lease.on`: work in a worktree of your own. Run the first command of `next` (`brd lease get --holder <your name>`, a
   name of this session) and edit, build and commit only in its `path` (and `subdir` there). Its `next` (and
-  `bd workspace` inside it) names the rest: land each commit that builds and passes its tests at once with
-  `bd -C <path> lease pick`, onto the branch of `home`; a conflict comes back to you, `conflict.next` says what to do.
-  Once the task is done and every commit landed, `bd lease return --lease-id <lease_id>`. Never `git rebase` or
-  `git merge` into the shared checkout, and never `bd update` in a lease. Return only your own lease, never one of
+  `brd workspace` inside it) names the rest: land each commit that builds and passes its tests at once with
+  `brd -C <path> lease pick`, onto the branch of `home`; a conflict comes back to you, `conflict.next` says what to do.
+  Once the task is done and every commit landed, `brd lease return --lease-id <lease_id>`. Never `git rebase` or
+  `git merge` into the shared checkout, and never `brd update` in a lease. Return only your own lease, never one of
   `active_leases` that another session holds. A lease lacks the `local_changes` of the shared checkout: when the task
   needs them, ask the user. Your own files ignored by git and kept by your harness in the shared checkout (a plan,
   notes) are not `local_changes`; editing them there is allowed: read and update them at the path where the harness
@@ -781,17 +781,17 @@ wins over it:
 - `lease.on` false (`reason` says why, when it is set): work where you are; stage only the paths you changed, never
   `git add -A` or `git add .`.
 - `subject_branch.on`: start each commit subject with `(branch) `, a readable name of a few words, never an issue id as
-  the name; reuse a branch of `bd status --brief` that fits; with `stacks`, a new stack is `(parent/leaf)`. Off: write
+  the name; reuse a branch of `brd status --brief` that fits; with `stacks`, a new stack is `(parent/leaf)`. Off: write
   the subject as the repository does, without a prefix.
 - Both are the user's settings (Settings → Agents of the app, `branchdeck.agentLease`, `branchdeck.agentSubjectBranch`):
   never change them.
 - The body is what a review reads first: after the subject (the behaviour change), a lead of 1–3 sentences with the new
   state and why, then a paragraph per decision. Write code names in backticks as the code spells them (`Owner.member`,
-  a path): they link to the diffs, and `bd review-plan` lists those that resolve nothing (`target: null`). Ask with
+  a path): they link to the diffs, and `brd review-plan` lists those that resolve nothing (`target: null`). Ask with
   `Look closely:` where the reviewer must decide; then `Tests:`, `Evidence:`, `Left out:` each right before its list,
   measurements indented by four spaces, the trailers last.
 - A lease is the only worktree of your own: never `git worktree add` or a clone for it on your own initiative, also not
-  when a bd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
+  when a brd command fails. Then work where you are when that is safe, or ask the user, and name a lease that survived
   (`path`, `lease_id`, `holder`).
 - In Claude Code, `cd` into `path` once: the shell stays there when the pool is in `permissions.additionalDirectories`
   of the settings, and Read, Edit and Write take the files by their paths in `path`. When the shell goes back,
@@ -802,35 +802,35 @@ wins over it:
   `path`, and start each shell command with `cd <path> && `. Its plan is `.junie/plans/<name>.md` of the shared
   checkout: update its statuses there, by that absolute path, not in `path`.
 
-To group or push commits or to start a Safe Push, run `bd help agent` first and follow the workflow it prints: it is the
-contract of the installed version. To update a branch or resolve its update conflicts, run `bd help update` instead.
-When several sessions or worktrees work on one branch, run `bd help worktrees` first. `bd <command> --help` says what a
+To group or push commits or to start a Safe Push, run `brd help agent` first and follow the workflow it prints: it is the
+contract of the installed version. To update a branch or resolve its update conflicts, run `brd help update` instead.
+When several sessions or worktrees work on one branch, run `brd help worktrees` first. `brd <command> --help` says what a
 command prints and what each of its refusals asks.
 
-- Run bd in the repository, or pass `-C <repo>`.
-- Land the commits of your lease with `bd lease pick`, of another worktree with `bd pick`, never with
+- Run brd in the repository, or pass `-C <repo>`.
+- Land the commits of your lease with `brd lease pick`, of another worktree with `brd pick`, never with
   `git cherry-pick`, which leaves `CHERRY_PICK_HEAD`.
 - Every command prints one JSON object on stdout, with the `operation_id` of its run (its log lines, its journal
   entry). Branch on `error.code` and the exit code, never on the message;
-  `bd schema <command>` prints the JSON Schema of its output, `bd version` the version of bd and git.
-- Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits with `bd fold`;
-  squash the commits the user asked to squash with `bd squash`, after showing its --dry-run. A commit of yours that
-  must not land leaves with `bd drop <commit>...` after its --dry-run, never with `git revert`, which lands both into
+  `brd schema <command>` prints the JSON Schema of its output, `brd version` the version of brd and git.
+- Never reorder, squash or split commits on your own, except folding fixup!, squash! and amend! commits with `brd fold`;
+  squash the commits the user asked to squash with `brd squash`, after showing its --dry-run. A commit of yours that
+  must not land leaves with `brd drop <commit>...` after its --dry-run, never with `git revert`, which lands both into
   master (a commit and its revert: drop both); a commit of another session or of the user only when the user asks.
-  `bd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
-  Move a change between commits only with `bd move-hunk`, change a message only with `bd reword`. Never push, start a Safe
+  `brd update` drops a commit it proves landed, and `--landed` drops one after the user's yes.
+  Move a change between commits only with `brd move-hunk`, change a message only with `brd reword`. Never push, start a Safe
   Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
   for that approval too.
-- Before a Safe Push, run `bd safe-push <branch> --dry-run` first and show the user what it lands: the Safe Push of a
+- Before a Safe Push, run `brd safe-push <branch> --dry-run` first and show the user what it lands: the Safe Push of a
   stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
   its side branches included, in one robot.
-- `bd land` of a repository that lands by a push (`route: push`) pushes into master itself, without a robot and without
-  the CI of a pull request: run `bd land <branch> --dry-run`, show the user `lands` and `confirmations`, and run it only
-  once they approved, as any push; never pass --allow-checks-not-passed or --bypass-rules on your own. After it, `bd update`.
-- A branch `parked` in `bd status` stays local until the user unparks it: `bd push` and `bd safe-push` refuse it
+- `brd land` of a repository that lands by a push (`route: push`) pushes into master itself, without a robot and without
+  the CI of a pull request: run `brd land <branch> --dry-run`, show the user `lands` and `confirmations`, and run it only
+  once they approved, as any push; never pass --allow-checks-not-passed or --bypass-rules on your own. After it, `brd update`.
+- A branch `parked` in `brd status` stays local until the user unparks it: `brd push` and `brd safe-push` refuse it
   (`parked`). Never push or unpark it on your own.
-- `bd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one, and
-  `bd reapply <name>` puts it back on top; only when the user asks, and `bd undo <undo_token>` takes either back.
+- `brd unapply <branch>` takes a branch and its files out of the checked out branch, kept as an unapplied one, and
+  `brd reapply <name>` puts it back on top; only when the user asks, and `brd undo <undo_token>` takes either back.
 "
   )
 }

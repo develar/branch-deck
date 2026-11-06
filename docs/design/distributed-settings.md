@@ -10,7 +10,7 @@ Branch Deck opens sub-windows (the reviews, the conflict windows, Settings, Acti
 window renders settings (theme, diff view options, AI settings, recent projects) and some can change them. Each window
 must have the settings synchronously on its first render, and a change made in any window must reach all others
 without loops or lost updates. Rust reads some of them too: the zoom and the title bar when it builds a window, the
-check of Auto-sync on Focus in the native menu, and `bd` the branch prefix of the app.
+check of Auto-sync on Focus in the native menu, and `brd` the branch prefix of the app.
 
 `settings.json` needs one writer. Several writers race and overwrite each other; a write in place (truncate, then
 write) gives a reader a cut file; and a naive "write, then apply the change notification" loop echoes values back and
@@ -23,7 +23,7 @@ runs the same writer) holds the settings in memory, applies every change as a pa
 change a version and saves the file at most 500 ms after the first unsaved change, to a temporary file renamed over it.
 `src-tauri` opens it on the app data directory in `setup` (`src-tauri/src/settings.rs`). It writes two files there: the
 key `repositoryState`, what each sync, fetch and update records of a repository, in `repository-state.json`, every
-other key in `settings.json`, so the file of the user's settings, which `bd` reads, changes only when the user changes
+other key in `settings.json`, so the file of the user's settings, which `brd` reads, changes only when the user changes
 a setting or the list of projects.
 
 Each setting group of the page is a zustand vanilla store created by `createPersistentStore`
@@ -85,7 +85,7 @@ sequenceDiagram
 1. **Decision**: One writer in the backend; every window, the main one too, changes the settings through it.
    **Rationale**: No window owns the file, so a sub-window writes nothing that no one saves, and a write never waits for
    the main window. Rust writes through the same writer (`restart_app` saves the title bar setting and flushes before
-   the restart), and `bd` only reads the file, which the rename never shows cut, and whose read never fails the save:
+   the restart), and `brd` only reads the file, which the rename never shows cut, and whose read never fails the save:
    on Windows the rename replaces a file that a reader holds open (POSIX semantics, `sync_utils::atomic_file`, which
    the lease state, the landed report and the lock record use too), and waits up to a second for a program that opened
    it without sharing delete. The command is synchronous: Tauri runs it on the main thread, in the order the calls
@@ -134,7 +134,7 @@ sequenceDiagram
    **Rationale**: Keeps the file small and lets new defaults apply to users who never changed a setting. A field back
    at its default goes to the writer as `null`, which the writer stores as no value and reads as its own default: with
    two sets of defaults, a switch turned to a value that is the page's default and not Rust's would snap back, and
-   `bd` would read another value than the page shows. Keys the backend does not know are kept raw.
+   `brd` would read another value than the page shows. Keys the backend does not know are kept raw.
 
 7. **Decision**: Array stores (recent projects) wrap the array as `{ items }`.
    **Rationale**: zustand state must be an object. The writer and the file see the plain array.
@@ -166,7 +166,7 @@ sequenceDiagram
     the load moves them (`SettingsFile::take_repository_state`; a value the state file has for the repository wins) and
     saves the state file within the debounce; `settings.json` loses them with its next save, not before.
     **Rationale**: A sync runs on every focus that changed what it reads, and every Update Project learns its step
-    times: in `settings.json` each would rewrite the file `bd` reads beside it, and the user's settings would follow the
+    times: in `settings.json` each would rewrite the file `brd` reads beside it, and the user's settings would follow the
     churn of the syncs. A fetch (every Update Project) and a sync that hides the Landed island are as routine. The
     state file is saved before `settings.json` in a pass, so the moved values are on disk before `settings.json` drops
     them. The cached prefix stays in the recent projects: it changes only with the prefix.
@@ -184,15 +184,15 @@ sequenceDiagram
   the windows that get its key (`settings_changed`, through `AppEvents` of the host); a sub-window's catch-up is
   `sub_window_loaded` (`crates/app-api/src/app/windows.rs`). The window builders (the zoom), the title bar and the menu
   read their settings from the writer's `AppSettings` (`zoom.rs`, `title_bar.rs`, `menu.rs`), with its defaults.
-- `bd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
+- `brd`: reads the file once as it starts, by the same loader (`app_settings_of` in `crates/bd-core/src/context.rs`,
   `SettingsFile::load`), so it runs with the same values and defaults without the app; it resolves the branch prefix
-  with `resolve_branch_prefix` and names its source in `bd status` (`prefix_source`).
+  with `resolve_branch_prefix` and names its source in `brd status` (`prefix_source`).
 - The branch prefix in the app: a command that names branches resolves it in Rust per command, from the repository
   path alone (`PrefixInputs` in `crates/app-api/src/context.rs`: the app's prefix from the writer's
   `AppSettings`, the git prefix from `BranchPrefixes` of `crates/app-settings/src/branch_prefixes.rs`, a memo by path
   that each read of the git config refreshes); so do the sync family, Patronus, the push, the pull requests, the branch
   review and the independence of a stack, and the views of the last sync are kept by the prefix resolved. Only the
-  unapply, the reapply and the conflict fix still get the prefix the page shows, as their parameters are `bd`'s too. The
+  unapply, the reapply and the conflict fix still get the prefix the page shows, as their parameters are `brd`'s too. The
   robot commands read `patronusNewApi` from the writer the same way. The main window shows the prefix of the view of its
   session (`TableHeader.prefix`) and subscribes again once the writer has another app prefix, Settings shows what
   `resolve_branch_prefix` answers and asks again then (`onWriterChange` of `persistent-store.ts`: the change of another
@@ -216,7 +216,7 @@ sequenceDiagram
 
 - **The main window owns the file** (the design before, with the Tauri store plugin): the sub-windows relayed their
   writes through it and it broadcast its own writes after its debounce, which needed an echo tracker and the fields of
-  unanswered writes in every sub-window; the plugin wrote the file in place, so `bd` read a cut file.
+  unanswered writes in every sub-window; the plugin wrote the file in place, so `brd` read a cut file.
 - **Each window manages its own file**: file conflicts, race conditions, complex merging.
 - **zustand `persist` middleware**: no cross-window ownership; every window would write the file, and it loads
   asynchronously.
@@ -246,7 +246,7 @@ Optimizations:
 - Backend: `src-tauri/src/settings.rs`, `crates/app-api/src/app/settings.rs`, `crates/app-api/src/events.rs`,
   `crates/app-api/src/app/windows.rs` (the init script of a window, `settings_script`),
   `restart_app` in `crates/app-api/src/app/desktop.rs`, the flush on exit in `src-tauri/src/lib.rs`
-- `bd`: `app_settings_of` in `crates/bd-core/src/context.rs`
+- `brd`: `app_settings_of` in `crates/bd-core/src/context.rs`
 - Page: `src/stores/settings/persistent-store.ts`, `src/stores/settings/repositoryState.ts`, `src/stores/repository.ts`
   (the resolved prefix), `src/lib/sub-window.ts` (the catch-up of a load)
 - E2E: `crates/test-server/src/state.rs` (`TestRepository::store`, `AppState::branch_prefixes`),

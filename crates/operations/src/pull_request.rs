@@ -613,7 +613,7 @@ pub fn link_planned(facts: &PullRequestFacts<'_, '_>, branch: &str) -> Option<Pl
   Some(planned)
 }
 
-/// The plan of the pull request or review request `intent` over the one-shot session of a command (`bd request-review`)
+/// The plan of the pull request or review request `intent` over the one-shot session of a command (`brd request-review`)
 /// as it is now: no read; `None` as `prepare_planned`
 #[must_use]
 pub fn one_shot_planned(session: &OneShot, host: &LandHost<'_>, intent: &Intent) -> Option<Planned> {

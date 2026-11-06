@@ -107,7 +107,7 @@ describe("the actions Rust offers", () => {
     const operations = {
       u1: operation("u1", unstack, { kind: "rewriting" }),
       u2: operation("u2", { ...unstack, branchName: "auth" } as Intent, { kind: "queued", behind: "u1" }),
-      l1: operation("l1", unstack, { kind: "waitingForLock", holder: { tool: "bd", command: "bd pick", pid: 4242, held_for: 12 } }),
+      l1: operation("l1", unstack, { kind: "waitingForLock", holder: { tool: "bd", command: "brd pick", pid: 4242, held_for: 12 } }),
       p1: operation("p1", push, { kind: "pushing" }, { kind: "otherProcess", tool: "bd", pid: 4242 }),
     }
     const item = (action: ActionState, named: OperationNames = {}) => presentAction([action], action.id, { onSelect: () => {} }, { subject: "auth", operations, named })
@@ -117,7 +117,7 @@ describe("the actions Rust offers", () => {
       disabled: true,
       description: "Waits for Unstacking oauth…",
     })
-    expect(item({ id: "unstack", availability: { kind: "running", op: "l1" } })?.description).toBe("Waiting for `bd pick` (pid 4242, for 12 s)…")
+    expect(item({ id: "unstack", availability: { kind: "running", op: "l1" } })?.description).toBe("Waiting for `brd pick` (pid 4242, for 12 s)…")
     // its start goes to the session, which queues it
     const waits = item({ id: "rename", availability: { kind: "waits", op: "u1" } })
     expect(waits).toMatchObject({ description: "Waits for Unstacking oauth…" })
@@ -142,7 +142,7 @@ describe("the actions Rust offers", () => {
 
   it("says on an item that runs as an operation its busy state as its row does, and names the one an item waits for or is busy behind", () => {
     const push: Intent = { kind: "push", subject: { kind: "branch", name: "auth" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false }
-    const holder = { tool: "bd", command: "bd pick", pid: 4242, held_for: 12 } as const
+    const holder = { tool: "bd", command: "brd pick", pid: 4242, held_for: 12 } as const
     const operations = {
       u1: operation("u1", unstack, { kind: "rewriting" }),
       s1: operation("s1", unstack, { kind: "waitingForSync" }),

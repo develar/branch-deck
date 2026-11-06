@@ -1,4 +1,4 @@
-//! Mark Reviewed (`bd mark-reviewed`): the base and the tip a local branch has now become its reviewed pair,
+//! Mark Reviewed (`brd mark-reviewed`): the base and the tip a local branch has now become its reviewed pair,
 //! `refs/branch-deck/reviewed/<sha256 of the branch's full name>/{base,tip}` (`git_ops::reviewed_refs`), which the
 //! next review of the branch compares it with. The base is the merge base of the tip and the base the caller names (the
 //! head of the stack parent a review shows the branch on, `ReviewSegment::base`), else of the tip and the

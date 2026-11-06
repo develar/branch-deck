@@ -108,7 +108,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
   [@test] ../../crates/domain-policy/src/push_test.rs (`push_stack_covers_the_ancestors_up_to_the_nearest_held_one`)
   [@test] ../../tests/e2e/update-project/landed.spec.ts (`should name what the fetched baseline already has before the update`)
 - The state of a branch must follow the label of its push button, which reads the action Rust decides of its remote
-  status for the app and `bd` alike (`RemoteStatusUpdate::push_action`, stored as `RemoteStatusUpdate.action`):
+  status for the app and `brd` alike (`RemoteStatusUpdate::push_action`, stored as `RemoteStatusUpdate.action`):
   - "create" for a branch not on the remote (`Push Branch (3)`, its description "The branch isn't on the remote yet: the push
     creates it."); one name for every push that sends the commits as they are;
   - "force" for a push that is not a fast-forward: the remote has commits the branch lacks, older versions of commits
@@ -157,8 +157,8 @@ is outgoing compares content, not hashes: the question is whether the remote has
   author and stays up to date.
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`a_reworded_commit_is_not_on_the_remote_as_it_is`, `test_rebased_branch_with_new_commit_is_not_fast_forward`)
 - A branch is up to date only when the remote has nothing to receive and nothing the branch lacks, older versions
-  included, landed and reworded ones too (the action `upToDate`, `RemoteStatusUpdate::needs_push` for `bd push`,
-  `bd safe-push` and `bd status`); the push button, the status text, the review status of a robot or a pull request
+  included, landed and reworded ones too (the action `upToDate`, `RemoteStatusUpdate::needs_push` for `brd push`,
+  `brd safe-push` and `brd status`); the push button, the status text, the review status of a robot or a pull request
   and the restart of a robot (pushed first when the remote is not up to date) decide by it.
   [@test] ../../crates/domain-types/src/remote_status_test.rs (`a_push_has_work_unless_the_remote_has_the_branch_as_it_is`)
   [@test] ../../src/lib/push-summary.test.ts (`says that a push replaced older messages or commits that landed, without the warning`)
@@ -180,7 +180,7 @@ is outgoing compares content, not hashes: the question is whether the remote has
   one; a remote branch deleted meanwhile has none, and the others keep theirs.
   [@test] ../../crates/sync-core/src/detection_remote_status_test.rs (`the_push_time_is_the_newest_push_not_a_later_fetch`, `the_push_times_of_several_branches_are_one_read`)
 - The remote status of commits that did not move (the branch, its remote branch, the baseline, a stacked branch's
-  parent) must be the one computed before, without a walk: the app remembers it, push time included; `bd`, a new
+  parent) must be the one computed before, without a walk: the app remembers it, push time included; `brd`, a new
   process each time, takes it from the object cache and reads only the push times.
   [@test] ../../crates/sync-core/src/sync_test.rs (`the_remote_status_of_unchanged_commits_runs_no_git`)
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_pushed_branches_in_a_new_process`)
@@ -234,8 +234,8 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   Stack", "Push with Children", "Push auth Only" and "Push Up to Here" keep their names, which say what they push. Its
   toasts and its failures name the branch as such: "Pushed branch auth", "Pushed branches auth and login", "Cannot push
   branch auth", "Pushing branch auth…" (of a whole stack its stack branch, "Pushed the whole stack branch of air"); a
-  push into the target reads "Pushed auth into master · 3 commits". `bd push` keeps its name; its help says that it
-  pushes each virtual branch to its own remote branch, never into master, and points to `bd land`.
+  push into the target reads "Pushed auth into master · 3 commits". `brd push` keeps its name; its help says that it
+  pushes each virtual branch to its own remote branch, never into master, and points to `brd land`.
   [@test] ../../src/presenters/push-button.test.ts (`counts the commits the push sends in every label, the user's share in the description`)
   [@test] ../../src/lib/push-summary.test.ts (`names the remote branch a push sends to, beside a push into the target`)
   [@test] ../../src/presenters/operations.test.ts (`words an operation of another process as its row says it and as the hover names its pid`)
@@ -296,7 +296,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   moved without commits the branch lacks (deleted, rebuilt older versions, a branch created there with the same
   commits) loses nothing: Rust pushes the same frozen commits over the fetched head at once, once
   (`RemoteStatusUpdate::pushes_again`, `operations::push::send`), and the page says only that it pushed, what it replaced from the status it went over
-  (`pushedOver`); `bd push` does the same and says so (`pushed_over` of the branch). The toast is for a remote with
+  (`pushedOver`); `brd push` does the same and says so (`pushed_over` of the branch). The toast is for a remote with
   someone's commits, or one that moved again. A stack push is one atomic push: a branch that moved refuses all of it,
   nothing of the stack is pushed and every branch of it is fetched; it goes again over the fetched heads at once, once,
   when each remote that moved lost nothing, as the push of one branch does, else the toast is of the branch that moved
@@ -341,7 +341,7 @@ of the branch runs (the `operations` of the view), and words the plan and the ou
   the largest: … Nothing was pushed. Remove the files from the commits (build output?), or raise the push size limit
   (branchdeck.pushSizeLimit, Settings → Landing)". The files are the blobs the commits of the push add or change
   that no remote-tracking branch of the remote reaches, each once (one `log --raw` and one `cat-file --batch-check`,
-  [Git Operations](../../docs/design/git-operations.md#push-size)); every push goes through it, the app's and `bd`'s,
+  [Git Operations](../../docs/design/git-operations.md#push-size)); every push goes through it, the app's and `brd`'s,
   a stack, a whole stack and an unapplied branch, a dry run too. A limit that is neither a size nor off refuses the
   push.
   [@test] ../../crates/sync-core/src/push_test.rs (`a_push_over_the_size_limit_is_refused_before_the_remote`)
@@ -428,7 +428,7 @@ branch on GitHub, so the session fetches a branch whose open pull request shows 
   A fetch of the same tip again tells nothing.
   [@test] ../../src/lib/remote-commits-news.test.ts (`names who pushed how many commits to which branch, and that a push drops them`, `takes the commits of others the session fetched, and no other news`)
   [@test] ../../tests/e2e/outgoing/remote-commits.spec.ts (`should fetch the branch of a pull request someone pushed to and name their commit before any push`)
-- Pick Remote Commits must take the commits a push would drop into the branch (`bd pick --remote`, [bd
+- Pick Remote Commits must take the commits a push would drop into the branch (`brd pick --remote`, [brd
   pick](../cli/pick.spec.md#remote-commits)), the rewrite `pickRemote` of the engine, which the session runs after the
   rewrites before it: fetched again and leased on the remote tip the row shows (a remote that moved again picks nothing,
   `lease_rejected`), picked onto HEAD with the `(branch)` prefix, then a sync; the row's push then drops nothing and

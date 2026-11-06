@@ -132,8 +132,8 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
   [@test] ../../crates/review-plan/src/units_test.rs (`the_fingerprint_names_the_change_wherever_it_sits`)
 - The kind of a unit may change with the whitespace policy of a window, its `id` and its `fingerprint` must not.
 
-### In `bd`
-- `bd review-plan` must print `units` (`"schema": 18`): per unit its `id`, `kind` (`shape` with `changes`,
+### In `brd`
+- `brd review-plan` must print `units` (`"schema": 18`): per unit its `id`, `kind` (`shape` with `changes`,
   `behaviour`, `added`, `removed`, `newFile`, `deletedFile`, `deletedFiles` with `directory`, `mechanical` with
   `mechanical`, `repeatedEdit` with `group`, `other` with `reason`), `name`, `key`, `signature`, `api`, `test`, `line`, its `slices` (`path`, `old_path`, `whole`, the `blocks` by
   `index` with their `old` and `new` lines from 1, both included, `null` for a side with none, and a `fingerprint`)
@@ -183,7 +183,7 @@ is anchored to. The vision of the review, its progress and the rounds of polish:
 
 ## User Experience
 
-`bd review-plan` prints, after `repeated_edits`:
+`brd review-plan` prints, after `repeated_edits`:
 
 ```json
 "units": [
@@ -216,7 +216,7 @@ in 4 files", "Imports only (2)", "Left outside".
 
 ## Measurements
 
-`bd review-plan` (release build) on `~/projects/idea-1`, branch `air-local-launch`, 2026-10-30, the summaries in the
+`brd review-plan` (release build) on `~/projects/idea-1`, branch `air-local-launch`, 2026-10-30, the summaries in the
 object cache (a next round of a branch: its blobs parsed before), accio answering every query:
 
 | Range | Files | Units | `behaviour` | Other kinds | API entries | Time |

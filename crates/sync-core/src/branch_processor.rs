@@ -410,7 +410,7 @@ pub struct BranchNotes {
 }
 
 /// Moves the branch to its new head if it changed, reports its final status and its remote status, and returns the
-/// notes to write. The ref moves only from the tip the sync listed (compare-and-swap): the app's sync and `bd sync` don't
+/// notes to write. The ref moves only from the tip the sync listed (compare-and-swap): the app's sync and `brd sync` don't
 /// share the repository lock. A ref another process moved to the same head (the copies are deterministic) counts as
 /// written; one it moved elsewhere keeps that tip, and the branch reports an error, without notes, for the next sync to
 /// rebuild. Any other failure of the move (a ref of the name is in the way) fails the branch's task

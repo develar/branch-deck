@@ -1,9 +1,9 @@
 //! The facts of the remote a `bd` command decides on, read as the app's session reads them: a one-shot session of the
 //! command's table (`repository_model::one_shot::OneShot`: the table of its sync, or of a grouping it read without one),
 //! filled through the one reader of the facts (`ServiceFactSources` over `BdServices`) with what its intent needs
-//! (`operations::needs`, `operations::facts::fill`). `bd push`, `bd safe-push`, `bd robot` and `bd status` read the
+//! (`operations::needs`, `operations::facts::fill`). `brd push`, `brd safe-push`, `brd robot` and `brd status` read the
 //! robots, what they land, landed and hold, the pull requests, the profiles, the rules and the review from it; the words
-//! stay theirs. `bd safe-push` plans its start over it as the app's session plans one (`prepare`).
+//! stay theirs. `brd safe-push` plans its start over it as the app's session plans one (`prepare`).
 
 use bd_core::context::RepoContext;
 use bd_core::error::CliError;
@@ -64,7 +64,7 @@ impl SessionFacts {
     self.session.derive_patronus(&self.git);
   }
 
-  /// The robots of a list the command read before its sync (`bd push`, before its lock), as `read` of the robots puts
+  /// The robots of a list the command read before its sync (`brd push`, before its lock), as `read` of the robots puts
   /// them into the session, then the Patronus view over them
   pub fn know_listed(&mut self, result: PatronusRobotsResult) {
     self.session.apply(FactResult::Robots {
@@ -80,8 +80,8 @@ impl SessionFacts {
   }
 }
 
-/// The robots `robots` as `session` knows them now, then the Patronus view over them: the robots `bd status` reads of
-/// the object cache (`robot_list::read_robots`), not of a list of this command, and those of the merge of `bd robot`
+/// The robots `robots` as `session` knows them now, then the Patronus view over them: the robots `brd status` reads of
+/// the object cache (`robot_list::read_robots`), not of a list of this command, and those of the merge of `brd robot`
 /// with the merged robot among them
 pub fn know_robots(session: &mut OneShot, git: &GitCommandExecutor, robots: Vec<PatronusRobot>) {
   let result = PatronusRobotsResult {

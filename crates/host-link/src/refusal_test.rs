@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 /// The rows of the table "Refusal codes" of spec/cli/host.spec.md: the code, the exit and the words
 fn spec_rows() -> Vec<(String, String, String)> {
-  let spec = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/cli/host.spec.md")).expect("the spec of bd-host");
+  let spec = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/cli/host.spec.md")).expect("the spec of brd-host");
   let section = &spec[spec.find("### Refusal codes").expect("the section of the codes")..];
   section
     .lines()
@@ -53,7 +53,7 @@ fn a_refusal_prints_its_code_and_an_unknown_code_of_an_agent_is_an_agent_error()
   let json = serde_json::to_string(&refusal).expect("json");
   assert_eq!(json, r#"{"code":"behind","message":"the host has none of the commits"}"#);
   assert_eq!(serde_json::from_str::<Refusal>(&json).expect("parsed"), refusal);
-  serde_json::from_str::<Refusal>(r#"{"code":"lock_timeout","message":""}"#).expect_err("no code of bd-host");
+  serde_json::from_str::<Refusal>(r#"{"code":"lock_timeout","message":""}"#).expect_err("no code of brd-host");
 
   assert_eq!(Refusal::of_agent("pack_failed", "no pack"), Refusal::new(Code::PackFailed, "no pack"));
   assert_eq!(

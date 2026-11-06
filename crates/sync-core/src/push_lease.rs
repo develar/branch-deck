@@ -1,8 +1,8 @@
-//! The lease of a virtual branch push, shared by the app's push and `bd push`.
+//! The lease of a virtual branch push, shared by the app's push and `brd push`.
 //!
 //! A virtual branch is rebuilt on every sync, so a push must force; the lease keeps it from overwriting a remote
 //! branch that changed since the user looked. The lease is the remote head of the status the user saw
-//! (`prepare_push_expecting`): the app's row, the sync `bd push` runs first, or `bd push --expect-remote`. The push
+//! (`prepare_push_expecting`): the app's row, the sync `brd push` runs first, or `brd push --expect-remote`. The push
 //! replaces exactly that remote state, also after someone else's commit was fetched and shown as dropped, or brought
 //! into the branch. A rejected push fetches the branches (`fetch_remote_branches`), so the caller can show what the
 //! remote has now. The status, and so the lease, compares with the remote-tracking ref: a background fetch that
@@ -75,7 +75,7 @@ pub fn prepare_push_expecting(git_executor: &GitCommandExecutor, repository_path
   leased_push_refs(&tips, branches)
 }
 
-/// `prepare_push_expecting` for a caller that knows the tips (full name -> commit), as the sync of `bd push` left them:
+/// `prepare_push_expecting` for a caller that knows the tips (full name -> commit), as the sync of `brd push` left them:
 /// no git process
 pub fn leased_push_refs(tips: &HashMap<String, String>, branches: &[(String, Option<String>)]) -> Result<Vec<PushRef>> {
   branches
@@ -103,7 +103,7 @@ pub struct PushOptions {
 /// One `git push --porcelain <remote>` of `refs`, each with its lease (`--force-with-lease=refs/heads/<b>:<lease>`) and
 /// its tip (`<tip>:refs/heads/<b>`), through the remote policy (`remote_command`); `on_progress` gets how far the push is
 /// (`--progress`). Exit 1, a rejected ref, still reports every ref, and what the remote said of it. The app's push and
-/// `bd push` share it; what they do with a rejection is their own
+/// `brd push` share it; what they do with a rejection is their own
 #[instrument(skip(git_executor, refs, on_progress), fields(refs = refs.len()))]
 pub fn push_refs(
   git_executor: &GitCommandExecutor,

@@ -11,7 +11,7 @@
 //! conflict is analysed and at `finish`, before the branch's head goes to the branches built on it. The writer's
 //! commits stay on no ref: the sync's ref transaction makes them reachable, as it did the commits of `commit-tree`.
 //! Each chain writes on a temporary ref of its own (`unique_temp_ref`): the branches of a sync build in parallel, and
-//! the app's sync, `bd sync` and the trial builds of `bd check` run at the same time. A `checkpoint` (a resolve by
+//! the app's sync, `brd sync` and the trial builds of `brd check` run at the same time. A `checkpoint` (a resolve by
 //! words) writes the ref to disk, so the end of such a writer deletes it (`reset` from the null id); without a
 //! checkpoint the ref only ever lived in the memory of `fast-import` (`reset` without `from`).
 

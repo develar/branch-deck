@@ -1,5 +1,5 @@
 // The words of Activity (spec/repository/activity.spec.md): an entry of a journal in the words its toast had, never a
-// rule. An operation of the remote (`JournalEntry`, of the app or of `bd`) is an entry per event it made: each branch it
+// rule. An operation of the remote (`JournalEntry`, of the app or of `brd`) is an entry per event it made: each branch it
 // pushed (`describePush` over the status the push found, `EffectRecord.remote`) or found moved on the remote, each pull
 // request it retargeted, the robot it started, restarted or canceled (`presentLandOutcome`), the pull request it
 // created, closed or reviewed; one that failed is an error entry unless the page recorded the error of its toast (an

@@ -3,16 +3,16 @@ name = "bd-host"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "`bd-host`: the binary of the remote runs, the client and the agent on a host; neither bd nor the app links it"
+description = "`brd-host`: the binary of the remote runs, the client and the agent on a host; neither brd nor the app links it"
 # the build script of bd-core: `BD_VERSION`, the version of Branch Deck that the hello and the upgrade compare
 build = "../bd-core/build.rs"
 publish = false
 
 [[bin]]
-name = "bd-host"
+name = "brd-host"
 path = "src/main.rs"
 
-# bd-host runs only on Unix: its main on Windows only says so and needs none of them
+# brd-host runs only on Unix: its main on Windows only says so and needs none of them
 [target.'cfg(unix)'.dependencies]
 # the protocol, the refusal codes, the SHA-256 of this binary
 host-link = { path = "../host-link" }

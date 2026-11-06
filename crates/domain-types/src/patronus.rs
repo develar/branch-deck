@@ -252,7 +252,7 @@ pub struct PatronusStartOptions {
 }
 
 /// What the user lets a start do although it refuses or asks first (the `allow` of the contract's `Land`,
-/// `domain_policy::land::decide`), each by the user: the flags of `bd safe-push` (`--allow-dangling`, `--allow-missing`,
+/// `domain_policy::land::decide`), each by the user: the flags of `brd safe-push` (`--allow-dangling`, `--allow-missing`,
 /// `--force`, `--allow-unknown-rules`, `--allow-unknown-review`, `--cancel-running`), Start Anyway of the app for the
 /// refusals of `trial_check::landing_gate`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -544,7 +544,7 @@ pub struct ReviewReadinessBranch {
 impl ReviewReadinessBranch {
   /// The branch started from `pull_request`, the open pull request the caller chose as the robot's start, whose
   /// reviewers and author Patronus evaluates; without one through the API (`Rest`), which counts no approval. The one
-  /// way a start of `bd` is built (`plan()` of `bd safe-push`, `bd request-review`, the scenario facts); the app's is
+  /// way a start of `bd` is built (`plan()` of `brd safe-push`, `brd request-review`, the scenario facts); the app's is
   /// `inputOf` of `src/stores/review-readiness.ts`
   #[must_use]
   pub fn starting_from(branch_name: String, source: Option<String>, tip: String, pull_request: Option<&crate::pull_request::PullRequest>) -> Self {

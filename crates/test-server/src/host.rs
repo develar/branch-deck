@@ -419,13 +419,13 @@ impl RestartHost for TestDesktop {
   }
 }
 
-/// The bd the copied prompts name: a fixed path, the app's `agent_cli_command` reads the running binary
-pub const AGENT_CLI: &str = "/Users/test/.local/bin/bd";
+/// The brd the copied prompts name: a fixed path, the app's `agent_cli_command` reads the running binary
+pub const AGENT_CLI: &str = "/Users/test/.local/bin/brd";
 
 /// The skill files the fake install names
 const AGENT_SKILLS: [&str; 2] = ["/Users/test/.claude/skills/branch-deck/SKILL.md", "/Users/test/.agents/skills/branch-deck/SKILL.md"];
 
-/// The agent CLI of a test repository: `bd install` without its files, which leaves the rules of `bd workspace` to the
+/// The agent CLI of a test repository: `brd install` without its files, which leaves the rules of `brd workspace` to the
 /// global config of the repository, as the app reads the developer's; the command of a POSIX shell, with the repository
 /// path as it is (test paths are plain)
 #[derive(Default)]

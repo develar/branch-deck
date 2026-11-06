@@ -17,7 +17,7 @@ use sync_utils::process_scan::process_started;
 use test_utils::git_test_utils::TestRepo;
 
 /// The line of a run that waits for an upgrade of git
-const GIT_WAIT_LINE: &str = "bd-host: waiting for the upgrade of git on the host: `brew upgrade git` runs once no host slot is lent";
+const GIT_WAIT_LINE: &str = "brd-host: waiting for the upgrade of git on the host: `brew upgrade git` runs once no host slot is lent";
 
 fn now_ms() -> u64 {
   u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).expect("after 1970").as_millis()).expect("a time in u64")
@@ -85,7 +85,7 @@ impl World {
   /// Writes the repository list of the agent, so the keeper keeps those repositories from the start of `serve`
   fn remember(&self, repos: &[&Path]) {
     let text: String = repos.iter().flat_map(|repo| [repo.display().to_string(), "\n".to_owned()]).collect();
-    let file = self.home.path().join(".cache/bd-host/repos");
+    let file = self.home.path().join(".cache/brd-host/repos");
     fs::create_dir_all(file.parent().expect("a parent")).expect("the cache directory");
     fs::write(&file, text).expect("the repository list");
   }
@@ -239,7 +239,7 @@ fn a_run_waits_while_homebrew_upgrades_git_and_its_command_gets_the_git_of_the_h
   let agent = world.serve_with(&[("PATH", &path), ("BD_TEST_HOST_BREW", "none")]);
   record_live_upgrade(&world.repo);
   agent.start(world.spec("9-1", "command -v git"));
-  eventually("the wait of the run", || events(&world, "9-1").contains(GIT_WAIT_LINE.trim_start_matches("bd-host: ")));
+  eventually("the wait of the run", || events(&world, "9-1").contains(GIT_WAIT_LINE.trim_start_matches("brd-host: ")));
   thread::sleep(Duration::from_millis(500));
   remove_upgrade(&world.repo);
 

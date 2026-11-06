@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use test_utils::git_test_utils::TestRepo;
 use test_utils::history::HistoryCommit;
 
-/// The case of the report that asked for `bd squash`: `(lenses) Add lenses` and two commits that only change what it
+/// The case of the report that asked for `brd squash`: `(lenses) Add lenses` and two commits that only change what it
 /// added, a commit of `ui` between them and one after them, and a branch `docs` after them; returns the repository and
 /// the ids, oldest first
 fn repo_with_lenses() -> (TestRepo, Vec<String>) {
@@ -29,7 +29,7 @@ fn subjects(repo: &TestRepo) -> String {
   git(repo, &["log", "--format=%s", "origin/master..HEAD"])
 }
 
-/// The tips of the virtual branches after `bd sync`, by name
+/// The tips of the virtual branches after `brd sync`, by name
 fn synced_tips(repo: &TestRepo) -> Value {
   let (exit_code, output) = run_in(repo, &["sync"]);
   assert_eq!(exit_code, 0, "{output}");

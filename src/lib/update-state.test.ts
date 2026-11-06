@@ -120,10 +120,10 @@ describe("the labels of a running update", () => {
 
   it("names whom an update waits for while another holder has the repository lock, with Stop Waiting, until its next step", () => {
     const stops: string[] = []
-    const waiting = { ...advanceRun(fetching, "waiting", 1000), lockWait: { waitingFor: "Waiting for `bd pick` (pid 4242, for 12 s)", stop: () => stops.push("stop") } }
-    expect(runningStepSentence(waiting, "origin/master")).toBe("Waiting for `bd pick` (pid 4242, for 12 s)…")
+    const waiting = { ...advanceRun(fetching, "waiting", 1000), lockWait: { waitingFor: "Waiting for `brd pick` (pid 4242, for 12 s)", stop: () => stops.push("stop") } }
+    expect(runningStepSentence(waiting, "origin/master")).toBe("Waiting for `brd pick` (pid 4242, for 12 s)…")
     const stop = stopWaitingUpdateItem(waiting)!
-    expect(stop).toMatchObject({ label: "Stop Waiting", description: "Waiting for `bd pick` (pid 4242, for 12 s); stop and change nothing" })
+    expect(stop).toMatchObject({ label: "Stop Waiting", description: "Waiting for `brd pick` (pid 4242, for 12 s); stop and change nothing" })
     stop.onSelect({ surface: null })
     expect(stops).toEqual(["stop"])
     // the lock taken: the check names itself, nothing to stop

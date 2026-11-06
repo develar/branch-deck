@@ -94,9 +94,9 @@ impl Fixture {
     within_a_minute(operations_until(self.registry.sessions(), &self.key, done)).await
   }
 
-  /// The fetch lock, held by the test as an agent's `bd update` that fetches the baseline holds it
+  /// The fetch lock, held by the test as an agent's `brd update` that fetches the baseline holds it
   fn hold_the_fetch(&self) -> RepositoryLock {
-    hold_fetch_as_another_process(&self.clone.path().join(".git"), "refs/remotes/origin/master", "bd update").unwrap()
+    hold_fetch_as_another_process(&self.clone.path().join(".git"), "refs/remotes/origin/master", "brd update").unwrap()
   }
 
   /// The repository lock, held by the test as another process holds it (an agent's push)

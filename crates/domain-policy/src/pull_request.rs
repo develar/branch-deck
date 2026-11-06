@@ -3,7 +3,7 @@
 //! every such pull request leaves for the target, or another base that may be meant), the pull request a robot starts
 //! from (`start_pull_request`: one into the target or, of a branch, into a virtual branch it retargets first, D11), and what a push of new commits does to its approvals by the rules of its base
 //! (`dismisses_approvals`, a fact without an answer never read as "keeps them"). The app (the view of the session, the
-//! readiness asks) and `bd` (`bd push`, `bd safe-push`, `bd request-review`) read these, never a copy.
+//! readiness asks) and `bd` (`brd push`, `brd safe-push`, `brd request-review`) read these, never a copy.
 
 use domain_types::branch_names::{BranchKind, strip_branch_namespace};
 use domain_types::error::ApiError;

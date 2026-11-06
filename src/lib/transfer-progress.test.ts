@@ -11,8 +11,8 @@ describe("transferLabel", () => {
   })
 
   it("names the holder of the repository lock the push waits for, without a percent", () => {
-    const waiting = lockWaitProgress("Waiting for `bd pick` (pid 4242, for 12 s)", () => {})
-    expect(transferLabel("Pushing", waiting)).toBe("Waiting for `bd pick` (pid 4242, for 12 s)")
+    const waiting = lockWaitProgress("Waiting for `brd pick` (pid 4242, for 12 s)", () => {})
+    expect(transferLabel("Pushing", waiting)).toBe("Waiting for `brd pick` (pid 4242, for 12 s)")
     expect(transferPercent(waiting)).toBeNull()
     expect(transferPercent(writing)).toBe(51)
     expect(transferPercent(null)).toBeNull()
@@ -22,8 +22,8 @@ describe("transferLabel", () => {
 describe("stopWaitingPushItem", () => {
   it("offers Stop Waiting of a push only while it waits for another holder of the repository lock", () => {
     const stops: string[] = []
-    const progress = lockWaitProgress("Waiting for `bd pick` (pid 4242, for 12 s)", () => stops.push("op"))
-    expect(stopWaitingPushItem(progress)).toMatchObject({ label: "Stop Waiting", description: "Waiting for `bd pick` (pid 4242, for 12 s); stop and push nothing" })
+    const progress = lockWaitProgress("Waiting for `brd pick` (pid 4242, for 12 s)", () => stops.push("op"))
+    expect(stopWaitingPushItem(progress)).toMatchObject({ label: "Stop Waiting", description: "Waiting for `brd pick` (pid 4242, for 12 s); stop and push nothing" })
     stopWaitingPushItem(progress)!.onSelect({ surface: null })
     expect(stops).toEqual(["op"])
     expect(stopWaitingPushItem(writing)).toBeNull()

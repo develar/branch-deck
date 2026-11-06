@@ -95,7 +95,7 @@ take its declared parent, its effective base the parent's tip: a blocked or park
 base, ends the chain, and the branches above it go into master as before. A chain of one branch is a plain pull request
 into master. The session derives it into the view (`RepositoryView.githubLayers`, `repository_model::derive::
 github_layers_of`): by branch, its chain, the branch below it, and the branches below it without an open pull request.
-`bd` derives the same over its one-shot facts (`github_layers_over`). None on the route of Patronus.
+`brd` derives the same over its one-shot facts (`github_layers_over`). None on the route of Patronus.
 
 ### The base of a layer
 
@@ -162,9 +162,9 @@ layer, `Intent::LinkStack`) takes it in: the link with `join` retargets each lay
 the branch below it, then makes the stack. A layer into the branch below it that GitHub lists in no stack has the link
 as its next step (row 5): its merge would land nothing (`LayerNotLinked`).
 
-### bd and Settings
+### brd and Settings
 
-`bd push` drafts the pull request of a layer into the branch below it, with only its own commits, and names each stack
+`brd push` drafts the pull request of a layer into the branch below it, with only its own commits, and names each stack
 of the drafted branches with the `gh stack link` of their remote branches (`github_stacks`). Settings → Landing says
 where the pull requests of a stack go by the route: into master on Safe Push, a stack of GitHub off it.
 

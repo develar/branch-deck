@@ -210,10 +210,10 @@ describe("the running update", () => {
   it("names whom it waits for while another holder has the repository lock, and Stop Waiting cancels its operation", async () => {
     const update = runUpdateProject()
     const execution = await executionIn("/a", "updateProject")
-    const holder = { tool: "bd" as const, command: "bd pick --follow", pid: 4242, held_for: 12 }
+    const holder = { tool: "bd" as const, command: "brd pick --follow", pid: 4242, held_for: 12 }
     step(execution, "u", { kind: "waitingForLock", holder })
     const wait = runningIn("/a")?.run.lockWait
-    expect(wait?.waitingFor).toBe("Waiting for `bd pick --follow` (pid 4242, for 12 s)")
+    expect(wait?.waitingFor).toBe("Waiting for `brd pick --follow` (pid 4242, for 12 s)")
     wait!.stop()
     await vi.waitFor(() => expect(canceled).toEqual([opId("u")]))
     const stopped = { ...internalError("The wait for the repository lock was stopped; nothing changed"), code: "canceled" as const }
@@ -266,7 +266,7 @@ describe("the running update", () => {
     expect(runningIn("/b")).toBeUndefined()
   })
 
-  it("keeps the fetch time when the update fails after its fetch, e.g. while bd holds the repository", async () => {
+  it("keeps the fetch time when the update fails after its fetch, e.g. while brd holds the repository", async () => {
     const failedFetch = runUpdateProject()
     const network = { ...internalError("Failed to fetch origin/master"), code: "network_error" as const }
     end(
@@ -283,7 +283,7 @@ describe("the running update", () => {
 
     backend.executions = []
     const failed = runUpdateProject()
-    const locked = { ...internalError("`bd push auth` (pid 4242) is changing this repository; try again when it is done"), code: "locked" as const, retry: "same" as const }
+    const locked = { ...internalError("`brd push auth` (pid 4242) is changing this repository; try again when it is done"), code: "locked" as const, retry: "same" as const }
     end(await executionIn("/a", "updateProject"), failedAfterTheFetch("v", locked))
     await failed
     expect(fetchTimes).toEqual(["/a"])
@@ -294,14 +294,14 @@ describe("the running update", () => {
     const locked = runUpdateProject()
     const held: ApiError = {
       code: "locked",
-      message: "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
-      details: { type: "locked", holder: { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 } },
+      message: "`brd push auth` (pid 4242) is changing this repository; try again when it is done",
+      details: { type: "locked", holder: { tool: "bd", command: "brd push auth", pid: 4242, held_for: 40 } },
       retry: "same",
       operation_id: opId("u"),
     }
     end(await executionIn("/a", "updateProject"), failedAfterTheFetch("u", held))
     await locked
-    expect(lastToast()).toMatchObject({ title: "Cannot update the project", description: "`bd push auth` (pid 4242) has held the repository for 40 s" })
+    expect(lastToast()).toMatchObject({ title: "Cannot update the project", description: "`brd push auth` (pid 4242) has held the repository for 40 s" })
     // the action as `notifyError` hands it over
     const retry = lastToast()?.actionProps as ToastActionProps | undefined
     expect(retry?.children).toBe("Retry Without Fetch")

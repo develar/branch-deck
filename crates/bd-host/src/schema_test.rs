@@ -23,7 +23,7 @@ fn properties<'a>(schema: &'a Value, name: Option<&str>) -> &'a Value {
   &object["properties"]
 }
 
-/// `bd-host schema` lists the table of the spec, code by code, and the report and the hello have the fields of the
+/// `brd-host schema` lists the table of the spec, code by code, and the report and the hello have the fields of the
 /// golden JSON of the spec, no more and no less
 #[test]
 fn schema_lists_every_code_and_the_shapes_of_the_report_and_the_hello() {

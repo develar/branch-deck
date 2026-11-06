@@ -14,7 +14,7 @@
 //!   what they decide on. An answer of Patronus (the changed paths, the target, the reviews of a pull request; the user's
 //!   robots of a repository; a week of everyone's robots and the runs of the user's finished ones), which the target's ownership rules or a robot that starts or finishes can outdate: its value carries
 //!   when it was fetched, and the reader decides how long it holds (`remote_facts::review_readiness`, `bd`'s
-//!   `robot_list`, `remote_facts::robot_stats`). A passed build of `bd check --build` (the command, the branch, the ids of what it
+//!   `robot_list`, `remote_facts::robot_stats`). A passed build of `brd check --build` (the command, the branch, the ids of what it
 //!   extracts), which what the build reads outside the tree (a JDK, a toolchain) can outdate: `--rebuild` runs it
 //!   anyway. `session_frame` is keyed by a hash of a worktree: its value is the last frame of the worktree's session,
 //!   which the next save replaces and whose reader checks its key. `remote_status` is keyed by a hash too, of commit ids and the user's email: its value is what walks

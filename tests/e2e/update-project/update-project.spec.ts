@@ -137,13 +137,13 @@ test.describe("Update Project", () => {
     // in the check
     await update.send({ kind: "step", op: "held", step: { kind: "checking" } })
     await expect(steps.nth(1)).toHaveText("Checking the update onto origin/master…")
-    const holder = { tool: "bd", command: "bd pick --follow", pid: 4242, held_for: 3 }
+    const holder = { tool: "bd", command: "brd pick --follow", pid: 4242, held_for: 3 }
     await update.send({ kind: "step", op: "held", step: { kind: "waitingForLock", holder } })
     await expect(progress).toHaveAttribute("data-step", "waiting")
     await expect(steps).toHaveText([
       "Fetched origin/master · 5.79 MiB",
       "Checked the update onto origin/master",
-      "Waiting for `bd pick --follow` (pid 4242, for 3 s)…",
+      "Waiting for `brd pick --follow` (pid 4242, for 3 s)…",
       "Update to origin/master",
       "Sync branches",
     ])
@@ -173,7 +173,7 @@ test.describe("Update Project", () => {
   test("should let a rewrite run during the fetch of an update, which checks and applies after it", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     const repo = await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    // an agent's `bd update` fetches the baseline: the fetch of the update waits for it in the session
+    // an agent's `brd update` fetches the baseline: the fetch of the update waits for it in the session
     await repo.holdFetchLock(true)
     const executions = await recordCommand(page, "execute")
     const parks = await recordRewrites(page, "park")
@@ -200,7 +200,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     // an agent holds the repository lock: the park waits for it in the session, holding HEAD
     await repo.holdRepositoryLock(true)
-    await expectParkWaiting(page, /^Waiting for `bd pick --follow`/)
+    await expectParkWaiting(page, /^Waiting for `brd pick --follow`/)
 
     // ⌘T: the update fetches, then waits for the park in the queue of the session, never refused
     await expect((await updateWaiting(page)).getByRole("listitem")).toHaveText([
@@ -220,7 +220,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     // an agent holds the repository lock: the update waits for it after its check, holding HEAD
     await repo.holdRepositoryLock(true)
-    await expect(await updateWaiting(page)).toContainText(/Waiting for `bd pick --follow`/)
+    await expect(await updateWaiting(page)).toContainText(/Waiting for `brd pick --follow`/)
 
     // a park meanwhile waits behind the update in the queue of the session, never refused
     await expectParkWaiting(page, "Waits for Updating the project…")
@@ -255,7 +255,7 @@ test.describe("Update Project", () => {
     await syncAndWaitForBranches()
     const head = await repo.revision("HEAD")
     await repo.holdRepositoryLock(true)
-    await expect(await updateWaiting(page)).toContainText(/Waiting for `bd pick --follow` \(pid \d+, for \d+ s\)…/)
+    await expect(await updateWaiting(page)).toContainText(/Waiting for `brd pick --follow` \(pid \d+, for \d+ s\)…/)
 
     const cancels = await recordCommand(page, "cancel_operation")
     await runAndWaitForUpdate(page, () => page.getByTestId("stop-waiting").click())
@@ -311,14 +311,14 @@ test.describe("Update Project", () => {
   test("should name the holder of the repository lock and retry the update without a fetch", async ({ page, setupRepo, syncAndWaitForBranches }) => {
     await setupRepo("behind_upstream")
     await syncAndWaitForBranches()
-    // `bd push auth` held the repository for the whole wait of the update
+    // `brd push auth` held the repository for the whole wait of the update
     await routeCommandError(
       page,
       "execute",
       {
         code: "locked",
-        message: "`bd push auth` (pid 4242) is changing this repository; try again when it is done",
-        details: { type: "locked", holder: { tool: "bd", command: "bd push auth", pid: 4242, held_for: 40 } },
+        message: "`brd push auth` (pid 4242) is changing this repository; try again when it is done",
+        details: { type: "locked", holder: { tool: "bd", command: "brd push auth", pid: 4242, held_for: 40 } },
         retry: "same",
       },
       { times: 1 },
@@ -327,7 +327,7 @@ test.describe("Update Project", () => {
 
     await runAndWaitForUpdate(page, () => updateButton(page).click())
     const toast = page.locator("[data-slot=toast]").filter({ hasText: "Cannot update the project" })
-    await expect(toast).toContainText("`bd push auth` (pid 4242) has held the repository for 40 s")
+    await expect(toast).toContainText("`brd push auth` (pid 4242) has held the repository for 40 s")
     await expect(toast).not.toContainText("branch-deck.lock")
 
     await runAndWaitForUpdate(page, () => toast.getByRole("button", { name: "Retry Without Fetch" }).click())
@@ -394,10 +394,10 @@ test.describe("Update Project", () => {
     expect(prompt).toContain("Update the branch `master` of the Git repository at ")
     expect(prompt).toMatch(/First conflict: [0-9a-f]{8} \(feature-auth\) Change line 2: src\/app\.txt[.,]/)
     // the protocol is bd's own; each round names the upstream commits of its files
-    expect(prompt).toContain("Run `bd help update` first and follow it")
+    expect(prompt).toContain("Run `brd help update` first and follow it")
     expect(prompt).not.toContain("Upstream commits of these files")
-    expect(prompt).toMatch(/bd is `\/Users\/test\/\.local\/bin\/bd -C \S+`; below, `bd` stands for it\./)
-    expect(prompt).toContain("1. `bd update --no-fetch`.")
+    expect(prompt).toMatch(/brd is `\/Users\/test\/\.local\/bin\/brd -C \S+`; below, `brd` stands for it\./)
+    expect(prompt).toContain("1. `brd update --no-fetch`.")
     expect(prompt).toContain("edit only the copies at `edit`")
     expect(prompt).toContain("When an output or its `error` has `ask_user: true`")
     expect(prompt).toContain("never edit a conflicting file in the working tree.")
@@ -455,7 +455,7 @@ test.describe("Update Project", () => {
     const prompt = await readClipboard(page)
     expect(prompt).toContain("my uncommitted changes are in files that origin/master also changes:\n- src/app.txt\n")
     expect(prompt).toContain("Don't stash, reset, check out or commit these files. Ask me what to do with each file.")
-    expect(prompt).toMatch(/run `\/Users\/test\/\.local\/bin\/bd -C \S+ update --no-fetch` and continue as its output says\./)
+    expect(prompt).toMatch(/run `\/Users\/test\/\.local\/bin\/brd -C \S+ update --no-fetch` and continue as its output says\./)
     expect(prompt).not.toContain("git stash")
   })
 

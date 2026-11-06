@@ -87,13 +87,13 @@ tree is never written, and the user's other staged work stays staged.
 - The amend of the app is the rewrite `amend` of the engine, named on the table the window shows, and must write
   under the repository lock: the history, the merge, the amended commit and the replay of the commits above it come
   before the lock, and under it only the witness of HEAD, the move of the branch and the staging of the amended files
-  (one `update-index`, no refresh). A HEAD another process moved meanwhile (`bd update`, a `bd` rewrite of a commit
+  (one `update-index`, no refresh). A HEAD another process moved meanwhile (`brd update`, a `brd` rewrite of a commit
   below, a commit on top) is refused (`head_moved`) before the amended commit is looked for on it, under the lock by
   one `rev-parse` before the history is read again; the engine then resolves the amend again on HEAD as it is now and
   amends the copy of the commit there, found by its author, author time and subject. While another
-  process holds the lock (an agent's `bd pick --follow`, `bd`) or the app's own push, the
+  process holds the lock (an agent's `brd pick --follow`, `brd`) or the app's own push, the
   amend waits as long as the holder lives, its inline form saying whom for, the step of its operation ("Waiting for
-  `bd pick` (pid 4242, for 12 s)"), with Stop Waiting (`cancel_operation`), which ends the wait with nothing changed
+  `brd pick` (pid 4242, for 12 s)"), with Stop Waiting (`cancel_operation`), which ends the wait with nothing changed
   and the form kept; only a holder no record names refuses it after 10 s, with nothing changed and the error toast
   saying that another operation holds the lock; a HEAD the request was not made for refuses it too. An error keeps the
   form; a conflict opens the conflict viewer below the row in its place.

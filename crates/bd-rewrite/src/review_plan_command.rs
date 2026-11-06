@@ -1,6 +1,6 @@
-//! `bd review-plan`: the plan of a review of a branch or a range (`review_plan::review_plan_core`,
+//! `brd review-plan`: the plan of a review of a branch or a range (`review_plan::review_plan_core`,
 //! spec/branch/review-plan.spec.md), as JSON for an agent or an offline evaluation: for a branch marked reviewed
-//! (`bd mark-reviewed`), its commits paired with the reviewed ones and the plain range of the ones added on top; the
+//! (`brd mark-reviewed`), its commits paired with the reviewed ones and the plain range of the ones added on top; the
 //! public declarations the reviewed commits add, remove or change, ranked by their usages at the head left outside the
 //! change, from accio (`AccioCli::discover`, never canceled, never an index build); the facts of each changed file,
 //! the links between the files, the dependency changes of the build files and the repeated edits; the changed files in
@@ -56,10 +56,10 @@ use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Serialize, Serializer};
 use std::borrow::Cow;
 
-/// The version of the output of `bd review-plan`
+/// The version of the output of `brd review-plan`
 pub const REVIEW_PLAN_SCHEMA_VERSION: u32 = 18;
 
-/// The `"schema"` field the output of `bd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
+/// The `"schema"` field the output of `brd review-plan` starts with (`REVIEW_PLAN_SCHEMA_VERSION`)
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReviewPlanSchemaVersion;
 
@@ -85,9 +85,9 @@ impl JsonSchema for ReviewPlanSchemaVersion {
 
 #[derive(Debug, clap::Args)]
 pub struct ReviewPlanArgs {
-  /// The branch, named as `bd mark-reviewed` names it (`auth`), or a range `<base>..<head>`
+  /// The branch, named as `brd mark-reviewed` names it (`auth`), or a range `<base>..<head>`
   pub subject: String,
-  /// The commit the branch is reviewed on, for a branch stacked on another: its parent, as `bd mark-reviewed --base`;
+  /// The commit the branch is reviewed on, for a branch stacked on another: its parent, as `brd mark-reviewed --base`;
   /// without it, the merge base with the baseline. Not for a range
   #[arg(long)]
   pub base: Option<String>,
@@ -117,7 +117,7 @@ fn concern_edges(args: &ReviewPlanArgs) -> ConcernEdges {
   })
 }
 
-/// `bd review-plan`
+/// `brd review-plan`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ReviewPlanOutput {
   pub schema: ReviewPlanSchemaVersion,
@@ -379,7 +379,7 @@ pub struct RepeatedEditOutput {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct InterdiffOutput {
-  /// The pair `bd mark-reviewed` kept
+  /// The pair `brd mark-reviewed` kept
   pub reviewed_base: String,
   pub reviewed_tip: String,
   /// The commits of the branch, oldest first, then the dropped ones; with `--since-reviewed`, only the added, the

@@ -1,5 +1,5 @@
 //! The pull request text of a virtual branch, kept in git's own `branch.<name>.description` as
-//! `git branch --edit-description` writes it (the title, a blank line, the body). `bd describe` writes it
+//! `git branch --edit-description` writes it (the title, a blank line, the body). `brd describe` writes it
 //! (`write_description`, `clear_description`); `bd` and the sync read it
 
 use anyhow::{Result, bail};
@@ -7,7 +7,7 @@ use git_executor::git_command_executor::GitCommandExecutor;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Also a value of `descriptions` in a `bd group` plan
+/// Also a value of `descriptions` in a `brd group` plan
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]

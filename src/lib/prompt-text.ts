@@ -7,13 +7,13 @@ const NO_PUSH = "Don't push."
 export const RULES = [MESSAGES, "Don't squash, reorder, split or drop commits.", NO_PUSH]
 
 /**
- * The rules of an update with bd (`conflictPromptWithBd`): bd drops a commit it proves landed, and `--landed` drops one
- * after the user's yes, so only the agent's own drop is forbidden. A hand-off without bd (a rebase in a terminal, the
+ * The rules of an update with brd (`conflictPromptWithBd`): brd drops a commit it proves landed, and `--landed` drops one
+ * after the user's yes, so only the agent's own drop is forbidden. A hand-off without brd (a rebase in a terminal, the
  * fix of a failed robot) keeps `RULES`
  */
 export const UPDATE_RULES = [
   MESSAGES,
-  "Don't squash, reorder or split commits, and don't drop a commit yourself: bd drops a commit it proves landed, and `--landed` drops one after my yes.",
+  "Don't squash, reorder or split commits, and don't drop a commit yourself: brd drops a commit it proves landed, and `--landed` drops one after my yes.",
   NO_PUSH,
 ]
 

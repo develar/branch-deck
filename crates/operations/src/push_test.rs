@@ -40,7 +40,7 @@ use test_utils::git_test_utils::{TestRepo, stack_ahead_of_bare_origin};
 /// The prefix of the branches of `stack_ahead_of_bare_origin`, which the host resolved for the push
 const PREFIX: &str = "test";
 /// The command line of another process that holds the repository lock: an agent's push
-pub(crate) const AGENT_PUSH: &str = "bd push auth";
+pub(crate) const AGENT_PUSH: &str = "brd push auth";
 
 /// The syncs of the sessions of the tests: the options of a sync of the app, under the prefix of the key
 struct TestEnvironment;
@@ -873,7 +873,7 @@ pub(crate) fn waits_for_the_agent(operations: &[RunningOperation]) -> bool {
   })
 }
 
-/// Another process that holds the repository lock (an agent's `bd push`) keeps the push waiting as long as it lives:
+/// Another process that holds the repository lock (an agent's `brd push`) keeps the push waiting as long as it lives:
 /// the view shows it waiting for the lock with the holder its record names, and nothing is pushed; once the holder
 /// released the lock, the push goes. Stop Waiting (`Registry::cancel`) ends such a wait instead: nothing pushed, the
 /// lock still the holder's

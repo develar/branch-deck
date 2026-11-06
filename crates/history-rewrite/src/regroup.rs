@@ -39,7 +39,7 @@ use tracing::{info, instrument};
 
 #[derive(Debug, Clone, Default)]
 pub struct RegroupOptions<'a> {
-  /// The HEAD the plan was made for (`bd status` printed it); abbreviated ids are fine. Another HEAD is `HeadMoved`,
+  /// The HEAD the plan was made for (`brd status` printed it); abbreviated ids are fine. Another HEAD is `HeadMoved`,
   /// also for a regroup that changes only the issue groups
   pub expect_head: Option<String>,
   /// Accept a HEAD that has commits on top of `expect_head`, which is still a commit ahead of the baseline: the commits
@@ -49,7 +49,7 @@ pub struct RegroupOptions<'a> {
   pub dry_run: bool,
   /// How the regroup waits for another holder of the lock (`RewriteOptions::lock_wait`)
   pub lock_wait: LockWait<'a>,
-  /// The repository lock the caller holds, so that it can write more under it (`bd group --sync`); `None` takes the
+  /// The repository lock the caller holds, so that it can write more under it (`brd group --sync`); `None` takes the
   /// lock for the regroup only
   pub held_lock: Option<&'a RepositoryLock>,
 }
@@ -130,7 +130,7 @@ pub struct MapChange {
   pub kept_lines: Vec<String>,
 }
 
-/// What `bd undo` moves back, as a regroup printed it: the parts of the refs it moved, joined by `+` in this order:
+/// What `brd undo` moves back, as a regroup printed it: the parts of the refs it moved, joined by `+` in this order:
 /// `H1..H2` for a rewrite, `groups:G1..G2` for the issue groups, `stacks:S1..S2` for the stack parents, `parked:P1..P2`
 /// for the parked branches. A `G1`, `S1` or `P1` of zeros stands for a store that did not exist
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -235,7 +235,7 @@ pub enum RegroupError {
   #[error("Not commits ahead of the baseline: {}", .commits.join(", "))]
   NotAheadOfBaseline { commits: Vec<String> },
   /// The rewrite would change what fixups fold into (`fixup_targets.rs`); the text names no action, each surface adds
-  /// its own (`bd fold`, the app's Squash Fixups)
+  /// its own (`brd fold`, the app's Squash Fixups)
   #[error("{}: {}", .refusal.reason(), .commits.join(", "))]
   FixupsStranded { refusal: FixupRefusal, commits: Vec<String> },
   #[error(transparent)]
@@ -398,7 +398,7 @@ pub fn regroup_commits_core(git_executor: &GitCommandExecutor, repository_path: 
 }
 
 /// `regroup_commits_core` with one more check of the validated result before anything is written: `accept` refuses
-/// it with an error, e.g. a plan field the caller handles (the descriptions of `bd group`)
+/// it with an error, e.g. a plan field the caller handles (the descriptions of `brd group`)
 #[instrument(skip(git_executor, plan, options, accept), fields(branches = plan.branches.len(), unassign = plan.unassign.len(), dry_run = options.dry_run))]
 pub fn regroup_commits_accepted(
   git_executor: &GitCommandExecutor,

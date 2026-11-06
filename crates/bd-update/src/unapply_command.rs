@@ -1,4 +1,4 @@
-//! `bd unapply`, `bd reapply` and their `bd undo`: the commits of a virtual branch and their files out of the branch
+//! `brd unapply`, `brd reapply` and their `brd undo`: the commits of a virtual branch and their files out of the branch
 //! checked out here, the branch kept as `{prefix}/unapplied/<name>`, and back on top (spec/branch/unapply.spec.md). The core
 //! (`sync_core::unapply_branch`) checks that the virtual branch is the copies of its commits and computes the move before
 //! the repository lock, then takes the lock for the witness and the move through the guarded working-tree update; local
@@ -33,7 +33,7 @@ pub struct UnapplyArgs {
   pub dry_run: bool,
 }
 
-/// `bd unapply`
+/// `brd unapply`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UnapplyOutput {
   pub schema: SchemaVersion,
@@ -49,7 +49,7 @@ pub struct UnapplyOutput {
   pub previous_head: String,
   /// HEAD afterwards (with --dry-run: would be)
   pub new_head: String,
-  /// `bd undo <token>` brings the commits, their files and the virtual branch back; omitted with --dry-run
+  /// `brd undo <token>` brings the commits, their files and the virtual branch back; omitted with --dry-run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
 }
@@ -109,7 +109,7 @@ pub(crate) fn unapply_error(error: anyhow::Error) -> CliError {
   CliError::new(code, format!("{error:#}"))
 }
 
-/// `bd undo unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`; `None` for a token of
+/// `brd undo unapply:<previous head>..<new head>:<tip>:<virtual branch>:<unapplied branch>`; `None` for a token of
 /// another kind
 pub fn undo_unapply(context: &RepoContext, token: &str) -> Option<Result<(UnapplyUndoToken, UndoneUnapply), CliError>> {
   if !UnapplyUndoToken::is_unapply_token(token) {
@@ -122,7 +122,7 @@ fn undo_unapply_token(context: &RepoContext, text: &str) -> Result<(UnapplyUndoT
   let token = UnapplyUndoToken::parse(text).ok_or_else(|| {
     CliError::new(
       ErrorCode::InvalidArguments,
-      format!("{text:?} is not an unapply token: unapply:<previous head>..<new head>:<tip>:<branch>:<unapplied branch>, as bd unapply printed it"),
+      format!("{text:?} is not an unapply token: unapply:<previous head>..<new head>:<tip>:<branch>:<unapplied branch>, as brd unapply printed it"),
     )
   })?;
   let undone = undo_unapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(undo_core_error)?;
@@ -131,7 +131,7 @@ fn undo_unapply_token(context: &RepoContext, text: &str) -> Result<(UnapplyUndoT
 
 #[derive(Debug, clap::Args)]
 pub struct ReapplyArgs {
-  /// The unapplied branch: `<name>` of `{prefix}/unapplied/<name>`, as `unapplied` of `bd status` names it
+  /// The unapplied branch: `<name>` of `{prefix}/unapplied/<name>`, as `unapplied` of `brd status` names it
   pub branch: String,
   /// Reapply only if HEAD is still this commit
   #[arg(long, value_name = "ID")]
@@ -141,7 +141,7 @@ pub struct ReapplyArgs {
   pub dry_run: bool,
 }
 
-/// `bd reapply`
+/// `brd reapply`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ReapplyOutput {
   pub schema: SchemaVersion,
@@ -161,7 +161,7 @@ pub struct ReapplyOutput {
   pub prefix_restored: u32,
   pub previous_head: String,
   pub new_head: String,
-  /// `bd undo <token>` takes the commits out again and keeps the unapplied branch; omitted with --dry-run
+  /// `brd undo <token>` takes the commits out again and keeps the unapplied branch; omitted with --dry-run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
 }
@@ -240,7 +240,7 @@ pub(crate) fn reapply_error(error: anyhow::Error) -> CliError {
   CliError::new(code, format!("{error:#}"))
 }
 
-/// `bd undo reapply:<previous head>..<new head>:<tip>:<unapplied branch>`; `None` for a token of another kind
+/// `brd undo reapply:<previous head>..<new head>:<tip>:<unapplied branch>`; `None` for a token of another kind
 pub fn undo_reapply(context: &RepoContext, token: &str) -> Option<Result<(ReapplyUndoToken, UndoneReapply), CliError>> {
   if !ReapplyUndoToken::is_reapply_token(token) {
     return None;
@@ -252,7 +252,7 @@ fn undo_reapply_token(context: &RepoContext, text: &str) -> Result<(ReapplyUndoT
   let token = ReapplyUndoToken::parse(text).ok_or_else(|| {
     CliError::new(
       ErrorCode::InvalidArguments,
-      format!("{text:?} is not a reapply token: reapply:<previous head>..<new head>:<tip>:<unapplied branch>, as bd reapply printed it"),
+      format!("{text:?} is not a reapply token: reapply:<previous head>..<new head>:<tip>:<unapplied branch>, as brd reapply printed it"),
     )
   })?;
   let undone = undo_reapply_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(undo_core_error)?;

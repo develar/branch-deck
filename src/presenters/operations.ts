@@ -130,7 +130,7 @@ export function presentOperationLabel(operation: RunningOperation, named: Operat
 
 /**
  * The busy state of `operation` as every surface that shows it says it, the "⋯" of its row and the item that runs as
- * it: whom it waits for while another holder has the repository lock ("Waiting for `bd pick` (pid 4242, for 12 s)"),
+ * it: whom it waits for while another holder has the repository lock ("Waiting for `brd pick` (pid 4242, for 12 s)"),
  * what it waits behind in the queue of the session ("Waits for Unstacking oauth"), that it waits for a sync
  * ("Unstacking oauth after the sync"), else its own ("Unstacking tool-events"); each operation by its name
  * (`presentOperationLabel`), `operation` by `label` where its surface names it ("Restarting the Safe Push")
@@ -223,7 +223,7 @@ export interface OtherProcessRun {
 }
 
 /**
- * An operation of another process of the repository that the session shows (an agent's `bd safe-push auth`), in the
+ * An operation of another process of the repository that the session shows (an agent's `brd safe-push auth`), in the
  * words of its row; null for an operation of this app
  */
 export function presentOtherProcess(operation: RunningOperation): OtherProcessRun | null {

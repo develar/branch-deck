@@ -1,5 +1,5 @@
 //! The code-owner review of a subject as both sides read it (spec/branch/pull-requests.spec.md "Request Review",
-//! spec/branch/patronus.spec.md "Code-owner review"): whom Request Review… offers and `bd request-review` asks
+//! spec/branch/patronus.spec.md "Code-owner review"): whom Request Review… offers and `brd request-review` asks
 //! (`candidates`, D5), what the answer of the readiness means for a start and where the approvals count, a repository
 //! only on Space read once (`review_state`, D14), and when a Safe Push starts without them (`skips_approvals`, D2).
 

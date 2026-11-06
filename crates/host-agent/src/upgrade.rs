@@ -3,10 +3,10 @@
 //! requests, and exits. launchd then starts the new binary, because the `LaunchAgent` has `KeepAlive`.
 //!
 //! The install refuses while the watchdog of an earlier upgrade lives. It stages the new binary beside the binary of the
-//! `LaunchAgent` (`~/.local/bin/bd-host`) and checks it with `<staged> check --plist <plist>`: the schema, the feature, and
+//! `LaunchAgent` (`~/.local/bin/brd-host`) and checks it with `<staged> check --plist <plist>`: the schema, the feature, and
 //! the `LaunchAgent` that the new binary would write, which must be the one on the host. It refuses a lower version than
 //! `<binary> version --json` names, without `force`. It keeps the current binary as `<binary>.previous`, and renames the
-//! staged binary over the binary. Then it removes the listening file and starts `bd-host watchdog` in a session of its
+//! staged binary over the binary. Then it removes the listening file and starts `brd-host watchdog` in a session of its
 //! own. `serve` writes the listening file with its SHA-256 once it listens. When no `serve` of the new binary listens in
 //! time, the watchdog renames `<binary>.previous` back, restarts the agent, and checks that the port takes connections
 //! again. It writes its outcome to `upgrade.json`. The watchdog runs from the previous binary when that binary has the
@@ -94,7 +94,7 @@ pub(crate) fn check_launchd() -> Result<(), Refusal> {
   } else {
     Err(Refusal::new(
       Code::UpgradeFailed,
-      "the agent upgrades itself only under launchd on macOS; `bd-host setup` installs a new agent here",
+      "the agent upgrades itself only under launchd on macOS; `brd-host setup` installs a new agent here",
     ))
   }
 }
@@ -105,19 +105,19 @@ pub(crate) fn launch_agent(home: &Home) -> Result<PlistValues, Refusal> {
   let text = fs::read_to_string(&plist).map_err(|error| {
     Refusal::new(
       Code::UpgradeFailed,
-      format!("cannot read the LaunchAgent {}: {error}; `bd-host setup` writes it", plist.display()),
+      format!("cannot read the LaunchAgent {}: {error}; `brd-host setup` writes it", plist.display()),
     )
   })?;
   PlistValues::parse(&text).ok_or_else(|| {
     Refusal::new(
       Code::UpgradeFailed,
-      format!("the LaunchAgent {} is not of the shape that `setup` writes; `bd-host setup` writes it", plist.display()),
+      format!("the LaunchAgent {} is not of the shape that `setup` writes; `brd-host setup` writes it", plist.display()),
     )
   })
 }
 
 /// Whether this build writes the `LaunchAgent` `plist` as it is: `same`, `changed`, or `unknown` for a file that is missing
-/// or not of the shape of `setup`. `bd-host check --plist` prints it for the install of a newer agent
+/// or not of the shape of `setup`. `brd-host check --plist` prints it for the install of a newer agent
 pub fn plist_state(plist: &Path) -> &'static str {
   match fs::read_to_string(plist).ok().and_then(|text| PlistValues::parse(&text).map(|values| (values, text))) {
     Some((values, text)) if values.text() == text => "same",
@@ -145,7 +145,7 @@ impl Staging {
   /// A new staged file in the directory of `target`, with the mode 0700
   pub(crate) fn create(target: &Path, limit: u64) -> Result<Self, Refusal> {
     let dir = target.parent().unwrap_or_else(|| Path::new("."));
-    let name = target.file_name().map_or_else(|| "bd-host".into(), |name| name.to_string_lossy());
+    let name = target.file_name().map_or_else(|| "brd-host".into(), |name| name.to_string_lossy());
     let path = dir.join(format!(".{name}.upgrade-{}-{}", std::process::id(), STAGINGS.fetch_add(1, Ordering::Relaxed)));
     let file = OpenOptions::new()
       .write(true)
@@ -260,14 +260,14 @@ pub(crate) fn check_new(binary: &Path, plist: &Path) -> Result<String, Refusal> 
   if line.schema != SCHEMA_VERSION {
     return Err(Refusal::new(
       Code::BadBinary,
-      format!("the binary speaks the schema {}, not {SCHEMA_VERSION}; `bd-host setup` installs it", line.schema),
+      format!("the binary speaks the schema {}, not {SCHEMA_VERSION}; `brd-host setup` installs it", line.schema),
     ));
   }
   if !line.features.iter().any(|known| known == feature::UPGRADE) {
     return Err(Refusal::new(
       Code::BadBinary,
       format!(
-        "the binary {} has no feature {}, so no later upgrade could replace it; `bd-host setup` installs it",
+        "the binary {} has no feature {}, so no later upgrade could replace it; `brd-host setup` installs it",
         line.version,
         feature::UPGRADE
       ),
@@ -277,7 +277,7 @@ pub(crate) fn check_new(binary: &Path, plist: &Path) -> Result<String, Refusal> 
     return Err(Refusal::new(
       Code::PlistChanged,
       format!(
-        "the binary {} writes another LaunchAgent than {}; `bd-host setup` installs it",
+        "the binary {} writes another LaunchAgent than {}; `brd-host setup` installs it",
         line.version,
         plist.display()
       ),
@@ -350,7 +350,7 @@ impl Install<'_> {
     Ok(Upgraded { previous_sha256, sha256, version })
   }
 
-  /// Starts `bd-host watchdog` in a session of its own, with its output in the log of the agent. The listening file goes
+  /// Starts `brd-host watchdog` in a session of its own, with its output in the log of the agent. The listening file goes
   /// first, so only a `serve` that starts later can write it
   fn start_watchdog(&self, sha256: &str) -> Result<(), Refusal> {
     let failed = |error: io::Error| Refusal::new(Code::UpgradeFailed, format!("cannot start the watchdog of the upgrade: {error}"));

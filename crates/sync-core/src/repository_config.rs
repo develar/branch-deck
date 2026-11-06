@@ -1,7 +1,7 @@
 //! The `branchdeck.*` git config of a repository that Settings shows and writes: stacked branches, the symbol mode, the
 //! GitHub repository and the branch prefix (Settings → Repository), the resolve by words (Diffs & Merge), the push size
 //! limit (Patronus), the route into master (`branchdeck.landing`, spec/branch/landing-routes.spec.md), how coding
-//! agents work (Settings → Agents, read by `bd workspace`), and the experiments of the review windows
+//! agents work (Settings → Agents, read by `brd workspace`), and the experiments of the review windows
 //! (`branchdeck.reviewExperimental`, spec/branch/review-plan.spec.md). One `git config --get-regexp` reads all ten with
 //! their scopes; a write goes to the local config (`.git/config`, shared by the linked worktrees), or to the global one where
 //! the request names it (`WriteScope`; never a `push` route), and `bd` reads the same keys.
@@ -41,20 +41,20 @@ pub const GLOBAL_PUSH_ROUTE_REASON: &str = "a push is taken only from .git/confi
 /// Whether a sync resolves the conflicts of git by words (`git_ops::word_resolve`), a git boolean, on when unset
 pub const RESOLVE_BY_WORDS_CONFIG_KEY: &str = "branchdeck.resolveByWords";
 
-/// Whether a coding agent works in a worktree of its own, leased from the pool (`bd lease`), and lands each commit with
-/// `bd pick`; a git boolean, on when unset (`bd workspace`)
+/// Whether a coding agent works in a worktree of its own, leased from the pool (`brd lease`), and lands each commit with
+/// `brd pick`; a git boolean, on when unset (`brd workspace`)
 pub const AGENT_LEASE_CONFIG_KEY: &str = "branchdeck.agentLease";
 
 /// Whether a coding agent starts each commit subject with the `(branch)` it belongs to; a git boolean, on when unset:
 /// the prefix groups the commit, and the copies of the virtual branches drop it; a repository whose commits land as
-/// they are turns it off (`bd workspace`)
+/// they are turns it off (`brd workspace`)
 pub const AGENT_SUBJECT_BRANCH_CONFIG_KEY: &str = "branchdeck.agentSubjectBranch";
 
 /// Whether the review windows show the review plan (spec/branch/review-plan.spec.md, Status: Experimental): Mark
 /// Reviewed and the local Since Your Review, the overview of the plan, the badges and the Mechanical group of the tree.
 /// A git boolean, off when unset (it is an experiment, turned on in Settings), and a value git refuses is off: an
 /// experiment never turns on from a broken value.
-/// Settings → Diffs & Merge → Review writes it; `bd review-plan` and `bd mark-reviewed` work without it
+/// Settings → Diffs & Merge → Review writes it; `brd review-plan` and `brd mark-reviewed` work without it
 pub const REVIEW_EXPERIMENTAL_CONFIG_KEY: &str = "branchdeck.reviewExperimental";
 
 /// The config file an entry comes from, in git's order: a later scope wins over an earlier one
@@ -621,7 +621,7 @@ pub fn write_global_config(git: &GitCommandExecutor, change: &RepositoryConfigCh
 const CONFIG_LOCKED_EXIT_CODE: i32 = 255;
 
 /// How long a write tries again while the config file is locked, as long as a write of another process
-/// (`bd describe`, a `git config` of the user, a write of another worktree) takes at worst. Git 2.56 waits about as
+/// (`brd describe`, a `git config` of the user, a write of another worktree) takes at worst. Git 2.56 waits about as
 /// long itself; 2.54 and 2.55 fail at once
 const CONFIG_LOCK_WAIT: Duration = Duration::from_secs(1);
 

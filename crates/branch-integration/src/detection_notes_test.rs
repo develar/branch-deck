@@ -440,7 +440,7 @@ fn not_integrated_detection() -> crate::detection_notes::CachedDetection {
   }
 }
 
-/// Another writer of the detection notes (`bd sync` beside the app's sync) moves the ref while a write runs: the notes are
+/// Another writer of the detection notes (`brd sync` beside the app's sync) moves the ref while a write runs: the notes are
 /// a cache, so the write runs once more from the new tip and keeps the other's note; a writer that moves the ref before
 /// every write leaves the notes unwritten, a warning, never a failure of the sync
 #[cfg(unix)]

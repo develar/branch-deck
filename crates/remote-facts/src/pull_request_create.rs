@@ -1,5 +1,5 @@
 //! A new pull request of a virtual branch, opened through the GitHub REST API by the app's form (the engine's
-//! `CreatePullRequest`) and by `bd safe-push --create-pull-request`: the text of the app's form (`pull_request_text`, of the commits of the local
+//! `CreatePullRequest`) and by `brd safe-push --create-pull-request`: the text of the app's form (`pull_request_text`, of the commits of the local
 //! branch), the pull request with the user as its assignee and the reviewers asked, and the users of the repository a
 //! review can be asked from (one GraphQL query per search).
 //!
@@ -41,7 +41,7 @@ pub struct GetNewPullRequestParams {
   pub stack_ancestors: Vec<String>,
 }
 
-/// What a creation asks GitHub for (`operations`: the app's Create Pull Request and `bd safe-push --create-pull-request`)
+/// What a creation asks GitHub for (`operations`: the app's Create Pull Request and `brd safe-push --create-pull-request`)
 #[derive(Debug, Clone)]
 pub struct CreatePullRequestParams {
   pub repository_path: String,
@@ -74,7 +74,7 @@ const SEARCH_LIMIT: u32 = 10;
 pub const MIN_SEARCH_LENGTH: usize = 2;
 
 /// The text of the pull request of `params.head` into `params.base` on `remote` (`pull_request_text`): the description of
-/// the branch (`bd describe`), else the commits the pull request will show, those of the local branch, which the
+/// the branch (`brd describe`), else the commits the pull request will show, those of the local branch, which the
 /// creation pushes first, against `<remote>/<base>`, with the summaries of their issues that `youtrack` answers. The
 /// viewer is left to the caller, who asks GitHub. Two git processes (`read_new_pull_request`).
 #[instrument(skip_all, fields(head = %params.head))]

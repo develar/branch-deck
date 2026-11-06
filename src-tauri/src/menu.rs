@@ -128,7 +128,7 @@ pub fn configure_app_menu(app: &mut App, settings: &AppSettings) -> Result<(), B
 
   let getting_started = MenuItemBuilder::with_id("getting_started", "Getting Started").build(app)?;
   let github_link = MenuItemBuilder::with_id("github_link", "GitHub Repository").build(app)?;
-  // `bd install`: the agent CLI on PATH and the skill that tells coding agents about it
+  // `brd install`: the agent CLI on PATH and the skill that tells coding agents about it
   let install_agent_cli = MenuItemBuilder::with_id(INSTALL_AGENT_CLI, "Install Agent CLI…").build(app)?;
   let help_menu_builder = SubmenuBuilder::new(app, "Help").item(&getting_started).item(&install_agent_cli);
   // macOS has it in the app menu

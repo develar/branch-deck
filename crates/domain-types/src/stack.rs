@@ -23,13 +23,13 @@ pub enum StackProblem {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub enum StackFix {
-  /// Stack the branch on this parent (`bd restack <branch> <parent>`, Stack On ‹parent›)
+  /// Stack the branch on this parent (`brd restack <branch> <parent>`, Stack On ‹parent›)
   StackOn(String),
-  /// Make the branch a root (`bd unstack <branch>`, Unstack)
+  /// Make the branch a root (`brd unstack <branch>`, Unstack)
   Unstack,
-  /// Give the branch another name (`bd rename`, Rename…)
+  /// Give the branch another name (`brd rename`, Rename…)
   Rename,
-  /// Change the prefix of the commits `StackProblemView::commits` names (`bd reword`, Reword… of the commit)
+  /// Change the prefix of the commits `StackProblemView::commits` names (`brd reword`, Reword… of the commit)
   Reword,
 }
 

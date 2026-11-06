@@ -1,5 +1,5 @@
 //! The fix of a mutual dangling reference (`dangling_references.rs`): the change of the use moves into the branch, and
-//! it is offered only when a trial build of a check session proves it (`bd check`, the refusal of `bd safe-push`).
+//! it is offered only when a trial build of a check session proves it (`brd check`, the refusal of `brd safe-push`).
 //!
 //! - **Move the commit**: `fixed_by` changes only the file of the use, so the plan with it moved into the branch is
 //!   checked.
@@ -23,7 +23,7 @@ pub enum ProvenFix {
   /// `commit`, the `fixed_by` of the reference, changes only the file of the use: it moves into the branch, at `path` of
   /// the plan (`parent/leaf` when the branch is stacked)
   MoveCommit { path: String, commit: String },
-  /// The change of `file` in `from` (`fixed_by`) moves into `to` (`removed_by`), as `bd move-hunk <from> <to> <file>`
+  /// The change of `file` in `from` (`fixed_by`) moves into `to` (`removed_by`), as `brd move-hunk <from> <to> <file>`
   /// moves it: the whole change of the file
   MoveHunk { from: String, to: String, file: String },
 }

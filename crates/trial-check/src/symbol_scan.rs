@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use sync_utils::span::in_current_span;
 use tracing::{debug, instrument};
 
-/// What the scan read, for `bd commits --symbol-stats`
+/// What the scan read, for `brd commits --symbol-stats`
 #[derive(Debug, Clone, Default)]
 pub struct ScanStats {
   /// By language: (blobs, bytes, degraded, truncated)

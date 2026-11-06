@@ -36,7 +36,7 @@ function EveryRepositorySettings({ path }: { path: string }) {
   const config = useConfigWrite(path, read.showWritten)
   return (
     <>
-      <SettingsSection title="Merge" description="A conflict of git in a sync, in Update Project and in bd update">
+      <SettingsSection title="Merge" description="A conflict of git in a sync, in Update Project and in brd update">
         {/* docs/design/git-operations.md "Resolve by words" */}
         <EveryRepositorySwitch
           path={path}

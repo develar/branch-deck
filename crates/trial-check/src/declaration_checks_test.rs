@@ -52,7 +52,7 @@ fn delete(repo: &TestRepo, message: &str, paths: &[&str]) -> String {
   repo.head()
 }
 
-/// A check of the grouping, as `bd check` without a plan
+/// A check of the grouping, as `brd check` without a plan
 fn check(repo: &TestRepo) -> CheckReport {
   let session = CheckSession::open(repo.git_executor(), repo.path_str(), PREFIX, &ObjectCache::disabled()).unwrap();
   session.check(None).unwrap()

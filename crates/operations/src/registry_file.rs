@@ -537,7 +537,7 @@ impl ProcessRegistry {
           ErrorCode::Busy,
           format!(
             "The operations registry {} is of another version of Branch Deck, whose operations can't be read: retry when they are \
-             done (once no other Branch Deck or bd runs, the file can be deleted)",
+             done (once no other Branch Deck or brd runs, the file can be deleted)",
             self.path().display()
           ),
         )
@@ -570,7 +570,7 @@ impl ProcessRegistry {
     Ok(removed == Some(true))
   }
 
-  /// Forgets the start `id` whose answer was lost (`Intent::ForgetStart`, `bd operation forget`): its record leaves, and
+  /// Forgets the start `id` whose answer was lost (`Intent::ForgetStart`, `brd operation forget`): its record leaves, and
   /// what it held is free. The record it took out
   ///
   /// # Errors
@@ -654,7 +654,7 @@ pub fn busy(holder: &Record, now: u32) -> ApiError {
   let message = match sent {
     Some(sent) if holder.unknown => format!(
       "Cannot tell whether the {what} that {tool} (pid {}) sent {sent} s ago started: its answer was lost (operation {}), and it \
-       holds what this one needs until Patronus lists its robot or the start is forgotten (`bd operation forget {}`, Forget \
+       holds what this one needs until Patronus lists its robot or the start is forgotten (`brd operation forget {}`, Forget \
        This Start in the app; Patronus may still run it)",
       holder.pid, holder.op, holder.op
     ),

@@ -1,4 +1,4 @@
-//! `bd check`: would the branches build with this plan? A trial sync (`trial_check::check`) that writes git objects and
+//! `brd check`: would the branches build with this plan? A trial sync (`trial_check::check`) that writes git objects and
 //! the cache only
 
 use crate::group_plan::{GroupPlan, check_descriptions, parse_group_plan};
@@ -33,7 +33,7 @@ use trial_check::missing_declarations::missing_declarations;
 #[derive(Debug, Default, clap::Args)]
 #[expect(clippy::struct_excessive_bools, reason = "independent command line flags")]
 pub struct CheckArgs {
-  /// The plan of `bd group`, `-` for stdin; without it the current grouping, and stdin is never read
+  /// The plan of `brd group`, `-` for stdin; without it the current grouping, and stdin is never read
   #[arg(long, value_name = "FILE")]
   pub plan: Option<PathBuf>,
   /// Then run this shell command in the tree of each branch that is ok, extracted into a temporary directory outside
@@ -59,23 +59,23 @@ pub struct CheckArgs {
   #[arg(long, value_name = "SECONDS", requires = "fix")]
   pub time_budget: Option<u64>,
   /// Count a branch whose only failure is a dangling reference as building: its `result` stays `dangling_reference`,
-  /// `ok` and the exit code take it, as `bd safe-push --allow-dangling` starts anyway. For a reference the user says is
+  /// `ok` and the exit code take it, as `brd safe-push --allow-dangling` starts anyway. For a reference the user says is
   /// a false alarm
   #[arg(long)]
   pub allow_dangling: bool,
   /// Count a branch whose only failure is a missing declaration as building: its `result` stays
-  /// `missing_declaration`, `ok` and the exit code take it, as `bd safe-push --allow-missing` starts anyway. For a name
+  /// `missing_declaration`, `ok` and the exit code take it, as `brd safe-push --allow-missing` starts anyway. For a name
   /// the user says is a false alarm
   #[arg(long)]
   pub allow_missing: bool,
 }
 
-/// The trial builds of `bd check --fix` without --max-trials
+/// The trial builds of `brd check --fix` without --max-trials
 const DEFAULT_MAX_TRIALS: usize = 12;
-/// The seconds of `bd check --fix` without --time-budget: a trial of a large stack takes a minute
+/// The seconds of `brd check --fix` without --time-budget: a trial of a large stack takes a minute
 const DEFAULT_TIME_BUDGET: u64 = 180;
 
-/// `bd check`
+/// `brd check`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct CheckOutput {
   pub schema: SchemaVersion,
@@ -100,7 +100,7 @@ pub struct CheckOutput {
   /// With `branchdeck.symbols on`: a commit of a branch uses a name that a commit outside the branch and the branches
   /// it is built on adds, by the syntax trees (`symbol_dependencies`). git merges it, the build would fail: stack the
   /// branch on the one that adds the name, or move one of the two. The branch's `result` is `missing_declaration`,
-  /// which fails `ok` (names, not a compiler: `--allow-missing` for a false alarm), as it refuses `bd safe-push`
+  /// which fails `ok` (names, not a compiler: `--allow-missing` for a false alarm), as it refuses `brd safe-push`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub missing_declarations: Vec<MissingDeclaration>,
   /// With --fix: the regroup after which the branches that conflict (or have a proven dangling reference) apply cleanly
@@ -126,7 +126,7 @@ pub struct MissingDeclaration {
   pub evidence: &'static str,
 }
 
-/// The fix of `bd check --fix`, found by trial builds on top of the plan; nothing is applied
+/// The fix of `brd check --fix`, found by trial builds on top of the plan; nothing is applied
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct CheckFix {
   /// `complete`; `budget` when the trial or time limit stopped it (run it again, the cache makes it faster);
@@ -134,7 +134,7 @@ pub struct CheckFix {
   pub search: String,
   /// The trial builds it ran
   pub trials: u32,
-  /// Independent parts, each with the full plan (the `--plan` included) for `bd group --plan … --expect-head <head>`
+  /// Independent parts, each with the full plan (the `--plan` included) for `brd group --plan … --expect-head <head>`
   pub components: Vec<CheckFixComponent>,
   /// The branches that still conflict or have a proven dangling reference afterwards
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -261,7 +261,7 @@ pub struct InvertedStack {
   pub branch: String,
   /// The branch stacked on it that has the commit it needs
   pub child: String,
-  /// The fixes that a trial build passes, each as the `branches` and `unstack` to add to the plan of `bd group`
+  /// The fixes that a trial build passes, each as the `branches` and `unstack` to add to the plan of `brd group`
   pub fixes: Vec<InvertedStackFix>,
   /// Without `fixes`: why neither fix builds both, and where to look further
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -649,7 +649,7 @@ fn inverted_stack_output(found: trial_check::inverted_stack::InvertedStack, shor
     } else {
       "neither moving its commits into the child nor stacking it on the child builds both"
     };
-    format!("{tried}: `bd check --fix` searches the regroups")
+    format!("{tried}: `brd check --fix` searches the regroups")
   });
   InvertedStack {
     branch: found.branch,

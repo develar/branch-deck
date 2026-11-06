@@ -3,7 +3,7 @@ import type { AgentCliCommand } from "@/lib/bindings"
 import { commands } from "@/lib/bindings"
 
 /**
- * How this app's bd runs in the repository, read when the view opens: the copy must write the clipboard within the
+ * How this app's brd runs in the repository, read when the view opens: the copy must write the clipboard within the
  * click, so it can't wait for the backend. `undefined` while it is read, null when the app can't tell its binary
  */
 export function useAgentCliCommand(repositoryPath: string | null): AgentCliCommand | null | undefined {

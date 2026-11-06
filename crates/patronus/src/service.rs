@@ -139,7 +139,7 @@ impl PatronusService {
 
   /// The user's robots in `repository` for the check of the app's push (`repository_model::push_guard`): one full list
   /// asked now, never a kept one (a robot the IDE or `bd` started since
-  /// the page's list holds too), as `bd push` reads its holds; none when Patronus can't be asked (no token, a rejected
+  /// the page's list holds too), as `brd push` reads its holds; none when Patronus can't be asked (no token, a rejected
   /// token, no answer, or while the requests back off after a failure: a background request, so a Patronus that is
   /// down holds no push up), logged: best effort, the page checked the robots it knows before
   pub async fn robots_for_checks(&self, repository: &str, branch_prefix: &str) -> Vec<PatronusRobot> {

@@ -135,7 +135,7 @@ async fn a_stale_note_on_the_virtual_tip_does_not_hide_an_integrated_parent() {
 }
 
 /// The parent was archived a sync ago, with a note that is stale now: the archived branch is checked again before the
-/// placement too, so the parent is "landed" on the first sync after its merge, also in `bd status`
+/// placement too, so the parent is "landed" on the first sync after its merge, also in `brd status`
 #[test(tokio::test)]
 async fn a_stale_note_on_the_archived_parent_does_not_hide_an_integrated_parent() {
   let (upstream_repo, local_repo, git_executor) = setup_test_repos();

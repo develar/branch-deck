@@ -16,7 +16,7 @@ fn host() -> HostFile {
 #[test]
 fn a_host_file_reads_back_as_it_was_written() {
   let dir = tempfile::tempdir().unwrap();
-  let config = Config::new(dir.path().join("bd-host"));
+  let config = Config::new(dir.path().join("brd-host"));
   config.write_host(&host()).unwrap();
   assert_eq!(config.read_host("studio").unwrap(), host());
   let text = std::fs::read_to_string(config.host_path("studio")).unwrap();
@@ -33,7 +33,7 @@ fn a_missing_host_file_names_the_setup_command() {
   let dir = tempfile::tempdir().unwrap();
   let refusal = Config::new(dir.path().to_path_buf()).read_host("studio").unwrap_err();
   assert_eq!(refusal.code, Code::NoHost);
-  assert!(refusal.message.contains("`bd-host setup studio`"), "{}", refusal.message);
+  assert!(refusal.message.contains("`brd-host setup studio`"), "{}", refusal.message);
 }
 
 #[test]

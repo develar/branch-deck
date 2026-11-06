@@ -247,7 +247,7 @@ fn checked_beta(repo: &TestRepo, cache: &ObjectCache) -> Option<String> {
   })
 }
 
-/// `bd check` and the trials of a fix build as the sync does: the commit a check writes is the one the sync writes, also
+/// `brd check` and the trials of a fix build as the sync does: the commit a check writes is the one the sync writes, also
 /// from the resolve that the object cache remembers
 #[tokio::test]
 async fn a_check_resolves_as_the_sync_does() {

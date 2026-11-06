@@ -96,19 +96,19 @@ squash engine and the undo are those of [Squash Commits](squash.spec.md).
 - The squash must run under the repository lock, taken after the plan is read again and the squashed commits are
   written on temporary refs, for the witness of HEAD and the compare-and-swap move only (a HEAD that moved meanwhile
   plans once more under the lock): while another process holds it
-  (an agent's `bd pick --follow`, `bd`) or the app's own push, the squash waits as long as the holder lives, its
-  surface saying whom for, the step of its operation ("Waiting for `bd pick` (pid 4242, for 12 s)"), with Stop Waiting
+  (an agent's `brd pick --follow`, `brd`) or the app's own push, the squash waits as long as the holder lives, its
+  surface saying whom for, the step of its operation ("Waiting for `brd pick` (pid 4242, for 12 s)"), with Stop Waiting
   (`cancel_operation`), which ends the wait with nothing changed ("Canceled squashing the fixups before it started");
   only a holder no record names refuses it after 10 s, with nothing changed and the toast "Cannot squash the fixups"
   saying that another operation holds the lock.
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`every_rewrite_fails_with_locked_while_another_holds_the_lock`, `a_rewrite_waits_for_the_holder`)
   [@test] ../../crates/sync-core/src/repository_lock_test.rs (`a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after`, `a_rewrite_of_the_app_ends_its_wait_when_stopped_and_refuses_an_unnamed_holder`)
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`a_fold_locks_only_the_witness_and_the_write`)
-- `bd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
-  `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `bd fold` fails with `locked` or
+- `brd fold` runs the same squash ([Agent CLI](../cli/agent-cli.spec.md)): it passes its lock timeout and
+  `--expect-head` to the squash, which takes the lock and refuses another HEAD, so `brd fold` fails with `locked` or
   `head_moved` and changes nothing. Without `--expect-head` the squash names no HEAD: it folds the fixups of HEAD as it
   reads it, once more under the lock when HEAD moved meanwhile, and answers what it folded (each target with its
-  subject, its new id and its fixups, and the orphans), which `bd fold` prints.
+  subject, its new id and its fixups, and the orphans), which `brd fold` prints.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_is_refused_on_another_head_or_while_the_lock_is_held`, `a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
 - A fixup that conflicts with the commits between it and its target or after it, or that leaves a later commit empty,
   refuses the squash as the squash of a selection does ([Squash Commits](squash.spec.md)): `squash_conflict` with the

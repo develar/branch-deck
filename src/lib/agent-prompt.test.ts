@@ -92,25 +92,25 @@ describe("buildAgentPrompt", () => {
   ]
   const askFirst = "Other sessions work in this tree. Don't stash, reset, check out or commit these files. Ask me what to do with each file."
 
-  it("with bd, sends a blocked update to the user and then to bd, never to a stash", () => {
-    const bd = { command: "/Users/me/.local/bin/bd -C '/work/my repo'", powershell: false }
+  it("with brd, sends a blocked update to the user and then to brd, never to a stash", () => {
+    const bd = { command: "/Users/me/.local/bin/brd -C '/work/my repo'", powershell: false }
     const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
     expect(prompt).toBe(
       [
         ...blockedLines,
-        `${askFirst} When I say the files are ready, run \`/Users/me/.local/bin/bd -C '/work/my repo' update --no-fetch\` and continue as its output says. If it prints \`state: conflict\` (exit 1), run \`/Users/me/.local/bin/bd -C '/work/my repo' help update\` and follow it; edit only the files at \`edit\`, never the same path in the working tree.`,
+        `${askFirst} When I say the files are ready, run \`/Users/me/.local/bin/brd -C '/work/my repo' update --no-fetch\` and continue as its output says. If it prints \`state: conflict\` (exit 1), run \`/Users/me/.local/bin/brd -C '/work/my repo' help update\` and follow it; edit only the files at \`edit\`, never the same path in the working tree.`,
       ].join("\n"),
     )
     expect(prompt).not.toContain("git stash")
   })
 
   it("names PowerShell for the command of Windows", () => {
-    const bd = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\my repo'", powershell: true }
+    const bd = { command: "& 'C:\\Program Files\\Branch Deck\\brd.exe' -C 'C:\\work\\my repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd })
     expect(prompt).toContain(`run \`${bd.command} update --no-fetch\` in PowerShell and continue as its output says. If it prints`)
   })
 
-  it("without bd, sends a blocked update to the user and back to Branch Deck, never to a stash", () => {
+  it("without brd, sends a blocked update to the user and back to Branch Deck, never to a stash", () => {
     const prompt = buildAgentPrompt({ repositoryPath: "/work/my repo", check: blocked, fetchTime: null, bd: null })
     expect(prompt).toBe(
       [...blockedLines, `${askFirst} When I say the files are ready, tell me to run Update Project in Branch Deck again; don't update the branch yourself.`].join("\n"),
@@ -120,34 +120,34 @@ describe("buildAgentPrompt", () => {
 
   const bd = { command: "'/Applications/Branch Deck.app/Contents/MacOS/branch-deck' cli -C /work/repo", powershell: false }
 
-  it("with bd, resolves a conflict in bd's session, outside the working tree", () => {
+  it("with brd, resolves a conflict in brd's session, outside the working tree", () => {
     const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: conflict, fetchTime: Date.UTC(2026, 9, 14, 7, 30), bd })
     expect(prompt).toBe(
       [
-        "Update the branch `master` of the Git repository at /work/repo onto `origin/master` with Branch Deck's bd, and resolve the conflicts. bd replays my commits outside the working tree.",
+        "Update the branch `master` of the Git repository at /work/repo onto `origin/master` with Branch Deck's brd, and resolve the conflicts. brd replays my commits outside the working tree.",
         "",
-        `bd is \`${bd.command}\`; below, \`bd\` stands for it. Run \`bd help update\` first and follow it: it explains each field, hint and error. Each run prints one JSON object.`,
+        `brd is \`${bd.command}\`; below, \`brd\` stands for it. Run \`brd help update\` first and follow it: it explains each field, hint and error. Each run prints one JSON object.`,
         "",
         "State (fetched 2026-10-14T07:30:00Z): HEAD (master) 11111111, origin/master 22222222.",
         "First conflict: bbbbbbbb (auth) Change line 2: src/app.txt, src/config.txt.",
         "",
         "Steps:",
-        "1. `bd update --no-fetch`. When an output or its `error` has `ask_user: true`, show me its `reasons` (or the error's `message`) with `session.blocked_paths` and `session.landed_differs`, and ask me once. A later round of a commit I decided in `landed_differs` takes that answer.",
+        "1. `brd update --no-fetch`. When an output or its `error` has `ask_user: true`, show me its `reasons` (or the error's `message`) with `session.blocked_paths` and `session.landed_differs`, and ask me once. A later round of a commit I decided in `landed_differs` takes that answer.",
         "2. While it exits 1: follow the `hint` of each file and of `session.commit`, edit only the copies at `edit`, and run `session.next`.",
-        "3. Exit 0: build, and run the tests of `verify.paths`; without `verify`, the build is enough. On a failure, commit only the files you fixed, as `git -C /work/repo commit -m 'fixup! <subject>' -- <paths>`, and run `bd fold`; or run `bd undo <undo_token>` and tell me.",
+        "3. Exit 0: build, and run the tests of `verify.paths`; without `verify`, the build is enough. On a failure, commit only the files you fixed, as `git -C /work/repo commit -m 'fixup! <subject>' -- <paths>`, and run `brd fold`; or run `brd undo <undo_token>` and tell me.",
         "4. Report each edited resolution of `resolutions` and `resolved` with every line of `dropped_upstream_lines` and `dropped_commit_lines`, each drop I decided (`landed_as` with `local_only`), and `dropped` as a count per `proof`.",
         "",
         "Rules:",
         "- Other sessions work in this tree. Never run `git rebase`, `git stash`, `git checkout` or `git reset`, and never edit a conflicting file in the working tree.",
         "- Keep every commit message unchanged, including the `(prefix)` at the start of a subject: Branch Deck groups commits by it.",
-        "- Don't squash, reorder or split commits, and don't drop a commit yourself: bd drops a commit it proves landed, and `--landed` drops one after my yes.",
+        "- Don't squash, reorder or split commits, and don't drop a commit yourself: brd drops a commit it proves landed, and `--landed` drops one after my yes.",
         "- Don't push.",
         "- On an error: when `retryable` is true, go to step 1; else do what its `message` says, or stop and show me the error.",
       ].join("\n"),
     )
     expect(prompt).not.toContain("--expect-head")
-    // the protocol is bd's own (`bd help update`, `hint`, `session.next`, `ask_user`, `retryable`): no exit code above 1,
-    // no error code and no rule of the markers that bd could change under the prompt, as `round_moved` moved from exit 2
+    // the protocol is brd's own (`brd help update`, `hint`, `session.next`, `ask_user`, `retryable`): no exit code above 1,
+    // no error code and no rule of the markers that brd could change under the prompt, as `round_moved` moved from exit 2
     // to 3
     expect(prompt).not.toMatch(/round_moved|empty_resolution|uncommitted_overlap|Exit [2345]|marker/)
     // a round names the upstream commits of its files
@@ -157,10 +157,10 @@ describe("buildAgentPrompt", () => {
   })
 
   it("names PowerShell for a conflict on Windows", () => {
-    const powershell = { command: "& 'C:\\Program Files\\Branch Deck\\bd.exe' -C 'C:\\work\\repo'", powershell: true }
+    const powershell = { command: "& 'C:\\Program Files\\Branch Deck\\brd.exe' -C 'C:\\work\\repo'", powershell: true }
     const prompt = buildAgentPrompt({ repositoryPath: "C:\\work\\repo", check: conflict, fetchTime: null, bd: powershell })
-    expect(prompt).toContain(`bd is \`${powershell.command}\`, run in PowerShell; below, \`bd\` stands for it.`)
-    // `bd help update` says how a copy is written in PowerShell; the prompt quotes the fixup commit, its quote doubled
+    expect(prompt).toContain(`brd is \`${powershell.command}\`, run in PowerShell; below, \`brd\` stands for it.`)
+    // `brd help update` says how a copy is written in PowerShell; the prompt quotes the fixup commit, its quote doubled
     expect(prompt).not.toContain("WriteAllText")
     const quoted = buildAgentPrompt({ repositoryPath: "C:\\work\\it's repo", check: conflict, fetchTime: null, bd: powershell })
     expect(quoted).toContain("`git -C 'C:\\work\\it''s repo' commit -m 'fixup! <subject>' -- <paths>` (double each `'` of the subject)")
@@ -177,7 +177,7 @@ describe("buildAgentPrompt", () => {
     const upstreamCommits = Array.from({ length: 50 }, (_, i) => ({ ...commit("0", `Upstream change number ${i} with a long enough subject`, `Author ${i}`, files), id: id(2, i) }))
     const large = check(conflictState(files, 300, first, upstreamCommits))
 
-    /** `described`: the prompt describes the upstream commits the files name, each once (without bd) */
+    /** `described`: the prompt describes the upstream commits the files name, each once (without brd) */
     function expectShort(prompt: string, lines: number, described: boolean) {
       // 300 files with 50 upstream commits each were hundreds of kilobytes
       expect(prompt.length).toBeLessThan(10_000)
@@ -187,7 +187,7 @@ describe("buildAgentPrompt", () => {
       }
     }
 
-    it("with bd, names the first conflict with its first files", () => {
+    it("with brd, names the first conflict with its first files", () => {
       const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: large, fetchTime: null, bd })
       expect(prompt.length).toBeLessThan(10_000)
       expect(prompt).toContain(`First conflict: 10000000 (auth) Local change number 0 with a long enough subject: ${files.slice(0, 20).join(", ")}, and 280 more files.`)
@@ -196,7 +196,7 @@ describe("buildAgentPrompt", () => {
       expect(prompt).not.toContain("and 0 more")
     })
 
-    it("without bd, names the first conflict and the commits of its files", () => {
+    it("without brd, names the first conflict and the commits of its files", () => {
       const prompt = buildAgentPrompt({ repositoryPath: "/work/repo", check: large, fetchTime: null, bd: null })
       expectShort(prompt, 20, true)
       expect(prompt).toContain("First conflict: my commit 10000000 (auth) Local change number 0 with a long enough subject, where the rebase stops first; ")

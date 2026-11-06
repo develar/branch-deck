@@ -66,7 +66,7 @@ pub struct StatusArgs {
   pub brief: bool,
 }
 
-/// `bd status`: the branches Branch Deck would sync and the unassigned commits
+/// `brd status`: the branches Branch Deck would sync and the unassigned commits
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct StatusOutput {
   pub schema: SchemaVersion,
@@ -113,11 +113,11 @@ pub struct StatusOutput {
   pub stack_parent_problems: Vec<StoreLine>,
   /// The parked branches (`refs/branch-deck/parked`) that group no commit ahead of the baseline on this branch. The map is
   /// shared by every branch and worktree, so they may park a branch of another one; a sync drops the line of a branch
-  /// once it is integrated, `bd unpark` drops any
+  /// once it is integrated, `brd unpark` drops any
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub idle_parked: Vec<String>,
-  /// The branches `bd unapply` kept (`{prefix}/unapplied/<name>`), newest first: their commits are not in HEAD, they land
-  /// nothing; `bd push --unapplied <name>` keeps a copy on the remote
+  /// The branches `brd unapply` kept (`{prefix}/unapplied/<name>`), newest first: their commits are not in HEAD, they land
+  /// nothing; `brd push --unapplied <name>` keeps a copy on the remote
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub unapplied: Vec<UnappliedSummary>,
 }
@@ -127,7 +127,7 @@ pub struct StatusOutput {
 pub struct UnappliedSummary {
   /// `{prefix}/unapplied/<name>`
   pub name: String,
-  /// `<name>`, the branch it was (a `-N` suffix when that name was taken); `bd push --unapplied` takes it
+  /// `<name>`, the branch it was (a `-N` suffix when that name was taken); `brd push --unapplied` takes it
   pub branch: String,
   pub tip: String,
   /// The subject of its tip
@@ -177,7 +177,7 @@ fn unapplied_summaries(context: &RepoContext, grouping: &BranchGrouping) -> Resu
   )
 }
 
-/// Why a branch is parked: kept local, `bd push` and `bd safe-push` refuse it until the user unparks it
+/// Why a branch is parked: kept local, `brd push` and `brd safe-push` refuse it until the user unparks it
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct ParkedSummary {
   /// Why, as the user wrote it; empty without a note
@@ -194,13 +194,13 @@ pub struct StoreLine {
   pub message: String,
 }
 
-/// `bd status --brief`: the branches of `bd status` without their commits, small enough to read whole
+/// `brd status --brief`: the branches of `brd status` without their commits, small enough to read whole
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct StatusBrief {
   pub schema: SchemaVersion,
   pub repository: String,
   pub prefix: String,
-  /// As in `bd status`
+  /// As in `brd status`
   pub prefix_source: PrefixSource,
   pub head: Head,
   pub baseline: String,
@@ -214,7 +214,7 @@ pub struct StatusBrief {
   pub branches: Option<Vec<BriefBranch>>,
   /// Newest first
   pub unassigned: Vec<CommitSummary>,
-  /// The stack branches, as `bd status` lists them
+  /// The stack branches, as `brd status` lists them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stacks: Vec<StackSummary>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -249,7 +249,7 @@ pub struct BriefBranch {
   /// Where `parent` comes from
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parent_source: Option<ParentSourceName>,
-  /// The merged Safe Push that landed it, as `bd status` names it (`landed_by`), without the commits
+  /// The merged Safe Push that landed it, as `brd status` names it (`landed_by`), without the commits
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<BriefLandedBy>,
   /// Kept local: never push it
@@ -266,7 +266,7 @@ pub struct BriefBranch {
   pub problems: Vec<StackIssue>,
 }
 
-/// `landed_by` of `bd status --brief`
+/// `landed_by` of `brd status --brief`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct BriefLandedBy {
   /// The branch whose Safe Push landed it, or the root of the whole stack (`whole_stack`)
@@ -298,7 +298,7 @@ pub struct LandingNeed {
   /// Its branch; omitted for an unassigned commit
   #[serde(skip_serializing_if = "Option::is_none")]
   pub needs_branch: Option<String>,
-  /// What lands it with the branch: `bd restack <root> <branch>` (ask the user first), else `move <commit> into <branch>`
+  /// What lands it with the branch: `brd restack <root> <branch>` (ask the user first), else `move <commit> into <branch>`
   pub fix: String,
   /// The robot id of the running Safe Push that lands `needs_branch`: it tests that branch without this one, so a start
   /// beside it fails all the same
@@ -367,7 +367,7 @@ pub struct BranchStatus {
   /// Why the branch can't be placed in the stack: conflicting parents, a cycle, a case collision, …
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub problems: Vec<StackIssue>,
-  /// The title of `branch.<name>.description` (`bd describe`)
+  /// The title of `branch.<name>.description` (`brd describe`)
   #[serde(skip_serializing_if = "Option::is_none")]
   pub description: Option<DescriptionTitle>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -379,22 +379,22 @@ pub struct BranchStatus {
   pub tip: Option<String>,
   /// A merged Safe Push landed it, until the update archives it: its own, one of a branch built on it, or of the whole
   /// stack, decided by content (the commits the robot tested against the branch's). With an empty `after` all of it is
-  /// in the target: `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`); else `after` is the
+  /// in the target: `brd push` leaves it out (`skipped`) and `brd safe-push` refuses it (`landed`); else `after` is the
   /// only work left. Asked of Patronus on Space with a Space token; omitted otherwise
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landed_by: Option<LandedBySummary>,
   /// What its Safe Push needs of a commit outside what it lands (the branch and those it is built on): the refusals
-  /// `bd safe-push` would give its start, from one trial check of every branch. Empty: its build has what it uses. On
+  /// `brd safe-push` would give its start, from one trial check of every branch. Empty: its build has what it uses. On
   /// Space only, where a Safe Push lands it; omitted otherwise, with --brief, and when the check can't run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub landing_needs: Option<Vec<LandingNeed>>,
-  /// The user parked it (`bd park`), or a branch it is built on: kept local, `bd push` and `bd safe-push` refuse it.
+  /// The user parked it (`brd park`), or a branch it is built on: kept local, `brd push` and `brd safe-push` refuse it.
   /// Never push or unpark it on your own
   #[serde(skip_serializing_if = "Option::is_none")]
   pub parked: Option<ParkedSummary>,
   /// What the app's row offers next (`domain_policy::next_step`, spec/branch/next-step.spec.md): the row of the table, the
-  /// step, the fact it waits for, its pull request, why a Safe Push or a Dry Run can't start. `bd status` reads no pull
-  /// request, readiness or why a robot failed: a step that needs them waits for them (row 0); `bd safe-push --dry-run`
+  /// step, the fact it waits for, its pull request, why a Safe Push or a Dry Run can't start. `brd status` reads no pull
+  /// request, readiness or why a robot failed: a step that needs them waits for them (row 0); `brd safe-push --dry-run`
   /// reads them. Omitted off Space (the row has no slot) and with --unassigned
   #[serde(skip_serializing_if = "Option::is_none")]
   pub next_step: Option<NextStepSummary>,
@@ -463,7 +463,7 @@ pub struct CommitSummary {
   pub resolved_by_words: Option<ResolvedByWords>,
 }
 
-/// The table of a grouping without a sync (`bd status`, `bd robot`): the tips the refs hold, the remote tips the grouping
+/// The table of a grouping without a sync (`brd status`, `brd robot`): the tips the refs hold, the remote tips the grouping
 /// read, no remote status
 pub(crate) fn grouping_table(context: &RepoContext, grouping: &BranchGrouping, stacks: &[StackBranchUpdate]) -> BranchTable {
   BranchTable {
@@ -713,7 +713,7 @@ fn route_of_status(context: &RepoContext, grouping: &BranchGrouping) -> Result<L
   }))
 }
 
-/// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `bd status` read:
+/// The next step of every branch and whole stack of `table`, as the app's rows show it, over what `brd status` read:
 /// the robots and how Patronus answered (`head`), the Patronus view and its landing needs (`needs_known`: the check ran),
 /// the route of the repository; no pull request, readiness or why a robot failed, which the steps that need them wait
 /// for
@@ -799,7 +799,7 @@ fn virtual_tips(context: &RepoContext, grouping: &BranchGrouping) -> HashMap<Str
     .collect()
 }
 
-/// `bd status --brief`: `bd status` cut down to one line of facts per branch
+/// `brd status --brief`: `brd status` cut down to one line of facts per branch
 pub fn status_brief(context: &RepoContext, args: &StatusArgs, environment: &Environment) -> Result<StatusBrief, CliError> {
   let full = status(context, args, environment)?;
   let branches = full.branches.map(|branches| {

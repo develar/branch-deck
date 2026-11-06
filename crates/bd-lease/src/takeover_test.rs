@@ -1,4 +1,4 @@
-//! The takeover of an idle lease by a get, `bd lease reclaim` and the refusal of a resumed session
+//! The takeover of an idle lease by a get, `brd lease reclaim` and the refusal of a resumed session
 //! (spec/cli/lease.spec.md, "Takeover"): an idle lease is faked by a holder process that is gone and a get and a HEAD
 //! older than the quiet time
 use crate::lease_test::{Fixture, assert_trash_deleted_once_free, commit_content, commit_in, path_of, proofs, slot_git, slot_path, states, trash_of_a_run};
@@ -23,7 +23,7 @@ fn update_lease(fixture: &Fixture, path: &str, change: impl FnOnce(&mut Value)) 
   std::fs::write(fixture.state_file(), serde_json::to_vec(&state).unwrap()).unwrap();
 }
 
-/// The slot of `bd lease status` at `path`
+/// The slot of `brd lease status` at `path`
 fn slot_status(fixture: &Fixture, path: &str) -> Value {
   let path = slot_path(path);
   fixture.status()["slots"]
@@ -84,14 +84,14 @@ fn a_get_takes_over_an_idle_lease_whose_commits_landed() {
   assert_matches_schema(&fixture, "lease_status", &fixture.status());
 }
 
-/// `output` has every field the schema of `name` (`bd schema --all`) requires, and no other
+/// `output` has every field the schema of `name` (`brd schema --all`) requires, and no other
 fn assert_matches_schema(fixture: &Fixture, name: &str, output: &Value) {
   let (_, schema) = fixture.run(&["schema", "--all"]);
   let schema = &schema["outputs"][name];
   assert_covered(schema, schema, output, name);
 }
 
-/// The commit of an idle lease landed on master with a conflict resolution: the twin of `bd update` proves it, with its
+/// The commit of an idle lease landed on master with a conflict resolution: the twin of `brd update` proves it, with its
 /// fixup, and the get takes the lease over
 #[test_log::test]
 fn a_get_takes_over_an_idle_lease_whose_commit_landed_with_a_conflict_resolution() {
@@ -196,7 +196,7 @@ fn a_kept_idle_lease_is_checked_again_only_when_its_slot_or_home_moved() {
 }
 
 /// A get killed while it checks an idle lease leaves its `preparing` lease with the idle one in `taking_over`: the next
-/// get and `bd lease clean` give the idle lease back, never a free slot
+/// get and `brd lease clean` give the idle lease back, never a free slot
 #[test_log::test]
 fn a_get_killed_while_it_checks_an_idle_lease_gives_the_lease_back() {
   let fixture = Fixture::new();
@@ -228,7 +228,7 @@ fn a_get_killed_while_it_checks_an_idle_lease_gives_the_lease_back() {
 }
 
 /// A resumed session of the old holder in a slot taken over is refused (`lease_reclaimed`), with the next step: its
-/// writes and `bd workspace`, its reads not. The session that holds the slot now passes, and a coordinator with the
+/// writes and `brd workspace`, its reads not. The session that holds the slot now passes, and a coordinator with the
 /// current lease id; once the new lease is returned, a write in the free slot is refused too
 #[cfg(unix)]
 #[test_log::test]
@@ -254,7 +254,7 @@ fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaim
   assert!(message.contains("gone-agent") && message.contains("next-agent") && message.contains("lane"), "{output}");
   assert_eq!(
     output["error"]["next_steps"][0]["command"],
-    json!(format!("bd lease get --holder gone-agent -C {}", slot_path(fixture.repo.path().to_str().unwrap()))),
+    json!(format!("brd lease get --holder gone-agent -C {}", slot_path(fixture.repo.path().to_str().unwrap()))),
     "{output}"
   );
   assert_matches_schema(&fixture, "error", &output);
@@ -270,7 +270,7 @@ fn a_command_of_another_session_in_a_taken_over_slot_is_refused_as_lease_reclaim
   assert_error(&output, exit_code, (4, "lease_reclaimed"));
 }
 
-/// `bd lease reclaim --idle` returns the idle leases whose work landed and keeps the rest; `--dry-run` reports the same
+/// `brd lease reclaim --idle` returns the idle leases whose work landed and keeps the rest; `--dry-run` reports the same
 /// and writes nothing
 #[test_log::test]
 fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
@@ -308,7 +308,7 @@ fn reclaim_returns_the_idle_leases_whose_work_landed_and_keeps_the_rest() {
   assert_eq!(slot_status(&fixture, &young)["state"], json!("ready"));
 }
 
-/// `bd lease reclaim` frees every slot it reclaims before it deletes their trash: what the clean rules of the first slot
+/// `brd lease reclaim` frees every slot it reclaims before it deletes their trash: what the clean rules of the first slot
 /// moved into the trash is deleted only after the second slot is free, and nothing of it is left
 #[test]
 fn reclaim_deletes_the_trash_once_every_reclaimed_slot_is_free() {

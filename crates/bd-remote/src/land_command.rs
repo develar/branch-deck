@@ -1,19 +1,19 @@
-//! `bd land`: the subject lands into master by the route of the repository (`branchdeck.landing`,
-//! `domain_policy::landing_route::route`; spec/cli/agent-cli.spec.md, "bd land"; spec/branch/landing-routes.spec.md).
+//! `brd land`: the subject lands into master by the route of the repository (`branchdeck.landing`,
+//! `domain_policy::landing_route::route`; spec/cli/agent-cli.spec.md, "brd land"; spec/branch/landing-routes.spec.md).
 //!
-//! - Patronus: the Safe Push `bd safe-push` starts, its plan and its output (`safe_push`).
+//! - Patronus: the Safe Push `brd safe-push` starts, its plan and its output (`safe_push`).
 //! - A push into the target: the sync without the repository lock, then the plan of the app's start over the one-shot
 //!   session of the command (`operations::land::prepare_one_shot`: the pull requests with the permission of the token,
 //!   the rules of the target, the landing gate of the subject), then its run through the engine
 //!   (`operations::land_execute::execute`: the witness and the freeze under the lock, the push of the copy into the
 //!   target by the push URL after it). What CI did not check and what the gate of the route asks are accepted only by
 //!   flags (`--allow-checks-not-passed`, `--bypass-rules`, `domain_policy::land::unaccepted`), once the user said so. It never
-//!   updates: the output names `bd update` as the next step.
+//!   updates: the output names `brd update` as the next step.
 //! - The merge of a pull request on GitHub (`land::merges_on_github`): the same frame as a push, the plan of the app's
 //!   start merging the open pull request of the subject on GitHub, or enabling its auto-merge after the push of its
 //!   branch, or while its checks run (`land_direct::decide_merge`); what refuses it is `not_mergeable` (a conflict, a
 //!   head behind its base) or `merge_blocked` (approvals, checks, changes requested, a draft), a pull request to create
-//!   first `no_pull_request`. It never updates: after a merge the output names `bd update`. On Space the pull-request
+//!   first `no_pull_request`. It never updates: after a merge the output names `brd update`. On Space the pull-request
 //!   route is the Safe Push, as the app has it while Patronus lands the repository; a merge on a mirror `origin` doesn't
 //!   push to lands nothing (`landing_route_unsupported`).
 
@@ -94,7 +94,7 @@ pub struct LandArgs {
   pub allow_missing: bool,
 }
 
-/// `bd land`
+/// `brd land`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LandOutput {
   pub schema: SchemaVersion,
@@ -142,11 +142,11 @@ pub struct LandOutput {
   /// merge. Name them to the user
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub closes: Vec<ClosedPullRequest>,
-  /// What to run next: `bd update` after a push that landed, which brings the branch onto the target and drops the
+  /// What to run next: `brd update` after a push that landed, which brings the branch onto the target and drops the
   /// commits that landed
   #[serde(skip_serializing_if = "Option::is_none")]
   pub next: Option<String>,
-  /// The route `patronus`: what `bd safe-push` answered
+  /// The route `patronus`: what `brd safe-push` answered
   #[serde(skip_serializing_if = "Option::is_none")]
   pub safe_push: Option<Box<SafePushOutput>>,
   /// What the command decided, not printed: the scenario table compares it with the app's
@@ -155,7 +155,7 @@ pub struct LandOutput {
   pub decided: Decided,
 }
 
-/// What `bd land` decided, for the scenario table (`crates/bd-remote/src/scenario_test.rs`): the plan of the push
+/// What `brd land` decided, for the scenario table (`crates/bd-remote/src/scenario_test.rs`): the plan of the push
 /// (`operations::land`), of the route Patronus the Safe Push's, and with `--dry-run` the next step its words tell
 #[derive(Debug, Default)]
 pub struct Decided {
@@ -166,7 +166,7 @@ pub struct Decided {
 /// What to do with an unapplied branch instead of its landing
 const UNAPPLIED_LAND: &str = "nothing was pushed: reapply it to land it";
 
-/// `bd land <branch>` by the route of the repository (the module's header)
+/// `brd land <branch>` by the route of the repository (the module's header)
 ///
 /// # Errors
 /// What refuses the landing, with its code: the route (`landing_route_unsupported`), the table, the gate of the route,
@@ -234,7 +234,7 @@ impl Direct {
   }
 }
 
-/// The route Patronus: the Safe Push of `bd safe-push`, its output in `safe_push`
+/// The route Patronus: the Safe Push of `brd safe-push`, its output in `safe_push`
 fn land_by_robot(context: &RepoContext, args: &LandArgs, environment: &Environment) -> Result<LandOutput, CliError> {
   let safe_push_args = SafePushArgs {
     branch: args.branch.clone(),
@@ -428,7 +428,7 @@ fn land_directly(context: &RepoContext, args: &LandArgs, environment: &Environme
     return Ok(output);
   }
   if !pushes_into_target(plan) {
-    // another route since the sync read it: the plan starts a robot, which `bd land` of a push never does
+    // another route since the sync read it: the plan starts a robot, which `brd land` of a push never does
     return Err(CliError::new(
       ErrorCode::PlanChanged,
       format!(
@@ -602,7 +602,7 @@ fn confirmation_words(confirmation: &Confirmation) -> String {
     Confirmation::RouteRule { reason } => format!("{} (--bypass-rules)", start_refusal_text(reason, "", &[])),
     Confirmation::ChecksNotRequired { number } => format!("checks of pull request #{number} that its base doesn't require fail or still run (--allow-checks-not-passed)"),
     Confirmation::SquashOnly { number } => {
-      format!("the repository allows only squash merges: the commit GitHub writes of #{number} pairs with no original, so `bd update` may stop on a conflict")
+      format!("the repository allows only squash merges: the commit GitHub writes of #{number} pairs with no original, so `brd update` may stop on a conflict")
     }
     // the confirmations of a Safe Push, never of a push into the target
     other => format!("{other:?}"),

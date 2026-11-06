@@ -30,8 +30,8 @@ fn stacked_repo() -> (TestRepo, Vec<String>) {
   (repo, ids)
 }
 
-/// The next step `bd status` names of a branch off Space whose pull requests are on GitHub: GitHub merges them, and
-/// `bd status` doesn't ask GitHub what the token may do there
+/// The next step `brd status` names of a branch off Space whose pull requests are on GitHub: GitHub merges them, and
+/// `brd status` doesn't ask GitHub what the token may do there
 fn pending_permission() -> Value {
   json!({
     "row": "0",
@@ -152,7 +152,7 @@ fn prefix_from_app_settings() {
 }
 
 /// `prefix_source` names where the prefix came from, so that a fallback to the global git config is explicit: `cli`,
-/// `repository_config`, `app_setting`, `global_config`; `bd status --brief` names it too
+/// `repository_config`, `app_setting`, `global_config`; `brd status --brief` names it too
 #[test_log::test]
 fn prefix_source_names_where_the_prefix_came_from() {
   let (repo, _) = grouped_repo();
@@ -206,7 +206,7 @@ fn empty_prefix_is_an_error() {
   assert_error(&output, "no_branch_prefix");
 }
 
-/// The bd of a test reads the global config of its environment, empty, never the one of the process: the prefix of the
+/// The brd of a test reads the global config of its environment, empty, never the one of the process: the prefix of the
 /// developer's global config is no prefix there, as on CI; the environment of the process (`None`) leaves git its own
 #[test_log::test]
 fn the_global_config_of_the_process_never_reaches_the_bd_of_a_test() {
@@ -349,7 +349,7 @@ fn stats_per_branch() {
 /// The problem of `c` in `stacked_repo`: its third commit declares `x`, its fourth `y`
 fn conflicting_parents_of_c(ids: &[String]) -> String {
   format!(
-    "Commits declare different parents: x ({}), y ({}); fix: `bd restack c x`, `bd restack c y` or `bd unstack c`",
+    "Commits declare different parents: x ({}), y ({}); fix: `brd restack c x`, `brd restack c y` or `brd unstack c`",
     short_id(&ids[2]),
     short_id(&ids[3])
   )
@@ -375,7 +375,7 @@ fn stacks_in_status() {
     json!([{ "message": conflicting_parents_of_c(&ids), "commits": [short_id(&ids[2]), short_id(&ids[3])] }])
   );
 
-  // `bd commits` groups by the leaf too
+  // `brd commits` groups by the leaf too
   let (_, commits) = run_in(&repo, &["commits"]);
   assert_eq!(commits["commits"][1]["group"], json!("login"));
 }
@@ -408,7 +408,7 @@ fn brief_status() {
   let (repo, _) = grouped_repo();
   let (exit_code, output) = run_in(&repo, &["status", "--brief"]);
   assert_eq!(exit_code, 0, "{output}");
-  // the fields of `bd status`, with the branches cut down
+  // the fields of `brd status`, with the branches cut down
   let (_, full) = run_in(&repo, &["status"]);
   let mut expected = full;
   // newest first by the oldest commit: auth began first, though its commit is the newest
@@ -567,7 +567,7 @@ fn a_sync_drops_the_stack_parent_of_an_integrated_branch() {
   assert_eq!(status["idle_stack_parents"], json!(["ghost"]));
 }
 
-/// A stack that forks has its stack branch: `bd sync` builds it, and `bd status` reads its state without a sync, from
+/// A stack that forks has its stack branch: `brd sync` builds it, and `brd status` reads its state without a sync, from
 /// the build the object cache remembers: `built` while the commits are those the ref was built of, `stale` after a new
 /// commit, `blocked` while a member has a stack problem
 #[test_log::test]
@@ -584,7 +584,7 @@ fn the_stack_branch_of_a_forking_stack_in_sync_and_status() {
     "branch": format!("{PREFIX}/stack/auth"),
     "state": "stale",
     "tip": null,
-    "error": "Not the build of these commits: `bd sync` builds it or says why not",
+    "error": "Not the build of these commits: `brd sync` builds it or says why not",
     "commits": 3,
     "members": ["auth", "login", "session"],
     "next_step": {

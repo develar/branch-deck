@@ -1,7 +1,7 @@
-//! `bd move-hunk`: move the changes of one file, or some of its blocks, from one commit ahead of the baseline into
-//! another (`trial_check::move_hunk`), recorded in the operations registry (`RewriteIntent::MoveHunk`, which only bd runs)
+//! `brd move-hunk`: move the changes of one file, or some of its blocks, from one commit ahead of the baseline into
+//! another (`trial_check::move_hunk`), recorded in the operations registry (`RewriteIntent::MoveHunk`, which only brd runs)
 //! and under the repository lock its core takes. One rewrite that keeps HEAD's tree, so the index and the working tree stay as they
-//! are; `bd undo` takes it back, --sync rebuilds the virtual branches after the record ended and the lock is released
+//! are; `brd undo` takes it back, --sync rebuilds the virtual branches after the record ended and the lock is released
 
 use crate::block_patch::PatchBlock;
 use crate::rewrite::{IdMapping, after_rewrite_exit_code, sync_after_rewrite};
@@ -26,25 +26,25 @@ pub struct MoveHunkArgs {
   pub from: String,
   /// The commit it moves into: older or newer, ahead of the baseline too
   pub to: String,
-  /// The file, relative to the repository root, as `bd commits --patch` prints it
+  /// The file, relative to the repository root, as `brd commits --patch` prints it
   pub path: String,
-  /// Move only this block of the file in <FROM>, by the id that `bd commits <FROM> --patch` prints
+  /// Move only this block of the file in <FROM>, by the id that `brd commits <FROM> --patch` prints
   /// (`12,3:12,5@1a2b3c4d`); repeatable. Default: the whole change of the file
   #[arg(long = "block", value_name = "ID")]
   pub blocks: Vec<String>,
-  /// Move only if HEAD is still this commit (the `head` that `bd status` printed)
+  /// Move only if HEAD is still this commit (the `head` that `brd status` printed)
   #[arg(long, value_name = "ID")]
   pub expect_head: Option<String>,
   /// Print the blocks that would move and check the rewrite; write nothing but git objects
   #[arg(long)]
   pub dry_run: bool,
-  /// Then rebuild the virtual branches as `bd sync` does, after the repository lock is released: another rewrite may come
+  /// Then rebuild the virtual branches as `brd sync` does, after the repository lock is released: another rewrite may come
   /// in between, and the sync then shows the newer HEAD
   #[arg(long, conflicts_with = "dry_run")]
   pub sync: bool,
 }
 
-/// `bd move-hunk`
+/// `brd move-hunk`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct MoveHunkOutput {
   pub schema: SchemaVersion,
@@ -61,14 +61,14 @@ pub struct MoveHunkOutput {
   /// The commits whose changes differ (or would differ): the two, and the ones between whose diff of the file changed.
   /// The others keep author and committer
   pub changed: usize,
-  /// `<previous_head>..<new_head>`: `bd undo` restores `previous_head`; omitted for a dry run
+  /// `<previous_head>..<new_head>`: `brd undo` restores `previous_head`; omitted for a dry run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
-  /// With --sync: the `bd sync` output after the move; exit code 1 when a branch is not built
+  /// With --sync: the `brd sync` output after the move; exit code 1 when a branch is not built
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sync: Option<SyncOutput>,
   /// The sync after the move failed. The move stands, `undo_token` reverts it, and the exit code is this error's; retry
-  /// `bd sync`, never the move
+  /// `brd sync`, never the move
   #[serde(skip_serializing_if = "Option::is_none")]
   pub after_error: Option<ErrorBody>,
 }
@@ -86,7 +86,7 @@ pub struct MovedSummary {
   /// The commit the change was in, and the one it moved into (ids before the move)
   pub from: String,
   pub to: String,
-  /// The blocks that moved, as `bd commits <from> --patch` printed them; every block of the file when the whole change
+  /// The blocks that moved, as `brd commits <from> --patch` printed them; every block of the file when the whole change
   /// moved (none for a binary file)
   pub blocks: Vec<PatchBlock>,
 }

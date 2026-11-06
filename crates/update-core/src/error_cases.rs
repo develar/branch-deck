@@ -1,5 +1,5 @@
 //! The typed errors of a move of HEAD, an update, an unapply, a reapply, a park and their undo, each with the one code
-//! `bd` and the app answer for it. Both sides test their conversion on this table: the mappers of the bd commands
+//! `bd` and the app answer for it. Both sides test their conversion on this table: the mappers of the brd commands
 //! (`bd-update/src/error_code_test.rs`, `bd-rewrite/src/park_error_test.rs`) and `app_api::api_error`
 //! (`app-api/src/api_error_test.rs`), which no crate can call both of (only the app and the e2e server depend on
 //! `app-api`). A case whose code differs on one side fails that side's test

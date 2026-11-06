@@ -225,7 +225,7 @@ async fn a_problem_is_not_built_and_a_missing_parent_is_passed() {
     statuses["a"],
     (
       BranchSyncStatus::Error,
-      Some(format!("A prefix makes the branch its own parent: {}; fix: `bd unstack a`", &looped[..8]))
+      Some(format!("A prefix makes the branch its own parent: {}; fix: `brd unstack a`", &looped[..8]))
     )
   );
   assert_eq!(statuses["docs"], status(BranchSyncStatus::Created));

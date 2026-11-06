@@ -1,10 +1,10 @@
 //! The push of virtual branches, forced and leased on the remote heads the user saw (`push_lease.rs`): the intent
-//! `Push` of the engine and the push of a start (`operations::push`, `operations::land_execute`), and `bd push`, each
+//! `Push` of the engine and the push of a start (`operations::push`, `operations::land_execute`), and `brd push`, each
 //! freezing its commits and leases (`PreparedPush::leased`) and sending them through one leased push (`PreparedPush::push_leased`).
 //! A stack goes in one atomic `git push`, all of it or nothing; a remote that moved meanwhile is fetched and reported,
 //! never overwritten blindly: the push goes again over what it has now, once, only when nothing of it is lost
 //! (`RemoteStatusUpdate::pushes_again`, `PreparedPush::over_moved`, which `operations::push::send` runs for the
-//! app and `bd push` alike). The stack branch of a whole stack (`{prefix}/stack/<root>`) goes the same way.
+//! app and `brd push` alike). The stack branch of a whole stack (`{prefix}/stack/<root>`) goes the same way.
 
 use crate::push_lease::{LeaseSource, PushOptions, PushRef, PushedRefStatus, fetch_remote_branches, push_refs};
 use crate::push_size::{PushTooLarge, check_push_size};
@@ -33,13 +33,13 @@ pub const fn not_built_reason(reason: BlockReason) -> &'static str {
   }
 }
 
-/// The refusal of the push of a branch the last sync did not build: `{name} is not synced (…)`, as `bd push` says it
+/// The refusal of the push of a branch the last sync did not build: `{name} is not synced (…)`, as `brd push` says it
 pub fn not_synced_refusal(name: &str, reason: BlockReason) -> String {
   format!("{name} is not synced ({})", not_built_reason(reason))
 }
 
 /// A push whose commits and leases are fixed under the repository lock (`PreparedPush::leased`, by the engine on the
-/// frozen tips, which `bd push` runs too): each ref goes as the commit it was at then
+/// frozen tips, which `brd push` runs too): each ref goes as the commit it was at then
 /// (`<commit>:refs/heads/<name>`), leased on the remote head the user saw, so a branch that moves before the push changes
 /// nothing of what goes. Its network part is `push`, its push again over a moved remote `over_moved`
 /// (`operations::push::send` runs both)
@@ -56,7 +56,7 @@ pub struct PreparedPush {
 
 impl PreparedPush {
   /// The push of `branches` (parents first, the stack branches of whole stacks after them) whose commits and leases the
-  /// caller fixed itself under the repository lock (the engine, `bd push` on the tips of the sync it ran under it): to
+  /// caller fixed itself under the repository lock (the engine, `brd push` on the tips of the sync it ran under it): to
   /// `target.remote` with `options`
   #[must_use]
   pub fn leased(target: &PushTarget<'_>, branches: Vec<LeasedBranch>, options: PushOptions) -> Self {
@@ -196,7 +196,7 @@ fn catch_up_tracking(git_executor: &GitCommandExecutor, target: &PushTarget<'_>,
   Ok(())
 }
 
-/// The one leased push of the app and of `bd push`: first the size check of the files the push adds
+/// The one leased push of the app and of `brd push`: first the size check of the files the push adds
 /// (`check_push_size`, under `target.size_limit`), then one `git push --porcelain` of every branch to `target.remote`,
 /// each with its lease (`push_refs`), `--atomic` for a stack, so the remote takes all of them or none. A refused push
 /// fetches every branch (`fetch_remote_branches`, not on a dry run) and compares the fetched heads with the leases: the

@@ -10,7 +10,7 @@ const fn force(drops: bool, replaces: bool) -> PushAction {
 }
 
 /// The action of a push by the counts of its remote status, which compare content: the push button, the outgoing bars,
-/// the toasts and `bd push` read it
+/// the toasts and `brd push` read it
 #[test]
 fn a_push_creates_pushes_forces_or_has_nothing_to_send_by_the_remote_status() {
   let cases = [

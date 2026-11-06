@@ -1,6 +1,6 @@
 //! The Safe Push statistics (`spec/repository/safe-push-statistics.spec.md`): the robots into the target of a period
 //! (`StatsPeriod`) as the statistics keep them (`HistoryRobot`, `RobotRun`, kept in the object cache), what the rules count of
-//! them (`RobotStats`), and the command of the app. The page and `bd robot-stats` read the same `RobotStats`, so its
+//! them (`RobotStats`), and the command of the app. The page and `brd robot-stats` read the same `RobotStats`, so its
 //! fields are `snake_case` in both.
 
 use crate::patronus::{PatronusAvailability, PatronusRobotStatus};
@@ -68,7 +68,7 @@ pub struct RobotRun {
   pub commits: Option<u32>,
 }
 
-/// The period the statistics count, by the days before now; one choice of the app and `bd robot-stats --period`. 30
+/// The period the statistics count, by the days before now; one choice of the app and `brd robot-stats --period`. 30
 /// days by default: what happens now, with a trend of four weeks
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -135,7 +135,7 @@ pub struct RobotStatsInput {
 }
 
 // jscpd:ignore-start: the output types, each with the same derives (serde, specta, schemars), which only a macro would share
-/// `bd robot-stats` and the Landing view
+/// `brd robot-stats` and the Landing view
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]

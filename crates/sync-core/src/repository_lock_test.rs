@@ -47,8 +47,8 @@ fn path(repo: &TestRepo) -> String {
   repo.path().to_str().unwrap().to_string()
 }
 
-/// The command line of the other process that holds the lock in these tests: an agent's `bd pick --follow`
-const AGENT_PICK: &str = "bd pick --follow";
+/// The command line of the other process that holds the lock in these tests: an agent's `brd pick --follow`
+const AGENT_PICK: &str = "brd pick --follow";
 
 /// The repository lock of `repo`, held as another process holds it (the operations of this process wait for each other
 /// in its line instead)
@@ -304,8 +304,8 @@ fn every_rewrite_refuses_another_head_than_the_expected_one() {
   assert_eq!(squashed.squashed_count, 1);
 }
 
-/// Another HEAD than the expected one on a history another process rewrote (a `bd reword` of the oldest commit, a
-/// `bd update`), which has copies of the commits a rewrite names but not those commits, refuses every rewrite with
+/// Another HEAD than the expected one on a history another process rewrote (a `brd reword` of the oldest commit, a
+/// `brd update`), which has copies of the commits a rewrite names but not those commits, refuses every rewrite with
 /// `HeadMoved` too: each core checks HEAD before it looks for its commits, so the engine resolves the rewrite again on
 /// that HEAD (`operations::rewrite::resolve_and_run`) instead of answering a failure of the core
 #[test]
@@ -454,13 +454,13 @@ fn a_lock_timeout_names_the_holder_and_its_release_deletes_the_record() {
   drop(held);
   assert!(!record.exists(), "the release deletes the record");
 
-  let other = lock_repository_as_another_process(dir.path(), "bd check --fix").unwrap();
+  let other = lock_repository_as_another_process(dir.path(), "brd check --fix").unwrap();
   let error = lock_repository_in(dir.path(), Duration::from_millis(100), &|| {}).unwrap_err();
   let locked = error.downcast_ref::<RepositoryLocked>().unwrap();
   let holder = locked.holder.as_ref().expect("the holder is named");
-  assert_eq!((holder.command.as_str(), holder.pid), ("bd check --fix", std::process::id()));
+  assert_eq!((holder.command.as_str(), holder.pid), ("brd check --fix", std::process::id()));
   let message = error.to_string();
-  assert!(message.starts_with(&format!("`bd check --fix` (pid {}, for ", std::process::id())), "{message}");
+  assert!(message.starts_with(&format!("`brd check --fix` (pid {}, for ", std::process::id())), "{message}");
   assert!(message.contains(" s) holds "), "{message}");
 
   drop(other);
@@ -473,7 +473,7 @@ fn the_record_of_a_gone_holder_names_nobody() {
   let dir = tempfile::tempdir().unwrap();
   // a holder killed before it deleted its record, and a holder that writes none (Branch Deck 0.21)
   let gone = LockHolder {
-    command: "bd sync".to_string(),
+    command: "brd sync".to_string(),
     pid: std::process::id(),
     process_started: Some(1),
     since: 0,
@@ -560,7 +560,7 @@ impl TestWaiter {
 }
 
 /// The app's rewrites (`LockWait::WhileHeld`) wait, without a bound, while the record of the holder names a live process
-/// (an agent's `bd pick`: here the test itself as another process, past the bound for an unnamed holder), tell whom
+/// (an agent's `brd pick`: here the test itself as another process, past the bound for an unnamed holder), tell whom
 /// they wait for, and run once the holder released the lock; the undo of a squash too
 #[test]
 fn a_rewrite_of_the_app_waits_while_a_live_holder_holds_the_lock_and_runs_after() {

@@ -1,6 +1,6 @@
 ---
 name: GitHub Sign-In
-description: Requirements for the GitHub token without the gh CLI - the app's own sign-in through the OAuth device flow of the Branch Deck OAuth app (a code to enter on GitHub, then a token in a 0600 file shared with bd), shown in Settings next to the token the app takes from GH_TOKEN, gh or git, and offered by the hint of a repository without a token.
+description: Requirements for the GitHub token without the gh CLI - the app's own sign-in through the OAuth device flow of the Branch Deck OAuth app (a code to enter on GitHub, then a token in a 0600 file shared with brd), shown in Settings next to the token the app takes from GH_TOKEN, gh or git, and offered by the hint of a repository without a token.
 style: plain-1
 targets:
   - ../../crates/github/src/device_flow.rs
@@ -54,16 +54,16 @@ redirect and without a client secret.
 
 - Pull requests and review requests without installing `gh`.
 - One place that says where the token comes from, and how to get one.
-- `bd` uses the same sign-in.
+- `brd` uses the same sign-in.
 
 ## Non-goals
 
 - A GitHub App: it works only where it is installed, which needs an admin of every organization, and its user
-  tokens expire after 8 hours, so the app and `bd` would race to refresh one token.
+  tokens expire after 8 hours, so the app and `brd` would race to refresh one token.
 - Revoking the token: that needs the client secret. Sign Out removes it here; GitHub revokes it on its settings page.
 - GitHub Enterprise, several accounts.
 - A keychain item of the app itself: unsigned local builds would make macOS ask again for the item after every
-  update, and `bd` in the background could not answer. The item is written by `/usr/bin/security` instead
+  update, and `brd` in the background could not answer. The item is written by `/usr/bin/security` instead
   ([The token file](#the-token-file)).
 
 ## Requirements
@@ -132,7 +132,7 @@ redirect and without a client secret.
 
 ### The token file
 
-- `{ token, login, scopes, created_at }`, which `bd` reads too, in a secret of `sync_utils::secret_store`
+- `{ token, login, scopes, created_at }`, which `brd` reads too, in a secret of `sync_utils::secret_store`
   ([GitHub credentials](../../docs/design/git-operations.md#github-credentials)): on macOS the login keychain item
   `org.develar.branch-deck` / `github-token`, written and read by `/usr/bin/security` with the secret on stdin, as `gh`
   does, so an update of the unsigned app asks nothing; elsewhere, and while the keychain can't be used,
@@ -218,7 +218,7 @@ redirect and without a client secret.
   tells every page of the repository `auth-changed` on its event stream, as the backend tells its windows
   ([E2E Testing](../../docs/design/e2e-testing.md)).
 - In the app: build with `BRANCH_DECK_GITHUB_CLIENT_ID=<the client id of build-tauri.yml> pnpm install-app`, unset `GH_TOKEN`, move `gh`
-  out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `bd safe-push --dry-run`
+  out of `PATH`, sign in from Settings, and check that the pull requests and Your Turn load and `brd safe-push --dry-run`
   sees the pull request.
 
 ## Open Questions / Risks
@@ -234,4 +234,4 @@ redirect and without a client secret.
 - [Pull Requests](../branch/pull-requests.spec.md#the-token): the token chain.
 - [Review Requests](review-requests.spec.md): Your Turn and its hint.
 - [Settings](settings.spec.md): the window of the GitHub page.
-- [Agent CLI](../cli/agent-cli.spec.md): `bd safe-push --create-pull-request` with the same token.
+- [Agent CLI](../cli/agent-cli.spec.md): `brd safe-push --create-pull-request` with the same token.

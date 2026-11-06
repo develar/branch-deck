@@ -1,11 +1,11 @@
 //! What landed a subject (docs/design/rust-domain-authority.md, D7, D13; spec/branch/next-step.spec.md, row 1): a push
 //! of this session put its copy into the target, the fetched baseline has all of it, merged Safe Pushes landed it, or
 //! GitHub merged its pull request into the target with the commits it has (`landed_state`, one answer for the view of
-//! the app and for `bd safe-push`), what a start says of it
+//! the app and for `brd safe-push`), what a start says of it
 //! (`Landed::reason` of `landed_reason`), and the open pull requests that hold nothing more than what landed
 //! (`pull_requests_to_close`, D7): of the branches a merged Safe Push landed whole besides its own, of the branches a push
 //! of this session put into the target, of the branches the fetched baseline or a merged pull request has (`Landing`);
-//! the app closes them, `bd robot` and `bd land` list them.
+//! the app closes them, `brd robot` and `brd land` list them.
 
 use crate::facts::{RemoteBranch, Robots};
 use crate::pull_request::merges_into_target;

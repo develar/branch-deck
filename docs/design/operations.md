@@ -135,9 +135,9 @@ waits as its operation says the busy state the "⋯" of its row says (`presentOp
 "Unstacking oauth after the sync…", "Waits for Moving 1 commit to docs…", whom it waits for while another holder has
 the repository lock), the operation named by the words of its surface where it has its own (a restart: "Restarting the
 Safe Push…"); an item that waits behind an operation or that one keeps busy names it ("Waits for Unstacking oauth…",
-"bd: Pushing auth…"). The name of an operation of this window is the one it gave it (`BlockerWords.named`, which the
+"brd: Pushing auth…"). The name of an operation of this window is the one it gave it (`BlockerWords.named`, which the
 caller selects with the operations: `useOperationWords` while an item of it runs, waits or is busy,
-`getOperationWords` for a builder), of another process its row's ("bd: Pushing auth"; such an operation only keeps an
+`getOperationWords` for a builder), of another process its row's ("brd: Pushing auth"; such an operation only keeps an
 item busy, none runs or waits as it), else the view's; one rule names it, for the items and the "⋯" of its row alike
 (`presentOperationLabel` of `src/presenters/operations.ts`). The commit menus are the page's and stay enabled: their move, squash and reword queue in the session. A surface
 that renders a builder reads it through a selector cached by the states of the stores it reads, the view and the
@@ -171,12 +171,12 @@ disabled, no drag, no push; a push or a start never holds its row.
 
 ### Waiting for the repository lock
 
-The session orders the rewrites of the app; another process (an agent's `bd pick --follow`, a `bd` rewrite) or a push
+The session orders the rewrites of the app; another process (an agent's `brd pick --follow`, a `brd` rewrite) or a push
 of the app may still hold the repository lock when a rewrite reaches its core. An operation of the app waits for the
 app's own ones in the line of its process (a fair queue before the file lock, in the order they came, never refused),
-then for another process as long as the holder lives (the undo of a pick and of an update for a bound, as `bd undo`;
+then for another process as long as the holder lives (the undo of a pick and of an update for a bound, as `brd undo`;
 [Git Operations](git-operations.md), "Repository lock"), and its
-step in the view says whom for: `waitingForLock` with the holder ("Waiting for `bd pick` (pid 4242, for 12 s)", told
+step in the view says whom for: `waitingForLock` with the holder ("Waiting for `brd pick` (pid 4242, for 12 s)", told
 again about once a second, `presentLockWait`), `queued` behind another operation (the busy state of that one).
 `operationBusyOf` (`src/stores/indicators.ts`, `presentOperationBusy` of `getOperationWords`) says it in place of the busy state, so every
 surface of the operation shows it, in every window: the spinner's hover on the "⋯" of its row
@@ -218,7 +218,7 @@ the title its caller gives, a stopped wait an info toast. The toast closes and t
 says "undone" only once the undo undid it (`recordRewrite`); after a failed or stopped one both keep their Undo. Both
 offer it only while the session does (`RepositoryView.undo`, `followUndo` of `src/model/store.ts`): the Undo of the
 last rewrite of the process that has one, while HEAD is the head it left; a second rewrite, an undo, or a commit, an
-update or a rewrite of `bd` that a sync read takes it back, since its token could only fail as `undo_stale` then.
+update or a rewrite of `brd` that a sync read takes it back, since its token could only fail as `undo_stale` then.
 
 The inline forms run `withRowProgress` around their action, an operation that tells its outcome itself (rename,
 ungroup, park, amend, add issue reference, unapply, squash fixups, the deletes, the close of the stack's pull request):
@@ -233,18 +233,18 @@ what it left, and a push waits behind it without holding HEAD (`RunningGuard::wa
 `WaitingForSync`, stopped the same way (`RunningGuard::stopped`; decision 3); every step the queue gives it (`Queued` behind another, then the step it starts at) goes to its
 caller as the view shows it.
 
-The rewrites of `bd` (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`,
-`reapply`, `undo`, `move-hunk`), `bd update` and `bd pick` are records of the operations registry of the repository,
+The rewrites of `brd` (`brd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`, `unpark`, `unapply`,
+`reapply`, `undo`, `move-hunk`), `brd update` and `brd pick` are records of the operations registry of the repository,
 as the app's operations are (`bd_core::operation_record::recorded`): before the command takes any lock, its record
 goes into the file as the intent of the app's family (`Intent::Rewrite`, `Intent::UpdateProject`, `Intent::Pick`;
-`bd group` and `bd move-hunk` as `RewriteIntent::Group` and `RewriteIntent::MoveHunk`, which only `bd` runs: the
+`brd group` and `brd move-hunk` as `RewriteIntent::Group` and `RewriteIntent::MoveHunk`, which only `brd` runs: the
 engine of the app refuses them and a pick as `invalid_arguments`), holding what the app's admission of it holds
 (`engine::unplanned_request`: HEAD, the kept branch of a reapply); it leaves with the end of the command, before its
 `--sync`, its entry in the journal under the `operation_id` of its JSON with what the command cost. HEAD makes no
 other process busy, nor does the same rewrite of another process (`Intent::ordered_by_repository_lock`): the
 repository lock orders them, and the second runs on what the first left. So the record is what the windows show of an
-agent's rewrite ("bd: Unstacking beta…") and what Activity lists of it ("Unstacked beta", an agent's marked); a record
-of a `bd` killed in its rewrite leaves at the next admission, and no window shows it once its process is gone. Three
+agent's rewrite ("brd: Unstacking beta…") and what Activity lists of it ("Unstacked beta", an agent's marked); a record
+of a `brd` killed in its rewrite leaves at the next admission, and no window shows it once its process is gone. Three
 Unstacks of beta, two of the app and one of an agent, are one rewrite of the app and the agent's `invalid_plan` ("beta
 is not stacked") once it got the lock.
 
@@ -281,7 +281,7 @@ Update Project (⌘T, `runUpdateProject`), the Fetch of a merge toast (`runFetch
 
 - **The fetch** is the operation `FetchBaseline`, holding the tracking ref of the baseline: a Fetch of any window
   during the fetch of an update joins it, and the fetch of an update during a Fetch joins that one, so one transfer
-  serves both; the fetch lock joins a fetch of another process (an agent's `bd update`).
+  serves both; the fetch lock joins a fetch of another process (an agent's `brd update`).
 - **The update** holds nothing while its fetch runs, so a park, an Unstack or an Undo during the network runs at once;
   then it holds HEAD (`Resource::Head`, `RunningGuard::hold`): it waits behind the rewrites of the process before it
   (its step `queued`, the run's `waiting`), and a rewrite pressed during its check or its move waits behind it, never
@@ -329,18 +329,18 @@ laid over the nodes (`presentOperationMoves`), in every window, from the admissi
 The page's own operations declare no move.
 
 Between processes, the operations registry of the repository admits an operation first
-([Git Operations](git-operations.md), "Operations registry"): while an agent's `bd push`, `bd safe-push` or
-`bd request-review` runs what it needs (the same intent, a branch it lands or pushes, a robot, a field of a pull
-request), the app's operation is refused as `busy`, its toast naming the holder ("`bd` (pid 4242) has run the Safe
+([Git Operations](git-operations.md), "Operations registry"): while an agent's `brd push`, `brd safe-push` or
+`brd request-review` runs what it needs (the same intent, a branch it lands or pushes, a robot, a field of a pull
+request), the app's operation is refused as `busy`, its toast naming the holder ("`brd` (pid 4242) has run the Safe
 Push of auth for 12 s", `describeError`), and the other way round; operations of one process never refuse each other,
-and a rewrite of another process (an agent's `bd unstack`, its `bd update`, its `bd pick`) refuses none: its record
+and a rewrite of another process (an agent's `brd unstack`, its `brd update`, its `brd pick`) refuses none: its record
 holds HEAD, which only the repository lock orders between processes (Rewrites).
 While a window shows the session, the registry is watched (`operations::registry_watch`, `Registry::subscribe`): the
-operations of `bd` of the branch prefix of the session are in its view as operations of another process
-(`Origin::OtherProcess`), so the slot of a row shows the start an agent runs ("bd: Safe Push of auth…", the pid on
+operations of `brd` of the branch prefix of the session are in its view as operations of another process
+(`Origin::OtherProcess`), so the slot of a row shows the start an agent runs ("brd: Safe Push of auth…", the pid on
 hover, `presentOtherProcess` of `src/presenters/operations.ts`, `LandRun.by`) and a start of the row says why it can't
 start before it asks Rust; they decide no admission of the session, the file does. Without a watch the registry is read
-again on a focus and after each admission. `bd` touches the stamp of the repository after each mutation, and the watch
+again on a focus and after each admission. `brd` touches the stamp of the repository after each mutation, and the watch
 syncs the sessions a window shows (`SyncReason::Stamp`): what an agent changed shows without a focus.
 
 A start whose answer was lost (its request went out, no answer came, or its process was killed after it went out) is
@@ -426,16 +426,16 @@ operation.
    **Rationale**: the rewrite names its commits on the table its window showed, and the session resolves them on the
    HEAD it reads once it is admitted ([Conflicts](#conflicts)); the core must write on that HEAD, or it would act on
    commits nobody named. Two rewrites of the app never meet there: the queue of the session runs the second on what
-   the first left. A process that moved HEAD between that read and the lock (a `bd` rewrite, `bd update`, `bd pick`,
+   the first left. A process that moved HEAD between that read and the lock (a `brd` rewrite, `brd update`, `brd pick`,
    a commit) makes the core refuse it (`head_moved`), nothing written, and the engine resolves the rewrite again on
    that HEAD and runs its core once more, at most three runs (`operations::rewrite::resolve_and_run`): it runs on what
    the other one left, as decision 7 says, by the name of its branch or its commits found by their keys once the sync
    shows that HEAD, and is `plan_changed` only when they are gone. Only such a refusal of a moved ref runs it again
    (`ErrorCode::moved_ref`): a failure after the core's own write (an amend whose index could not follow) is its
    answer, and a Stop Waiting that came once the wait had taken the lock is `canceled` before the rewrite is resolved
-   again. One that moved only the stores (a `bd unstack` of the same branch) leaves HEAD, so the core computes once
+   again. One that moved only the stores (a `brd unstack` of the same branch) leaves HEAD, so the core computes once
    more under the lock on what it left, and the second Unstack is `invalid_plan`. The registry closes the double start
-   in the app (the same intent joins, in every window), and the record of a `bd` rewrite shows it on the rows
+   in the app (the same intent joins, in every window), and the record of a `brd` rewrite shows it on the rows
    (decision 7).
 5. **Decision**: the identical error toast updates in place (`notifyError` passes an id of the title and the
    description; Base UI updates the open toast of that id).
@@ -447,15 +447,15 @@ operation.
    same operation. The operations are of the repository the main window shows: a push or a start that runs on after a
    switch of the repository shows nothing on the branch of the same name there, nor holds its push or start back.
 7. **Decision**: between processes, one file of the repository (the operations registry), changed under a lock of its
-   own for one read-modify-write at a time, no daemon; every operation of the app and of `bd` is a record there (the
-   rewrites, the updates and the picks of `bd` too, before any lock); an operation of the remote that needs what an
+   own for one read-modify-write at a time, no daemon; every operation of the app and of `brd` is a record there (the
+   rewrites, the updates and the picks of `brd` too, before any lock); an operation of the remote that needs what an
    operation of another process holds is `busy`, never joined or queued; a rewrite, an update and a pick make no other
    process busy, the same one neither: the repository lock orders them.
-   **Rationale**: the app and every `bd` of the repository (the agents in their leases share its common dir) run
+   **Rationale**: the app and every `brd` of the repository (the agents in their leases share its common dir) run
    without a service between them, and the outcome of another process never reaches the caller: it could neither
    resolve with it nor be decided again on what it left. So the refusal names the holder, and only the short section of
    the repository lock of another process is waited for, as long as its holder lives. A start whose answer was lost
    keeps its record, so no process sends it again until Patronus settles it or the user forgets it. A rewrite waits for
    the lock instead of a refusal: its core runs on what the other one left and answers by itself (nothing to do, a
    refusal of its own), and its record is what the windows show of it and the journal keeps; that closes the gap of
-   decision 4, a rewrite of `bd` the app could not see.
+   decision 4, a rewrite of `brd` the app could not see.

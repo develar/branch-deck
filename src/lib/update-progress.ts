@@ -74,7 +74,7 @@ export interface UpdateRun {
   readonly fetch: TransferProgress | null
   /**
    * While the step is `waiting` for another holder of the repository lock, whom for, as the step of its operation says
-   * it ("Waiting for `bd pick` (pid 4242, for 12 s)"), with its Stop Waiting (`cancel_operation`); null while it waits
+   * it ("Waiting for `brd pick` (pid 4242, for 12 s)"), with its Stop Waiting (`cancel_operation`); null while it waits
    * behind a rewrite of the session, or for nobody
    */
   readonly lockWait: { readonly waitingFor: string; readonly stop: () => void } | null

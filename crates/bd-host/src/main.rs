@@ -1,10 +1,10 @@
-//! `bd-host`: the binary of the remote runs, the client and the agent on a host (spec/cli/host.spec.md). Neither `bd`
-//! nor the app links it; the app bundle carries it as a file on macOS (`BranchDeck.app/Contents/MacOS/bd-host`), and
-//! `bd install` links `~/.local/bin/bd-host` to it. Only on macOS and Linux: on Windows it says so and exits with 2.
+//! `brd-host`: the binary of the remote runs, the client and the agent on a host (spec/cli/host.spec.md). Neither `brd`
+//! nor the app links it; the app bundle carries it as a file on macOS (`BranchDeck.app/Contents/MacOS/brd-host`), and
+//! `brd install` links `~/.local/bin/brd-host` to it. Only on macOS and Linux: on Windows it says so and exits with 2.
 //!
 //! - `cli`: the command line, the run with its report, and the answers of the other commands
 //! - `report_fd`: the descriptor of `run --report-fd`
-//! - `schema`: `bd-host schema`, the machine contract
+//! - `schema`: `brd-host schema`, the machine contract
 //! - `skill`: the agent skill of this build that `skill install` writes
 
 #[cfg(unix)]
@@ -32,6 +32,6 @@ fn main() -> ExitCode {
 #[cfg(not(unix))]
 fn main() -> ExitCode {
   use std::io::Write as _;
-  let _ = writeln!(std::io::stderr(), "bd-host: runs on macOS and Linux only");
+  let _ = writeln!(std::io::stderr(), "brd-host: runs on macOS and Linux only");
   ExitCode::from(2)
 }

@@ -100,7 +100,7 @@ fn reword_with_a_message_file_from_stdin_replaces_the_whole_message() {
   assert_eq!(git(&repo, &["log", "-1", "--format=%B"]), "(feat) Add the third part\n\nWith a body from stdin.");
 }
 
-/// The child of `reword_with_a_message_file_from_stdin_replaces_the_whole_message`: `bd reword --message-file -` on the
+/// The child of `reword_with_a_message_file_from_stdin_replaces_the_whole_message`: `brd reword --message-file -` on the
 /// stdin of this process; does nothing in a normal run
 #[test_log::test]
 fn bd_reword_in_a_child() {
@@ -218,7 +218,7 @@ fn a_reword_that_strands_a_fixup_is_refused() {
   let head = repo.head();
   let (exit_code, output) = run_in(&repo, &["reword", &ids[0], "--subject", "(feat) First"]);
   assert_error(&output, exit_code, (2, "invalid_plan"));
-  assert!(output["error"]["message"].as_str().unwrap().contains("bd fold"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("brd fold"), "{output}");
   assert_eq!(repo.head(), head);
 }
 

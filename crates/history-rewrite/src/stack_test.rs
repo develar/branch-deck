@@ -123,7 +123,7 @@ fn each_problem_offers_the_fixes_that_remove_it() {
   assert_eq!(view.message, "Commits declare different parents: x (c0), y (c1)");
   assert_eq!(
     describe_problem("login", &view),
-    "Commits declare different parents: x (c0), y (c1); fix: `bd restack login x` or `bd unstack login`"
+    "Commits declare different parents: x (c0), y (c1); fix: `brd restack login x` or `brd unstack login`"
   );
 
   // a cycle: the branch leaves it
@@ -142,7 +142,7 @@ fn each_problem_offers_the_fixes_that_remove_it() {
   );
   assert_eq!(
     describe_problem("x", &problem_views(&with_parent, "x").remove(0)),
-    "A prefix makes the branch its own parent: c1; fix: `bd reword c1 --subject <subject>`"
+    "A prefix makes the branch its own parent: c1; fix: `brd reword c1 --subject <subject>`"
   );
 
   let collision = forest(&["(Login) A", "(login) B"]);

@@ -13,7 +13,7 @@ import { describeGlobalSource, overriddenReason, repositoryName, writeErrorTitle
 import { openSettings } from "@/lib/settings-window"
 import { useSelectedProjectPath } from "@/stores/repository"
 
-/** The two rules of `bd workspace`: their key, what they do, their default and the title of a failed global write */
+/** The two rules of `brd workspace`: their key, what they do, their default and the title of a failed global write */
 const AGENT_RULES = [
   {
     configKey: "agentLease",
@@ -34,15 +34,15 @@ const AGENT_RULES = [
 type AgentRuleKey = (typeof AGENT_RULES)[number]["configKey"]
 
 /**
- * Settings → Agents (spec/repository/settings.spec.md#agents): whether coding agents find bd through its skill, and how
- * they work, which `bd workspace` tells an agent before its first edit: one value for every repository in the global git
+ * Settings → Agents (spec/repository/settings.spec.md#agents): whether coding agents find brd through its skill, and how
+ * they work, which `brd workspace` tells an agent before its first edit: one value for every repository in the global git
  * config, and the selected repository's own
  */
 export function AgentsPage({ openCount }: { openCount: number }) {
   const path = useSelectedProjectPath() ?? ""
   return (
     <>
-      <SettingsSection title="Coding agents" description="Agents such as Claude Code and Codex ask bd workspace before their first edit; what you tell an agent wins">
+      <SettingsSection title="Coding agents" description="Agents such as Claude Code and Codex ask brd workspace before their first edit; what you tell an agent wins">
         <AgentSkill openCount={openCount} />
         {AGENT_RULES.map(rule => (
           // one read per repository; without one, the global config alone
@@ -78,14 +78,14 @@ function AgentSkill({ openCount }: { openCount: number }) {
       </div>
     )
   }
-  const bd = status.bd
+  const brd = status.bd
   return (
     <div className="flex min-h-6 items-center gap-1 text-xs text-muted-foreground" data-testid="agent-skill">
       <span
         className="min-w-0 truncate"
-        title={bd}
-      >{`Installed: agents find bd (${tildePath(bd, homeDir)}) through ${status.skills.map(it => tildePath(it, homeDir)).join(", ")}`}</span>
-      <CopyButton text={() => bd} tooltip="Copy the path of bd" alwaysVisible />
+        title={brd}
+      >{`Installed: agents find brd (${tildePath(brd, homeDir)}) through ${status.skills.map(it => tildePath(it, homeDir)).join(", ")}`}</span>
+      <CopyButton text={() => brd} tooltip="Copy the path of brd" alwaysVisible />
     </div>
   )
 }

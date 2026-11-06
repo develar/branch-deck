@@ -75,10 +75,10 @@ client takes a pasted token.
   hands to the `youtrack` CLI, which keeps no other ([The youtrack CLI](#the-youtrack-cli)).
 - Reading the token the `youtrack` CLI saved: it is in a keychain item of another program, which macOS guards with a
   prompt, and the CLI prints no saved token. The app gives the CLI a token; it never takes one.
-- A Hub scope on the app's own sign-in: its refresh token is in a file `bd` reads, and with Hub's scope it would make
+- A Hub scope on the app's own sign-in: its refresh token is in a file `brd` reads, and with Hub's scope it would make
   permanent tokens. Only the one-shot sign-in for the CLI asks Hub, and keeps nothing.
-- Several YouTracks, revoking a token the user made (that is Account Security of the YouTrack profile), `bd`: a refresh
-  by two processes would need a lock on the secret, so `bd` does not read it yet.
+- Several YouTracks, revoking a token the user made (that is Account Security of the YouTrack profile), `brd`: a refresh
+  by two processes would need a lock on the secret, so `brd` does not read it yet.
 
 ## Requirements
 
@@ -183,9 +183,9 @@ client takes a pasted token.
   written or removed sends the new token, or nothing, and never reads the token being replaced back from the file to
   renew it; a renewal writes the file before or after that write, never over it or after it.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_lookup_during_the_removal_of_a_sign_out_renews_nothing`, `a_lookup_during_the_write_of_a_sign_in_sends_the_new_token`)
-- `bd` (the issue summaries of the pull request texts it writes) only reads the token: it sends a token that doesn't
+- `brd` (the issue summaries of the pull request texts it writes) only reads the token: it sends a token that doesn't
   expire within a minute and never renews it (`YouTrackService::without_renewal`). A renewal rotates the refresh token,
-  and the app, which keeps the old one in memory, would be signed out by its next renewal; an expiring token gives `bd`
+  and the app, which keeps the old one in memory, would be signed out by its next renewal; an expiring token gives `brd`
   no summary until the app renews it.
   [@test] ../../crates/youtrack/src/service_test.rs (`a_service_without_renewal_sends_a_valid_token_and_leaves_an_expiring_one_to_the_app`)
 - `invalid_grant` is an expired sign-in; a 401 to a token that can't be renewed is a rejected one. Either is not sent

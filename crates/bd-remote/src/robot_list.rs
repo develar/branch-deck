@@ -1,4 +1,4 @@
-//! The user's robots of a repository, kept in the object cache (`patronus_robots`) so that `bd status` (`landed_by`)
+//! The user's robots of a repository, kept in the object cache (`patronus_robots`) so that `brd status` (`landed_by`)
 //! asks Patronus as the app does ("Load on Patronus" in `spec/branch/patronus.spec.md`), not on every call:
 //!
 //! - A kept list holds for a minute while a robot of it runs (the app polls a running robot once a minute) and for five
@@ -8,7 +8,7 @@
 //!   the last 7 days, and a robot started before them drops out.
 //! - A token Patronus rejected is not sent again until the token file changes (another token is another key); after a
 //!   failure nothing is asked for 1 s, doubled up to 10 minutes, reset by the next answer, and the kept robots stay.
-//! - `bd push`, `bd safe-push` and `bd robot` decide on the robots: they ask for the full list every time (through
+//! - `brd push`, `brd safe-push` and `brd robot` decide on the robots: they ask for the full list every time (through
 //!   their session, `session_facts`) and keep it (`keep_listed`).
 //!
 //! Off Space, without a Space token or with `--no-cache` nothing is kept.
@@ -132,7 +132,7 @@ pub struct RobotSource<'a> {
   pub new_api: bool,
 }
 
-/// The robots `bd status` read, newest first, with how Patronus answered for the repository, as the head of the robots
+/// The robots `brd status` read, newest first, with how Patronus answered for the repository, as the head of the robots
 /// of a session holds it (`RobotsView::head`): the next steps read one answer
 pub struct ReadRobots {
   pub robots: Vec<PatronusRobot>,
@@ -173,7 +173,7 @@ impl ReadRobots {
   }
 }
 
-/// The user's robots of the repository for `bd status`, newest first: the kept ones while they hold, else what Patronus
+/// The user's robots of the repository for `brd status`, newest first: the kept ones while they hold, else what Patronus
 /// answers now merged into them (`next_request`), kept; the kept ones, or none, while it can't be asked
 pub fn read_robots_at(source: &RobotSource<'_>, now: u32) -> ReadRobots {
   let Some(identity) = source.service.identity() else {
@@ -250,7 +250,7 @@ fn merge_robots(robots: &mut Vec<PatronusRobot>, answered: Vec<PatronusRobot>) {
   }
 }
 
-/// The user's robots in the repository for `bd status`, best effort (`read_robots_at`): none without Space, a Space
+/// The user's robots in the repository for `brd status`, best effort (`read_robots_at`): none without Space, a Space
 /// token or an answer of Patronus, the head saying which
 pub fn read_robots(context: &RepoContext, environment: &Environment) -> ReadRobots {
   let read = || -> Result<ReadRobots, CliError> {
@@ -276,7 +276,7 @@ pub fn read_robots(context: &RepoContext, environment: &Environment) -> ReadRobo
 }
 
 /// The robots a command listed to decide on (the full list of the last 7 days, asked now through its session,
-/// `session_facts`), kept for `bd status`
+/// `session_facts`), kept for `brd status`
 pub fn keep_listed(context: &RepoContext, service: &PatronusService, space: &SpaceRepository, listed: &[PatronusRobot]) {
   if let Some(identity) = service.identity() {
     let now = unix_now();

@@ -63,7 +63,7 @@ pub fn generated_name(path: &str) -> Option<GeneratedName> {
   }
 }
 
-/// A lock file of a package manager: the only names that `bd commits` and `bd status` leave out
+/// A lock file of a package manager: the only names that `brd commits` and `brd status` leave out
 pub fn is_lock_file(path: &str) -> bool {
   generated_name(path) == Some(GeneratedName::LockFile)
 }

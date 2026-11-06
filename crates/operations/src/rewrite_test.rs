@@ -622,7 +622,7 @@ fn commit_on_top(subject: &'static str, file: &'static str) -> impl FnOnce(&Fixt
   }
 }
 
-/// A rewrite that waits for the lock another process holds while that process moves HEAD (`bd update`, `bd pick`, a
+/// A rewrite that waits for the lock another process holds while that process moves HEAD (`brd update`, `brd pick`, a
 /// `bd` rewrite, a commit of an agent) runs on the HEAD it left: its core refuses the HEAD it did not expect, and the
 /// rewrite is resolved again on HEAD and runs once more. An Unstack goes by the name of its branch, a move finds its
 /// commit by its key once the sync shows HEAD; a commit the other process squashed away changes the plan, nothing
@@ -810,7 +810,7 @@ async fn an_amend_whose_index_cannot_follow_the_branch_it_moved_answers_that_and
 }
 
 /// An amend that waits for the lock another process holds while that process rewrites the commit under the amended one
-/// (`bd reword`, `bd update`) runs on the HEAD it left: its core refuses the HEAD it did not expect before it looks for
+/// (`brd reword`, `brd update`) runs on the HEAD it left: its core refuses the HEAD it did not expect before it looks for
 /// the amended commit, which that HEAD no longer has, and the rewrite amends the copy of the same key there
 #[tokio::test(flavor = "multi_thread")]
 async fn an_amend_waiting_for_the_lock_of_another_process_that_rewrites_below_its_commit_amends_the_copy() {
@@ -1105,7 +1105,7 @@ async fn a_push_asks_the_robots_while_it_waits_for_the_first_sync() {
   assert_eq!(fake.list_calls.load(Ordering::SeqCst), 1, "one full list");
 }
 
-/// A move pressed on a seeded table whose HEAD another process moved after the frame was saved (`bd reword` of the
+/// A move pressed on a seeded table whose HEAD another process moved after the frame was saved (`brd reword` of the
 /// commit under it) finds what it names once the first sync committed: the commit of the same key (`CommitKey`, of the
 /// identity the frame kept), the copy the reword left
 #[tokio::test(flavor = "multi_thread")]

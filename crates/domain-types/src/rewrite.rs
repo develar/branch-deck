@@ -64,7 +64,7 @@ pub enum RewriteIntent {
     original_commit_ids: Option<Vec<String>>,
     witness: TableWitness,
   },
-  /// The commits (original ids) and their files leave HEAD for good (Drop Commit, `bd drop`)
+  /// The commits (original ids) and their files leave HEAD for good (Drop Commit, `brd drop`)
   Drop {
     commit_ids: Vec<String>,
     witness: TableWitness,
@@ -133,13 +133,13 @@ pub enum RewriteIntent {
   Undo {
     token: UndoToken,
   },
-  /// The regroup of a plan (`bd group --plan`): only the record of a run of `bd` in the operations registry of the
+  /// The regroup of a plan (`brd group --plan`): only the record of a run of `bd` in the operations registry of the
   /// repository, which the view and the journal show; the engine of the app runs none
   Group {
     plan: RegroupPlan,
     witness: TableWitness,
   },
-  /// A hunk of `path` moves from the commit `from` into the commit `to` (`bd move-hunk`): only the record of a run of
+  /// A hunk of `path` moves from the commit `from` into the commit `to` (`brd move-hunk`): only the record of a run of
   /// `bd`, as `Group`
   MoveHunk {
     from: String,
@@ -238,7 +238,7 @@ pub struct TableWitness {
   pub store_tips: StoreTips,
 }
 
-/// How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `bd undo` takes,
+/// How the outcome of a rewrite is undone (`RewriteIntent::Undo`): the token its core printed, the same `brd undo` takes,
 /// by the core that undoes it
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
@@ -266,7 +266,7 @@ pub enum UndoKind {
   Drop,
   /// Pick Remote Commits (`pick:…`)
   Pick,
-  /// Update Project (`update:<previous>..<new>`): the branch and the files back, as `bd undo` does
+  /// Update Project (`update:<previous>..<new>`): the branch and the files back, as `brd undo` does
   Update,
 }
 
@@ -735,6 +735,6 @@ pub struct PickRemoteCommitsResult {
   pub previous_head: String,
   pub new_head: String,
   pub picked: Vec<CopiedCommit>,
-  /// `pick:<previous>..<new>` (`bd undo`); none when nothing moved
+  /// `pick:<previous>..<new>` (`brd undo`); none when nothing moved
   pub undo_token: Option<String>,
 }

@@ -1,8 +1,8 @@
-//! The check record of a worktree (`bd lease pick` and `bd pick --from`, spec/cli/lease.spec.md, spec/cli/pick.spec.md):
+//! The check record of a worktree (`brd lease pick` and `brd pick --from`, spec/cli/lease.spec.md, spec/cli/pick.spec.md):
 //! `bd-checks.jsonl` in the git dir of the worktree, where a build or test tool appends one JSON line per green run with
 //! the tree that run saw (`bt` of the IntelliJ monorepo writes it). The tree is `HEAD^{tree}` of a clean worktree, else
 //! the tree of the worktree with its local changes, so a check before the commit counts for the commit of the same
-//! files. bd only reads the file.
+//! files. brd only reads the file.
 //!
 //! ```json
 //! {"schema":1,"tree":"<id>","head":"<id>","tool":"bt","command":"build","patterns":["//plugins/air/..."],"exit":0,"at":1793108792000}

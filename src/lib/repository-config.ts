@@ -74,7 +74,7 @@ export function invalidPushSizeLimitReason(value: string): string {
 /** The modes of `branchdeck.symbols`, each with what it does (spec/commit/symbol-dependencies.spec.md) */
 export const SYMBOL_MODES: ReadonlyArray<{ mode: SymbolMode; label: string; description: string }> = [
   { mode: "off", label: "Off", description: "Commits depend only on the lines they change" },
-  { mode: "report", label: "Report Only", description: "Shown by bd commits, never used for the branches" },
+  { mode: "report", label: "Report Only", description: "Shown by brd commits, never used for the branches" },
   { mode: "on", label: "On", description: "Commits also depend on the commits that add the symbols they use" },
 ]
 

@@ -105,7 +105,7 @@ export function SafePushButton({
   const pushing = starting?.step === "pushing" ? transferLabel(wholeStack === undefined ? formatStackPushing(branch.name, starting.pushes) : "Pushing", progress) : null
   // whom its wait for the repository lock is for, as the view names the holder: every window says it
   const waiting = starting?.waitingFor ?? null
-  // another process runs the start (an agent's `bd safe-push`): its words take the place of its step
+  // another process runs the start (an agent's `brd safe-push`): its words take the place of its step
   const elsewhere = starting?.by ?? null
   // a start whose answer was lost: its actions beside the slot, as Rust offers them
   const lost = starting?.lost ?? null

@@ -1,6 +1,6 @@
-//! The resolve sessions of `bd update` (docs/design/git-operations.md, "Resolve session"): an update that conflicts
+//! The resolve sessions of `brd update` (docs/design/git-operations.md, "Resolve session"): an update that conflicts
 //! starts a session (`update_project::update_and_resolve`: its first round computed before the repository lock, its
-//! state and session ref written under it), `bd update --continue` commits
+//! state and session ref written under it), `brd update --continue` commits
 //! one round, `--abort` removes the session, `--status` reads it. The engine and the state are
 //! `git_ops::update_resolve`; this module adds the lock, the copies on disk and what the output shows.
 
@@ -31,7 +31,7 @@ use tracing::{instrument, warn};
 
 /// No resolve session for this worktree
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("No resolve session for the worktree {worktree}; `bd update` starts one when the update conflicts")]
+#[error("No resolve session for the worktree {worktree}; `brd update` starts one when the update conflicts")]
 pub struct NoSession {
   pub worktree: String,
 }
@@ -70,7 +70,7 @@ impl LandedTwin {
   }
 }
 
-/// How bd knows that a local commit it dropped is not lost
+/// How brd knows that a local commit it dropped is not lost
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropProof {
   /// The pairing left it out of the replay (`LandedProof`)
@@ -474,7 +474,7 @@ pub(crate) fn start_resolve(
   outcome(git_executor, repo_path, step, None, Some(grouping), Some(lock), ViewDetail::Full)
 }
 
-/// What `bd update --continue` passes
+/// What `brd update --continue` passes
 #[derive(Debug, Clone, Default)]
 pub struct ContinueOptions {
   pub round: Option<u32>,
@@ -489,7 +489,7 @@ pub struct ContinueOptions {
   pub landed: Option<LandedInput>,
 }
 
-/// `bd update --continue`, under the repository lock: read the `edit` copies of the open round, commit the round,
+/// `brd update --continue`, under the repository lock: read the `edit` copies of the open round, commit the round,
 /// replay the rest and finish when nothing conflicts. A failed check changes nothing. A dry run takes no lock: it
 /// writes only git objects and a temporary ref of its own (`unique_temp_ref`), which it deletes, so an agent checking
 /// its resolution in a loop never makes an update, a rewrite or another `bd` wait
@@ -692,14 +692,14 @@ fn count(git_executor: &GitCommandExecutor, repo_path: &str, head: &str, upstrea
   output.parse().map_err(|e| anyhow!("Unexpected rev-list count {output:?}: {e}"))
 }
 
-/// What `bd update --abort` removed
+/// What `brd update --abort` removed
 #[derive(Debug, Clone)]
 pub struct AbortedSession {
   pub state: SessionState,
 }
 
-/// `bd update --abort [--worktree <id>] [--allow-live-session]`: under the repository lock, delete the session ref (compare-and-swap);
-/// after its release, the copies bd wrote, which are nobody's then. Another worktree's session is named by its id; while that worktree exists (the session is
+/// `brd update --abort [--worktree <id>] [--allow-live-session]`: under the repository lock, delete the session ref (compare-and-swap);
+/// after its release, the copies brd wrote, which are nobody's then. Another worktree's session is named by its id; while that worktree exists (the session is
 /// not orphaned), only `force` removes it
 #[instrument(skip(git_executor))]
 pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktree: Option<&str>, force: bool, lock_timeout: Duration) -> Result<AbortedSession> {
@@ -708,7 +708,7 @@ pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktre
   if let Some(id) = worktree
     && (id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
   {
-    return Err(invalid(format!("--worktree {id:?} is no worktree id: `bd update --status` lists them")));
+    return Err(invalid(format!("--worktree {id:?} is no worktree id: `brd update --status` lists them")));
   }
   let lock = lock_repository(git_executor, repo_path, lock_timeout)?;
   let own = current_worktree(git_executor, repo_path)?;
@@ -732,7 +732,7 @@ pub fn abort_resolve(git_executor: &GitCommandExecutor, repo_path: &str, worktre
   Ok(AbortedSession { state })
 }
 
-/// A session of `bd update --status`
+/// A session of `brd update --status`
 #[derive(Debug, Clone)]
 pub struct SessionSummary {
   pub state: SessionState,
@@ -741,7 +741,7 @@ pub struct SessionSummary {
   pub own: bool,
 }
 
-/// `bd update --status`: the session of this worktree (writing the copies `materialize` asks for) and every session of
+/// `brd update --status`: the session of this worktree (writing the copies `materialize` asks for) and every session of
 /// the repository. Takes no lock and moves nothing
 pub fn session_status(git_executor: &GitCommandExecutor, repo_path: &str, materialize: Option<Materialize>) -> Result<(Option<SessionView>, Vec<SessionSummary>)> {
   let git_executor = &with_dirs_of(git_executor, repo_path)?;

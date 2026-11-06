@@ -481,7 +481,7 @@ pub(crate) fn finish_stack_branches(finish: &StackFinish<'_>, sync: &StackBranch
   for (plan, result) in plans.iter().zip(results) {
     let old_tip = tips.get(&plan.full_name).cloned();
     let mut update = stale_update(plan, old_tip.clone());
-    // the stack branch's own conflict comes before a member's failure: `bd status` knows it without a sync, and the
+    // the stack branch's own conflict comes before a member's failure: `brd status` knows it without a sync, and the
     // member's row says its own
     let blocked = |update: &mut StackBranchUpdate, block: StackMemberBlock| {
       update.state = StackBranchState::Blocked;
@@ -625,7 +625,7 @@ fn delete_obsolete(git_executor: &GitCommandExecutor, repository_path: &str, obs
   }
 }
 
-/// The stack branches a sync of `grouping` would report, as they stand without one (`bd status`), without their remote
+/// The stack branches a sync of `grouping` would report, as they stand without one (`brd status`), without their remote
 /// statuses: a stack blocked by its placement is `Blocked`; else what the build of its commits gave when it is
 /// remembered (the memory of the process, `cache`) and the ref is at it; else `Stale`, the ref is not known to be the
 /// build of these commits (or there is none). No git
@@ -655,7 +655,7 @@ pub fn read_stack_branches(branch_prefix: &str, grouping: &BranchGrouping, cache
           update.state = StackBranchState::Conflict;
           update.conflict = Some(StackBranchConflict { commit, files });
         }
-        _ => update.error = Some("Not the build of these commits: `bd sync` builds it or says why not".to_string()),
+        _ => update.error = Some("Not the build of these commits: `brd sync` builds it or says why not".to_string()),
       }
       update
     })

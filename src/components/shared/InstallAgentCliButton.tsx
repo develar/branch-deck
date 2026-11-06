@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { installAgentCli } from "@/hooks/useInstallAgentCli"
 
 /**
- * "Install Agent CLI": `bd install` and its toast, as Help → Install Agent CLI…; `openAgentSettings`: the toast opens
+ * "Install Agent CLI": `brd install` and its toast, as Help → Install Agent CLI…; `openAgentSettings`: the toast opens
  * Settings → Agents, which the main window offers and Settings itself does not need
  */
 export function InstallAgentCliButton({ openAgentSettings }: { openAgentSettings: boolean }) {

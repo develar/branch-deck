@@ -43,7 +43,7 @@ const SESSION: [&str; 4] = ["PWD", "OLDPWD", "SHLVL", "_"];
 /// The variable that names a shell for a test, in place of the login shell of the user. `none` turns the capture off
 pub(crate) const TEST_SHELL: &str = "BD_HOST_TEST_SHELL";
 
-/// One capture: `~/.cache/bd-host/login-env.json`
+/// One capture: `~/.cache/brd-host/login-env.json`
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct LoginEnv {
   pub(crate) captured_ms: u64,
@@ -189,7 +189,7 @@ fn dump(exe: &Path, shell: &Path, flags: &[&str], scratch: &Path, deadline: Dura
   serde_json::from_slice(&text).map_err(|error| format!("its environment is no JSON: {error}"))
 }
 
-/// `bd-host dump-env <file>`: writes the environment of this process into the file, as one JSON object of the variables
+/// `brd-host dump-env <file>`: writes the environment of this process into the file, as one JSON object of the variables
 /// whose name and value are UTF-8
 pub fn dump_env(file: &Path) -> io::Result<()> {
   let vars: BTreeMap<String, String> = std::env::vars_os()

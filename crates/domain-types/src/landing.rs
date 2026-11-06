@@ -1,8 +1,8 @@
 //! What refuses a Safe Push or a Dry Run before anything is pushed, as the landing gate (`trial_check::landing_gate`)
-//! builds it for `bd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
+//! builds it for `brd safe-push`, the start of the app and the landing needs of the repository view: typed, so the CLI
 //! and the app each name it in their own words, and each refusal carries the fix the user can run (`LandingFix`). And a
 //! start of a robot as the contract's `Land` intent names it, with what `domain_policy::land::decide` answers of it
-//! (`LandDecision`: blockers, confirmations, waits and effects), one decision of `bd safe-push` and of the app. What
+//! (`LandDecision`: blockers, confirmations, waits and effects), one decision of `brd safe-push` and of the app. What
 //! landed a subject (`Landed`, `domain_policy::landed::landed_state`), the pull requests a landing closes
 //! (`LandedPullRequest`) and what landed them (`LandingKey`, `LandedWith`).
 
@@ -13,7 +13,7 @@ use crate::reason::Reason;
 use crate::repository_view::RobotOf;
 use serde::{Deserialize, Serialize};
 
-/// The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`bd safe-push`, the
+/// The owned subject of a landing, the one shape of "a branch, or the whole stack of a root" (`brd safe-push`, the
 /// landing gate, the robot of the repository view): a branch with what it is built on, or the whole stack of a root.
 /// Struct variants, as an internally tagged enum can't serialize a newtype variant of a string; on the wire
 /// `{"kind":"branch","name":…}` and `{"kind":"wholeStack","root":…}` (`landing_test.rs`)
@@ -251,7 +251,7 @@ pub struct Land {
   #[serde(default)]
   pub without_approvals: bool,
   /// Push and open the pull request of the subject (or take the open one) instead of a start, where the code owners
-  /// approve (`bd safe-push --create-pull-request`)
+  /// approve (`brd safe-push --create-pull-request`)
   #[serde(default)]
   pub create_pull_request: bool,
   #[serde(default)]
@@ -602,7 +602,7 @@ pub struct BaselinePush {
 
 /// An open pull request that holds nothing more than what landed: of a branch a merged Safe Push landed whole besides
 /// its own, of a branch a push into the target landed, of a branch the fetched baseline or a merged pull request has.
-/// The app closes it (`domain_policy::landed::pull_requests_to_close`), `bd robot` and `bd land` list it
+/// The app closes it (`domain_policy::landed::pull_requests_to_close`), `brd robot` and `brd land` list it
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "camelCase")]

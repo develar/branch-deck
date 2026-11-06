@@ -116,7 +116,7 @@ function useRunOperation(run: SurfaceRun | undefined): RunningOperation | undefi
 
 /**
  * The busy state of what `surface` started, from the click until its `execute` answered ("Squashing 2 commits", "Waits
- * for Unstacking oauth", "Waiting for `bd pick` (pid 4242, for 12 s)"): the surface shows its spinner; null otherwise
+ * for Unstacking oauth", "Waiting for `brd pick` (pid 4242, for 12 s)"): the surface shows its spinner; null otherwise
  */
 export function useSurfaceBusy(surface: string | undefined): string | null {
   const run = useSurfaceRun(surface)

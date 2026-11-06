@@ -26,7 +26,7 @@ pub enum ActionId {
   SafePushWithoutReview,
   Push,
   PushWithChildren,
-  /// The commits someone else pushed to its remote branch, taken into the branch (`bd pick --remote`)
+  /// The commits someone else pushed to its remote branch, taken into the branch (`brd pick --remote`)
   PickRemoteCommits,
   /// The copy pushed into the target where the repository lands by a push (`Intent::Land`): of a branch, of a whole
   /// stack

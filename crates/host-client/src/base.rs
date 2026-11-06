@@ -41,7 +41,7 @@ impl Client<'_> {
       Err(_) if self.interrupted() => {}
       Err(refusal) if refusal.code == Code::Interrupted => {}
       Err(refusal) => (self.say)(&format!(
-        "bd-host: warning: cannot sync the base of the next packs to {alias} ({}): {}. The next run can need a larger pack",
+        "brd-host: warning: cannot sync the base of the next packs to {alias} ({}): {}. The next run can need a larger pack",
         refusal.code, refusal.message
       )),
     }

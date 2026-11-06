@@ -1,4 +1,4 @@
-# Agent CLI (`bd`)
+# Agent CLI (`brd`)
 
 **Status:** Active  
 **Updated:** 2026-10-28  
@@ -6,7 +6,7 @@
 
 ## Summary
 
-`bd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
+`brd` lets an agent read what Branch Deck sees (the commits ahead of the baseline, their groups, and what ties them
 together), regroup the commits and sync them. It reads with `status`, `commits`, `schema` and `version`, suggests a
 checked grouping with `suggest`, rewrites commit messages with `group`, `rename`, `restack`, `unstack`,
 `stack-together` and `undo`,
@@ -20,7 +20,7 @@ baseline as the app's Update Project does, and resolves a conflict in a resolve 
 it and `reapply` puts it back, `lease` keeps the pool of worktrees that
 agent sessions work in, and `workspace` tells an agent before its first edit whether to lease one and how to write a
 commit subject; `fold` folds the fixup commits, `squash` squashes the commits the user asked to squash, and
-`move-hunk` moves the change of a file from one commit into another. `install` puts `bd` and its skill where agents
+`move-hunk` moves the change of a file from one commit into another. `install` puts `brd` and its skill where agents
 find them; `help agent`, `help update` and `help worktrees` print the texts an agent follows, `help <command>` the
 `--help` of a command.
 
@@ -36,24 +36,36 @@ of the repository under that id, beside the app's (what it did, how it ended, it
 its time from the admission; [Journal](../design/git-operations.md#journal)). A rewrite (`group`, `rename`,
 `restack`, `unstack`, `stack-together`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`),
 `update` and `pick` that write are recorded too, before they take any lock (`bd_core::operation_record::recorded`): the app's
-windows show them on their rows ("bd: Unstacking beta…") and Activity lists them, but HEAD, which they hold, makes no
-other process `busy`: the repository lock orders the rewrites of the app and of every `bd`, and a rewrite of the app
-meanwhile is waited for (`locked` after the bounded wait). A dry run, `bd update --status` (without `--materialize`)
-and `bd check --fix`, which write nothing, are no record. The other commands that write are no operation of the
+windows show them on their rows ("brd: Unstacking beta…") and Activity lists them, but HEAD, which they hold, makes no
+other process `busy`: the repository lock orders the rewrites of the app and of every `brd`, and a rewrite of the app
+meanwhile is waited for (`locked` after the bounded wait). A dry run, `brd update --status` (without `--materialize`)
+and `brd check --fix`, which write nothing, are no record. The other commands that write are no operation of the
 repository either: `sync` (a sync takes no lock and moves each ref by compare-and-swap, as the app's), `describe` (the
 `branch.<name>.description` of git config, no ref), `lease` and `workspace` (the pool's own `leases.json`, under its
 own lock), `operation forget` (it writes the registry itself) and `install` (the skill files, no repository).
 
 On macOS and Linux it is the `cli` subcommand of the app binary: `branch-deck cli status`. If the binary is symlinked
-as `bd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
+as `brd`, the CLI runs without the subcommand. `src-tauri/src/main.rs` dispatches before Tauri starts, so no window or
 plugin is created. On Windows the app binary is a GUI-subsystem program without a console, so the installer puts a
-console `bd.exe` next to `branch-deck.exe`: the `bd` binary of `crates/bd-cli`, which `scripts/build-bd.mjs` builds
+console `brd.exe` next to `branch-deck.exe`: the `brd` binary of `crates/bd-cli`, which `scripts/build-bd.mjs` builds
 for the Tauri `externalBin` of `src-tauri/tauri.windows-bd.conf.json` (passed with `--config` by the Windows CI jobs
-only, so other builds don't need the file). The macOS release build carries `bd-host` the same way
-(`scripts/build-bd-host.mjs`, `src-tauri/tauri.macos-bd-host.conf.json`), and `bd install` links
-`~/.local/bin/bd-host` to it. The code is in `crates/bd-cli` (the `Cli`, the dispatch, `bd schema`, the help texts) and the crates it
+only, so other builds don't need the file). The macOS release build carries `brd-host` the same way
+(`scripts/build-bd-host.mjs`, `src-tauri/tauri.macos-bd-host.conf.json`), and `brd install` links
+`~/.local/bin/brd-host` to it. The code is in `crates/bd-cli` (the `Cli`, the dispatch, `brd schema`, the help texts) and the crates it
 builds on: `bd-core`, `bd-lease`, `bd-update`, `bd-rewrite` and `bd-remote`, and the library `commit-clustering`; the requirements are in the
 [Agent CLI spec](../../spec/cli/agent-cli.spec.md).
+
+## Rename from `bd` to `brd`
+
+The command is `brd` so it does not conflict with beads. The former `bd` command is no longer installed or dispatched:
+launching the app with argv[0] `bd` starts the app normally. `brd install` creates `~/.local/bin/brd`; it removes
+`~/.local/bin/bd` only when that symlink points to this app, and lists removed paths in `removed_legacy`. It leaves a
+foreign link or file (including beads) untouched. `brd install --uninstall` removes both names only when they point to
+this app.
+
+The remote-run agent is now `brd-host`. Run `brd-host setup <alias> --repo <path>` once again on each host: the new
+identity directory and LaunchAgent require pairing again. Setup removes the old LaunchAgent only when its plist matches
+the form written by the previous `bd-host setup`; see [Runs on Another Mac](../guide/host-runs.md).
 
 ## Invocation
 
@@ -69,16 +81,16 @@ cargo run -p branch-deck -- cli status -C .   # from a checkout
   setting `globalUserBranchPrefix`, read from `settings.json` in the app data directory
   (`~/Library/Application Support/org.develar.branch-deck/` on macOS, `%APPDATA%\org.develar.branch-deck\` on
   Windows), else the global or system `branchdeck.branchPrefix` (`resolve_branch_prefix`). An empty prefix is the error
-  `no_branch_prefix`. Every output echoes the prefix, and `bd status` names where it came from (`prefix_source`:
+  `no_branch_prefix`. Every output echoes the prefix, and `brd status` names where it came from (`prefix_source`:
   `cli`, `repository_config`, `app_setting`, `global_config`).
-- The settings of the app are read once as bd starts, by the app's own loader (`app_settings::file::SettingsFile`),
-  with its defaults: without the file, or when it does not parse, bd runs with the defaults (no prefix of the app,
-  `patronusNewApi` off). The app writes the file only by a rename, so bd never reads a cut file.
+- The settings of the app are read once as brd starts, by the app's own loader (`app_settings::file::SettingsFile`),
+  with its defaults: without the file, or when it does not parse, brd runs with the defaults (no prefix of the app,
+  `patronusNewApi` off). The app writes the file only by a rename, so brd never reads a cut file.
 - `--full-ids` prints full commit ids. By default an id is cut to 8 characters, as in Branch Deck's messages
   (`git_ops::revs::short_id`). When two ids of one output share that prefix, all ids in it get longer.
 - `--no-cache` neither reads nor writes the object cache (see below).
 - `-v` logs debug output to stderr and `-vv` logs trace output. Without either, stderr has only the progress lines of
-  the commands that take minutes (the trials of `bd check --fix`, the steps of `bd lease get`). Each line starts
+  the commands that take minutes (the trials of `brd check --fix`, the steps of `brd lease get`). Each line starts
   with the root span of the run, `operation{op=status operation_id=01K…}` (a ULID, `sync_utils::operation_id`), also
   the lines of the threads a sync builds its branches on, so the lines of two runs that interleave stay apart.
 - Git comes from `BD_GIT`, else `git` on `PATH`, else Homebrew's git on macOS. It must be 2.54 or newer. Unlike the
@@ -92,15 +104,15 @@ An agent carries a flag from one command to another, so one sense has one word i
 these rules:
 
 - **A preview is `--dry-run`**: it writes at most git objects, after the sync its command runs first. Never `--check`
-  (that is the command `bd check`, and next to "checks" of CI it reads as their opposite).
+  (that is the command `brd check`, and next to "checks" of CI it reads as their opposite).
 - **A flag that accepts a refusal is `--allow-<what refused>`**, after the error code it lifts when it lifts one:
   `--allow-unchecked` (`unchecked_tree`), `--allow-checks-not-passed`, `--allow-dangling`, `--allow-live-session`.
   Its help says it runs only once the user agreed, and the refusal's `message` names it with its condition (never a
   `next_steps` entry).
 - **An act is its own verb**: `--force` of a push, `--cancel-running`, `--overwrite-edited`. One flag has one sense:
-  `bd update --force` was two acts and is two flags now.
+  `brd update --force` was two acts and is two flags now.
 - **A rename keeps the old name** as an alias (a hidden flag when the old name had two senses), with a row in
-  `RENAMED`, whose test checks it against clap; a run with it prints `bd: <old> of bd <command> is now <new>` on
+  `RENAMED`, whose test checks it against clap; a run with it prints `brd: <old> of brd <command> is now <new>` on
   stderr. The skills installed before the rename keep working.
 - **A flag the command lacks** is `invalid_arguments`, whose message names the commands that have it by their visible
   name and the flags of this command that preview or accept a refusal; clap's similar name only when no command has
@@ -108,34 +120,34 @@ these rules:
 
 ## The JSON contract
 
-- stdout gets exactly one JSON object per run, on one line. Only `bd help` prints text.
+- stdout gets exactly one JSON object per run, on one line. Only `brd help` prints text.
 - The JSON is ASCII: every other character is a `\uXXXX` escape, so a shell that decodes stdout with a legacy code
-  page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that bd reads (`--plan`,
+  page (Windows PowerShell 5.1) still reads every path and subject. A plan or a body that brd reads (`--plan`,
   `--body-file`; `-` is stdin) is UTF-8, with or without a byte order mark, or UTF-16 with one. A pipe of Windows
-  PowerShell 5.1 turns other characters into `?` before bd reads them, so pass a file there.
-- Every object starts with `"schema": 2`. The experimental `bd review-plan` has a version of its own, 3. The version
+  PowerShell 5.1 turns other characters into `?` before brd reads them, so pass a file there.
+- Every object starts with `"schema": 2`. The experimental `brd review-plan` has a version of its own, 3. The version
   goes up only when a field changes meaning or disappears. New optional fields don't change it.
-- Every object ends with the `operation_id` of the run, an error object and `bd --version` too: a ULID, new for each
+- Every object ends with the `operation_id` of the run, an error object and `brd --version` too: a ULID, new for each
   run, the id of the root span of its log lines (`-v`), and of its record in the operations registry and its entry in
   the journal of the operations when the command runs an operation of the remote (`push`, `safe-push`,
-  `request-review`), a rewrite, an update or a pick that writes. `bd operation forget` prints its own and the one
-  it forgot (`forgotten`). `bd schema` declares it in every output (`schema.rs`, `with_operation_id`).
+  `request-review`), a rewrite, an update or a pick that writes. `brd operation forget` prints its own and the one
+  it forgot (`forgotten`). `brd schema` declares it in every output (`schema.rs`, `with_operation_id`).
 - Optional fields are left out when they are empty. `group` is the exception: it is always present and is `null` for
   an unassigned commit. In a `--brief` view a field is also left out when another field says it: `issue_key` when it
-  is the `group` (`bd commits --brief`) or the `name` (`bd status --brief`) of an issue branch, and the `(prefix)` of a
+  is the `group` (`brd commits --brief`) or the `name` (`brd status --brief`) of an issue branch, and the `(prefix)` of a
   subject when it is exactly the `group`.
-- `bd schema <command>` prints the JSON Schema of the outputs of a command, `bd schema` their index (see `bd schema`
+- `brd schema <command>` prints the JSON Schema of the outputs of a command, `brd schema` their index (see `brd schema`
   below). The schemas are generated from the Rust
   types with `schemars`, and `schema_test.rs` checks the real outputs against them.
 - Read only: `status`, `commits`, `suggest`, `check`, `robot`, `robot-stats`, `schema`, `version`, `update --dry-run`, `update --status`,
   `lease status`, `workspace`, `pick --dry-run`, `fold --dry-run`, `squash --dry-run`, `drop --dry-run`, `unapply --dry-run`, `reapply --dry-run`, `move-hunk --dry-run` and `reword --dry-run` write no ref, config, index or working tree. They write at most git objects (the trial sync of `check` and
   `suggest`, the replay of `update --dry-run` and `pick --dry-run`, the merged trees of `move-hunk --dry-run`, the
-  squashed commit of `squash --dry-run`) and the object cache (none with `--no-cache`). `bd --help` and
-  `bd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
+  squashed commit of `squash --dry-run`) and the object cache (none with `--no-cache`). `brd --help` and
+  `brd help agent` print the same line (`READ_ONLY` in `agent_help.rs`), and `agent_help_test.rs` checks the refs, the
   config, the index and the working tree around each of them.
-- The working tree: only `bd update`, `bd pick`, `bd unapply`, `bd reapply`, `bd drop` and their undo write the working tree, through the guarded update of
-  the app's Update Project: only the files the move changes, and in a resolve session only at the finish. `bd lease`
-  writes only the slots of its pool, which are not the user's working tree (see `bd lease`).
+- The working tree: only `brd update`, `brd pick`, `brd unapply`, `brd reapply`, `brd drop` and their undo write the working tree, through the guarded update of
+  the app's Update Project: only the files the move changes, and in a resolve session only at the finish. `brd lease`
+  writes only the slots of its pool, which are not the user's working tree (see `brd lease`).
 
 An error looks like this:
 
@@ -149,42 +161,42 @@ An error looks like this:
 {"schema":2,"error":{"code":"uncommitted_overlap","message":"…","commits":[],"paths":["src/app.txt"],"retryable":false}}
 ```
 
-A refused resolution of `bd update --continue` has `paths` too, the conflicting files; `lease_rejected` and
+A refused resolution of `brd update --continue` has `paths` too, the conflicting files; `lease_rejected` and
 `push_refused` have `branches`, the branches with their remote status; `push_too_large` has `paths`, the directory that
 holds most of the push (`dir/`) and its largest files.
 
-`approvals_missing` of `bd safe-push` has `review`, the code-owner review the Safe Push lacks (see `bd safe-push`).
+`approvals_missing` of `brd safe-push` has `review`, the code-owner review the Safe Push lacks (see `brd safe-push`).
 `target_conflict` has `commits` and `paths`: the commit that Patronus can't rebase onto the newest target and its files.
 
 A refusal that a command acts on has `next_steps`, the commands ready to run in their order, each with
-`needs_approval` (the `refusals` of `bd safe-push --dry-run` carry them too):
+`needs_approval` (the `refusals` of `brd safe-push --dry-run` carry them too):
 
 ```json
 {"schema":2,"error":{"code":"lease_rejected","message":"The remote rejected auth: …","commits":[],"branches":[…],
- "next_steps":[{"command":"bd push auth --force --expect-remote 1a2b3c4d","needs_approval":true}],"retryable":false}}
+ "next_steps":[{"command":"brd push auth --force --expect-remote 1a2b3c4d","needs_approval":true}],"retryable":false}}
 ```
 
 A step with `needs_approval` pushes, rewrites, updates or cancels or restarts a robot: run it only once the user
-approved it. One without it only reads (`bd robot`, `bd sync`, `bd safe-push <branch> --dry-run`). The field is
-`next_steps`, not `next`: the `next` of `bd workspace`, `bd update` and `bd pick` runs at once, a step of an error
+approved it. One without it only reads (`brd robot`, `brd sync`, `brd safe-push <branch> --dry-run`). The field is
+`next_steps`, not `next`: the `next` of `brd workspace`, `brd update` and `brd pick` runs at once, a step of an error
 does not. A way to start anyway (`--allow-*`, `--without-approvals`), `--min-free` and a change of the config are
 never a step: the message names each with its condition ("only when the user says it is a false alarm", "never raise
 `branchdeck.pushSizeLimit` yourself"), and so it names the condition of `--force`, `--cancel-running`,
 `--restart-running` and `--confirm-preserved` ("once the user approved"). The steps, by code: `lease_rejected` the
 leased push that replaces the remote branch (`--with-children --force` for a stack branch); `push_refused` the push
-that replaces a branch behind its remote, `bd sync` for one not synced; `robot_running` `bd robot` of the robot, and
+that replaces a branch behind its remote, `brd sync` for one not synced; `robot_running` `brd robot` of the robot, and
 the same command with `--cancel-running` (`safe-push`) or `--restart-running` (`push`) where it applies;
 `approvals_missing` the start with `--create-pull-request` when the branch has no pull request; `dangling_reference`
-the `fix.command` a trial build proved; `missing_declaration` the `bd restack` it names; `push_dismisses_approvals`
-the push, then `bd request-review`; `target_conflict` and `landed` `bd update`; `stack_conflict` the `--dry-run` of the
-branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `crates/bd-core/src/error.rs`.
+the `fix.command` a trial build proved; `missing_declaration` the `brd restack` it names; `push_dismisses_approvals`
+the push, then `brd request-review`; `target_conflict` and `landed` `brd update`; `stack_conflict` the `--dry-run` of the
+branch whose commit conflicts; `stack_not_built` `brd sync`. `NextStep` is in `crates/bd-core/src/error.rs`.
 
 | Exit | Meaning | Codes |
 |---|---|---|
 | 0 | ok | |
 | 1 | conflict | never an error object: the command's output with `state: "conflict"` (update, pick), a branch not built (sync, `--sync`), or `ok: false` (check, suggest) |
 | 2 | invalid input | `invalid_arguments`, `block_not_found`, `not_a_repository`, `no_branch_prefix`, `unknown_branch`, `invalid_plan`, `not_ahead_of_baseline`, `no_session`, `unresolved_markers`, `resolution_outside_conflict`, `missing_resolution`, `empty_resolution`, `no_lease`, `lease_mismatch`, `not_a_slot`, `slot_in_pool`, `not_parked`, `no_identity` (git cannot form the identity of the user: set `user.name` and `user.email`) |
-| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `locked`, `busy` (an operation of another process, the app or another `bd`, runs what the command needs: `error.holder`; nothing was done) |
+| 3 | stale, read again and retry | `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `prefix_changed` (the app's sync only), `round_moved`, `plan_changed` (the facts a remote action was planned on changed before its first effect; nothing was done), `locked`, `busy` (an operation of another process, the app or another `brd`, runs what the command needs: `error.holder`; nothing was done) |
 | 4 | refused | `no_baseline`, `operation_in_progress`, `detached_head`, `uncommitted_overlap`, `undo_stale`, `lease_rejected`, `hunk_conflict`, `stack_conflict`, `stack_not_built`, `target_conflict`, `range_unknown`, `source_on_newer_baseline`, `home_branch_switched`, `no_home_branch`, `unchecked_tree`, `lease_follows_home`, `resolve_in_progress`, `session_stale`, `unsupported_conflict`, `finish_pending`, `push_refused`, `push_too_large`, `no_remote`, `install_refused`, `approvals_missing`, `push_dismisses_approvals`, `rules_unknown`, `review_unknown`, `pull_request_other_base`, `robot_running`, `landed`, `parked`, `dangling_reference`, `missing_declaration`, `not_on_space`, `not_logged_in`, `patronus_refused`, `no_pull_request`, `no_reviewer`, `needs_push`, `review_refused`, `slot_busy`, `host_slot`, `unlanded_commits`, `dirty_worktree`, `branch_exists`, `other_volume`, `low_disk_space`, `lease_reclaimed`, `canceled` |
 | 5 | git or network error | `git_not_found`, `git_error`, `network_error`, `patronus_error`, `internal` |
 
@@ -192,14 +204,14 @@ branch whose commit conflicts; `stack_not_built` `bd sync`. `NextStep` is in `cr
 "The repository has no commits yet: commit to the main branch, then sync".
 
 The codes are `ErrorCode` of `crates/domain-types/src/error.rs` (its `exit_code`, `retry` and `retryable`), one registry
-for `bd` and the app: a command of the app fails with `ApiError` of the same file, whose `code` is one of these. `CliError`,
-the error object of `bd`, is in `crates/bd-core/src/error.rs`. A typed error of a core names its code itself
-(`RegroupError::code`, `SyncDeferred::code`), so `bd` and the app read one mapping. The app's conversion is
+for `brd` and the app: a command of the app fails with `ApiError` of the same file, whose `code` is one of these. `CliError`,
+the error object of `brd`, is in `crates/bd-core/src/error.rs`. A typed error of a core names its code itself
+(`RegroupError::code`, `SyncDeferred::code`), so `brd` and the app read one mapping. The app's conversion is
 `crates/app-api/src/api_error.rs`: the app and the e2e server turn a core's error into `ApiError` with its one function,
 `app_api::api_error`, which also names the holder of a held lock (`details`) and gives the other typed errors
-the code the `bd` command gives them: the types name it (`ParkError::code`, `GuardRefusal::code`,
-`UnapplyRefusal::code`, `ReapplyRefusal::code`), which the commands of `bd` (`park_error`, `unapply_error`,
-`reapply_error`, `update_command::core_error`) read too. An undo answers `ErrorCode::in_undo` of the code, in `bd undo`
+the code the `brd` command gives them: the types name it (`ParkError::code`, `GuardRefusal::code`,
+`UnapplyRefusal::code`, `ReapplyRefusal::code`), which the commands of `brd` (`park_error`, `unapply_error`,
+`reapply_error`, `update_command::core_error`) read too. An undo answers `ErrorCode::in_undo` of the code, in `brd undo`
 and in the undo commands of the app (`app_api::api_error::undo_error`): a ref that moved on since the operation is
 `undo_stale`, in the words of `HeadMoved::undo_message` or `StoreMoved::undo_message` (`RegroupError::undo_message`):
 what moved and that it can't be undone any more, not the advice to retry. One table of the typed errors with their codes, `crates/update-core/src/error_cases.rs`, is what both
@@ -207,42 +219,42 @@ sides are tested on (`error_code_test.rs` of `bd-update`, `park_error_test.rs` o
 `app-api`): no crate calls both, as only the app and the e2e server depend on `app-api`. A lock file of git in the way of a ref move (`RefLocked`) is `locked` without
 `details`: its message names the file. So is the index lock of another process that stayed for the 30 s a move waits
 for it (`IndexLocked`; a lock no process owns is removed): its message names the file, its age and the processes that
-may own it, which bd lists in `processes` too. Both adapters answer the JSON of
+may own it, which brd lists in `processes` too. Both adapters answer the JSON of
 `crates/app-api/fixtures/api_errors.json` for each of its cases (`api_error_contract_test.rs` of `src-tauri` and of
 `test-server`). `canceled` is an action the user stopped (the wait for a lock, a sign-in, an action of a CLI tool, a
 review fetch: `LockWaitCanceled`, `SignInError::Canceled`, `DeviceFlowError::Canceled`, `ActionError::Canceled`,
-`StoppedCommand::Cancelled`); `internal` is a failure without a code of its own, which the app answers, while `bd`
+`StoppedCommand::Cancelled`); `internal` is a failure without a code of its own, which the app answers, while `brd`
 prints a failure of git or IO as `git_error`.
 
 Agents branch on the code and the exit code, never on the message. `commits` names the commits an error is about.
 `retryable` is true for `head_moved`, `groups_moved`, `stacks_moved`, `parked_moved`, `round_moved`, `plan_changed`, `locked`, `busy` and `network_error`: retry when it is
 true, whatever the exit code. It is the `retry` class of the code other than `no`: `same` (`locked`, `busy`, `network_error`) runs
-the same command again, `after_reread` (`head_moved` and the other `*_moved`, `plan_changed`) builds it again from a new read. The message of `locked` names the holder when it wrote its record (`` `bd check --fix` (pid 4242, for 12
+the same command again, `after_reread` (`head_moved` and the other `*_moved`, `plan_changed`) builds it again from a new read. The message of `locked` names the holder when it wrote its record (`` `brd check --fix` (pid 4242, for 12
 min 3 s) holds …/branch-deck.lock (waited 10.0 s); retry when it is done``), else "Another Branch Deck operation".
-`busy` (`bd push`, `bd safe-push`, `bd request-review`; of a rewrite only `bd reapply` while another process pushes
+`busy` (`brd push`, `brd safe-push`, `brd request-review`; of a rewrite only `brd reapply` while another process pushes
 the unapplied branch) names the operation of another process that holds what the command needs, from the operations
 registry of the repository (docs/design/git-operations.md, "Operations registry"):
 its `error.holder` is `{op, tool, pid, kind, subject, held_for, unknown}` (`kind` `safe_push`, `dry_run`, `push`, …;
 `op` the `operation_id` of its log lines), left out for a registry of another Branch Deck, whose operations can't be
 read. `unknown: true` is a start whose answer was lost (its request went out and no answer came, or its process was
 killed after it went out): it holds until Patronus lists its robot, which an admission reads first (a robot of it
-started: `plan_changed`; none once 30 s passed: the command goes on), or until `bd operation forget <op>`.
+started: `plan_changed`; none once 30 s passed: the command goes on), or until `brd operation forget <op>`.
 
-A write whose step after the write failed (the descriptions or the sync of `bd group --sync`, the sync of
-`bd move-hunk --sync`) prints its output with `after_error`, never the error object: the write stands, its
-`undo_token` reverts it, and the exit code is that error's. Retry that step (`bd sync`), never the write.
+A write whose step after the write failed (the descriptions or the sync of `brd group --sync`, the sync of
+`brd move-hunk --sync`) prints its output with `after_error`, never the error object: the write stands, its
+`undo_token` reverts it, and the exit code is that error's. Retry that step (`brd sync`), never the write.
 
 The names are one vocabulary across the commands: a write prints `previous_head` and `new_head`; a commit and its
 copy are `{commit, new_id}`; a state is `state`; a list of commits names each by `commit`.
 
 A list too long to print whole is cut at its limit with the count of the rest (`files_omitted`,
-`blocked_paths_omitted`, the `omitted` of `bd robot --full`, the "(2 more: bd check)" of the dangling references a
+`blocked_paths_omitted`, the `omitted` of `brd robot --full`, the "(2 more: brd check)" of the dangling references a
 refusal describes), never leaving out only one: a list one longer than its limit is printed whole
 (`sync_utils::list_cut::kept`, the rule of the app's lists and prompts, `cutList`), so a count is 0 or at least 2.
 
 ## Commands
 
-### `bd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`
+### `brd status [--branch <b>] [--unassigned] [--limit N] [--offset M] [--stats [--include-generated]] [--brief]`
 
 Prints HEAD, the baseline (as `detect_baseline_branch` finds it), the prefix, the branches and the unassigned commits. Without a
 baseline (no upstream and no `origin/master` or `origin/main`, or no remote and no local `master` or `main`) it is
@@ -253,7 +265,7 @@ command of git. It runs about eight short git processes, with one `log` for all 
 and the branches under the prefix in one listing, as a sync reads them, and the push URL of `origin`, which tells
 whether the repository is on Space; on Space it reads the user's robots (`landed_by`, below) from the object cache
 while they hold (a minute while one of them runs, five minutes while none does), else asks Patronus for the robots
-started since and polls the running ones, as the app does; `bd push`, `bd safe-push` and `bd robot` ask fresh and keep
+started since and polls the running ones, as the app does; `brd push`, `brd safe-push` and `brd robot` ask fresh and keep
 what they listed.
 
 ```json
@@ -270,7 +282,7 @@ what they listed.
   ([Stacked Branches](../../spec/branch/stacked-branches.spec.md#ui)). The commits of a branch are newest first, and
   their subjects have the `(prefix)` stripped, as the virtual branch commits do (a prefix that is an issue key stays as
   the key). `resolved_by_words` (`{"conflicts","file_count"}`, from the mapping
-  note) marks a commit whose virtual copy resolved a conflict of git by words (see `bd sync`).
+  note) marks a commit whose virtual copy resolved a conflict of git by words (see `brd sync`).
 - `tip` is the tip of the existing virtual branch, or `null` if the branch was never synced.
 - `origin` says what groups the commits: `prefix` (a commit has the `(prefix)`), `issue_group` (the issue groups put
   commits of other keys into it) or `issue`. `issue_keys` lists the keys whose issue group the branch is.
@@ -282,7 +294,7 @@ what they listed.
   `store` (the stack parents, `refs/branch-deck/stack-parents`, see [Stack Parents](../../spec/branch/stack-parents.spec.md)).
   `idle_stack_parents` lists the children of the stack parents that stack no branch ahead of the baseline here, and
   `stack_parent_problems` the lines of that store that are not used. An idle child may stack a branch of another
-  worktree; a sync drops its line once its branch is integrated, `bd group` with `unstack` drops it at once.
+  worktree; a sync drops its line once its branch is integrated, `brd group` with `unstack` drops it at once.
 - `--branch` lists that one branch and `--unassigned` lists only the unassigned commits. `--limit`/`--offset` page
   the commits in both of these modes, and page the branches otherwise.
 - With stacked branches on (`git config branchdeck.stacks true`), each branch is placed as a sync places it:
@@ -294,18 +306,18 @@ what they listed.
   - `effective_base`, the branch it is built on (omitted for the baseline), or `blocked_by` `{parent, reason}` when the
     parent can't be built: `problem` (a stack problem), `error` (a failed build), `conflict` or `blocked`;
   - `problems` (`{message, commits}`): conflicting parents, a cycle, a self parent, a case collision, an empty level.
-    The message ends with its fixes as commands, the same fixes the app offers as buttons: `fix: `bd restack login
-    auth`, `bd restack login docs` or `bd unstack login`` (`bd rename` for a case collision, `bd reword` of the
+    The message ends with its fixes as commands, the same fixes the app offers as buttons: `fix: `brd restack login
+    auth`, `brd restack login docs` or `brd unstack login`` (`brd rename` for a case collision, `brd reword` of the
     commits for an empty level and for a self parent beside another parent).
 
   The output has `forest`: the branches with commits, each after its parent.
 - With stacked branches on, `stacks` lists the stack branch of each stack that forks: one more virtual branch,
-  `{prefix}/stack/<root>` (`branch`), of all the stack's commits in the order of the history (see `bd sync`), as the
+  `{prefix}/stack/<root>` (`branch`), of all the stack's commits in the order of the history (see `brd sync`), as the
   last sync left it; left out without one, and with `--branch` or `--unassigned`. Its `state` comes without a sync and
   without a git process: `blocked` (with `member` and `reason`) when a member has a stack problem or is blocked, else
   `built` when the object cache remembers the build of the current commits and the ref is at it, `conflict` when it
   remembers their build conflicting, else `stale` (`error` says why: a new commit since the sync, or never built). With
-  `--no-cache` a built one reads `stale`. `bd status` has no `remote`: `bd sync` says what a push sends.
+  `--no-cache` a built one reads `stale`. `brd status` has no `remote`: `brd sync` says what a push sends.
 
   ```json
   "stacks":[{"root":"auth","branch":"develar/stack/auth","state":"built","tip":"5e6f7a8b","commits":5,
@@ -318,7 +330,7 @@ what they listed.
   decided by content (`sync_core::robot_landing`: the commits the robot tested, the same commit, a patch-equivalent
   copy or a copy with the same changes on a newer base, against the branch's), so a new commit or a reword of a branch
   it is built on keeps it; an amend of a landed commit leaves the branch without it. A branch with no `after` is all
-  in the target: `bd push` leaves it out (`skipped`) and `bd safe-push` refuses it (`landed`). Off Space, without the
+  in the target: `brd push` leaves it out (`skipped`) and `brd safe-push` refuses it (`landed`). Off Space, without the
   Safe Push CLI's token or an answer of Patronus there is none. A robot at the tip the sync left needs no git; one
   whose branches got new copies costs two `rev-list` and at most a `diff-tree` and a `patch-id`.
 
@@ -327,8 +339,8 @@ what they listed.
     "commit":"9a8b7c6d","url":"https://patronus…/robot/7f…"},"commits":["1a2b3c4d"],"after":["5e6f7a8b"]}
   ```
 - `landing_needs` (on Space) lists what the Safe Push of the branch needs of a commit outside what it lands: the
-  refusals `bd safe-push` would give its start, from one trial check of every branch in one session
-  (`trial_check::landing_gate::landing_needs`, the rule of the gate; about the processes of a `bd check`), less what
+  refusals `brd safe-push` would give its start, from one trial check of every branch in one session
+  (`trial_check::landing_gate::landing_needs`, the rule of the gate; about the processes of a `brd check`), less what
   merged Safe Pushes landed. Each need has its `code` (`missing_declaration`: a commit uses a name only that commit
   adds; `dangling_reference`: a commit removes or changes a declaration a use still has, which only that commit
   changes), the `identifier`, `at` (`file:line`), the commit it `needs` and its `needs_branch`, the `fix` and
@@ -341,11 +353,11 @@ what they listed.
   "landing_needs":[{"code":"missing_declaration","identifier":"Stills","at":"lane/src/BuildLog.kt:3",
     "needs":"ecebf000","needs_branch":"stills-codec","fix":"bd restack lane-run stills-codec"}]
   ```
-- `parked` says the user keeps the branch local (`bd park`, the app's Park Branch): `{note}`, and `with` when a branch
-  it is built on is the parked one, whose commits it carries. `bd push` and `bd safe-push` refuse it (`parked`).
+- `parked` says the user keeps the branch local (`brd park`, the app's Park Branch): `{note}`, and `with` when a branch
+  it is built on is the parked one, whose commits it carries. `brd push` and `brd safe-push` refuse it (`parked`).
   `idle_parked` lists the parked names that group no commit here (another worktree's, or gone); a sync drops one once
-  its archived branch is integrated, `bd unpark` any.
-- `description` is `{title}` of the branch's `bd describe` text, read for all branches with one
+  its archived branch is integrated, `brd unpark` any.
+- `description` is `{title}` of the branch's `brd describe` text, read for all branches with one
   `git config --get-regexp`.
 - `--stats` adds `stats` to each listed branch:
 
@@ -357,7 +369,7 @@ what they listed.
   ```
 
   - `files` counts the distinct files the commits change, and `generated_files` how many of them are lock or
-    generated files (see `bd commits`).
+    generated files (see `brd commits`).
   - `additions`, `deletions` and `top_dirs` (at most three directories, by added plus deleted lines) are summed over
     the commits. Generated files don't count without `--include-generated`.
   - `first_time` and `last_time` are author times. `issue_keys` are the distinct keys of the subjects.
@@ -365,18 +377,18 @@ what they listed.
     commit ahead of the baseline, which a sync rebuilds every branch on. It is exact while the tip is synced with
     the current commits, and `null` for a branch that was never synced.
   - It costs at most three more git processes for all branches together: the commit diffs the cache misses (the same
-    `log --raw` and blob pass and cache as `bd commits`), one `diff-tree --stdin --raw --numstat -z` with a `<tip> <base>` line per
+    `log --raw` and blob pass and cache as `brd commits`), one `diff-tree --stdin --raw --numstat -z` with a `<tip> <base>` line per
     synced branch (`git_ops::commit_files::read_files_from_base`, the parser of the commit files), and one
     `check-attr` (`git_ops::attributes`).
-- `--brief` prints `StatusBrief` (`status_brief` in `bd schema`), small enough to read whole: about 2 KB for the 12
-  branches and 74 commits of a large monorepo branch, where `bd status` prints 11.5 KB.
+- `--brief` prints `StatusBrief` (`status_brief` in `brd schema`), small enough to read whole: about 2 KB for the 12
+  branches and 74 commits of a large monorepo branch, where `brd status` prints 11.5 KB.
   - Per branch it lists `name`, `commit_count`, `issue_key` (left out when it is the `name`) and `newest`, the subject
     of the newest commit, `issue_keys` of an issue group, `landed_by` as `{branch, whole_stack, after}`, `after`
     the count of the commits left, and `parked`. With stacked branches on, it keeps `parent`,
     `parent_source`, `blocked_by`, `pr_base_changed`, `problems`, `forest` and `stacks`. It keeps `idle_issue_groups`,
     `issue_group_problems`, `idle_stack_parents` and `stack_parent_problems`.
   - `unassigned` lists the ids and subjects.
-  - It reads what `bd status` reads, except the virtual branch tips and the descriptions.
+  - It reads what `brd status` reads, except the virtual branch tips and the descriptions.
   - It works with `--unassigned`, `--limit` and `--offset`, but not with `--branch` or `--stats`.
 
   ```json
@@ -386,7 +398,7 @@ what they listed.
    "unassigned":[{"id":"77e01aa4","subject":"Tidy up"}]}
   ```
 
-### `bd commits [<id>…] [--files] [--patch] [--branch <b> | --unassigned] [--include-generated] [--brief [--depth N]]`
+### `brd commits [<id>…] [--files] [--patch] [--branch <b> | --unassigned] [--include-generated] [--brief [--depth N]]`
 
 Prints every commit ahead of the baseline, oldest first, which is the order they are applied in.
 
@@ -401,7 +413,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 ```
 
 - `group` is the branch the commit is grouped into, or `null`. `issue_key` is the issue key of the subject.
-- `resolved_by_words` marks a commit whose virtual copy resolved a conflict of git by words, as in `bd status`.
+- `resolved_by_words` marks a commit whose virtual copy resolved a conflict of git by words, as in `brd status`.
 - `fixup` is set on a `fixup!`, `squash!` or `amend!` commit. Its `target` is resolved with `git rebase --autosquash`
   rules (`plan_autosquash`), and is `null` when no older commit matches.
 - `--files` lists the changed files of each commit. `status` is `A`, `M`, `D`, `R` (`old_path` is set) or `T`.
@@ -416,7 +428,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
     "text":" line 24\n line 25\n line 26\n-old\n+new\n line 28\n line 29\n line 30"}]}]
   ```
 
-  - `id` is what `bd move-hunk --block` takes: the lines of the block as in a git hunk header, and a hash of its lines.
+  - `id` is what `brd move-hunk --block` takes: the lines of the block as in a git hunk header, and a hash of its lines.
     An id of a block that changed since does not match.
   - `old_start` and `new_start` are 1-based. A side without lines names the line before them, as git does.
   - `kind` is `changed`, or `whitespace_only` for lines that differ in whitespace or in the final line end only.
@@ -435,7 +447,7 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
 - `cluster_overlap` lists, for each pair of current branches, the files both change.
 - Lock files and generated files don't count in `dependencies` and `cluster_overlap` (see below);
   `--include-generated` keeps them. `--files` still lists them, with `"generated": true`.
-- `--brief` prints `CommitsBrief` (`commits_brief` in `bd schema`): what an agent needs to cluster, small enough to
+- `--brief` prints `CommitsBrief` (`commits_brief` in `brd schema`): what an agent needs to cluster, small enough to
   read whole. Measured on the 74 commits of a large monorepo branch, it is 19.5 KB, where `--files` is 278 KB.
   `--files` and `--patch` don't go with it; the filters do.
 
@@ -471,12 +483,12 @@ Prints every commit ahead of the baseline, oldest first, which is the order they
   unrelated areas touch them, so they say nothing about where a commit belongs. `HUB_FILES` in
   `crates/commit-clustering/src/hub_files.rs` lists them: module and build registries, file lists and top-level docs. It matches
   by file name, and a pattern with a `/` (`.idea/modules.xml`) by the end of the path.
-- `top_dirs` of `bd status --stats` keeps its meaning: the full directories of the files.
+- `top_dirs` of `brd status --stats` keeps its meaning: the full directories of the files.
 
 All changes, the file lists and the dependencies come from one `git log --no-walk=unsorted --stdin -z --raw
 --no-abbrev` process and one `cat-file --batch` of the blobs, for the commits the object cache misses. The raw part
 gives the full ids of each file's blobs before and after. The line counts and the line ranges of the dependencies are
-the blocks of the diff views under `Default`, so `bd commits` and the app count the same lines. `--patch` adds one
+the blocks of the diff views under `Default`, so `brd commits` and the app count the same lines. `--patch` adds one
 `cat-file --batch` of the blobs of the listed commits. The log passes explicit diff options (`-M`, `--no-ext-diff`,
 `--no-textconv`), and the blocks come from the diff engine of the app, so the user's diff config doesn't change the
 output.
@@ -529,10 +541,10 @@ See [Symbol Dependencies](../design/symbol-dependencies.md).
 
 ### The object cache
 
-The changes of a commit never change, so `bd commits` and `bd status --stats` keep them in a disk cache keyed by the
+The changes of a commit never change, so `brd commits` and `brd status --stats` keep them in a disk cache keyed by the
 commit id (`crates/object-cache`, LMDB through heed):
 
-- It lives in `$GIT_COMMON_DIR/branch-deck/cache/`, so all worktrees share it. The app and parallel `bd` calls can use
+- It lives in `$GIT_COMMON_DIR/branch-deck/cache/`, so all worktrees share it. The app and parallel `brd` calls can use
   it at once: LMDB serializes writers through its lock file, and readers never wait.
 - git runs only for the ids the cache misses, in one batch process, and the results are written back in one
   transaction.
@@ -540,15 +552,15 @@ commit id (`crates/object-cache`, LMDB through heed):
 - Each store's version is part of its database name (`commit_diff.v1`). Opening drops the older versions of a store,
   so a new value type of one store keeps the entries of the others.
 - Any cache failure is a miss, logged with `-v`; it never fails a command. `--no-cache` bypasses it.
-- `bd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
+- `brd check` memoizes its merges in `merge_result` ((base, commit, target) trees → result tree or conflict files) and
   commit trees in `commit_tree`. Sync doesn't use them yet.
 
-### `bd group [--dry-run | --sync] [--expect-head <id> [--allow-append]] [--map] --plan <file | ->`
+### `brd group [--dry-run | --sync] [--expect-head <id> [--allow-append]] [--map] --plan <file | ->`
 
 Moves commits between branches by their subject prefixes, in one message-only history rewrite
 (`history_rewrite::regroup`, see "Regroup, rename, restack" in [Git Operations](../design/git-operations.md)), and changes
 the issue groups and the stack parents in the same ref transaction. Then it sets the pull request texts of the plan under
-the same repository lock and, with `--sync`, rebuilds the virtual branches after its release, as `bd sync` does: another
+the same repository lock and, with `--sync`, rebuilds the virtual branches after its release, as `brd sync` does: another
 rewrite may come in between, and the sync then shows the newer HEAD. The plan is the file of `--plan`, or stdin for
 `--plan -`; without `--plan` it is `invalid_arguments`, and stdin is never read.
 
@@ -586,11 +598,11 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
     groups would separate from its target (`fixup! <id>` has no issue key) are `invalid_plan` too;
   - a path whose leaf is its parent, two paths that give a branch two parents, a branch both in a path and in
     `unstack`, and an `unstack` of a branch that is not stacked (or with stacked branches off) are `invalid_plan`.
-- `descriptions` maps a branch (the group name, as for `bd describe`: the leaf of a stacked branch) to its pull
-  request text `{title, body}`. bd
+- `descriptions` maps a branch (the group name, as for `brd describe`: the leaf of a stacked branch) to its pull
+  request text `{title, body}`. brd
   validates it with the plan: a title of one line that is not empty, and a branch that has commits after the plan (a
   prefix branch, an issue branch or an issue group); else `invalid_plan`, and nothing is written. After the ref
-  transaction bd writes the texts that differ from the current ones, as `bd describe` does: one `git config` process
+  transaction brd writes the texts that differ from the current ones, as `brd describe` does: one `git config` process
   per branch, because git has no batch writer for config. A plan of descriptions only rewrites nothing, and
   `--expect-head` stays optional, as for any plan.
 - Fixups not in the plan follow their targets.
@@ -599,7 +611,7 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
   fine while that commit is still ahead of the baseline (a peer appended, nothing the plan was made for changed): the
   commits on top are regrouped with the rest and listed in `appended` (`{commit, subject}`, new ids). `rename`, `restack`
   and `unstack` work by name, so they rename the prefix of an appended commit too.
-- The repository lock serializes rewrites with the app and other `bd` calls; after 10 s of waiting it is `locked`
+- The repository lock serializes rewrites with the app and other `brd` calls; after 10 s of waiting it is `locked`
   (exit 3). A rebase, merge, cherry-pick or revert in progress is `operation_in_progress`, a detached HEAD
   `detached_head` (exit 4).
 
@@ -611,32 +623,32 @@ rewrite may come in between, and the sync then shows the newer HEAD. The plan is
 
 - `groups` and `unassigned` list every commit ahead of the baseline afterwards, with the new ids, oldest first.
 - `issue_groups` (only when they change) lists every issue group afterwards with its keys. A write changes only the
-  keys the plan names; the keys of other branches and the lines bd can't read stay.
+  keys the plan names; the keys of other branches and the lines brd can't read stay.
 - `stack_parents` (only when they change) lists every stack parent afterwards, child -> parent, those of other
   worktrees included.
 - `undo_token` holds full ids, the parts of the refs that moved joined by `+` in this order: `<previous head>..<new
   head>` for a rewrite, `groups:<previous>..<new>` (commits of the issue groups) and `stacks:<previous>..<new>`
   (commits of the stack parents). A previous store commit is zeros when there was no store before. Pass the token to
-  `bd undo` as printed.
+  `brd undo` as printed.
 - `--dry-run` writes nothing and adds `changes` (`{commit, old_subject, new_subject}`) and, with stacked branches on,
   `forest` (`{name, parent, parent_source, has_commits, problems}` per branch). `--map` adds `map`, `{commit, new_id}`
   of every commit.
 - `described` lists the branches whose description the plan wrote (with `--dry-run`: would write), and
-  `replaced_descriptions` the texts they replaced, by branch. `bd undo` doesn't restore a description; `bd describe`
+  `replaced_descriptions` the texts they replaced, by branch. `brd undo` doesn't restore a description; `brd describe`
   can, with the replaced text.
-- `--sync` runs `bd sync` after the writes, once the rewrite released the repository lock (the sync takes none, so its
-  merges never make the app or another `bd` wait; a rewrite between them only makes the sync stale, never wrong:
-  every ref moves by compare-and-swap), and adds its output as `sync`. The exit code is 1 when a branch was not built, as for `bd sync`. `--sync` doesn't go with
-  `--dry-run` (`invalid_arguments`): a dry run writes nothing, and `bd check` is the trial sync of a plan.
+- `--sync` runs `brd sync` after the writes, once the rewrite released the repository lock (the sync takes none, so its
+  merges never make the app or another `brd` wait; a rewrite between them only makes the sync stale, never wrong:
+  every ref moves by compare-and-swap), and adds its output as `sync`. The exit code is 1 when a branch was not built, as for `brd sync`. `--sync` doesn't go with
+  `--dry-run` (`invalid_arguments`): a dry run writes nothing, and `brd check` is the trial sync of a plan.
 - `error` (`{code, message, commits, retryable}`, as in an error output) is set when a step after the rewrite fails:
   a description write, which also skips the sync and leaves the later descriptions unwritten, or the sync. The
   rewrite stands, `undo_token` reverts it, and the exit code is that error's.
-- `bd undo` moves back only HEAD, the issue groups and the stack parents: the descriptions stay, and the virtual
-  branches stay as the sync built them until the next `bd sync`.
+- `brd undo` moves back only HEAD, the issue groups and the stack parents: the descriptions stay, and the virtual
+  branches stay as the sync built them until the next `brd sync`.
 
-### `bd rename <old> <new>`, `bd restack <branch> <parent>`, `bd unstack <branch>`
+### `brd rename <old> <new>`, `brd restack <branch> <parent>`, `brd unstack <branch>`
 
-Plans that `bd` computes, validated and written like `bd group`, with the same options (`--sync` too) and output:
+Plans that `brd` computes, validated and written like `brd group`, with the same options (`--sync` too) and output:
 
 - `rename` replaces the level `old` in every prefix path, so a parent's children follow, renames the issue groups
   named `old` and names an issue branch by the issue groups, without a rewrite, and renames `old` in the stack parents
@@ -646,7 +658,7 @@ Plans that `bd` computes, validated and written like `bd group`, with the same o
   declares another parent. An issue branch and an issue group are stacked like any branch, without a rewrite. Both
   need stacked branches on; `unstack` of a root is `invalid_plan`.
 
-### `bd park <branch> [--note <why>]`, `bd unpark <branch>`
+### `brd park <branch> [--note <why>]`, `brd unpark <branch>`
 
 Keep a branch local, or let it be pushed again ([Parked Branches](../../spec/branch/parked-branches.spec.md)): only when
 the user asks. No rewrite: one line `branch<TAB>note` in `refs/branch-deck/parked`, shared by every worktree, under
@@ -660,7 +672,7 @@ that groups commits here (`unknown_branch`); a second park changes the note (one
   "changed":true}
 ```
 
-### `bd mark-reviewed <branch> [--base <parent>]`
+### `brd mark-reviewed <branch> [--base <parent>]`
 
 Keeps the base and the tip a branch has now as reviewed, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)):
 only when the user says they reviewed the branch. The branch is a virtual branch by its name, else a local branch by
@@ -682,10 +694,10 @@ lock ("Review plan" in [Git Operations](../design/git-operations.md#review-plan)
 - `no_baseline` (exit 4): no baseline, or one that shares no history with the branch.
 - Each refusal writes no ref.
 
-### `bd review-plan <branch | base..head> [--base <parent>] [--since-reviewed]`
+### `brd review-plan <branch | base..head> [--base <parent>] [--since-reviewed]`
 
 The plan of a review, experimental ([Review Plan](../../spec/branch/review-plan.spec.md)); moves no ref. The branch is
-named as for `bd mark-reviewed`, on the same base (`--base <parent>` for a stacked branch); `base..head` is a range.
+named as for `brd mark-reviewed`, on the same base (`--base <parent>` for a stacked branch); `base..head` is a range.
 For a branch marked reviewed, `interdiff` pairs each commit of `base..head` with a reviewed one: `unchanged` (the same
 commit, or a copy with the same identity, the same changed lines and the same message), `reworded` (the same changed
 lines, another message), `rewritten` (the same identity, other lines: `new_only` and `reviewed_only` per path),
@@ -775,7 +787,7 @@ change the most of their lines) and its `evidence` (`uses`, `group`, `token`, `r
   the range names no commit; `--since-reviewed` or `--base` of a range.
 - `no_baseline` (exit 4): no baseline, or one that shares no history with the branch.
 
-### `bd unapply <branch> [--dry-run] [--expect-head <id>]`
+### `brd unapply <branch> [--dry-run] [--expect-head <id>]`
 
 Takes the commits of a branch and their files out of the checked out branch and keeps the branch as
 `{prefix}/unapplied/<name>`, which no sync archives or deletes (`sync_core::unapply_branch`, "Drop and unapply" in
@@ -793,24 +805,24 @@ refusals included, and writes nothing but git objects: show the user what leaves
 
 - `unknown_branch` (exit 2): no commit groups into the branch.
 - `branch_not_built` (exit 4): the virtual branch is not the copies of its commits now (a conflict, a commit no sync
-  copied yet): a commit would leave HEAD without a copy. `bd sync` says why.
+  copied yet): a commit would leave HEAD without a copy. `brd sync` says why.
 - `branch_checked_out` (exit 4): a worktree has the virtual branch checked out.
 - `drop_conflict` (exit 4): a later commit depends on the changes of a commit of the branch, or the range holds a merge.
-- `bd undo <undo_token>` brings the commits, their files and the virtual branch back (`undo_stale` once the branch
+- `brd undo <undo_token>` brings the commits, their files and the virtual branch back (`undo_stale` once the branch
   moved on); a repeated undo exits 0 with `already_undone: true`.
-- `unapplied` of `bd status` lists the unapplied branches (`name`, `branch`, `tip`, `subject`, `remote.head` and
-  `remote.up_to_date` once pushed). They land nothing: `bd push <name>` and `bd safe-push <name>` refuse one as
-  `unapplied` (exit 4); `bd push --unapplied <name>` syncs and pushes it to `origin` under its own name, leased on the
+- `unapplied` of `brd status` lists the unapplied branches (`name`, `branch`, `tip`, `subject`, `remote.head` and
+  `remote.up_to_date` once pushed). They land nothing: `brd push <name>` and `brd safe-push <name>` refuse one as
+  `unapplied` (exit 4); `brd push --unapplied <name>` syncs and pushes it to `origin` under its own name, leased on the
   remote head the sync saw or `--expect-remote`, with no pull request draft (`pushed_over` over a remote that moved
   without commits it lacks, `lease_rejected` when the remote moved otherwise); a remote branch with commits it lacks
   is `push_refused` until `--force`, as the app's push of it asks first.
 
-### `bd drop <commit>… [--expect-head <id>] [--dry-run]`
+### `brd drop <commit>… [--expect-head <id>] [--dry-run]`
 
 Takes commits ahead of the baseline and their files out of the checked out branch for good, as the app's Drop Commit
 does (`history_rewrite::drop_commits`, the contract [Drop Commits](../../spec/commit/drop.spec.md)): an agent's own
 commit that must not land, never a `git revert`, which lands both into master; a commit and its revert together. The
-same check and guarded move as `bd unapply`: computed before the repository lock, which holds only its witness and the
+same check and guarded move as `brd unapply`: computed before the repository lock, which holds only its witness and the
 move.
 
 ```json
@@ -826,11 +838,11 @@ move.
   the root would go. `uncommitted_overlap` (exit 4, `paths`), `not_ahead_of_baseline` (exit 2, `commits`),
   `head_moved`, `locked`, `operation_in_progress`; all change nothing.
 - In a lease, a commit its home branch has (the pick landed it) is `drop_in_home` (exit 4) with two `next_steps`:
-  `bd -C <checkout> drop <commit>`, then `bd -C <lease> lease pick`, which lands nothing and moves the lease past it.
-- `bd undo <undo_token>` brings the commits and their files back (`undo_stale` once the branch moved on); a repeated
+  `brd -C <checkout> drop <commit>`, then `brd -C <lease> lease pick`, which lands nothing and moves the lease past it.
+- `brd undo <undo_token>` brings the commits and their files back (`undo_stale` once the branch moved on); a repeated
   undo exits 0 with `already_undone: true`.
 
-### `bd reapply <name> [--dry-run] [--expect-head <id>]`
+### `brd reapply <name> [--dry-run] [--expect-head <id>]`
 
 Puts the commits of the unapplied branch `{prefix}/unapplied/<name>` back on top of the checked out branch, their files
 following, and deletes it (`sync_core::reapply_branch`, "Reapply" in [Git Operations](../design/git-operations.md)): only
@@ -846,13 +858,13 @@ HEAD has is left out (`present`).
 - `reapply_conflict` (exit 4): a commit conflicts with HEAD (`commits`, `paths`); nothing was changed.
 - `nothing_to_reapply` (exit 4): HEAD has every commit of it, or it has no common history with the baseline.
 - `uncommitted_overlap` (exit 4, `paths`), `branch_checked_out` (exit 4), `unknown_branch` (exit 2).
-- `bd undo <undo_token>` takes the commits out again with their files and creates the unapplied branch again
+- `brd undo <undo_token>` takes the commits out again with their files and creates the unapplied branch again
   (`restored_branch`).
 
-### `bd reword <commit> (--subject <s> | --message <m> | --message-file <file>)`, `bd reword --plan <file>`
+### `brd reword <commit> (--subject <s> | --message <m> | --message-file <file>)`, `brd reword --plan <file>`
 
 A new message for commits ahead of the baseline, as a regroup (`history_rewrite::reword`), validated and written like
-`bd group`, with the same options (`--expect-head`, `--allow-append`, `--dry-run`, `--sync`, `--map`) and output, its
+`brd group`, with the same options (`--expect-head`, `--allow-append`, `--dry-run`, `--sync`, `--map`) and output, its
 `operation` `reword`:
 
 ```json
@@ -868,7 +880,7 @@ A new message for commits ahead of the baseline, as a regroup (`history_rewrite:
   `invalid_plan`.
 - `--plan` rewords several commits in one rewrite: `{"rewrites": [{"commit": "<id>", "subject": "…"}, {"commit":
   "<id>", "message": "…"}]}`, each entry with exactly one of the two.
-- The commit is an id that `bd status` printed (abbreviated or full); a revision such as `HEAD~1` is
+- The commit is an id that `brd status` printed (abbreviated or full); a revision such as `HEAD~1` is
   `invalid_arguments`, a commit on the baseline or unknown `not_ahead_of_baseline`.
 - Every tree stays, so the index and the working tree do; the older commits keep their ids, the later ones are
   recreated with their author and committer, and their mapping notes follow them. The note of a commit whose text
@@ -879,10 +891,10 @@ A new message for commits ahead of the baseline, as a regroup (`history_rewrite:
   commit whose `amend!` waits are `invalid_plan`: fold first, or reword the fixups in the same plan.
 - `changes` is printed also without `--dry-run`, each with `new_id`, `body_changed` when the body changed, and
   `moved`. A message that equals the old one after the cleanup rewrites nothing and prints no `undo_token`.
-- From a lease: `bd -C <shared checkout> reword <commit> --expect-head <head> --subject '…'` fixes a session's own
-  landed commit; the lease needs no move (`bd help worktrees`).
+- From a lease: `brd -C <shared checkout> reword <commit> --expect-head <head> --subject '…'` fixes a session's own
+  landed commit; the lease needs no move (`brd help worktrees`).
 
-### `bd undo <undo_token>`
+### `brd undo <undo_token>`
 
 Moves the branch back from the token's new HEAD to its previous HEAD, and the issue groups and the stack parents back
 from the token's new commit to its previous one (or away), in one transaction with CAS on each, under the lock:
@@ -891,14 +903,14 @@ write on its previous one, is `invalid_arguments`. Prints
 `{"schema":2,…,"previous_head":"<undone>","new_head":"<restored>","undone_issue_groups":"<undone>","undone_stack_parents":"<undone>"}`;
 `previous_head` and each `undone…` are left out for a token without that part.
 
-An `update:<previous>..<new>` token of `bd update` moves the branch back and the files with it (see `bd update`); a
-`pick:<previous>..<new>[+follow:<worktree>:<previous>..<new>]` token of `bd pick` moves the branch and the worktree
-that followed back (see `bd pick`); an `unapply:<previous>..<new>:<tip>:<branch>:<unapplied branch>` token of
-`bd unapply` moves the branch back with the files and the unapplied branch back to the virtual one (`restored_branch`);
-a `reapply:<previous>..<new>:<tip>:<unapplied branch>` token of `bd reapply` takes its commits out again and creates the
+An `update:<previous>..<new>` token of `brd update` moves the branch back and the files with it (see `brd update`); a
+`pick:<previous>..<new>[+follow:<worktree>:<previous>..<new>]` token of `brd pick` moves the branch and the worktree
+that followed back (see `brd pick`); an `unapply:<previous>..<new>:<tip>:<branch>:<unapplied branch>` token of
+`brd unapply` moves the branch back with the files and the unapplied branch back to the virtual one (`restored_branch`);
+a `reapply:<previous>..<new>:<tip>:<unapplied branch>` token of `brd reapply` takes its commits out again and creates the
 unapplied branch again.
 
-### `bd update [--no-fetch] [--dry-run] [--dir <path>]`
+### `brd update [--no-fetch] [--dry-run] [--dir <path>]`
 
 The app's Update Project (`update_core::update_project::update_project_with`, "Update project" in
 [Git Operations](../design/git-operations.md)): it fetches the baseline's remote branch, then takes the repository
@@ -918,21 +930,21 @@ beside another fetch of the baseline (the app's, another agent's) it waits for t
   resolve session also `landed` and `user`), and `dropped_count` counts them. `landed` lists the local commits the
   baseline has, by branch. `verify.paths` names the files to build and test after a resolution.
 - An output or an error with `ask_user: true` waits for the user's decision: `reasons` of the output, `message` of the
-  error. bd asks only for a decision of the user, and an agent asks only then.
+  error. brd asks only for a decision of the user, and an agent asks only then.
 - `resolved` lists the local commits whose conflict of git the update resolved by words (`branchdeck.resolveByWords`,
-  as in `bd sync`): `commit`, `new_id` (not for a dry run), `conflicts`, `file_count` and `files`. An update whose
+  as in `brd sync`): `commit`, `new_id` (not for a dry run), `conflicts`, `file_count` and `files`. An update whose
   every conflict resolves so is a `rebase` without a session.
 - A conflict starts a resolve session (below): `state` `conflict`, exit 1. With `--dry-run`, nothing starts: `conflict`
   names the first conflict: its `files` (the first 50; `files_omitted` counts the rest), the commit in `commits` and
   the `upstream_commits` that change the files (`commit`, `subject`, `author`, `files`).
 - `uncommitted_overlap` (exit 4): uncommitted, staged or untracked files sit on paths the update writes; `paths`
-  lists them, the first 100, and the message says how many there are beyond. bd never stashes, resets or commits
-  them: the agent asks the user, then runs `bd update` again.
+  lists them, the first 100, and the message says how many there are beyond. brd never stashes, resets or commits
+  them: the agent asks the user, then runs `brd update` again.
 - `--no-fetch` updates onto the last fetched baseline. `--dry-run` implies it, takes no lock and prints what the
   update would do; it writes at most git objects (the replay).
 - A failed fetch is `network_error` (exit 5), a held lock `locked` (exit 3), and `operation_in_progress`,
   `detached_head` and `no_baseline` (a local baseline) refuse (exit 4).
-- `bd undo <undo_token>` takes the update back: the branch moves back, and the files follow through the same
+- `brd undo <undo_token>` takes the update back: the branch moves back, and the files follow through the same
   guarded update with the trees swapped, under the lock. Only the last update of the branch can be undone (its
   reflog entry proves it; the update writes it with `--create-reflog`), with full ids. Local changes on a path it
   writes are `uncommitted_overlap`; a branch moved, or a HEAD switched, since is `undo_stale` (exit 4: a retry can't
@@ -942,18 +954,18 @@ beside another fetch of the baseline (the app's, another agent's) it waits for t
   branch; a `git switch` meanwhile is `head_moved` with nothing changed (see "Ref moves" in
   [Git Operations](../design/git-operations.md)). A lock file of git that is in the way (`HEAD.lock`, or one that a killed
   git left) is `locked` with its path.
-- A `bd update` or `bd undo` killed after the move and before the files followed leaves the mark
-  `refs/branch-deck/update-pending/<worktree id>`. The next `bd update`, `bd undo` or Update Project lets the files
-  follow first; `bd update --status` shows it as `pending_update`. When the branch moved since, `finish_pending`
+- A `brd update` or `brd undo` killed after the move and before the files followed leaves the mark
+  `refs/branch-deck/update-pending/<worktree id>`. The next `brd update`, `brd undo` or Update Project lets the files
+  follow first; `brd update --status` shows it as `pending_update`. When the branch moved since, `finish_pending`
   (exit 4) names the command that removes the mark.
 
-### The resolve session of `bd update`
+### The resolve session of `brd update`
 
-`bd help update` prints this workflow for an agent; the contract is [bd update](../../spec/cli/update.spec.md), the
+`brd help update` prints this workflow for an agent; the contract is [brd update](../../spec/cli/update.spec.md), the
 design "Resolve session" in [Git Operations](../design/git-operations.md). The session replays the local commits
 outside the working tree (`update_core::resolve_session`, `git_ops::update_resolve`) and opens one round per
 conflicting commit. It belongs to the worktree and the branch, keeps the baseline it started with, and lives in the
-ref `refs/branch-deck/resolve/<worktree id>`. Peers' commits on top of HEAD join it as more rounds. `bd update` with a
+ref `refs/branch-deck/resolve/<worktree id>`. Peers' commits on top of HEAD join it as more rounds. `brd update` with a
 session open prints the open round again, fetches nothing and writes the missing copies.
 
 ```json
@@ -964,22 +976,22 @@ session open prints the open round again, fetches nothing and writes the missing
    "before":"…/r1/before/1-shared.txt","onto":"…/r1/onto/1-shared.txt","commit":"…/r1/commit/1-shared.txt",
    "markers":1,"hint":"…","upstream_commits":[{"commit":"c9631487","subject":"Change line 2 upstream","author":"Dana Lee"}]}],
  "blocked_paths":[],"marker_labels":{"onto":"c9631487…","before":"d88f5726…^","commit":"d88f5726…"},
- "next":"/Users/me/.local/bin/bd -C /repo update --continue --round 1"}}
+ "next":"/Users/me/.local/bin/brd -C /repo update --continue --round 1"}}
 ```
 
-What an agent does with a round, each refusal and the finish is `bd help update` (`UPDATE_HELP`, the runtime text);
+What an agent does with a round, each refusal and the finish is `brd help update` (`UPDATE_HELP`, the runtime text);
 the contract is the spec. The mechanics behind it:
 
-- bd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids, followed by `:<path>` for a
+- brd finds a block by the labels it wrote after the markers (`marker_labels`, the full ids, followed by `:<path>` for a
   renamed file), at any marker length (`conflict-marker-size`); a `=======` outside the blocks, e.g. under a Markdown
   heading, is text.
 - A round prints its own files only: the rounds resolved so far are in the `resolutions` of the finish and of
-  `bd update --status`, not repeated in every round, so a long session stays as small as its open round.
+  `brd update --status`, not repeated in every round, so a long session stays as small as its open round.
 - A round that resolves by words resolves itself (see "Resolve by words" in [Git Operations](../design/git-operations.md)):
   it counts in `round`, and `session.resolved` of every round lists it, so the number of the open round is never a
   surprise. Its resolution has `words`, and its files `how: "words"`.
 - A refusal names the round and its commit and changes nothing: the round stays open, and the copies keep the edits;
-  `edited` per file says whether a copy differs from bd's merge result.
+  `edited` per file says whether a copy differs from brd's merge result.
 - A round whose commit has a twin in the baseline (a candidate: the same author, author time and subject, but no
   proof) has `session.commit.landed_as` with the interdiff of the two (`local_only`, `upstream_only`), and its `next`
   ends with `--landed <commit>`. A drop that loses nothing (`local_only` empty) asks nobody; one that loses lines waits
@@ -987,19 +999,19 @@ the contract is the spec. The mechanics behind it:
 - The first output of a session lists `dropped`; a round of `--continue` prints `dropped_count` only, so the list of
   a long session is printed once.
 - The copies live in `branch-deck/resolve/r<n>/{edit,before,onto,commit}/<key>-<basename>` of the worktree's git dir,
-  or under `--dir <path>` (absolute, outside every worktree, empty or bd's for this worktree, used by no other
+  or under `--dir <path>` (absolute, outside every worktree, empty or brd's for this worktree, used by no other
   session), for a sandbox that keeps `.git` read only. On Windows the paths have backslashes, and the `\\?\` form
   from 260 characters on.
 
-### `bd pick (--from <dir> [--follow] | <rev> | <a>..<b>) [--expect-head <id>] [--dry-run]`
+### `brd pick (--from <dir> [--follow] | <rev> | <a>..<b>) [--expect-head <id>] [--dry-run]`
 
 Lands the commits of another worktree on the branch checked out at `-C`, without `git cherry-pick`
 (`update_core::pick::pick_core`, "Pick" in [Git Operations](../design/git-operations.md), the contract
-[bd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
-`bd lease` worktree, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
+[brd pick](../../spec/cli/pick.spec.md)). Agent sessions that share a checkout commit in worktrees of their own (a
+`brd lease` worktree, detached HEAD) and land each commit on the shared branch this way: the commits are replayed in memory
 with `git replay`, and under the repository lock, which every worktree shares, the branch moves and the files follow
 through the guarded update. `--follow` moves the source worktree onto the new tip the same way. Inside a lease of the
-pool, `bd lease pick` is this pick, run in the checkout the lease was cut from (below).
+pool, `brd lease pick` is this pick, run in the checkout the lease was cut from (below).
 
 ```json
 {"schema":2,…,"branch":"master","state":"picked","dry_run":false,"source_worktree":"/Users/me/.branch-deck/pool/repo-1a2b3c4d/3/repo","base":"5f6a7b8c",
@@ -1013,7 +1025,7 @@ pool, `bd lease pick` is this pick, run in the checkout the lease was cut from (
 - The range of `--from` is what the worktree's HEAD has that the branch lacks: `<source HEAD> ^<branch> ^<upstream>
   ^<base>`, the base being the fork point of the source in the branch's reflog. It sees through a fold, a regroup or
   new dates of the branch after the worktree was cut from it. Without a fork point, a local shared history is
-  `range_unknown` (exit 4): name the commits, `bd pick <first>^..<last>`. A worktree on a newer baseline than the
+  `range_unknown` (exit 4): name the commits, `brd pick <first>^..<last>`. A worktree on a newer baseline than the
   branch is `source_on_newer_baseline` (exit 4): the owner of the branch updates it first.
 - `state` is `picked`, `up_to_date` (the branch has every commit) or `conflict` (exit 1, nothing changed: `conflict`
   names the first commit that does not apply, the `clean` ones before it, its `files` and `next`, what to do: move the
@@ -1030,10 +1042,10 @@ pool, `bd lease pick` is this pick, run in the checkout the lease was cut from (
   `none`: a subject without a prefix or an issue key lands unassigned. Write the `(branch)` prefix when you commit.
 - `dependencies` (also with `--dry-run`, so the prefix can be fixed in the worktree before the pick): a picked commit
   whose prefix names a branch the branch has already (`prefix_branch`), which is not built on every branch whose
-  commits its hunks depend on (`depends_on`; the edges by lines of `bd commits`, without symbols), so that branch
-  can't sync. `plan` is the `bd group` plan that moves the commit into the branch of the stack that holds all of them
-  (merge the `branches` of several plans into one `bd group`: the rewrite gives the commits new ids); `restack`, for a
-  commit that needs its own branch too, is the `bd restack <prefix_branch> <parent>` onto a branch that holds them and
+  commits its hunks depend on (`depends_on`; the edges by lines of `brd commits`, without symbols), so that branch
+  can't sync. `plan` is the `brd group` plan that moves the commit into the branch of the stack that holds all of them
+  (merge the `branches` of several plans into one `brd group`: the rewrite gives the commits new ids); `restack`, for a
+  commit that needs its own branch too, is the `brd restack <prefix_branch> <parent>` onto a branch that holds them and
   its parent; neither when no branch holds them all. The pick never applies it.
 
   ```json
@@ -1043,44 +1055,44 @@ pool, `bd lease pick` is this pick, run in the checkout the lease was cut from (
 - `reparented` (`{"leaf": "parent"}`): a `(parent/leaf)` prefix of a picked commit stacked a branch the branch had
   already, a root or on another parent before: the whole branch is built on `parent` now (a bare `(leaf)` declares
   no parent). Two parents for one branch are conflicting parents, which name the commits of each and the
-  `bd restack <leaf> <parent>` that keeps one, or the `bd unstack <leaf>` that keeps none.
+  `brd restack <leaf> <parent>` that keeps one, or the `brd unstack <leaf>` that keeps none.
 - `followed.state`: `moved`, `at_tip` (nothing to move), `would_move` (`--dry-run`), or, after the branch moved,
-  `head_moved` or `blocked` with a `message`: the same `bd pick` again finds every commit present and moves only the
+  `head_moved` or `blocked` with a `message`: the same `brd pick` again finds every commit present and moves only the
   worktree. A detached HEAD stays detached (`option no-deref`); a rebase, merge or cherry-pick in progress in the
   worktree refuses `--follow` (`operation_in_progress`).
 - Local changes on a path the pick or the follow writes are `uncommitted_overlap` (exit 4, the message names the
   worktree); both are checked before either moves. A branch that moved since the check is `head_moved` (exit 3).
-- `bd undo <undo_token>` moves the branch and the worktree that followed back, each with its files, after checking
+- `brd undo <undo_token>` moves the branch and the worktree that followed back, each with its files, after checking
   both (`undo_stale` once one moved on); `follow_undone` says whether the worktree moved back. A repeated undo exits 0
   with `already_undone: true`.
 - A pick or a follow killed between the move and its files leaves the mark `refs/branch-deck/update-pending/<worktree
   id>`, as an update does; the next pick, update or undo lets the files follow first.
 
-### `bd lease get [--holder <label>] [-b <branch>] [--min-free <size>]`, `pick`, `return`, `status`, `adopt`
+### `brd lease get [--holder <label>] [-b <branch>] [--min-free <size>]`, `pick`, `return`, `status`, `adopt`
 
 The pool of worktrees that agent sessions work in, one session per slot (`lease_pool::lease`, "Lease" in
-[Git Operations](../design/git-operations.md), the contract [bd lease](../../spec/cli/lease.spec.md)). A lease needs no
+[Git Operations](../design/git-operations.md), the contract [brd lease](../../spec/cli/lease.spec.md)). A lease needs no
 branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the pool lock `leases.lock`.
 
 ```json
 {"schema":2,"repository":"/Users/me/idea-1","pool":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01",
  "path":"/Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1","lease_id":"<uuid>","holder":"lane-1","slot":"idea-12",
  "source_head":"<full id>","home":{"checkout":"/Users/me/idea-1","branch":"master"},
- "next":["bd -C /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 lease pick","bd lease return --lease-id <uuid>"],
+ "next":["brd -C /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 lease pick","brd lease return --lease-id <uuid>"],
  "leased_at":1792411982,"reused":true,"seeded":[".claude/settings.local.json"],
  "skipped":[{"slot":"idea-1","path":"…/1/idea-1","reason":"dirty","paths":["left.txt"]}],"processes_checked":true}
 ```
 
-- `bd lease get` first checks the free space of the volume of the pool against `--min-free <size>`, else
+- `brd lease get` first checks the free space of the volume of the pool against `--min-free <size>`, else
   `git config branchdeck.leaseMinFree <size>` (`200G`, binary units as `df -h`; `0` or no setting checks nothing):
-  less first trims the pools of the machine (`trimmed`, as `bd lease trim` prints it: the free slots past
+  less first trims the pools of the machine (`trimmed`, as `brd lease trim` prints it: the free slots past
   `branchdeck.leaseMaxSlots`, default 10, with their Bazel output bases), then deletes the build output of the free
   slots of every pool by their clean rules with keep 0, the ones returned longest ago first, until the volume has the
   minimum and a tenth of it (`shrunk`), then free slots below the limit in the same order until it has the minimum
   (`evicted`; neither for a
   minimum past the size of the volume), and still less
   is `low_disk_space` (exit 4), the message naming both sizes, what the trim and the eviction deleted and the shrink
-  freed, the free slots and the leases whose holder process is gone. `bd lease trim [--max <n>] [--plan]` trims on demand; `bd lease disk [--fresh]` reports what the pools hold
+  freed, the free slots and the leases whose holder process is gone. `brd lease trim [--max <n>] [--plan]` trims on demand; `brd lease disk [--fresh]` reports what the pools hold
   (per slot the bytes of its build directories and its Bazel output bases, kept in `disk.json` while they hold). It leases a free slot at the exact HEAD of `-C`, detached (`-b <branch>` creates the branch
   there): one `status` of the slot, then `checkout --force`, only the diff written (`reused: true`). A free slot with
   local changes is skipped and marked dirty, one with a process of another session in it is skipped as busy
@@ -1102,40 +1114,40 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   holder:
 
   ```
-  bd lease get: reserving a free slot
-  bd lease get: no free slot; waiting for `bd lease get --holder lane-3` (pid 4242, for 35 s), which adds /Users/me/.branch-deck/pool/idea-1-3f2a9c01/8/idea-1 for lane-3: the pool adds one slot at a time, and a slot freed meanwhile is leased instead
-  bd lease get: reserving a slot freed meanwhile, else a new one
-  bd lease get: cloning /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 into /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
-  bd lease get: refreshing the index of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
-  bd lease get: checking out 3f2a9c01 in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
-  bd lease get: looking for local changes in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: reserving a free slot
+  brd lease get: no free slot; waiting for `brd lease get --holder lane-3` (pid 4242, for 35 s), which adds /Users/me/.branch-deck/pool/idea-1-3f2a9c01/8/idea-1 for lane-3: the pool adds one slot at a time, and a slot freed meanwhile is leased instead
+  brd lease get: reserving a slot freed meanwhile, else a new one
+  brd lease get: cloning /Users/me/.branch-deck/pool/idea-1-3f2a9c01/2/idea-1 into /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: refreshing the index of /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: checking out 3f2a9c01 in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
+  brd lease get: looking for local changes in /Users/me/.branch-deck/pool/idea-1-3f2a9c01/9/idea-1
   ```
 - `home` names where the commits of the lease land: `checkout`, the source of the get, and `branch`, the branch it
   had checked out (`null` for a detached HEAD: nothing to pick onto, and `next` is only the return). `next` is what the
-  session runs, in order: `bd -C <path> lease pick` after each commit that builds and passes its tests, and the
+  session runs, in order: `brd -C <path> lease pick` after each commit that builds and passes its tests, and the
   return once the task is done.
-- `bd lease pick [--dry-run]` inside the lease is `bd pick --from <lease> --follow` in `home.checkout`, onto
-  `home.branch`, and prints what `bd pick` prints: the commits replayed onto the tip as it is then, whatever other
+- `brd lease pick [--dry-run]` inside the lease is `brd pick --from <lease> --follow` in `home.checkout`, onto
+  `home.branch`, and prints what `brd pick` prints: the commits replayed onto the tip as it is then, whatever other
   sessions landed meanwhile, and the lease moved onto the new tip; with nothing to land the lease only follows
   (`up_to_date`, `followed.state: moved`). A conflict lands nothing (exit 1) and comes back to the lease: `update` is
-  the update of the lease onto the tip of `home.branch` without a fetch, as `bd update` prints it, and its conflict
-  opens a resolve session in the lease (`bd help update`); the lease moves when `bd update --continue` finishes it,
-  whose `next` is `bd lease pick` again, and `bd update --abort` closes it; while it is open `bd lease pick` is
+  the update of the lease onto the tip of `home.branch` without a fetch, as `brd update` prints it, and its conflict
+  opens a resolve session in the lease (`brd help update`); the lease moves when `brd update --continue` finishes it,
+  whose `next` is `brd lease pick` again, and `brd update --abort` closes it; while it is open `brd lease pick` is
   `resolve_in_progress` (exit 4). The output is `lease_pick`.
-- In a lease `bd update` onto the baseline is `lease_follows_home` (exit 4): the lease follows its home branch, and the
+- In a lease `brd update` onto the baseline is `lease_follows_home` (exit 4): the lease follows its home branch, and the
   owner of the shared checkout updates that; `--dry-run` and the steps of a session go on. Refused with nothing changed: `home_branch_switched` (exit 4; another branch is checked out there now:
   ask the user), `no_home_branch` (exit 4; cut from a detached HEAD), `no_lease` (exit 2; not inside a lease), and the
-  refusals of `bd pick`.
-- `bd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
+  refusals of `brd pick`.
+- `brd lease return [--workspace <dir>] [--lease-id <id>] [--confirm-preserved]` frees the slot of `--workspace`, `-C`
   or the current directory, or, with `--lease-id` and no `--workspace`, the slot of that lease from any checkout of the
   repository: the seeded paths go, a branch is detached (`detached_branch`; it stays), the slot stays at
   its commit. Refused with nothing changed: `no_lease`, `lease_mismatch`, `resolve_in_progress` (a resolve session of the slot is
-  open: finish it with `bd update --continue` or close it with `--abort`), `slot_busy` (a process of another session
+  open: finish it with `brd update --continue` or close it with `--abort`), `slot_busy` (a process of another session
   in it: `processes` [{`pid`, `command`, `argv`, `kind`: `bazel_server` or `other`, `workspace`, `stop_error`}]), `unlanded_commits`
   (`commits` that no branch, tag or remote branch holds and that no proof finds on the branch of the source: a dry run
-  of the pick onto it, a patch id, the identity and the twin of `bd update`, the mapping note of a sync; land them with
-  `bd -C <dir> lease pick`),
-  `dirty_worktree` (`paths`). Not counted: the session of bd (bd, its ancestors and the processes of their process
+  of the pick onto it, a patch id, the identity and the twin of `brd update`, the mapping note of a sync; land them with
+  `brd -C <dir> lease pick`),
+  `dirty_worktree` (`paths`). Not counted: the session of brd (bd, its ancestors and the processes of their process
   groups, such as the `jq` of a pipeline), git's background maintenance (`git maintenance`, `git gc --auto` and the
   gits they start: `maintenance` names them; a detach of HEAD waits up to 10 s for a `HEAD.lock` they hold;
   with `git config branchdeck.leaseMaintenance true` the return starts `git maintenance run --auto --detach` once the
@@ -1153,21 +1165,21 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   (`given_up`) and discards the changes (`discarded`) with `reset --hard` and `clean -fd`. A repeat joins: a return
   retried while the first still runs waits for it, and a return that another return of the lease overtook changes
   nothing; both answer `joined: true`, with empty lists and no `landed_check` when they checked nothing.
-- `bd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
-  `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`bd lease clean` cleans
+- `brd lease status [--processes]` lists the slots from the state alone: `state` `free`, `preparing`, `ready`,
+  `templating` (a get clones it into a new slot), `returning` (its return runs), `cleaning` (`brd lease clean` cleans
   it) or `abandoned` (the get, the return or the clean of it died), `dirty`, `missing`, `lease` (`holder_pid`,
   `holder_alive`: whether the process the get ran for still runs; `idle` of a ready lease whose holder is gone:
   `idle`, or `idle_with_work` with the `commits`, `paths` or `operation` a check found; `taking_over` while a get
   checks one), `reclaimed` (the lease a takeover or a reclaim took from its dead holder), `free_bytes`,
   `trash_bytes`; no `git status`. `--processes` adds the processes in each slot.
-- `bd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` returns every idle lease of the pool whose
+- `brd lease reclaim --idle [--dry-run] [--keep <n>] [--age <duration>]` returns every idle lease of the pool whose
   work landed, as a takeover would (`reclaimed`, with `landed`, `stopped_servers`, `cleaned`), keeps the ones with
   work (`kept`, as `idle_with_work`) and names the rest (`skipped`: `not_quiet`, `busy`, `changed`, `failed`);
   `--dry-run` writes nothing. Output `lease_reclaim`.
 - In a slot whose lease was taken over, a write of another session than the one that holds it now (a resumed
-  session of the old holder) and its `bd workspace` are `lease_reclaimed` (exit 4): the message names both leases, the
-  home branch and the old branch, which stays; `next_steps` is `bd lease get --holder <old holder> -C <home>`.
-- `bd lease adopt [--move] <dir>...` adds clean linked worktrees of this repository as free slots where they are
+  session of the old holder) and its `brd workspace` are `lease_reclaimed` (exit 4): the message names both leases, the
+  home branch and the old branch, which stays; `next_steps` is `brd lease get --holder <old holder> -C <home>`.
+- `brd lease adopt [--move] <dir>...` adds clean linked worktrees of this repository as free slots where they are
   (`adopted`), and lists the refused ones with their code (`refused`: `not_a_slot`, `slot_in_pool`, `slot_busy`,
   `dirty_worktree`; exit 4). `--move` moves each into the pool directory with `git worktree move` (`moved_from`),
   only on the same volume (`other_volume`), and removes its old parent directory when it is left empty. A moved slot
@@ -1185,14 +1197,14 @@ branch prefix. The state is `$GIT_COMMON_DIR/branch-deck/leases.json`, under the
   `target/` (an agent's scratch) and the cargo rule prunes the kept profile dirs; `clean_error` when the file does not
   parse, the return succeeds anyway; `--no-clean` applies none. A get leaves out of a cloned slot what the `delete`
   rules delete.
-  `bd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
+  `brd lease clean [--free] [--dry-run] [<dir>...]` applies the rules now to the free slots, the given worktrees, or
   the checkout of `-C`; it deletes by default, `--dry-run` only reports (`dry_run`, `freed_bytes`); `freed_bytes`
   counts blocks an APFS clone shares too, `volume_freed_bytes` is what the volume gained; a slot with a
   lease or a process is `skipped`; a file that does not parse is `invalid_arguments`. On both commands `--keep <n>`
   and `--age <duration>` set `keep` and `age` of every cargo rule for that call.
 - `processes_checked: false`: the platform has no process scan (Windows), and nothing was refused for a process.
 
-### `bd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
+### `brd fold [--branch <b>] [--expect-head <id>] [--dry-run]`
 
 Folds the `fixup!`, `squash!` and `amend!` commits into their targets, as the app's Squash Fixups does
 (`history_rewrite::autosquash`), under the repository lock. One rewrite that keeps HEAD's tree, so the index and the working
@@ -1207,18 +1219,18 @@ tree stay as they are.
 - `--branch` folds only the fixups whose target is in that branch; a name that is no branch is `unknown_branch`.
   `orphans` are fixups without an older target: they stay. Nothing to fold prints `folded: []` without a token.
 - Without `--expect-head` it folds the fixups of HEAD as the squash finds it, also after another process moved HEAD
-  since bd read the plan (a rewrite of the app, a commit): `folded`, `orphans` and `previous_head` are what the squash
+  since brd read the plan (a rewrite of the app, a commit): `folded`, `orphans` and `previous_head` are what the squash
   folded there, the commit of the other process kept; a HEAD without fixups there is nothing to fold.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; the fold also checks that the planned
   commits and the history it rewrites end at the planned head, and moves the branch only from it (compare-and-swap).
-- `bd undo <undo_token>` restores the previous head.
+- `brd undo <undo_token>` restores the previous head.
 - Fixups that cancel their target (the target as they leave it has no changes) take it out of the history with them,
   HEAD's tree kept: its entry says `"dropped": true` and has no `new_id`. `--dry-run` builds the fold and drops it, so
   it says `dropped` too.
 - A fixup that conflicts with a commit between it and its target or after it is `squash_conflict` (exit 4, `commits`,
   `paths`), one that leaves a later commit empty `squash_empty`; nothing is folded.
 
-### `bd squash <into> <commit>… [--subject <s> | --message <m> | --message-file <f>] [--expect-head <id>] [--dry-run | --sync]`
+### `brd squash <into> <commit>… [--subject <s> | --message <m> | --message-file <f>] [--expect-head <id>] [--dry-run | --sync]`
 
 Squashes the commits the user asked to squash into `<into>`, the oldest of them, as the app's Squash does: the same
 core (`history_rewrite::squash::squash_commits_core`) and the same intent (`RewriteIntent::Squash`), recorded before
@@ -1244,14 +1256,14 @@ are.
   branch; `squash_conflict` (exit 4, `commits`, `paths`), `squash_empty` (exit 4: the commits cancel each other, or a
   later commit would become empty; a squash gives one commit, so commits that cancel each other are dropped instead);
   `head_moved`, `locked`, `operation_in_progress`.
-- `bd undo <undo_token>` restores the previous head.
+- `brd undo <undo_token>` restores the previous head.
 
-### `bd move-hunk <from> <to> <path> [--block <id>]… [--expect-head <id>] [--dry-run | --sync]`
+### `brd move-hunk <from> <to> <path> [--block <id>]… [--expect-head <id>] [--dry-run | --sync]`
 
 Moves the changes of the file `path` from commit `from` into commit `to`, older or newer, both ahead of the baseline:
 the fix for a change that landed in the wrong commit, without `commit-tree` plumbing. Without `--block` the whole
 change of the file moves (also of a binary file, an added or a deleted one). `--block <id>` (repeatable) moves only
-the blocks with the ids that `bd commits <from> --patch` prints. One rewrite that keeps HEAD's tree, so the index and
+the blocks with the ids that `brd commits <from> --patch` prints. One rewrite that keeps HEAD's tree, so the index and
 the working tree stay as they are, computed before the repository lock and written under it after the witness of HEAD
 ([Git Operations](../design/git-operations.md#move-a-hunk)).
 
@@ -1265,8 +1277,8 @@ the working tree stay as they are, computed before the repository lock and writt
 - Into an older commit, the change is added to the trees of `[to, from)`, and `from` keeps its tree, so it holds only
   the rest; into a newer one, it is taken out of the trees of `[from, to)`, and `to` keeps its tree. A block applies by
   its line ranges, so a commit between that only shifts the lines takes it; one that changes the same lines, or lacks
-  the file, is `hunk_conflict` (exit 4, `commits` and `paths` name it), and nothing changed: bd can't move it.
-- An id holds a hash of the lines of its block. When the file changed since `bd commits --patch`, an id matches no
+  the file, is `hunk_conflict` (exit 4, `commits` and `paths` name it), and nothing changed: brd can't move it.
+- An id holds a hash of the lines of its block. When the file changed since `brd commits --patch`, an id matches no
   block: `block_not_found` (exit 2), with `error.blocks`, the ids of the file's blocks now.
 - `commits` maps every recreated commit, oldest first. `changed` counts the commits whose changes differ: `from`,
   `to` and the commits between whose diff of the file changed. They get the current user as committer and lose their
@@ -1278,13 +1290,13 @@ the working tree stay as they are, computed before the repository lock and writt
   whole file. `not_ahead_of_baseline` names a commit id.
 - `--expect-head` refuses with `head_moved` unless HEAD is still that commit; a held lock is `locked`.
 - `--dry-run` prints the blocks and checks the rewrite (the merges and the empty commits); it writes only git objects.
-  `--sync` syncs after the release of the lock, as `bd group --sync` does. `bd undo <undo_token>` restores the previous head.
+  `--sync` syncs after the release of the lock, as `brd group --sync` does. `brd undo <undo_token>` restores the previous head.
 
-### `bd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling] [--allow-missing]`
+### `brd check [--plan <file | ->] [--build COMMAND [--build-paths PATH…] [--rebuild]] [--fix [--max-trials N] [--time-budget SECONDS]] [--allow-dangling] [--allow-missing]`
 
 A trial sync of a plan (`trial_check::check`), or of the current grouping without `--plan`: stdin is read only for
 `--plan -`, so the open stdin of an agent or a CI never holds it. The plan is applied in memory
-and validated as `bd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
+and validated as `brd group --dry-run` does, `descriptions` included (an invalid plan is exit 2), the branches are
 placed as a stacked sync places them, and each one is built with the sync's `build_branch`, parents first. It writes
 commit objects and the object cache only: no ref, note, config, HEAD or working tree changes, no remote status and no
 repository lock.
@@ -1312,7 +1324,7 @@ repository lock.
   `fixed_by` into the branch or stack the branch on the one that has it; `mutual`, when the change in `fixed_by` uses
   what the branch adds (as in a move of a constant into a new class), means no stack builds both, and `fix` says how
   the change gets into the branch: `{kind: "move_commit", branches}` when `fixed_by` changes only `file` (add
-  `branches` to the plan), else `{kind: "move_hunk", command}`, a ready `bd move-hunk <fixed_by> <removed_by> <file>`
+  `branches` to the plan), else `{kind: "move_hunk", command}`, a ready `brd move-hunk <fixed_by> <removed_by> <file>`
   that moves the whole change of the file (add `--block <id>` to move less). A `fix` is there only when a trial build of
   the plan with it proves it: the branch builds and no branch that built breaks (a hunk move is tried on commits
   written as objects only, at most two per check); without one, `--fix` searches the regroups. A use that no commit here changes, or one that the baseline got after the base (Patronus
@@ -1324,7 +1336,7 @@ repository lock.
   of it that names the declaration, a glob or the module of the path), and a `pub(crate)` one not at all.
   `--allow-dangling` counts a branch whose
   only failure is a dangling reference in `ok` and the exit code (its `result` stays), for a false alarm, as
-  `bd safe-push --allow-dangling` starts anyway. The syntax trees of Kotlin, Java, C#, Rust, TypeScript and JavaScript then take away
+  `brd safe-push --allow-dangling` starts anyway. The syntax trees of Kotlin, Java, C#, Rust, TypeScript and JavaScript then take away
   a word of a comment or a string, a local of the same name, a name a `use` or an import alias still binds and a call
   on an expression of a Kotlin top-level function that is no extension: `via`
   is `syntax_tree` where they confirmed the uses, `lines` where the lines alone found them. With `branchdeck.symbols
@@ -1345,7 +1357,7 @@ repository lock.
 - `inverted_stack` `{branch, child, fixes}`: the branch conflicts, or has a dangling reference, because it needs a
   commit (`missing_commits`, `fixed_by`) of `child`, a branch stacked on it: no order of the stack builds both. Each
   fix is `{kind, branches, unstack}` to add to the plan, kept only when a trial build of the plan with it builds both
-  branches (`trial_check::inverted_stack`; bd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
+  branches (`trial_check::inverted_stack`; brd only shortens the ids and words the `reason`): `move_to_child` moves the branch's commits that need the child into it, `swap` stacks the branch on the
   child (`unstack` the child, `"child/branch": []`); no `swap` when the child's change uses what the branch adds
   (`mutual`). With no fix that builds, `fixes` is empty and `reason` says why. The `result` stays.
 - `--build COMMAND` runs a shell command (`sh -c`, on Windows `cmd /D /S /C "COMMAND"`, the command line as written)
@@ -1366,12 +1378,12 @@ repository lock.
   member (`evidence: "inherited"`), on a receiver of its type (`evidence: "receiver"`) or through the class of its
   Kotlin file (`evidence: "facade"`), by the edges by symbols. git merges it and the build would fail; stack the branch
   on `declared_in` or move one of the two. The branch's `result` is `missing_declaration`, which fails `ok` and exits 1,
-  as it refuses `bd safe-push`; names, not a compiler, so `--allow-missing` counts it as building for a name the user
+  as it refuses `brd safe-push`; names, not a compiler, so `--allow-missing` counts it as building for a name the user
   says is a false alarm.
 - `--fix` adds `fix`, the regroup after which the branches that conflict (or have a proven dangling reference) apply
   cleanly, found by trial builds on top of the plan (`trial_check::conflict_fix`, the search of the app's Fix): nothing is
   applied. `fix.components` are independent parts, each `{steps, plan, fixed, unblocked, emptied, orphaned_children,
-  rewritten}`; `plan` is the whole plan (the `--plan` included) for `bd group --plan … --expect-head <head> --sync`.
+  rewritten}`; `plan` is the whole plan (the `--plan` included) for `brd group --plan … --expect-head <head> --sync`.
   A step is `move` (`commits` leave `from` for `to`, the branch whose stack has what they need), `pull_in` (what `to`
   needs comes into it from `from`; none for unassigned commits) or `restack` (`fixes` is stacked on `to`). `unresolved`
   names the branches no candidate fixed; `search` is `complete`, or `budget` when the trial or time limit stopped it,
@@ -1395,15 +1407,15 @@ repository lock.
   a check takes 3.4 s cold and 0.2 s warm.
 - The exit code is 1 when any branch is not `ok`.
 
-### `bd suggest [--fresh] [--max-commits N] [--rewrite-issues]`
+### `brd suggest [--fresh] [--max-commits N] [--rewrite-issues]`
 
-Suggests a grouping of the commits ahead of the baseline into branches, as a plan for `bd group`, and checks the plan
-with the trial sync of `bd check`. It writes git objects and the cache only: no ref, config, index or working tree
+Suggests a grouping of the commits ahead of the baseline into branches, as a plan for `brd group`, and checks the plan
+with the trial sync of `brd check`. It writes git objects and the cache only: no ref, config, index or working tree
 changes, and no repository lock.
 
 It reads the commits once with a `CheckSession` (`trial_check::check`: the snapshot of a regroup, the baseline and the
 branch tips), their changes from the object cache without lock files, generated files and hub files
-(`read_linked_diffs`), the dependencies of `bd commits` and the fixup targets. The clustering
+(`read_linked_diffs`), the dependencies of `brd commits` and the fixup targets. The clustering
 (`crates/commit-clustering/src/clustering.rs`) runs no git:
 
 1. Hard units, joined with union-find: the dependency edges, a fixup and its target, the commits with the same
@@ -1485,8 +1497,8 @@ same conflict comes again does the next round join their units.
 ```
 
 - `plan` lists only the commits whose branch changes. A fixup that follows its target is left out, and a commit with a
-  prefix that goes to the branch of its own issue key is in `unassign`. Give the plan to `bd group` as it is, or edit
-  it and run `bd check`.
+  prefix that goes to the branch of its own issue key is in `unassign`. Give the plan to `brd group` as it is, or edit
+  it and run `brd check`.
 - Per cluster `kept`, `moved` and `new_path` name its commits, each once: `kept` those the plan leaves as they are,
   `moved` those that change branch, each with `leaves`, the branch it leaves (`null` for an unassigned commit), and
   `new_path` those whose branch stays but whose subject the plan gives another stacked path (`(gone/a)` to `a`, a
@@ -1498,35 +1510,35 @@ same conflict comes again does the next round join their units.
   whole branch under another name; `merged`: two or more whole branches, or one with unassigned commits; `split`: a
   part of one branch; `new`: anything else), `why` (one line to
   quote to the user, with the repair rounds and a new parent), `weak` (a merge by paths near the threshold, or one
-  that adjacency decided: review these first), `issue_keys` and `areas` (as in `bd commits --brief`). With stacked
+  that adjacency decided: review these first), `issue_keys` and `areas` (as in `brd commits --brief`). With stacked
   branches also `parent` (the branch it builds on) and `restacked` (the parent changes). `stacked_without_need`: the
   stack parents stack it on `parent`, a line with no prefix behind it, and it depends on no commit of `parent` or of
   its ancestors. The plan keeps the parent: the stack parents don't say why a branch is stacked, and "Stack On…"
-  writes the same line. `bd unstack` makes it a root.
+  writes the same line. `brd unstack` makes it a root.
 - A stacked cluster keeps its issue group: the plan names its path with an empty list (`"a/grp": []`), which writes
   the stack parent without a rewrite. A cluster unstacked from its stack parent is in `unstack`.
 - A cluster of two or more whole issue branches goes into `issue_groups` of the plan, marked `"via":"issue_group"`:
   its subjects keep their keys, and `rewritten` stays 0 for it. `--rewrite-issues` gives its commits a prefix instead.
   An issue group is an anchor, as a prefix is: it stays one branch unless `--fresh`.
-- `rewritten` counts the subjects the plan changes. `check` has the `bd check` result of each branch and the
+- `rewritten` counts the subjects the plan changes. `check` has the `brd check` result of each branch and the
   `repair_rounds`. `warnings` lists `anchor_dependency` (with stacked branches only a cycle between two prefixes),
   `unresolved_conflict` and, with `branchdeck.symbols on`, `symbol_dependency` (a branch uses a name another branch
   adds and the plan doesn't build it on that branch: git builds them apart, a build would fail), with the branches.
-- The exit code is 1 when a branch of the plan still conflicts, as for `bd check`.
+- The exit code is 1 when a branch of the plan still conflicts, as for `brd check`.
 - On the 74 commits and 12 branches of a large monorepo branch it keeps the 12 branches with an empty plan, in 0.27 s
   warm (a debug build). With `--fresh` it finds the grouping a human made there with a pairwise precision of 1.0 and
   a recall of 0.945, and its plan rewrites 6 subjects. The golden test of `clustering_test.rs` checks its anonymized
   input: `--dump-input` (hidden) prints the input with every name hashed by SipHash with a random key of the
   operating system, which is not kept.
 
-### `bd sync`
+### `brd sync`
 
 Rebuilds the virtual branches with `sync_core::sync::sync_branches`, the app's sync: it includes the integration
 detection of archived branches and the update check of the checked out branch. Its events fold into the table of the
 app's session as they come (`repository_model::table::TableState`), and the output reads that table: each branch says
 what its row in the app says. It takes no repository lock, as the
 app's sync takes none: every ref it moves is a compare-and-swap on the tip it listed, and a rewrite or an Update Project
-of the app or of another `bd` can land while it runs, so its output is the branches as they were when it read them;
+of the app or of another `brd` can land while it runs, so its output is the branches as they were when it read them;
 the next sync shows the change. While a rebase, merge, cherry-pick or revert is in progress it is `operation_in_progress`, on a detached HEAD `detached_head`
 (exit 4), and changes nothing: a half-done history would archive the branches it lacks; finish the operation first.
 
@@ -1544,7 +1556,7 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
 - `state` is `created`, `updated`, `unchanged`, `blocked` (a stacked branch whose parent can't be built on, with the
   reason in `error`), `error` (with `error`) or `conflict` (with `conflict`: the
   commit whose cherry-pick conflicts, the files, and the commits the change likely needs: the older commits that change
-  a conflicting file and are neither in the branch nor in the branches it is built on, as `bd check` names them).
+  a conflicting file and are neither in the branch nor in the branches it is built on, as `brd check` names them).
   `blocked` lists the commits not synced after an earlier failure.
 - `resolved` lists the commits whose conflict of git the sync resolved by words, oldest first:
   `{"commit","conflicts","file_count","files":[{"path","conflicts"}]}`, the conflicts counted as git counts them (its
@@ -1553,7 +1565,7 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
   blocks each take the side that changed or resolve by words (IntelliJ's simple resolve, never the greedy one). One
   file that does not, or another kind of conflict (modify/delete, add/add, rename, binary, a merge driver), and the
   commit stays a conflict of git. The copy keeps the author, the date and the message; its mapping note records the
-  counts, so a reused copy has `files` left out. `bd check` builds alike, and `bd move-hunk` never resolves.
+  counts, so a reused copy has `files` left out. `brd check` builds alike, and `brd move-hunk` never resolves.
 - `remote` compares with the remote-tracking branch of `origin` by content: `unpushed` commits it lacks, `behind`
   commits it has that the branch doesn't (a push drops them), and `head`, the remote commit the counts compare with
   (`null` without a remote branch). `dropped_commits` lists the newest ten of the `behind` commits, newest first:
@@ -1565,11 +1577,11 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
   subject without the prefix, a push replaces them. `reworded` counts the commits the remote has by content in another
   version (a reword, a new author): not `unpushed`, yet a push replaces their remote copies, which a Safe Push of the
   remote branch would land as they are. Each is left out at 0.
-- `push` is the `bd push` that brings the remote branch up to date, quoted for the shell, to run only after the user
-  approves: `bd push <branch>` (older versions of amended, restacked or landed commits and reworded copies need no
+- `push` is the `brd push` that brings the remote branch up to date, quoted for the shell, to run only after the user
+  approves: `brd push <branch>` (older versions of amended, restacked or landed commits and reworded copies need no
   `--force`),
-  `bd push <branch> --force --expect-remote <remote.head>` when the push drops `dropped_commits`, and
-  `bd push <branch> --force` when a branch it is built on has commits for the remote too (`--expect-remote` would push
+  `brd push <branch> --force --expect-remote <remote.head>` when the push drops `dropped_commits`, and
+  `brd push <branch> --force` when a branch it is built on has commits for the remote too (`--expect-remote` would push
   the branch alone). It is left out for a branch whose remote branch is up to date, one that didn't sync, and without
   a remote.
 - `update.state` is `up_to_date`, `fast_forward`, `rebase`, `conflict` or `blocked` (with `files`: at most 50
@@ -1607,16 +1619,16 @@ the next sync shows the change. While a rebase, merge, cherry-pick or revert is 
 - The exit code is 1 when any branch was not built (`conflict`, `error`, `blocked`); the summary is printed
   either way.
 
-### `bd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`, `bd push --unapplied <name>`
+### `brd push <branch>… [--with-children] [--alone] | --all --yes [--force] [--expect-remote COMMIT] [--remote R] [--dry-run] [--restart-running]`, `brd push --unapplied <name>`
 
 Syncs, then pushes the branches in one atomic `git push --porcelain` with a lease per ref, parents first: the sync
-without the repository lock, as `bd sync`, the witness of the plan of the push (its refs, their commits and leases)
+without the repository lock, as `brd sync`, the witness of the plan of the push (its refs, their commits and leases)
 under it, the retargets, the cancel and the restart of `--restart-running` and the network push after it (see "Push and land" and "Agent push" in
 [Git Operations](../design/git-operations.md)). Every pull request of a virtual
 branch goes into the baseline, a stacked branch's with the commits of the branches it is built on
 ([Landing](../design/landing.md)). A stacked branch takes those branches along when they have commits for the remote,
 as the app's push button does, so their remote branches stay what it is built on. `--alone` pushes only the named
-branches, which carry their parents' commits; `--expect-remote` does too. Before the push bd retargets the open pull
+branches, which carry their parents' commits; `--expect-remote` does too. Before the push brd retargets the open pull
 requests of the branches it pushes whose base is a virtual branch to the baseline (`retargeted`).
 
 ```json
@@ -1644,18 +1656,18 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   is pushed. An ancestor taken along that a Safe Push lands stays as the robot took it, and its child goes alone, with
   its commits. The Safe Push of the whole stack holds every branch of it its commit has ("A Safe Push of the whole auth
   stack is running: it lands 1 commit of login with it (1a2b3c4d)"), and `--with-children` of the root leaves the stack
-  branch it runs on out (a `stack_warnings` line). Tell the user; only after the user approves, `bd push auth --restart-running` cancels the Safe Push of
+  branch it runs on out (a `stack_warnings` line). Tell the user; only after the user approves, `brd push auth --restart-running` cancels the Safe Push of
   `auth`, pushes and restarts it on the pushed commit (`"restarted":[{"branch":"auth","url":…}]`). One robots request
   after the sync; off Space or without the Safe Push CLI's token nothing is held. A dry run or a canceling robot holds
   nothing.
-- A parked branch (`parked` in `bd status`) stays local, and so does a branch built on it, which carries its commits:
+- A parked branch (`parked` in `brd status`) stays local, and so does a branch built on it, which carries its commits:
   named, the push is refused with `parked` (exit 4), nothing pushed; with `--all` or `--with-children` it is left out
   and the others push, `skipped` naming it with `code` `parked` and the reason (`"login is built on parked auth"`);
   the stack branch of a stack with a parked member is left out (`stack_warnings`). Nothing but parked branches left is
   `parked` too. Tell the user; never unpark it on your own.
-- A named branch a merged Safe Push landed all of (`landed_by` without `after` in `bd status`), and with
+- A named branch a merged Safe Push landed all of (`landed_by` without `after` in `brd status`), and with
   `--with-children` one built on a named one, is left out and the others push: `skipped` names each, with `code`
-  `landed`, the `message` and `landed_by` as `bd status` has it. Tell the user who landed it. An ancestor taken along
+  `landed`, the `message` and `landed_by` as `brd status` has it. Tell the user who landed it. An ancestor taken along
   that landed stays as it is. A branch with commits added after the landed ones pushes them.
 
   ```json
@@ -1672,11 +1684,11 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   push; a blocked or conflicting child refuses it, as a named branch would. A parent taken along brings no children.
   Not with `--expect-remote`. A named root of a stack that forks also takes its stack branch along
   (`{prefix}/stack/<root>`, [Whole Stack](../../spec/branch/whole-stack.spec.md)), as the app's Push with Children
-  does: once it is on the remote or the pull request of the whole stack is open (bd asks GitHub once for a stack branch
+  does: once it is on the remote or the pull request of the whole stack is open (brd asks GitHub once for a stack branch
   the remote lacks), leased on the remote head its remote status compared with, when this sync built it and the
   remote lacks it: `stacks` lists it as `branches` lists a branch, `name` the root, its `pull_request` the one of the
   whole stack (the stack branch's own description, else a section per branch: its description, else its commits). One
-  on no remote and in no pull request stays local and needs no word: `bd safe-push --whole-stack` (or its
+  on no remote and in no pull request stays local and needs no word: `brd safe-push --whole-stack` (or its
   `--create-pull-request`) puts it there. Of one on the remote or in an open pull request, a stack branch in any other
   state than `built` is never pushed, and neither is one to a `--remote` other than `origin`, which its remote status
   compares with: `stack_warnings` names each one left out, and so does one every branch of whose stack merged Safe
@@ -1686,31 +1698,31 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   compared with (`remote.head`, `lease_source: expected`), or none without a remote branch (`absent`: it must not
   exist). The push replaces exactly that remote state: a remote commit the branch has by content goes through,
   `--force` drops the `behind` commits of that sync, and nothing pushed since is lost. `--expect-remote COMMIT` leases
-  one branch on the given remote commit, a `remote.head` bd printed: the remote state the user saw.
-- With `--remote` other than `origin`, which the sync compares with, bd computes the same remote status of each
+  one branch on the given remote commit, a `remote.head` brd printed: the remote state the user saw.
+- With `--remote` other than `origin`, which the sync compares with, brd computes the same remote status of each
   pushed branch against that remote's remote-tracking branch, and the refusal, the lease and the errors use it. A
   `--remote` that is not a configured remote is `no_remote`.
 - A remote branch that moved since the sync without commits its branch lacks (deleted, moved back to an older commit
-  of it, rebuilt older versions) loses nothing: bd fetches it and pushes again at once, once, leased on what it has now,
+  of it, rebuilt older versions) loses nothing: brd fetches it and pushes again at once, once, leased on what it has now,
   as the app's push does, and marks the branch `"pushed_over": true` (its `lease` the head it went over). Tell the
   user the remote had moved.
 - Otherwise a remote branch that is not where the lease expects it is `lease_rejected` (exit 4, not retryable: a push
   again with `--force` would drop what the remote has now), nothing pushed: the push is
-  atomic, so the other branches of it stay as they are on the remote too. bd fetches the branches of the push and
+  atomic, so the other branches of it stay as they are on the remote too. brd fetches the branches of the push and
   lists the ones that moved in `error.branches` with their remote status as fetched:
   `{"name":"auth","remote":{"exists":true,"unpushed":1,"behind":1,"head":"7c8d9e0f","dropped_commits":[…]}}`.
   Show the `dropped_commits` to the user; only after the user
-  approves, `bd push auth --force --expect-remote 7c8d9e0f`.
+  approves, `brd push auth --force --expect-remote 7c8d9e0f`.
 - A push the remote refuses while every lease holds (a hook, a protected branch, a pack too large) is
   `push_refused` with what git said of each ref and what the remote said why; nothing was pushed. Tell the user: a
   retry doesn't help.
 - A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set) is
-  `push_too_large` before bd asks the remote, `--dry-run` too: the message says how much and where, `paths` lists the
+  `push_too_large` before brd asks the remote, `--dry-run` too: the message says how much and where, `paths` lists the
   directory and the largest files. It is mostly build output committed by mistake (a `target/`, `node_modules/`): show
   it to the user, who takes the files out of the commits or raises the limit (Settings → Landing); never raise it
   yourself.
 - `pull_request.base` is the baseline without the remote (`master`), for every branch. `title` and `body` are the
-  `bd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
+  `brd describe` text, else the text of the commits: the issue key and its YouTrack summary as the title (the summary
   only when the link of `.idea/vcs.xml` is an issue page of the YouTrack you are signed in to), the issues linked, an
   item per commit with its body as paragraphs, and for a stacked branch the branches it is built on, whose commits it
   holds too. `command` takes the title and reads the body from stdin (`--body-file -`).
@@ -1724,7 +1736,7 @@ requests of the branches it pushes whose base is a virtual branch to the baselin
   what a push would retarget and GitHub is only asked. Without a GitHub repository of the branches or a token, GitHub
   is not asked.
 
-### `bd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
+### `brd safe-push <branch> [--whole-stack] [--patronus-dry-run] [--profile P] [--dry-run] [--without-approvals] [--create-pull-request [--reviewer LOGIN]… [--no-assign]] [--cancel-running] [--force] [--allow-dangling] [--allow-missing] [--allow-unknown-rules] [--allow-unknown-review]`
 
 Starts a Patronus robot on the virtual branch, as the Safe Push of the app ([Patronus](../../spec/branch/patronus.spec.md)):
 a Safe Push (Patronus rebases the branch onto the target, runs the checks and pushes it into the target when they
@@ -1733,15 +1745,15 @@ does, so it needs the user's approval too; `--dry-run` is the preview that start
 `git.jetbrains.team`, else `not_on_space`), and the Space token of the Safe Push CLI must be there: run
 `./safePush.cmd` once, or set `SPACE_TOKEN` (else `not_logged_in`). `SAFEPUSH_PATRONUS_URL` picks another Patronus
 instance, as for the Safe Push CLI. The app's setting Settings → Landing → "New Patronus API"
-(`appSettings.patronusNewApi` of its settings file) holds for bd too: `bd robot` reads the progress of a running
-robot in one request, and the robot lists name the merge profiles, so `bd safe-push` needs no request for the profile
+(`appSettings.patronusNewApi` of its settings file) holds for brd too: `brd robot` reads the progress of a running
+robot in one request, and the robot lists name the merge profiles, so `brd safe-push` needs no request for the profile
 of the last robot; off, or while Patronus has the flags off, the requests are the ones of before.
 
 A stacked branch lands with every branch it is built on, in one robot, as the app's Safe Push of a piece
 ([Landing](../design/landing.md)): its virtual branch carries their commits, so the robot starts on it and Patronus
 lands them all. The branches built on it stay; after the merge the next sync builds them on the target.
 
-A parked branch (`parked` in `bd status`), a branch built on one and a `--whole-stack` with a parked member start
+A parked branch (`parked` in `brd status`), a branch built on one and a `--whole-stack` with a parked member start
 nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the sync, before Patronus is asked.
 
 ```json
@@ -1767,8 +1779,8 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   comments on it. Refused with `stack_conflict` (exit 4, `error.commits` and `error.paths`): a commit of the stack branch
   conflicts with the commits of the stack before it, though each branch builds; with `stack_not_built` (exit 4): a
   branch of the stack is blocked or failed, or the stack branch is stale; both say to land the stack in pieces
-  (`bd safe-push <branch>` lands a branch with what it is built on). A remote stack branch with commits the stack
-  lacks is `push_refused` (`bd push <root> --with-children --force` replaces them, after the user approves).
+  (`brd safe-push <branch>` lands a branch with what it is built on). A remote stack branch with commits the stack
+  lacks is `push_refused` (`brd push <root> --with-children --force` replaces them, after the user approves).
   `robot_running` both ways: a Safe Push of a branch of the stack lands a part of it ("A Safe Push of login is
   running: wait until it merges"), and the Safe Push of the whole stack lands every branch of it, so a branch's start
   waits for it ("A Safe Push of the whole auth stack is running: it lands 1 commit of login with it (1a2b3c4d)").
@@ -1784,52 +1796,52 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   review, `push_needed`, `remotes`, `target_check`, and `refusals`, each `{code, message}` a start would fail with. The
   agent shows it to the user and starts only after the user approves.
 - The decision is the app's rule, `domain_policy::land::decide` ([Rust as the Domain Authority](../design/rust-domain-authority.md#s8-policy)),
-  over what bd read: the `refusals` are its blockers, in their order, then each confirmation a flag accepts that the
+  over what brd read: the `refusals` are its blockers, in their order, then each confirmation a flag accepts that the
   command lacks (`--cancel-running`, `--allow-unknown-review`, `--allow-unknown-rules`), named with the flag. What the
   table alone refuses (a branch that didn't sync, a parked one) fails before Patronus or GitHub is asked; the review
   and the rules of the target are asked only when the decision waits for them.
-- `remotes` names each existing remote branch the start pushes, `{name, remote}` with the `remote` of `bd sync`: what
+- `remotes` names each existing remote branch the start pushes, `{name, remote}` with the `remote` of `brd sync`: what
   the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops (`behind`, `dropped_commits`). One that
-  drops commits refuses the check and the start with `push_refused` and the `bd push` that drops them, to run only
+  drops commits refuses the check and the start with `push_refused` and the `brd push` that drops them, to run only
   after the user approves; the start's error has it in `error.branches`. `--force`, once the user approved, starts with
   the drop pushed away (D12). `push_needed` is true for a branch reworded
   since its push: the robot would land the old messages of the remote branch.
 - The target conflict check (`target_check`, the core of the app's start too, `sync_core::target_conflict`): Patronus
   rebases what it lands onto the newest target before any check, and a conflict fails the robot at once. A branch is
   built on the base of the checked out branch, not on the newest target, and the target of a monorepo moves every
-  minute. So before the lock bd fetches only the target's remote branch (as `bd update` does), then replays what lands
+  minute. So before the lock brd fetches only the target's remote branch (as `brd update` does), then replays what lands
   onto its tip as a plain `git rebase` does, with no resolution by words. `result` is `clean`, `conflict` or `not_run`
   (the check did not run to its end; it holds nothing back), with the `target_tip`. A failed fetch doesn't stop the
   check: `fetched` is false, the check used the last fetched tip, and `message` says why. A conflict refuses the start
   with `target_conflict` (exit 4), nothing pushed or started: `error.commits` names the commit by the id of the checked
   out branch, `error.paths` the files, and the message names the commits of the target after the base of the branch
-  that change them (hash, author, subject). The fix is `bd update`, which resolves it locally (a resolve session); then
+  that change them (hash, author, subject). The fix is `brd update`, which resolves it locally (a resolve session); then
   the agent starts again. `--create-pull-request` starts no robot and checks nothing.
 
   ```json
   "target_check":{"result":"conflict","target_tip":"faebba53","fetched":true,
-    "message":"Nothing was pushed or started: Patronus can't rebase composer-kind onto origin/master: e90c2bf6 (Add the composer kind) conflicts in AgentPromptPalettePopup.kt, which origin/master changed after the base of composer-kind: 6fddca13 (Alice: IJAI-4233 Change the palette popup). `bd update` (the app's Update Project) brings the checked out branch onto origin/master and resolves the conflict locally; then run `bd safe-push composer-kind` again"}
+    "message":"Nothing was pushed or started: Patronus can't rebase composer-kind onto origin/master: e90c2bf6 (Add the composer kind) conflicts in AgentPromptPalettePopup.kt, which origin/master changed after the base of composer-kind: 6fddca13 (Alice: IJAI-4233 Change the palette popup). `brd update` (the app's Update Project) brings the checked out branch onto origin/master and resolves the conflict locally; then run `brd safe-push composer-kind` again"}
   ```
 
 - `lands` is what the robot takes, root first, ending with the branch: the branches it is built on, then the branch
   (only the branch for a root). A Safe Push lands them all into the target; a dry run checks the same commits; with
   `--create-pull-request` its pull request holds them. There is no refusal and no flag for it: the obsolete
-  `--land-stack` of an older bd is accepted, hidden, and changes nothing.
+  `--land-stack` of an older brd is accepted, hidden, and changes nothing.
 - `alone` (only with `--dry-run`, only for a stacked branch) is the trial build of the branch as a root, on the base the
   sync builds on, not on the newest target (`stack_independence` in `crates/trial-check/src/check.rs`): the second way,
-  landing the branch without what it is built on, for the user to choose; bd never unstacks or moves anything for it.
-  `result` is `builds` (it applies alone: `bd unstack <branch>` makes it a root; `uses` lists the names of its stack
+  landing the branch without what it is built on, for the user to choose; brd never unstacks or moves anything for it.
+  `result` is `builds` (it applies alone: `brd unstack <branch>` makes it a root; `uses` lists the names of its stack
   that its commits use, `{identifier, used_by, declared_by, declared_in}`, so it applies but would not compile;
   `symbols: false` means lines only), `needs` (`conflict` `{commit, subject, files}` is its first commit that conflicts
   alone; `needs` the commits of its ancestors it needs, `{commit, subject, branch}`, and what these need, by the line
-  dependencies, so a compile dependency is not seen; `movable`: they can move into the branch, then `bd unstack`;
+  dependencies, so a compile dependency is not seen; `movable`: they can move into the branch, then `brd unstack`;
   otherwise other branches need them too, and a move would make those need this one) or `unknown` (the trial failed).
   `message` says it in one sentence:
 
   ```json
   "alone":{"result":"needs","parent":"auth","conflict":{"commit":"5e6f7a8b","subject":"Use auth","files":["auth.txt"]},
     "needs":[{"commit":"1b2c3d4e","subject":"Add auth","branch":"auth"}],"movable":true,
-    "message":"login needs 1b2c3d4e (auth): move it into the branch, then `bd unstack login`"}
+    "message":"login needs 1b2c3d4e (auth): move it into the branch, then `brd unstack login`"}
   ```
 
   It runs in the trial session of the dangling references; a start runs no trial.
@@ -1842,8 +1854,8 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   `groups` with their `reviewers` (`suggested`, `available`) and `paths` (`branch_wide` for all files).
 - The approvals count in the GitHub pull request of the branch (Space merge requests are deprecated; one found open,
   `review.merge_request`, still counts for a start through the API). `--create-pull-request` pushes the branch and
-  opens its pull request through the GitHub API, as the `gh pr create` that `bd push` prints would (into the target,
-  with the text of `pull_request` of `bd push`), assigned to the user (`--no-assign`
+  opens its pull request through the GitHub API, as the `gh pr create` that `brd push` prints would (into the target,
+  with the text of `pull_request` of `brd push`), assigned to the user (`--no-assign`
   leaves it unassigned), with `--reviewer <login>` (repeatable) asked to review it: the `github_login` of the
   suggested `review.groups[].reviewers`, once the user chose them. `pull_request` has `created: true`, `reviewers`
   and `assignees` as GitHub took them and `warnings` for what it refused; or the open one of the branch, whatever its
@@ -1862,27 +1874,27 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   or `--profile`) is not refused for `missing` approvals, as the app's start is not: `review.skipped_by` is `profile`.
   `--without-approvals` starts anyway, only when the user says so (`review.skipped_by`: `without_approvals`). A branch
   of more than 500 commits is not checked (`review.skipped`).
-- The branch is pushed first, as `bd push <branch>` pushes it (`pushed`; the branches it is built on that have
-  commits for the remote go along, parents first, with the lease and the refusals of `bd push`): only its witness and
+- The branch is pushed first, as `brd push <branch>` pushes it (`pushed`; the branches it is built on that have
+  commits for the remote go along, parents first, with the lease and the refusals of `brd push`): only its witness and
   freeze run under the repository lock, the sync and the checks before it, the start after it. A start is never
   repeated.
-- bd closes no pull request after the merge. The app closes the open pull requests of the ancestors a merged robot
+- brd closes no pull request after the merge. The app closes the open pull requests of the ancestors a merged robot
   landed, with a comment, when it sees the robot merge ([Patronus](../../spec/branch/patronus.spec.md#merged)); a
-  robot bd started is seen too while the app runs. Otherwise they stay open: the agent tells the user.
+  robot brd started is seen too while the app runs. Otherwise they stay open: the agent tells the user.
 - A start through the API (`started_via: api`) starts the robot on `refs/heads/<prefix>/virtual/<branch>`, kept
   after the merge. Branches reviewed on GitHub (the mirror of the Space settings, or `branchdeck.githubRepository`)
   with an open pull request into the target start from it (`started_via: pull_request`). One into a virtual branch, of
   the branch or of a branch its push takes along, is retargeted to the target first, before anything is pushed
-  (`retargeted`, as `bd push` lists them; `--dry-run` lists the ones a start would retarget): a refused retarget of the
+  (`retargeted`, as `brd push` lists them; `--dry-run` lists the ones a start would retarget): a refused retarget of the
   branch's own fails the start, nothing pushed or started; one of a branch taken along is a `retarget_warnings` line.
-  One into another base starts through the API. For a start from the pull request bd posts
+  One into another base starts through the API. For a start from the pull request brd posts
   `/patronus merge --keep-source-branch` (`/patronus dry-run`) through the GitHub API, waits up to a minute for the answer of
   Patronus, and finds the robot, so the approvals of the pull request count (`review.counts_in: pull_request`). A
   comment can't choose a profile: `--profile` is `invalid_arguments` there. `pull_request.reply` is `pending` when
   Patronus didn't answer within the minute (the robot is `null`, and `start_unknown` says the start is not known yet);
   a rejected comment or a draft pull request is `patronus_refused`. A start whose request went out and whose answer was
   lost (a timeout, a connection that broke off) is `start_unknown` (`operation`, `reason`), never sent again: its record
-  holds the branch until Patronus lists its robot or `bd operation forget <operation>`.
+  holds the branch until Patronus lists its robot or `brd operation forget <operation>`.
 - `robot_running` (exit 4): a robot runs on the last commit of the branch ("A Safe Push of the last commit is
   running"), a Safe Push lands it with a branch of its stack ("A Safe Push of oauth is running: it lands login with
   it"), or a Safe Push of a branch it is built on runs, whose commits it would land a second time ("A Safe Push of
@@ -1895,24 +1907,24 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
   Pushes of login and session"). `lands` leaves out the branches merged Safe Pushes landed all of: the robot lands the
   rest (the branch itself is always named). The same refusal for a branch the fetched baseline has all of ("auth is in
   origin/master: the update archives it") and for one whose pull request GitHub merged with the commits it has ("pull
-  request #7 of auth is merged"): one rule with the app (`domain_policy::landed::landed_state`); `bd update` picks it up.
+  request #7 of auth is merged"): one rule with the app (`domain_policy::landed::landed_state`); `brd update` picks it up.
 - `dangling_reference` (exit 4, nothing pushed): the branch or a branch it is built on removes, changes or declares
-  again a declaration whose use (or other declaration) a commit of another branch changes, as `bd check` reports it
+  again a declaration whose use (or other declaration) a commit of another branch changes, as `brd check` reports it
   (`dangling_references`, with its `kind`); the message
   names the use, the commits and the fix, of two references both, from three on of the first, with the count of the
-  rest ("(2 more: bd check)", which lists them). `--dry-run` lists it in `refusals`; `--allow-dangling` starts anyway, when
-  the user says it is a false alarm. A possible one (`bd check` `warnings`) is in `warnings` and refuses nothing.
+  rest ("(2 more: brd check)", which lists them). `--dry-run` lists it in `refusals`; `--allow-dangling` starts anyway, when
+  the user says it is a false alarm. A possible one (`brd check` `warnings`) is in `warnings` and refuses nothing.
 - `missing_declaration` (exit 4, nothing pushed, `branchdeck.symbols on`): a commit of what lands uses a name that a
-  commit outside it adds, which no merged Safe Push landed (`missing_declarations` of `bd check`; a name of a branch of
+  commit outside it adds, which no merged Safe Push landed (`missing_declarations` of `brd check`; a name of a branch of
   the landing stack is none). The landing gate (`trial_check::landing_gate`, the same rule as the app's start) checks it
   in the trial session of the dangling references. The message names the use, the commit that adds the name with its
-  branch, and the fix: `bd restack <root> <branch>` lands that branch too (after the user approves); with stacked
+  branch, and the fix: `brd restack <root> <branch>` lands that branch too (after the user approves); with stacked
   branches off, an unassigned commit or a restack that would close a cycle, the commit to move. `--dry-run` lists it in
   `refusals`; `--allow-missing` starts anyway, when the user says it is a false alarm.
 - `push_dismisses_approvals` (exit 4, nothing pushed or started): the start pushes new commits into the pull request
   the robot starts from, which someone approved, and the GitHub rules of the target dismiss stale reviews on push
   (one `GET rules/branches/<target>`, as the app asks): the approvals Patronus counts would be gone and the robot
-  fails. Push first (`bd push <branch>`), then `bd request-review <branch>`. Approvals Patronus doesn't count are only
+  fails. Push first (`brd push <branch>`), then `brd request-review <branch>`. Approvals Patronus doesn't count are only
   said in `rules.message`. `rules_unknown` (exit 4): GitHub didn't answer the rules (no token, no access, an error);
   `--allow-unknown-rules` starts anyway when the user says so. `rules` is `{dismiss_stale_reviews_on_push: true | false
   | null, message}`, absent when they were not read; `--dry-run` lists either refusal in `refusals`.
@@ -1927,12 +1939,12 @@ nothing, a Dry Run and `--dry-run` included: `parked` (exit 4) right after the s
 - `patronus_refused`: the target is not protected by Patronus, the pull request is a draft, or Patronus rejected the
   comment; `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
-### `bd land <branch> [--whole-stack] [--dry-run] [--allow-checks-not-passed] [--bypass-rules] [--allow-dangling] [--allow-missing]`
+### `brd land <branch> [--whole-stack] [--dry-run] [--allow-checks-not-passed] [--bypass-rules] [--allow-dangling] [--allow-missing]`
 
 Lands the branch into master by the route of the repository (`branchdeck.landing`,
 [Landing Routes](../../spec/branch/landing-routes.spec.md)), `route` in the output:
 
-- `patronus`: the Safe Push of `bd safe-push`, its whole output in `safe_push`.
+- `patronus`: the Safe Push of `brd safe-push`, its whole output in `safe_push`.
 - `push`: the sync without the repository lock, then the plan of the app's start over the one-shot session of the
   command (the pull requests with `viewerPermission`, the rules of the target, the landing gate of the subject), then
   its run through the engine: the witness under the lock, the push of the copy (`commit`: the virtual branch of the
@@ -1945,20 +1957,20 @@ Lands the branch into master by the route of the repository (`branchdeck.landing
   the auto-merge instead (`auto_merge: true`: GitHub merges it once they pass, nothing landed yet). On Space this route
   is the Safe Push; a repository off GitHub or a mirror is `landing_route_unsupported`. Refusals: `no_pull_request`
   (none open into the target), `merge_blocked` (approvals, required checks, changes requested, a draft),
-  `not_mergeable` (a conflict, a head behind its base: `bd update` then `bd push`; GitHub's refusal in its words).
+  `not_mergeable` (a conflict, a head behind its base: `brd update` then `brd push`; GitHub's refusal in its words).
 
 A push into master lands without a robot and without the CI of a pull request: what CI did not pass on the commit
 and the changes requested on its pull request refuse it as `checks_not_passed` until `--allow-checks-not-passed`; what the gate
 of the route asks (a rule a maintainer may bypass, the required status checks, a refusal of the server before) refuses
 it with the code of its reason until `--bypass-rules`. Both flags are the user's word, never the agent's. Below write
 access it is `no_write_access`, a rule no push passes `baseline_refused`, a server that refused it `baseline_refused`
-with what the server said, a target that moved `baseline_moved` (exit 3; master is fetched, `bd update` comes next),
+with what the server said, a target that moved `baseline_moved` (exit 3; master is fetched, `brd update` comes next),
 and so is a fetched master with commits the branch is not built on, before anything is sent.
-It never updates: a push that landed, and a merge, print `landed: true` and `next: "bd update"`; a push `closes`: the open pull requests
-of what it landed that show an older version of a branch, which the app closes with a comment (`bd` closes none; one
+It never updates: a push that landed, and a merge, print `landed: true` and `next: "brd update"`; a push `closes`: the open pull requests
+of what it landed that show an older version of a branch, which the app closes with a comment (`brd` closes none; one
 whose head the push put into master GitHub merges by itself). Name them to the user.
 
-### `bd request-review <branch> [--reviewer LOGIN]… [--push] [--dry-run]`
+### `brd request-review <branch> [--reviewer LOGIN]… [--push] [--dry-run]`
 
 Asks GitHub users to review the open pull request of the virtual branch, as the app's Request Review… does
 ([Pull Requests](../../spec/branch/pull-requests.spec.md#request-review)): the same intent of the engine
@@ -1972,7 +1984,7 @@ approvals of the code owners in that pull request, so one that asks no member of
  "waiting_for":[{"login":"ikorennoy","full_name":"Ilya Korennoy"}]}
 ```
 
-- Without `--reviewer` it asks Patronus as `bd safe-push` does (the pre-check with the pull request when it merges into
+- Without `--reviewer` it asks Patronus as `brd safe-push` does (the pre-check with the pull request when it merges into
   the target, asked again; the Space token of the Safe Push CLI, else `not_logged_in`), and asks one suggested code
   owner with a GitHub login of each missing group nobody is asked for yet, each once: never the author, a member asked
   already or one whose approval counts. A group someone is asked for adds nobody, so a second run asks nobody.
@@ -1983,24 +1995,24 @@ approvals of the code owners in that pull request, so one that asks no member of
   reviewers the pull request asks after the request.
 - It syncs first, without the repository lock (`unknown_branch` for a branch the sync has not), so it knows whether the
   branch has work its remote lacks: then the reviewers would not see the commits, and it is `needs_push` (exit 4)
-  with the next step `bd request-review <branch> --push`, the user's to approve. `--push` pushes them first as the app's
+  with the next step `brd request-review <branch> --push`, the user's to approve. `--push` pushes them first as the app's
   request does (the ancestors with work first; an open pull request of what it pushes into a virtual branch is
   retargeted into the target before the push), `pushed` naming the branches, then asks; `--dry-run` names what it would
   push. The writes take the lock only for the witness and the freeze of the push: the push, then
   `POST pulls/<n>/requested_reviewers`, users only (no team).
-- `no_pull_request` (exit 4): no open pull request, or a draft; `bd safe-push <branch> --create-pull-request` opens
+- `no_pull_request` (exit 4): no open pull request, or a draft; `brd safe-push <branch> --create-pull-request` opens
   one with `--reviewer`. `no_reviewer` (exit 4): a missing group nobody is asked for has no code owner with a GitHub
   login Patronus names, and nobody else is to ask: ask the user whom, then `--reviewer`. `review_refused` (exit 4):
   GitHub asked nobody; the message names each with the reason.
 
-### `bd robot <branch> [--full] [--robot ID] [--whole-stack]`
+### `brd robot <branch> [--full] [--robot ID] [--whole-stack]`
 
-Prints the Patronus robot of the virtual branch, as `bd safe-push` finds it: a running one first, else the newest of
+Prints the Patronus robot of the virtual branch, as `brd safe-push` finds it: a running one first, else the newest of
 the user's robots of the last 7 days, started on the branch or on a temporary ref at its local or pushed tip; with
 `--robot`, that robot ([Safe Push Failure Prompt](../../spec/branch/safe-push-failure-prompt.spec.md)). It is how an
 agent watches a robot the user started or restarted (`running`: run it again later), and, after a failed Safe Push,
 learns why and which local commits it tested. Read only: no repository lock, no sync, no ref written. The Space
-token and the repository on Space are needed as for `bd safe-push` (`not_logged_in`, `not_on_space`).
+token and the repository on Space are needed as for `brd safe-push` (`not_logged_in`, `not_on_space`).
 
 ```json
 {"schema":2,…,"branch":"auth",
@@ -2025,7 +2037,7 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   unless that branch is stacked on this one.
 - A newer robot of a branch stacked on this one wins over the branch's own: it built this branch too, and
   `robot_branch` names its branch. So does a newer robot of the whole stack the branch is a branch of, named by
-  `stack_root`; `--whole-stack` prints the robot of the whole stack, as `bd safe-push --whole-stack` starts it (of a
+  `stack_root`; `--whole-stack` prints the robot of the whole stack, as `brd safe-push --whole-stack` starts it (of a
   straight chain, the robot of its last branch). `--robot` of a robot of the whole stack is that of a branch of it;
   with `--whole-stack`, only the whole stack's. A failure of the whole stack's robot lists the `commits` of every branch
   of the stack, each with its `branch`; the stack branch has no mapping notes, so they are matched by identity.
@@ -2033,7 +2045,7 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
   or a running check with a failed build). `kind`: `checks`; `infrastructure` (every failed check only failed to
   start its builds: the user restarts it, nothing to fix); `massive` (Patronus detected a massive failure: the branch
   may break a core module, or the target is broken); `patronus` (no check failed, Patronus reports an error such as
-  a conflict of the rebase onto `target_revision`: `bd update`); `unknown`. `checks` are the failed checks by their
+  a conflict of the rebase onto `target_revision`: `brd update`); `unknown`. `checks` are the failed checks by their
   last attempt (`running` for a running one), `build_id` the TeamCity build id (`teamcity run log <build_id>`);
   `problems` those of severity error. `test_revision` is the commit TeamCity built (the robot's commit rebased onto
   `target_revision`), a full id and not a local commit.
@@ -2054,50 +2066,50 @@ token and the repository on Space are needed as for `bd safe-push` (`not_logged_
 - The agent fixes and checks locally; the user pushes and restarts the Safe Push.
 - `closes` (a merged Safe Push): the open pull requests of the branches it landed whole besides its own, each holding
   nothing the branch lacks, never the one it started from (`[{"branch":"auth","number":5}]`): the app closes them with
-  a comment, by the same rule (`domain_policy::landed::pull_requests_to_close`); `bd` closes none. Compared with the
+  a comment, by the same rule (`domain_policy::landed::pull_requests_to_close`); `brd` closes none. Compared with the
   tips the refs hold, no sync; left out for a robot that didn't merge, off GitHub and while GitHub doesn't list the
   pull requests.
 - `patronus_error` (exit 5): a request to Patronus failed, `message` is its answer.
 
-### `bd operation forget <op>`
+### `brd operation forget <op>`
 
-A start whose answer was lost (`busy` with `error.holder.unknown`, or `start_unknown` of a `bd safe-push`) holds its
-branch in the operations registry of the repository until Patronus lists its robot. `bd operation forget <op>`, only
+A start whose answer was lost (`busy` with `error.holder.unknown`, or `start_unknown` of a `brd safe-push`) holds its
+branch in the operations registry of the repository until Patronus lists its robot. `brd operation forget <op>`, only
 when the user says so, takes its record out (`operations::forget`, the core of Forget This Start of the app), so the
-branch can start again; Patronus is not asked and may still run the robot it sent (`bd robot <branch>` shows it once
+branch can start again; Patronus is not asked and may still run the robot it sent (`brd robot <branch>` shows it once
 listed). Output `{schema, repository, forgotten, subject, source_ref}`; `invalid_arguments` (exit 2) for an id the
 registry lacks (it ended, or a read of Patronus settled it) or of an operation whose process still runs it; `locked`
 when another process keeps the lock of the registry.
 
-### `bd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
+### `brd describe <branch> [--title T] [--body B | --body-file F] [--clear]`
 
 Prints or sets the pull request text of a branch in git's own `branch.<prefix>/virtual/<branch>.description`, stored
 as `title`, a blank line and the body, as `git branch --edit-description` writes it. Without options it prints
 `{…,"branch","ref","description":{"title","body"}|null,"changed":false}`. `--title` or `--body` replace only that part;
 `--body-file -` reads stdin; `--clear` removes it. The branch must be a current group. The `descriptions` of a
-`bd group` plan set the texts of several branches in the same call as the rewrite. The app shows the title after the
+`brd group` plan set the texts of several branches in the same call as the rewrite. The app shows the title after the
 branch name, in the branch table and the branch preview.
 
-### `bd schema`
+### `brd schema`
 
 Without a name it prints the index `{"schema":2,"commands":{"<command>":["<output>",…]}}` (under 1 KB), because every
-schema together is about 350 KB, some 90k tokens that an agent would read for one field. `bd schema <name>...` prints
+schema together is about 350 KB, some 90k tokens that an agent would read for one field. `brd schema <name>...` prints
 `{"schema":2,"outputs":{"<output>":<JSON Schema>,…}}` of those commands or outputs, `--all` of every output, each named
 by the test `schema_lists_every_output`. `COMMAND_OUTPUTS` in `schema.rs` is the index: `rewrite` is the output of
 `group`, `rename`, `restack`, `unstack` and `reword`, `commits_brief` and `status_brief` the outputs of `--brief`,
-`update_status` and `update_abort` those of `bd update --status` and `--abort`, `lease_get` … `lease_clean` those of
-`bd lease`; `error` is the error of any command. An unknown name is `invalid_arguments` with every name.
+`update_status` and `update_abort` those of `brd update --status` and `--abort`, `lease_get` … `lease_clean` those of
+`brd lease`; `error` is the error of any command. An unknown name is `invalid_arguments` with every name.
 
-### `bd workspace`
+### `brd workspace`
 
 Run by an agent before its first edit or commit (the skill says so; the contract
-[bd workspace](../../spec/cli/workspace.spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
+[brd workspace](../../spec/cli/workspace.spec.md)). Read only: `lease_pool::agent_workspace`, one `rev-parse`, one
 `git config` of the `branchdeck.*` keys, in the main worktree one more of the pool config, in the main worktree or a
 lease one `status` of the shared checkout, and in a lease one more `rev-parse` of the branch the shared checkout has
 checked out now. Two rules of the git config, each `{on, source, invalid, reason}`:
 
 - `lease`: `branchdeck.agentLease`, on by default. Work in a lease of the pool, land each commit that builds and passes
-  its tests at once with `bd lease pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
+  its tests at once with `brd lease pick`, return the lease when done. Off with a `reason` in a linked worktree outside the
   pool (a checkout of its own already), outside a working tree, and when the pool directory can't be written (a
   sandbox; a probe file in its first existing parent, removed at once).
 - `subject_branch`: `branchdeck.agentSubjectBranch`, on by default. Start each commit subject with `(branch) `: the
@@ -2106,88 +2118,88 @@ checked out now. Two rules of the git config, each `{on, source, invalid, reason
 
 `source` is the scope that sets the rule (`local`, `worktree`, `command`, `global`, `system`) or `default`; the user
 sets the global value and the repository's own in Settings → Agents, or with `git config [--global]`. `kind` is
-`main`, `linked`, `lease` or `none`; `subdir` where bd runs below the top level; `shared_checkout` the checkout the
-commits land on (the main worktree, or the source of this lease); in a lease `home` as `bd lease get` prints it, with
+`main`, `linked`, `lease` or `none`; `subdir` where brd runs below the top level; `shared_checkout` the checkout the
+commits land on (the main worktree, or the source of this lease); in a lease `home` as `brd lease get` prints it, with
 `switched_to` when the shared checkout has another branch checked out now (`null`: detached); `lease_id` and `holder` this slot's lease;
 `local_changes` the number of local changes of the shared checkout, which a lease lacks; `active_leases` every ready
 lease of the pool (`lease_id`, `holder`, `path`, `holder_alive`, `idle` for one whose holder is gone); in a slot taken
-over from a dead holder, another session's `bd workspace` is `lease_reclaimed`; `next` the commands to run, in order:
+over from a dead holder, another session's `brd workspace` is `lease_reclaimed`; `next` the commands to run, in order:
 
 ```json
 {"schema":2,"kind":"main","lease":{"on":true,"source":"default"},"subject_branch":{"on":true,"source":"default"},
  "stacks":false,"top_level":"/work/app","subdir":"crates/x","shared_checkout":"/work/app","local_changes":1,
- "active_leases":[],"next":["bd lease get --holder <your name> -C /work/app"]}
+ "active_leases":[],"next":["brd lease get --holder <your name> -C /work/app"]}
 ```
 
-Inside the lease `next` is `bd -C <slot> lease pick` and `bd lease return --lease-id <id>`, as `bd lease get` printed it.
+Inside the lease `next` is `brd -C <slot> lease pick` and `brd lease return --lease-id <id>`, as `brd lease get` printed it.
 
-### `bd version`, `bd --version`
+### `brd version`, `brd --version`
 
 Both print `{"schema":2,"version":"0.11.0","git":"2.56.0"}` and need no repository. `version` is the version of
 Branch Deck, the one the app shows: `build.rs` of `crates/bd-core` (bd-cli runs it too) reads it from the root `package.json`, which
 release-please updates and `src-tauri/tauri.conf.json` names (`"version": "../package.json"`). The workspace version of the crates stays 0.1.0, so `CARGO_PKG_VERSION` is not it. `git` is
-the version of the git bd finds (see Invocation), also of one older than 2.54, and `null` without one: never an
-error. The first line of `bd help agent` names the version too.
+the version of the git brd finds (see Invocation), also of one older than 2.54, and `null` without one: never an
+error. The first line of `brd help agent` names the version too.
 
-### `bd install [--uninstall]`, `bd help skill`
+### `brd install [--uninstall]`, `brd help skill`
 
-How an agent learns that bd exists. `bd install`, or Help → Install Agent CLI… in the app
+How an agent learns that brd exists. `brd install`, or Help → Install Agent CLI… in the app
 (`install_agent_cli` of `crates/app-api/src/app/agent_cli.rs`, through `src-tauri/src/agent_cli.rs`: the same code), writes:
 
-- on macOS and Linux a `bd` symlink in `~/.local/bin` to the app binary, which runs the CLI under that name. A symlink
+- on macOS and Linux a `brd` symlink in `~/.local/bin` to the app binary, which runs the CLI under that name. A symlink
   there is replaced; a file that is not a symlink is `install_refused` (exit 4). On Linux an app run from an AppImage
   (`APPIMAGE` is set) is linked by the AppImage file, not by the binary in its mount under `/tmp/.mount_*`, which goes
   when the app quits. On macOS an app that Gatekeeper translocated (started from Downloads or a disk image, its path
   contains `/AppTranslocation/`) is `install_refused`: "Branch Deck runs from a temporary location: move it to
-  Applications, then install the Agent CLI". On Windows `bd.exe` is next to the app already, and a symlink would need
+  Applications, then install the Agent CLI". On Windows `brd.exe` is next to the app already, and a symlink would need
   developer mode;
 - the skill `branch-deck` (`SKILL.md`, the Agent Skills format) into `~/.claude/skills/branch-deck/` (Claude Code) and
-  `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use bd (`bd help skill`
-  prints it), first of all before the first edit or commit in a Git repository, for `bd workspace`; then grouping or
+  `~/.agents/skills/branch-deck/` (Codex and others). Its description tells an agent when to use brd (`brd help skill`
+  prints it), first of all before the first edit or commit in a Git repository, for `brd workspace`; then grouping or
   splitting commits into branches or pull requests, stacked branches, fixups, a change in the wrong commit, an update
   or rebase onto the baseline and its conflicts, landing the commits of a worktree onto a shared branch, the lease of a
   worktree, a Safe Push or Dry Run and why it failed, a review request, Branch Deck. The description stays within the
-  1024 characters of the Agent Skills format. Its body names bd by its full path, so it works without `PATH`; it starts
-  with `bd workspace` and what each of its rules asks (the lease: work only in its `path`, land each commit at once,
+  1024 characters of the Agent Skills format. Its body names brd by its full path, so it works without `PATH`; it starts
+  with `brd workspace` and what each of its rules asks (the lease: work only in its `path`, land each commit at once,
   return only its own lease; the subject branch: `(branch) ` first, else the subject as the repository writes it) and
   the isolation rules a repository would otherwise repeat (no `git worktree add` or clone of the agent's own, also
-  when bd fails). The rule of the lease names no agent. A note for each kind of agent follows it: in Claude Code a
+  when brd fails). The rule of the lease names no agent. A note for each kind of agent follows it: in Claude Code a
   `cd` into `path`, else `EnterWorktree` with it; in a Codex sandbox, write access to exactly the lease's `path`; with
   a shell that does not keep the current directory (Junie, for example), an absolute path in `path` for each file
-  tool and `cd <path> && ` before each shell command. The body then sends the agent to `bd help agent` for grouping, pushing
-  and Safe Push, to `bd help update` for an update, to `bd help worktrees` when several sessions or worktrees work
-  on one branch, and to `bd <command> --help` for the outputs and refusals of a command; it asks for
-  `bd safe-push <branch> --dry-run` before a Safe Push, as the Safe Push of a stacked branch lands its parents too, and
-  keeps the rules an agent must not miss before it reads any help (approval, no reorder, `bd pick`, `error.code`,
-  parked, unapply). The workflow and the fields stay in the binary, so the skill can't fall out of date with it. Its `allowed-tools` is `Bash(<bd>:*)`: while the skill is active, Claude Code
-  runs every bd command without a permission prompt, also `bd group`, which rewrites the checked out branch, and
-  `bd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
+  tool and `cd <path> && ` before each shell command. The body then sends the agent to `brd help agent` for grouping, pushing
+  and Safe Push, to `brd help update` for an update, to `brd help worktrees` when several sessions or worktrees work
+  on one branch, and to `brd <command> --help` for the outputs and refusals of a command; it asks for
+  `brd safe-push <branch> --dry-run` before a Safe Push, as the Safe Push of a stacked branch lands its parents too, and
+  keeps the rules an agent must not miss before it reads any help (approval, no reorder, `brd pick`, `error.code`,
+  parked, unapply). The workflow and the fields stay in the binary, so the skill can't fall out of date with it. Its `allowed-tools` is `Bash(<brd>:*)`: while the skill is active, Claude Code
+  runs every brd command without a permission prompt, also `brd group`, which rewrites the checked out branch, and
+  `brd push`. The approval of a push or a Safe Push is the rule of the skill's body, not a prompt.
 
-It prints `{"schema":2,"bd":"/Users/me/.local/bin/bd","on_path":true,"skills":[…],"uninstalled":false,
-"agents":{"lease":true,"subject_branch":true}}`. `agents` is what `bd workspace` answers in a repository without its
+It prints `{"schema":2,"brd":"/Users/me/.local/bin/brd","on_path":true,"removed_legacy":[],"skills":[…],"uninstalled":false,
+"bd_host":null,"agents":{"lease":true,"subject_branch":true}}`. `agents` is what `brd workspace` answers in a repository without its
 own value (one `git config --global`), which the app's toast tells the user. `on_path`
-says whether `bd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
-Finder has a minimal one. `--uninstall` removes the skills and the symlink if it points at this app (or at a removed
-`branch-deck`). `bd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
+says whether `brd` on `PATH` is this one; the app asks the user's login shell for `PATH`, since an app started from the
+Finder has a minimal one. `--uninstall` removes the skills and current and legacy symlinks only when they point at this app (or at a removed
+`branch-deck`). `brd help skill` prints the skill as text, for an agent that reads skills from elsewhere. Without the
 symlink it names the app binary with `cli` (`'/Applications/Branch Deck.app/…/branch-deck' cli`), quoted for the shell
 and to be run as written: the bare app binary starts the app.
 
-The app's prompts name bd the same way without an install: the Tauri command `agent_cli_command(repository)`
-(`bd_command` and `for_shell_in` in `install.rs`) returns `<bd> -C <repository>`, with the `bd` symlink when it points
-at the running app, else the app binary with `cli` (on Windows `bd.exe` next to the app; a binary named `bd`, such as
+The app's prompts name brd the same way without an install: the Tauri command `agent_cli_command(repository)`
+(`bd_command` and `for_shell_in` in `install.rs`) returns `<brd> -C <repository>`, with the `brd` symlink when it points
+at the running app, else the app binary with `cli` (on Windows `brd.exe` next to the app; a binary named `brd`, such as
 a cargo build, needs no `cli`). It is quoted for a POSIX
-shell, or for PowerShell on Windows (`& '<bd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the
-bd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `bd.exe`), the
+shell, or for PowerShell on Windows (`& '<brd.exe>' -C '<repository>'`, single quotes, in which `$` does not expand, `powershell: true`). It writes nothing, so the
+brd of a prompt is always the version of the app that copied it. When the app can't tell its binary (no `brd.exe`), the
 blocked prompt names no command: the user updates in the app.
 
-### `bd help agent`
+### `brd help agent`
 
 Prints the agent workflow as plain text (`AGENT_HELP`, a core of at most 10 KB, about 2,500 tokens): the rules first,
 the refusals that wait for the user with the flag only the user's word allows, then the steps, then the other tasks.
 Every agent reads it before grouping or pushing, so it carries only what an agent must know before it acts; a step
 sends the agent to the `--help` of its command for the fields of the output and the other refusals. It only names the
-resolve session, which `bd help update` prints (`UPDATE_HELP`), and the work beside other sessions, which
-`bd help worktrees` prints (`WORKTREES_HELP`). Agents act on the error they get and seldom read a `--help` first: so a
+resolve session, which `brd help update` prints (`UPDATE_HELP`), and the work beside other sessions, which
+`brd help worktrees` prints (`WORKTREES_HELP`). Agents act on the error they get and seldom read a `--help` first: so a
 rule that waits for the user stays in the core and in the message of the error, never only in a `--help`.
 
 `agent_help_test.rs` keeps the texts true. Together with the `after_long_help` of every command they must name every
@@ -2196,40 +2208,40 @@ command and, for each command, every long option, unless the test lists it in `N
 before the first), and it must exist for that command. `documented_in`, an exhaustive match over `ErrorCode`, places
 every code: the core, a topic or the `--help` of a command must name it.
 
-### `bd <command> --help`
+### `brd <command> --help`
 
 The text after the options (`after_long_help`, constants beside `AGENT_HELP`) of `status`, `suggest`, `check`, `group`,
 `push`, `safe-push`, `request-review`, `robot`, `robot-stats`, `fold`, `squash`, `reword` and `move-hunk`: the fields of the
-output and what each refusal asks. `-h` ends with one line that names `--help`; `bd help <command>` prints the same
+output and what each refusal asks. `-h` ends with one line that names `--help`; `brd help <command>` prints the same
 as `--help`, because an agent tries it first.
 
-### `bd help worktrees`
+### `brd help worktrees`
 
 Prints how agent sessions that share a checkout work beside each other, each committing in a worktree of its own
-(`WORKTREES_HELP`, about 55 lines): the lease of that worktree with `bd lease get` when `bd workspace` says
-`lease.on`, and its return; the `(branch)` prefix, when `bd workspace` says `subject_branch.on`, is written when a
+(`WORKTREES_HELP`, about 55 lines): the lease of that worktree with `brd lease get` when `brd workspace` says
+`lease.on`, and its return; the `(branch)` prefix, when `brd workspace` says `subject_branch.on`, is written when a
 commit is made, never guessed later; one
-owner rewrites the shared branch (`bd update`, `bd fold`, `bd group`, `bd rename`) and every other session only adds
-commits with `bd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
-and what to do with each; `bd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol
+owner rewrites the shared branch (`brd update`, `brd fold`, `brd group`, `brd rename`) and every other session only adds
+commits with `brd pick --from <worktree> --follow`, never a cherry-pick in the shared checkout; the outcomes of a pick
+and what to do with each; `brd pick --dry-run` as the check after a rewrite, never a comparison by date; the protocol
 of the owner (the lock, `operation_in_progress`, the new HEAD told to the others); and the `branch-deck: <operation>`
 reflog lines. The skill sends an agent there when several sessions or worktrees work on one branch.
 
 ## Agent workflow
 
-The workflow is `bd help agent` (`AGENT_HELP` in `crates/bd-cli/src/agent_help.rs`): the rules first (what needs the
-user's approval, what each exit code asks for, when to retry, how to undo), then the steps from `bd suggest` to the
-robot of a Safe Push, then the other tasks (`bd update`, `bd pick`, `bd fold`, `bd squash`, `bd move-hunk`). It is the one text an
+The workflow is `brd help agent` (`AGENT_HELP` in `crates/bd-cli/src/agent_help.rs`): the rules first (what needs the
+user's approval, what each exit code asks for, when to retry, how to undo), then the steps from `brd suggest` to the
+robot of a Safe Push, then the other tasks (`brd update`, `brd pick`, `brd fold`, `brd squash`, `brd move-hunk`). It is the one text an
 agent follows, versioned with the binary and checked by `agent_help_test.rs`; this guide is its reference and does not
-repeat it. `bd help update` and `bd help worktrees` hold the resolve session and the work beside other sessions, the
+repeat it. `brd help update` and `brd help worktrees` hold the resolve session and the work beside other sessions, the
 `--help` of a command its outputs and refusals.
 
-What an agent reads, by cost: the skill (about 5 KB, loaded whenever it triggers), `bd help agent` (at most 10 KB,
-before grouping or pushing), then only the `--help` of the command it runs, or the topic of its task; `bd schema
+What an agent reads, by cost: the skill (about 5 KB, loaded whenever it triggers), `brd help agent` (at most 10 KB,
+before grouping or pushing), then only the `--help` of the command it runs, or the topic of its task; `brd schema
 <command>` for the exact fields. Nothing in this guide is installed.
 
 The app's Update Project hand-off prompt (`src/lib/agent-prompt.ts`) states the same rules for an agent that rebases:
 no reordered, squashed or dropped commit, no push, no stash. For an update blocked by uncommitted changes it sends the
-agent to the user about each file and then to `bd update --no-fetch`; for a conflict, to `bd update --no-fetch` and
-its resolve session; without a bd command, to the git steps, which ask the user about uncommitted changes instead of
+agent to the user about each file and then to `brd update --no-fetch`; for a conflict, to `brd update --no-fetch` and
+its resolve session; without a brd command, to the git steps, which ask the user about uncommitted changes instead of
 stashing them.

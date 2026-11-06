@@ -308,7 +308,7 @@ async fn a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_
     panic!("{refused:?}")
   };
   assert_eq!((refused.code, holder.op.as_str(), holder.unknown), (ErrorCode::Busy, "op", true));
-  assert!(refused.message.contains("`bd operation forget op`"), "{}", refused.message);
+  assert!(refused.message.contains("`brd operation forget op`"), "{}", refused.message);
 
   let mut listed = robot_json("started-1", "RUNNING", ALPHA, &format_utc_timestamp(start.sent_at));
   listed["sourceRevision"] = json!(pushed);

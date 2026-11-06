@@ -53,7 +53,7 @@ test("a process that detaches ends at its first end, a killed one at its last ev
 test("a binary of the report is named as its file: the crate of its unit tests, else its target", () => {
   assert.equal(binaryFileName("bd-remote"), "bd_remote")
   assert.equal(binaryFileName("host-agent::serve"), "serve")
-  assert.equal(binaryFileName("bd-host::bin/bd-host"), "bd_host")
+  assert.equal(binaryFileName("bd-host::bin/brd-host"), "brd_host")
 })
 
 test("the processes that run at once are counted once in the time git ran", () => {

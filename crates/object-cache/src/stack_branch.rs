@@ -1,7 +1,7 @@
 //! `stack_branch`: (version, a hash of the base and the original commits of a stack branch) -> what their build gave,
 //! opaque here (`sync_core::stack_branch`): the tip, or the commit that conflicts and its files. The build is a function
 //! of those commits (the copies are deterministic), so a sync whose stack has the same commits on the same base runs no
-//! merge to know its stack branch is built, and `bd status` knows it without a sync. The version of the build is part
+//! merge to know its stack branch is built, and `brd status` knows it without a sync. The version of the build is part
 //! of each key, and the first write of a process with another version clears the store, as for `remote_status`
 
 use crate::cache::{ObjectCache, Store, hashed_key};

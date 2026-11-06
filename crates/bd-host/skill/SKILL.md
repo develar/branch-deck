@@ -1,16 +1,16 @@
 ---
-name: bd-host
-description: Use to run a command, a build or a test on another machine of the user with `bd-host run <host>` or `bt --host <host>`, or to follow, cancel or fetch a run.
+name: brd-host
+description: Use to run a command, a build or a test on another machine of the user with `brd-host run <host>` or `bt --host <host>`, or to follow, cancel or fetch a run.
 ---
 
-# bd-host
+# brd-host
 
-`bd-host` runs a command of this checkout on another machine of the user, the host. The agent on the host is
-`bd-host serve`. It checks out the commit in a warm host slot of Branch Deck and runs the command there. The output
+`brd-host` runs a command of this checkout on another machine of the user, the host. The agent on the host is
+`brd-host serve`. It checks out the commit in a warm host slot of Branch Deck and runs the command there. The output
 streams back, and the exit code is the one of the command. Use it for heavy work: a long test suite, flake trials with
 many runs, or a measurement that needs a quiet machine.
 
-`bd-host skill install` writes this skill into `~/.claude/skills/bd-host/`. The full documents of this build are in
+`brd-host skill install` writes this skill into `~/.claude/skills/brd-host/`. The full documents of this build are in
 `references/`: `spec.md` (the contract: every command, the files, `[host]`, the refusal codes, the report of a run)
 and `design.md` (why, the slot model, the processes and the upgrade).
 
@@ -18,9 +18,9 @@ and `design.md` (why, the slot model, the processes and the upgrade).
 
 | Command | Who |
 |---|---|
-| `bd-host run`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
-| `bd-host upgrade <host>`, `bd-host trim <host>` | An agent, only after the user agrees: the one deploys a new agent, the other deletes worktrees, on a machine that the user shares. |
-| `bd-host setup …`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
+| `brd-host run`, `follow`, `runs`, `slots`, `disk`, `trim --plan`, `hello`, `cancel`, `fetch`, `forget`, `bt --host <host> …` | An agent, at any time. Cancel and forget only your own runs. |
+| `brd-host upgrade <host>`, `brd-host trim <host>` | An agent, only after the user agrees: the one deploys a new agent, the other deletes worktrees, on a machine that the user shares. |
+| `brd-host setup …`, `slots --shrink`, the install of Homebrew, and every `ssh` or `sudo` on the host | The user only. They use ssh or change the host. |
 
 A run needs no ssh: each end pins the certificate of the other end, so a run works from a background session too.
 Never install, configure or restart the agent by hand. Tell the user what a refusal names.
@@ -28,11 +28,11 @@ Never install, configure or restart the agent by hand. Tell the user what a refu
 ## Run a command
 
 ```sh
-bd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice <0-19>] [--repo <path>]
+brd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice <0-19>] [--repo <path>]
                [--affinity <key>] [--report-fd <n>] -- <command> <args>
 ```
 
-- `bd-host` ships the working tree as it is: HEAD plus the tracked and untracked changes that git does not ignore, as
+- `brd-host` ships the working tree as it is: HEAD plus the tracked and untracked changes that git does not ignore, as
   one commit. Your index, files and refs stay as they are. Ignored files stay local, and the host has its own.
 - `--head` runs the committed HEAD only, and refuses a checkout with local changes (`local_changes`).
 - `--fetch <dir>` copies the new entries of `<dir>` back into this checkout. The path is relative to the root of the
@@ -44,7 +44,7 @@ bd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice 
 - The run goes to the repository of the same name as this one on the host, beside the main repository of the host
   file. `--repo` names another one.
 - `--report-fd <n>` writes one JSON report of the run to the descriptor `n` on every way out. stdout then holds only
-  the stdout of the command. `bd-host schema` prints the shape of the report.
+  the stdout of the command. `brd-host schema` prints the shape of the report.
 - The command gets the login environment of the user on the host, 65536 open files, and `BD_HOST_RUN`,
   `BD_HOST_AFFINITY`, `BD_HOST_COMMIT` and `BD_HOST_SLOT`. The tools come from the login `PATH` of the host.
 - The command needs no login shell: it has the login environment already. A shell line goes through `zsh -c`. On
@@ -52,7 +52,7 @@ bd-host run <host> [--head] [--fetch <dir>]... [--apply] [--no-outputs] [--nice 
   Apple Git and not the git of Homebrew. The run then writes a warning after its `running in` line.
 
 ```sh
-bd-host run studio --fetch out/test-results -- zsh -c 'make test > out/test-results/log.txt'
+brd-host run studio --fetch out/test-results -- zsh -c 'make test > out/test-results/log.txt'
 ```
 
 A Mac host stays awake while a client talks to it and while a run goes on.
@@ -62,12 +62,12 @@ only and refuses a dirty tree. The new run directories of `out/bt-runs` come bac
 
 ### The lines of a run
 
-- `bd-host: run <run> of <commit> on <host>` comes first. Keep the run id: `follow`, `cancel` and `fetch` need it.
-- `bd-host: running in <slot> (slot <n>): load …, nice …, … open files, git <version>, …` comes right before the
+- `brd-host: run <run> of <commit> on <host>` comes first. Keep the run id: `follow`, `cancel` and `fetch` need it.
+- `brd-host: running in <slot> (slot <n>): load …, nice …, … open files, git <version>, …` comes right before the
   command.
-- `bd-host: phases: …` comes at the end. Read it before you guess where the time went.
+- `brd-host: phases: …` comes at the end. Read it before you guess where the time went.
 
-All the lines of `bd-host` and the stderr of the command go to stderr. stdout is only the stdout of the command.
+All the lines of `brd-host` and the stderr of the command go to stderr. stdout is only the stdout of the command.
 
 | Step | Where | A long step means |
 |---|---|---|
@@ -81,17 +81,17 @@ All the lines of `bd-host` and the stderr of the command go to stderr. stdout is
 | `stage`, `fetch` | host, here | The outputs and the fetched files are large. |
 | `total` | here | The whole call. |
 
-`bd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more. `bd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `bd-host slots <host>`
+`brd-host runs <host>` lists the runs that the host keeps, each with its steps of 0.1 s or more. `brd-host disk [<host>]` says what the lease pools of a host hold on disk (every host without one). `brd-host slots <host>`
 shows the lend table of the host: each slot, its state, its run and the queue.
 
 ## The disk of a host
 
-A host has the agent only: no Branch Deck app and no `bd`. Never install, copy or link either there, and never run
-`bd lease` on a host through `bd-host run`. Below `branchdeck.leaseMinFree` of the host the agent frees space by
+A host has the agent only: no Branch Deck app and no `brd` binary. Never install, copy or link either there, and never run
+`brd lease` on a host through `brd-host run`. Below `branchdeck.leaseMinFree` of the host the agent frees space by
 itself, once a minute: the trash, the free slots past `branchdeck.leaseMaxSlots`, then the build output and the free
-slots below the limit, as a `bd lease get` does. `bd-host trim <host> [--max <n>] [--plan]` deletes the free slots past
-the limit now, as `bd lease trim` does there; `bd-host disk <host>` shows what a trim deletes next. An agent without
-the feature `trim` names `bd-host upgrade <host>`: ask the user for it.
+slots below the limit, as a `brd lease get` does. `brd-host trim <host> [--max <n>] [--plan]` deletes the free slots past
+the limit now, as `brd lease trim` does there; `brd-host disk <host>` shows what a trim deletes next. An agent without
+the feature `trim` names `brd-host upgrade <host>`: ask the user for it.
 
 ## Exit codes
 
@@ -99,12 +99,12 @@ the feature `trim` names `bd-host upgrade <host>`: ask the user for it.
 |---|---|---|
 | The code of the command | The command ran to its end. | Read the output as for a local run. |
 | 75 | The host did not run the command: a refusal before the start, such as `unreachable`, `behind` or `slot_timeout`. | Run the command locally. |
-| 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `bd-host follow <host> <run>` shows its end. |
+| 130 | Ctrl+C before the command, or a second Ctrl+C. | Before the command, nothing ran. After a second Ctrl+C, the run goes on: `brd-host follow <host> <run>` shows its end. |
 | 255 with `unknown_run` | The run started and is gone on the host. Whether its command ran is unknown. | Never rerun it locally on your own. Tell the user. |
-| 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `bd-host follow`. |
+| 255, any other | The link broke after the start, the fetch or the changes failed, or a request other than a run failed. | Read the message. A lost run goes on: `brd-host follow`. |
 | 2 | A usage error. | Fix the command line. |
 
-`bd-host schema` prints every refusal code with its exit code. Act on the code, never on the message.
+`brd-host schema` prints every refusal code with its exit code. Act on the code, never on the message.
 
 ## A lost link, follow and cancel
 
@@ -112,13 +112,13 @@ The run lives on the host, not on the connection. A lost link connects again, wi
 output follows from the last line it showed. After 10 min without a reply the client exits with 255 and names the
 command that follows the run.
 
-- `bd-host follow <host> <run>` follows a run from its first line. Ctrl+C leaves, and the run goes on.
-- `bd-host cancel <host> <run>` asks the host to interrupt a run. `follow` shows its end.
-- Ctrl+C in `bd-host run` cancels the run on the host and shows the output to its end. A second Ctrl+C leaves at once.
-- `bd-host fetch <host> <run> [--fetch <dir>]` copies the files of a run whose copy failed (`fetch_failed`). Run it in
+- `brd-host follow <host> <run>` follows a run from its first line. Ctrl+C leaves, and the run goes on.
+- `brd-host cancel <host> <run>` asks the host to interrupt a run. `follow` shows its end.
+- Ctrl+C in `brd-host run` cancels the run on the host and shows the output to its end. A second Ctrl+C leaves at once.
+- `brd-host fetch <host> <run> [--fetch <dir>]` copies the files of a run whose copy failed (`fetch_failed`). Run it in
   the checkout of the run: the record of the run there says which files come. Without the record, only `--fetch`
   directories come.
-- `bd-host forget <host> <run>` removes a run and its files on the host. The host keeps an ended run for 24 h.
+- `brd-host forget <host> <run>` removes a run and its files on the host. The host keeps an ended run for 24 h.
 
 ## The host slots
 
@@ -127,7 +127,7 @@ run borrows one for that run only. A run gets the slot that its affinity used la
 else it waits in a queue with one line a minute. After an hour it refuses with `slot_timeout`. At the end of each run
 the slot comes back: the processes of the run stop, and its changes go. The ignored files stay as the warm cache. So
 nothing keeps or returns a slot by hand. The agent does the lend and the git of the host in process, so the host needs
-no `bd` binary.
+no `brd` binary.
 
 ## Move commits, not trees
 
@@ -167,15 +167,15 @@ creates = ["node_modules"]
 
 ## Refusals
 
-A refusal says `bd-host: <code>: <message>` on stderr. Give the message to the user when the cause is on the host.
+A refusal says `brd-host: <code>: <message>` on stderr. Give the message to the user when the cause is on the host.
 
 | Code | Meaning |
 |---|---|
 | `unreachable` | No address answered. The host can sleep or be off. |
 | `behind` | The host lacks the history near HEAD. The user moves the host. |
-| `untrusted` | The agent identity changed, or the agent does not allow this client. The user runs `bd-host setup <host>`. |
+| `untrusted` | The agent identity changed, or the agent does not allow this client. The user runs `brd-host setup <host>`. |
 | `no_host` | This machine has no host file for the alias: the host was never set up from here. |
-| `schema` | The agent speaks another protocol. Ask the user for `bd-host upgrade <host>`. |
+| `schema` | The agent speaks another protocol. Ask the user for `brd-host upgrade <host>`. |
 | `lease_failed`, `slot_timeout` | The host lent no slot. Exit 75: run locally, or try again later. |
 | `local_changes` | `--head` or `bt --host` with uncommitted or untracked changes. Commit first. |
 | `git_failed` | A local git call failed: the snapshot, the candidates or the pack. Exit 75: run locally. |
@@ -193,16 +193,16 @@ gets `No route to host` for each child. The client handles this itself: after a 
 
 ## The upgrade
 
-`bd-host upgrade <host>` sends this `bd-host` binary to the agent of a macOS host over the link, without ssh. Run it
+`brd-host upgrade <host>` sends this `brd-host` binary to the agent of a macOS host over the link, without ssh. Run it
 only after the user agrees. `--binary <path>` sends another binary. `--force` sends the same build again, or a lower
 version. A watchdog on the host brings back the previous binary when the new one does not listen (`rolled_back`). Runs
 in flight go on.
 
-`bd-host upgrade` also replaces this skill in `~/.claude/skills/bd-host/` when the installed copy is unedited and comes
-from another build. An edited copy stays: `bd-host skill install --force` replaces it.
+`brd-host upgrade` also replaces this skill in `~/.claude/skills/brd-host/` when the installed copy is unedited and comes
+from another build. An edited copy stays: `brd-host skill install --force` replaces it.
 
 ## The files
 
-- Here: `~/.config/bd-host/identity.crt` and `identity.key`, and one host file per alias in `hosts/<alias>.json`.
-- On the host: `~/.cache/bd-host/runs/<run>/` (`events.log`, `exit.json`, `supervisor.log`) and, on macOS,
-  `~/Library/Logs/bd-host.log`. Read them only through the user or a run, never over ssh on your own.
+- Here: `~/.config/brd-host/identity.crt` and `identity.key`, and one host file per alias in `hosts/<alias>.json`.
+- On the host: `~/.cache/brd-host/runs/<run>/` (`events.log`, `exit.json`, `supervisor.log`) and, on macOS,
+  `~/Library/Logs/brd-host.log`. Read them only through the user or a run, never over ssh on your own.

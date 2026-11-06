@@ -1,5 +1,5 @@
 //! The git config an operation reads, with one `git config` process: the `branchdeck.*` settings of
-//! `repository_config` and the branch descriptions of `bd describe`. An operation reads it once and passes it on,
+//! `repository_config` and the branch descriptions of `brd describe`. An operation reads it once and passes it on,
 //! instead of one process per key (docs/design/git-operations.md, "Repository settings").
 
 use crate::github_repository::GitHubRepository;
@@ -19,7 +19,7 @@ use history_rewrite::stack::STACKS_CONFIG_KEY;
 use std::collections::HashMap;
 use tracing::{instrument, warn};
 
-/// The eight `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `bd workspace` and
+/// The eight `branchdeck.*` keys of `repository_config` that an operation reads (the agent keys only `brd workspace` and
 /// Settings read) and every `branch.<name>.description`, as `--get-regexp` matches them: the section and the key
 /// lowercase, the branch name as it is
 const SNAPSHOT_REGEXP: &str = r"^(branchdeck\.(stacks|symbols|githubrepository|branchprefix|resolvebywords|pushsizelimit|landing|reviewexperimental)|branch\..+\.description)$";
@@ -34,7 +34,7 @@ pub const SYMBOLS_CONFIG_KEY: &str = "branchdeck.symbols";
 pub enum SymbolMode {
   /// No summaries are read
   Off,
-  /// `bd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
+  /// `brd commits` reports the dependencies by symbols, and the dangling-reference check subtracts by the trees; nothing
   /// decides by them
   Report,
   /// They also order and stack branches, and the conflict fix and the checks use them

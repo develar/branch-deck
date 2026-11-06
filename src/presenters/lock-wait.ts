@@ -17,12 +17,12 @@ function formatHeldFor(seconds: number): string {
   return seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`
 }
 
-/** Who holds the repository: `bd` by its command line, the app by its name */
+/** Who holds the repository: `brd` by its command line, the app by its name */
 function holderName(holder: LockHolderInfo): string {
   return holder.tool === "bd" ? `\`${holder.command}\`` : "Branch Deck"
 }
 
-/** Who holds the repository, with the pid that tells two of them apart: "`bd push auth` (pid 4242) has held the repository for 40 s" */
+/** Who holds the repository, with the pid that tells two of them apart: "`brd push auth` (pid 4242) has held the repository for 40 s" */
 export function presentLockHolder(holder: LockHolderInfo): string {
   return `${holderName(holder)} (pid ${holder.pid}) has held the repository for ${formatHeldFor(holder.held_for)}`
 }
@@ -71,7 +71,7 @@ export function presentOperationHolder(holder: OperationHolder): string {
 
 /**
  * Whom an operation waits for while another holder has the repository lock, in the words the rewrites of the app say it
- * ("Waiting for `bd pick` (pid 4242, for 12 s)"); a holder no record names: "Waiting for another holder of the
+ * ("Waiting for `brd pick` (pid 4242, for 12 s)"); a holder no record names: "Waiting for another holder of the
  * repository lock"
  */
 export function presentLockWait(holder: LockHolderInfo | null): string {

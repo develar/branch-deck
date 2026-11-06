@@ -64,7 +64,7 @@ function report(value: RobotFailure, map: RobotCommitMap | null = commits): Robo
   return { failure: value, commits: map, headBranch: "master" }
 }
 
-const bd = { command: "bd -C /work/repo", powershell: false }
+const bd = { command: "brd -C /work/repo", powershell: false }
 
 function prompt(value: RobotFailureReport, withBd = true): string {
   return buildRobotPrompt({ repositoryPath: "/work/repo", branchPrefix: "me", baselineBranch: "origin/master", report: value, bd: withBd ? bd : null })
@@ -114,13 +114,13 @@ describe("buildRobotPrompt", () => {
     expect(text).toContain("Branch Deck builds the stack branch `me/stack/air` from the commits of every branch of the stack")
     expect(text).toContain("(`air`, `side`): the robot built them all, so a failure may come from any of them. Fix those commits, not the stack branch.")
     expect(text).toContain("- eeeeeeee (air/side) Add the side — tested (of `side`)")
-    expect(text).toContain("`bd robot air --whole-stack --full`")
+    expect(text).toContain("`brd robot air --whole-stack --full`")
   })
 
   it("points the fast version to the commands that read the details", () => {
     const text = prompt(report(failure()))
-    expect(text).toContain("bd is Branch Deck's CLI, `bd -C /work/repo`; below, `bd` stands for it.")
-    expect(text).toContain("`bd robot auth --full`")
+    expect(text).toContain("brd is Branch Deck's CLI, `brd -C /work/repo`; below, `brd` stands for it.")
+    expect(text).toContain("`brd robot auth --full`")
     expect(text).toContain("`teamcity run log 1095220100 --tail 200`")
     expect(text).not.toContain("## Failed builds")
   })
@@ -169,9 +169,9 @@ describe("buildRobotPrompt", () => {
     expect(prompt(report(failure(), null))).toContain("Match the commits by their subject in `git log`.")
   })
 
-  it("fixes with a fixup commit that the user folds without bd", () => {
+  it("fixes with a fixup commit that the user folds without brd", () => {
     const text = prompt(report(failure()), false)
     expect(text).toContain("commit only the files you changed as `fixup! <subject of that commit>`; I fold it in Branch Deck.")
-    expect(text).not.toContain("bd ")
+    expect(text).not.toContain("brd ")
   })
 })

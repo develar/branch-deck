@@ -1,21 +1,21 @@
-//! `bd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push does: a Safe Push (rebase onto
+//! `brd safe-push`: start a Patronus robot on a virtual branch, as the app's Safe Push does: a Safe Push (rebase onto
 //! the target, the checks, the push into the target) or a Dry Run (the checks only), with a merge profile. A stacked
 //! branch carries the commits of the branches it is built on, so its Safe Push lands them with it, in one robot
 //! (`lands`); with `--dry-run` the trial build of the branch alone says whether it could land without them (`alone`), a
-//! second way the user chooses (`bd unstack`), never the lead. Before a Safe Push the code-owner review is checked;
+//! second way the user chooses (`brd unstack`), never the lead. Before a Safe Push the code-owner review is checked;
 //! unlike the form, which only warns, missing approvals refuse the start (`approvals_missing`): Patronus would fail the
 //! robot with "Changes require review approval". A branch the remote lacks commits of (by content, as the sync's
-//! remote status compares) is pushed first, parents first, as `bd push` pushes it; one only rebuilt on a newer baseline
+//! remote status compares) is pushed first, parents first, as `brd push` pushes it; one only rebuilt on a newer baseline
 //! is not: the robot takes the remote branch. The start is never repeated. With `--dry-run` nothing is pushed or started:
 //! the profiles, the review and what stands in the way, for the user to approve. The approvals count in the GitHub pull
 //! request of the branch (Space merge requests are deprecated): `--create-pull-request` opens it, into the target as
 //! every pull request of a virtual branch (or takes the open one of the branch, whatever its base), and the Safe Push
 //! then starts from it with a `/patronus` comment. An open pull request of the branch, or of a branch the push takes
-//! along, whose base is a virtual branch is retargeted to the target first (D3a, as `bd push` does).
+//! along, whose base is a virtual branch is retargeted to the target first (D3a, as `brd push` does).
 //!
 //! Before the sync, the target's remote branch is fetched, and the check before the push replays what the robot lands
 //! onto its tip, as Patronus rebases it (`sync_core::target_conflict`): a conflict refuses the start
-//! (`target_conflict`), and `bd update` resolves it locally. A failed fetch doesn't stop the check: it replays onto the
+//! (`target_conflict`), and `brd update` resolves it locally. A failed fetch doesn't stop the check: it replays onto the
 //! last fetched tip and says so (`target_check`).
 //!
 //! The sync and the checks before the push take no repository lock; only the witness of the refs and the freeze of the
@@ -163,7 +163,7 @@ pub struct SafePushArgs {
   pub whole_stack: bool,
 }
 
-/// `bd safe-push`
+/// `brd safe-push`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SafePushOutput {
   pub schema: SchemaVersion,
@@ -218,7 +218,7 @@ pub struct SafePushOutput {
   /// without the branches it is built on. A second way for the user to choose, never the lead; a start runs no trial
   #[serde(skip_serializing_if = "Option::is_none")]
   pub alone: Option<AloneBuild>,
-  /// What may break the build though no commit proves it, as `bd check` warns: `possible_dangling_reference`
+  /// What may break the build though no commit proves it, as `brd check` warns: `possible_dangling_reference`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<CheckWarning>,
   /// The branches the start pushed, parents first; empty with `--dry-run` and without `push_needed`
@@ -236,8 +236,8 @@ pub struct SafePushOutput {
   pub robot: Option<RobotSummary>,
   /// The start went out and its answer was lost (a timeout, a connection that broke off, a comment the bot did not
   /// answer within the wait): whether its robot started is not known, and it is never sent again by itself. Its record
-  /// holds the branch in the operations registry until Patronus lists the robot (`bd robot <branch>`), or the user
-  /// forgets it (`bd operation forget <operation>`); `null` when the start was answered
+  /// holds the branch in the operations registry until Patronus lists the robot (`brd robot <branch>`), or the user
+  /// forgets it (`brd operation forget <operation>`); `null` when the start was answered
   #[serde(skip_serializing_if = "Option::is_none")]
   pub start_unknown: Option<StartUnknown>,
   /// The pull request the robot starts from; with `--dry-run`, the one it would start from; with
@@ -318,7 +318,7 @@ pub struct TargetCheckSummary {
 /// root on the base the sync builds on, not on the newest target; it writes git objects only and unstacks nothing
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct AloneBuild {
-  /// `builds`: it applies alone, and `bd unstack <branch>` (only after the user approves) makes it a root that lands
+  /// `builds`: it applies alone, and `brd unstack <branch>` (only after the user approves) makes it a root that lands
   /// alone, unless `uses` names a name of its stack; `needs`: a commit of it conflicts without the branches it is built
   /// on; `unknown`: the trial failed, `message` says why
   pub result: String,
@@ -339,7 +339,7 @@ pub struct AloneBuild {
   /// line dependencies: what a move into the branch would move; empty when no commit of them explains the conflict
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub needs: Vec<StackCommitSummary>,
-  /// With `needs`: whether `needs` can move into the branch (then `bd unstack <branch>`); `false`: other branches need
+  /// With `needs`: whether `needs` can move into the branch (then `brd unstack <branch>`); `false`: other branches need
   /// them too, and a move would make those need this one
   #[serde(skip_serializing_if = "Option::is_none")]
   pub movable: Option<bool>,
@@ -537,7 +537,7 @@ impl Start<'_> {
   }
 }
 
-/// `bd safe-push <name>`, with `--whole-stack` for the whole stack of a stack that forks
+/// `brd safe-push <name>`, with `--whole-stack` for the whole stack of a stack that forks
 fn safe_push_again(context: &RepoContext, name: &str, whole_stack: bool) -> String {
   let whole_stack = if whole_stack { " --whole-stack" } else { "" };
   format!("{} safe-push {}{whole_stack}", context.bd, shell_word(name))
@@ -781,7 +781,7 @@ fn tell(
 /// A start whose answer was lost (`SafePushOutput::start_unknown`)
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct StartUnknown {
-  /// The id of its operation, which `busy` names and `bd operation forget` takes
+  /// The id of its operation, which `busy` names and `brd operation forget` takes
   pub operation: String,
   /// Why its answer is not known
   pub reason: String,
@@ -803,8 +803,8 @@ fn whole_stack_arg<'s>(context: &RepoContext, args: &SafePushArgs, synced: &'s S
   whole_stack_of_branch(context, args.whole_stack.then_some(args.branch.as_str()), synced)
 }
 
-/// The whole stack of `branch` from the sync, while the command lands it whole (`--whole-stack` of `bd safe-push` and
-/// `bd land`); none without
+/// The whole stack of `branch` from the sync, while the command lands it whole (`--whole-stack` of `brd safe-push` and
+/// `brd land`); none without
 pub(crate) fn whole_stack_of_branch<'s>(context: &RepoContext, branch: Option<&str>, synced: &'s SyncOutput) -> Result<Option<WholeStack<'s>>, CliError> {
   let Some(branch) = branch else {
     return Ok(None);
@@ -1018,7 +1018,7 @@ pub(crate) fn table_error(context: &RepoContext, synced: &SyncOutput, start: &St
       .unwrap_or_default();
     CliError::new(
       ErrorCode::PushRefused,
-      format!("Nothing was pushed or started: {branch} is not synced ({detail}); fix it first, `bd sync` says what holds it"),
+      format!("Nothing was pushed or started: {branch} is not synced ({detail}); fix it first, `brd sync` says what holds it"),
     )
     .with_next_step(format!("{} sync", context.bd), false)
   } else {
@@ -1041,11 +1041,11 @@ pub(crate) fn table_error(context: &RepoContext, synced: &SyncOutput, start: &St
 /// (`stack_conflict_words`, the app's words too), and the way out
 fn stack_conflict_message(context: &RepoContext, synced: &SyncOutput, update: &StackBranchUpdate) -> String {
   let Some(conflict) = &update.conflict else {
-    return format!("Nothing was pushed or started: the stack branch of {} conflicts; `bd sync` names the commit", update.root);
+    return format!("Nothing was pushed or started: the stack branch of {} conflicts; `brd sync` names the commit", update.root);
   };
   let short = context.short_ids(std::iter::once(conflict.commit.as_str()));
   format!(
-    "Nothing was pushed or started: {}. Land it in pieces: `bd safe-push <branch> --dry-run` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
+    "Nothing was pushed or started: {}. Land it in pieces: `brd safe-push <branch> --dry-run` lands a branch with what it is built on; or regroup so that the commits it needs come before it",
     stack_conflict_words(&synced.report.branches, update, &|id| short.get(id).to_string())
   )
 }
@@ -1061,18 +1061,18 @@ fn conflict_branch<'a>(synced: &'a SyncOutput, update: &StackBranchUpdate) -> Op
     .map(|branch| branch.name.as_str())
 }
 
-/// `bd push <root> --with-children --force`: the push that replaces the remote stack branch of `root`
+/// `brd push <root> --with-children --force`: the push that replaces the remote stack branch of `root`
 fn stack_force_push(context: &RepoContext, root: &str) -> String {
   format!("{} push {} --with-children --force", context.bd, shell_word(root))
 }
 
 /// Why a stack branch that is not built can't land (`stack_not_built_words`, the app's words too), and the way out
 fn stack_not_built_message(update: &StackBranchUpdate) -> String {
-  format!("Nothing was pushed or started: {}. `bd sync` says what to fix", stack_not_built_words(update))
+  format!("Nothing was pushed or started: {}. `brd sync` says what to fix", stack_not_built_words(update))
 }
 
 /// What the build of what lands misses: the first missing declaration with its fix, and the count of the rest, which
-/// `bd check` lists (`missing_declarations`)
+/// `brd check` lists (`missing_declarations`)
 fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]) -> String {
   let short = context.short_ids(missing.iter().flat_map(|refusal| match refusal {
     LandingRefusal::MissingDeclaration { used_by, declared_by, .. } => vec![used_by.id.as_str(), declared_by.id.as_str()],
@@ -1106,7 +1106,7 @@ fn missing_declaration_message(context: &RepoContext, missing: &[LandingRefusal]
   };
   let more = match missing.len() - 1 {
     0 => String::new(),
-    rest => format!(" ({rest} more: bd check)"),
+    rest => format!(" ({rest} more: brd check)"),
   };
   format!(
     "Nothing was pushed or started: {} of {branch} uses {identifier} ({file}:{line}), which {adds}; git merges it, but the build fails. {fix}{more}; --allow-missing starts anyway, only when the user says it is a false alarm",
@@ -1213,7 +1213,7 @@ fn plan(
     facts.session.landing_needs(|_| Ok(needs));
   }
   // Patronus rebases what it lands onto the newest target before any check, and fails the robot on a conflict
-  let rerun = format!("bd safe-push {name}{}", if landing.stack.is_some() { " --whole-stack" } else { "" });
+  let rerun = format!("brd safe-push {name}{}", if landing.stack.is_some() { " --whole-stack" } else { "" });
   let target_check = target_fetch.map(|fetch| {
     // the fetch ran before the lock, of the baseline HEAD's branch had then: a HEAD switched during it has another
     let fetch_error = fetch.error_for(synced.report.upstream.as_ref().map(|upstream| upstream.name.as_str()));
@@ -1436,7 +1436,7 @@ pub(crate) fn subject_readiness<'s>(session: &'s OneShot, subject: &Subject) -> 
   }
 }
 
-/// What `bd safe-push --dry-run` and `bd land --dry-run` read, for the next step of its subject
+/// What `brd safe-push --dry-run` and `brd land --dry-run` read, for the next step of its subject
 pub(crate) struct CheckRead<'a> {
   pub(crate) table: &'a BranchTable,
   /// The robots with the problems of the failed robot of the subject, the Patronus view with the landing needs of a
@@ -1702,7 +1702,7 @@ impl Told<'_> {
     let forced = format!("{} --force", start_again(context, self.args, name, self.stack().is_some()));
     if let Some(update) = self.stack() {
       let message = format!(
-        "Nothing was pushed or started: the remote branch {} has {behind} commits {what} doesn't; `bd push {name} --with-children --force` replaces them, or `--force` pushes them away with the start, after the user approves",
+        "Nothing was pushed or started: the remote branch {} has {behind} commits {what} doesn't; `brd push {name} --with-children --force` replaces them, or `--force` pushes them away with the start, after the user approves",
         update.branch_name
       );
       Refusal::new(ErrorCode::PushRefused, message)
@@ -1784,11 +1784,11 @@ impl Told<'_> {
     let number = self.start_pull_request.map_or(0, |pull_request| pull_request.number);
     match self.stack() {
       Some(_) => (
-        format!("push first (`bd push {name} --with-children`), then ask the code owners for the review of #{number} again"),
+        format!("push first (`brd push {name} --with-children`), then ask the code owners for the review of #{number} again"),
         vec![format!("{bd} push {} --with-children", shell_word(name))],
       ),
       None => (
-        format!("push first (`bd push {name}`), then ask for the review again (`bd request-review {name}`)"),
+        format!("push first (`brd push {name}`), then ask for the review again (`brd request-review {name}`)"),
         vec![format!("{bd} push {}", shell_word(name)), format!("{bd} request-review {}", shell_word(name))],
       ),
     }
@@ -1931,7 +1931,7 @@ fn target_conflict_message(context: &RepoContext, synced: &SyncOutput, what: &st
     .collect();
   let changed_by = if commits.is_empty() { String::new() } else { format!(": {}", commits.join(", ")) };
   format!(
-    "Nothing was pushed or started: Patronus can't rebase {what} onto {baseline}: {} ({}) conflicts in {files}, which {baseline} changed after the base of {what}{changed_by}. `bd update` (the app's Update Project) brings the checked out branch onto {baseline} and resolves the conflict locally; then run `{rerun}` again",
+    "Nothing was pushed or started: Patronus can't rebase {what} onto {baseline}: {} ({}) conflicts in {files}, which {baseline} changed after the base of {what}{changed_by}. `brd update` (the app's Update Project) brings the checked out branch onto {baseline} and resolves the conflict locally; then run `{rerun}` again",
     short.get(commit),
     conflict.commit.subject
   )
@@ -1950,7 +1950,7 @@ fn original_commit<'a>(synced: &'a SyncOutput, conflict: &'a TargetConflict) -> 
     .map_or(copy.id.as_str(), |commit| commit.id.as_str())
 }
 
-/// What a push of the start the remote refused fails with, as `bd push` tells it: of the stack branch of a whole stack,
+/// What a push of the start the remote refused fails with, as `brd push` tells it: of the stack branch of a whole stack,
 /// or of the branches it pushes; nothing was pushed or started
 fn push_error(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent: &Sent) -> CliError {
   match &sent.answer {
@@ -1960,7 +1960,7 @@ fn push_error(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent:
         let mut error = CliError::new(
         ErrorCode::LeaseRejected,
         format!(
-          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; bd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `bd push {} --with-children --force` replaces them, after the user approves",
+          "The remote rejected {}: it is not where the lease expects it. Nothing was pushed or started; brd fetched it, and `branches` says what the remote has now (`dropped_commits`). Show them to the user; `brd push {} --with-children --force` replaces them, after the user approves",
           stack.full_name, plan.name
         ),
       )
@@ -1999,7 +1999,7 @@ fn push_error(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent:
   }
 }
 
-/// The branches the start pushed, as `bd push` tells them: the stack branch of a whole stack with the text of its pull
+/// The branches the start pushed, as `brd push` tells them: the stack branch of a whole stack with the text of its pull
 /// request, else each branch with the draft of its own
 fn pushed_branches(context: &RepoContext, synced: &SyncOutput, plan: &Prepared, sent: &Sent, youtrack: &YouTrackService) -> Result<Vec<PushedBranch>, CliError> {
   let LeasedPush::Pushed(statuses) = &sent.answer else {
@@ -2090,7 +2090,7 @@ pub(crate) const UNKNOWN_GITHUB_REPOSITORY: &str =
 /// "The code owners haven't approved auth: …", with the missing `groups`, the approvals Patronus doesn't count, and where
 /// the approvals count (`counts_in`, `domain_policy::review::review_state`): the GitHub pull request of the branch, or a
 /// Space merge request found open. `name` says what lands ("auth", "the whole auth stack"), `rerun` is the command that
-/// starts it ("bd safe-push auth")
+/// starts it ("brd safe-push auth")
 fn approvals_missing_message(name: &str, rerun: &str, readiness: &ReviewReadiness, groups: &[MissingReviewGroup], counts_in: CountsIn) -> String {
   let (not_counted, reason) = match readiness {
     ReviewReadiness::Missing { not_counted, reason, .. } => (not_counted.as_slice(), Some(*reason)),
@@ -2150,9 +2150,9 @@ fn github_approvers(requirement: &PatronusReviewRequirement, pull_request: &Pull
     .collect()
 }
 
-/// Opens the pull request of the pushed branch, as the `gh pr create` that `bd push` prints: into the target, a stacked
+/// Opens the pull request of the pushed branch, as the `gh pr create` that `brd push` prints: into the target, a stacked
 /// branch's with the commits of the branches it is built on, with the text of its draft (`pull_request_text`: the
-/// `bd describe` text, else the text of its commits), assigned to the user and with the `--reviewer` logins asked. A
+/// `brd describe` text, else the text of its commits), assigned to the user and with the `--reviewer` logins asked. A
 /// pull request that already exists is found instead and left as it is.
 /// The pull request `--create-pull-request` opened, or found open: one that existed is left as it is
 fn created_pull_request(args: &SafePushArgs, created: CreatedPullRequest) -> PullRequestStart {
@@ -2374,9 +2374,9 @@ fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent
           first.declared_by.branch
         ),
         None if symbols => {
-          format!("{name} builds alone on the baseline and uses no name its stack adds: `bd unstack {name}` makes it a root that lands alone (not checked by a compiler)")
+          format!("{name} builds alone on the baseline and uses no name its stack adds: `brd unstack {name}` makes it a root that lands alone (not checked by a compiler)")
         }
-        None => format!("{name} builds alone on the baseline: `bd unstack {name}` makes it a root that lands alone (lines only: compile dependencies are not checked)"),
+        None => format!("{name} builds alone on the baseline: `brd unstack {name}` makes it a root that lands alone (lines only: compile dependencies are not checked)"),
       };
       AloneBuild {
         result: "builds".to_string(),
@@ -2414,7 +2414,7 @@ fn alone_build(context: &RepoContext, session: &CheckSession, name: &str, parent
           join_names(&files)
         )
       } else if movable {
-        format!("{name} needs {}: move {them} into the branch, then `bd unstack {name}`", join_names(&ids))
+        format!("{name} needs {}: move {them} into the branch, then `brd unstack {name}`", join_names(&ids))
       } else {
         format!("{name} needs {}, and other branches need {them} too: a move would make those need {name}", join_names(&ids))
       };

@@ -1,4 +1,4 @@
-//! The refusal codes of bd-host (spec/cli/host.spec.md, "Refusal codes"): one variant per code, its name, its exit
+//! The refusal codes of brd-host (spec/cli/host.spec.md, "Refusal codes"): one variant per code, its name, its exit
 //! code and its words in one table (`Code::row`), so a code cannot have two exits. A caller acts on the code and the
 //! exit code, never on the message. Exit 75 means that the host did not run the command, so the caller can run it
 //! locally
@@ -6,10 +6,10 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
-/// The exit code of `bd-host` for a refusal
+/// The exit code of `brd-host` for a refusal
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
-  /// 2: a command line that bd-host does not accept
+  /// 2: a command line that brd-host does not accept
   Usage,
   /// 75: the host did not run the command
   NotRun,
@@ -51,7 +51,7 @@ pub enum ExitRule {
 }
 
 impl ExitRule {
-  /// The text of the column "Exit" of the spec, which `bd-host schema` prints too
+  /// The text of the column "Exit" of the spec, which `brd-host schema` prints too
   pub const fn text(self) -> &'static str {
     match self {
       Self::Always(exit) => match exit {
@@ -178,12 +178,12 @@ impl Code {
       Self::Config => (
         "config",
         ExitRule::Always(Exit::NotRun),
-        "No home directory, or an identity, a record or a file of bd-host that cannot be read or written.",
+        "No home directory, or an identity, a record or a file of brd-host that cannot be read or written.",
       ),
       Self::NoHost => (
         "no_host",
         ExitRule::Always(Exit::NotRun),
-        "No host file for the alias. The message names `bd-host setup <alias>`.",
+        "No host file for the alias. The message names `brd-host setup <alias>`.",
       ),
       Self::BadHostFile => (
         "bad_host_file",
@@ -260,7 +260,7 @@ impl Code {
       Self::FetchFailed => (
         "fetch_failed",
         ExitRule::Always(Exit::Refused),
-        "The fetch did not copy every file. The run stays on the host for `bd-host fetch` and `bd-host forget`.",
+        "The fetch did not copy every file. The run stays on the host for `brd-host fetch` and `brd-host forget`.",
       ),
       Self::ApplyFailed => (
         "apply_failed",
@@ -280,7 +280,7 @@ impl Code {
       Self::PlistChanged => (
         "plist_changed",
         ExitRule::Always(Exit::Refused),
-        "The new binary would write another LaunchAgent than the one on the host: `bd-host setup` installs it.",
+        "The new binary would write another LaunchAgent than the one on the host: `brd-host setup` installs it.",
       ),
       Self::UpgradeFailed => (
         "upgrade_failed",
@@ -322,7 +322,7 @@ impl Code {
     Self::ALL.into_iter().find(|code| code.name() == name)
   }
 
-  /// The exit of bd-host for this code when the run came as far as `reached`
+  /// The exit of brd-host for this code when the run came as far as `reached`
   pub const fn exit(self, reached: Reached) -> Exit {
     match self.row().exit {
       ExitRule::Always(exit) => exit,
@@ -348,7 +348,7 @@ impl Serialize for Code {
 impl<'de> Deserialize<'de> for Code {
   fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
     let name = String::deserialize(deserializer)?;
-    Self::from_name(&name).ok_or_else(|| serde::de::Error::custom(format!("{name:?} is no refusal code of bd-host")))
+    Self::from_name(&name).ok_or_else(|| serde::de::Error::custom(format!("{name:?} is no refusal code of brd-host")))
   }
 }
 
@@ -364,7 +364,7 @@ impl schemars::JsonSchema for Code {
   }
 }
 
-/// A refusal: its code and a message for a person. It prints as `<code>: <message>`, and bd-host puts `bd-host: ` before
+/// A refusal: its code and a message for a person. It prints as `<code>: <message>`, and brd-host puts `brd-host: ` before
 /// it on the stderr
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, thiserror::Error)]
 #[error("{code}: {message}")]

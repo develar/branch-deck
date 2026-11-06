@@ -60,7 +60,7 @@ puts its commits back on top of the current branch, their files and their groupi
 - Take a branch out of the current branch, its files too, without losing its work.
 - Keep the user's work on other paths as it is, staged or not.
 - All or nothing: HEAD, the files and the branch move together, or nothing does.
-- Take it back at once with Undo, and let an agent do the same with `bd unapply` and `bd undo`.
+- Take it back at once with Undo, and let an agent do the same with `brd unapply` and `brd undo`.
 - See what waits outside HEAD, keep a copy of it on the remote, and delete it once it is not needed.
 - Bring it back when the world is ready, as the branch it was.
 
@@ -123,11 +123,11 @@ puts its commits back on top of the current branch, their files and their groupi
   `rewrite`, `execute`): the session runs them one after the other with the other rewrites of the app, in the order
   they came, each on what the one before it left, and a second start of the same one joins it; the delete holds only
   the ref it drops, so it runs beside a rewrite and a sync. The unapply, the reapply and their undo run under the
-  repository lock: while another process holds it (an agent's `bd pick --follow`, `bd`) or the app's own push, the
+  repository lock: while another process holds it (an agent's `brd pick --follow`, `brd`) or the app's own push, the
   app's wait as long as the holder lives, their surface (the confirmation, the "⋯" of the row) saying whom for with
   Stop Waiting (`cancel_operation` of the operation), which ends the wait with nothing changed; only a holder no record
   names refuses them after 10 s, with nothing changed and the error toast saying that another operation holds the
-  lock; `bd unapply` and `bd reapply` wait 10 s, then `locked`. An unapply names the commits of its branch the window
+  lock; `brd unapply` and `brd reapply` wait 10 s, then `locked`. An unapply names the commits of its branch the window
   showed: queued behind another rewrite of the app (a reword of the branch's commit), or after another process moved
   HEAD, it takes them by the ids that rewrite gave them (else by their author, author time and subject without the
   prefix), waits for the sync that builds their copies, and runs when its branch there has those commits; a branch with
@@ -150,7 +150,7 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`a_reapply_and_its_undo_lock_only_the_witness_and_the_move`)
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`an_unapply_after_a_move_whose_files_did_not_follow_lets_them_follow_first`)
 - The index lock of another process must make the unapply, the reapply and their undo wait (at most 30 s per write)
-  and an ownerless one be removed, as for `bd pick`; one that stays must move HEAD back and answer `locked`. The wait
+  and an ownerless one be removed, as for `brd pick`; one that stays must move HEAD back and answer `locked`. The wait
   must come before the repository lock, so no other writer waits for it; a lock that appears while the move takes
   the repository lock must release it and wait outside it.
   [@test] ../../crates/git-ops/src/pick_test.rs (`a_move_removes_an_index_lock_that_no_process_owns_and_lets_the_files_follow`)
@@ -169,7 +169,7 @@ puts its commits back on top of the current branch, their files and their groupi
 
 ### Reapply
 
-- Reapply (the menu of an unapplied row, `bd reapply <name>`) must put the branch's own commits (after its stack note,
+- Reapply (the menu of an unapplied row, `brd reapply <name>`) must put the branch's own commits (after its stack note,
   else its merge base with the baseline) back on top of HEAD, the files following, and delete the unapplied branch in
   the same transaction; author kept, committer the current user. A commit whose subject groups elsewhere must get
   `(<name>) ` back, since a virtual commit keeps no grouping prefix; an issue branch comes back as it was. The next sync
@@ -187,7 +187,7 @@ puts its commits back on top of the current branch, their files and their groupi
   again; the token `reapply:<previous head>..<new head>:<tip>:<unapplied branch>`; stale once HEAD moved on.
   [@test] ../../crates/sync-core/src/reapply_branch_test.rs (`the_undo_of_a_reapply_takes_the_commits_out_again_and_keeps_the_unapplied_branch`, `a_reapply_token_names_full_ids_and_the_unapplied_branch`)
   [@test] ../../tests/e2e/unapplied-branches/unapplied-branches.spec.ts (`should reapply an unapplied branch from both menus, the branch back in the table, and take it back with Undo`)
-- `bd reapply <name> [--dry-run] [--expect-head <id>]` must print one object (`reapply` in `bd schema`) and refuse with
+- `brd reapply <name> [--dry-run] [--expect-head <id>]` must print one object (`reapply` in `brd schema`) and refuse with
   `reapply_conflict` (`commits`, `paths`), `uncommitted_overlap`, `nothing_to_reapply` and `unknown_branch`.
   [@test] ../../crates/bd-update/src/unapply_test.rs (`reapply_puts_the_branch_back_with_its_prefix_and_the_undo_takes_it_out_again`)
 
@@ -246,28 +246,28 @@ puts its commits back on top of the current branch, their files and their groupi
   [@test] ../../crates/sync-core/src/unapply_branch_test.rs (`the_undo_of_an_unapply_is_refused_after_a_new_commit_and_by_a_local_change_on_its_paths`)
   [@test] ../../crates/git-ops/src/unapply_test.rs (`the_undo_of_an_unapply_that_is_not_the_last_move_is_refused`)
 
-### `bd`
+### `brd`
 
-- `bd unapply <branch> [--dry-run] [--expect-head <id>]` must unapply as the app does and print one object (`unapply`
-  in `bd schema`) with the unapplied branch, the commits, both heads and the `undo_token`; `bd undo` of it must undo it
+- `brd unapply <branch> [--dry-run] [--expect-head <id>]` must unapply as the app does and print one object (`unapply`
+  in `brd schema`) with the unapplied branch, the commits, both heads and the `undo_token`; `brd undo` of it must undo it
   (`restored_branch`, `already_undone`).
   [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_takes_the_branch_and_its_files_out_of_head_and_the_undo_brings_them_back`, `unapply_outputs_match_the_schema`)
 - `--dry-run` must print the same object of the unapply it would do (`dry_run: true`, the name of the unapplied
   branch, the commits that would leave HEAD, the HEAD it would move to, no `undo_token`) and write nothing but git
   objects: no ref, no mapping note, no config, no index and no file, no lock and no record in the operations
-  registry, as the dry run of `bd reapply`; a refusal is the unapply's (`uncommitted_overlap` too).
+  registry, as the dry run of `brd reapply`; a refusal is the unapply's (`uncommitted_overlap` too).
   [@test] ../../crates/bd-update/src/unapply_test.rs (`a_dry_run_of_an_unapply_writes_nothing_and_says_what_it_would_do`)
 - Its refusals must be codes: `unknown_branch` (exit 2), `uncommitted_overlap` with `paths`, `branch_not_built`,
   `branch_checked_out` and `drop_conflict` (exit 4).
   [@test] ../../crates/bd-update/src/unapply_test.rs (`unapply_refuses_an_unknown_branch_one_not_built_and_local_changes_in_the_way`)
-- `bd status` must list the unapplied branches (`unapplied`: name, branch, tip, subject, the remote head and whether it
-  is up to date), from the listing it read; `bd push` and `bd safe-push` must refuse the name of one as `unapplied`
-  (exit 4), and `bd push --unapplied <name>` must push it under its own name, as the app's push of it (the intent
+- `brd status` must list the unapplied branches (`unapplied`: name, branch, tip, subject, the remote head and whether it
+  is up to date), from the listing it read; `brd push` and `brd safe-push` must refuse the name of one as `unapplied`
+  (exit 4), and `brd push --unapplied <name>` must push it under its own name, as the app's push of it (the intent
   `Push` with the scope `unapplied`, after a sync): leased on the remote head the sync saw (or `--expect-remote`), a
   push that drops commits of its remote branch it lacks refused as `push_refused` until `--force`.
   [@test] ../../crates/bd-update/src/unapply_test.rs (`status_lists_an_unapplied_branch_push_refuses_it_by_its_name_and_pushes_it_with_unapplied`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`an_unapplied_branch_whose_remote_has_commits_it_lacks_is_pushed_only_with_force`)
-- `bd help agent` and the skill must tell an agent to unapply only when the user asks.
+- `brd help agent` and the skill must tell an agent to unapply only when the user asks.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
 ### Process budget
@@ -290,9 +290,9 @@ puts its commits back on top of the current branch, their files and their groupi
 - The Unapplied card: "Unapplied · 1 branch", the row "docs · Document the API · Not pushed"; Push Branch → toast "Pushed branch docs"
   · "The remote keeps it as jane/unapplied/docs"; Reapply → the row back in the branch table → toast "Reapplied docs"
   · "1 commit back on top of HEAD" · Undo.
-- `bd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `bd undo unapply:…`;
-  `bd status` → `"unapplied":[{"name":"jane/unapplied/docs","branch":"docs",…}]`; `bd push --unapplied docs`;
-  `bd reapply docs` → `{"reapplied":[…],"prefix_restored":1,"undo_token":"reapply:…"}`.
+- `brd unapply docs` → `{"unapplied_branch":"jane/unapplied/docs",…,"undo_token":"unapply:…"}`; `brd undo unapply:…`;
+  `brd status` → `"unapplied":[{"name":"jane/unapplied/docs","branch":"docs",…}]`; `brd push --unapplied docs`;
+  `brd reapply docs` → `{"reapplied":[…],"prefix_restored":1,"undo_token":"reapply:…"}`.
 
 ## Open Questions / Risks
 

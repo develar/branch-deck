@@ -1,6 +1,6 @@
 ---
-name: bd-host
-description: Requirements for bd-host, the binary of the remote runs. The client runs a command of a checkout on a host, in a warm host slot that the host lends to that run only, streams its output, and brings back the fetched files, the outputs and the changes. The agent serves the runs under launchd, lends the slots through the lend table of the pool, keeps the minimum free space of the host and trims its pools on request, so the host needs no app and no bd, and replaces its own binary on an upgrade. The CLI, the refusal codes with their exit codes, the report of a run on a descriptor and the hello as JSON.
+name: brd-host
+description: Requirements for brd-host, the binary of the remote runs. The client runs a command of a checkout on a host, in a warm host slot that the host lends to that run only, streams its output, and brings back the fetched files, the outputs and the changes. The agent serves the runs under launchd, lends the slots through the lend table of the pool, keeps the minimum free space of the host and trims its pools on request, so the host needs no app and no bd, and replaces its own binary on an upgrade. The CLI, the refusal codes with their exit codes, the report of a run on a descriptor and the hello as JSON.
 style: plain-1
 targets:
   - ../../crates/bd-host/src/main.rs
@@ -29,18 +29,18 @@ targets:
   - ../../crates/host-agent/src/keeper.rs
 ---
 
-# bd-host
+# brd-host
 
 Status: Draft
 Date: 2026-10-28
 
 ## Summary
 
-`bd-host` runs a command of a checkout on another machine of the user, the host, and it is the agent on that host
+`brd-host` runs a command of a checkout on another machine of the user, the host, and it is the agent on that host
 too. It replaced yonder of the IntelliJ monorepo, whose agent yonderd was retired on 2026-10-28. The client and the
-agent call the lease pool and git in process, so no `bd` child runs on either end. The why and the slot model are in
+agent call the lease pool and git in process, so no `brd` child runs on either end. The why and the slot model are in
 [Host Runs](../../docs/design/host-runs.md). The lend table and the git of the host are in
-[bd lease](lease.spec.md), "Host slots", "Host objects" and "Host runs".
+[brd lease](lease.spec.md), "Host slots", "Host objects" and "Host runs".
 
 A run ships the working tree as one commit, or the committed HEAD with `--head`. Only the commits that the host lacks
 travel, as a thin pack. The output streams back. The exit code is the one of the command, or 75 when the host did not
@@ -52,17 +52,17 @@ This spec is a draft of the port. A requirement names the test that will cover i
 
 ## Goals
 
-- One binary for both ends, outside `bd` and the app. The app binary does not grow.
-- A host needs no app and no `bd`: the agent keeps the minimum free space of its pools by itself and trims them on
-  request (`bd-host trim`), so nothing sends an agent there for the app.
-- No `bd` process and no JSON of a child process between the agent and the pool, or between the client and git.
+- One binary for both ends, outside `brd` and the app. The app binary does not grow.
+- A host needs no app and no `brd`: the agent keeps the minimum free space of its pools by itself and trims them on
+  request (`brd-host trim`), so nothing sends an agent there for the app.
+- No `brd` process and no JSON of a child process between the agent and the pool, or between the client and git.
 - A machine contract that a caller reads without parsing the words: the refusal codes, the exit codes, the report and
-  the hello as JSON, and `bd-host schema` that prints them.
+  the hello as JSON, and `brd-host schema` that prints them.
 
 ## Non-goals
 
-- Linux and Windows hosts under launchd. The agent runs on Linux only by hand (`bd-host serve`), without `upgrade`.
-- Windows: bd-host, its client and its agent run on macOS and Linux only. The Windows app does not bundle it.
+- Linux and Windows hosts under launchd. The agent runs on Linux only by hand (`brd-host serve`), without `upgrade`.
+- Windows: brd-host, its client and its agent run on macOS and Linux only. The Windows app does not bundle it.
 - A choice of the slot by the distance between trees, and a spare count of slots on the client Mac.
 
 ## Requirements
@@ -110,45 +110,45 @@ This spec is a draft of the port. A requirement names the test that will cover i
 
 ### The bundle
 
-- `bd-host` must be a binary of its own: neither `bd` nor the app binary links a crate of the remote runs, so the app
+- `brd-host` must be a binary of its own: neither `brd` nor the app binary links a crate of the remote runs, so the app
   binary does not grow (the architecture test, `crates/bd-cli/src/architecture_test.rs`).
-- On macOS the release build of the app must carry it as `BranchDeck.app/Contents/MacOS/bd-host`: the Tauri config
+- On macOS the release build of the app must carry it as `BranchDeck.app/Contents/MacOS/brd-host`: the Tauri config
   `src-tauri/tauri.macos-bd-host.conf.json` names it as `externalBin`, and its build command
   (`scripts/build-bd-host.mjs`) builds it for the target triple of the build. CI and `pnpm install-app` pass that
   config with `--config`. It is not `tauri.macos.conf.json`, because Tauri merges that file into every macOS build,
   `cargo build` of the app too, and that build then needs the binary first. The Windows build keeps its own config
-  for `bd.exe`.
-- `bd install` links `~/.local/bin/bd-host` to that binary ([Agent CLI](agent-cli.spec.md), "`bd install`").
-  [@test] ../../crates/bd-cli/src/install_test.rs (`install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there`)
+  for `brd.exe`.
+- `brd install` links `~/.local/bin/brd-host` to that binary ([Agent CLI](agent-cli.spec.md), "`brd install`").
+  [@test] ../../crates/bd-cli/src/install_test.rs (`install_links_the_brd_host_of_the_app_bundle_and_keeps_a_binary_there`)
 
 ### The files
 
 | End | File | Content |
 |---|---|---|
-| Client | `~/.config/bd-host/identity.crt`, `identity.key` | The certificate and the key of the client, made at the first call, mode 0600 |
-| Client | `~/.config/bd-host/hosts/<alias>.json` | `{"alias", "fingerprint", "port", "hostname", "addresses", "repo"}` |
-| Client | `~/.config/bd-host/bases/<alias>/<affinity>` | The commit of the base of this affinity on that host after the last base sync |
-| Agent | `~/.config/bd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
-| Agent | `~/.config/bd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
-| Agent | `~/.cache/bd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
-| Agent | `~/.cache/bd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared` |
-| Agent | `~/Library/LaunchAgents/com.jetbrains.bd-host.plist`, `~/Library/Logs/bd-host.log` | The LaunchAgent and its log |
+| Client | `~/.config/brd-host/identity.crt`, `identity.key` | The certificate and the key of the client, made at the first call, mode 0600 |
+| Client | `~/.config/brd-host/hosts/<alias>.json` | `{"alias", "fingerprint", "port", "hostname", "addresses", "repo"}` |
+| Client | `~/.config/brd-host/bases/<alias>/<affinity>` | The commit of the base of this affinity on that host after the last base sync |
+| Agent | `~/.config/brd-host/agent/identity.crt`, `identity.key` | The certificate and the key of the agent |
+| Agent | `~/.config/brd-host/agent/clients` | The allow list: one `<64 hex> <name>` line per client |
+| Agent | `~/.cache/brd-host/runs/<run>/` | `spec.json`, `events.log`, `exit.json`, `supervisor.log`, `outputs/`, `changes.patch` |
+| Agent | `~/.cache/brd-host/` | `repos`, `login-env.json`, `listening.json`, `upgrade.json`, `upgrade.lock`, `slots/<lease id>.prepared` |
+| Agent | `~/Library/LaunchAgents/com.jetbrains.brd-host.plist`, `~/Library/Logs/brd-host.log` | The LaunchAgent and its log |
 | Checkout | `<git dir>/branch-deck/host/runs/<run>.json`, `<run>.patch` | The run record and the patch of `--apply` |
 
-- Each directory that bd-host makes has the mode 0700, and each file 0600. A removal and a rename go through
+- Each directory that brd-host makes has the mode 0700, and each file 0600. A removal and a rename go through
   `sync_utils::fs_retry`. A record and a patch older than 7 days go at the next run of the checkout.
   [@test] ../../crates/host-client/src/record_test.rs (`a_run_record_names_what_a_fetch_takes_and_old_records_go`)
 
 ### run
 
 ```sh
-bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice <0-19>] [--repo <path>]
+brd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice <0-19>] [--repo <path>]
             [--affinity <key>] [--report-fd <n>] -- <command> <args>
 ```
 
 - `run` must ship the working tree: HEAD plus the tracked and untracked changes that git does not ignore, as one
-  commit (`git_ops::host_client::working_tree_commit`). Its author and committer are `bd-host
-  <bd-host@bd-host.invalid>` at the date of the committer of HEAD, and its message names HEAD. So the same tree on the
+  commit (`git_ops::host_client::working_tree_commit`). Its author and committer are `brd-host
+  <brd-host@brd-host.invalid>` at the date of the committer of HEAD, and its message names HEAD. So the same tree on the
   same HEAD is the same commit, and a second run of it sends no pack. The index, the files and the refs of the
   checkout stay as they are, and no ref names the commit.
   [@test] ../../crates/host-client/src/run_test.rs (`the_working_tree_ships_as_one_commit_and_the_same_tree_sends_no_pack`)
@@ -178,14 +178,14 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   and stop the pack, and the output follows to the end of the run. A second press stops the follow at once with 130,
   and the run goes on on the host. A `Cancel` whose connection fails connects again for up to 120 s.
   [@test] ../../crates/host-client/src/run_test.rs (`ctrl_c_before_the_start_reaches_no_host`, `ctrl_c_cancels_the_run_and_follows_it_to_its_end`, `a_second_ctrl_c_stops_the_follow_at_once`, `a_failed_cancel_connects_again`)
-- The stdout of `bd-host run` must hold only the stdout of the command, line by line as it comes. Every line of
-  bd-host and every stderr line of the host go to the stderr. The lines of bd-host start with `bd-host: `:
-  `bd-host: run <id> of <commit> on <alias>` first, `bd-host: running in <slot> (slot <n>): load …, nice …, … open
+- The stdout of `brd-host run` must hold only the stdout of the command, line by line as it comes. Every line of
+  brd-host and every stderr line of the host go to the stderr. The lines of brd-host start with `brd-host: `:
+  `brd-host: run <id> of <commit> on <alias>` first, `brd-host: running in <slot> (slot <n>): load …, nice …, … open
   files, git <version>, the login environment of <shell> from <age> ago` right before the command, and
-  `bd-host: phases: pack 3.1s, upload 2.0s, slot 0.1s, … total 10m13s` at the end.
-  [@test] ../../crates/bd-host/tests/cli.rs (`stdout_holds_only_the_command_and_the_lines_of_bd_host_go_to_stderr`)
+  `brd-host: phases: pack 3.1s, upload 2.0s, slot 0.1s, … total 10m13s` at the end.
+  [@test] ../../crates/bd-host/tests/cli.rs (`stdout_holds_only_the_command_and_the_lines_of_brd_host_go_to_stderr`)
 - A follow that lost its connection must connect again with waits from 1 s up to 30 s and go on from the last offset
-  it showed. After 10 min without a reply it refuses with `timed_out` (exit 255) and names `bd-host follow`, also when
+  it showed. After 10 min without a reply it refuses with `timed_out` (exit 255) and names `brd-host follow`, also when
   each new connection was `unreachable`. A follow that the agent answers with `unknown_run` after the start exits 255,
   never 75: whether the command ran is unknown.
   [@test] ../../crates/host-client/src/run_test.rs (`a_lost_follow_connects_again_from_its_offset_and_an_unknown_run_is_255`, `an_agent_that_ends_during_the_follow_times_out_with_255_and_not_75`)
@@ -221,12 +221,12 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
   runs.
   [@test] ../../crates/bd-host/tests/cli.rs (`the_report_goes_to_its_descriptor_on_every_way_out`)
 - A machine caller such as bt must name its run options in full, because the defaults of `run` are the ones of a
-  person: `bd-host run <alias> --head --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>`, with
+  person: `brd-host run <alias> --head --nice 0 --no-outputs --fetch out/bt-runs --report-fd 3 -- <command…>`, with
   `--repo <path>` when it names a repository. Niceness 0 keeps the CPU for the run. Without `--no-outputs`, an output
   of `[host]` replaces its local copy. The caller reads `command_exit` of the report, because a failed fetch exits
   255 after the command ran.
   [@test] ../../crates/bd-host/src/cli_test.rs (`the_command_line_of_bt_gives_niceness_0_and_no_outputs`)
-- The report must have the shape of the golden JSON below. `exit` is the exit code of `bd-host`. `command_exit` is the
+- The report must have the shape of the golden JSON below. `exit` is the exit code of `brd-host`. `command_exit` is the
   exit code of the command, `null` when it did not run or its end is unknown; a command that a signal ended answers
   128 plus the signal number. `refusal` is `null`, or `{"code", "message"}` with a code of the table below. `run`,
   `commit` and `head` are `null` before the client knows them. `phases` lists the steps in their order, each with its
@@ -272,11 +272,11 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 
 | Command | Effect |
 |---|---|
-| `bd-host follow <alias> <run>` | Follows the output of a run from its first line, and exits with the exit code of the command at its end. Ctrl+C leaves, and the run goes on. |
-| `bd-host cancel <alias> <run>` | Asks the agent to interrupt the run: SIGINT to the process group of the command, SIGKILL after 120 s, or no command when it has not started. It returns when the agent has the request. |
-| `bd-host fetch <alias> <run> [--fetch <dir>]...` | Copies the files of a run whose fetch failed, by the run record of the checkout of the working directory. An explicit `--fetch` replaces the directories of the record. Without a record, only `--fetch` directories come, and no `--fetch` refuses with `usage`. |
-| `bd-host forget <alias> <run>` | Removes a run and its files on the host. The host keeps an ended run for 24 h. |
-| `bd-host runs <alias> [--json]` | Lists the runs that the agent keeps, each with its affinity, commit, command, start, exit and the steps of 0.1 s or more. |
+| `brd-host follow <alias> <run>` | Follows the output of a run from its first line, and exits with the exit code of the command at its end. Ctrl+C leaves, and the run goes on. |
+| `brd-host cancel <alias> <run>` | Asks the agent to interrupt the run: SIGINT to the process group of the command, SIGKILL after 120 s, or no command when it has not started. It returns when the agent has the request. |
+| `brd-host fetch <alias> <run> [--fetch <dir>]...` | Copies the files of a run whose fetch failed, by the run record of the checkout of the working directory. An explicit `--fetch` replaces the directories of the record. Without a record, only `--fetch` directories come, and no `--fetch` refuses with `usage`. |
+| `brd-host forget <alias> <run>` | Removes a run and its files on the host. The host keeps an ended run for 24 h. |
+| `brd-host runs <alias> [--json]` | Lists the runs that the agent keeps, each with its affinity, commit, command, start, exit and the steps of 0.1 s or more. |
 
 - A fetch or a forget of a run that goes on must refuse with `bad_request`. A run id that the agent does not keep
   refuses with `unknown_run`. Each of these commands exits 0, or 255 with a refusal, or 2 for a usage error.
@@ -284,7 +284,7 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 
 ### hello
 
-- `bd-host hello <alias> [--json]` must connect, send the hello and print the answer of the agent. With `--json` it
+- `brd-host hello <alias> [--json]` must connect, send the hello and print the answer of the agent. With `--json` it
   prints one JSON object of the shape of the golden JSON below on stdout. `build` is the SHA-256 of the binary, which
   names a build. `version` is the version of Branch Deck. `same_build` tells whether both ends run the same build. A
   refusal prints `{"schema": 1, "alias", "refusal": {"code", "message"}}` with `--json` and exits 255.
@@ -313,17 +313,17 @@ bd-host run <alias> [--head] [--apply] [--fetch <dir>]... [--no-outputs] [--nice
 ```
 
 - A hello of another schema must refuse with `schema` (exit 75 for a run). A hello of the same schema and another build
-  must let the run go on, with one line that names `bd-host upgrade <alias>`.
+  must let the run go on, with one line that names `brd-host upgrade <alias>`.
   [@test] ../../crates/host-client/src/host_test.rs (`another_schema_refuses_and_another_build_runs_with_a_hint`)
 
 ### slots
 
 ```sh
-bd-host slots <alias> [--json]
-bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
+brd-host slots <alias> [--json]
+brd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
 ```
 
-- `bd-host slots <alias>` must ask the agent for the lend table of each repository that it served since its first
+- `brd-host slots <alias>` must ask the agent for the lend table of each repository that it served since its first
   `Start` (`Request::Slots`):
   each slot, its state, its run, its affinity, its last use, and the queue. It writes nothing. The reply carries each
   table as the JSON of its `host-slots.json`, so the protocol keeps no second shape of the table.
@@ -338,16 +338,16 @@ bd-host slots --local [-C <repo>] [--shrink <n>] [--sizes] [--json]
 ### disk
 
 ```sh
-bd-host disk [<alias>] [--fresh] [--json]
+brd-host disk [<alias>] [--fresh] [--json]
 ```
 
-- `bd-host disk <alias>` must ask the agent what the lease pools of its host hold on disk (`Request::Disk`, feature
-  `disk`, every agent of this build has it): the agent answers the report of `bd lease disk` for its home
+- `brd-host disk <alias>` must ask the agent what the lease pools of its host hold on disk (`Request::Disk`, feature
+  `disk`, every agent of this build has it): the agent answers the report of `brd lease disk` for its home
   (`pool_disk`, by the first repository of its list that opens), heartbeats while it walks, and the reply carries the
   report as JSON (`pool_disk::report::DiskReport`), so the protocol keeps no second shape of it. `--fresh` walks every
   slot again. Without an alias it asks every host of the client (`hosts/<alias>.json`), one after the other. A client
   checks the feature in the hello first: an agent without it gets no request (it would close the connection on one it
-  does not know) and its host names `agent_failed` with `bd-host upgrade <alias>`.
+  does not know) and its host names `agent_failed` with `brd-host upgrade <alias>`.
   [@test] ../../crates/host-link/src/proto_test.rs (`a_request_and_a_reply_have_a_tagged_json_shape`, `an_agent_on_macos_has_the_upgrade_and_every_agent_the_disk_and_the_trim`)
   [@test] ../../crates/host-client/src/run_test.rs (`runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent`, `disk_and_trim_of_an_agent_without_the_feature_send_no_request`)
 - `--json` must print `{"schema", "hosts": [{"alias", "report"} or {"alias", "refusal": {"code", "message"}}]}`;
@@ -359,18 +359,18 @@ bd-host disk [<alias>] [--fresh] [--json]
 ### trim
 
 ```sh
-bd-host trim [<alias>] [--max <n>] [--plan] [--json]
+brd-host trim [<alias>] [--max <n>] [--plan] [--json]
 ```
 
-- `bd-host trim <alias>` must ask the agent to trim every pool of its host (`Request::Trim`, feature `trim`, every
-  agent of this build has it), as `bd lease trim` trims the pools of this machine ([bd lease](lease.spec.md#trim)):
+- `brd-host trim <alias>` must ask the agent to trim every pool of its host (`Request::Trim`, feature `trim`, every
+  agent of this build has it), as `brd lease trim` trims the pools of this machine ([brd lease](lease.spec.md#trim)):
   the free slots past `--max`, else `branchdeck.leaseMaxSlots` of each repository there, the ones returned longest ago
   first, with their Bazel output bases, and the output bases of gone workspaces (`lease_pool::host_slots::trim`). A host
   slot is a lease and stays. `--plan` names what would go and deletes nothing. The agent heartbeats while it deletes,
   refuses while a live process upgrades git (`GitUpgrading`), and writes one line of its log with the peer and what
   went. The reply carries `pool_disk::trim_report::TrimReport` as JSON. Without an alias it asks every host of the
   client, one after the other; an agent without the feature gets no request and its host names `agent_failed` with
-  `bd-host upgrade <alias>`, as for `disk`.
+  `brd-host upgrade <alias>`, as for `disk`.
   [@test] ../../crates/bd-host/tests/cli.rs (`trim_plans_and_deletes_the_free_slots_of_the_host`)
   [@test] ../../crates/host-client/src/run_test.rs (`runs_cancel_slots_disk_and_trim_answer_the_replies_of_the_agent`, `disk_and_trim_of_an_agent_without_the_feature_send_no_request`)
 - `--json` must print `{"schema", "hosts": [{"alias", "report"} or {"alias", "refusal": {"code", "message"}}]}`, the
@@ -381,20 +381,20 @@ bd-host trim [<alias>] [--max <n>] [--plan] [--json]
 ### setup
 
 ```sh
-bd-host setup <alias> [--repo <path>] [--port 7742] [--name <name>] [--binary <path>]
-bd-host setup --agent --client <fingerprint> --name <name> [--port 7742]
+brd-host setup <alias> [--repo <path>] [--port 7742] [--name <name>] [--binary <path>]
+brd-host setup --agent --client <fingerprint> --name <name> [--port 7742]
 ```
 
-- `bd-host setup <alias>` must prepare a host over ssh, run by the user only: copy `--binary`, else this executable,
-  to `~/.local/bin/bd-host` of the host when the host has another build there; run `~/.local/bin/bd-host setup --agent
+- `brd-host setup <alias>` must prepare a host over ssh, run by the user only: copy `--binary`, else this executable,
+  to `~/.local/bin/brd-host` of the host when the host has another build there; run `~/.local/bin/brd-host setup --agent
   --client <the fingerprint of this client> --name <name>` there; and write the host file from its answer. Each ssh
   call has 30 s, the copy 120 s (`ssh_failed`).
   [@test] ../../crates/host-client/src/setup_test.rs (`setup_copies_the_binary_runs_the_agent_setup_and_writes_the_host_file`)
-- `bd-host setup --agent` must make the identity of the agent when it has none, add the client to the allow list,
-  write the LaunchAgent `com.jetbrains.bd-host` (`KeepAlive`, `AbandonProcessGroup`, `~/.local/bin/bd-host serve
+- `brd-host setup --agent` must make the identity of the agent when it has none, add the client to the allow list,
+  write the LaunchAgent `com.jetbrains.brd-host` (`KeepAlive`, `AbandonProcessGroup`, `~/.local/bin/brd-host serve
   --port <port>`), and bootstrap or restart it. It prints one JSON line `{"fingerprint", "port", "launchd":
   "bootstrapped" | "restarted" | "none"}`. A client name with a control character refuses with `bad_request`, and a
-  failed `launchctl` with `launchd_failed`. On macOS, when `~/.local/bin/bd-host` is missing, it first copies this
+  failed `launchctl` with `launchd_failed`. On macOS, when `~/.local/bin/brd-host` is missing, it first copies this
   executable there by a rename. So launchd never runs a file that cargo writes again, that a shrink of a slot
   deletes, or that is in the bundle of the app. A file that is there stays.
   [@test] ../../crates/host-agent/src/setup_test.rs (`the_agent_setup_writes_the_identity_the_allow_list_and_the_launch_agent`)
@@ -402,7 +402,7 @@ bd-host setup --agent --client <fingerprint> --name <name> [--port 7742]
 ### upgrade
 
 ```sh
-bd-host upgrade <alias> [--binary <path>] [--force]
+brd-host upgrade <alias> [--binary <path>] [--force]
 ```
 
 - `upgrade` must send its own executable, or `--binary`, over the link to an agent on macOS with the feature
@@ -413,11 +413,11 @@ bd-host upgrade <alias> [--binary <path>] [--force]
 - The agent must check the size and the SHA-256 of the binary (`bad_binary`), run `<staged> version --json` within
   10 s and refuse another schema or a binary without the feature `upgrade` (`bad_binary`), refuse a lower version
   without `force` (`downgrade`), and refuse another LaunchAgent than the one on the host (`plist_changed`). Then it
-  keeps the binary as `~/.local/bin/bd-host.previous`, puts the new one at `~/.local/bin/bd-host` by a rename,
+  keeps the binary as `~/.local/bin/brd-host.previous`, puts the new one at `~/.local/bin/brd-host` by a rename,
   answers, waits up to 20 s for its other requests, and exits. launchd starts the new binary.
   [@test] ../../crates/host-agent/src/upgrade_test.rs (`the_agent_checks_the_binary_keeps_the_previous_one_and_swaps_by_rename`)
 - A watchdog must wait for the new binary to listen, for the drain plus 60 s. Else it renames the previous binary
-  back, restarts the LaunchAgent, and writes `~/.cache/bd-host/upgrade.json` with the outcome. The client connects
+  back, restarts the LaunchAgent, and writes `~/.cache/brd-host/upgrade.json` with the outcome. The client connects
   again every 1 s to 5 s for up to 110 s: the previous build at the end refuses with `rolled_back`, no answer with
   `unreachable`. A run goes on through the restart.
   [@test] ../../crates/host-agent/src/upgrade_test.rs (`the_watchdog_brings_back_the_previous_binary_when_the_new_one_does_not_listen`)
@@ -428,9 +428,9 @@ bd-host upgrade <alias> [--binary <path>] [--force]
 ### serve
 
 - `serve` and the commands that the agent starts itself (`supervise`, `check --plist`, `watchdog`, `dump-env`, all
-  hidden) are commands of `bd-host` on macOS and Linux (`host_agent::command`). A refusal of one of them exits by its
+  hidden) are commands of `brd-host` on macOS and Linux (`host_agent::command`). A refusal of one of them exits by its
   code before any run, such as 75 for `lease_failed`.
-- `bd-host serve [--port 7742]` must print one JSON line `{"listening": "<address>", "fingerprint": "<64 hex>"}`,
+- `brd-host serve [--port 7742]` must print one JSON line `{"listening": "<address>", "fingerprint": "<64 hex>"}`,
   then log on stderr. It answers the requests of the protocol, starts one supervisor per `Start`, and runs the keeper
   thread.
   [@test] ../../crates/host-agent/tests/serve.rs (`serve_answers_a_run_on_the_loopback_with_a_real_pool`)
@@ -460,12 +460,12 @@ bd-host upgrade <alias> [--binary <path>] [--force]
   relief (`keep_free`) over the repositories. A failed fill waits 1, 5, then 15 minutes.
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_fills_the_slots_and_backs_off_after_a_failed_fill`)
 - Below `branchdeck.leaseMinFree` of the host, the relief must raise the free space by the steps of a get there,
-  without a get ([bd lease](lease.spec.md), "Host slots"), once per volume: the repositories of a host share one, so
+  without a get ([brd lease](lease.spec.md), "Host slots"), once per volume: the repositories of a host share one, so
   the first repository on it measures and relieves it, and the others of the round take nothing. It runs on a thread
   of its own, one at a time, and writes one line of the log per volume it relieved, with what each step deleted and the
   free space after. A relief that leaves a volume below the minimum after every step says so and the next one waits
   15 minutes; without a minimum it deletes nothing. So a host that only runs keeps its disk without the app and
-  without `bd`.
+  without `brd`.
   [@test] ../../crates/host-agent/tests/serve/lend.rs (`the_keeper_keeps_the_minimum_free_space_once_per_volume_and_waits_after_a_relief_that_left_it_low`)
 - `serve` must hold the power assertions of `caffeinate -i -s -w <pid>` while a client has a connection after its
   hello, and each supervisor for its whole life. Elsewhere than on macOS nothing holds them.
@@ -474,7 +474,7 @@ bd-host upgrade <alias> [--binary <path>] [--force]
 ### The environment of a run and `[host]`
 
 - A prepare step and the command must get, in this order: the environment of the agent; the login environment of the
-  user (`<shell> -l -i -c 'exec bd-host dump-env <file>'`, 30 s, captured at the start of `serve` and again when an
+  user (`<shell> -l -i -c 'exec brd-host dump-env <file>'`, 30 s, captured at the start of `serve` and again when an
   hour old); the directory of the git of the host right before `/usr/bin` in `PATH`; `BD_HOST_RUN`,
   `BD_HOST_AFFINITY`, `BD_HOST_COMMIT` and `BD_HOST_SLOT`; and `[host.env]`. The soft open-files limit is 65536, or
   the hard limit when that is lower.
@@ -512,24 +512,24 @@ creates = ["node_modules"]             # a missing path runs the step again
 
 ### version, schema, skill
 
-- `bd-host version [--json]` must print the version of Branch Deck, the schema of the protocol, the features and the
+- `brd-host version [--json]` must print the version of Branch Deck, the schema of the protocol, the features and the
   SHA-256 of the binary: `{"version", "schema", "features", "sha256"}`. The hello, `Request::Upgrade`,
   `Reply::Upgraded` and this line keep their shapes within the schema, so an agent takes the next binary over the link.
   [@test] ../../crates/host-link/src/proto_test.rs (`the_version_line_names_the_build_and_a_check_adds_the_launch_agent`, `a_hello_names_the_binary_and_the_features_of_this_build`, `an_upgrade_and_its_reply_have_a_tagged_json_shape`)
-- `bd-host schema` must print one JSON object: the protocol schema and port, every refusal code of the table below
+- `brd-host schema` must print one JSON object: the protocol schema and port, every refusal code of the table below
   with its exit code and words, the exit codes, and the JSON schemas of the report and of the hello.
   [@test] ../../crates/bd-host/src/schema_test.rs (`schema_lists_every_code_and_the_shapes_of_the_report_and_the_hello`)
   [@test] ../../crates/bd-host/tests/cli.rs (`schema_and_version_answer_one_json_object`)
-- `bd-host skill install [--dir <dir>] [--force]` must write the skill `bd-host` into `~/.claude/skills/bd-host/`
+- `brd-host skill install [--dir <dir>] [--force]` must write the skill `brd-host` into `~/.claude/skills/brd-host/`
   from the files that the binary carries: `SKILL.md` (`crates/bd-host/skill/SKILL.md`), and this spec and
-  [Host Runs](../../docs/design/host-runs.md) as `references/spec.md` and `references/design.md`. The marker `.bd-host-skill.sha256` lists the SHA-256 of
+  [Host Runs](../../docs/design/host-runs.md) as `references/spec.md` and `references/design.md`. The marker `.brd-host-skill.sha256` lists the SHA-256 of
   each file. A copy whose files differ from the marker has local edits: an install refuses with `skill_edited`
-  (exit 255), and `--force` replaces it. `bd-host skill print` prints `SKILL.md`.
+  (exit 255), and `--force` replaces it. `brd-host skill print` prints `SKILL.md`.
   [@test] ../../crates/bd-host/src/skill_test.rs (`skill_install_replaces_a_copy_of_another_build_and_keeps_local_edits`, `a_copy_without_a_marker_or_with_a_missing_file_counts_as_edited`)
 
 ### Refusal codes
 
-A refusal says `bd-host: <code>: <message>` on the stderr. A caller acts on the code and the exit code, never on the
+A refusal says `brd-host: <code>: <message>` on the stderr. A caller acts on the code and the exit code, never on the
 message. Exit 75 means that the host did not run the command, so the caller can run it locally. A refusal of `run`
 before `Start`, and a refusal of the agent whose phases have no `command`, exits 75. Any other refusal exits 255,
 except `usage` (2) and `interrupted` (130).
@@ -538,8 +538,8 @@ except `usage` (2) and `interrupted` (130).
 |---|---|---|
 | `usage` | 2 | An alias that is not `[0-9A-Za-z._-]+`, a run without a command, a working directory in no git checkout, a descriptor of `--report-fd` that is not open, a fetch without a record and without `--fetch`. A command line that clap refuses exits 2 too. |
 | `interrupted` | 130 | Ctrl+C before the start, or a second Ctrl+C during the follow. |
-| `config` | 75 | No home directory, or an identity, a record or a file of bd-host that cannot be read or written. |
-| `no_host` | 75 | No host file for the alias. The message names `bd-host setup <alias>`. |
+| `config` | 75 | No home directory, or an identity, a record or a file of brd-host that cannot be read or written. |
+| `no_host` | 75 | No host file for the alias. The message names `brd-host setup <alias>`. |
 | `bad_host_file` | 75 | A host file that is not JSON of its shape, or that names another alias. |
 | `unreachable` | 75 | No address answers. The message names each address and the lookup, and Local Network privacy when the relay cannot pass it. |
 | `untrusted` | 75 | The agent shows another certificate than the pin, or it refuses the certificate of the client. |
@@ -564,11 +564,11 @@ except `usage` (2) and `interrupted` (130).
 | `prepare_failed` | 75 | A prepare step exited with another code than 0. |
 | `spawn_failed` | 75 | The command cannot start. |
 | `agent_error` | 75, 255 after the command started | The agent cannot read or write its own files, or a supervisor got lost. |
-| `fetch_failed` | 255 | The fetch did not copy every file. The run stays on the host for `bd-host fetch` and `bd-host forget`. |
+| `fetch_failed` | 255 | The fetch did not copy every file. The run stays on the host for `brd-host fetch` and `brd-host forget`. |
 | `apply_failed` | 255 | The changes do not apply to the working tree, or they did not come because the fetch failed. |
 | `bad_binary` | 255 | The binary of an upgrade has another size or SHA-256, or `version --json` does not answer as an agent of this schema with `upgrade`. |
 | `downgrade` | 255 | The binary of an upgrade has a lower version, and the request has no `force`. |
-| `plist_changed` | 255 | The new binary would write another LaunchAgent than the one on the host: `bd-host setup` installs it. |
+| `plist_changed` | 255 | The new binary would write another LaunchAgent than the one on the host: `brd-host setup` installs it. |
 | `upgrade_failed` | 255 | The agent cannot stage, keep or swap its binary, or start the watchdog, or another upgrade runs. |
 | `rolled_back` | 255 | The new agent did not listen in time, and the previous binary answers. |
 | `agent_failed` | 255 | The binary for a host cannot be read or is of another platform, the host is not macOS for `upgrade`, or `setup --agent` on the host failed. |
@@ -577,14 +577,14 @@ except `usage` (2) and `interrupted` (130).
 | `skill_edited` | 255 | `skill install` found a copy with local edits, without `--force`. |
 
 - Each code must be one variant of the refusal type of `host-link`, with its name and exit in one table that
-  `bd-host schema` prints, so a code cannot have two exits.
+  `brd-host schema` prints, so a code cannot have two exits.
   [@test] ../../crates/host-link/src/refusal_test.rs (`every_refusal_code_has_one_name_and_one_exit`, `the_exit_of_a_code_follows_how_far_the_run_came`)
 
 ## Testing / Local Run
 
-- `cargo nextest run -p host-link -p host-client -p host-agent -p bd-host` runs the unit tests and the process tests
-  on 127.0.0.1, with `TestRepo` pools in a temporary home directory. No fake `bd` exists.
-- The live check is `bd-host hello studio`, then a run with a dirty tree and `--apply`, a run with a base, and five
+- `cargo nextest run -p host-link -p host-client -p host-agent -p brd-host` runs the unit tests and the process tests
+  on 127.0.0.1, with `TestRepo` pools in a temporary home directory. No fake `brd` exists.
+- The live check is `brd-host hello studio`, then a run with a dirty tree and `--apply`, a run with a base, and five
   parallel runs, from a lease of this repository.
 
 ## Open Questions / Risks
@@ -600,5 +600,5 @@ except `usage` (2) and `interrupted` (130).
 ## References
 
 - [Host Runs](../../docs/design/host-runs.md): why, the slot model, the processes, the upgrade.
-- [bd lease](lease.spec.md): "Host slots", "Host objects", "Host runs".
+- [brd lease](lease.spec.md): "Host slots", "Host objects", "Host runs".
 - [Git Operations](../../docs/design/git-operations.md): "Host slots".

@@ -1,6 +1,6 @@
 //! The branches merged Safe Pushes landed, as the repository view decides it for the app too
 //! (`repository_model::patronus_view`): the branch a robot ran on, the branches a piece is built on, every branch of the
-//! whole stack; by the hashes, else by content, the commits added after the landed ones the only work left. Until the update archives them, `bd status` names them (`landed_by`), `bd
+//! whole stack; by the hashes, else by content, the commits added after the landed ones the only work left. Until the update archives them, `brd status` names them (`landed_by`), `bd
 //! push` leaves out one that landed whole (`skipped`, refused as `landed` when nothing else is left) and `bd
 //! safe-push` refuses it (`landed`): a push or a robot would land nothing.
 
@@ -48,7 +48,7 @@ pub fn every_branch_landed(what: &str, landed: &[&LandedBranch]) -> String {
   push_guard::every_branch_landed(what, &landed)
 }
 
-/// `landed_by` of `bd status`: the merged Safe Push that landed the branch, and what of it
+/// `landed_by` of `brd status`: the merged Safe Push that landed the branch, and what of it
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct LandedBySummary {
   /// The branch whose Safe Push landed it: the branch itself, a branch built on it, or the root of the whole stack

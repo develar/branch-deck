@@ -494,7 +494,7 @@ export async function requestSafePush(branchName: string, request: SafePushReque
   }
   const { mode } = request
   if (run?.by != null) {
-    // another process runs a start of the row (an agent's `bd safe-push`): it holds what it lands until it ends
+    // another process runs a start of the row (an agent's `brd safe-push`): it holds what it lands until it ends
     tellRefusal(branchName, mode, run.by.description, false)
     return
   }

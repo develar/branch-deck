@@ -420,7 +420,7 @@ fn a_start_of_this_process_whose_answer_was_lost_holds_its_own_admissions_after_
   };
   assert_eq!((holder.op.as_str(), holder.unknown), ("lost", true));
   assert!(busy.message.starts_with("Cannot tell whether the Safe Push of auth that Branch Deck"), "{}", busy.message);
-  assert!(busy.message.contains("`bd operation forget lost`"), "{}", busy.message);
+  assert!(busy.message.contains("`brd operation forget lost`"), "{}", busy.message);
 
   let shown = registry.of_other_processes().unwrap();
   assert_eq!(

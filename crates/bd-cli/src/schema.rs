@@ -38,9 +38,9 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// The outputs of each command, by their names in `bd schema --all`: `rewrite` is the output of group, rename, restack,
+/// The outputs of each command, by their names in `brd schema --all`: `rewrite` is the output of group, rename, restack,
 /// unstack, stack-together and reword, `commits_brief` and `status_brief` the outputs of `--brief`, `update_status` and `update_abort`
-/// those of `bd update --status` and `--abort`, `lease_get` … `lease_reclaim` those of `bd lease <command>`. `error` is
+/// those of `brd update --status` and `--abort`, `lease_get` … `lease_reclaim` those of `brd lease <command>`. `error` is
 /// what any command prints when it fails
 pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("check", &["check"]),
@@ -94,7 +94,7 @@ pub const COMMAND_OUTPUTS: &[(&str, &[&str])] = &[
   ("workspace", &["workspace"]),
 ];
 
-/// The commands without a JSON output of their own: `bd schema` prints these schemas or the index, `bd help` text
+/// The commands without a JSON output of their own: `brd schema` prints these schemas or the index, `brd help` text
 pub const WITHOUT_OUTPUT: &[&str] = &["help", "schema"];
 
 #[derive(Debug, clap::Args)]
@@ -107,16 +107,16 @@ pub struct SchemaArgs {
   pub all: bool,
 }
 
-/// `bd schema`: the index of the commands and the names of their outputs, a few KB, rather than every schema
+/// `brd schema`: the index of the commands and the names of their outputs, a few KB, rather than every schema
 #[derive(Debug, Serialize)]
 pub struct SchemaIndex {
   pub schema: SchemaVersion,
-  /// Per command the outputs it prints; `bd schema <command>` prints their schemas, `bd schema error` that of the
+  /// Per command the outputs it prints; `brd schema <command>` prints their schemas, `brd schema error` that of the
   /// error any command prints
   pub commands: BTreeMap<&'static str, &'static [&'static str]>,
 }
 
-/// `bd schema <name>...` and `bd schema --all`: the JSON Schema of the outputs asked for, by output name
+/// `brd schema <name>...` and `brd schema --all`: the JSON Schema of the outputs asked for, by output name
 #[derive(Debug, Serialize)]
 pub struct SchemaOutput {
   pub schema: SchemaVersion,
@@ -219,7 +219,7 @@ fn with_operation_id(mut schema: Schema) -> Schema {
         "operation_id".to_string(),
         json!({
           "type": "string",
-          "description": "The operation of the run (a ULID): the `operation_id` of its log lines (`bd -v`), of its record in the operations registry and of its entry in the journal of the operations of the repository"
+          "description": "The operation of the run (a ULID): the `operation_id` of its log lines (`brd -v`), of its record in the operations registry and of its entry in the journal of the operations of the repository"
         }),
       );
     }

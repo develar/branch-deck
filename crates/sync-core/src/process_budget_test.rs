@@ -50,7 +50,7 @@ async fn a_first_sync() {
   let (repo, _) = alpha_and_beta_on_origin();
   let git = counting();
   sync(&git, &repo).await;
-  // jscpd:ignore-start: the sync of `bd sync`, `bd push` and the Safe Push check (crates/bd-cli/src/process_budget_test.rs),
+  // jscpd:ignore-start: the sync of `brd sync`, `brd push` and the Safe Push check (crates/bd-cli/src/process_budget_test.rs),
   // so their budgets end in the same processes: a change of one count shows in both
   assert_processes(
     &git,
@@ -181,7 +181,7 @@ async fn a_first_sync_of_a_forking_stack() {
   let git = counting();
   sync(&git, &repo).await;
   assert!(repo.branch_exists("test/stack/alpha"));
-  // jscpd:ignore-start: the sync of `bd sync` and the Safe Push check of a stack (crates/bd-cli/src/process_budget_test.rs),
+  // jscpd:ignore-start: the sync of `brd sync` and the Safe Push check of a stack (crates/bd-cli/src/process_budget_test.rs),
   // so their budgets end in the same processes: a change of one count shows in both
   assert_processes(
     &git,
@@ -253,7 +253,7 @@ async fn remote_statuses(git: &GitCommandExecutor, repo: &TestRepo, cache: &Obje
     .collect()
 }
 
-/// `bd sync` is a new process at every call: the statuses of commits that did not move come from the object cache, and
+/// `brd sync` is a new process at every call: the statuses of commits that did not move come from the object cache, and
 /// the push times of all branches from one `reflog`. The first such sync walks `beta`, whose remote branch is not at
 /// its tip (2 `rev-list`); `alpha`'s remote branch is at its tip and needs no walk
 #[tokio::test]
@@ -490,7 +490,7 @@ async fn a_drop() {
   );
 }
 
-/// `bd unapply --dry-run` of beta: what `a_drop` reads and computes before the lock, then the temporary refs of the drop
+/// `brd unapply --dry-run` of beta: what `a_drop` reads and computes before the lock, then the temporary refs of the drop
 /// deleted; no lock, no witness, no mapping note and no move
 #[tokio::test]
 async fn a_dry_run_of_a_drop() {
@@ -694,7 +694,7 @@ fn the_app_reword() {
   };
   let result = reword_request_core(&git, &request, &RegroupOptions::default()).unwrap();
   assert!(result.undo_token.is_some());
-  // jscpd:ignore-start: the same core as `bd reword` (crates/bd-cli/src/process_budget_test.rs, `a_reword`), so the same
+  // jscpd:ignore-start: the same core as `brd reword` (crates/bd-cli/src/process_budget_test.rs, `a_reword`), so the same
   // processes: a change of one count shows in both
   assert_processes(
     &git,

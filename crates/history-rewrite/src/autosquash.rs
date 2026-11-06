@@ -230,7 +230,7 @@ pub fn get_autosquash_plan_core(git_executor: &GitCommandExecutor, repository_pa
 /// Squashes the fixups of `scope` into their targets in one history rewrite that keeps HEAD's tree, so the index and
 /// the working tree are not touched, and answers what it squashed. The plan is computed again, on HEAD as the core
 /// reads it, which must be `options.expect_head` when the request names one (the app: the HEAD its rewrite resolved;
-/// `bd fold --expect-head`): HEAD, the commits the plan is made of and the history the rewrite replays must all end at
+/// `brd fold --expect-head`): HEAD, the commits the plan is made of and the history the rewrite replays must all end at
 /// it, else the error is `HeadMoved`, which a request that named no HEAD computes once more under the lock. A scope with
 /// nothing to squash is `NothingToSquash`. The plan, the new commits and the mapping notes the replayed commits carry
 /// come before the repository lock; under it only the witness of HEAD and the compare-and-swap move of the branch (`RewriteOptions::lock_prepared`)
@@ -238,7 +238,7 @@ pub fn squash_fixup_commits_core(git_executor: &GitCommandExecutor, params: &Squ
   squash_fixup_commits_on(git_executor, params, options, None)
 }
 
-/// `squash_fixup_commits_core` whose first plan is made of `range` when the caller read it already (`bd fold`, which
+/// `squash_fixup_commits_core` whose first plan is made of `range` when the caller read it already (`brd fold`, which
 /// answers a dry run from it); a plan computed again because HEAD moved reads the range anew
 #[instrument(skip(git_executor, options, range))]
 pub fn squash_fixup_commits_on(git_executor: &GitCommandExecutor, params: &SquashFixupsParams, options: &RewriteOptions, range: Option<FoldRange>) -> Result<SquashFixupsResult> {

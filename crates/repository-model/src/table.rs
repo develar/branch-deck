@@ -11,7 +11,7 @@
 //! A table seeded from the cached frame of an earlier run is `cached` until the first sync of this process commits
 //! (a failed one restores it, cached still): the rules hold its remote actions back meanwhile.
 //!
-//! `bd sync` folds the events of its sync into a table of its own and summarizes it, so the app and `bd` read one
+//! `brd sync` folds the events of its sync into a table of its own and summarizes it, so the app and `bd` read one
 //! applier; beside the parts of the view it reads two facts the page has no use for: the order in which the sync
 //! reported the stack branches (`stacks`) and the commits each branch left uncopied (`blocked_commits`).
 //!
@@ -27,7 +27,7 @@
 //! order they were admitted), the `operations` part of the view: `operations::registry` admits them by
 //! `domain_policy::admission` and changes them through `apply_operation` on the actor of the session
 //! (`Sessions::apply_with`), the one writer of that part. Among them are the operations of other processes of the
-//! repository (`Origin::OtherProcess`, an agent's `bd safe-push`), as the operations registry of the repository has them
+//! repository (`Origin::OtherProcess`, an agent's `brd safe-push`), as the operations registry of the repository has them
 //! (`operations::registry_watch`): each read of it replaces them all (`OperationPatch::Foreign`), and the ones of this
 //! process stay as they are. It keeps the rewrites of this process that moved HEAD too (`rewrites`, `RewriteLink`), which a
 //! rewrite asked on the table before one of them names its commits through (`operations::rewrite`), and the Undo it
@@ -62,10 +62,10 @@ pub(crate) struct TableParts {
   pub(crate) stacks: BTreeMap<String, StackBranchUpdate>,
   pub(crate) sections: TableSections,
   /// Not a part of the view, which keys the stack branches by root: the roots in the order the grouping announced
-  /// them, of each stack that forks, then those kept for their remote branch (the order of `bd sync`)
+  /// them, of each stack that forks, then those kept for their remote branch (the order of `brd sync`)
   pub(crate) stack_roots: Vec<String>,
   /// Not a part of the view, whose rows mark none of them: branch -> the commits the sync did not copy, oldest first,
-  /// because an earlier commit failed or the branch was not built (`CommitsBlocked`; `bd sync` lists them)
+  /// because an earlier commit failed or the branch was not built (`CommitsBlocked`; `brd sync` lists them)
   pub(crate) blocked: HashMap<String, Vec<String>>,
 }
 

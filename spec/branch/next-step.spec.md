@@ -72,7 +72,7 @@ Every surface used to decide on its own what a branch can do now, from its own s
 "Safe Push…" for a branch whose code owner was still asked, the form enabled Start, and the robot failed at once for
 the approvals Patronus checks when it starts. One rule, `domain_policy::next_step` in Rust, now decides the next step
 of a branch from all the facts (the branch, its robots, its pull request and the readiness Patronus answers,
-[Patronus](patronus.spec.md#code-owner-review)) for the app and `bd` alike; the session sends it in its view
+[Patronus](patronus.spec.md#code-owner-review)) for the app and `brd` alike; the session sends it in its view
 (`nextSteps`, a kept part per subject the row reads with `useRowPart(name, "landing")`), the page words it
 (`presentNextStep` of `src/presenters/next-step.ts`, which decides nothing), and every surface renders it: the slot shows
 the step, every "Safe Push" is disabled with the same reason, no action is offered whose failure is known.
@@ -103,15 +103,15 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   | # | State | Slot | Safe Push elsewhere |
   |---|---|---|---|
   | 0 | A fact the rows below decide on has no answer yet (`PendingFact`; [below](#facts-without-an-answer)): Patronus hasn't answered for the repository or its view of the robots it listed first isn't in, GitHub hasn't listed the pull requests, the check of what the branch needs to land is still running, Patronus hasn't told why the robot of the branch failed, the first answer of the readiness; never while a reason of row 1 or of the branch holds the start back, which it says instead. Or a read failed (`UnavailableFact`): the Safe Push CLI is not logged in, Patronus fails, Patronus didn't give why the robot failed | muted "Checking…" with its spinner, disabled, the fact on hover ("Waits for GitHub to list the pull requests"); after a failed read what helps: "Copy Login Command", "Refresh Patronus", or the restart disabled with the failure | disabled with the same words ("Waits for the answer of Patronus", "Waits for Patronus to check the approvals", "Run ./safePush.cmd once to log in to Patronus"); a Dry Run only while Patronus hasn't answered or can't be asked |
-  | 1 | Syncing, failed to sync, no commits, blocked, held by a Safe Push, parked or built on a parked branch, landed, a robot runs, merged (by the robot, by the merged Safe Push of a branch built on it or of the whole stack, or the pull request of these commits; all of it, no commit added since) | nothing; the Status cell says it ("Landed with oauth", "Parked with auth"), a running robot first with what else holds the branch beside it ([Branch Row](branch-row.spec.md#status-cell)), as `bd status` does (`next_step.status`) | disabled: "Wait for the sync to finish", "Parked: Unpark it to push", "Built on parked auth: Unpark auth to push", "Holds parked auth: land the stack in pieces" (the whole stack), "Landed in origin/master", "Landed in master with oauth", "Merged by Patronus", "Pull request #7 is merged", … (a running robot of an older commit: enabled, the start replaces it) |
+  | 1 | Syncing, failed to sync, no commits, blocked, held by a Safe Push, parked or built on a parked branch, landed, a robot runs, merged (by the robot, by the merged Safe Push of a branch built on it or of the whole stack, or the pull request of these commits; all of it, no commit added since) | nothing; the Status cell says it ("Landed with oauth", "Parked with auth"), a running robot first with what else holds the branch beside it ([Branch Row](branch-row.spec.md#status-cell)), as `brd status` does (`next_step.status`) | disabled: "Wait for the sync to finish", "Parked: Unpark it to push", "Built on parked auth: Unpark auth to push", "Holds parked auth: land the stack in pieces" (the whole stack), "Landed in origin/master", "Landed in master with oauth", "Merged by Patronus", "Pull request #7 is merged", … (a running robot of an older commit: enabled, the start replaces it) |
   | 1′ | The build of what its Safe Push lands needs a commit of a branch outside it (`landingNeeds` of the repository view, [below](#what-the-safe-push-needs)) | "Needs stills-codec" (a commit not in a branch by its hash), the reason on hover; a click runs the fix, "Stack lane-run on stills-codec" | enabled: its popover says why before the start, with the fix and Start Anyway |
   | 1″ | Someone else pushed commits to its remote branch that it lacks (`othersBehind` of the remote status, [Outgoing](../repository/outgoing.spec.md#remote-commits-of-others)): a push, also the one of a start or a restart, drops them | "Pick Remote Commits", the reason on hover ("The remote has 1 commit of someone else that auth doesn't: a push drops it"); a click opens the question of the push button, which lists the commits with the pick | enabled: its start asks before the push that drops them |
   | 2 | A robot failed or was canceled, not for approvals, and no running Safe Push of a branch it is built on (of the whole stack: of a branch of it) lands a part of it; while one does, the failure of the earlier piece waits for it: the rows below decide, the Safe Push disabled with "A Safe Push of auth is running: wait until it merges" | "Restart Safe Push" (Safe Push… where Patronus can't restart it) | enabled |
   | 3 | A robot failed for approvals, started from the open pull request into the target, readiness `approved` | "Restart Safe Push" | enabled |
   | 4 | removed: a stacked branch takes the rows of its own pull request into master, see below | — | — |
-  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | enabled: the start retargets #7 into master first, then starts from it, as `bd safe-push` (D11, `PlannedEffect::Retarget` of `domain_policy::land::decide`) |
+  | 5 | An open pull request into a virtual branch (`{prefix}/virtual/…`, `base` `virtual` of the open pull request the session reads, `domain_policy::pull_request::base_of`: of its parent, of another branch of the table, or of one that landed, was archived or deleted): every pull request of a virtual branch goes into the target | "Retarget #7 to master" ("Retarget #7" in the slot) | enabled: the start retargets #7 into master first, then starts from it, as `brd safe-push` (D11, `PlannedEffect::Retarget` of `domain_policy::land::decide`) |
   | 5 | Merge route: an open pull request into the branch of the layer below it that GitHub lists in no stack (`layerNotLinked` of the merge, [Stacks of GitHub](stacked-branches.spec.md#stacks-of-github)): its merge would land nothing | "Link GitHub Stack" ("Link Stack" in the slot): Link GitHub Stack (`Intent::LinkStack`) | its merge waits for the link |
-  | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `bd safe-push` (D3b) |
+  | 5′ | An open pull request into another base, which may be meant (a release branch; `base` `other`) | quiet "Open Pull Request", the reason on hover; "Retarget #7 to master" stays in "⋯" | disabled: "Approvals in #7 don't count: its base is release-252"; a start that counts no approval (without review, a profile that skips the review) starts, as `brd safe-push` (D3b) |
   | 6 | An open draft | quiet "Draft", opens it | disabled: "#7 is a draft: Patronus merges it once it is ready for review" |
   | 7 | `missing`, no open pull request (none, or a closed one) | "Create Pull Request…" (the code owners preselected; on the remote or not, its dialog pushes the branch; disabled only while the GitHub repository is unknown); a branch of a whole stack whose pull request is open: quiet "In #12", which opens it (below) | disabled: "Code owners must approve in a pull request: IJPL Code Platform" |
   | 8 | `missing`, a member of a missing group requested changes (and wasn't asked again since) | quiet "Changes Requested" in `destructive`, opens the pull request | disabled: "Ilya Korennoy requested changes on #1078" |
@@ -135,7 +135,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   `StepFacts.landed` of `domain_policy::next_step`): the branch it ran on itself, an ancestor the Safe Push of a branch built on it carried,
   and every branch of a stack whose Safe Push of the whole stack ran on the stack branch, the same conditions under
   which the merge closes their pull requests ([Patronus](patronus.spec.md#merged)). Also a robot first seen merged
-  (after a restart, a landing by `bd`). What it landed is decided by the hashes while the robot ran on a commit of its
+  (after a restart, a landing by `brd`). What it landed is decided by the hashes while the robot ran on a commit of its
   branch as the table has it (its tip, the same commits rebuilt on a newer baseline, or a commit the branch built new
   ones on since) or on the stack branch as it is; after a change below that commit (a new commit or an amend of a
   branch it is built on, a reword, for the whole stack any change of a branch of it, which rebuilds the stack branch)
@@ -157,7 +157,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../src/stores/patronus.test.ts (`holds the branches a merged Safe Push landed, also one first seen merged, and lands the rest without them`)
   [@test] ../../tests/e2e/stacked-branches/stacked-branches.spec.ts (`should say which branches a merged Safe Push landed until the update, and offer no Safe Push or push of them`, `should hold the branch its merged Safe Push ran on, and keep what it landed by content after a change below its commit: a commit added since is the only work left`)
   [@test] ../../tests/e2e/stack-island/whole-stack.spec.ts (`should say on every branch of the stack that the whole stack landed it until the update, and offer its Safe Push no more`, `should offer no Safe Push, Dry Run or push of the branches the whole stack landed, each saying why, the hover of their chip saying so`)
-- What landed a branch, and a whole stack, is one rule in Rust for the app and `bd` (`domain_policy::landed::landed_state`,
+- What landed a branch, and a whole stack, is one rule in Rust for the app and `brd` (`domain_policy::landed::landed_state`,
   the view's `landedStates`, [Patronus](patronus.spec.md#merged)), the first that holds: the fetched baseline has every
   commit of it (of a whole stack, of every branch); merged Safe Pushes landed it (also a part of it, the commits added
   after it the work left); GitHub merged its pull request into the target with the commits it has: its head is the
@@ -167,7 +167,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   child of a stack merged after its parent's pull request had landed: the target lacks its commits); a layer of a stack
   of GitHub into the target keeps its old base once merged and lands
   (`domain_policy::pull_request::merges_into_target`). A start of a branch all of which landed is refused at both
-  sides (`bd safe-push`: `landed`).
+  sides (`brd safe-push`: `landed`).
   [@test] ../../crates/domain-policy/src/landed_test.rs (`what_landed_a_branch_the_baseline_first_then_merged_safe_pushes_then_its_pull_request`, `a_pull_request_lands_the_branch_only_merged_with_the_commits_it_has`, `a_pull_request_merged_into_another_branch_lands_nothing`, `a_whole_stack_landed_when_every_branch_of_it_did`, `the_reason_a_start_gives_of_what_landed_all_of_the_subject`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
 - The step says why nothing of the branch is left to land (`BranchNextStep.landed`, `formatLandedWhole`: the words of the
@@ -244,11 +244,11 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`rows_7_to_10_the_missing_approvals_and_where_they_can_come_from`, `a_repository_not_on_space_has_no_slot_and_keeps_the_reasons_of_the_subject`)
   [@test] ../../src/presenters/next-step.test.ts (`has no slot off Space and keeps the reasons of the subject, with no notice`)
 
-- The table is one rule in Rust for the app and `bd` (`domain_policy::next_step`, over `StepFacts`: the subject as
+- The table is one rule in Rust for the app and `brd` (`domain_policy::next_step`, over `StepFacts`: the subject as
   the table and the robots have it, each fact of the remote as it stands), and so is the node of the row
   (`domain_policy::landing_node`): the session derives the step and the node of every row and of every whole stack
   that forks with each patch of its view (`RepositoryView.nextSteps`, `repository_model::derive::next_steps`; a sync of
-  a branch is row 1 meanwhile), `bd status` and `bd safe-push --dry-run` print it of what they read
+  a branch is row 1 meanwhile), `brd status` and `brd safe-push --dry-run` print it of what they read
   ([Agent CLI](../cli/agent-cli.spec.md#bd-status)). A step carries the facts its words need, never the words: its row,
   its kind with the pull request and the groups it names, the blockers of the Safe Push and the Dry Run (a reason of
   the rules, the sync, or the step's own reason), whether it waits for the readiness or stands on a stale answer of it,
@@ -478,7 +478,7 @@ the step, every "Safe Push" is disabled with the same reason, no action is offer
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should disable Push to master with the reason when the token has no write access to the repository`)
 - Row push′: a push of a copy built on the commit before the new ones of the fetched baseline would be no fast-forward,
   which the server refuses after a round trip; the step is Update Project, which builds the copy anew on them, and the
-  push waits for it on every surface. `bd land` refuses it as `baseline_moved` with `bd update` next, pushing nothing.
+  push waits for it on every surface. `brd land` refuses it as `baseline_moved` with `brd update` next, pushing nothing.
   [@test] ../../crates/domain-policy/src/next_step_test.rs (`a_fetched_baseline_ahead_of_the_copy_offers_update_project_before_the_push`)
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_fetched_baseline_ahead_of_the_copy_makes_the_update_the_users_step`)
   [@test] ../../src/presenters/next-step.test.ts (`row push′: updates the project, whose fetched baseline has commits the copy is not built on, and Push to master says why it waits`)

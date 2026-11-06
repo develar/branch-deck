@@ -437,7 +437,7 @@ mod tests {
   #[test]
   fn semantic_prefixes_with_and_without_parentheses() {
     let parsed = |subject| parse_semantic_prefix(subject).map(|prefix| (prefix.kind, prefix.scope, prefix.rest));
-    assert_eq!(parsed("feat(cli): bd suggest"), Some(("feat", Some("cli"), "bd suggest")));
+    assert_eq!(parsed("feat(cli): brd suggest"), Some(("feat", Some("cli"), "brd suggest")));
     assert_eq!(parsed("feat(api)!: drop v1"), Some(("feat", Some("api"), "drop v1")));
     assert_eq!(parsed("fix: a bug"), Some(("fix", None, "a bug")));
     assert_eq!(parsed("setup vm: a lease skips a busy worker"), Some(("setup", Some("vm"), "a lease skips a busy worker")));

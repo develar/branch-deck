@@ -1,6 +1,6 @@
 //! The pairing of a local commit with the upstream commit that carries its change: by identity (`CommitKey`) and by
 //! patch id. The update check and its resolve session, the landed report (`sync_core::landed`), the remote status of a
-//! virtual branch (`sync_core::remote_status`), the robot commit map (`sync_core::robot_commits`) and `bd pick`
+//! virtual branch (`sync_core::remote_status`), the robot commit map (`sync_core::robot_commits`) and `brd pick`
 //! (`pick`) read it (spec/repository/landed-commits.spec.md, docs/design/integration-detection.md, "Landed commits").
 //!
 //! - `CommitKey`: the identity of a commit across a rebase and an amend
@@ -401,7 +401,7 @@ pub enum LandedProof {
 pub struct LandedDrop {
   pub commit: String,
   pub upstream: String,
-  /// A session of an older bd has only `patch_id` drops, without the field
+  /// A session of an older brd has only `patch_id` drops, without the field
   #[serde(default)]
   pub proof: LandedProof,
 }

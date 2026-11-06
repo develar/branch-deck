@@ -1,7 +1,7 @@
 //! The repositories of the host and the files of a slot. Branch Deck owns their git, in process: the commits that a
 //! repository has (`lease_pool::host_refs::have`), the ingest of a pack (`lease_pool::host_refs::ingest`), the files
 //! of a commit (`lease_pool::host_refs::show`), and the tree and the changes of a slot (`snapshot_run`, `changes_run`).
-//! No `bd` child runs. Each of these calls is a git user of the host, so it takes its turn behind an upgrade of git
+//! No `brd` child runs. Each of these calls is a git user of the host, so it takes its turn behind an upgrade of git
 //!
 //! A pack lands as `refs/branch-deck/host/run/<id>` or `refs/branch-deck/host/base/<name>`. The give-back of a run
 //! deletes its ref, and the keeper deletes a run ref without a lend after an hour and a base ref that no pack moved for
@@ -25,7 +25,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// How long a get or a return of a slot waits for the Bazel servers it asked to exit, as `bd` does
+/// How long a get or a return of a slot waits for the Bazel servers it asked to exit, as `brd` does
 const SERVER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A repository of the host, with its git and its directories, read once
@@ -80,7 +80,7 @@ impl Repository {
     }
   }
 
-  /// What the pools of the host hold on disk, as `bd lease disk` reports it (`pool_disk`), as the JSON of
+  /// What the pools of the host hold on disk, as `brd lease disk` reports it (`pool_disk`), as the JSON of
   /// `Reply::Disk`: the pools of this repository and of the home of the agent; `fresh` walks every slot again
   pub(crate) fn disk(&self, fresh: bool) -> Result<serde_json::Value, Refusal> {
     let params = DiskParams {

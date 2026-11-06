@@ -33,7 +33,7 @@ export function stopWaitingPushItem(progress: PushProgress | null): MenuItem | n
 
 /**
  * The label of a running fetch or push, e.g. "Pushing 45%"; "Pushing…" until git reports a stage; while the push waits
- * for another holder of the repository lock, who it is: "Waiting for `bd pick` (pid 4242, for 12 s)"
+ * for another holder of the repository lock, who it is: "Waiting for `brd pick` (pid 4242, for 12 s)"
  */
 export function transferLabel(verb: string, progress: PushProgress | null): string {
   if (progress?.waiting === true) {

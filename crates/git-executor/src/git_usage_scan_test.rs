@@ -91,7 +91,7 @@ const BD_CRATES: &str = "crates/bd-";
 
 #[test]
 fn bd_and_the_app_run_no_git_of_their_own() {
-  // a bd crate the scan doesn't read would escape the rule
+  // a brd crate the scan doesn't read would escape the rule
   let sources = production_sources();
   let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
   for entry in std::fs::read_dir(crates).expect("crates directory").flatten() {
@@ -101,7 +101,7 @@ fn bd_and_the_app_run_no_git_of_their_own() {
     }
   }
   check(
-    "the bd crates (crates/bd-*) and src-tauri start git themselves",
+    "the brd crates (crates/bd-*) and src-tauri start git themselves",
     "they are adapters: put the git call into a function of crates/git-ops (the git) or a core of crates/history-rewrite or \
      crates/sync-core (the lock, the guards, the orchestration), and call that",
     &[],
@@ -315,7 +315,7 @@ fn network_commands_run_through_remote_command() {
     &[Exemption {
       path: "crates/bd-cli/src/schema.rs",
       hits: 1,
-      reason: "`COMMAND_OUTPUTS`: the output schemas of `bd push`, a table of names, not the arguments of a git",
+      reason: "`COMMAND_OUTPUTS`: the output schemas of `brd push`, a table of names, not the arguments of a git",
     }],
     |source| {
       let calls_remote_command = source.code_lines().any(|(_, line)| {

@@ -2,7 +2,7 @@
 //! server. One chain of downcasts over the typed errors that reach a command; the code of a typed error with several
 //! comes from the type (`RegroupError::code`, `SyncDeferred::code`, `ParkError::code`, `GuardRefusal::code`,
 //! `UnapplyRefusal::code`, `ReapplyRefusal::code`), which the commands of `bd` read too. An undo answers the code
-//! `in_undo` (`undo_error`), as `bd undo` does. A code is never picked by reading a message; an error without a code of
+//! `in_undo` (`undo_error`), as `brd undo` does. A code is never picked by reading a message; an error without a code of
 //! its own is `internal` with its whole context chain.
 
 use app_settings::service::SettingsError;
@@ -45,7 +45,7 @@ pub fn api_error(error: anyhow::Error) -> ApiError {
 }
 
 /// The error an undo command answers for `error`: `api_error` with its code `in_undo` (`ErrorCode::in_undo`: a ref that
-/// moved on since the operation makes the token stale, `undo_stale`, never retried), as `bd undo` answers it, and for a
+/// moved on since the operation makes the token stale, `undo_stale`, never retried), as `brd undo` answers it, and for a
 /// stale one the words that say so instead of the advice to retry; by value, for `map_err`
 pub fn undo_error(error: anyhow::Error) -> ApiError {
   let stale_words = error
@@ -157,7 +157,7 @@ fn repository_locked(error: &anyhow::Error) -> Option<&RepositoryLocked> {
 /// how long it was held, which `held_for` says
 fn locked_error(locked: &RepositoryLocked, now: u64) -> ApiError {
   let message = locked.holder.as_ref().map_or_else(
-    || "Branch Deck or bd is changing this repository; try again when it is done".to_string(),
+    || "Branch Deck or brd is changing this repository; try again when it is done".to_string(),
     |holder| format!("`{}` (pid {}) is changing this repository; try again when it is done", holder.command, holder.pid),
   );
   ApiError::new(ErrorCode::Locked, message).with_details(ErrorDetails::Locked {
@@ -368,7 +368,7 @@ pub fn contract_cases() -> Vec<(&'static str, anyhow::Error)> {
       }
       .into(),
     ),
-    ("locked_by_bd", locked(Some(holder("bd push auth"))).into()),
+    ("locked_by_bd", locked(Some(holder("brd push auth"))).into()),
     (
       "locked_by_the_app",
       anyhow::Error::new(RegroupError::Locked(locked(Some(holder("branch-deck"))))).context("Cannot move the commits"),

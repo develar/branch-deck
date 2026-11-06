@@ -1,8 +1,8 @@
 //! Makes a host ready for runs over ssh, while the person is at the terminal (spec/cli/host.spec.md, "setup"):
 //!
-//! 1. Copies the binary, `--binary` or this executable, to `~/.local/bin/bd-host` on the host when the host has another
+//! 1. Copies the binary, `--binary` or this executable, to `~/.local/bin/brd-host` on the host when the host has another
 //!    build there (the SHA-256 differs).
-//! 2. Runs `bd-host setup --agent` there: the agent identity, this client in the allow list, and the `LaunchAgent`.
+//! 2. Runs `brd-host setup --agent` there: the agent identity, this client in the allow list, and the `LaunchAgent`.
 //! 3. Reads the host name of the alias from `ssh -G`, and resolves it.
 //! 4. Writes the host file with the fingerprint of the agent, then checks the hello over the link.
 //!
@@ -49,7 +49,7 @@ const SSH_DEADLINE: Duration = Duration::from_secs(30);
 const COPY_DEADLINE: Duration = Duration::from_secs(120);
 
 /// The binary on the host, relative to the home directory, where ssh starts
-pub const AGENT_PATH: &str = ".local/bin/bd-host";
+pub const AGENT_PATH: &str = ".local/bin/brd-host";
 
 /// How often `setup` asks for the hello of an agent that starts
 const HELLO_RETRY: Duration = Duration::from_millis(500);
@@ -73,13 +73,13 @@ pub struct SetupRequest<'a> {
 pub struct Prepared {
   /// Whether the binary went to the host
   pub copied: bool,
-  /// What `bd-host setup --agent` did with launchd: `bootstrapped`, `restarted`, or `none` on Linux
+  /// What `brd-host setup --agent` did with launchd: `bootstrapped`, `restarted`, or `none` on Linux
   pub launchd: String,
   pub agent: AgentInfo,
   pub host_file: PathBuf,
 }
 
-/// The line that `bd-host setup --agent` prints
+/// The line that `brd-host setup --agent` prints
 #[derive(Deserialize)]
 struct AgentSetup {
   fingerprint: Fingerprint,
@@ -107,7 +107,7 @@ impl Client<'_> {
     let host_sum = probed.split_whitespace().next().unwrap_or_default();
     let copied = host_sum != sha256_hex(&binary);
     if copied {
-      (self.say)(&format!("bd-host: copying bd-host ({}) to {alias}:~/{AGENT_PATH}", format_size(binary.len() as u64)));
+      (self.say)(&format!("brd-host: copying brd-host ({}) to {alias}:~/{AGENT_PATH}", format_size(binary.len() as u64)));
       let staged = format!("{AGENT_PATH}.new");
       let copy = self.ssh(
         alias,
@@ -135,7 +135,7 @@ impl Client<'_> {
       return Err(Refusal::new(
         Code::AgentFailed,
         format!(
-          "`bd-host setup --agent` failed on {alias}: {}. A binary of another platform does not run there",
+          "`brd-host setup --agent` failed on {alias}: {}. A binary of another platform does not run there",
           setup.said()
         ),
       ));
@@ -149,7 +149,7 @@ impl Client<'_> {
       .ok_or_else(|| {
         Refusal::new(
           Code::AgentFailed,
-          format!("`bd-host setup --agent` on {alias} printed no setup line: {}", setup_text.trim()),
+          format!("`brd-host setup --agent` on {alias} printed no setup line: {}", setup_text.trim()),
         )
       })?;
 
@@ -174,7 +174,7 @@ impl Client<'_> {
     })
   }
 
-  /// The hello of the agent that `bd-host setup --agent` started, which needs a moment to listen
+  /// The hello of the agent that `brd-host setup --agent` started, which needs a moment to listen
   fn wait_for_hello(&self, alias: &str, launchd: &str) -> Result<AgentInfo, Refusal> {
     let started = Instant::now();
     loop {
@@ -189,7 +189,7 @@ impl Client<'_> {
           return Err(Refusal::new(
             refusal.code,
             format!(
-              "{}. `bd-host setup --agent` starts no agent on this platform: run `~/{AGENT_PATH} serve` on {alias}",
+              "{}. `brd-host setup --agent` starts no agent on this platform: run `~/{AGENT_PATH} serve` on {alias}",
               refusal.message
             ),
           ));

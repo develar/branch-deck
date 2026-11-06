@@ -111,7 +111,7 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says above everything else that git is missing, and opens the repository once Check Again finds it`)
 - An identity git cannot form fails the write that needs it with `no_identity` (`NoIdentity` of `current_committer`:
   the notes of a sync and of its detection, which `write_cache_notes` never swallows, a rewritten commit), in the app
-  as in `bd`: a sync that wrote no notes would copy every commit again on each run. A sync that failed so is the
+  as in `brd`: a sync that wrote no notes would copy every commit again on each run. A sync that failed so is the
   `warning` alert "Git does not know your name and email" with the two `git config --global` commands (each with a
   copy button) and "Sync Again", which syncs again, instead of the error alert.
   [@test] ../../crates/git-ops/src/commit_writer_test.rs (`a_committer_git_cannot_form_is_no_identity`)
@@ -133,7 +133,7 @@ alert with the reason and the next step, never a raw Git error.
 - The prefix step has a field pre-filled with the prefix the refusal suggests (`ErrorDetails::PrefixSuggestion`,
   `prefix_suggestion`: one `git var GIT_COMMITTER_IDENT` in the repository, only on the refusal): the local part of
   the committer email, without a `+tag`, sanitized as a branch name. Save (or Enter) stores it as the app's branch
-  prefix (used by `bd` too); nothing is stored before. Below the field: "Branches will be named
+  prefix (used by `brd` too); nothing is stored before. Below the field: "Branches will be named
   `<prefix>/virtual/<name>`. You can change it later in Settings."
   [@test] ../../crates/sync-core/src/git_setup_test.rs (`suggests_the_local_part_of_the_committer_email`, `suggests_the_prefix_of_the_identity_of_the_repository`)
   [@test] ../../crates/test-server/src/session_routes_test.rs (`a_repository_without_a_prefix_is_refused_with_the_api_error_of_the_app`)
@@ -162,7 +162,7 @@ alert with the reason and the next step, never a raw Git error.
   card asks for one.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`changes the prefix in Settings on Enter or when the field is left, not on every key`, `pre-fills the prefix from the git identity and saves it only on Save`)
   [@test] ../../src/model/store.test.ts (`names only the repository: the session resolves the prefix, and a sync waits for no load of the page`, `subscribes first when asked before the window subscribed, and again after a failed subscription, whose failure it names`, `subscribes again holding its view: the same session answers nothing, another one's view replaces the rows`)
-- The specific prefix wins, in the app as in `bd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
+- The specific prefix wins, in the app as in `brd` ([Settings](settings.spec.md#branch-prefix-order)): a repository
   whose own git config (local or worktree, or `git -c`) sets `branchdeck.branchPrefix` names its branches by it, whatever the field
   says; the field says so ("This repository uses its own prefix `user-name`", with "Open Repository Settings") and
   names the branches the typed prefix gives elsewhere. Without one, the app's prefix applies, then the global git prefix.
@@ -197,7 +197,7 @@ alert with the reason and the next step, never a raw Git error.
   before is what the last sync recorded of the repository in `repositoryState` (when it ended, the "Last synced" of the
   header, and how many branches it had, the line under the path in the repository selector), which the backend keeps
   beside the settings (`repository-state.json`): a sync never rewrites `settings.json`. The main window records every
-  run of its session that ended, the ones no request of it waited for too (the sync of the open, of a rewrite, of `bd`).
+  run of its session that ended, the ones no request of it waited for too (the sync of the open, of a rewrite, of `brd`).
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`syncs a repository synced before when the window opens it`)
   [@test] ../../tests/e2e/update-project/update-project.spec.ts (`should age the last sync next to the Update button while it is shown`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_ticket_resolves_when_its_run_ends_not_the_chain`, `a_window_that_watches_a_kept_session_anew_syncs_it_when_the_inputs_changed`)
@@ -261,7 +261,7 @@ alert with the reason and the next step, never a raw Git error.
   only when what a sync reads changed since the last sync of the session (the inputs of
   [Git Operations](../../docs/design/git-operations.md#sync-inputs-check), read when the sync started, so a commit made
   while it ran counts): a commit, an amend or a finished rebase in the IDE, a fetch (of the baseline, also an upstream
-  other than `master` or `main`) or a push elsewhere, a regroup or a description by `bd`, a changed prefix (the
+  other than `master` or `main`) or a push elsewhere, a regroup or a description by `brd`, a changed prefix (the
   inputs are of the prefix Rust resolves). Otherwise the focus reads the inputs once (two git processes) and syncs nothing, and the header says "Checked just
   now" instead of "Last synced 18 minutes ago", the age of the sync in its tooltip: the branches are as current as a
   sync would make them. It says so only where the two read apart: for a check that came when "Last synced" no longer
@@ -359,7 +359,7 @@ alert with the reason and the next step, never a raw Git error.
   [@test] ../../crates/sync-core/src/repository_validation.rs (`test_validate_path_not_git_repo`, `test_validate_path_bare_repo`, `test_validate_path_linked_worktree`)
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`refuses a bare repository with the reason`)
 - A repository without commits fails the sync with "The repository has no commits yet: commit to the main branch, then
-  sync", not with "No baseline branch found"; `bd` says the same as `no_baseline` (see [Agent CLI](../cli/agent-cli.spec.md)).
+  sync", not with "No baseline branch found"; `brd` says the same as `no_baseline` (see [Agent CLI](../cli/agent-cli.spec.md)).
   A repository without a baseline names each branch it looked for once ("Cannot find the baseline branch: no
   origin/master or origin/main, and no upstream").
   [@test] ../../crates/history-rewrite/src/baseline_test.rs (`a_repository_without_commits_says_so`, `no_local_baseline_names_each_branch_once`, `no_remote_baseline_names_each_branch_once`)
@@ -388,8 +388,8 @@ alert with the reason and the next step, never a raw Git error.
 
 ### Agents
 
-- Help → Install Agent CLI… ([Agent CLI](../cli/agent-cli.spec.md#bd-install)) says in its toast how coding agents work
-  from now on, by the rules of every repository ([bd workspace](../cli/workspace.spec.md)): "Agents work in their own
+- Help → Install Agent CLI… ([Agent CLI](../cli/agent-cli.spec.md#brd-install)) says in its toast how coding agents work
+  from now on, by the rules of every repository ([brd workspace](../cli/workspace.spec.md)): "Agents work in their own
   worktree and land each commit on your branch, and name the branch in each commit subject." (by default), with
   "Open Agent Settings", which opens Settings → Agents.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says how agents work once the Agent CLI is installed, and opens their settings`)
@@ -400,13 +400,13 @@ alert with the reason and the next step, never a raw Git error.
   "Open Agent Settings".
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in the help of the unassigned commits whether agents write the prefix here, and opens their settings`)
 - On the way to the first branches, the Ready to Sync card and "No active branches" say where coding agents work: the
-  user never picks a worktree, an agent leases one through bd ([bd lease](../cli/lease.spec.md)). By
+  user never picks a worktree, an agent leases one through brd ([brd lease](../cli/lease.spec.md)). By
   `branchdeck.agentLease` of the repository (on by default): "You work in this checkout. With the Agent CLI, coding
   agents such as Claude Code lease worktrees of their own and land each commit on your branch." with "Install Agent CLI"
   (the install and the toast of Help → Install Agent CLI…), and once it is installed "You work in this checkout. Coding
-  agents such as Claude Code lease worktrees of their own through bd and land each commit on your branch." with "Open
+  agents such as Claude Code lease worktrees of their own through brd and land each commit on your branch." with "Open
   Agent Settings"; with the rule off, "With the Agent CLI, coding agents such as Claude Code work in this checkout beside
-  you." (installed: "Coding agents such as Claude Code work in this checkout beside you, through bd."). The status of the
+  you." (installed: "Coding agents such as Claude Code work in this checkout beside you, through brd."). The status of the
   Agent CLI is read when the line shows, on each focus and after an install.
   [@test] ../../tests/e2e/onboarding/onboarding.spec.ts (`says in Ready to Sync where coding agents work, installs the Agent CLI there and opens Agent Settings`, `names the baseline and where coding agents work in the empty state, and installs the Agent CLI there`)
   [@test] ../../src/lib/agents-hint.test.ts (`says where agents work by the rule of the repository, and that the Agent CLI lets them`)

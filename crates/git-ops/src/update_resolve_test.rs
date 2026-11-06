@@ -395,24 +395,24 @@ fn a_state_of_another_version_is_refused_by_its_version_before_its_fields_are_re
   let head = repo.create_commit("one", "a.txt", "a\n");
   let (git, path) = (repo.git_executor(), repo.path_str());
 
-  // the state a bd before the rounds that resolve by words wrote: refused as before, by its version
+  // the state a brd before the rounds that resolve by words wrote: refused as before, by its version
   let mut state = serde_json::to_value(session_state(&repo, &head)).unwrap();
   state["version"] = serde_json::json!(1);
   store_state_json(&repo, &state);
   let error = read_session(git, path, "main").unwrap_err();
   assert_eq!(
     format!("{error:#}"),
-    format!("refs/branch-deck/resolve/main has state version 1; this bd reads {STATE_VERSION}")
+    format!("refs/branch-deck/resolve/main has state version 1; this brd reads {STATE_VERSION}")
   );
 
-  // a later version whose values this bd can't parse: the version message too, not a parse error
+  // a later version whose values this brd can't parse: the version message too, not a parse error
   state["version"] = serde_json::json!(STATE_VERSION + 1);
   state["resolutions"] = serde_json::json!([{ "round": 1, "commit": head, "resolved": null, "paths": [{ "path": "a.txt", "outcome": "later" }] }]);
   store_state_json(&repo, &state);
   let error = read_session(git, path, "main").unwrap_err();
   assert_eq!(
     format!("{error:#}"),
-    format!("refs/branch-deck/resolve/main has state version {}; this bd reads {STATE_VERSION}", STATE_VERSION + 1)
+    format!("refs/branch-deck/resolve/main has state version {}; this brd reads {STATE_VERSION}", STATE_VERSION + 1)
   );
 
   // this version reads

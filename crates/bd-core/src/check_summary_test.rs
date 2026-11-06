@@ -6,8 +6,8 @@ const USE_FILE: &str = "plugins/air/tests/contract/AcpJourneyLifecycleTest.kt";
 /// The file of the declaration
 const DECLARATION_FILE: &str = "plugins/air/tests/bridge/AcpOwnershipLedger.kt";
 
-/// The refusal of `bd safe-push` describes every dangling reference up to one more than it describes, so it never says
-/// "1 more": two of two, else the first and the count of the rest, which `bd check` lists (`list_cut::kept`)
+/// The refusal of `brd safe-push` describes every dangling reference up to one more than it describes, so it never says
+/// "1 more": two of two, else the first and the count of the rest, which `brd check` lists (`list_cut::kept`)
 #[test]
 fn a_dangling_reference_message_describes_two_whole_and_counts_from_three_on() {
   let reference = |identifier: &str, fixed_by: &str| DanglingReferenceSummary {
@@ -43,11 +43,11 @@ fn a_dangling_reference_message_describes_two_whole_and_counts_from_three_on() {
   );
   assert_eq!(
     dangling_reference_message("suspend", &of(&[("cleanup", "aa0fb473"), ("flush", "bb1fc584"), ("close", "cc2fd695")])),
-    format!("{cleanup} (2 more: bd check); --allow-dangling starts anyway, only when the user says it is a false alarm")
+    format!("{cleanup} (2 more: brd check); --allow-dangling starts anyway, only when the user says it is a false alarm")
   );
 }
 
-/// The refusal of `bd safe-push` says what the branch does to the declaration: a change of its form, a second
+/// The refusal of `brd safe-push` says what the branch does to the declaration: a change of its form, a second
 /// declaration
 #[test]
 fn a_dangling_reference_message_names_the_kind() {

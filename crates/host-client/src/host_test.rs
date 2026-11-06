@@ -79,7 +79,7 @@ fn no_answer_names_each_address_the_host_name_and_the_setup_command() {
     refusal.message
   );
   assert!(refusal.message.contains(&format!("127.0.0.1 resolved to {dead}")), "{}", refusal.message);
-  assert!(refusal.message.contains("`bd-host setup studio`"), "{}", refusal.message);
+  assert!(refusal.message.contains("`brd-host setup studio`"), "{}", refusal.message);
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn another_schema_refuses_and_another_build_runs_with_a_hint() {
   let refusal = open(&setup).connect().unwrap_err();
   assert_eq!(refusal.code, Code::Schema);
   assert!(refusal.message.contains(&format!("speaks schema {}", SCHEMA_VERSION + 1)), "{}", refusal.message);
-  assert!(refusal.message.contains("`bd-host setup studio`"), "{}", refusal.message);
+  assert!(refusal.message.contains("`brd-host setup studio`"), "{}", refusal.message);
 
   let agent = AgentInfo {
     version: "0.37.0".to_owned(),
@@ -123,7 +123,7 @@ fn another_schema_refuses_and_another_build_runs_with_a_hint() {
     address: dead_address(),
   };
   let hint = another_build_hint("studio", &agent, Some(&"b".repeat(64))).unwrap();
-  assert!(hint.contains("`bd-host upgrade studio`"), "{hint}");
+  assert!(hint.contains("`brd-host upgrade studio`"), "{hint}");
   assert_eq!(another_build_hint("studio", &agent, Some(&"a".repeat(64))), None, "the same build");
   assert_eq!(another_build_hint("studio", &agent, None), None, "a client that cannot read its own binary");
 }

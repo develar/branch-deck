@@ -1,5 +1,5 @@
-//! `bd reword`: new messages of commits ahead of the baseline through `history_rewrite::reword`, with the contract of
-//! `bd group` (`rewrite.rs`): the record in the operations registry, the repository lock over the rewrite and, with
+//! `brd reword`: new messages of commits ahead of the baseline through `history_rewrite::reword`, with the contract of
+//! `brd group` (`rewrite.rs`): the record in the operations registry, the repository lock over the rewrite and, with
 //! --sync, the sync, `--expect-head`, the undo token, `--dry-run`
 
 use crate::rewrite::{RewriteArgs, RewriteOutput, rewrite};
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 #[derive(Debug, clap::Args)]
 #[command(group(clap::ArgGroup::new("text").args(["message", "message_file", "subject"]).multiple(false)))]
 pub struct RewordArgs {
-  /// The commit ahead of the baseline, by the id `bd status` printed (abbreviated or full)
+  /// The commit ahead of the baseline, by the id `brd status` printed (abbreviated or full)
   #[arg(required_unless_present = "plan", requires = "text", conflicts_with = "plan")]
   pub commit: Option<String>,
   /// The whole new message, the `(prefix)` of its subject included
@@ -37,7 +37,7 @@ pub struct RewordArgs {
   pub rewrite: RewriteArgs,
 }
 
-/// One entry of the plan of `bd reword`
+/// One entry of the plan of `brd reword`
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlannedReword {
@@ -108,7 +108,7 @@ pub fn reword(context: &RepoContext, args: &RewordArgs) -> Result<RewriteOutput,
       commits: not_ids.clone(),
       ..CliError::new(
         ErrorCode::InvalidArguments,
-        format!("Not commit ids: {} (give the ids `bd status` printed, not a revision such as HEAD~1)", not_ids.join(", ")),
+        format!("Not commit ids: {} (give the ids `brd status` printed, not a revision such as HEAD~1)", not_ids.join(", ")),
       )
     });
   }

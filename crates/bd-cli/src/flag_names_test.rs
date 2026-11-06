@@ -39,16 +39,16 @@ fn every_renamed_flag_stays_and_names_flags_that_exist() {
 #[test]
 fn a_renamed_flag_says_its_name_now() {
   let args = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
-  assert_eq!(renamed_in("land", &args(&["land", "auth", "--check"])), ["bd: --check of bd land is now --dry-run"]);
+  assert_eq!(renamed_in("land", &args(&["land", "auth", "--check"])), ["brd: --check of brd land is now --dry-run"]);
   assert_eq!(
     renamed_in("lease pick", &args(&["lease", "pick", "--unchecked=docs only"])),
-    ["bd: --unchecked of bd lease pick is now --allow-unchecked"]
+    ["brd: --unchecked of brd lease pick is now --allow-unchecked"]
   );
   assert_eq!(renamed_in("land", &args(&["land", "auth", "--", "--check"])), Vec::<String>::new());
   assert_eq!(renamed_in("push", &args(&["push", "--check"])), Vec::<String>::new());
 }
 
-/// An old name is the new flag: `--check` of `bd safe-push` and `--dry-run` together are one flag given twice
+/// An old name is the new flag: `--check` of `brd safe-push` and `--dry-run` together are one flag given twice
 #[test_log::test]
 fn an_old_name_runs_as_the_new_one() {
   let directory = tempfile::tempdir().unwrap();
@@ -69,7 +69,7 @@ fn a_flag_of_another_command_is_named_with_that_command() {
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
-    message.contains("--unchecked is no flag of `bd land`; `bd lease pick` and `bd pick` have --allow-unchecked"),
+    message.contains("--unchecked is no flag of `brd land`; `brd lease pick` and `brd pick` have --allow-unchecked"),
     "{message}"
   );
   assert!(
@@ -77,13 +77,13 @@ fn a_flag_of_another_command_is_named_with_that_command() {
     "{message}"
   );
   assert!(!message.contains("--check'") && !message.contains("similar"), "{message}");
-  assert!(message.contains("Usage: bd land") && message.contains("try 'bd land --help'"), "{message}");
+  assert!(message.contains("Usage: brd land") && message.contains("try 'brd land --help'"), "{message}");
 
   let (exit_code, output) = run_json(&environment(directory.path()), &["-C", "status", "pick", "--without-checks"]);
   assert_error(&output, exit_code, (2, "invalid_arguments"));
   let message = output["error"]["message"].as_str().unwrap();
   assert!(
-    message.contains("`bd land` has --allow-checks-not-passed") && message.contains("`bd pick` that preview"),
+    message.contains("`brd land` has --allow-checks-not-passed") && message.contains("`brd pick` that preview"),
     "{message}"
   );
 

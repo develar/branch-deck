@@ -1,6 +1,6 @@
 //! The types that cross a process or window boundary: what the cores hand to `bd` (JSON) and to the app (Tauri
 //! commands and events, `src/lib/bindings.ts`), and what the page sends back. Data only, no IO: serde, and behind the
-//! features of the same names `specta` (the bindings of the app) and `schemars` (`bd schema`, which `bd-core` enables).
+//! features of the same names `specta` (the bindings of the app) and `schemars` (`brd schema`, which `bd-core` enables).
 //! `git-ops` depends on this crate, never the other way round: it reads and reports these types, the functions that
 //! build them stay there.
 //!
@@ -379,7 +379,7 @@ pub struct GroupedBranchInfo {
   pub commits: Vec<Commit>,
   pub latest_commit_time: u32,
   pub summary: String,
-  /// The title of the branch's description (`branch.<name>.description`, which `bd describe` writes), shown instead of
+  /// The title of the branch's description (`branch.<name>.description`, which `brd describe` writes), shown instead of
   /// the summary; `None` without one, and from `group_commits_ahead_of_baseline`, whose callers read the whole
   /// descriptions themselves. Optional in TypeScript, as `stack`
   #[cfg_attr(feature = "specta", specta(optional))]

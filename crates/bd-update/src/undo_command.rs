@@ -1,4 +1,4 @@
-//! `bd undo`: the undo of a token a rewrite, `bd update`, `bd pick`, `bd unapply` or `bd drop` printed. A rewrite token
+//! `brd undo`: the undo of a token a rewrite, `brd update`, `brd pick`, `brd unapply` or `brd drop` printed. A rewrite token
 //! goes to `history_rewrite::regroup::undo_regroup_core`; `update:`, `pick:`, `unapply:` and `drop:` tokens to the undo of
 //! their command,
 //! which moves the files back too. Each is recorded in the operations registry of the repository before the lock, as the
@@ -30,13 +30,13 @@ use update_core::update_project::UpdateUndoToken;
 #[derive(Debug, clap::Args)]
 pub struct UndoArgs {
   /// The `undo_token` a rewrite printed: `<previous head>..<new head>`, `groups:<previous>..<new>`,
-  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `bd update`, the
-  /// `pick:…[+follow:…]` of `bd pick`, the `unapply:…` of `bd unapply`, the `reapply:…` of `bd reapply` or the `drop:…`
-  /// of `bd drop`, which move the files back too
+  /// `stacks:<previous>..<new>`, or several of them joined by `+` in this order; or the `update:…` of `brd update`, the
+  /// `pick:…[+follow:…]` of `brd pick`, the `unapply:…` of `brd unapply`, the `reapply:…` of `brd reapply` or the `drop:…`
+  /// of `brd drop`, which move the files back too
   pub token: String,
 }
 
-/// `bd undo`
+/// `brd undo`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct UndoOutput {
   pub schema: SchemaVersion,
@@ -180,7 +180,7 @@ fn undone(context: &RepoContext, args: &UndoArgs) -> Result<UndoOutput, CliError
       ErrorCode::InvalidArguments,
       format!(
         "{:?} is not an undo token (<previous head>..<new head>, groups:<previous>..<new>, stacks:<previous>..<new>, parked:<previous>..<new>, or several joined by + in this \
-         order; update:…, pick:…, unapply:… and reapply:… as bd update, bd pick, bd unapply and bd reapply printed them)",
+         order; update:…, pick:…, unapply:… and reapply:… as brd update, brd pick, brd unapply and brd reapply printed them)",
         args.token
       ),
     ));

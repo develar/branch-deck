@@ -6,7 +6,7 @@
     "spec": [
       "spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "given": {
       "remote": "rebuiltOnNewerBaseline",
@@ -33,7 +33,7 @@
     "id": "rebuilt-on-a-newer-baseline-starts-without-a-push",
     "group": "landing",
     "title": "the remote branch has the commits of the branch by content, only rebuilt since on a newer baseline: the start pushes nothing",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "remote": "rebuiltOnNewerBaseline"
     },
@@ -52,7 +52,7 @@
     "id": "robot-of-a-branch-built-on-it-before-the-ancestor",
     "group": "landing",
     "title": "a Safe Push of session, built on login, lands login, while one of auth lands a part of it: the reason names session first",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
       "branch": "login",
@@ -89,7 +89,7 @@
     "spec": [
       "spec/branch/patronus.spec.md#restart-and-cancel",
       "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "given": {
       "remote": "unpushed",
@@ -115,7 +115,7 @@
     "id": "older-robot-with-a-push-needed-canceled",
     "group": "landing",
     "title": "the same with --cancel-running: bd cancels the robot of the older commit, pushes and starts, as the popover's start replaces it",
-    "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "remote": "unpushed",
       "robot": {
@@ -141,7 +141,7 @@
     "id": "older-robot-without-a-push",
     "group": "landing",
     "title": "a Safe Push of an older commit runs and the remote branch is up to date: a start would run beside it",
-    "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#restart-and-cancel", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "remote": "upToDate",
       "robot": {
@@ -170,7 +170,7 @@
       "spec/branch/parked-branches.spec.md#parked-with-a-parent",
       "spec/branch/stacked-branches.spec.md",
       "spec/branch/whole-stack.spec.md#the-safe-push-of-the-whole-stack",
-      "spec/cli/agent-cli.spec.md#bd-safe-push"
+      "spec/cli/agent-cli.spec.md#brd-safe-push"
     ],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/session) Add session"],
@@ -193,7 +193,7 @@
     },
     "asymmetry": {
       "kind": "byDesign",
-      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#bd-safe-push"
+      "why": "what the table alone refuses fails the command before Patronus or GitHub is asked: spec/cli/agent-cli.spec.md#brd-safe-push"
     },
     "bd": {
       "error": "parked"
@@ -203,7 +203,7 @@
     "id": "remote-behind",
     "group": "landing",
     "title": "the remote branch has a commit of someone else that the branch lacks: a push would drop it, so the step takes it in first",
-    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push", "spec/branch/next-step.spec.md#the-table:1″"],
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#brd-safe-push", "spec/branch/next-step.spec.md#the-table:1″"],
     "given": {
       "remote": "behind"
     },
@@ -222,7 +222,7 @@
     "id": "retarget-of-a-pushed-along-ancestor",
     "group": "landing",
     "title": "the Safe Push of session pushes login along, whose pull request #7 goes into the virtual branch of auth: bd retargets it to master first",
-    "spec": ["spec/branch/patronus.spec.md#pull-requests", "spec/branch/stacked-branches.spec.md#pull-requests", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#pull-requests", "spec/branch/stacked-branches.spec.md#pull-requests", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(login/session) Add session"],
       "branch": "session",
@@ -249,7 +249,7 @@
     "id": "missing-declaration-allowed",
     "group": "landing",
     "title": "the branch uses a name only codec adds, and the start is told to start anyway: --allow-missing, the popover's Start Anyway",
-    "spec": ["spec/branch/next-step.spec.md#what-the-safe-push-needs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/next-step.spec.md#what-the-safe-push-needs", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "landingNeeds": true,
       "flags": ["allowMissing"]
@@ -269,7 +269,7 @@
     "id": "dangling-reference-removed",
     "group": "landing",
     "title": "fake-agent removes a constant that the tree it lands still uses; lane-document, outside it, changes the use",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "commits": [],
       "branch": "fake-agent",
@@ -290,7 +290,7 @@
     "id": "dangling-reference-changed",
     "group": "landing",
     "title": "suspend makes a function suspend that a test the tree lands still calls; journey, outside it, deletes the test",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "commits": [],
       "branch": "suspend",
@@ -311,7 +311,7 @@
     "id": "dangling-reference-allowed",
     "group": "landing",
     "title": "the dangling reference of fake-agent, and the start is told to start anyway: --allow-dangling",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "commits": [],
       "branch": "fake-agent",
@@ -333,7 +333,7 @@
     "id": "dry-run-over-a-running-safe-push-of-an-older-commit",
     "group": "landing",
     "title": "a Dry Run of a branch whose Safe Push runs on an older commit, the branch not on the remote: a dry run replaces nothing, and its push would fail the running one",
-    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "mode": "dryRun",
       "robot": {
@@ -356,7 +356,7 @@
     "id": "dry-run-while-a-safe-push-of-a-child-lands-the-branch",
     "group": "landing",
     "title": "a Dry Run of login while the Safe Push of session, built on it, runs: its push would go into what that Safe Push lands and fail it at the end, so both refuse the dry run while it pushes (D15, closed)",
-    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/next-step.spec.md#the-table", "spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "mode": "dryRun",
       "branch": "login",
@@ -385,7 +385,7 @@
     "id": "merged-robot-of-the-remote-branch-with-a-commit-added-since",
     "group": "landing",
     "title": "a Safe Push of the remote branch merged, and the branch has a commit added since the push: the merge landed the pushed commit, the rest is still to land",
-    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#starting-a-safe-push-or-a-dry-run", "spec/branch/next-step.spec.md#the-table:1", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "remote": "unpushed",
       "robot": {
@@ -409,7 +409,7 @@
     "id": "robot-of-the-whole-stack-and-of-a-branch-built-on-the-root",
     "group": "landing",
     "title": "a Safe Push of the whole auth stack and one of login, built on auth, run at once: the branch robot holds auth before the whole stack's, and the reason names login",
-    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/whole-stack.spec.md", "spec/cli/agent-cli.spec.md#bd-safe-push"],
+    "spec": ["spec/branch/patronus.spec.md#pushing-into-a-branch-whose-safe-push-runs", "spec/branch/whole-stack.spec.md", "spec/cli/agent-cli.spec.md#brd-safe-push"],
     "given": {
       "commits": ["(auth) Add auth", "(auth/login) Add login", "(auth/oauth) Add oauth"],
       "robot": [

@@ -117,9 +117,9 @@ Sync pipeline (`sync_core::sync::sync_branches`):
 
 ### Operation spans
 
-Every command of the app that can fail (`Result<_, ApiError>`) and every `bd` run is an operation with an id of its
+Every command of the app that can fail (`Result<_, ApiError>`) and every `brd` run is an operation with an id of its
 own (`sync_utils::operation_id::OperationId`, a ULID: 48 bits of milliseconds, 80 random bits, so the ids of the app
-and of every `bd` process never collide and sort by time). `crates/app-api/src/command_scan_test.rs` checks the
+and of every `brd` process never collide and sort by time). `crates/app-api/src/command_scan_test.rs` checks the
 commands, as their sources read: the bodies of the entries of the registry of app-api (`commands.rs` names the body of
 each, which the app's wrapper of `src-tauri/src/api.rs` and the E2E server's route of `invoke.rs` both call, so the
 server's error names its operation too); `src-tauri` has no command of its own
@@ -166,7 +166,7 @@ server's error names its operation too); `src-tauri` has no command of its own
   argument read across lines as rustfmt lays a long future out, and exempts a file only with its reason and its number
   of hits (the pipe threads of a git process, `SyncTask::spawn`, which wraps the task itself, the mock server). So the
   branch builds of a sync, the integration detection, the file diff workers and the requests of a robot's progress log
-  inside the operation of the command or the `bd` run. Two roots of their own outlive what started them and serve every
+  inside the operation of the command or the `brd` run. Two roots of their own outlive what started them and serve every
   window: the actor of a session (`repository_model::runtime::spawn_actor`) logs in `session{worktree prefix}` with no
   parent, and the checks and syncs it starts carry that span; the app's timer that sweeps the idle sessions
   (`Sessions::sweep_every`) logs in `session_sweep` with no parent.
@@ -177,7 +177,7 @@ server's error names its operation too); `src-tauri` has no command of its own
   10 MB and keeps the three before it (the comment of `LOG_FILE_BYTES` in `src-tauri/src/lib.rs` is the one description
   of the retention, pinned to the plugin's version by `log_rotation_test.rs`), so the lines an `operation_id` of
   Activity names are still there days later. The devtools build keeps the subscriber of its plugin.
-- `bd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
+- `brd` opens the root span `operation{op, operation_id}` in `bd_cli::run` before the dispatch, `op` the words of the
   command (`lease get`); every `-v` line carries it, the lines of the sync's threads too
   (`crates/bd-cli/src/operation_test.rs`, under a global subscriber that sees every thread).
 

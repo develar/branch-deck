@@ -22,11 +22,17 @@ use sync_utils::host_ref_name::is_host_ref_name;
 /// with `schema`
 pub const SCHEMA_VERSION: u32 = 1;
 
-/// The TCP port of `bd-host serve`
+/// The TCP port of `brd-host serve`
 pub const DEFAULT_PORT: u16 = 7742;
 
-/// The label of the `LaunchAgent` that starts `bd-host serve` on a macOS host
-pub const LAUNCHD_LABEL: &str = "com.jetbrains.bd-host";
+/// The executable name of the remote-runs client and agent
+pub const HOST_NAME: &str = "brd-host";
+/// The name of the previous executable, for safe migration
+pub const LEGACY_HOST_NAME: &str = "bd-host";
+/// The label of the `LaunchAgent` that starts `brd-host serve` on a macOS host
+pub const LAUNCHD_LABEL: &str = "com.jetbrains.brd-host";
+/// The previous label, for removing a `LaunchAgent` written by `bd-host setup`
+pub const LEGACY_LAUNCHD_LABEL: &str = "com.jetbrains.bd-host";
 
 /// How often the agent sends `Reply::Heartbeat` while a request waits or a followed run is quiet
 pub const HEARTBEAT_SECONDS: u64 = 15;
@@ -50,15 +56,15 @@ pub const UPGRADE_WATCHDOG_SECONDS: u64 = 60;
 /// The largest binary of `Request::Upgrade`
 pub const MAX_BINARY: u64 = 256 * 1024 * 1024;
 
-/// What an agent does beyond the base of `SCHEMA_VERSION`, named in its hello, in `bd-host version` and in the line of
-/// `bd-host check`. A client checks a feature before it sends its request
+/// What an agent does beyond the base of `SCHEMA_VERSION`, named in its hello, in `brd-host version` and in the line of
+/// `brd-host check`. A client checks a feature before it sends its request
 pub mod feature {
   /// `Request::Upgrade`, and the commands `check` and `watchdog`: only on macOS, because only launchd starts the new
   /// binary
   pub const UPGRADE: &str = "upgrade";
   /// `Request::Disk`: what the pools of the host hold on disk
   pub const DISK: &str = "disk";
-  /// `Request::Trim`: the trim of the pools of the host, which has no `bd`
+  /// `Request::Trim`: the trim of the pools of the host, which has no `brd`
   pub const TRIM: &str = "trim";
 }
 
@@ -108,13 +114,13 @@ pub enum Request {
   Runs,
   /// The lend table of each repository that the agent served. Reply: `Reply::Slots`
   Slots,
-  /// What the pools of the host hold on disk (`pool_disk`, as `bd lease disk` reports it), `fresh`: every slot walked
+  /// What the pools of the host hold on disk (`pool_disk`, as `brd lease disk` reports it), `fresh`: every slot walked
   /// again. Replies: `Reply::Heartbeat` while the agent walks, then `Reply::Disk`. Feature `feature::DISK`
   Disk {
     #[serde(default, skip_serializing_if = "is_false")]
     fresh: bool,
   },
-  /// The trim of every pool of the host (`lease_pool::host_slots::trim`, as `bd lease trim` runs it): the free slots
+  /// The trim of every pool of the host (`lease_pool::host_slots::trim`, as `brd lease trim` runs it): the free slots
   /// past `max`, else `branchdeck.leaseMaxSlots` of each repository; `plan` only says what would go. Replies:
   /// `Reply::Heartbeat` while the agent deletes, then `Reply::Trimmed`. Feature `feature::TRIM`
   Trim {
@@ -259,7 +265,7 @@ pub enum Reply {
     repositories: Vec<RepositorySlots>,
   },
   /// The disk report of the host as `pool_disk::report::DiskReport` writes it: this crate reaches no pool, so it stays
-  /// JSON here, and `bd-host disk` reads it with the type of `pool-disk`
+  /// JSON here, and `brd-host disk` reads it with the type of `pool-disk`
   Disk {
     report: serde_json::Value,
   },
@@ -338,7 +344,7 @@ pub struct RepositorySlots {
   /// The main repository on the host
   pub repo: String,
   /// The table as `host-slots.json` of the repository holds it (`lease_pool::host_slots::HostSlots`): this crate
-  /// reaches no pool, so the table stays JSON here, and `bd-host slots` reads it with the type of the pool
+  /// reaches no pool, so the table stays JSON here, and `brd-host slots` reads it with the type of the pool
   pub table: serde_json::Value,
 }
 
@@ -350,7 +356,7 @@ pub struct Phase {
   pub ms: u64,
 }
 
-/// The JSON line of `bd-host version --json` and of `bd-host check --plist <plist>`. An upgrade runs `check` on the new
+/// The JSON line of `brd-host version --json` and of `brd-host check --plist <plist>`. An upgrade runs `check` on the new
 /// binary before the swap, and reads this line
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionLine {

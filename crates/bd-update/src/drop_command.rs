@@ -1,4 +1,4 @@
-//! `bd drop` and its `bd undo`: commits ahead of the baseline and their files out of the branch checked out here, for
+//! `brd drop` and its `brd undo`: commits ahead of the baseline and their files out of the branch checked out here, for
 //! good, as the app's Drop Commit does (spec/commit/drop.spec.md). The core (`history_rewrite::drop_commits`) computes the
 //! drop and the dry run of its files before the repository lock, then takes the lock for the witness and the move
 //! through the guarded working-tree update; local changes on the paths it writes change nothing. Recorded in the
@@ -19,7 +19,7 @@ use serde::Serialize;
 
 #[derive(Debug, clap::Args)]
 pub struct DropArgs {
-  /// The commits to drop, as `bd status` printed them (full or abbreviated), ahead of the baseline
+  /// The commits to drop, as `brd status` printed them (full or abbreviated), ahead of the baseline
   #[arg(required = true)]
   pub commits: Vec<String>,
   /// Drop only if HEAD is still this commit
@@ -30,7 +30,7 @@ pub struct DropArgs {
   pub dry_run: bool,
 }
 
-/// `bd drop`
+/// `brd drop`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct DropOutput {
   pub schema: SchemaVersion,
@@ -50,7 +50,7 @@ pub struct DropOutput {
   /// The branches left without a commit: the next sync archives them
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub emptied_branches: Vec<String>,
-  /// `bd undo <token>` brings the commits and their files back; omitted with --dry-run
+  /// `brd undo <token>` brings the commits and their files back; omitted with --dry-run
   #[serde(skip_serializing_if = "Option::is_none")]
   pub undo_token: Option<String>,
 }
@@ -135,7 +135,7 @@ pub(crate) fn drop_error(error: anyhow::Error) -> CliError {
   core_error(error)
 }
 
-/// `bd undo drop:<previous head>..<new head>`; `None` for a token of another kind
+/// `brd undo drop:<previous head>..<new head>`; `None` for a token of another kind
 pub fn undo_drop(context: &RepoContext, token: &str) -> Option<Result<(DropUndoToken, UndoneDrop), CliError>> {
   if !DropUndoToken::is_drop_token(token) {
     return None;
@@ -147,7 +147,7 @@ fn undo_drop_token(context: &RepoContext, text: &str) -> Result<(DropUndoToken, 
   let token = DropUndoToken::parse(text).ok_or_else(|| {
     CliError::new(
       ErrorCode::InvalidArguments,
-      format!("{text:?} is not a drop token: drop:<previous head>..<new head>, as bd drop printed it"),
+      format!("{text:?} is not a drop token: drop:<previous head>..<new head>, as brd drop printed it"),
     )
   })?;
   let undone = undo_drop_core(&context.git, &context.repository, &token, LockWait::Bounded(context.lock_timeout)).map_err(undo_core_error)?;

@@ -32,7 +32,7 @@ fn the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothin
 
   let (exit_code, output) = robot_stats(&space.environment(), &[]);
   assert_eq!(exit_code, 0, "{output}");
-  assert_eq!(writable_state(&space.repo), before, "bd robot-stats is read only");
+  assert_eq!(writable_state(&space.repo), before, "brd robot-stats is read only");
   assert_eq!((output["stale"].clone(), output.get("warning")), (json!(false), None));
   assert_eq!((output["window"]["target"].clone(), output["window"]["period"].clone()), (json!("master"), json!("30d")));
   assert_eq!(

@@ -2,7 +2,7 @@
 //! none is free, and each slot keeps its build outputs, `target/` inside it and its Bazel output bases outside it
 //! (`output_bases`), tens of gigabytes. Once the volume has less free space than `branchdeck.leaseMinFree`, a get
 //! deletes the free slots past `branchdeck.leaseMaxSlots` of each pool of the machine, the ones returned longest ago
-//! first, with their output bases, and the output bases of the workspaces of a pool that are gone; `bd lease trim`
+//! first, with their output bases, and the output bases of the workspaces of a pool that are gone; `brd lease trim`
 //! does it on demand.
 //!
 //! A slot is deleted only while it is free, under the `cleaning` marker that keeps every get off it: its Bazel servers
@@ -351,7 +351,7 @@ pub struct EvictParams<'a> {
 /// with a lease of any state stays, as does one with a process in it but its Bazel servers, which are stopped. So do the
 /// free slot the get takes next in its own pool (`shrink::next_free`), which it reuses warm where an eviction would make
 /// it clone the same worktree again; a dirty one, whose changes made without a lease may be their only copy; and one
-/// never returned, a worktree `bd lease adopt` kept where it was
+/// never returned, a worktree `brd lease adopt` kept where it was
 #[instrument(skip_all, fields(repository = %params.trim.repository.top_level, target = params.target))]
 pub fn evict_core(git_executor: &GitCommandExecutor, params: &EvictParams<'_>) -> Trimmed {
   let Machine { pools, bases, .. } = Machine::read(params.trim.repository, params.trim.home);
@@ -488,7 +488,7 @@ impl SlotRemoval<'_> {
       return Removal::Removed(Box::new(removed), Vec::new());
     }
     let (pool, timeout) = (self.pool, self.params.lock_timeout);
-    let marker = Lease::marker("trim", "bd lease trim", LeaseState::Cleaning);
+    let marker = Lease::marker("trim", "brd lease trim", LeaseState::Cleaning);
     match mark_free(pool, timeout, &slot.path, &marker) {
       Ok(true) => {}
       Ok(false) => {

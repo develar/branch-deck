@@ -573,7 +573,7 @@ fn two_writes_at_once_both_succeed() {
   );
 }
 
-/// A `config.lock` of another process (`bd describe`, a `git config` of the user) released within the second is waited
+/// A `config.lock` of another process (`brd describe`, a `git config` of the user) released within the second is waited
 /// for: the write succeeds once it is gone
 #[test]
 fn a_write_waits_for_a_config_lock_another_process_holds() {

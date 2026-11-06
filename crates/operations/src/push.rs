@@ -15,7 +15,7 @@
 //!
 //! The pushes of a stack are the same intent (`stack_planned`): Push Stack and the push button (`WithAncestors`), Push
 //! with Children, Push Up to Here (`UpTo`), in one atomic push of what `domain_policy::push` covers, and the stack
-//! branch of a whole stack alone (`whole_stack_planned`). `bd push` plans one intent per branch it names over its
+//! branch of a whole stack alone (`whole_stack_planned`). `brd push` plans one intent per branch it names over its
 //! one-shot session, the same plans, and sends them as one atomic push (`push_together`) through the same run.
 
 use crate::engine::{frame_refusal, run, run_planned_in};
@@ -528,7 +528,7 @@ fn push_plan_of(
   }
 }
 
-/// The plans of several pushes as the plan of one atomic push (`bd push auth docs`, `--all`, Push with Children beside
+/// The plans of several pushes as the plan of one atomic push (`brd push auth docs`, `--all`, Push with Children beside
 /// Push Stack): the retargets of all of them first, then their cancels, the one push of every ref they send, then their
 /// restarts, each effect once. The branches go in the order of `order` (the branches of the table, parents first), the
 /// stack branches after them in the order of their roots, a ref two plans send once; the witness, the blockers and the

@@ -4,6 +4,6 @@
     "beforeBuildCommand": "pnpm build && node scripts/build-bd.mjs"
   },
   "bundle": {
-    "externalBin": ["binaries/bd"]
+    "externalBin": ["binaries/brd"]
   }
 }

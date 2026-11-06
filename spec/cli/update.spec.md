@@ -1,6 +1,6 @@
 ---
-name: bd update
-description: Requirements for bd update, the agent's Update Project, its undo, and the resolve session in which an agent resolves a conflicting update commit by commit outside the working tree.
+name: brd update
+description: Requirements for brd update, the agent's Update Project, its undo, and the resolve session in which an agent resolves a conflicting update commit by commit outside the working tree.
 style: plain-1
 targets:
   - ../../crates/bd-update/src/update_command.rs
@@ -23,17 +23,17 @@ targets:
   - ../../crates/git-ops/src/word_replay.rs
 ---
 
-# bd update
+# brd update
 
 Status: Implemented
 Date: 2026-10-15
 
 ## Summary
 
-`bd update` is the app's Update Project for a coding agent ([Update Project](../repository/update-project.spec.md)):
+`brd update` is the app's Update Project for a coding agent ([Update Project](../repository/update-project.spec.md)):
 it fetches the baseline and brings the checked out branch onto it. A conflict starts a resolve session. The session
 replays the local commits outside the working tree and opens one round per conflicting commit. The agent edits copies
-of the conflicting files, and `bd update --continue` commits each round. When nothing conflicts any more, the finish
+of the conflicting files, and `brd update --continue` commits each round. When nothing conflicts any more, the finish
 moves the branch, and the files follow through the guarded update. All state of a session is in git; only the copies
 that the agent edits are files. How it works: "Resolve session" in [Git Operations](../../docs/design/git-operations.md).
 The rest of the CLI: [Agent CLI](agent-cli.spec.md).
@@ -50,7 +50,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 - Binary, file/directory, rename, mode, symlink and submodule conflicts: a round refuses them.
 - A partial `--continue`: a round needs a resolution for every conflicting file.
-- Skipping a commit that the baseline likely has by its author, author time and subject only: bd offers `--landed`
+- Skipping a commit that the baseline likely has by its author, author time and subject only: brd offers `--landed`
   in its round. Only a proof (spec/repository/landed-commits.spec.md, "The proof") shows that the baseline has the
   change.
 - Notes that follow a later rewrite of a resolved commit.
@@ -59,7 +59,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### Update
 
-- `bd update` must do what the app's Update Project does: fetch the baseline, check the update, then, under the
+- `brd update` must do what the app's Update Project does: fetch the baseline, check the update, then, under the
   repository lock, check that nothing moved and apply a clean update (`up_to_date`, `fast_forward`, `rebase`), the
   files following through the guarded working-tree update. It must print the state, the previous and the new HEAD, the `replayed`
   count, the landed commits (`landed`) and the undo token `update:<previous head>..<new head>` with full ids.
@@ -67,8 +67,8 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - Every local commit the update dropped must be in one list, `dropped`: `commit`, `subject`, the baseline commit it
   landed as (`upstream`, when one is known) and its `proof`: `patch_id`, `replayed`, `changed_lines` (the pairing
   left it out), `empty` (its replay left it without a change, as `git rebase` drops it), `landed` (`--landed`) or
-  `user` (`--drop-empty`). `dropped_count` counts them. The first output of a session, its repeat by `bd update`,
-  `bd update --status`, the finish and an update that applies at once print the list; a round of `--continue` prints
+  `user` (`--drop-empty`). `dropped_count` counts them. The first output of a session, its repeat by `brd update`,
+  `brd update --status`, the finish and an update that applies at once print the list; a round of `--continue` prints
   `dropped_count` only.
   [@test] ../../crates/bd-update/src/update_test.rs (`a_commit_that_the_replay_leaves_without_a_change_is_dropped_as_empty`)
   [@test] ../../crates/bd-update/src/resolve_test.rs (`twins_in_another_order_are_left_out_by_their_proof_and_land`, `a_resolution_without_changes_is_refused_unless_the_agent_keeps_or_drops_it`, `a_twin_that_differs_asks_the_user_and_drops_after_the_yes`)
@@ -85,7 +85,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - The fetch must run before the lock and through the remote command policy; a failed fetch is `network_error`
   (exit 5, retryable). A held lock is `locked` (exit 3) after the fetch.
   [@test] ../../crates/bd-update/src/update_test.rs (`a_failed_fetch_is_a_network_error`, `the_update_waits_for_the_repository_lock_after_its_fetch`)
-- Beside another fetch of the baseline (the app's Update Project or Fetch, another `bd update`: one common dir), the
+- Beside another fetch of the baseline (the app's Update Project or Fetch, another `brd update`: one common dir), the
   two fetches must make one transfer: the second one waits while the first one's process lives and takes its result
   once the tracking ref moved; a first one that failed or was killed leaves the fetch to the second
   ([Git Operations](../../docs/design/git-operations.md#update-project), Fetch lock).
@@ -115,21 +115,21 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - A lock file of git in the way of the move (`HEAD.lock` or the lock file of the branch), which a killed git can leave,
   must be `locked` (exit 3, retryable) with the path of the file in the message, and move nothing.
   [@test] ../../crates/bd-update/src/update_test.rs (`a_stale_head_lock_is_locked_and_names_the_file`)
-- A `bd update` or `bd undo` killed between the move of the branch and its files must leave the mark
-  `refs/branch-deck/update-pending/<worktree id>`, which the move creates in its ref transaction. The next `bd update`,
-  `bd undo` or Update Project of the app must let the files follow first. When the branch moved since, the result is
-  `finish_pending` (exit 4), changing nothing, with the command that removes the mark. `bd update --status` must print
+- A `brd update` or `brd undo` killed between the move of the branch and its files must leave the mark
+  `refs/branch-deck/update-pending/<worktree id>`, which the move creates in its ref transaction. The next `brd update`,
+  `brd undo` or Update Project of the app must let the files follow first. When the branch moved since, the result is
+  `finish_pending` (exit 4), changing nothing, with the command that removes the mark. `brd update --status` must print
   the mark as `pending_update`, with `next`.
   [@test] ../../crates/bd-update/src/update_test.rs (`an_update_killed_before_its_files_followed_is_finished_by_the_next_update`, `an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo`, `an_interrupted_update_of_a_branch_that_moved_since_is_reported`)
 - With `core.autocrlf=true`, the files of an update and of its undo must get the line ends of a checkout, and the
   status must stay clean.
   [@test] ../../crates/bd-update/src/update_test.rs (`an_update_with_autocrlf_checks_out_crlf_and_leaves_a_clean_status`)
 - Uncommitted, staged or untracked files on paths the update writes must be `uncommitted_overlap` (exit 4, not
-  retryable) with those `paths`, also for a dry run; bd must never stash, reset, check out or commit them. `paths`
+  retryable) with those `paths`, also for a dry run; brd must never stash, reset, check out or commit them. `paths`
   lists the first 100 (all 101 rather than one left out); with more, the message says "`paths` lists the first 100 of
   <n>: `git status` lists all".
   [@test] ../../crates/bd-update/src/update_test.rs (`uncommitted_changes_on_updated_files_block_with_their_paths`, `many_blocking_paths_list_the_first_100_and_say_how_many`)
-- `bd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
+- `brd undo update:<previous head>..<new head>` must take only full ids and move the branch back with the files
   following: checked before the lock, which holds only the witness of HEAD and of the mark of an interrupted move, and
   the move back; the landed report after it. It must refuse with `uncommitted_overlap` when local changes overlap the paths it writes,
   `undo_stale` (exit 4, not retryable) when the branch moved or HEAD switched since, and `invalid_arguments` when the
@@ -143,16 +143,16 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### In a lease
 
-- In a lease of the pool `bd update` onto the baseline must be refused as `lease_follows_home` (exit 4), the message
-  naming `bd lease pick` and the owner of the shared checkout: the lease follows the branch it was cut from, and an
+- In a lease of the pool `brd update` onto the baseline must be refused as `lease_follows_home` (exit 4), the message
+  naming `brd lease pick` and the owner of the shared checkout: the lease follows the branch it was cut from, and an
   update onto a newer baseline would make its pick refuse it (`source_on_newer_baseline`). `--dry-run`, `--status`,
-  `--continue` and `--abort` go on there; a host slot of `bd-host` is no lease of a session.
+  `--continue` and `--abort` go on there; a host slot of `brd-host` is no lease of a session.
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`an_update_in_a_lease_is_refused_and_its_session_is_closed_with_abort`)
-- The update that `bd lease pick` runs after its pick conflicted must go onto the branch the lease was cut from, a
+- The update that `brd lease pick` runs after its pick conflicted must go onto the branch the lease was cut from, a
   local branch, without a fetch (`UpdateOptions::onto`): on the detached HEAD of the lease (`branch: "HEAD"`), the
   fork point in the reflog of that branch seeing through a move that was rolled back (`branch_fork_point`), and no
   landed report, at its apply or at the finish of its session: nothing reached the baseline. A conflict starts a
-  resolve session as below, with `upstream` the branch; the finish prints `next`, `bd -C <lease> lease pick`; `bd
+  resolve session as below, with `upstream` the branch; the finish prints `next`, `brd -C <lease> lease pick`; `brd
   undo update:` moves the detached HEAD back by the reflog of `HEAD`.
   [@test] ../../crates/update-core/src/update_project_test.rs (`an_update_onto_a_local_branch_moves_a_detached_head_and_its_undo_moves_it_back`)
   [@test] ../../crates/bd-lease/src/lease_pick_test.rs (`a_lease_pick_that_conflicts_opens_a_resolve_session_in_the_lease_and_lands_after_it`)
@@ -160,7 +160,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### Resolve session
 
-- A conflict of `bd update` must start a resolve session, and change no ref but the session ref and no file but the
+- A conflict of `brd update` must start a resolve session, and change no ref but the session ref and no file but the
   copies: HEAD, the index and the working tree stay. The output is `state: "conflict"` with a `session` object, and the
   exit code is 1. The search for the first conflict and the first round (its replays, its merge, its objects) run
   before the repository lock, on the HEAD and the upstream the check read; under it only the witness of the update, the
@@ -180,7 +180,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - Every commit the session writes must have the committer of the session start (name, email and date), so the same
   input gives the same ids; `--continue --dry-run` must report the `new_id` that `--continue` writes.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_dry_run_of_continue_checks_and_gives_the_ids_of_the_real_one`)
-- `bd update` with a session open must fetch nothing and change nothing: it prints the open round again and writes
+- `brd update` with a session open must fetch nothing and change nothing: it prints the open round again and writes
   its missing copies. With no round open (the finish is next), it prints `state: "pending"` (exit 1) and
   `session.next` `<bd> update --continue`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `local_changes_on_the_finish_keep_the_session_ready`)
@@ -198,11 +198,11 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   `round`, `replayed` and `total`, the `dir` of the copies, the `commit` (`commit`, `subject`, `body`, `author`, the
   absolute path of its `patch`), the conflicting `files`, `marker_labels` (the full ids after
   the markers: `onto`, `before` as `<commit>^`, and `commit`), and `next`, the command that continues. `next` names
-  this binary in this repository, as the app's prompt does (`<bd> -C <repo> update --continue --round <n>`; `bd` when
+  this binary in this repository, as the app's prompt does (`<bd> -C <repo> update --continue --round <n>`; `brd` when
   the binary is unknown).
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_conflict_opens_a_round_and_the_edited_copy_finishes_the_update`, `session_outputs_match_the_schema`, `markers_are_found_by_their_labels`)
 - A round must not repeat the rounds resolved before it: each output of a long session would grow with all of them in
-  the agent's context. `session.resolutions` (the rounds so far) is printed by `bd update --status` only; the finish
+  the agent's context. `session.resolutions` (the rounds so far) is printed by `brd update --status` only; the finish
   prints all in `resolutions`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `local_changes_on_the_finish_keep_the_session_ready`)
 - A round must print `session.blocked_paths`: the uncommitted, staged or untracked files on paths the update likely
@@ -248,7 +248,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   modify/delete and rename/delete (kind `rename_delete`, with `renamed_from`; `--take` and `--delete` take either path)
   must be supported. A mode that one side changed must be merged as git does; two modes that differ on
   both sides are `distinct modes`. Any other type (binary, file/directory, rename, distinct modes, a symlink or a
-  submodule, an invalid path), and a `content` file whose merge result has no block of bd's labels, must refuse the
+  submodule, an invalid path), and a `content` file whose merge result has no block of brd's labels, must refuse the
   whole round with `unsupported_conflict` (exit 4) and its `paths`; at the start no session is created.
   The same rename on both sides merges cleanly and opens no round.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`binary_and_file_directory_conflicts_are_refused_and_start_no_session`, `a_rename_and_a_delete_resolve_with_a_take`)
@@ -263,7 +263,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`a_round_that_its_words_resolve_counts_and_the_agent_gets_the_next_one`, `a_later_round_that_its_words_resolve_resolves_in_the_continue_and_the_finish_notes_it`)
 - A second conflicting commit must open a new round with its own directory; the copies of the closed round are
   removed. `--round <n>` of another round must be `round_moved` (exit 3, retryable: read the open round and retry): its message says that
-  `bd update` prints the open round.
+  `brd update` prints the open round.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`)
 
 ### Copies
@@ -276,29 +276,29 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   which a tree made on Linux or macOS may have. Two paths that differ only in case get distinct names. A
   basename longer than 100 bytes is cut on a character boundary, and keeps its extension.
   [@test] ../../crates/git-ops/src/update_resolve_test.rs (`tree_paths_that_could_leave_a_directory_are_invalid`, `copies_have_flat_names_that_never_collide`, `a_long_basename_is_cut_and_keeps_its_extension`)
-- bd must write and read the bytes as git stores them, without filters, through a new temporary file and a rename,
+- brd must write and read the bytes as git stores them, without filters, through a new temporary file and a rename,
   and never through a symlink: a symlink at `edit` is no resolution, and a rewrite replaces it. Every directory from
-  the git dir (or `--dir`) down to the copy must be a real directory: bd neither reads nor deletes through a symlinked
+  the git dir (or `--dir`) down to the copy must be a real directory: brd neither reads nor deletes through a symlinked
   directory.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_symlink_at_edit_is_never_followed`, `the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
-- The marker file `.branch-deck-resolve` must name the git dir of the worktree that owns the directory. bd deletes
+- The marker file `.branch-deck-resolve` must name the git dir of the worktree that owns the directory. brd deletes
   only in a directory whose marker names its own git dir.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
 - `--dir <path>` must put the copies of a new session into an absolute directory that is not a symlink, not inside a
-  worktree, empty or marked as bd's for this git dir, and used by no other session; a refusal is
-  `invalid_arguments`, and a refused directory that bd created is removed. bd must delete only what it wrote, and
+  worktree, empty or marked as brd's for this git dir, and used by no other session; a refusal is
+  `invalid_arguments`, and a refused directory that brd created is removed. brd must delete only what it wrote, and
   remove only a directory it created.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`the_copies_go_to_dir_only_outside_every_worktree`, `the_dir_of_another_worktree_or_session_is_refused_and_a_symlinked_round_is_never_read`)
-- `bd update --status --materialize` must write the missing copies of the open round, and with `--overwrite-edited`
+- `brd update --status --materialize` must write the missing copies of the open round, and with `--overwrite-edited`
   (`--force`, its name before) all of them.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`)
 
 ### `--continue`
 
-- `bd update --continue` must check the resolution of every conflicting file of the open round, commit the round,
+- `brd update --continue` must check the resolution of every conflicting file of the open round, commit the round,
   replay the rest, and open the next round (exit 1) or apply the update (exit 0). A refusal must change nothing, name
   the round and its commit (id and subject, also in `error.commits`), and say that the round stays open and the edit
-  copies keep the agent's edits; `--status` then shows `edited` per file, whether its copy differs from bd's merge
+  copies keep the agent's edits; `--status` then shows `edited` per file, whether its copy differs from brd's merge
   result.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_second_conflict_opens_a_second_round_with_its_own_copies`, `markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `a_refusal_names_the_commit_and_keeps_the_round`)
 - A resolution must be an edited `edit` copy, `--take onto:<path>`, `--take commit:<path>` or `--delete <path>`; a
@@ -306,24 +306,24 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
   resolution either. A take of a side without the file deletes it. A `--take` or `--delete` of a path the round does
   not have, or a side other than `onto` and `commit`, is `invalid_arguments`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`modify_delete_is_resolved_with_take_and_delete`)
-- A block must be recognised only by the labels bd passed to the merge (`<<<<<<< <onto>`, `||||||| <commit>^`,
+- A block must be recognised only by the labels brd passed to the merge (`<<<<<<< <onto>`, `||||||| <commit>^`,
   `>>>>>>> <commit>`), at any marker length (`conflict-marker-size`), with the separator of the same length only
   between the base section and the end. With a rename, merge-ort adds `:<path>` after a label, and the block counts
   too: a renamed file with a conflict resolves as any other. Any other marker-like line, e.g. the `=======` of a
   Markdown setext heading, is text.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_are_found_by_their_labels`, `a_renamed_file_with_a_conflict_resolves_with_an_edit`)
   [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_setext_heading_is_text`, `longer_markers_are_found_by_their_labels`, `markers_of_a_renamed_file_carry_the_path`)
-- An edited content file must equal bd's `edit` copy outside the conflict blocks (`resolution_outside_conflict`), and
-  have no marker line of bd's labels where a block was (`unresolved_markers`). When only the line ends differ (CRLF and
+- An edited content file must equal brd's `edit` copy outside the conflict blocks (`resolution_outside_conflict`), and
+  have no marker line of brd's labels where a block was (`unresolved_markers`). When only the line ends differ (CRLF and
   LF, or the newline at the end), the message says so. A copy that starts with a byte order mark or is UTF-16, which
   `Set-Content` and `Out-File` of Windows PowerShell 5.1 write, is `resolution_outside_conflict` with its own message:
   write the copy as UTF-8 without a BOM, with `[IO.File]::WriteAllText`. All three refusals are exit 2 with `paths`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `an_edit_copy_with_a_byte_order_mark_or_in_utf16_is_refused`)
   [@test] ../../crates/git-ops/src/resolve_check_test.rs (`a_resolution_inside_the_block_passes`, `an_edit_outside_the_block_is_refused`, `markers_left_are_refused`, `the_plain_runs_between_two_blocks_must_stay_in_order`, `changed_line_ends_are_named`)
 - The message of a refusal must name the absolute `edit` copy of each path. For leftover markers and a missing
-  resolution, it must also name the paths that changed in the working tree, where bd never reads. The refusal of a
+  resolution, it must also name the paths that changed in the working tree, where brd never reads. The refusal of a
   change outside the blocks must say that such a change goes into a `fixup! <subject>` commit after the update, then
-  `bd fold`.
+  `brd fold`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`an_edit_in_the_working_tree_is_pointed_to_the_copy`)
 - The lines of a side's change (`before` to `onto`, `before` to `commit`) that the result lost must be reported per
   file as `dropped_upstream_lines` and `dropped_commit_lines`, also for `--take` and `--delete`, never refused. A line
@@ -382,7 +382,7 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 
 ### `--abort` and `--status`
 
-- `bd update --abort` must delete the session ref with compare-and-swap under the lock, then the copies bd wrote
+- `brd update --abort` must delete the session ref with compare-and-swap under the lock, then the copies brd wrote
   after its release, and print the `worktree`, the `branch` and the `round`; it writes no note. Without a session it is `no_session` (exit 2).
   `--worktree <id>` must abort the session of another worktree, e.g. an orphaned one. While that worktree exists, only
   `--allow-live-session` aborts it (`--force`, its name before). An id must be letters, digits, `.`, `_` and `-`, else
@@ -391,12 +391,12 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - Temporary refs older than an hour (by the time in their name) belong to a process that is gone; the start of a
   session, `--abort` and a `--continue` of an `applying` or `applied` session must delete them.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`stale_temporary_refs_are_swept_when_a_session_starts`)
-- `bd update --status` must take no lock and change nothing: it prints the session of this worktree as a round prints
+- `brd update --status` must take no lock and change nothing: it prints the session of this worktree as a round prints
   it, and `sessions`, every session of the repository with its `worktree`, `branch`, `git_dir`, `state`, `round`,
   `orphaned` (its worktree is gone) and `own`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`a_session_belongs_to_its_worktree_and_survives_a_gc_in_another`, `an_orphaned_session_is_listed_and_aborted_by_its_worktree`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
-- `bd schema` must have `update`, `update_status` and `update_abort`, and the real outputs must use only the
+- `brd schema` must have `update`, `update_status` and `update_abort`, and the real outputs must use only the
   properties they declare.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`session_outputs_match_the_schema`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`)
@@ -413,16 +413,16 @@ The rest of the CLI: [Agent CLI](agent-cli.spec.md).
 - The refusals of a resolution and `unsupported_conflict` must list the files in `paths`.
   [@test] ../../crates/bd-update/src/resolve_test.rs (`markers_an_edit_outside_a_block_and_a_missing_file_are_refused`, `binary_and_file_directory_conflicts_are_refused_and_start_no_session`)
 
-### `bd help update`
+### `brd help update`
 
 - It must print the session workflow: `dropped` and its proofs, `ask_user` as the only reason to ask the user, the
   round object with `landed_as`, `landed_differs`, `blocked_paths`, `marker_labels` and `next`, `pending`,
   edit only the files at `edit` (a change outside the blocks waits for a `fixup!`), `--continue` with `--take`,
   `--delete`, `--allow-empty`, `--drop-empty`, `--landed` and `--user`, the exit codes, the report of the resolutions,
-  the build and the tests of `verify.paths` after exit 0 and a `fixup!` with `bd fold` or `bd undo` on a failure, `finish_pending`, `--abort` (with `--allow-live-session` for a live
+  the build and the tests of `verify.paths` after exit 0 and a `fixup!` with `brd fold` or `brd undo` on a failure, `finish_pending`, `--abort` (with `--allow-live-session` for a live
   session of another worktree), `--status` and `--dir`, and that a copy is written as UTF-8 without a BOM
-  (`[IO.File]::WriteAllText` in Windows PowerShell). `bd help agent` must only name it; together the two texts must name every
-  option of `bd update`.
+  (`[IO.File]::WriteAllText` in Windows PowerShell). `brd help agent` must only name it; together the two texts must name every
+  option of `brd update`.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`agent_help_names_every_command_and_option_that_exists`)
 
 ## Testing / Local Run

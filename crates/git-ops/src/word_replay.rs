@@ -1,6 +1,6 @@
 //! The local commits of an update replayed onto the upstream, a commit whose conflict of git resolves by its words
 //! (`word_resolve`) committed with the result (docs/design/git-operations.md, "Resolve by words"): the update check and
-//! the rounds of `bd update` take the same rule as the sync.
+//! the rounds of `brd update` take the same rule as the sync.
 //!
 //! - **Commit by commit only where needed.** `git replay` replays each run of commits that applies; a binary search
 //!   finds the commit that conflicts, which the words resolve or the replay stops at.

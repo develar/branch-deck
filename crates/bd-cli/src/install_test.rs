@@ -39,6 +39,27 @@ fn run_install(home: &Path, app: &Path, args: &[&str]) -> (i32, Value) {
 }
 
 #[cfg(unix)]
+fn legacy_link(home: &Path, name: &str) -> PathBuf {
+  let link = home.join(".local/bin").join(name);
+  std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+  link
+}
+
+#[cfg(unix)]
+fn assert_legacy_link_removed(output: &Value, link: &Path) {
+  assert_eq!(output["removed_legacy"], json!([link.to_str().unwrap()]));
+  assert!(std::fs::symlink_metadata(link).is_err(), "the old symlink is removed");
+}
+
+#[cfg(unix)]
+fn assert_legacy_file_preserved(home: &Path, app: &Path, path: &Path, contents: &str, args: &[&str]) {
+  let (exit_code, output) = run_install(home, app, args);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["removed_legacy"], json!([]));
+  assert_eq!(std::fs::read_to_string(path).unwrap(), contents);
+}
+
+#[cfg(unix)]
 fn skill_files(home: &Path) -> Vec<String> {
   SKILL_DIRS
     .iter()
@@ -51,7 +72,7 @@ fn skill_files(home: &Path) -> Vec<String> {
 fn installs_the_command_and_the_skills_and_uninstalls_them() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
-  let link = home.join(".local/bin/bd");
+  let link = home.join(".local/bin/brd");
   // the agent rules of the empty global config of a test (`environment`): the defaults
   let mut status_environment = environment(&home);
   status_environment.home = Some(home.clone());
@@ -64,8 +85,9 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
     output,
     json!({
       "schema": 2,
-      "bd": link.to_str().unwrap(),
+      "brd": link.to_str().unwrap(),
       "on_path": true,
+      "removed_legacy": [],
       "skills": skill_files(&home),
       "uninstalled": false,
       "bd_host": null,
@@ -84,13 +106,13 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
   assert_covered(&schema["outputs"]["install"], &schema["outputs"]["install"], &output, "install");
   let skill = std::fs::read_to_string(&skill_files(&home)[0]).unwrap();
   assert!(skill.starts_with("---\nname: branch-deck\ndescription: "), "{skill}");
-  assert!(skill.contains(&format!("bd is `{}`", link.display())), "{skill}");
+  assert!(skill.contains(&format!("brd is `{}`", link.display())), "{skill}");
   assert!(skill.contains(&format!("\nallowed-tools: \"Bash({}:*)\"\n---\n", link.display())), "{skill}");
-  assert!(skill.contains("run `bd help agent`"), "{skill}");
-  assert!(skill.contains("run `bd help worktrees` first"), "{skill}");
-  assert!(skill.contains("Before the first edit or commit in a repository, run `bd workspace`"), "{skill}");
+  assert!(skill.contains("run `brd help agent`"), "{skill}");
+  assert!(skill.contains("run `brd help worktrees` first"), "{skill}");
+  assert!(skill.contains("Before the first edit or commit in a repository, run `brd workspace`"), "{skill}");
   assert_eq!(std::fs::read_to_string(&skill_files(&home)[1]).unwrap(), skill);
-  // `bd help skill` prints the same skill
+  // `brd help skill` prints the same skill
   let mut out = Vec::new();
   let mut environment = environment(&home);
   environment.home = Some(home.clone());
@@ -100,17 +122,21 @@ fn installs_the_command_and_the_skills_and_uninstalls_them() {
 
   // again, from the link: nothing changes; a symlink elsewhere is replaced
   let (exit_code, output) = run_install(&home, &link, &["install"]);
-  assert_eq!((exit_code, &output["bd"]), (0, &json!(link.to_str().unwrap())), "{output}");
+  assert_eq!((exit_code, &output["brd"]), (0, &json!(link.to_str().unwrap())), "{output}");
   std::fs::remove_file(&link).unwrap();
   std::os::unix::fs::symlink("/old/branch-deck", &link).unwrap();
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!(exit_code, 0, "{output}");
   assert_eq!(std::fs::read_link(&link).unwrap(), app);
 
+  let legacy = home.join(".local/bin/bd");
+  std::os::unix::fs::symlink(&app, &legacy).unwrap();
   let (exit_code, output) = run_install(&home, &app, &["install", "--uninstall"]);
   assert_eq!(exit_code, 0, "{output}");
+  assert_eq!(output["removed_legacy"], json!([legacy.to_str().unwrap()]));
   assert_eq!((&output["skills"], &output["uninstalled"]), (&json!(skill_files(&home)), &json!(true)));
   assert!(std::fs::symlink_metadata(&link).is_err(), "the symlink is removed");
+  assert!(std::fs::symlink_metadata(&legacy).is_err(), "the old symlink is removed");
   assert!(!home.join(".claude/skills/branch-deck").exists());
   assert_eq!(install_status(&status_environment).skills, Vec::<String>::new());
   assert!(home.join(".claude/skills").exists(), "only the skill's own directory goes");
@@ -122,14 +148,14 @@ fn a_file_in_the_way_is_refused() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
   std::fs::create_dir_all(home.join(".local/bin")).unwrap();
-  std::fs::write(home.join(".local/bin/bd"), "another bd").unwrap();
+  std::fs::write(home.join(".local/bin/brd"), "another brd").unwrap();
 
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!((exit_code, &output["error"]["code"]), (4, &json!("install_refused")), "{output}");
-  assert_eq!(std::fs::read_to_string(home.join(".local/bin/bd")).unwrap(), "another bd");
+  assert_eq!(std::fs::read_to_string(home.join(".local/bin/brd")).unwrap(), "another brd");
 
   // not on PATH: still installed, and the skill names the full path
-  std::fs::remove_file(home.join(".local/bin/bd")).unwrap();
+  std::fs::remove_file(home.join(".local/bin/brd")).unwrap();
   let mut environment = environment(&home);
   environment.home = Some(home);
   environment.executable = Some(app);
@@ -138,29 +164,66 @@ fn a_file_in_the_way_is_refused() {
   assert_eq!((exit_code, &output["on_path"]), (0, &json!(false)), "{output}");
 }
 
-/// On macOS the install links `~/.local/bin/bd-host` to the `bd-host` of the app bundle, keeps a binary there that an
-/// upgrade wrote, and the uninstall removes only its own symlink
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 #[test_log::test]
-fn install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there() {
+fn install_removes_the_legacy_bd_link_only_when_it_points_at_the_app() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
-  let link = home.join(".local/bin/bd-host");
-  let (exit_code, output) = run_install(&home, &app, &["install"]);
-  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(null)), "an app without bd-host: {output}");
-  assert!(std::fs::symlink_metadata(&link).is_err(), "no symlink without a bd-host of the app");
+  let legacy = legacy_link(&home, "bd");
+  std::os::unix::fs::symlink(&app, &legacy).unwrap();
 
-  let bd_host = app.with_file_name("bd-host");
-  std::fs::write(&bd_host, "bd-host").unwrap();
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_legacy_link_removed(&output, &legacy);
+  assert_eq!(std::fs::read_link(home.join(".local/bin/brd")).unwrap(), app);
+}
+
+#[cfg(unix)]
+#[test_log::test]
+fn install_and_uninstall_leave_a_foreign_bd_file_alone() {
+  let (home, app) = home_with_app();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let legacy = legacy_link(&home, "bd");
+  std::fs::write(&legacy, "beads").unwrap();
+
+  assert_legacy_file_preserved(&home, &app, &legacy, "beads", &["install"]);
+  assert_legacy_file_preserved(&home, &app, &legacy, "beads", &["install", "--uninstall"]);
+}
+
+/// On macOS the install links `~/.local/bin/brd-host` to the `brd-host` of the app bundle, keeps a binary there that an
+/// upgrade wrote, and removes only its own symlink
+#[cfg(target_os = "macos")]
+#[test_log::test]
+fn install_links_the_brd_host_of_the_app_bundle_and_keeps_a_binary_there() {
+  let (home, app) = home_with_app();
+  let home = std::fs::canonicalize(home.path()).unwrap();
+  let link = home.join(".local/bin/brd-host");
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!((exit_code, &output["bd_host"]), (0, &json!(null)), "an app without brd-host: {output}");
+  assert!(std::fs::symlink_metadata(&link).is_err(), "no symlink without a brd-host of the app");
+
+  let brd_host = app.with_file_name("brd-host");
+  std::fs::write(&brd_host, "brd-host").unwrap();
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!((exit_code, &output["bd_host"]), (0, &json!(link.to_str().unwrap())), "{output}");
-  assert_eq!(std::fs::read_link(&link).unwrap(), bd_host);
+  assert_eq!(std::fs::read_link(&link).unwrap(), brd_host);
+
+  let legacy = legacy_link(&home, "bd-host");
+  let legacy_target = app.with_file_name("bd-host");
+  std::os::unix::fs::symlink(&legacy_target, &legacy).unwrap();
+  let (exit_code, output) = run_install(&home, &app, &["install"]);
+  assert_eq!(exit_code, 0, "{output}");
+  assert_legacy_link_removed(&output, &legacy);
 
   let (exit_code, output) = run_install(&home, &app, &["install", "--uninstall"]);
   assert_eq!((exit_code, &output["bd_host"]), (0, &json!(link.to_str().unwrap())), "{output}");
   assert!(std::fs::symlink_metadata(&link).is_err(), "the symlink is removed");
 
-  // the binary of an upgrade stays, through the install and the uninstall
+  // a foreign old binary and the binary of an upgrade stay
+  std::fs::write(&legacy, "foreign").unwrap();
+  assert_legacy_file_preserved(&home, &app, &legacy, "foreign", &["install"]);
+  assert_legacy_file_preserved(&home, &app, &legacy, "foreign", &["install", "--uninstall"]);
+
   std::fs::write(&link, "upgraded").unwrap();
   let (exit_code, output) = run_install(&home, &app, &["install"]);
   assert_eq!((exit_code, &output["bd_host"]), (0, &json!(link.to_str().unwrap())), "{output}");
@@ -173,7 +236,7 @@ fn install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there() {
 /// without `cli` would start the app
 #[cfg(unix)]
 #[test_log::test]
-fn the_bd_command_is_the_link_to_this_app_or_the_app_with_cli() {
+fn the_brd_command_is_the_link_to_this_app_or_the_app_with_cli() {
   let (home, app) = home_with_app();
   let home = std::fs::canonicalize(home.path()).unwrap();
   let mut environment = environment(&home);
@@ -191,10 +254,10 @@ fn the_bd_command_is_the_link_to_this_app_or_the_app_with_cli() {
   assert_eq!(command.display(), format!("{} cli", app.display()));
   let mut out = Vec::new();
   assert_eq!(crate::run_with(["help", "skill"].map(std::ffi::OsString::from), &environment, &mut out), 0);
-  assert!(String::from_utf8(out).unwrap().contains(&format!("bd is `{} cli`", app.display())));
+  assert!(String::from_utf8(out).unwrap().contains(&format!("brd is `{} cli`", app.display())));
 
-  // a link to another binary is not this app's bd
-  let link = home.join(".local/bin/bd");
+  // a link to another binary is not this app's brd
+  let link = home.join(".local/bin/brd");
   std::fs::create_dir_all(link.parent().unwrap()).unwrap();
   std::os::unix::fs::symlink("/old/branch-deck", &link).unwrap();
   assert_eq!(bd_command(&environment).unwrap().subcommand, Some("cli"));
@@ -217,12 +280,12 @@ fn the_bd_command_is_the_link_to_this_app_or_the_app_with_cli() {
   };
   assert_eq!(spaced.for_shell(), r"'/Applications/Branch Deck.app/Contents/MacOS/it'\''s' cli");
 
-  // a binary named bd, e.g. a cargo build, is the CLI itself: no `cli`
-  let cargo_bd = home.join("target/debug/bd");
-  std::fs::create_dir_all(cargo_bd.parent().unwrap()).unwrap();
-  std::fs::write(&cargo_bd, "bd").unwrap();
-  environment.executable = Some(cargo_bd.clone());
-  assert_eq!(bd_command(&environment).unwrap().for_shell(), cargo_bd.display().to_string());
+  // a binary named brd, e.g. a cargo build, is the CLI itself: no `cli`
+  let cargo_brd = home.join("target/debug/brd");
+  std::fs::create_dir_all(cargo_brd.parent().unwrap()).unwrap();
+  std::fs::write(&cargo_brd, "brd").unwrap();
+  environment.executable = Some(cargo_brd.clone());
+  assert_eq!(bd_command(&environment).unwrap().for_shell(), cargo_brd.display().to_string());
 }
 
 /// An `.AppImage` runs its binary from a mount under `/tmp` that goes when the app quits: the link goes to the `.AppImage` file
@@ -262,6 +325,6 @@ fn install_links_to_the_appimage() {
   environment.appimage = Some(appimage.clone());
 
   let (exit_code, output) = run_json(&environment, &["install"]);
-  assert_eq!((exit_code, &output["bd"]), (0, &json!(home.join(".local/bin/bd").to_str().unwrap())), "{output}");
-  assert_eq!(std::fs::read_link(home.join(".local/bin/bd")).unwrap(), appimage);
+  assert_eq!((exit_code, &output["brd"]), (0, &json!(home.join(".local/bin/brd").to_str().unwrap())), "{output}");
+  assert_eq!(std::fs::read_link(home.join(".local/bin/brd")).unwrap(), appimage);
 }

@@ -5,7 +5,7 @@ use host_link::proto::{Reply, Request};
 use pretty_assertions::assert_eq;
 
 /// The binary of the tests
-const BINARY: &[u8] = b"a bd-host binary";
+const BINARY: &[u8] = b"a brd-host binary";
 
 fn runs_reply(_: &Request, channel: &mut Channel) {
   let _ = channel.send(&Reply::Runs { runs: Vec::new() });
@@ -19,14 +19,14 @@ fn host(setup: &Setup, host_sum: &str) -> FakeProcesses {
     setup.agent.address.port()
   );
   FakeProcesses::new(&[
-    ("shasum -a 256", ok(&format!("{host_sum}  .local/bin/bd-host\n"))),
-    ("bd-host setup --agent", ok(&line)),
+    ("shasum -a 256", ok(&format!("{host_sum}  .local/bin/brd-host\n"))),
+    ("brd-host setup --agent", ok(&line)),
     ("ssh -G studio", ok("user develar\nhostname 127.0.0.1\nport 22\n")),
   ])
 }
 
 fn binary_file(setup: &Setup) -> PathBuf {
-  let path = setup.dir.path().join("bd-host");
+  let path = setup.dir.path().join("brd-host");
   std::fs::write(&path, BINARY).unwrap();
   path
 }
@@ -61,18 +61,18 @@ fn setup_copies_the_binary_runs_the_agent_setup_and_writes_the_host_file() {
 
   let calls = processes.calls();
   let ssh_prefix: Vec<String> = SSH_OPTIONS.iter().copied().chain([ALIAS]).map(str::to_owned).collect();
-  let copy = calls.iter().find(|call| call.text().contains("cat > .local/bin/bd-host.new")).unwrap();
+  let copy = calls.iter().find(|call| call.text().contains("cat > .local/bin/brd-host.new")).unwrap();
   assert_eq!(copy.args[..=SSH_OPTIONS.len()], ssh_prefix[..]);
   assert_eq!((copy.input.as_slice(), copy.deadline), (BINARY, COPY_DEADLINE));
   let client_fingerprint = setup.config.identity().unwrap().fingerprint();
   assert!(
     processes.texts().iter().any(|text| text.ends_with(&format!(
-      "studio .local/bin/bd-host setup --agent --client {client_fingerprint} --name 'bt on dev'\\''s Mac' --port 7742"
+      "studio .local/bin/brd-host setup --agent --client {client_fingerprint} --name 'bt on dev'\\''s Mac' --port 7742"
     ))),
     "{:#?}",
     processes.texts()
   );
-  assert!(said.lines().iter().any(|line| line.starts_with("bd-host: copying bd-host (16 B)")), "{:#?}", said.lines());
+  assert!(said.lines().iter().any(|line| line.starts_with("brd-host: copying brd-host (17 B)")), "{:#?}", said.lines());
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn a_host_that_ssh_cannot_reach_or_that_cannot_run_the_binary_is_refused() {
     refusal.message
   );
 
-  let processes = FakeProcesses::new(&[("shasum", ok("")), ("setup --agent", failed(126, "zsh: exec format error: .local/bin/bd-host\n"))]);
+  let processes = FakeProcesses::new(&[("shasum", ok("")), ("setup --agent", failed(126, "zsh: exec format error: .local/bin/brd-host\n"))]);
   let refusal = setup.client(&processes, &|_| {}, &calm).setup(&request(&binary)).unwrap_err();
   assert_eq!(refusal.code, Code::AgentFailed);
   assert!(refusal.message.contains("exec format error"), "{}", refusal.message);

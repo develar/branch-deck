@@ -26,7 +26,7 @@
 //!   name in prose (`YouTrack`, `Node.js`) names no file.
 //! - **The target** says the unit, its path, its side (the old one for a removal) and line, and the step whose stops
 //!   hold it, a step of the commit first; a file its path and the step of its path. A bare candidate is kept only when
-//!   it resolves, a span in backticks also when it resolves nothing (`target: None`), so `bd review-plan` shows what
+//!   it resolves, a span in backticks also when it resolves nothing (`target: None`), so `brd review-plan` shows what
 //!   did not bind. Offsets are UTF-16 code units in the line of a paragraph or the item of a list, the backticks
 //!   included.
 //! - **Where a body is told** (`StoryCommit::parts`, each part's `told`): the parts of the body by its grammar, of

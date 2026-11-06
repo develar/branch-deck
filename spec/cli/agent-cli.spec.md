@@ -141,11 +141,11 @@ Date: 2026-10-16
 
 ## Summary
 
-`bd` lets a coding agent read what Branch Deck sees: the branches the commits ahead of the baseline group into, the
+`brd` lets a coding agent read what Branch Deck sees: the branches the commits ahead of the baseline group into, the
 unassigned commits, and every commit with its files and what ties it to the others. The agent clusters the commits
 into branches from that, applies the grouping with one validated rewrite of the commit messages, syncs the virtual
 branches and writes their pull request text. It is the `cli` subcommand of the app binary
-(`branch-deck cli status`), or the binary symlinked as `bd`; on Windows a console `bd.exe` next to the app. Every output is one JSON object with a stable schema.
+(`branch-deck cli status`), or the binary symlinked as `brd`; on Windows a console `brd.exe` next to the app. Every output is one JSON object with a stable schema.
 How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-cli.md).
 
 ## Goals
@@ -153,37 +153,37 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 - Give an agent everything it needs to cluster commits, in a few compact calls.
 - Keep the output contract stable: versioned JSON, fixed error codes and exit codes.
 - Stay fast on hundreds of commits: one git process per phase, and a cache for the per-commit data.
-- Reading changes nothing; a regroup changes commit messages only. A fold, a squash and `bd move-hunk` change the trees of
-  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo write the working tree, through the guarded update. `bd lease` writes only the slots of its pool.
+- Reading changes nothing; a regroup changes commit messages only. A fold, a squash and `brd move-hunk` change the trees of
+  commits ahead of the baseline, never HEAD's tree, the index or the working tree. Only `brd update`, `brd pick`, `brd unapply`, `brd reapply` and their undo write the working tree, through the guarded update. `brd lease` writes only the slots of its pool.
 
 ## Non-goals
 
-- Reordering, dropping or splitting commits (`bd move-hunk` moves a file's change between two commits; it splits no
-  commit into new ones), and a squash the user did not ask for (`bd squash` squashes the commits the user named).
+- Reordering, dropping or splitting commits (`brd move-hunk` moves a file's change between two commits; it splits no
+  commit into new ones), and a squash the user did not ask for (`brd squash` squashes the commits the user named).
 - Moving a change across a rename, a mode change, a symlink or a submodule, or a part of a binary file.
 
 ## Requirements
 
 ### Invocation
 
-- `branch-deck cli <command>` and a binary named `bd` must run the CLI without starting Tauri.
-- On Windows, where the app binary has no console, the installer must put a console `bd.exe` next to the app
+- `branch-deck cli <command>` and a binary named `brd` must run the CLI without starting Tauri.
+- On Windows, where the app binary has no console, the installer must put a console `brd.exe` next to the app
   (`crates/bd-cli/src/main.rs`, bundled as an `externalBin` by `src-tauri/tauri.windows-bd.conf.json`).
 - `-C <repo>` must select the repository, default the current directory; a subdirectory must resolve to the top level.
   [@test] ../../crates/bd-remote/src/status_test.rs (`subdirectory_resolves_to_top_level`)
 - The branch prefix must come from `--prefix`, else the specific one first: `branchdeck.branchPrefix` of the
   repository's local or worktree config or `git -c`, else the app setting `globalUserBranchPrefix`, else the global or system
   `branchdeck.branchPrefix` (`app_settings::resolve`), each named as the branches are (`jane/` is `jane`); every
-  output must echo it, and `bd status` must name its source (`prefix_source`: `cli`, `repository_config`,
+  output must echo it, and `brd status` must name its source (`prefix_source`: `cli`, `repository_config`,
   `app_setting`, `global_config`), so that a fallback to the global config is explicit.
   [@test] ../../crates/bd-remote/src/status_test.rs (`prefix_from_app_settings`, `prefix_from_git_config`, `prefix_source_names_where_the_prefix_came_from`, `the_global_config_of_the_process_never_reaches_the_bd_of_a_test`)
   [@test] ../../crates/app-settings/src/resolve_test.rs (`the_specific_prefix_wins`, `the_prefix_of_the_command_line_is_taken_as_it_is_named`)
   [@test] ../../crates/sync-core/src/branch_prefix_test.rs (`a_local_prefix_is_repository_scoped`)
-- The settings of the app (its prefix, `patronusNewApi`) must be read once as `bd` starts, through the loader of the
+- The settings of the app (its prefix, `patronusNewApi`) must be read once as `brd` starts, through the loader of the
   app (`app_settings::file::SettingsFile::load`), with the same defaults: a missing file, one that does not parse and a
   field of the wrong type are the defaults. The app writes the file only by a rename, so a read beside that write gets
   the old or the new settings, never a cut file, and never fails the write (on Windows the rename replaces a file that
-  `bd` has open, `sync_utils::atomic_file`); a sync of the app writes only `repository-state.json` beside it, so `bd`
+  `brd` has open, `sync_utils::atomic_file`); a sync of the app writes only `repository-state.json` beside it, so `brd`
   beside a sync reads the same prefix.
   [@test] ../../crates/bd-core/src/context_test.rs (`the_new_patronus_api_setting_of_the_app_is_read_from_its_settings_file`, `the_prefix_of_the_app_is_read_from_its_settings_file`, `a_settings_file_that_is_cut_gives_the_defaults`)
   [@test] ../../crates/app-settings/src/service_test.rs (`a_reader_of_the_file_never_sees_a_missing_prefix_while_the_service_writes_it`)
@@ -199,28 +199,28 @@ How it works and the workflow: [Agent CLI guide](../../docs/contributing/agent-c
 
 ### Flag names
 
-An agent carries a flag from one command to another: it ran `bd pick` with the `--unchecked` of `bd lease pick`, and
-clap answered `bd land --unchecked` with "a similar argument exists: '--check'", a flag of the opposite sense. So one
+An agent carries a flag from one command to another: it ran `brd pick` with the `--unchecked` of `brd lease pick`, and
+clap answered `brd land --unchecked` with "a similar argument exists: '--check'", a flag of the opposite sense. So one
 sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 
 - A preview that writes at most git objects (and the sync its command runs first) must be `--dry-run`, in every
-  command: `bd safe-push`, `bd land` and `bd request-review` too. `--patronus-dry-run` is a Patronus Dry Run, a robot
+  command: `brd safe-push`, `brd land` and `brd request-review` too. `--patronus-dry-run` is a Patronus Dry Run, a robot
   that runs; with `--dry-run` it is the preview of one.
 - A flag that accepts a refusal, given only once the user agreed, must be `--allow-<what refused>`, named after the
   error code it lifts where one code is lifted: `--allow-unchecked` (`unchecked_tree`), `--allow-checks-not-passed`
   (`checks_not_passed`), `--allow-dangling`, `--allow-missing`, `--allow-unknown-rules`, `--allow-unknown-review`,
   `--allow-live-session`. An act keeps its own verb (`--force` of a push, `--cancel-running`, `--restart-running`);
   `--without-approvals` (a mode of the start, with its profiles) and `--bypass-rules` (GitHub's word, three codes) stay.
-  One flag has one sense: `bd update --force` was two, now `--overwrite-edited` (with `--materialize`) and
+  One flag has one sense: `brd update --force` was two, now `--overwrite-edited` (with `--materialize`) and
   `--allow-live-session` (with `--abort --worktree`).
-- A renamed flag must keep its old name (an alias, `--force` of `bd update` a hidden flag), and a run that uses it must
-  print one line on stderr, `bd: <old> of bd <command> is now <new>`, its stdout unchanged: `--check` of `safe-push`,
+- A renamed flag must keep its old name (an alias, `--force` of `brd update` a hidden flag), and a run that uses it must
+  print one line on stderr, `brd: <old> of brd <command> is now <new>`, its stdout unchanged: `--check` of `safe-push`,
   `land` and `request-review`, `--without-checks` of `land`, `--unchecked` of `lease pick` and `pick`, `--force` of
   `update`.
   [@test] ../../crates/bd-cli/src/flag_names_test.rs (`every_renamed_flag_stays_and_names_flags_that_exist`, `a_renamed_flag_says_its_name_now`, `an_old_name_runs_as_the_new_one`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
 - A flag the command lacks must be `invalid_arguments` (exit 2) whose message names the commands that have it, by its
-  visible name (an alias found too: `--unchecked` names `--allow-unchecked` of `bd lease pick` and `bd pick`), then the
+  visible name (an alias found too: `--unchecked` names `--allow-unchecked` of `brd lease pick` and `brd pick`), then the
   visible flags of this command that preview or accept a refusal, then its usage. clap's similar name stays only when
   no other command has the flag, as a visible name: a hidden alias is never offered.
   [@test] ../../crates/bd-cli/src/flag_names_test.rs (`a_flag_of_another_command_is_named_with_that_command`)
@@ -228,8 +228,8 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 ### Output contract
 
 - stdout must hold exactly one JSON object per run, and every object must have `"schema": 2` (the experimental
-  `bd review-plan` has 3, spec/branch/review-plan.spec.md) and, after its own fields, the `operation_id` of the run
-  (a ULID, new for each run, an error object and `bd --version` included): the id of the root span of its log lines,
+  `brd review-plan` has 3, spec/branch/review-plan.spec.md) and, after its own fields, the `operation_id` of the run
+  (a ULID, new for each run, an error object and `brd --version` included): the id of the root span of its log lines,
   and of its record in the operations registry and its entry in the journal when it runs an operation of the remote,
   a rewrite, an update or a pick that writes.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
@@ -242,15 +242,15 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   mark, or as UTF-16 with one, which Windows PowerShell 5.1 writes.
   [@test] ../../crates/bd-core/src/text_input_test.rs (`a_bom_is_dropped_and_utf16_is_decoded`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_plan_with_a_byte_order_mark_is_read`)
-- `bd schema --all` must print the JSON Schema of every output (the list is the test's), and the real outputs must use
+- `brd schema --all` must print the JSON Schema of every output (the list is the test's), and the real outputs must use
   only the properties it declares.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_lists_every_output`, `outputs_match_schema`)
   [@test] ../../crates/bd-update/src/update_test.rs (`update_outputs_match_the_schema`)
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_is_refused_on_another_head_or_while_the_lock_is_held`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_fix_moves_into_the_commit_it_belongs_to_and_the_sync_rebuilds_the_branch`, `a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
-- `bd schema` without a name must print the index of every command and the names of its outputs, under 4 KB, so that an
+- `brd schema` without a name must print the index of every command and the names of its outputs, under 4 KB, so that an
   agent never reads every schema for one field; every command but `help` and `schema` must name outputs that exist,
-  and together they every output but `error`. `bd schema <command or output>...` must print only those schemas
+  and together they every output but `error`. `brd schema <command or output>...` must print only those schemas
   (`group`: `rewrite`), and an unknown name must be `invalid_arguments` naming every command and output.
   [@test] ../../crates/bd-cli/src/schema_test.rs (`schema_without_a_name_is_the_index_of_the_commands`, `schema_of_a_command_is_only_its_outputs`)
 - `status`, `commits`, `suggest`, `check`, `robot`, `schema`, `version`, `describe` without a setter,
@@ -258,13 +258,13 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `restack`, `unstack`, `update` (also with `--continue`), `pick`, `fold`, `squash`, `move-hunk` and `reword` must write no ref,
   config,
   index or working tree: at most git objects (a trial sync, a replay, the trees of a move) and the object cache (none
-  with `--no-cache`), and HEAD must stay; `bd --help` and `bd help agent` must say so, and that `push --dry-run`,
+  with `--no-cache`), and HEAD must stay; `brd --help` and `brd help agent` must say so, and that `push --dry-run`,
   `safe-push --dry-run` and `request-review --dry-run` sync first.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`read_only_commands_write_no_ref_config_index_or_working_tree`)
   [@test] ../../crates/bd-update/src/update_test.rs (`dry_run_neither_fetches_nor_writes`)
   [@test] ../../crates/bd-remote/src/robot_test.rs (`a_failed_robot_says_why_and_which_local_commits_it_tested`)
 - A failure must print `{"schema":2,"error":{"code","message","commits","retryable"}}` with a stable snake_case code,
-  and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `bd update --continue` (the
+  and `paths` for `uncommitted_overlap` (the local files) and for a refused resolution of `brd update --continue` (the
   conflicting files).
   A write whose step after the write failed must print its output with that error as `after_error`, never the error
   object, so that the undo token stays. The names must be one vocabulary: a write prints `previous_head` and
@@ -277,64 +277,64 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   (`--force`, `--cancel-running`, `--restart-running`, `--confirm-preserved`: once the user approved), and a limit
   that is the user's (`push_too_large`: never raise `branchdeck.pushSizeLimit` yourself; `low_disk_space`: never
   pass `--min-free 0` on your own). A refusal that no flag gets past must say what to do: show the user the answer of
-  the remote, `bd sync` for a branch not synced, `bd update` for a branch that landed, tell the user of a parked
+  the remote, `brd sync` for a branch not synced, `brd update` for a branch that landed, tell the user of a parked
   branch and never unpark it, move fewer blocks of a `hunk_conflict`, sign in again for a token GitHub rejected.
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_push_over_the_size_limit_is_push_too_large_before_the_remote`, `a_push_the_remote_refuses_with_its_leases_holding_is_push_refused`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`, `rules_github_does_not_answer_refuse_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_get_below_the_minimum_free_space_refuses_and_names_it`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_commit_between_on_the_same_lines_conflicts_and_another_head_or_the_lock_refuse`)
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
-- The error object must carry `next_steps`, the commands that act on the refusal, ready to run (`bd -C <repository>`
+- The error object must carry `next_steps`, the commands that act on the refusal, ready to run (`brd -C <repository>`
   as the other printed commands), each `{command, needs_approval}`, and the same in each `refusals[]` of
-  `bd safe-push --dry-run`; it is left out when there is none. A step that pushes, rewrites, updates or cancels or
+  `brd safe-push --dry-run`; it is left out when there is none. A step that pushes, rewrites, updates or cancels or
   restarts a robot (`push`, `safe-push` and `request-review` without `--dry-run`, `update`, `restack`, `--force`,
   `--cancel-running`, `--restart-running`) must have `needs_approval: true`, and runs only once the user approved it;
-  one that only reads (`bd robot`, `bd sync`, `safe-push --dry-run`) has it false. A suppression (`--allow-*`,
+  one that only reads (`brd robot`, `brd sync`, `safe-push --dry-run`) has it false. A suppression (`--allow-*`,
   `--without-approvals`, `--min-free`, a change of the config) must never be a step: it stays in `message` with its
   condition. The steps: `lease_rejected` the leased push that replaces the remote branch, `push_refused` of a branch
-  behind its remote the push that replaces it and of a branch not synced `bd sync`, `robot_running` `bd robot` of the
+  behind its remote the push that replaces it and of a branch not synced `brd sync`, `robot_running` `brd robot` of the
   robot and the `--cancel-running` or `--restart-running` of the same command, `approvals_missing` without a pull
   request the `--create-pull-request` of the start, `dangling_reference` the `fix.command` a trial build proved,
-  `missing_declaration` the `bd restack` it names, `push_dismisses_approvals` the push and then the review request,
-  `target_conflict` and `landed` `bd update`, `stack_conflict` the `--dry-run` of the branch whose commit conflicts,
-  `stack_not_built` `bd sync`. It is named `next_steps`, never `next`, whose commands (`bd workspace`, `bd update`,
-  `bd pick`) run at once.
+  `missing_declaration` the `brd restack` it names, `push_dismisses_approvals` the push and then the review request,
+  `target_conflict` and `landed` `brd update`, `stack_conflict` the `--dry-run` of the branch whose commit conflicts,
+  `stack_not_built` `brd sync`. It is named `next_steps`, never `next`, whose commands (`brd workspace`, `brd update`,
+  `brd pick`) run at once.
   [@test] ../../crates/bd-cli/src/error_test.rs (`a_next_step_that_writes_needs_the_approval_and_none_starts_anyway`)
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `all_needs_yes_and_unsynced_branches_are_refused`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`, `push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `the_approvals_count_in_the_pull_request_it_opens_and_the_safe_push_starts_from_it`, `a_push_that_dismisses_the_approvals_patronus_counts_refuses_the_safe_push`, `a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`)
 - The exit code must follow the code: 0 ok, 1 conflict, 2 invalid input, 3 stale (retry), 4 refused, 5 git or network
   error. Exit 1 must never be an error object: it is the output of a command that found a conflict (`state:
-  "conflict"`, a branch not built, `ok: false`); a conflict bd refuses to work around is exit 4. `retryable` must be
+  "conflict"`, a branch not built, `ok: false`); a conflict brd refuses to work around is exit 4. `retryable` must be
   true only where the same command again can succeed: never for `lease_rejected` (a push
   again with `--force` would drop what the remote has now) nor for a stale undo token (`undo_stale`). It must be the
   `retry` class of the code other than `no`, the one the app's `ApiError` carries: `same` for `locked` and
   `network_error`, `after_reread` for the stale reads, `plan_changed` among them (a remote action planned over facts
   that changed before its first effect did nothing, and its plan is read again). The codes are one registry with the app: `canceled` (an action
-  the user stopped) exits with 4, `internal` (a failure without a code of its own, which the app answers; `bd` prints a
+  the user stopped) exits with 4, `internal` (a failure without a code of its own, which the app answers; `brd` prints a
   failure of git or IO as `git_error`) with 5.
   [@test] ../../crates/bd-cli/src/error_test.rs (`every_error_code_has_the_exit_code_and_the_retry_of_its_class`)
   [@test] ../../crates/domain-types/src/error_test.rs (`an_error_without_a_code_of_its_own_is_internal_and_canceled_is_a_code`, `an_error_carries_the_retry_of_its_code`)
-- A push, a Safe Push or a Dry Run and a review request (`bd push`, `bd safe-push`, `bd request-review`) must be
+- A push, a Safe Push or a Dry Run and a review request (`brd push`, `brd safe-push`, `brd request-review`) must be
   recorded in the operations registry of the repository before its run, and must be `busy` (exit 3, retryable,
-  `retry: same`), nothing pushed or started, while an operation of another process (the app, another `bd`, in any
+  `retry: same`), nothing pushed or started, while an operation of another process (the app, another `brd`, in any
   worktree of the repository) runs the same intent or holds what it needs: a branch it lands or pushes, a robot, a
   field of a pull request. `error.holder` must name that operation (`op`, `tool`, `pid`, `kind`, `subject`,
   `held_for`), the message who runs what. An operation of another branch must run beside it, and the record of an
   operation must leave the registry once it ended, or at the next admission once its process is gone. The app's
-  operation is such a holder too, and the app refuses its own the same way while `bd` holds what it needs.
+  operation is such a holder too, and the app refuses its own the same way while `brd` holds what it needs.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_safe_push_beside_the_safe_push_of_another_process_is_busy_with_its_holder`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app`, `the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd`)
   [@test] ../../crates/operations/src/registry_file_test.rs (`the_file_is_busy_while_the_holder_lives_and_an_entry_takes_its_record_out`, `a_gone_process_of_this_host_leaves_at_once_and_one_of_another_host_after_five_minutes`, `a_registry_of_another_schema_is_busy_and_never_written`)
-- A rewrite that writes (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`,
-  `reapply`, `undo`, `move-hunk`), `bd update` and `bd pick` must be recorded in the operations registry of the
+- A rewrite that writes (`brd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `squash`, `park`, `unpark`, `unapply`,
+  `reapply`, `undo`, `move-hunk`), `brd update` and `brd pick` must be recorded in the operations registry of the
   repository before the command takes any lock, as the intent of the app's family (`rewrite`, `updateProject`,
-  `pick`), so the app's windows show it on its rows as `bd`'s ("bd: Renaming auth to login" on the "⋯" of its row, the
-  name an item that an operation of `bd` keeps busy gives it too: "bd: Pushing branch auth…"; no item waits for it);
+  `pick`), so the app's windows show it on its rows as `brd`'s ("brd: Renaming auth to login" on the "⋯" of its row, the
+  name an item that an operation of `brd` keeps busy gives it too: "brd: Pushing branch auth…"; no item waits for it);
   its record must leave once the command ended, before its `--sync`, or at the next admission once its process is
   gone. HEAD, which it holds, must make no other process `busy`, nor the same rewrite of another process: the
-  repository lock orders them, and a rewrite of the app meanwhile is waited for. Two Unstacks of a branch in the app and `bd unstack` of it beside them must be one rewrite of the app
-  and nothing more of `bd` (`invalid_plan` once it got the lock). A dry run, `bd update --status` and `bd check --fix`
+  repository lock orders them, and a rewrite of the app meanwhile is waited for. Two Unstacks of a branch in the app and `brd unstack` of it beside them must be one rewrite of the app
+  and nothing more of `brd` (`invalid_plan` once it got the lock). A dry run, `brd update --status` and `brd check --fix`
   must record nothing.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_bd_killed_in_its_rewrite_leaves_a_record_the_app_drops_once_its_process_is_gone`)
@@ -353,27 +353,27 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-cli/src/operation_test.rs (`a_safe_push_is_journaled_under_the_operation_id_of_its_json`, `a_rewrite_is_journaled_under_the_operation_id_of_its_json`)
   [@test] ../../crates/operations/src/journal_test.rs (`an_operation_of_the_app_and_one_of_bd_are_journaled_once_each_with_what_they_cost`, `a_start_whose_answer_was_lost_is_journaled_again_once_settled_or_forgotten`, `a_dropped_operation_is_journaled_as_internal_and_a_discarded_one_not_at_all`)
   [@test] ../../crates/operations/src/journal_test.rs (`an_operation_in_a_slot_of_the_lease_pool_is_journaled_as_an_agents`, `the_journal_keeps_the_newest_entries_of_the_last_thirty_days`)
-- A start of `bd safe-push` (and of the app) must record what it sends before its request goes out, and an answer
+- A start of `brd safe-push` (and of the app) must record what it sends before its request goes out, and an answer
   lost after it went out must leave it unknown, never sent again: the output says so in `start_unknown` (`operation`,
   `reason`), and its record holds what it held for every process. A start of a process that is gone (killed between
   its push and its start) is such a start too. An admission that one holds must settle it first by a read of Patronus:
   a robot of it started (`plan_changed`), none once 30 s passed since it was sent (it leaves, and the run goes as
-  planned, pushing nothing pushed already), else `busy` with `holder.unknown: true` and a message naming `bd
-  operation forget <op>`. `bd operation forget <op>` must take that record out, only when the user says so
+  planned, pushing nothing pushed already), else `busy` with `holder.unknown: true` and a message naming `brd
+  operation forget <op>`. `brd operation forget <op>` must take that record out, only when the user says so
   (`forgotten`, `subject`, `source_ref`; `invalid_arguments` for an id the registry lacks or an operation that runs),
   and the next start must go.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_lost_start_holds_bd_until_bd_operation_forget_lets_it_go`)
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`a_bd_killed_between_its_push_and_its_start_leaves_a_lost_start_the_app_settles_and_starts_once`)
   [@test] ../../crates/operations/src/reconcile_test.rs (`a_start_whose_answer_was_lost_is_unknown_once_and_holds_until_patronus_lists_its_robot`)
-- Every command of `bd` that succeeded and is no read (not in the read-only line of `bd --help`: a rewrite, a push, a
+- Every command of `brd` that succeeded and is no read (not in the read-only line of `brd --help`: a rewrite, a push, a
   start, a sync, an update, a pick, a park, a description, the lease commands but `lease status`) must touch the stamp
   of its repository once, after its run (`$GIT_COMMON_DIR/branch-deck/stamp`, its Unix time and pid): the app's windows
   of the repository sync then without a focus. A read, a dry run and a command that failed must leave it as it was.
   [@test] ../../crates/bd-cli/src/cross_process_test.rs (`bd_moves_the_stamp_of_its_repository_after_a_mutation_only`)
-- A typed error of a core must have one code in `bd` and in the app: the type names it (`ParkError::code`,
+- A typed error of a core must have one code in `brd` and in the app: the type names it (`ParkError::code`,
   `GuardRefusal::code`, `UnapplyRefusal::code`, `ReapplyRefusal::code`), local changes in the way of an unapply, a
   reapply or their undo are `uncommitted_overlap`, and an undo answers the code `in_undo` (`ErrorCode::in_undo`): a
-  ref that moved on since the operation is `undo_stale`, never retried, in `bd undo` and in the undo commands of the
+  ref that moved on since the operation is `undo_stale`, never retried, in `brd undo` and in the undo commands of the
   app alike, its words saying what moved and that it can't be undone any more, never the advice to retry that a
   rewrite refused by the same move gives. Both sides are tested on one table of the typed errors and their codes
   (`update_core::error_cases`).
@@ -388,9 +388,9 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   with `invalid_arguments`, an unknown `--branch` with `unknown_branch`; all exit with 2.
   [@test] ../../crates/bd-remote/src/status_test.rs (`empty_prefix_is_an_error`, `not_a_repository`, `invalid_arguments`, `status_filters_and_pages`)
 - A list cut at its limit must leave out two or more, never one: a list one longer than its limit is printed whole
-  (`sync_utils::list_cut::kept`: `files` and `files_omitted` of `bd update` and `bd pick`, `paths` and
-  `blocked_paths_omitted`, the builds, test names and messages of `bd robot --full` and their `omitted`, the dangling
-  references the refusal of `bd safe-push` describes, the `dropped_commits` of a remote, the failed checks a robot or a
+  (`sync_utils::list_cut::kept`: `files` and `files_omitted` of `brd update` and `brd pick`, `paths` and
+  `blocked_paths_omitted`, the builds, test names and messages of `brd robot --full` and their `omitted`, the dangling
+  references the refusal of `brd safe-push` describes, the `dropped_commits` of a remote, the failed checks a robot or a
   pull request names), as the app cuts its lists and prompts (`cutList`).
   [@test] ../../crates/sync-utils/src/list_cut_test.rs (`a_list_one_longer_than_its_limit_is_kept_whole_and_a_longer_one_is_cut_at_the_limit`)
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
@@ -403,7 +403,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   must print full ids.
   [@test] ../../crates/bd-remote/src/status_test.rs (`full_ids`)
 
-### `bd status`
+### `brd status`
 
 - It must print HEAD, the baseline, the prefix and its source (`prefix_source`), the branches newest first by their
   oldest commit, as the table orders them (name, ref, issue key, latest time, commit count, the tip of the synced
@@ -433,10 +433,10 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-remote/src/robot_list_test.rs (`status_asks_patronus_once_while_the_kept_robots_hold`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
 - On Space (the push URL of `origin`), each branch must show `landing_needs`: what its Safe Push needs of a commit
-  outside what it lands, the refusals `bd safe-push` would give its start (`trial_check::landing_gate::landing_needs`,
-  one trial check of every branch, less what merged Safe Pushes landed), so an agent sees them without `bd check`: per
+  outside what it lands, the refusals `brd safe-push` would give its start (`trial_check::landing_gate::landing_needs`,
+  one trial check of every branch, less what merged Safe Pushes landed), so an agent sees them without `brd check`: per
   need the `code` (`missing_declaration`, `dangling_reference`), the `identifier`, `at` (`file:line` of the use), the
-  commit it `needs` and its `needs_branch`, the `fix` (`bd restack <root> <branch>`, which the user approves first, or
+  commit it `needs` and its `needs_branch`, the `fix` (`brd restack <root> <branch>`, which the user approves first, or
   `move <commit> into <branch>`) and `landing_in`, the robot of the running Safe Push that lands `needs_branch`. Empty:
   nothing is needed. A branch built on one that needs a branch needs it too. Omitted off Space, with `--brief` or
   `--unassigned`, and when the check can't run: unknown, not empty.
@@ -444,16 +444,16 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/trial-check/src/landing_gate_test.rs (`the_needs_of_a_branch_are_the_refusals_of_its_start`)
 - Each branch, and in `stacks` each whole stack of a stack that forks, must show `next_step`: the step the app's row
   shows by the same rule (`domain_policy::next_step`, [Next Step](../branch/next-step.spec.md#the-table)) over what
-  `bd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, `1″` `pick_remote_commits`:
-  someone else pushed to the remote branch, `bd pick --remote` takes it in, … `11` a Safe Push), `step`,
+  `brd status` read: `row` of the table (`0` waits for a fact, `1` has nothing to start, `1″` `pick_remote_commits`:
+  someone else pushed to the remote branch, `brd pick --remote` takes it in, … `11` a Safe Push), `step`,
   `waits_for` (the fact without an answer, or whose read failed), `pull_request`, and why a Safe
   Push or a Dry Run can't start now (`safe_push_blocked`, `dry_run_blocked`, `null` when it can), and of a branch
   `status`, what its Status cell in the app says by the same rule (`domain_policy::row_status`), the main fact first:
   `robot_running` before `blocked`, so a step settled by a running robot says it (`robot_finished`, `robot_failed`,
   `landed`, `sync_error`, `merge_conflict`, `analyzing_conflict`, `parked`; omitted when only the push state is to
-  say). `bd status` reads the grouping without a sync, so it names no failure of one: `bd sync` says it. `bd status` lists no
+  say). `brd status` reads the grouping without a sync, so it names no failure of one: `brd sync` says it. `brd status` lists no
   pull request, asks no readiness and no problem of a failed robot: a step that needs them waits for them (row 0,
-  `pull_requests`, `readiness`, `robot_problems`); `bd safe-push --dry-run` reads them. Omitted off Space (the row has
+  `pull_requests`, `readiness`, `robot_problems`); `brd safe-push --dry-run` reads them. Omitted off Space (the row has
   no slot), with `--brief` and `--unassigned`; no git process more.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`status_gives_each_branch_and_whole_stack_the_next_step_of_the_apps_row`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
@@ -466,7 +466,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `unapplied` or `missing`), the `effective_base` or `blocked_by` a sync would use, `pr_base_changed` when a parent
   without commits is passed (the branch is built on the nearest active ancestor or the baseline, never blocked by it),
   and its stack `problems` with the commits that declare them, and the output must list the `forest` order, parents
-  first; `bd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the stack
+  first; `brd commits` must group by the leaf as well. The `parent_source` of a parent is `prefix` or `store` (the stack
   parents), and the output lists `idle_stack_parents` and `stack_parent_problems` ([Stack Parents](../branch/stack-parents.spec.md)).
   [@test] ../../crates/bd-remote/src/status_test.rs (`stacks_in_status`, `stored_parents_in_status`)
 - With stacked branches on, `stacks` must list the stack branch of each stack that forks (`root`, `branch`
@@ -477,7 +477,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   ([Whole Stack](../branch/whole-stack.spec.md)).
   [@test] ../../crates/bd-remote/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status_of_a_forking_stack`)
-- Each branch with a `bd describe` text must show its title, read for all branches in one git process, the one that
+- Each branch with a `brd describe` text must show its title, read for all branches in one git process, the one that
   also gives the stack setting of the grouping.
   [@test] ../../crates/bd-rewrite/src/describe_test.rs (`sets_prints_and_clears_a_description`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_status`)
@@ -491,7 +491,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   forest and the `stacks`, then the unassigned commits; it must not go with `--branch` or `--stats`.
   [@test] ../../crates/bd-remote/src/status_test.rs (`brief_status`, `brief_status_keeps_the_stack_state`)
 
-### `bd commits`
+### `brd commits`
 
 - It must print every commit ahead of the baseline, oldest first: id, subject, body, author, time, group (or `null`),
   issue key, and for a fixup its kind and the target autosquash resolves.
@@ -501,7 +501,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`files_with_renames_binaries_and_deletions`)
   [@test] ../../crates/trial-check/src/diff_scan_test.rs (`parses_the_raw_part`, `read_commit_diffs_takes_the_blocks_of_the_views`)
 - `--patch` must add per changed file the blocks of the diff views under `Default`, each with its id for
-  `bd move-hunk --block` (the lines as in a git hunk header and a hash of them), its kind, a header with the label of
+  `brd move-hunk --block` (the lines as in a git hunk header and a hash of them), its kind, a header with the label of
   its scope, and its lines between up to three lines of context that stop at the next block; `--branch` must keep the
   commits of one branch and the edges and overlaps that involve it.
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
@@ -518,7 +518,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`an_edge_by_symbols_names_the_symbol_and_joins_no_unit`)
 - `cluster_overlap` must list, for each pair of branches, the files both change.
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`dependency_edges_and_cluster_overlap`)
-- `bd commits <id>…` must keep the commits with these ids (full, or abbreviated to at least 4 characters) and
+- `brd commits <id>…` must keep the commits with these ids (full, or abbreviated to at least 4 characters) and
   `--unassigned` the unassigned commits, with the edges that involve them; an unknown id must be
   `not_ahead_of_baseline`, an ambiguous one `invalid_arguments`, and the filters and `--branch` must exclude each other.
   [@test] ../../crates/bd-rewrite/src/commits_test.rs (`commit_ids_and_unassigned_filter_the_listing`, `an_ambiguous_id_is_invalid`)
@@ -549,21 +549,21 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - Several processes must use the cache at once; a full cache must be cleared; the older versions of a store must be
   dropped, and only of that store; any cache failure must be a miss.
   [@test] ../../crates/object-cache/src/cache_test.rs (`round_trip`, `older_versions_of_a_store_are_dropped`, `a_bumped_store_keeps_the_other_stores`, `unusable_cache_is_a_miss`, `full_cache_is_cleared`, `parallel_threads`, `parallel_processes`)
-- `bd sync` must walk no branch whose commits, remote branch and baseline did not move since a `bd` computed its remote
+- `brd sync` must walk no branch whose commits, remote branch and baseline did not move since a `brd` computed its remote
   status: the status of the same commits comes from the cache (`remote_status`, read only by the status version that
   wrote it), and the push times of all branches from one `reflog`.
   [@test] ../../crates/sync-core/src/process_budget_test.rs (`an_unchanged_sync_of_pushed_branches_in_a_new_process`)
   [@test] ../../crates/object-cache/src/cache_test.rs (`remote_statuses_are_read_by_their_version`)
 
-### `bd group`, `rename`, `restack`, `unstack`, `stack-together`
+### `brd group`, `rename`, `restack`, `unstack`, `stack-together`
 
-- `bd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
+- `brd group` must read a plan `{branches: {path: [ids]}, unassign: [ids], issue_groups: {name: [keys]},
   ungroup_issues: [keys], unstack: [branches]}` from `--plan` (`-` for stdin), set the prefixes of all its commits in one
   message-only rewrite, and change the issue groups ([Issue Groups](../branch/issue-groups.spec.md)) and the stack
   parents ([Stack Parents](../branch/stack-parents.spec.md)) in the same ref transaction; ids may be abbreviated. A
   plan of issue groups and stack parents only rewrites no commit.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_applies_a_plan`)
-- `bd group` without `--plan` must be refused as `invalid_arguments` (exit 2), and stdin must not be read.
+- `brd group` without `--plan` must be refused as `invalid_arguments` (exit 2), and stdin must not be read.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_without_a_plan_is_refused`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`applies_a_plan_in_one_rewrite`, `unassign_falls_back_to_the_issue_key`)
 - A commit without a prefix that the plan puts into the branch of its own issue key must keep its subject, so a plan
@@ -582,13 +582,13 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_that_strands_a_fixup_is_refused`)
 - `descriptions` of the plan (`{branch: {title, body}}`, the leaf for a stacked branch) must be validated with it,
   before anything is written: a title of one line that is not empty, and a branch that has commits after the plan,
-  else `invalid_plan`. bd must write the ones that differ after the ref transaction and the release of the repository
-  lock, as `bd describe` does, so the regroup holds the lock only for its witness and its write; list the written ones
+  else `invalid_plan`. brd must write the ones that differ after the ref transaction and the release of the repository
+  lock, as `brd describe` does, so the regroup holds the lock only for its witness and its write; list the written ones
   in `described` and the texts they replaced in `replaced_descriptions`; a plan of descriptions only rewrites no
-  commit. `bd check` must validate them as well.
+  commit. `brd check` must validate them as well.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `descriptions_are_validated_with_the_plan`, `a_stacked_branch_is_described_by_its_leaf`, `a_group_with_descriptions_locks_only_the_witness_and_the_write`)
-- `--sync` must run the sync of `bd sync` after the writes and the release of the repository lock, so its merges never
-  make the app or another `bd` wait, and add its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
+- `--sync` must run the sync of `brd sync` after the writes and the release of the repository lock, so its merges never
+  make the app or another `brd` wait, and add its output as `sync`; a conflict must exit with 1 and keep the undo token. A failed description write must skip the
   sync; it and a failed sync must keep the rewrite output, with the error as `after_error` and its exit code. `--sync` must not
   go with `--dry-run`.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_writes_descriptions_and_syncs`, `a_sync_conflict_after_group_exits_with_1_and_keeps_the_undo_token`, `a_failed_description_write_is_the_error_of_the_output_and_keeps_the_undo_token`, `descriptions_are_validated_with_the_plan`, `the_sync_of_a_rewrite_runs_after_the_lock`)
@@ -607,7 +607,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `--dry-run`, and a detached HEAD `detached_head` (exit 4).
   [@test] ../../crates/sync-core/src/regroup_test.rs (`waits_for_the_repository_lock`, `refuses_while_a_rebase_is_in_progress`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`group_and_its_dry_run_are_refused_during_a_cherry_pick`)
-- A rewrite without `--expect-head` (`bd group`, `bd reword`, `bd squash`, `bd fold`, `bd unapply`, `bd move-hunk`) whose
+- A rewrite without `--expect-head` (`brd group`, `brd reword`, `brd squash`, `brd fold`, `brd unapply`, `brd move-hunk`) whose
   HEAD another process moves between two of its reads before the lock must compute once more under the lock, on that
   HEAD, and keep the commits of the other process, never answer `head_moved`; with `--expect-head` the moved HEAD is
   `head_moved`.
@@ -620,28 +620,28 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   the branch before and after when it changes) and the stack forest; `--map` must add `{commit, new_id}` of every commit.
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`dry_run_prints_the_changes_and_the_forest`)
   [@test] ../../crates/sync-core/src/regroup_test.rs (`dry_run_writes_nothing`)
-- `bd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
+- `brd rename` must replace the branch's level in every prefix path, children included, rename the issue groups and
   the stack parents of that name without a rewrite, and name an issue branch by the issue groups; the new name must be
   a branch name without `/`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`renames_a_branch_with_its_children`, `renames_flat_and_issue_branches`)
-- `bd restack` and `bd unstack` must set or clear the stack parent of the branch, an issue branch and an issue group
+- `brd restack` and `brd unstack` must set or clear the stack parent of the branch, an issue branch and an issue group
   included, rewrite only the commits whose prefix declares another parent, and need stacked branches.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`restacks_and_unstacks_a_branch`, `restack_needs_stacked_branches`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`)
-- `bd stack-together <branch> <branch>...` must put all selected branches into one oldest-first chain, preserve an
+- `brd stack-together <branch> <branch>...` must put all selected branches into one oldest-first chain, preserve an
   existing ancestor edge, move a selected branch out of its former stack while keeping its descendants, and write
   stack parents without rewriting history when their prefixes declare no different parent. It must create one rewrite
   with one undo token, refuse too few branches, missing branches, a cycle and branches already stacked together, and
-  use no more git processes than `bd restack`.
+  use no more git processes than `brd restack`.
   [@test] ../../crates/history-rewrite/src/regroup_test.rs (`stack_together_chains_branches_oldest_at_the_bottom_without_a_rewrite`, `stack_together_refuses_invalid_or_already_stacked_branches_and_cycles`)
   [@test] ../../crates/sync-core/src/stack_operations_test.rs (`stack_together_moves_a_branch_and_keeps_its_existing_parent_and_children`)
   [@test] ../../crates/operations/src/rewrite_test.rs (`stack_together_is_one_rewrite_of_every_named_branch`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`stack_together_stacks_branches_oldest_first_and_undoes_once`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`stack_together_uses_the_same_number_of_git_processes_as_restack`)
 
-### `bd reword`
+### `brd reword`
 
-- `bd reword <commit>` must replace the message of a commit ahead of the baseline with `--message`, `--message-file`
+- `brd reword <commit>` must replace the message of a commit ahead of the baseline with `--message`, `--message-file`
   (`-` for stdin) or `--subject` (the subject line, its `(prefix)` included; the body stays), exactly one of them, or
   the messages of several commits by `--plan` (`{rewrites: [{commit, message | subject}]}`, `-` for stdin), in one
   message-only rewrite: every tree, the index and the working tree stay, the older commits keep their ids, the later
@@ -649,10 +649,10 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `git commit` does; one equal to the old message after the cleanup rewrites nothing and prints no undo token.
   [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_subject_changes_only_that_commit`, `reword_with_a_message_file_from_stdin_replaces_the_whole_message`, `a_message_equal_after_cleanup_rewrites_nothing`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`rewords_messages_in_one_rewrite`, `a_subject_keeps_the_body_and_a_message_equal_after_cleanup_rewrites_nothing`)
-- It must be a rewrite of `bd group`: under the repository lock (`locked`, exit 3), `--expect-head` (`head_moved`, exit
-  3), `--allow-append`, `--sync`, `--map`, `operation_in_progress` (exit 4) also for `--dry-run`, the output of `bd group`
+- It must be a rewrite of `brd group`: under the repository lock (`locked`, exit 3), `--expect-head` (`head_moved`, exit
+  3), `--allow-append`, `--sync`, `--map`, `operation_in_progress` (exit 4) also for `--dry-run`, the output of `brd group`
   with `operation: reword` and `changes` (old id, `new_id`, old and new subject, `body_changed`, `moved`) also without
-  `--dry-run`, and an undo token `<previous head>..<new head>` that `bd undo` takes back, the old commits with their
+  `--dry-run`, and an undo token `<previous head>..<new head>` that `brd undo` takes back, the old commits with their
   notes. The issue groups and the stack parents must stay.
   [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_is_refused_on_another_head_or_while_the_lock_is_held`, `reword_and_its_dry_run_are_refused_during_a_cherry_pick`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`, `reword_dry_run_writes_no_ref`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_reword_keeps_the_issue_groups_and_the_stack_parents`)
@@ -662,70 +662,70 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `invalid_plan`.
   [@test] ../../crates/bd-rewrite/src/reword_test.rs (`reword_of_a_commit_not_ahead_of_the_baseline_is_refused`, `a_reword_plan_rewrites_two_commits_at_once_and_undo_restores_them`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`refuses_ids_and_texts_it_cannot_reword`)
-- A new `(prefix)` must move the commit to that branch as `bd group` does, its fixups with it, with the validation of a
+- A new `(prefix)` must move the commit to that branch as `brd group` does, its fixups with it, with the validation of a
   plan: a stack problem it introduces is `invalid_plan`. A fixup that would fold into another target or none, a
   `fixup!`, `squash!` or `amend!` marker added or removed, a target a fixup names by its id, and a new text of a commit
   whose `amend!` waits must be `invalid_plan`; a plan that rewords the fixup with its target passes.
   [@test] ../../crates/bd-rewrite/src/reword_test.rs (`a_new_prefix_moves_the_commit_to_another_branch`, `a_reword_that_strands_a_fixup_is_refused`)
   [@test] ../../crates/sync-core/src/reword_test.rs (`a_new_prefix_moves_the_commit_with_its_fixups`, `a_reword_that_strands_a_fixup_is_refused`, `a_plan_that_rewords_a_fixup_with_its_target_passes`, `a_reword_that_breaks_a_stack_is_refused`)
-- A reworded branch that was pushed must need a push: `bd safe-push --dry-run` with `push_needed: true` and
-  `remote.reworded`, `bd push --dry-run` a forced update.
+- A reworded branch that was pushed must need a push: `brd safe-push --dry-run` with `push_needed: true` and
+  `remote.reworded`, `brd push --dry-run` a forced update.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_reworded_by_bd_reword_needs_a_push`)
 - A session must be able to reword its own landed commit from its lease with `-C <shared checkout>`; the lease needs no
   move: a later pick lands only new commits and the return finds the old tip landed by content
-  ([bd lease](lease.spec.md)).
+  ([brd lease](lease.spec.md)).
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_session_rewords_its_landed_commit_from_its_lease`, `a_pick_without_follow_finds_the_reworded_commit_present_by_patch_id`)
 - Its processes are pinned by subcommand: the snapshot of a regroup, one `fast-import`, one `update-ref`.
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_reword`)
 
-### `bd undo`
+### `brd undo`
 
-- `bd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap. A token of the
+- `brd undo <undo_token>` must move the branch back to the token's previous HEAD with compare-and-swap. A token of the
   issue groups (`groups:G1..G2`, or `H1..H2+groups:G1..G2` with a rewrite) must move them back in the same
   transaction, the stack parents likewise with `+stacks:S1..S2` (alone `stacks:S1..S2`). The parts come in this order,
   each at most once. Once the branch or a store changed again, the undo must be `undo_stale` (exit 4, not retryable):
-  the token can never succeed again, as for the tokens of `bd update` and `bd pick`.
+  the token can never succeed again, as for the tokens of `brd update` and `brd pick`.
   [@test] ../../crates/sync-core/src/regroup_test.rs (`undo_restores_the_previous_head`)
   [@test] ../../crates/bd-rewrite/src/rewrite_test.rs (`rename_restack_unstack_and_undo`, `issue_groups_plan_and_undo`, `stack_parents_plan_and_undo`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`an_undo_token_is_read_strictly`)
   [@test] ../../crates/sync-core/src/issue_groups_test.rs (`a_mixed_plan_moves_head_and_the_store_in_one_transaction`)
 
-### `bd update`
+### `brd update`
 
-- `bd update`, `bd undo update:` and the resolve session of a conflicting update: [bd update](update.spec.md).
+- `brd update`, `brd undo update:` and the resolve session of a conflicting update: [brd update](update.spec.md).
 
-### `bd pick`
+### `brd pick`
 
-- `bd pick` (the commits of another worktree onto the checked out branch, `--follow`) and `bd undo pick:`:
-  [bd pick](pick.spec.md).
+- `brd pick` (the commits of another worktree onto the checked out branch, `--follow`) and `brd undo pick:`:
+  [brd pick](pick.spec.md).
 
-### `bd unapply`, `bd reapply`
+### `brd unapply`, `brd reapply`
 
-- `bd unapply` (a branch and its files out of the checked out branch), `bd reapply` (back on top) and `bd undo
-  unapply:`, `bd undo reapply:`:
+- `brd unapply` (a branch and its files out of the checked out branch), `brd reapply` (back on top) and `brd undo
+  unapply:`, `brd undo reapply:`:
   [Unapply and Reapply](../branch/unapply.spec.md).
 
-### `bd drop`
+### `brd drop`
 
-- `bd drop` (commits and their files out of the checked out branch for good, a commit of a lease's home branch as
-  `drop_in_home`) and `bd undo drop:`: [Drop Commits](../commit/drop.spec.md).
+- `brd drop` (commits and their files out of the checked out branch for good, a commit of a lease's home branch as
+  `drop_in_home`) and `brd undo drop:`: [Drop Commits](../commit/drop.spec.md).
 
-### `bd lease`
+### `brd lease`
 
-- `bd lease get`, `pick`, `return`, `status` and `adopt` (the pool of worktrees that agent sessions lease):
-  [bd lease](lease.spec.md).
+- `brd lease get`, `pick`, `return`, `status` and `adopt` (the pool of worktrees that agent sessions lease):
+  [brd lease](lease.spec.md).
 
-### `bd fold`
+### `brd fold`
 
-- `bd fold` must fold the `fixup!`, `squash!` and `amend!` commits into their targets as the app's Squash Fixups does
+- `brd fold` must fold the `fixup!`, `squash!` and `amend!` commits into their targets as the app's Squash Fixups does
   ([Squash Fixups](../commit/fixups.spec.md)), under the repository lock, keeping HEAD's tree, the index and the working
   tree, and print per target the fixups folded, the orphans, and an undo token `<previous head>..<new head>` for
-  `bd undo`. `--branch` must fold only the fixups whose target is in that branch, and a name that is no branch of the
+  `brd undo`. `--branch` must fold only the fixups whose target is in that branch, and a name that is no branch of the
   commits ahead of the baseline is `unknown_branch`; `--dry-run` must write nothing; nothing to fold is no rewrite and
   no token.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`fold_keeps_the_tree_and_the_undo_restores_the_head`, `fold_of_one_branch_and_a_dry_run`)
 - Without `--expect-head` the fold must fold the fixups of HEAD as its squash finds it, also when another process moved
-  HEAD after bd read its plan, and print what that squash folded: the targets with their fixups, the orphans, the head
+  HEAD after brd read its plan, and print what that squash folded: the targets with their fixups, the orphans, the head
   it folded from and an undo token back to it; a HEAD without fixups of the scope there is nothing to fold.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_head_moved_after_the_plan_of_the_fold_is_folded_as_its_core_finds_it`)
   [@test] ../../crates/history-rewrite/src/autosquash_test.rs (`squashes_interleaved_groups_in_one_rewrite`, `squashes_only_the_fixups_of_one_branch_or_one_fixup`)
@@ -747,15 +747,15 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   temporary ref left, and say `dropped` as the fold would.
   [@test] ../../crates/bd-rewrite/src/fold_test.rs (`a_fixup_that_cancels_its_target_drops_it_and_the_dry_run_says_so`)
 
-### `bd squash`
+### `brd squash`
 
-- `bd squash <into> <commit>...` must squash the commits the user named into `<into>`, the oldest of them, as the
+- `brd squash <into> <commit>...` must squash the commits the user named into `<into>`, the oldest of them, as the
   app's Squash does ([Squash Commits](../commit/squash.spec.md)): one core (`squash_commits_core`) and one intent
   (`RewriteIntent::Squash`), the commits in between kept, HEAD's tree, the index and the working tree kept. It must
   keep the message of `<into>`; `--subject` must replace its subject and keep its body, `--message` and
   `--message-file` (`-` for stdin) must be the whole message. It must print `into`, `new_id`, `squashed` (oldest
   first), `subject`, `branch`, `rebuilt_branches` (the branch of the squashed commit and those of the commits between
-  it and the newest squashed one), and an undo token `<previous head>..<new head>` for `bd undo`; `--sync` must sync
+  it and the newest squashed one), and an undo token `<previous head>..<new head>` for `brd undo`; `--sync` must sync
   after the record ended.
   [@test] ../../crates/bd-rewrite/src/squash_test.rs (`squash_folds_the_commits_into_the_oldest_keeps_the_message_and_the_copies_after_them`)
   [@test] ../../crates/bd-cli/src/operation_test.rs (`a_squash_is_journaled_as_the_squash_of_its_commits`)
@@ -774,10 +774,10 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   cherry-pick or revert in progress (`operation_in_progress`), also for its dry run.
   [@test] ../../crates/bd-rewrite/src/squash_test.rs (`squash_refuses_what_is_no_squash_of_one_branch`, `squash_is_refused_by_a_conflict_or_an_empty_result_another_head_or_the_lock`, `squash_refuses_a_result_without_changes`, `squash_and_its_dry_run_are_refused_during_a_cherry_pick`)
 
-### `bd move-hunk`
+### `brd move-hunk`
 
-- `bd move-hunk <from> <to> <path>` must move the changes of the file `path` in commit `from` (all of them, or with
-  `--block <id>`, repeatable, the blocks with the ids of `bd commits <from> --patch`) into commit `to`, older or
+- `brd move-hunk <from> <to> <path>` must move the changes of the file `path` in commit `from` (all of them, or with
+  `--block <id>`, repeatable, the blocks with the ids of `brd commits <from> --patch`) into commit `to`, older or
   newer, both ahead of the baseline on the checked out branch, in one rewrite under the repository lock. HEAD's tree
   must stay, and so the index and the working tree: into an older commit the change is added to the trees of
   `[to, from)` and `from` keeps its tree; into a newer one it is taken out of the trees of `[from, to)` and `to` keeps
@@ -795,9 +795,9 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   keep author and committer byte for byte, and its mapping note: with the new trees as its source for a commit
   between, as it was above. So the sync rebuilds the branches of `from` and `to` and keeps the others.
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_commit_between_that_shifts_the_lines_still_applies`, `moves_a_file_change_into_an_older_commit`)
-- It must print the moved blocks (`moved.blocks`, as `bd commits --patch` prints them), `commits` (`{commit, new_id}`
+- It must print the moved blocks (`moved.blocks`, as `brd commits --patch` prints them), `commits` (`{commit, new_id}`
   of every recreated commit), `changed` (the commits whose changes differ) and an undo token
-  `<previous head>..<new head>` for `bd undo`; `--sync` must sync after the release of the lock (`sync`, or `after_error`
+  `<previous head>..<new head>` for `brd undo`; `--sync` must sync after the release of the lock (`sync`, or `after_error`
   with the token kept); `--dry-run` must print the blocks and check the rewrite, writing nothing but git objects.
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`the_block_id_is_the_one_of_bd_commits_patch`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_dry_run_writes_no_ref_and_no_note`)
@@ -815,14 +815,14 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_head_moved_between_two_reads_of_a_move_computes_it_once_more_under_the_lock`)
   [@test] ../../crates/bd-rewrite/src/move_hunk_test.rs (`a_move_hunk_locks_only_the_witness_and_the_write`)
 
-### `bd check`
+### `brd check`
 
-- `bd check` must apply a plan (`--plan`, `-` for stdin; the current grouping without one) in memory, validate it like a
+- `brd check` must apply a plan (`--plan`, `-` for stdin; the current grouping without one) in memory, validate it like a
   regroup (exit 2 when invalid, `descriptions` included), place the branches as a stacked sync does and build each
   one, parents first, writing git objects and the cache only: refs, notes, config and HEAD must not change.
   [@test] ../../crates/trial-check/src/check_test.rs (`a_commit_moved_away_from_its_dependency_conflicts`, `stacking_resolves_the_conflict`, `the_current_grouping_and_a_clean_plan_build`, `an_invalid_plan_is_refused`)
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`the_current_grouping_and_invalid_plans`)
-- Without `--plan`, `bd check` must check the current grouping and never read stdin, so the stdin of an agent, a CI
+- Without `--plan`, `brd check` must check the current grouping and never read stdin, so the stdin of an agent, a CI
   or an IDE, an open pipe that sends nothing, does not hold it. `--plan -` must read the plan from stdin, with the
   result of `--plan <file>`.
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`without_a_plan_an_open_stdin_is_not_read`, `a_plan_on_stdin_with_plan_dash_is_the_plan_of_a_file`)
@@ -837,7 +837,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_conflicting_plan_names_the_commit_and_what_it_needs`, `stacking_resolves_the_conflict`)
   [@test] ../../crates/trial-check/src/check_test.rs (`children_of_a_conflicting_branch_are_blocked`)
 - With `--fix` it must add `fix`, the regroup after which the conflicting branches apply cleanly as the trial builds of
-  [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `bd group`;
+  [Conflict Fix](../branch/conflict-fix.spec.md) find it, each component's `plan` the whole plan for `brd group`;
   nothing is applied. `--max-trials N` (12) and `--time-budget SECONDS` (180, the whole command) bound the search,
   each only with `--fix`; a search they stop says `search: budget` with the best plan so far. Each trial is a line on
   stderr.
@@ -846,7 +846,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   that a commit outside the branch and the branches it is built on adds or gives the form the use needs (an edge by
   symbols), an override of it included, with the evidence. git merges such a branch and its build fails, so a branch
   that builds otherwise must be `missing_declaration` (exit 1); with `--allow-missing` it must keep that `result`, and
-  only `ok` and the exit code must count it as building, as `bd safe-push --allow-missing` starts anyway.
+  only `ok` and the exit code must count it as building, as `brd safe-push --allow-missing` starts anyway.
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_branch_that_uses_a_name_another_branch_adds_is_a_missing_declaration`, `an_override_of_another_branchs_overload_is_a_missing_declaration`, `allow_dangling_keeps_the_reference_and_exits_0`)
 - A built branch that removes a declaration its virtual tree still uses where HEAD's tree doesn't must be
   `dangling_reference` (exit 1) with `{kind, identifier, file, line, removed_by, fixed_by, mutual, declared_in}`
@@ -854,11 +854,11 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   the branch and its ancestors changes the use (`fixed_by`); `mutual` when that change uses what the branch declares,
   with a `fix` only when a trial build of the plan with it proves it (the branch builds without a proven dangling
   reference, no branch that built breaks): the move of `fixed_by` into the branch when it changes only that file, else
-  a `bd move-hunk` command, tried on commits written as objects only that no ref names, at most two per check.
+  a `brd move-hunk` command, tried on commits written as objects only that no ref names, at most two per check.
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_mutual_dangling_reference_is_fixed_by_the_move_hunk_it_names`, `a_move_hunk_fix_that_breaks_another_branch_is_not_offered`, `a_branch_that_removes_a_used_declaration_is_dangling_reference`)
   [@test] ../../crates/git-ops/src/move_hunk_test.rs (`a_trial_writes_the_commits_and_moves_no_ref`)
   With `--allow-dangling` the branch must keep its `result` `dangling_reference` and its references, and only `ok` and
-  the exit code must count it as building, as `bd safe-push --allow-dangling` starts anyway; any other failure must
+  the exit code must count it as building, as `brd safe-push --allow-dangling` starts anyway; any other failure must
   still be exit 1.
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`allow_dangling_keeps_the_reference_and_exits_0`)
   A use no commit changes, and one the baseline got after the base, must be a `possible_dangling_reference` warning that
@@ -894,7 +894,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/trial-check/src/process_budget_test.rs (`the_checks_of_a_session_on_sources`)
 - A branch whose conflict or dangling reference needs a commit of a branch stacked on it, at any depth, must have
   `inverted_stack {branch, child, fixes}` and keep its `result`; the fixes (`move_to_child`, `swap`) must be plan
-  parts for `bd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
+  parts for `brd group` that a trial build of the plan with them passes for both branches, and no `swap` for a mutual
   dangling reference; with no fix that builds, a `reason` instead.
   [@test] ../../crates/bd-rewrite/src/check_test.rs (`a_parent_that_needs_its_child_is_an_inverted_stack`, `a_mutual_dangling_reference_of_a_stack_is_an_inverted_stack_without_a_swap`, `an_inverted_stack_that_no_fix_builds_says_why`)
 - `--build <command>` must run the command in the tree of each `ok` branch, extracted outside every working tree
@@ -919,9 +919,9 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `check_plan` does.
   [@test] ../../crates/trial-check/src/check_test.rs (`a_session_checks_many_plans_as_check_plan_does`)
 
-### `bd suggest`
+### `brd suggest`
 
-- `bd suggest` must print a plan for `bd group` with only the commits whose branch changes (a fixup that follows its
+- `brd suggest` must print a plan for `brd group` with only the commits whose branch changes (a fixup that follows its
   target left out, a prefixed commit that goes to its own issue branch in `unassign`), the clusters with their name,
   commit count, `change` (`kept`, `renamed`, `merged`, `split`, `new`) against the groups now in `current_branches`, `why`, `weak`, issue keys
   and areas, with stacked branches the `parent` and `restacked`, the subjects the plan rewrites, and the trial sync of the plan. It must write git objects and the cache
@@ -960,7 +960,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   path also when no commit moves (`"a/b": []`, the stack parents move), a cluster unstacked from its stack parent is in
   `unstack`, and a commit with the bare `(leaf)` stays where it is. A parent that stays, comes from the stack parents
   and holds no cluster the cluster depends on must be `stacked_without_need`, and the plan must keep it. A cluster of whole issue branches stays an issue
-  group, stacked too. The trial applies the plan as `bd group` does, so `rewritten` counts only the commits that need
+  group, stacked too. The trial applies the plan as `brd group` does, so `rewritten` counts only the commits that need
   a prefix. `why` must name a new parent and its reason.
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`with_stacked_branches_a_dependency_stacks_the_branches_instead_of_joining_them`, `a_merge_that_closes_a_cycle_waits_and_a_parent_without_commits_goes`, `stack_clusters_keeps_a_declared_parent_and_gives_way_in_a_cycle`, `stack_clusters_makes_every_needed_cluster_an_ancestor`, `stack_order_breaks_a_cycle_in_a_source_component`, `a_follow_up_of_two_stacked_branches_joins_the_upper_one_and_a_restack_names_its_reason`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`with_stacked_branches_a_branch_stacks_on_the_branch_it_needs`, `a_stacked_plan_stacks_an_issue_group_and_rewrites_a_deeper_path`, `stacked_branches_and_an_empty_range`, `the_plan_moves_only_what_changes_and_is_a_regroup_plan`, `a_stored_parent_without_need_is_reported_and_kept`)
@@ -1012,10 +1012,10 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/commit-clustering/src/clustering_test.rs (`anonymize_keeps_the_clustering_and_no_name`)
   [@test] ../../crates/bd-rewrite/src/suggest_test.rs (`the_dump_hides_every_name`)
 
-### `bd sync`
+### `brd sync`
 
-- `bd sync` must run the app's sync (`sync_core::sync::sync_branches`) and, like it, without the repository lock: its refs move by
-  compare-and-swap (below), so it never waits for a rewrite or Update Project, and a rewrite of the app or of `bd`
+- `brd sync` must run the app's sync (`sync_core::sync::sync_branches`) and, like it, without the repository lock: its refs move by
+  compare-and-swap (below), so it never waits for a rewrite or Update Project, and a rewrite of the app or of `brd`
   never waits for it. It must print per branch its `state` (`created`, `updated`, `unchanged`, `error`, `conflict`, `blocked`),
   the commit count, the new tip and the remote state, plus the unassigned count. It must refuse, changing nothing,
   while a rebase, merge, cherry-pick or revert is in progress (`operation_in_progress`) or HEAD is detached
@@ -1032,7 +1032,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   never be pushed ([Whole Stack](../branch/whole-stack.spec.md)).
   [@test] ../../crates/bd-remote/src/status_test.rs (`the_stack_branch_of_a_forking_stack_in_sync_and_status`)
   [@test] ../../crates/bd-cli/src/schema_test.rs (`outputs_match_schema`)
-- A sync (the app's and `bd sync`, neither of which takes the repository lock) must move a virtual branch only from the tip
+- A sync (the app's and `brd sync`, neither of which takes the repository lock) must move a virtual branch only from the tip
   it listed at its start, or create it only while no ref of its name exists: a branch another process moved to
   another tip meanwhile must keep that tip and be `error` ("Not updated: another process moved …; sync again"), while
   the other branches are written; one moved to the head the sync built (the copies are deterministic) is written.
@@ -1040,8 +1040,8 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - With `branchdeck.resolveByWords` on (the default), a cherry-pick that git stops at must be committed when the words
   resolve every conflicting file (IntelliJ's simple resolve, all or nothing per commit; only content conflicts of UTF-8
   text), with the author, the date and the message of the commit, and the branch built. `resolved` of the branch must
-  list such commits with git's conflicts and the files; the mapping note keeps the counts, and `bd status` and
-  `bd commits` must show them as `resolved_by_words` of the commit. `bd check` must build alike. With the setting off,
+  list such commits with git's conflicts and the files; the mapping note keeps the counts, and `brd status` and
+  `brd commits` must show them as `resolved_by_words` of the commit. `brd check` must build alike. With the setting off,
   or one file that does not resolve, the commit must stay a conflict of git; a copy that resolved must be copied again
   and conflict once the setting is off. The same commits must give the same copy in every repository.
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_that_its_words_resolve_builds_and_says_so`)
@@ -1076,8 +1076,8 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/object-cache/src/cache_test.rs (`conflict_chains_are_read_by_their_version`)
   [@test] ../../crates/sync-core/src/sync_test.rs (`a_remembered_conflict_is_the_one_the_analysis_made`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`a_conflict_exits_with_1`, `a_branch_that_is_not_built_is_exit_1`)
-- Per branch whose remote branch a push would change it must print the `bd push` to run, as bd names itself
-  (`bd -C <repo>`): plain for unpushed, amended, reworded, restacked or landed commits; with
+- Per branch whose remote branch a push would change it must print the `brd push` to run, as brd names itself
+  (`brd -C <repo>`): plain for unpushed, amended, reworded, restacked or landed commits; with
   `--force --expect-remote <remote.head>`
   when the push drops commits and no branch it is built on has commits for the remote; with `--force` alone when one
   has. Run as written, it must push.
@@ -1087,13 +1087,13 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   compactly, with the landed commits (`update.landing`, `landed`).
   [@test] ../../crates/bd-cli/src/sync_test.rs (`reports_the_commits_the_baseline_already_has`)
 
-### `bd push`
+### `brd push`
 
-- `bd push` must push each virtual branch to its own remote branch, never into master (the app's Push Branch,
+- `brd push` must push each virtual branch to its own remote branch, never into master (the app's Push Branch,
   [Outgoing Commits](../repository/outgoing.spec.md#push)), and its help and the skill must say so and point to
-  `bd land`, which lands a branch into master by the route of the repository.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_help_of_bd_push_says_it_pushes_the_virtual_branches_never_into_master`)
-- `bd push <branch>…` must sync first, without the repository lock as `bd sync`, then push the branches in one atomic
+  `brd land`, which lands a branch into master by the route of the repository.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_help_of_brd_push_says_it_pushes_the_virtual_branches_never_into_master`)
+- `brd push <branch>…` must sync first, without the repository lock as `brd sync`, then push the branches in one atomic
   `git push --porcelain` through the remote command policy, parents first, with an explicit lease per ref; `--all`
   must need `--yes`. It is an adapter of the engine the app's push runs (`operations::push`): an intent `Push` per
   named branch, planned over the one-shot session of its sync (`push_planned`), the plans of all of them one push
@@ -1126,7 +1126,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   pushed branch (with `--dry-run` too) names them with their baseline commits. One remote commit the baseline lacks
   keeps the refusal, and `dropped_commits` names only such commits. Where the app's push leaves a branch its scope
   covers out to its row (a child the sync didn't build or a Safe Push holds, an ancestor or a child whose push drops
-  remote commits), `bd push` refuses the push, nothing pushed, in the same words (`push_refusals`).
+  remote commits), `brd push` refuses the push, nothing pushed, in the same words (`push_refusals`).
   [@test] ../../crates/bd-remote/src/push_test.rs (`all_needs_yes_and_unsynced_branches_are_refused`, `amended_and_restacked_commits_push_without_force`, `a_moved_remote_branch_is_fetched_and_reported_and_force_replaces_it`, `a_push_replaces_the_remote_commits_the_baseline_landed_without_force`, `a_remote_commit_the_baseline_lacks_still_refuses_the_push`)
 - A named branch, or a child `--with-children` covers, that the remote has as it is (by content: `remote.up_to_date`,
   a branch only rebuilt on a newer baseline too) must be listed `up_to_date` with its lease and its pull request draft,
@@ -1162,15 +1162,15 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   configured remote must be `no_remote`.
   [@test] ../../crates/bd-remote/src/push_test.rs (`another_remote_is_compared_with_as_origin_is`)
 - A remote branch that is not where the lease expects it refuses the push, the other branches of the push included
-  (it is atomic), and bd fetches the branches of the push. When each remote that moved has no commits its branch lacks
+  (it is atomic), and brd fetches the branches of the push. When each remote that moved has no commits its branch lacks
   and the branch has work for it (deleted, moved back to an older commit of the branch, rebuilt older versions:
-  `RemoteStatusUpdate::pushes_again`, the rule of the app's push), bd must push again at once, once, leased on
+  `RemoteStatusUpdate::pushes_again`, the rule of the app's push), brd must push again at once, once, leased on
   the fetched heads, and mark each such branch `pushed_over` (its `lease` the head it went over, `null` for a deleted
   one), with `--expect-remote` too: one rule with the app's Force Push, which leases on the head its row showed and
   loses nothing of a remote that moved only to commits the branch has. Otherwise, or when the remote moved again, it must be `lease_rejected`
   (exit 4, not retryable) with nothing pushed, listing the branches whose remote moved in `error.branches` with their
   remote status as fetched (`head`, `behind`, `dropped_commits`). A branch refused as behind is listed the same way,
-  and `bd sync` prints the same remote status per branch. The app's stack push is the same push
+  and `brd sync` prints the same remote status per branch. The app's stack push is the same push
   (`sync_core::push::PreparedPush::push_leased`). A push the remote refuses while every lease holds (a hook, a protected branch, a
   pack too large) must be `push_refused` with what git said of each ref and what the remote said why (its `remote:`
   lines, git's `error:` lines, not the progress), nothing pushed.
@@ -1180,15 +1180,15 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/domain-types/src/remote_status_test.rs (`pushes_again_over_a_moved_remote_only_when_nothing_of_it_is_lost`)
   [@test] ../../crates/bd-cli/src/sync_test.rs (`syncs_and_reports_each_branch`)
 - A push whose commits add more files than the push size limit (`branchdeck.pushSizeLimit`, 50 MiB unless set, `0` or
-  `off` for none) must be `push_too_large` (exit 4) before bd asks the remote, a `--dry-run` too, with nothing pushed:
+  `off` for none) must be `push_too_large` (exit 4) before brd asks the remote, a `--dry-run` too, with nothing pushed:
   the message says how much it adds, the directory that holds most of it and the largest files, and `paths` lists the
-  directory (`dir/`) and the files ([Outgoing](../repository/outgoing.spec.md#push)); `bd safe-push` of a whole stack
-  and `bd push --unapplied` go through the same check. A limit that is neither a size nor off is
+  directory (`dir/`) and the files ([Outgoing](../repository/outgoing.spec.md#push)); `brd safe-push` of a whole stack
+  and `brd push --unapplied` go through the same check. A limit that is neither a size nor off is
   `invalid_arguments`.
   [@test] ../../crates/bd-remote/src/push_test.rs (`a_push_over_the_size_limit_is_push_too_large_before_the_remote`)
 - Per branch it must print the pull request base, the baseline without the remote (`master`) for every branch, stacked
   or not ([Stacked Branches](../branch/stacked-branches.spec.md#pull-requests)), the head, the title and the body as the
-  app's dialog writes them ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request): the `bd describe`
+  app's dialog writes them ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request): the `brd describe`
   text, else the text of the commits, from the sync's report), and a ready `gh pr create --title … --body-file -`
   command, with `--repo` for a GitHub repository `origin` doesn't push to (a mirror). The summaries of the issues come
   from YouTrack as in the app, read with the token of `YOUTRACK_TOKEN` or of the app's sign-in and never renewed.
@@ -1228,7 +1228,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   a named branch after the lock, pushes the branch alone, the commits of the ancestors that robot lands with it, and
   restarts it on the pushed commit (`restarted`), as the app's restart that pushes first; its children still go with
   `--with-children`.
-  One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `bd
+  One robots request after the sync; off Space, without a token or an answer of Patronus nothing is held. `brd
   safe-push` pushes without the check: it cancels the robot it replaces itself. A running Safe Push of the whole stack
   must hold every branch of the stack its commit has ("A Safe Push of the whole auth stack is running: it lands 1
   commit of login with it (1a2b3c4d)"), and `--with-children` of its root leaves its stack branch as it is, a
@@ -1236,48 +1236,48 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`push_refuses_a_branch_whose_safe_push_runs_and_restarts_it_when_told`, `the_whole_stack_lands_in_one_robot_from_its_stack_branch`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_push_of_a_parent_restacked_below_a_running_safe_push_goes_on`, `a_push_of_a_parent_whose_commits_a_running_safe_push_lands_is_refused`, `a_robot_of_a_temporary_ref_holds_only_what_its_commit_lands`, `push_with_children_leaves_the_stack_branch_of_a_running_whole_stack_safe_push`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_push_beside_a_robot_started_before_a_restack`)
-- A named branch a merged Safe Push landed whole (`landed_by` of `bd status` without `after`), and with
+- A named branch a merged Safe Push landed whole (`landed_by` of `brd status` without `after`), and with
   `--with-children` one built on a named one, must be left out of the push, as the app's Push with Children leaves it,
   and the others pushed: `skipped` names each with `code` `landed`, the `message` ("login merged into master with its
   Safe Push (<robot>): nothing of it is left to push", "auth landed in master with the Safe Push of login (<robot>):
-  …") and `landed_by` as `bd status` has it. The push must be refused as `landed` (exit 4, nothing pushed, before any
+  …") and `landed_by` as `brd status` has it. The push must be refused as `landed` (exit 4, nothing pushed, before any
   running robot) only when nothing else asked for is left, the stack branch of `--with-children` included; the error
   names the named branches. An ancestor taken along that landed stays as it is. A branch with commits added after the
   landed ones pushes them.
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_leaves_out_a_named_branch_a_merged_safe_push_landed_whole_and_pushes_the_others`, `push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `push_with_children_leaves_out_what_merged_safe_pushes_landed_and_refuses_once_nothing_else_is_left`)
 
-### `bd safe-push`
+### `brd safe-push`
 
-- `bd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--patronus-dry-run` a Dry Run: no
+- `brd safe-push <branch>` must start a Patronus Safe Push of the virtual branch (with `--patronus-dry-run` a Dry Run: no
   `--dry-run`, which means "write nothing" for every other command) as the
   app's start does (the same `domain_policy::land::decide`, [Patronus](../branch/patronus.spec.md)): sync, then run the
   start through the engine of the app (`operations::land_execute::execute`, [Push and
   land](../../docs/design/git-operations.md#push-and-land)): the retargets, the cancel of the Safe Push it replaces, the
   push of the branches it pushes with their commits frozen under the repository lock and the network push after it,
   then the robot started on `refs/heads/<prefix>/virtual/<branch>`, never repeated. It must hold the repository lock
-  only for the witness of its refs and the freeze of its push: the sync (as `bd sync`), the reads of the remote, the
+  only for the witness of its refs and the freeze of its push: the sync (as `brd sync`), the reads of the remote, the
   trial, the check against the target, the retargets, the cancel, the network push and the start run without it, so
-  they keep no other `bd` writer waiting; `--dry-run` takes no lock. `--dry-run` must print the same object and push or start nothing, with the
+  they keep no other `brd` writer waiting; `--dry-run` takes no lock. `--dry-run` must print the same object and push or start nothing, with the
   `refusals` a start would fail with.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`, `missing_approvals_refuse_the_safe_push_unless_told_to_start_anyway`, `a_safe_push_locks_only_the_witness_and_the_freeze`)
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_cancels_the_robot_it_replaces_pushes_and_starts_in_the_order_of_its_plan`, `the_first_effect_that_fails_stops_the_start_and_the_ones_before_it_stay_done`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_start`)
 - A rewrite of another session between the sync and the witness (a ref the plan moves or leases moved) must fail the
   start as `plan_changed` (exit 3, `retry: after_reread`), nothing canceled, pushed or started; one while the push sends,
-  after the lock, must skip the start as `plan_changed`, naming what was pushed before it, with `bd safe-push <branch>`
+  after the lock, must skip the start as `plan_changed`, naming what was pushed before it, with `brd safe-push <branch>`
   as the next step; the push sends the commits it froze.
   [@test] ../../crates/operations/src/land_execute_test.rs (`a_start_refused_before_its_first_effect_cancels_pushes_and_starts_nothing`, `a_rewrite_while_the_push_sends_skips_the_start_and_the_outcome_tells_what_was_done`)
 - `--dry-run` must print `next_step`, the step the app's row shows of the subject (`domain_policy::next_step`, as
-  `bd status` prints it) over what the check read: the robots Patronus listed, the problems of the failed robot of the
+  `brd status` prints it) over what the check read: the robots Patronus listed, the problems of the failed robot of the
   subject (whether it failed for the approvals, as the session reads them), the pull requests, the readiness when the
   start waits for it, the landing gate of the start; a step that needs a fact the check didn't read (the readiness of a
   Dry Run) waits for it.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`check_names_the_profiles_and_the_review_and_starts_nothing`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`)
-- The start must be decided by the rule of the app, `domain_policy::land::decide`, over the facts `bd` read: what the
+- The start must be decided by the rule of the app, `domain_policy::land::decide`, over the facts `brd` read: what the
   table alone refuses (not synced, parked) fails the command before Patronus or GitHub is asked; the review and the
   rules of the target are read only when the decision waits for them; the `refusals` are its blockers in their order,
-  then each confirmation a flag of `bd` accepts that the start lacks (the cancel of the Safe Push it replaces,
+  then each confirmation a flag of `brd` accepts that the start lacks (the cancel of the Safe Push it replaces,
   `--cancel-running`; a review Patronus couldn't answer, `--allow-unknown-review`; rules GitHub didn't answer,
   `--allow-unknown-rules`), named with its flag; its effects are what the start does, in order (the retargets, the
   cancel, the push, the start from a pull request or through the API with the profile).
@@ -1306,9 +1306,9 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/domain-policy/src/land_test.rs (`a_safe_push_replaces_its_own_older_robot_a_dry_run_is_refused_its_push_and_the_push_stops_at_a_held_ancestor`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_start_pushes_what_its_decision_pushes_and_leaves_an_ancestor_a_running_safe_push_holds`)
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_branch_only_rebuilt_on_a_newer_baseline_starts_from_its_remote_branch_without_a_push`, `the_pull_request_of_a_branch_only_rebuilt_on_a_newer_baseline_is_opened_without_a_push`, `a_branch_reworded_since_its_push_is_pushed_before_the_start`)
-- `remotes` must name each existing remote branch the start pushes with its remote state, as `bd sync` has it, so
+- `remotes` must name each existing remote branch the start pushes with its remote state, as `brd sync` has it, so
   `--dry-run` says beforehand what the push replaces (`amended`, `reworded`, `restacked`, `landed`) and drops. A branch
-  whose push would drop commits (`behind`) must refuse the check and the start with `push_refused` and the `bd push`
+  whose push would drop commits (`behind`) must refuse the check and the start with `push_refused` and the `brd push`
   that drops them after the user approves; the start's error carries the branch in `error.branches`, nothing pushed
   or started. `--force`, once the user approved, must start with the drop pushed away (D12): the push replaces the
   commits of someone else, then the robot starts.
@@ -1344,7 +1344,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   one `GET rules/branches/<target>` (`read_branch_rules`), never for a dry run, `--create-pull-request`, a start
   without a push or a pull request nobody approved. Rules that dismiss stale reviews on push with the readiness
   `approved` must refuse it with `push_dismisses_approvals` (exit 4, nothing pushed or started), whose message says to
-  push first (`bd push <branch>`), then to ask for the review again (`bd request-review <branch>`); with another
+  push first (`brd push <branch>`), then to ask for the review again (`brd request-review <branch>`); with another
   readiness they must let it start, the dismissed approvals said in `rules.message`. Rules GitHub doesn't answer (no
   token, no access, an error) must never read as "keeps the approvals": `rules_unknown` (exit 4) refuses the start
   unless `--allow-unknown-rules`, which starts with `rules.message` saying what is not known. `rules` carries
@@ -1355,7 +1355,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/domain-policy/src/land_test.rs (`the_rules_of_a_push_into_an_approved_pull_request_refuse_confirm_or_wait`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_discrepancy_cases_name_every_id_as_the_register_does`, `the_safe_push_review_cases_answer_alike_in_the_app_and_bd`)
 - The approvals must be collected in the GitHub pull request of the branch, not in a Space merge request (deprecated):
-  `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `bd push`
+  `--create-pull-request` must push the branch and open it through the GitHub API as the `gh pr create` that `brd push`
   prints would (with its `title` and `body`), assigned to the user (`--no-assign` leaves it unassigned) and with the
   `--reviewer <login>` logins asked (the author left out; a reviewer GitHub refuses is in `pull_request.warnings`), as
   the app's dialog creates it ([Pull Requests](../branch/pull-requests.spec.md#creating-a-pull-request)), without a
@@ -1388,7 +1388,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-remote/src/landed_test.rs (`push_and_safe_push_refuse_a_branch_a_merged_safe_push_landed_whole`, `the_whole_stack_lands_what_is_left_of_it_and_refuses_once_every_branch_of_it_landed`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_next_step_row_cases_answer_alike_in_the_app_and_bd`, `the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
 - A robot on the last commit of the branch, or a Safe Push whose commit has commits of it, of a branch of its stack
-  (decided as `bd push` decides it), must refuse the start with `robot_running`, in the words of the app, the commits
+  (decided as `brd push` decides it), must refuse the start with `robot_running`, in the words of the app, the commits
   named by id; a running Safe Push of an older commit, which the push fails, too, unless `--cancel-running` cancels it
   first. A parent a restack placed below a running Safe Push after its start starts.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_robot_on_the_last_commit_refuses_and_one_on_an_older_commit_is_canceled_when_told`)
@@ -1397,32 +1397,32 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/domain-policy/src/robot_match_test.rs (`the_robot_of_a_branch_is_the_running_one_then_the_newest_and_a_temporary_ref_by_its_revision`, `the_robots_match_their_branches_by_the_cases`)
   [@test] ../../crates/repository-model/src/patronus_view_test.rs (`a_running_robot_at_its_tip_lands_the_branches_it_is_built_on`, `the_first_robot_of_the_table_lands_a_branch_and_only_a_running_one_holds_it`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`, `the_stack_and_whole_stack_cases_answer_alike_in_the_app_and_bd`)
-- A proven dangling reference (as `bd check` reports it) of the branch or a branch it is built on must refuse the start
+- A proven dangling reference (as `brd check` reports it) of the branch or a branch it is built on must refuse the start
   with `dangling_reference` (exit 4), nothing pushed; the trial build that finds it builds only what lands (every
   branch for a whole stack that forks), naming the use, `fixed_by` and the fix (of two references both,
-  from three on of the first and "(2 more: bd check)"); `--dry-run` must list it in `refusals`, `--allow-dangling` must
+  from three on of the first and "(2 more: brd check)"); `--dry-run` must list it in `refusals`, `--allow-dangling` must
   start anyway, and the possible ones are `warnings`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_dangling_reference_refuses_the_safe_push_unless_allowed`)
   [@test] ../../crates/bd-core/src/check_summary_test.rs (`a_dangling_reference_message_names_the_kind`, `a_dangling_reference_message_describes_two_whole_and_counts_from_three_on`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - With `branchdeck.symbols on`, a use by a commit of what lands of a name that a commit outside it adds (a missing
-  declaration of `bd check`), which no merged Safe Push landed, must refuse the start with `missing_declaration`
+  declaration of `brd check`), which no merged Safe Push landed, must refuse the start with `missing_declaration`
   (exit 4), nothing pushed, in the same trial session (`trial_check::landing_gate`, the rule of the app's start too). A
   name a branch of the landing stack adds is none, a sibling's of a whole stack that forks too. The message must name
-  the use, the commit that adds the name with its branch, and the fix: `bd restack <root> <branch>`, which lands that
+  the use, the commit that adds the name with its branch, and the fix: `brd restack <root> <branch>`, which lands that
   branch too, or, with stacked branches off, a commit unassigned or a restack that would close a cycle, the move of the
-  commit; "(N more: bd check)" for the others. `--dry-run` must list it in `refusals`, and `--allow-missing` must start
+  commit; "(N more: brd check)" for the others. `--dry-run` must list it in `refusals`, and `--allow-missing` must start
   anyway.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_name_another_branch_adds_refuses_the_safe_push_unless_allowed`, `a_name_a_sibling_adds_refuses_the_branch_alone_but_not_the_whole_stack`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check`, `a_safe_push_check_of_the_whole_stack`)
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_landing_cases_answer_alike_in_the_app_and_bd`)
 - Patronus rebases what a robot lands onto the newest target before any check, and a conflict fails the robot at once.
-  So before its sync, `bd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
+  So before its sync, `brd safe-push` must fetch only the target's remote branch (as Update Project does). Then it must
   replay what the robot lands onto the tip that the sync read, as a plain `git rebase` replays it, with no resolution
   by words (`sync_core::target_conflict`, the check of the app's start too). A conflict must refuse the start with
   `target_conflict` (exit 4), nothing pushed or started. The error names the commit by the id of the checked out branch
   (`error.commits`), the files (`error.paths`), and the commits of the target after the base of the branch that change
-  these files (hash, author, subject). The message tells the fix: `bd update` resolves it locally, then start again.
+  these files (hash, author, subject). The message tells the fix: `brd update` resolves it locally, then start again.
   `--dry-run` must list it in `refusals`, and `target_check` must say `result` (`clean`, `conflict`, `not_run`) and the
   `target_tip`. A failed fetch must not stop the check: it replays onto the last fetched tip, `fetched` is false, and
   `message` says why. A check that can't run holds nothing back. `--create-pull-request` starts no robot and checks
@@ -1439,13 +1439,13 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   ([Landing](../../docs/design/landing.md)): no refusal and no flag, the parents with commits for the remote pushed
   first, the robot started on the branch's own virtual branch, which carries their commits. `lands` must name what the
   robot takes, root first, ending with the branch (only the branch for a root), in the start, in `--dry-run` and in a dry
-  run, which checks the same commits. `--land-stack`, which an older bd needed, must be accepted, hidden, and change
+  run, which checks the same commits. `--land-stack`, which an older brd needed, must be accepted, hidden, and change
   nothing.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `check_names_the_profiles_and_the_review_and_starts_nothing`)
 - `--dry-run` of a stacked branch must add `alone`, the trial build of the branch as a root on the base the sync built
   on: `builds` (with `uses`, the names of its stack it uses, and `symbols`, whether names were read) or `needs` (the
   conflicting commit and its files, the commits of its ancestors it needs with their branch, and `movable`), with a
-  `message` naming `bd unstack <branch>` or the move; `unknown` when the trial fails. It must share the trial session
+  `message` naming `brd unstack <branch>` or the move; `unknown` when the trial fails. It must share the trial session
   of the dangling references, and a start must run no trial. It must never unstack or move anything itself.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_stacked_branch_lands_its_parents_with_it`, `a_stacked_branch_that_needs_a_commit_of_its_parent_to_land_alone_names_it`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_safe_push_check_of_a_stacked_branch`)
@@ -1457,7 +1457,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   run. A straight chain, which has no stack branch, must start from its last branch that is not parked (`source` its
   virtual branch). The whole stack is the app's, by declared parent (D8): a blocked branch whose declared parent has no
   commits heads one of its own. A remote stack branch that moved since the sync without commits the stack branch lacks
-  (an older build of the stack) must be pushed over again at once, once, leased on the fetched head, as `bd push`
+  (an older build of the stack) must be pushed over again at once, once, leased on the fetched head, as `brd push`
   does (D4): `pushed[0].pushed_over`, and the robot starts; one with commits the stack lacks, or that moves again, is
   `lease_rejected`, nothing started.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`the_whole_stack_lands_in_one_robot_from_its_stack_branch`, `the_whole_stack_of_a_straight_chain_lands_from_its_last_branch`)
@@ -1468,7 +1468,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   commit (`error.commits`) and the files (`error.paths`) when a commit of it conflicts with the commits of the stack
   before it, `stack_not_built` (exit 4) naming the branch of the stack that is blocked or failed, or why it is stale;
   both say to land it in pieces. `--dry-run` lists the refusal and asks Patronus no review of it. A remote stack branch
-  with commits the stack lacks must be `push_refused`, naming `bd push <root> --with-children --force`.
+  with commits the stack lacks must be `push_refused`, naming `brd push <root> --with-children --force`.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`a_whole_stack_that_conflicts_is_refused_with_the_conflict`)
 - The guards must go both ways: a running Safe Push of a branch of the stack lands a part of it and refuses the start
   of the whole stack ("A Safe Push of login is running: wait until it merges"); the running Safe Push of the whole
@@ -1494,7 +1494,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/operations/src/robot_start_test.rs (`a_comment_the_bot_accepts_starts_the_newest_robot_of_its_pull_request_nobody_knew`, `a_comment_the_bot_rejects_fails_with_its_reason_and_one_it_never_answers_is_pending_after_the_minute`)
 - An open pull request of the branch, or of a branch its push takes along, whose base is a virtual branch of the user
   must be retargeted to the target before anything is pushed or canceled, and the robot then starts from the
-  branch's: `retargeted` lists them as `bd push` does, `--dry-run` the ones a start would retarget. A retarget of the
+  branch's: `retargeted` lists them as `brd push` does, `--dry-run` the ones a start would retarget. A retarget of the
   branch's own pull request that GitHub refuses fails the start with nothing pushed or started; one of a branch taken
   along is a `retarget_warnings` line (where a pull request goes is the rule of the app's, `domain_policy::pull_request::
   base_of`). One into another base (a release branch) stays as it is, never retargeted silently: its approvals count
@@ -1509,11 +1509,11 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   request to Patronus.
   [@test] ../../crates/bd-remote/src/safe_push_test.rs (`without_a_token_or_space_nothing_runs`)
 
-### `bd land`
+### `brd land`
 
-- `bd land <branch>` must land the branch into master by the route of the repository (`branchdeck.landing`,
+- `brd land <branch>` must land the branch into master by the route of the repository (`branchdeck.landing`,
   `domain_policy::landing_route::route`, [Landing Routes](../branch/landing-routes.spec.md)): Patronus runs the Safe
-  Push of `bd safe-push` (`route: patronus`, its output in `safe_push`); a push (`route: push`) pushes the copy the sync
+  Push of `brd safe-push` (`route: patronus`, its output in `safe_push`); a push (`route: push`) pushes the copy the sync
   built (`commit`) into the target as a fast-forward; a merge of the pull request (`route: pull-request`) merges the
   open pull request of the subject on GitHub, or enables its auto-merge ([Landing Routes](../branch/landing-routes.spec.md#merge)),
   where no robot of Patronus lands the repository (on Space the route is the Safe Push) and the pull request lands into
@@ -1524,11 +1524,11 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - A push must run the plan of the app's start (`operations::land::prepare_one_shot` over the one-shot session of the
   command: the pull requests with the permission of the token, the rules of the target, the landing gate of the
   subject) through the engine (`operations::land_execute::execute`): no check against the newest target, the witness
-  and the freeze under the lock (its sync before it, as `bd sync`), the push by the push URL after it. What CI did not
+  and the freeze under the lock (its sync before it, as `brd sync`), the push by the push URL after it. What CI did not
   check and the changes requested refuse it (`checks_not_passed`) unless `--allow-checks-not-passed`; what the gate of the route
   asks refuses it with the code of its reason (`baseline_requires_pull_request`, `baseline_refused`, `push_refused`)
   unless `--bypass-rules`; both only once the user agreed. A target that moved is `baseline_moved` (exit 3, master
-  fetched, next step `bd update`), and so is a fetched master with commits the branch is not built on, refused before
+  fetched, next step `brd update`), and so is a fetched master with commits the branch is not built on, refused before
   anything is sent (`--dry-run` names the step `update_project`); a refusal of the server `baseline_refused` in its
   words; below write access `no_write_access`.
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`, `a_land_by_a_push_locks_only_the_witness`)
@@ -1539,11 +1539,11 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `landed: true` after GitHub merged it, `auto_merge: true` once GitHub merges it when its checks pass (enabled now,
   after the push of the branch when its pull request showed another commit, or before). What holds the merge back
   refuses it with the code of its reason: `no_pull_request` (create it first), `merge_blocked` (approvals, required
-  checks, changes requested, a draft), `not_mergeable` (a conflict, a head behind its base with `bd update` next, a
-  branch to push first with `bd push` next, a refusal of GitHub in its words); checks its base doesn't require that
+  checks, changes requested, a draft), `not_mergeable` (a conflict, a head behind its base with `brd update` next, a
+  branch to push first with `brd push` next, a refusal of GitHub in its words); checks its base doesn't require that
   fail are `checks_not_passed` until `--allow-checks-not-passed`; a head GitHub moved meanwhile is `plan_changed`.
   [@test] ../../crates/bd-remote/src/scenario_test.rs (`the_safe_push_mode_and_route_cases_answer_alike_in_the_app_and_bd`)
-- `bd land` must never update: a push that landed, and a merge, print `landed: true` and `next: "bd update"`, which brings the
+- `brd land` must never update: a push that landed, and a merge, print `landed: true` and `next: "brd update"`, which brings the
   branch onto the target and drops the commits that landed. It lists the open pull requests its push closes as
   `closes` (`{branch, number}`: of what it landed, those that show an older version of a branch, by the rule of the app,
   `domain_policy::landed::pull_requests_to_close`) and closes none: the app's session closes them with their comments
@@ -1552,38 +1552,38 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-remote/src/land_test.rs (`lands_the_copy_of_a_branch_into_master_once_the_user_accepted_what_ci_did_not_check`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_agent_help_is_a_short_core_with_every_guard`)
 
-### `bd request-review`
+### `brd request-review`
 
-- `bd request-review <branch>` must ask GitHub users to review the open pull request of the virtual branch, as the
+- `brd request-review <branch>` must ask GitHub users to review the open pull request of the virtual branch, as the
   app's Request Review… does ([Pull Requests](../branch/pull-requests.spec.md#request-review)): without `--reviewer`,
   one suggested code owner with a GitHub login of each group whose approval is missing and nobody is asked for yet,
   each once, never the author, a member asked already or one whose approval counts (the ones the app's popover checks,
   by the one rule of both: `domain_policy::review::candidates`), from the review readiness
-  `bd safe-push` checks (the pre-check with the pull request, asked again); `--reviewer <login>` (repeatable) asks
+  `brd safe-push` checks (the pre-check with the pull request, asked again); `--reviewer <login>` (repeatable) asks
   those instead and doesn't ask Patronus. It is the intent of the app's request (`RequestReview`,
   `operations::pull_request`), planned over the one-shot session of the command (`operations::needs`) and run by the
   same engine. It must print `reviewers` (whom it asks), `requested`, `refused` with GitHub's reason, `waiting_for` (the
   reviewers the pull request asks after the request), the `readiness` before it, each person with the full name
   Patronus knows, and `pushed`, the branches it pushed first. `--dry-run` must print the same object and push and ask
   nothing. It must hold the repository lock only for the witness and the freeze of the push of `--push` (its sync as
-  `bd sync`, without it), and write nothing but the push of `--push` and the request on GitHub.
+  `brd sync`, without it), and write nothing but the push of `--push` and the request on GitHub.
   [@test] ../../crates/bd-remote/src/request_review_test.rs (`asks_the_suggested_code_owner_of_the_missing_group_once`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`, `a_request_locks_only_the_witness_and_the_freeze_of_its_push`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_request_review_check`)
-- A branch with work its remote branch lacks must be `needs_push` (exit 4, D5) with the next step `bd request-review
+- A branch with work its remote branch lacks must be `needs_push` (exit 4, D5) with the next step `brd request-review
   <branch> --push` (`needs_approval: true`): the reviewers would not see the commits. `--push` must push them first as
   the app's request does (the ancestors with work first, root first; an open pull request of what it pushes into a
   virtual branch retargeted into the target before the push), then ask; a push the user decides (one that drops remote
-  commits) refuses it as `bd push` does.
+  commits) refuses it as `brd push` does.
   [@test] ../../crates/bd-remote/src/request_review_test.rs (`a_branch_its_remote_lacks_is_refused_without_push_and_pushed_first_with_it`)
-- Without an open pull request, or with a draft, it must be `no_pull_request` (exit 4), naming `bd safe-push <branch>
+- Without an open pull request, or with a draft, it must be `no_pull_request` (exit 4), naming `brd safe-push <branch>
   --create-pull-request`; a missing group nobody is asked for whose code owners have no GitHub login Patronus names,
   with nobody else to ask, `no_reviewer`; a request GitHub asked nobody in, `review_refused` naming each with the
   reason.
   [@test] ../../crates/bd-remote/src/request_review_test.rs (`a_branch_without_an_open_pull_request_or_a_code_owner_to_ask_is_refused`, `asks_the_logins_it_is_given_and_names_whom_github_refuses`)
 
-### `bd robot`
+### `brd robot`
 
-- `bd robot <branch>` must print the robot of the virtual branch as `bd safe-push` finds it (a running one first, else
+- `brd robot <branch>` must print the robot of the virtual branch as `brd safe-push` finds it (a running one first, else
   the newest, by the branch or by the local or pushed tip of a temporary ref), or the one of `--robot`, with its
   status, mode, profile and whether it still runs; `robot: null` with exit 0 when the branch has none, and
   `unknown_branch` for a name that is neither a branch nor a branch with a robot. It must write no ref, take no lock
@@ -1607,7 +1607,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   on it.
   [@test] ../../crates/bd-remote/src/robot_test.rs (`robot_takes_a_robot_by_id_of_the_branch_only`)
 - A newer robot of the whole stack the branch is a branch of must win too, named by `stack_root`; `--whole-stack`
-  must print the robot of the whole stack, as `bd safe-push --whole-stack` starts it (of a straight chain, the robot of
+  must print the robot of the whole stack, as `brd safe-push --whole-stack` starts it (of a straight chain, the robot of
   its last branch), and refuse `--robot` of another one. A failure of the whole stack's robot must list the commits of
   every branch of the stack, each with its branch, matched by identity: the stack branch has no mapping notes.
   [@test] ../../crates/bd-remote/src/robot_test.rs (`the_robot_of_the_whole_stack_is_found_from_any_branch_of_it`)
@@ -1616,13 +1616,13 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - For a merged Safe Push it must list `closes`: the open pull requests of the branches it landed whole besides its own
   (a branch it is built on, every branch of its whole stack), each holding nothing the branch lacks, never the pull
   request it started from: the ones the app closes, by the same rule (`domain_policy::landed::pull_requests_to_close`,
-  D7). `bd` closes none: it writes nothing to GitHub. Compared with the tips the refs hold (no sync); left out for a
+  D7). `brd` closes none: it writes nothing to GitHub. Compared with the tips the refs hold (no sync); left out for a
   robot that didn't merge, off GitHub and while GitHub doesn't list the pull requests.
   [@test] ../../crates/bd-remote/src/robot_test.rs (`a_merged_robot_lists_the_pull_requests_its_landing_closes_and_closes_none`)
 
-### `bd robot-stats`
+### `brd robot-stats`
 
-- `bd robot-stats` must print the Safe Push statistics of the repository from the core of the app: the user's robots
+- `brd robot-stats` must print the Safe Push statistics of the repository from the core of the app: the user's robots
   of the period (`--period 14d|30d|10w|6m`, 30 days by default) against everyone else's, the time lost, the failure
   causes and flaky checks of the last 14 days and the start hours
   ([Safe Push Statistics](../repository/safe-push-statistics.spec.md)); read only, Patronus listed week by week and
@@ -1631,54 +1631,57 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`the_statistics_count_the_users_robots_against_everyone_elses_and_write_nothing`)
   [@test] ../../crates/bd-remote/src/robot_stats_test.rs (`a_failure_after_a_read_prints_the_kept_numbers_with_a_warning`, `the_statistics_say_why_there_are_none`)
 
-### `bd describe`
+### `brd describe`
 
-- `bd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The
-  `descriptions` of a `bd group` plan set several at once.
+- `brd describe <branch>` must print the branch's `branch.<name>.description` as `{title, body}`, or `null`. The
+  `descriptions` of a `brd group` plan set several at once.
 - `--title`, `--body` and `--body-file` must set it as `title`, a blank line and the body, keeping the part not
   given; `--clear` must remove it. A description needs a title, and the branch must be a current group.
   [@test] ../../crates/bd-rewrite/src/describe_test.rs (`sets_prints_and_clears_a_description`, `describe_errors`)
   [@test] ../../crates/git-ops/src/branch_description_test.rs (`writes_and_clears_a_description`)
 
-### `bd version`
+### `brd version`
 
-- `bd version` and `bd --version` must print `{"schema":2,"version","git"}` without a repository: the version of the
-  app (the root `package.json`, which `tauri.conf.json` names), and the version of the git bd finds, `null` without one.
+- `brd version` and `brd --version` must print `{"schema":2,"version","git"}` without a repository: the version of the
+  app (the root `package.json`, which `tauri.conf.json` names), and the version of the git brd finds, `null` without one.
   [@test] ../../crates/bd-cli/src/version_test.rs (`version_and_dash_dash_version`)
 
-### `bd install`
+### `brd install`
 
-- `bd install` and Help → Install Agent CLI… must put a `bd` command where an agent finds it: on macOS and Linux a
+- `brd install` and Help → Install Agent CLI… must put a `brd` command where an agent finds it: on macOS and Linux a
   symlink in `~/.local/bin` to the app binary, replacing a symlink there and refusing anything else
-  (`install_refused`); on Windows `bd.exe` next to the app.
-- On macOS it must also link `~/.local/bin/bd-host` to the `bd-host` that the app bundle carries beside the app binary
-  ([bd-host](host.spec.md), "The bundle"), replacing a symlink there. A binary there stays, because `bd-host upgrade`
+  (`install_refused`); on Windows `brd.exe` next to the app.
+- If `~/.local/bin/bd` is a symlink to this app, `brd install` and `--uninstall` must remove it and list its path in
+  `removed_legacy`. A foreign file or symlink at that path must remain untouched, including a beads installation.
+  [@test] ../../crates/bd-cli/src/install_test.rs (`install_removes_the_legacy_bd_link_only_when_it_points_at_the_app`, `install_and_uninstall_leave_a_foreign_bd_file_alone`, `installs_the_command_and_the_skills_and_uninstalls_them`)
+- On macOS it must also link `~/.local/bin/brd-host` to the `brd-host` that the app bundle carries beside the app binary
+  ([brd-host](host.spec.md), "The bundle"), replacing a symlink there. A binary there stays, because `brd-host upgrade`
   wrote it and the `LaunchAgent` of a host runs it. `bd_host` names the command, `null` when the app carries none.
-  `--uninstall` removes only that symlink, or one to a `bd-host` that is gone.
-  [@test] ../../crates/bd-cli/src/install_test.rs (`install_links_the_bd_host_of_the_app_bundle_and_keeps_a_binary_there`)
+  `--uninstall` removes only that symlink, or one to a `brd-host` that is gone.
+  [@test] ../../crates/bd-cli/src/install_test.rs (`install_links_the_brd_host_of_the_app_bundle_and_keeps_a_binary_there`)
 - It must write the skill `branch-deck` into `~/.claude/skills/` and `~/.agents/skills/`: a description of when to use
-  bd (first of all before the first edit or commit in a Git repository, for `bd workspace`
-  ([bd workspace](workspace.spec.md)); then grouping into branches and pull requests, stacked when they build on each
+  brd (first of all before the first edit or commit in a Git repository, for `brd workspace`
+  ([brd workspace](workspace.spec.md)); then grouping into branches and pull requests, stacked when they build on each
   other, and updating onto the baseline with its conflicts, landing a worktree's commits, fixups, a change in the wrong
-  commit, a review request, why a robot failed), its full path, `bd workspace` before the first edit with what each of
-  its rules asks, `bd help agent` as the workflow of grouping, pushing and Safe Push, `bd help update` for an update,
-  and `bd safe-push <branch> --dry-run` before a Safe Push, which lands a stacked branch with its parents, and
+  commit, a review request, why a robot failed), its full path, `brd workspace` before the first edit with what each of
+  its rules asks, `brd help agent` as the workflow of grouping, pushing and Safe Push, `brd help update` for an update,
+  and `brd safe-push <branch> --dry-run` before a Safe Push, which lands a stacked branch with its parents, and
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
-  triggers, `bd help worktrees` when several sessions or worktrees work on one branch, `bd <command> --help` for the
+  triggers, `brd help worktrees` when several sessions or worktrees work on one branch, `brd <command> --help` for the
   outputs and refusals of a command, and the rules an agent must not miss before it reads any help (approval before
-  every push, never reorder, squash or split commits and never drop one yourself (bd drops a commit it proves landed,
-  `--landed` one after the user's yes; `bd squash` squashes the commits the user asked to squash), `bd pick` instead of a cherry-pick, `error.code`, parked branches,
+  every push, never reorder, squash or split commits and never drop one yourself (brd drops a commit it proves landed,
+  `--landed` one after the user's yes; `brd squash` squashes the commits the user asked to squash), `brd pick` instead of a cherry-pick, `error.code`, parked branches,
   unapply), and below the commit subject and its settings, in five lines, the commit body a review reads (the lead
-  with the new state, a paragraph per decision, code names in backticks that `bd review-plan` resolves, `Look closely:`, the labels
+  with the new state, a paragraph per decision, code names in backticks that `brd review-plan` resolves, `Look closely:`, the labels
   of the verification, the trailers last; [The Commit Body a Review Reads](../../docs/guide/commit-bodies.md)); the
-  details of an output belong in the binary's help, not in the skill. `bd help skill` must print the
+  details of an output belong in the binary's help, not in the skill. `brd help skill` must print the
   same text. Its `allowed-tools` must be
-  `Bash(<bd>:*)`, `<bd>` as the body names it, so that Claude Code runs every bd command without a permission prompt.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_bd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`)
+  `Bash(<brd>:*)`, `<brd>` as the body names it, so that Claude Code runs every brd command without a permission prompt.
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_brd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
-- It must say whether `bd` on `PATH` is the installed one, and print `agents` `{lease, subject_branch}`, the rules of
-  `bd workspace` that the global git config gives every repository; `--uninstall` must remove the skills and only its
-  own symlink. In the app the toast "Agent CLI installed" says where agents find bd, how to run it and how agents work
+- It must say whether `brd` on `PATH` is the installed one, and print `agents` `{lease, subject_branch}`, the rules of
+  `brd workspace` that the global git config gives every repository; `--uninstall` must remove the skills and only its
+  own symlink. In the app the toast "Agent CLI installed" says where agents find brd, how to run it and how agents work
   from now on, paths under the home directory as `~`, with "Open Agent Settings" from the main window
   ([Onboarding](../repository/onboarding.spec.md#agents)); a failure is the error toast "Cannot install the Agent
   CLI". `agent_cli_status` must name the skill files that exist and the command they name, `null` without one, writing
@@ -1689,37 +1692,37 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   `install_refused` with "Branch Deck runs from a temporary location: move it to Applications, then install the Agent
   CLI".
   [@test] ../../crates/bd-cli/src/install_test.rs (`the_link_target_is_the_appimage_not_its_mount`, `install_links_to_the_appimage`, `a_translocated_app_is_refused`)
-- Without the symlink to this binary, `bd help skill` must name the app binary with `cli`, never the bare app binary,
+- Without the symlink to this binary, `brd help skill` must name the app binary with `cli`, never the bare app binary,
   which starts the app, quoted for the shell and to be run as written. The app's `agent_cli_command(repository)` must
   return the same command with `-C <repository>` without writing anything, quoted for the shell (POSIX quotes; on
-  Windows PowerShell's `& '<bd.exe>'` with single quotes, and `powershell: true`): the symlink when it points at the running app, else
-  the app binary with `cli` (`bd.exe` on Windows). A binary named `bd` (a cargo build) is the CLI itself and gets no
-  `cli`. `bd update` names its next command (`session.next`) the same way. A path of the binary shorter than 260
+  Windows PowerShell's `& '<brd.exe>'` with single quotes, and `powershell: true`): the symlink when it points at the running app, else
+  the app binary with `cli` (`brd.exe` on Windows). A binary named `brd` (a cargo build) is the CLI itself and gets no
+  `cli`. `brd update` names its next command (`session.next`) the same way. A path of the binary shorter than 260
   characters has no `\\?\` prefix.
-  [@test] ../../crates/bd-cli/src/install_test.rs (`the_bd_command_is_the_link_to_this_app_or_the_app_with_cli`)
-  [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and bd as a command when it is on PATH`, `names the full path and the directory to add to PATH when bd is not on it`, `says how agents work by the rules of every repository`)
-### `bd help agent`
+  [@test] ../../crates/bd-cli/src/install_test.rs (`the_brd_command_is_the_link_to_this_app_or_the_app_with_cli`)
+  [@test] ../../src/hooks/useInstallAgentCli.test.ts (`names the skills, and brd as a command when it is on PATH`, `names the full path and the directory to add to PATH when brd is not on it`, `says how agents work by the rules of every repository`)
+### `brd help agent`
 
 - It must be a core of at most 10 KB, which every agent reads before grouping or pushing: the rules first, what needs
   the user's approval (every push, Safe Push and Patronus Dry Run, review request, `gh pr create`, park, unpark,
   unapply, reapply and change of another session's commit, a reword of its message too), parked branches and
-  unapply, never reorder, squash or drop commits yourself (`bd fold` folds the fixups, `bd squash` the commits the
-  user asked to squash, `bd update` drops the landed ones), a change moved only with `bd move-hunk`, a
-  message changed only with `bd reword`, only `bd update`, `bd pick`, `bd unapply`, `bd reapply` and their undo writing
+  unapply, never reorder, squash or drop commits yourself (`brd fold` folds the fixups, `brd squash` the commits the
+  user asked to squash, `brd update` drops the landed ones), a change moved only with `brd move-hunk`, a
+  message changed only with `brd reword`, only `brd update`, `brd pick`, `brd unapply`, `brd reapply` and their undo writing
   the working tree, what each exit code asks for (exit 1 never an error object, exit 4 without a rule: stop and show
   `message`), that `retryable` decides a retry whatever the exit code, the error object with `paths`, `branches`,
-  `review`, `processes` and `next_steps`, which printed commands run at once (`next` of `bd workspace`, `bd update`
-  and `bd pick`) and which wait for the user's approval (`push` of `bd sync`, `fix`, `next_steps` with
+  `review`, `processes` and `next_steps`, which printed commands run at once (`next` of `brd workspace`, `brd update`
+  and `brd pick`) and which wait for the user's approval (`push` of `brd sync`, `fix`, `next_steps` with
   `needs_approval`), `--expect-head`, `previous_head`, `new_head`, the `undo_token` and `after_error`, abbreviated ids
   compared by prefix. Then every refusal that waits for the user, with the flag that only the user's word allows:
   `push_too_large` (never raise the limit), `parked` (never push or unpark), `lease_rejected` (show
   `dropped_commits`), `robot_running`, `approvals_missing` (`--without-approvals` only when the user says so),
   `dangling_reference` and `missing_declaration` (only a false alarm), `rules_unknown`, `low_disk_space` (never
-  `--min-free 0`). Then the workflow in steps (look with `bd suggest`; plan and check with the `result` of each
-  branch; apply with `bd group --sync`; push; Safe Push with `--dry-run` first, `lands` and `--whole-stack`; review;
-  robot; statistics), each step sending the agent to the `--help` of its command, then the other tasks (`bd update`,
-  `bd pick`, `bd fold`, `bd squash`, `bd reword` with its `(prefix)` kept and never an empty `amend!` or plumbing, `bd move-hunk`,
-  `bd install`). Together with `bd help update`, `bd help worktrees` and the `--help` of every command it must name
+  `--min-free 0`). Then the workflow in steps (look with `brd suggest`; plan and check with the `result` of each
+  branch; apply with `brd group --sync`; push; Safe Push with `--dry-run` first, `lands` and `--whole-stack`; review;
+  robot; statistics), each step sending the agent to the `--help` of its command, then the other tasks (`brd update`,
+  `brd pick`, `brd fold`, `brd squash`, `brd reword` with its `(prefix)` kept and never an empty `amend!` or plumbing, `brd move-hunk`,
+  `brd install`). Together with `brd help update`, `brd help worktrees` and the `--help` of every command it must name
   every command and, per command, every long option except a listed few, and name no command, and no option for a
   command, that doesn't exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_agent_help_is_a_short_core_with_every_guard`)
@@ -1727,31 +1730,31 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
 - Its first line must name the version.
   [@test] ../../crates/bd-cli/src/version_test.rs (`agent_help_names_the_version`)
 
-### `bd <command> --help`
+### `brd <command> --help`
 
 - The `--help` of `status`, `suggest`, `check`, `group`, `push`, `safe-push`, `request-review`, `robot`,
   `robot-stats`, `fold`, `squash`, `reword` and `move-hunk` must print, after the options, the fields of the command's output
   and what each of its refusals asks; `-h` must end with the line that names `--help`, and `rename`, `restack` and
-  `unstack` must name `bd group --help`. `bd help <command>` must print the same as `bd <command> --help`, its usage
-  `bd <command>`. Every error code must be placed (an exhaustive match, so a new code can't be forgotten): a refusal an
+  `unstack` must name `brd group --help`. `brd help <command>` must print the same as `brd <command> --help`, its usage
+  `brd <command>`. Every error code must be placed (an exhaustive match, so a new code can't be forgotten): a refusal an
   agent acts on must be named in the core, a topic or the `--help` of its command.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_refusal_is_in_the_help_of_its_command`)
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_help_topic_prints_its_text`)
 
-### `bd help worktrees`
+### `brd help worktrees`
 
 - It must say how sessions that share a checkout work in worktrees of their own: the lease of a worktree with
-  `bd lease get` (its `home` and `next`) and its return with `bd lease return` and their refusals, the `(branch)` prefix written
+  `brd lease get` (its `home` and `next`) and its return with `brd lease return` and their refusals, the `(branch)` prefix written
   when a commit is made (`(parent/leaf)` for a stacked branch, a readable name, an issue id never the name, no
-  `fixup!` subject on the shared branch, `bd rename`, `bd suggest` only for commits without a prefix); one owner
-  rewrites the shared branch (`bd reword` among its rewrites) and every other session only adds commits with
-  `bd lease pick` from its lease (its refusals `home_branch_switched`, `no_home_branch`, `no_lease`) or
-  `bd pick --from <worktree> --follow` (both with `unchecked_tree` and `--allow-unchecked`), never with `git cherry-pick` and never with `bd update` in a lease, its one rewrite a `bd reword` of its own landed
+  `fixup!` subject on the shared branch, `brd rename`, `brd suggest` only for commits without a prefix); one owner
+  rewrites the shared branch (`brd reword` among its rewrites) and every other session only adds commits with
+  `brd lease pick` from its lease (its refusals `home_branch_switched`, `no_home_branch`, `no_lease`) or
+  `brd pick --from <worktree> --follow` (both with `unchecked_tree` and `--allow-unchecked`), never with `git cherry-pick` and never with `brd update` in a lease, its one rewrite a `brd reword` of its own landed
   commit with `-C <shared checkout>` and `--expect-head`, without `--sync`; after a rewrite a session's next write is
   `head_moved`, which `--allow-append` does not cure; the outcomes of a pick (`grouped_by: none`, `already_present`, `conflict.next`,
-  `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `bd pick --dry-run`
+  `uncommitted_overlap`, `range_unknown`, `source_on_newer_baseline`, `followed.state`, the undo); `brd pick --dry-run`
   as the check after a rewrite, never a comparison by date; the protocol of the owner; and the `branch-deck:` reflog
-  lines. `bd help worktrees` must print it, and an unknown topic must name it. Together with `bd help agent` and
-  `bd help update` it must name only commands and options that exist.
+  lines. `brd help worktrees` must print it, and an unknown topic must name it. Together with `brd help agent` and
+  `brd help update` it must name only commands and options that exist.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_help_topic_prints_its_text`, `the_worktrees_help_writes_the_prefix_first_and_checks_by_content`, `agent_help_names_every_command_and_option_that_exists`)
 

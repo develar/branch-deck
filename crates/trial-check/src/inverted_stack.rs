@@ -1,4 +1,4 @@
-//! An inverted stack (`bd check`): a branch conflicts, or has a dangling reference, because it needs a commit of a
+//! An inverted stack (`brd check`): a branch conflicts, or has a dangling reference, because it needs a commit of a
 //! branch stacked on it. Two fixes are tried, each by a trial build of the plan with it, and only those that build
 //! both branches are offered: the commits of the parent that need the child move into the child, or the parent stacks
 //! on the child.
@@ -18,7 +18,7 @@ pub enum InvertedStackFixKind {
   Swap,
 }
 
-/// A fix of an inverted stack: what to add to the plan of `bd group`
+/// A fix of an inverted stack: what to add to the plan of `brd group`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvertedStackFix {
   pub kind: InvertedStackFixKind,

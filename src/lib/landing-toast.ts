@@ -32,7 +32,7 @@ function isFetchedSince(repositoryPath: string, finishTime: number | null): bool
 
 /**
  * What a sync found landed of the branches of the merge, since the merge (an update elsewhere: the IDE, `git pull`,
- * `bd update`): "auth landed in origin/master" / "Found by a sync"; null while the report of the repository has none
+ * `brd update`): "auth landed in origin/master" / "Found by a sync"; null while the report of the repository has none
  */
 function landedSinceMerge(repositoryPath: string, robot: PatronusRobot, branches: ReadonlySet<string>): { title: string; description: string } | null {
   const { repositoryPath: reported, landed, upstream } = landedStore.getState()

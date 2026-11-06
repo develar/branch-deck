@@ -77,7 +77,7 @@ adds any pull request of the repository by its link, opening it in the review wi
 - News, toasts, OS notifications and the Dock badge of the sections: they stay Your Turn's.
 - Knowing which requested team the user is in: Reviews names the teams GitHub requests.
 - Following a link across the worktrees of other GitHub repositories: a link names a pull request of this one.
-- A `bd` command for Reviews yet: the rule is pure and `bd` can call it.
+- A `brd` command for Reviews yet: the rule is pure and `brd` can call it.
 
 ## Requirements
 

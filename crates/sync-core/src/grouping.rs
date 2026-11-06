@@ -1,5 +1,5 @@
 //! The grouping of the commits ahead of the baseline as a sync groups them, without the builds and the events
-//! (`BranchGrouping`): what `bd status`, `bd robot` and the other reads of `bd` start from.
+//! (`BranchGrouping`): what `brd status`, `brd robot` and the other reads of `bd` start from.
 
 use crate::baseline::BaselineUpstream;
 use crate::repo_facts::{BaselineListing, Remotes, landing_remote_of, read_baseline_listing};
@@ -123,7 +123,7 @@ pub fn group_commits_ahead_of_baseline_with(
     landing,
     head,
     head_branch,
-    // bd reads the whole descriptions where it prints them
+    // brd reads the whole descriptions where it prints them
     branches: prepare_branches_for_ui(&branches, &branch_emails, placements.as_ref(), &HashMap::new()),
     baseline_branch,
     upstream,

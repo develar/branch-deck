@@ -1,4 +1,4 @@
-//! The summaries of a check that `bd check` and `bd safe-push` print: the dangling references a commit proves and the
+//! The summaries of a check that `brd check` and `brd safe-push` print: the dangling references a commit proves and the
 //! possible ones as warnings, the proven fix of a mutual one, the conflict of a branch, and the refusal of a start that
 //! a dangling reference fails
 
@@ -122,7 +122,7 @@ pub struct DanglingReferenceSummary {
   /// Where the declaration is that `removed_by` removes, changes or adds: a reader judges by it whether the use means it
   pub declared_in: DeclarationPlace,
   /// With `mutual`: how the change of the use gets into the branch, as a trial build of the plan with it proves it (the
-  /// branch builds, no branch that built breaks); none when neither move builds, or `bd check` didn't try
+  /// branch builds, no branch that built breaks); none when neither move builds, or `brd check` didn't try
   #[serde(skip_serializing_if = "Option::is_none")]
   pub fix: Option<DanglingFix>,
 }
@@ -131,7 +131,7 @@ pub struct DanglingReferenceSummary {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DanglingFix {
   /// `move_commit`: `fixed_by` changes only `file`, so it moves into the branch (`branches`, to add to the plan of
-  /// `bd group`); `move_hunk`: `command` moves the change of `file` from `fixed_by` into `removed_by` (the whole change
+  /// `brd group`); `move_hunk`: `command` moves the change of `file` from `fixed_by` into `removed_by` (the whole change
   /// of the file; narrow it with `--block`)
   pub kind: String,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -207,7 +207,7 @@ pub fn confirmed_dangling_references(report: &CheckReport, branch: &BranchCheck,
     .collect()
 }
 
-/// Proves the fixes of mutual dangling references by trial builds (`DanglingFixProver`), each as `bd check` names it
+/// Proves the fixes of mutual dangling references by trial builds (`DanglingFixProver`), each as `brd check` names it
 pub struct FixProver<'a> {
   context: &'a RepoContext,
   prover: DanglingFixProver<'a>,
@@ -298,7 +298,7 @@ pub fn dangling_references_in(context: &RepoContext, session: &CheckSession, rep
 const DESCRIBED_REFERENCES: usize = 1;
 
 /// What the build of `branch` fails on: each dangling reference it describes and how to fix it (two of two, else the
-/// first and the count of the rest, which `bd check` lists)
+/// first and the count of the rest, which `brd check` lists)
 pub fn dangling_reference_message(branch: &str, references: &[(String, DanglingReferenceSummary)]) -> String {
   if references.is_empty() {
     return String::new();
@@ -310,7 +310,7 @@ pub fn dangling_reference_message(branch: &str, references: &[(String, DanglingR
     .collect();
   let more = match references.len() - described {
     0 => String::new(),
-    rest => format!(" ({rest} more: bd check)"),
+    rest => format!(" ({rest} more: brd check)"),
   };
   format!(
     "{}{more}; --allow-dangling starts anyway, only when the user says it is a false alarm",

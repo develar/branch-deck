@@ -1,7 +1,7 @@
 //! The baseline's remote branch: which one the baseline tracks (`resolve_baseline_upstream`), its fetch without an
 //! update (`fetch_baseline`), and the check of the checked out branch against its last fetched state, without the
 //! network (`check_baseline_update`, `check_known_baseline_update` of the state a sync read), which every sync runs so
-//! that the header shows whether an update would apply cleanly. Update Project (`update_project`), `bd pick`, the lease
+//! that the header shows whether an update would apply cleanly. Update Project (`update_project`), `brd pick`, the lease
 //! pool and the reapply read the upstream from here (docs/design/git-operations.md, "Update project").
 
 use crate::config_snapshot::ConfigSnapshot;
@@ -114,7 +114,7 @@ fn remote_of<'a>(baseline_branch: &'a str, remote: &str) -> Option<&'a str> {
 /// `on_progress` gets how far the fetch is.
 ///
 /// The fetch holds the fetch lock of the repository (`fetch_lock`): beside another fetch of the same tracking ref, of
-/// any process (`bd update` in a lease beside the app's Update Project or Fetch: one common dir, one
+/// any process (`brd update` in a lease beside the app's Update Project or Fetch: one common dir, one
 /// `refs/remotes/origin/master`), it waits while that one's holder lives, `on_progress` naming the holder, and takes its
 /// result when that one ended well or the ref moved meanwhile: one transfer for both. `canceled` stops the wait
 /// (`LockWaitCanceled`): the app's operation that the user stopped

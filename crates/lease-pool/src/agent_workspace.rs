@@ -1,10 +1,10 @@
-//! Where a coding agent works and how it writes a commit subject, asked before its first edit (`bd workspace`,
+//! Where a coding agent works and how it writes a commit subject, asked before its first edit (`brd workspace`,
 //! spec/cli/workspace.spec.md): `branchdeck.agentLease` (on by default) says to work in a lease of the pool and land each
-//! commit with `bd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`.
+//! commit with `brd lease pick`, `branchdeck.agentSubjectBranch` (on by default) to start each subject with its `(branch)`.
 //! Read only: one `rev-parse`, one `git config`, and in the shared checkout or a lease one `status` of the shared
 //! checkout; in a lease one more `rev-parse` of the branch the shared checkout has checked out now; in the shared
 //! checkout with the lease on, one more `git config` for the pool directory.
-//! `agent_defaults` reads the same two rules of the global git config, what `bd install` and the app's Install Agent CLI
+//! `agent_defaults` reads the same two rules of the global git config, what `brd install` and the app's Install Agent CLI
 //! report.
 
 use crate::lease::{IdleCheck, LeaseHome, SlotState, canonical_path, lease_status_core, pool_dir, reclaimed_refusal};
@@ -63,7 +63,7 @@ pub struct AgentWorkspace {
   /// The lease of this slot (`WorkspaceKind::Lease`)
   pub this_lease: Option<ActiveLease>,
   /// In a lease: the branch its home checkout has checked out now (`None`: a detached HEAD), when it is not the branch
-  /// of the get: `bd lease pick` refuses until it is back
+  /// of the get: `brd lease pick` refuses until it is back
   pub home_switched: Option<Option<String>>,
   /// Every lease of the pool that is ready
   pub active_leases: Vec<ActiveLease>,
@@ -73,7 +73,7 @@ pub struct AgentWorkspace {
   pub pool_unusable: Option<String>,
 }
 
-/// What `bd workspace` answers for `directory`; `home` is the home directory of the default pool
+/// What `brd workspace` answers for `directory`; `home` is the home directory of the default pool
 #[instrument(skip(git))]
 pub fn agent_workspace(git: &GitCommandExecutor, directory: &str, home: Option<&Path>) -> Result<AgentWorkspace> {
   let Some(dirs) = repository_dirs(git, directory)? else {
@@ -200,18 +200,18 @@ pub(crate) fn unwritable_dir(dir: &Path) -> Option<String> {
   }
 }
 
-/// The rules of `bd workspace` that the global git config gives every repository without its own value (`bd install`)
+/// The rules of `brd workspace` that the global git config gives every repository without its own value (`brd install`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct AgentDefaults {
-  /// `branchdeck.agentLease`: work in a lease of their own and land each commit with `bd pick` (on by default)
+  /// `branchdeck.agentLease`: work in a lease of their own and land each commit with `brd pick` (on by default)
   pub lease: bool,
   /// `branchdeck.agentSubjectBranch`: start each subject with `(branch)` (on by default)
   pub subject_branch: bool,
 }
 
 /// The agent rules of the global git config, one `git config --global`; the defaults without a git, or when it can't
-/// be run, as `bd workspace` would find none either
+/// be run, as `brd workspace` would find none either
 pub fn agent_defaults(git: Option<&GitCommandExecutor>) -> AgentDefaults {
   let entries = git.and_then(|git| read_config_entries(git, "").ok()).unwrap_or_default();
   let config = repository_config_from_entries(&entries, OriginFacts::default());

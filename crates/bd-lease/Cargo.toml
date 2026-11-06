@@ -3,7 +3,7 @@ name = "bd-lease"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "`bd lease`: the worktrees of the lease pool, one agent session per slot"
+description = "`brd lease`: the worktrees of the lease pool, one agent session per slot"
 publish = false
 
 [dependencies]

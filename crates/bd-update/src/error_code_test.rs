@@ -1,4 +1,4 @@
-//! The codes of the mappers of bd for the typed errors of a move, an update, an unapply, a reapply, a drop and their undo
+//! The codes of the mappers of brd for the typed errors of a move, an update, an unapply, a reapply, a drop and their undo
 //! (`core_error`, `unapply_error`, `reapply_error`, `drop_error`, `undo_core_error`): the codes of `update_core::error_cases`, which
 //! the app's `api_error` answers too (`app-api/src/api_error_test.rs`)
 use crate::drop_command::drop_error;

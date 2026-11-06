@@ -3,7 +3,7 @@ name = "bd-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The `bd` agent command line of Branch Deck: JSON on stdout, logs on stderr"
+description = "The `brd` agent command line of Branch Deck: JSON on stdout, logs on stderr"
 # the build script of bd-core: agent_help.rs names the version in a `concat!`, which takes only a literal
 build = "../bd-core/build.rs"
 publish = false
@@ -11,7 +11,7 @@ publish = false
 # the console binary Windows installs next to the app (src-tauri/tauri.windows-bd.conf.json); elsewhere the app binary
 # runs the CLI
 [[bin]]
-name = "bd"
+name = "brd"
 path = "src/main.rs"
 test = false
 
@@ -20,7 +20,7 @@ test = false
 test-utils = { path = "../test-utils", optional = true }
 bd-core = { path = "../bd-core" }
 bd-lease = { path = "../bd-lease" }
-# `AgentDefaults` of `bd install`, in its JSON schema
+# `AgentDefaults` of `brd install`, in its JSON schema
 lease-pool = { path = "../lease-pool", features = ["schemars"] }
 bd-remote = { path = "../bd-remote" }
 bd-rewrite = { path = "../bd-rewrite" }
@@ -30,7 +30,7 @@ file-diffs = { path = "../file-diffs" }
 git-executor = { path = "../git-executor" }
 git-ops = { path = "../git-ops", features = ["schemars"] }
 object-cache = { path = "../object-cache" }
-# the stamp `bd` touches after a mutation (`operations::registry_watch::touch_stamp`)
+# the stamp `brd` touches after a mutation (`operations::registry_watch::touch_stamp`)
 operations = { path = "../operations" }
 patronus = { path = "../patronus" }
 github = { path = "../github" }
@@ -54,7 +54,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [features]
-# `fixture_test`: the repositories and runs of bd that the tests of the crates bd-cli builds on share; only a
+# `fixture_test`: the repositories and runs of brd that the tests of the crates bd-cli builds on share; only a
 # dev-dependency enables it, never a build of the app
 fixtures = ["dep:test-utils", "patronus/fake", "github/fake"]
 

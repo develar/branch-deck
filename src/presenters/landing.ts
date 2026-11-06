@@ -1,4 +1,4 @@
-// The page's words of the refusals of the landing gate (`trial_check::landing_gate`, the rule of `bd safe-push`): the
+// The page's words of the refusals of the landing gate (`trial_check::landing_gate`, the rule of `brd safe-push`): the
 // landing needs of a row and the plan of a start (`Reason::LandingRefused`), the refusal `execute` answers of a whole
 // stack (`ErrorDetails::Landing`). The reason of the first, the count of the others, its fix and the overrides of Start
 // Anyway; it decides nothing.
@@ -22,7 +22,7 @@ export function describeLandingRefusals(refusals: readonly LandingRefusal[], sub
     return null
   }
   const more = refusals.length - 1
-  const rest = more === 0 ? "" : ` ${more === 1 ? "One more name breaks" : `${more} more names break`} it too: bd check lists them.`
+  const rest = more === 0 ? "" : ` ${more === 1 ? "One more name breaks" : `${more} more names break`} it too: brd check lists them.`
   const anyway: LandingAllowances = {
     allowDangling: allow.allowDangling === true || refusals.some(refusal => refusal.kind === "danglingReference"),
     allowMissing: allow.allowMissing === true || refusals.some(refusal => refusal.kind === "missingDeclaration"),
@@ -31,7 +31,7 @@ export function describeLandingRefusals(refusals: readonly LandingRefusal[], sub
 }
 
 /**
- * One refusal in the words of `bd safe-push`: "“Add the lane run” of lane-run uses StillEncoding (tests.rs:7), which
+ * One refusal in the words of `brd safe-push`: "“Add the lane run” of lane-run uses StillEncoding (tests.rs:7), which
  * “Name lossy stills” of stills-codec adds: git merges it, but the build of ui-perf-nightly fails. Stack lane-run on
  * stills-codec to land it too."
  */

@@ -39,7 +39,7 @@ fn entry(change: &str, commit_count: u64, via: Option<&str>) -> (String, u64, Op
   (change.to_string(), commit_count, via.map(str::to_string))
 }
 
-/// Apply the plan of a suggestion with `bd group`, and suggest again: the new suggestion has an empty plan
+/// Apply the plan of a suggestion with `brd group`, and suggest again: the new suggestion has an empty plan
 fn apply_and_suggest(repo: &TestRepo, output: &Value) -> Value {
   let plan = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(plan.path(), output["plan"].to_string()).unwrap();
@@ -51,7 +51,7 @@ fn apply_and_suggest(repo: &TestRepo, output: &Value) -> Value {
   again
 }
 
-/// `bd suggest`, whose check needed one repair round
+/// `brd suggest`, whose check needed one repair round
 fn suggest_after_one_repair(repo: &TestRepo) -> Value {
   let (exit_code, output) = run_in(repo, &["suggest"]);
   assert_eq!(exit_code, 0, "{output}");
@@ -557,7 +557,7 @@ fn the_plan_moves_only_what_changes_and_is_a_regroup_plan() {
   assert_eq!(plan.issue_groups, BTreeMap::from([("xyz".to_string(), vec!["XYZ-1".to_string(), "XYZ-2".to_string()])]));
   assert_eq!(kept_and_moved_of(&placements)[2], (Vec::new(), vec![(5, Some("XYZ-1")), (6, Some("XYZ-2"))]));
 
-  // the printed plan is what `bd group` and `bd check` read
+  // the printed plan is what `brd group` and `brd check` read
   let plan = SuggestPlan {
     branches: BTreeMap::from([("feat".to_string(), vec!["0123abcd".to_string()])]),
     unassign: vec!["4567".to_string()],

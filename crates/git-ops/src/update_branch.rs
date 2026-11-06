@@ -53,7 +53,7 @@ pub struct UpstreamRef<'a> {
   pub name: &'a str,
   /// Where the tracking ref pointed before the fetch that just moved it, if that was a forced update
   pub previous: Option<&'a str>,
-  /// The upstream is a local branch, `refs/heads/<name>`: the home of a lease, which `bd lease pick` updates the lease
+  /// The upstream is a local branch, `refs/heads/<name>`: the home of a lease, which `brd lease pick` updates the lease
   /// onto. The update may run on a detached HEAD (named `HEAD` in the check, `HeadRef::of`), and the fork point in
   /// the branch's reflog sees through a move that was rolled back or undone (`branch_fork_point`)
   pub local: bool,
@@ -947,7 +947,7 @@ pub const UPDATE: MoveOperation = MoveOperation {
   undo: UNDO_OPERATION,
 };
 
-/// `bd pick` (of the target and of the worktree that follows it) and its undo
+/// `brd pick` (of the target and of the worktree that follows it) and its undo
 pub const PICK: MoveOperation = MoveOperation { done: "pick", undo: "undo pick" };
 
 /// The unapply of a virtual branch (`unapply`) and its undo
@@ -956,7 +956,7 @@ pub const UNAPPLY: MoveOperation = MoveOperation {
   undo: "undo unapply",
 };
 
-/// The drop of commits for good (`bd drop`, the app's Drop Commit) and its undo
+/// The drop of commits for good (`brd drop`, the app's Drop Commit) and its undo
 pub const DROP: MoveOperation = MoveOperation { done: "drop", undo: "undo drop" };
 
 /// The reapply of an unapplied branch (`reapply`) and its undo
@@ -968,7 +968,7 @@ pub const REAPPLY: MoveOperation = MoveOperation {
 /// Every move the files follow: the finish of an interrupted one accepts their messages
 const MOVE_OPERATIONS: [MoveOperation; 5] = [UPDATE, PICK, UNAPPLY, REAPPLY, DROP];
 
-/// The fork point of `commit` in the reflog of `branch`, whose tip is `tip`, without a value that only a move of bd put
+/// The fork point of `commit` in the reflog of `branch`, whose tip is `tip`, without a value that only a move of brd put
 /// into the reflog and that its rollback or its undo took back (`undone_move_base`): a fast-forward pick that rolled
 /// back left the source's own tip there, and `merge-base --fork-point` would answer that tip, so the range of the source
 /// would be empty and a follow would drop its commits. Such a value gives way to the value before the move, when the
@@ -1370,7 +1370,7 @@ pub struct HeadAttached {
 }
 
 /// What a move of HEAD moves: the branch HEAD is on (the transaction updates `HEAD` with deref, so git moves the
-/// branch), or a detached HEAD itself (`option no-deref`): the worktree of a `bd pick --follow`
+/// branch), or a detached HEAD itself (`option no-deref`): the worktree of a `brd pick --follow`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum HeadRef {
   Branch(String),
@@ -1913,7 +1913,7 @@ enum Refresh {
   Index,
 }
 
-/// `blocking_paths` once more, under the repository lock, of a move whose exact check ran before the lock (`bd pick`):
+/// `blocking_paths` once more, under the repository lock, of a move whose exact check ran before the lock (`brd pick`):
 /// `preview_blocking_paths` of the changed paths, at a cost that grows with them, not with the index, and the exact dry
 /// run only when the preview finds a path, as it leans to blocked where the two differ. The move itself checks every
 /// path again before it writes one

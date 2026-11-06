@@ -1,6 +1,6 @@
-//! The agent commands of bd-host that have no client part, as one clap subcommand that `bd-host` flattens into its own
+//! The agent commands of brd-host that have no client part, as one clap subcommand that `brd-host` flattens into its own
 //! (spec/cli/host.spec.md, "serve", "upgrade"): `serve`, and the hidden `supervise`, `check`, `watchdog` and `dump-env`
-//! that the agent starts itself. `setup --agent` shares the `setup` command of the client, so bd-host parses it and
+//! that the agent starts itself. `setup --agent` shares the `setup` command of the client, so brd-host parses it and
 //! calls `setup` of this crate
 
 use crate::home::Home;
@@ -68,7 +68,7 @@ pub enum AgentCommand {
   },
 }
 
-/// Runs `command` of a bd-host of the Branch Deck version `version`. A refusal is the caller's to print and to exit with
+/// Runs `command` of a brd-host of the Branch Deck version `version`. A refusal is the caller's to print and to exit with
 pub fn execute(command: AgentCommand, version: &str, stdout: &mut dyn Write) -> Result<(), Refusal> {
   match command {
     AgentCommand::Serve { port, bind, launchctl } => crate::serve::serve(
@@ -106,7 +106,7 @@ pub fn execute(command: AgentCommand, version: &str, stdout: &mut dyn Write) -> 
   }
 }
 
-/// The line of `bd-host version`: the version, the schema, the features, and the SHA-256 of this binary as its build id
+/// The line of `brd-host version`: the version, the schema, the features, and the SHA-256 of this binary as its build id
 pub fn version_line(version: &str) -> VersionLine {
   VersionLine::of_this_build(version, std::env::current_exe().ok().and_then(|exe| sha256_file(&exe).ok()))
 }

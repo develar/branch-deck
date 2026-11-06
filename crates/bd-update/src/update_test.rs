@@ -163,7 +163,7 @@ fn uncommitted_changes_on_updated_files_block_with_their_paths() {
   assert_eq!(output["error"]["retryable"], json!(false));
   assert_eq!(clone.head(), head);
   assert_eq!(read(&clone, "shared.txt"), "local edit\n");
-  assert_eq!(git(&clone, &["stash", "list"]), "", "bd never stashes");
+  assert_eq!(git(&clone, &["stash", "list"]), "", "brd never stashes");
   // a dry run says the same
   let (exit_code, output) = run_in(&clone, &["update", "--dry-run"]);
   assert_error(&output, exit_code, (4, "uncommitted_overlap"));
@@ -222,7 +222,7 @@ fn many_blocking_paths_list_the_first_100_and_say_how_many() {
   assert!(!message.contains("lists the first"), "{message}");
 }
 
-/// The error of `bd update --dry-run` in a clone whose untracked files sit on `count` paths the upstream adds
+/// The error of `brd update --dry-run` in a clone whose untracked files sit on `count` paths the upstream adds
 fn dry_run_blocked_by_untracked_files(count: usize) -> Value {
   let (upstream, clone) = clone_of_upstream();
   let names = names("gen", count);
@@ -344,7 +344,7 @@ fn the_check_of_an_update_runs_before_the_lock() {
   assert!(git(&clone, &["notes", "--ref=refs/notes/branch-deck/resolve", "show", "HEAD"]).contains("resolved-by-words: 1 1"));
 }
 
-/// `bd update --no-fetch` in `clone`, a clean rebase: the replay runs before the lock, and under it only the witness, the
+/// `brd update --no-fetch` in `clone`, a clean rebase: the replay runs before the lock, and under it only the witness, the
 /// local changes and the move. Returns every git it ran
 #[cfg(unix)]
 fn assert_only_the_move_under_the_lock(clone: &TestRepo) -> Vec<(bool, String)> {
@@ -360,7 +360,7 @@ fn assert_only_the_move_under_the_lock(clone: &TestRepo) -> Vec<(bool, String)> 
   commands
 }
 
-/// `bd update --no-fetch` in `clone` with its first replay held until `during` returned: between the check and the lock
+/// `brd update --no-fetch` in `clone` with its first replay held until `during` returned: between the check and the lock
 #[cfg(unix)]
 fn update_held_in_its_replay(clone: &TestRepo, during: impl FnOnce()) -> (LockSpanGit, i32, Value) {
   let wrapped = LockSpanGit::new(
@@ -443,7 +443,7 @@ fn a_failed_fetch_is_a_network_error() {
 /// The environment variable that makes `bd_update_of_another_process` run: the path of the repository
 const CHILD_ENV: &str = "BD_UPDATE_OF_ANOTHER_PROCESS";
 
-/// The child of `the_fetch_of_the_app_beside_bd_update_takes_its_transfer`: `bd update` of an agent, in another process
+/// The child of `the_fetch_of_the_app_beside_bd_update_takes_its_transfer`: `brd update` of an agent, in another process
 /// (`TestChild`); does nothing in a normal run
 #[test_log::test]
 fn bd_update_of_another_process() {
@@ -452,7 +452,7 @@ fn bd_update_of_another_process() {
   print_child_answer(exit_code, &output);
 }
 
-/// `bd update` of an agent in another process, its fetch held at the remote while it holds the fetch lock of the
+/// `brd update` of an agent in another process, its fetch held at the remote while it holds the fetch lock of the
 /// repository, and the app's Fetch beside it (`fetch_baseline_core`): the app's fetch waits, naming the process of `bd`,
 /// and takes the result of its fetch. One transfer for both; both succeed, and the update applies onto what it brought
 #[test_log::test]
@@ -515,7 +515,7 @@ fn update_outputs_match_the_schema() {
   assert_covered(&schema["outputs"]["undo"], &schema["outputs"]["undo"], &undo, "undo of an update");
 }
 
-/// A fetched upstream change and a branch `peer` at HEAD, in `clone`; bd runs a git wrapper whose `case "$*"` arm, built by
+/// A fetched upstream change and a branch `peer` at HEAD, in `clone`; brd runs a git wrapper whose `case "$*"` arm, built by
 /// `arm` from the directory of the wrapper and the repository, runs before the real git: a peer's `git switch` at a
 /// chosen moment
 #[cfg(unix)]
@@ -679,7 +679,7 @@ fn an_undo_killed_before_its_files_followed_is_finished_by_the_next_undo() {
   assert_eq!((status(clone), pending_marks(clone)), (String::new(), String::new()));
 }
 
-/// The branch moved after the interrupted update: bd changes nothing and names the mark
+/// The branch moved after the interrupted update: brd changes nothing and names the mark
 #[cfg(unix)]
 #[test_log::test]
 fn an_interrupted_update_of_a_branch_that_moved_since_is_reported() {

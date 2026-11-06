@@ -41,7 +41,7 @@ use tokio::sync::mpsc;
 /// The environment variable that makes `bd_of_another_process` run: the JSON of `ChildSpec`
 const CHILD_ENV: &str = "BD_CROSS_PROCESS_CHILD";
 
-/// What the child runs: `bd <args>` in `repo` with the Space token of `home` and the fake Patronus at `patronus_url`;
+/// What the child runs: `brd <args>` in `repo` with the Space token of `home` and the fake Patronus at `patronus_url`;
 /// waiting for the repository lock for `lock_wait_secs`, else as the fixtures do
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ChildSpec {
@@ -75,7 +75,7 @@ fn bd_of_another_process() {
 struct OtherBd(TestChild);
 
 impl OtherBd {
-  /// `bd --prefix PREFIX <args>` in the repository of `space`, in a child process
+  /// `brd --prefix PREFIX <args>` in the repository of `space`, in a child process
   fn start(space: &Space, args: &[&str]) -> Self {
     Self::waiting(space, args, None)
   }
@@ -310,7 +310,7 @@ fn push_of(branch: &str) -> Intent {
   })
 }
 
-/// `bd safe-push <branch>` of another process, held by the fake Patronus at its start: the gate that holds it, the
+/// `brd safe-push <branch>` of another process, held by the fake Patronus at its start: the gate that holds it, the
 /// process, and its record once its request reached Patronus
 fn bd_held_at_its_start(space: &Space, branch: &str) -> (Arc<test_utils::fake_server::FakeGate>, OtherBd, Record) {
   let start = space.fake.hold("POST", "/app/rest/v1/robots");
@@ -329,8 +329,8 @@ fn the_record(space: &Space) -> Record {
 }
 
 /// The stage's exit (docs/design/rust-domain-authority.md, s10-registry-journal): while the app's Safe Push of auth
-/// waits for Patronus to answer its start, `bd safe-push auth` of another process is `busy` (exit 3), naming the app's
-/// operation, its pid and what it runs, and starts nothing; `bd push docs` runs beside it. Once Patronus answered, the
+/// waits for Patronus to answer its start, `brd safe-push auth` of another process is `busy` (exit 3), naming the app's
+/// operation, its pid and what it runs, and starts nothing; `brd push docs` runs beside it. Once Patronus answered, the
 /// app's start ends and leaves the registry empty; Patronus got one start
 #[test_log::test]
 fn bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app() {
@@ -367,7 +367,7 @@ fn bd_beside_the_apps_safe_push_of_the_same_branch_is_busy_naming_the_app() {
   assert_eq!(space.fake.starts.lock().unwrap().len(), 1);
 }
 
-/// The other way round: while `bd safe-push auth` of another process waits for Patronus to answer its start, the app's
+/// The other way round: while `brd safe-push auth` of another process waits for Patronus to answer its start, the app's
 /// window shows it on its row (an operation of another process of its session), and the app's Safe Push of auth is
 /// `busy` naming the operation of `bd`, its pid and what it runs, before anything of it runs; the app pushes docs beside
 /// it. Once Patronus answered, `bd` ends, the registry is empty and the window shows nothing of it
@@ -406,10 +406,10 @@ fn the_apps_safe_push_beside_bd_of_the_same_branch_is_busy_naming_bd() {
     app.operations_once(<[RunningOperation]>::is_empty).await;
   });
   assert_eq!(ProcessRegistry::of(&space.repo.path().join(".git")).unflushed().records().unwrap(), Some(Vec::new()));
-  assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "the start of bd alone reached Patronus");
+  assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "the start of brd alone reached Patronus");
 }
 
-/// While the `bd safe-push auth` of another process waits for Patronus to answer its start, a `bd safe-push auth` here is
+/// While the `brd safe-push auth` of another process waits for Patronus to answer its start, a `brd safe-push auth` here is
 /// `busy` (exit 3, retryable), naming the operation of the other process, its pid and what it runs, and starts nothing; a
 /// push of another branch runs beside it. Once Patronus answered, the other one ends and leaves the registry empty
 #[test_log::test]
@@ -456,7 +456,7 @@ fn bd_moves_the_stamp_of_its_repository_after_a_mutation_only() {
   assert!(touched.ends_with(&format!(" {}\n", std::process::id())), "{touched}");
 }
 
-/// `bd safe-push auth` killed after its push, while Patronus holds its start: its record stays, with the start it sent
+/// `brd safe-push auth` killed after its push, while Patronus holds its start: its record stays, with the start it sent
 /// (`pending_start`, on the pushed commit), and the request of the killed process never reaches Patronus. The app's Safe
 /// Push of auth settles it first (a read of Patronus once it settled lists no robot of it: none started), so it is
 /// admitted, plans no push (the remote has the commit) and starts once
@@ -486,8 +486,8 @@ fn a_bd_killed_between_its_push_and_its_start_leaves_a_lost_start_the_app_settle
   assert_eq!(space.fake.starts.lock().unwrap().len(), 1, "the start of the app alone reached Patronus");
 }
 
-/// A start whose answer was lost, of a process that is gone, holds `bd safe-push auth` (`busy`, exit 3, the holder
-/// `unknown`, the message naming `bd operation forget`) while Patronus can't tell yet; `bd operation forget <op>`
+/// A start whose answer was lost, of a process that is gone, holds `brd safe-push auth` (`busy`, exit 3, the holder
+/// `unknown`, the message naming `brd operation forget`) while Patronus can't tell yet; `brd operation forget <op>`
 /// takes it out (and refuses an id the registry lacks), and the Safe Push starts
 #[test_log::test]
 fn a_lost_start_holds_bd_until_bd_operation_forget_lets_it_go() {
@@ -532,7 +532,7 @@ fn a_lost_start_holds_bd_until_bd_operation_forget_lets_it_go() {
     (json!("01LOST"), json!(true)),
     "{output}"
   );
-  assert!(output["error"]["message"].as_str().unwrap().contains("`bd operation forget 01LOST`"), "{output}");
+  assert!(output["error"]["message"].as_str().unwrap().contains("`brd operation forget 01LOST`"), "{output}");
 
   let forget = |id: &str| run_json(&space.environment(), &["--prefix", PREFIX, "operation", "forget", id]);
   let (exit_code, output) = forget("01LOST");
@@ -588,7 +588,7 @@ fn stacked_space() -> Space {
 }
 
 /// The triple Unstack of beta (docs/design/rust-domain-authority.md, s11-engine-rewrites): two Unstacks of the app join,
-/// one rewrite whose record counts the second, held at its ref move under the repository lock; `bd unstack beta` of
+/// one rewrite whose record counts the second, held at its ref move under the repository lock; `brd unstack beta` of
 /// another process beside it is recorded, not `busy` (the repository lock orders the rewrites of the processes), and
 /// the window of the app shows it as bd's; it waits for the lock and changes nothing more: beta is a root then
 /// (`invalid_plan`). HEAD moved once, and the journal has the app's rewrite and bd's refusal, once each
@@ -642,7 +642,7 @@ fn the_triple_unstack_of_the_app_and_bd_is_one_rewrite_journaled_once_by_each() 
   assert_eq!(ProcessRegistry::of(&common_dir).unflushed().records().unwrap(), Some(Vec::new()));
 }
 
-/// `bd unstack beta` killed while it waits for the repository lock another holder keeps: its record stays in the file,
+/// `brd unstack beta` killed while it waits for the repository lock another holder keeps: its record stays in the file,
 /// but its process is gone, so the app reads no operation of it (`registry_file::others`), and the next admission of the
 /// app takes it out; the unstack of the app runs once, and the journal has only the app's
 #[test_log::test]
@@ -656,7 +656,7 @@ fn a_bd_killed_in_its_rewrite_leaves_a_record_the_app_drops_once_its_process_is_
     app.operations_once(|operations| operations.iter().any(bds_unstack)).await;
     bd.0.kill();
     let registry = ProcessRegistry::of(&common_dir).unflushed();
-    assert_eq!(registry.records().unwrap().map(|records| records.len()), Some(1), "the record of the killed bd stays");
+    assert_eq!(registry.records().unwrap().map(|records| records.len()), Some(1), "the record of the killed brd stays");
     assert_eq!(registry.of_other_processes().unwrap(), Vec::new(), "no process runs it");
     drop(held);
     let unstack = unstack_of_beta(&app).await;

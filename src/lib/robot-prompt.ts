@@ -9,7 +9,7 @@ export interface RobotPromptInput {
   /** As the sync detected it, e.g. `origin/master` */
   baselineBranch: string
   report: RobotFailureReport
-  /** How this app's bd runs in the repository (`agent_cli_command`); null when the app can't tell its binary */
+  /** How this app's brd runs in the repository (`agent_cli_command`); null when the app can't tell its binary */
   bd: AgentCliCommand | null
 }
 
@@ -201,7 +201,7 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
   const branchName = robot.branchName ?? root ?? robot.name
   const target = robot.targetBranch
   // the command once, then its short name, as the update prompt does
-  const bdCommand = bd === null ? null : "bd"
+  const bdCommand = bd === null ? null : "brd"
   const sections: string[] = []
 
   const subject = wholeStack ? `the whole \`${branchName}\` stack` : `\`${branchName}\``
@@ -227,7 +227,7 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
     )
   }
   if (bd !== null) {
-    sections.push(`bd is Branch Deck's CLI, \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`bd\` stands for it. Each run prints one JSON object.`)
+    sections.push(`brd is Branch Deck's CLI, \`${bd.command}\`${bd.powershell ? ", run in PowerShell" : ""}; below, \`brd\` stands for it. Each run prints one JSON object.`)
   }
 
   if (failure.checks.length > 0) {
@@ -256,12 +256,12 @@ export function buildRobotPrompt({ repositoryPath, branchPrefix, baselineBranch,
   const fixup =
     bd === null
       ? "Fix it in the commit that caused it: commit only the files you changed as `fixup! <subject of that commit>`; I fold it in Branch Deck."
-      : `Fix it in the commit that caused it: \`git -C ${shellWord(repositoryPath, bd.powershell)} commit -m 'fixup! <subject>' -- <paths>\`${bd.powershell ? " (double each `'` of the subject)" : ""}, then \`bd fold\`.`
+      : `Fix it in the commit that caused it: \`git -C ${shellWord(repositoryPath, bd.powershell)} commit -m 'fixup! <subject>' -- <paths>\`${bd.powershell ? " (double each `'` of the subject)" : ""}, then \`brd fold\`.`
   sections.push(
     `Steps:\n${numbered([
       "Find the cause. If a failure is not caused by these commits (a flaky test, or it fails on the target too), say so and stop.",
       fixup,
-      `Verify locally: run the failed tests and build their module, as this repository's AGENTS.md or README says${bd === null ? "" : "; then `bd check --build`"}.`,
+      `Verify locally: run the failed tests and build their module, as this repository's AGENTS.md or README says${bd === null ? "" : "; then `brd check --build`"}.`,
       `Report what you changed and what you ran. Don't push, and don't start or restart a ${mode}: I restart the ${mode} in Branch Deck.`,
     ])}`,
   )

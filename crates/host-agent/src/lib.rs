@@ -1,17 +1,17 @@
 //! The agent of the remote runs on a host (spec/cli/host.spec.md, "serve", "setup", "upgrade"; docs/design/host-runs.md):
 //! `serve`, the supervisor of each run, the run directories, the login environment, the prepare steps of `[host]`, the
 //! keeper, the power assertions and the upgrade. It lends the host slots and does the git of the host in process,
-//! through `lease_pool::host_slots`, `lease_pool::host_refs` and `lease_pool::host_git`: no `bd` child. Only on Unix: the
+//! through `lease_pool::host_slots`, `lease_pool::host_refs` and `lease_pool::host_git`: no `brd` child. Only on Unix: the
 //! agent runs under launchd on macOS and by hand on Linux.
 //!
-//! - `command`: the agent commands that `bd-host` flattens into its own: `serve`, `supervise`, `check`, `watchdog`,
+//! - `command`: the agent commands that `brd-host` flattens into its own: `serve`, `supervise`, `check`, `watchdog`,
 //!   `dump-env`
 //! - `serve`: the listener, the requests of a repository (`Have`, `Pack`, `Slots`) and the upgrade request
 //! - `run_requests`: the requests of a run (`Start`, `Follow`, `Cancel`, `Fetch`, `Forget`, `Runs`)
 //! - `supervise`: one run from the lend of its slot to `exit.json` and the give-back
 //! - `run`: the run directory and its files
 //! - `repo`, `slots`, `run_git`, `keeper`: the repositories, the host slots and the git of the host, in process
-//! - `table`: the lend table for `bd-host slots`: its lines, `--local`, `--shrink` and `--sizes`
+//! - `table`: the lend table for `brd-host slots`: its lines, `--local`, `--shrink` and `--sizes`
 //! - `setup`: `setup --agent` and the `LaunchAgent`
 //! - `upgrade`: the install of a new binary and its watchdog
 //! - `login_env`, `run_env`, `prepare`: the environment and the prepare steps of a run

@@ -1,4 +1,4 @@
-//! The git side of the code-owner review check before a Safe Push, shared by the app and `bd safe-push`: the commits of
+//! The git side of the code-owner review check before a Safe Push, shared by the app and `brd safe-push`: the commits of
 //! the branches as the pre-check reads them (one `git log` of all of them, their paths from the object cache), then the
 //! paths of the groups Patronus names without them (one `cat-file --batch` of the `OWNERSHIP` files). Both are
 //! blocking; the check itself is `review_readiness` in between.

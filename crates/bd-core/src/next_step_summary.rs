@@ -1,6 +1,6 @@
 //! The next step of a subject in the words of `bd` (`domain_policy::next_step`, the step the app's row shows;
 //! spec/branch/next-step.spec.md, "The table"): the row of the table, the step, the fact it waits for, its pull request
-//! and why a Safe Push or a Dry Run can't start now. `bd status` prints it of every branch and whole stack, `bd
+//! and why a Safe Push or a Dry Run can't start now. `brd status` prints it of every branch and whole stack, `bd
 //! safe-push --dry-run` of the subject it checks.
 
 use domain_types::next_step::{NextStep, RowFact, RowStatus, StepBlocker, StepFact, StepFailure, StepKind};
@@ -23,8 +23,8 @@ pub struct NextStepSummary {
   /// `awaiting_unjudged`, `safe_push` or `hidden`
   pub step: String,
   /// Row 0: the fact without an answer, or whose read failed: `patronus`, `pull_requests`, `landing_needs`,
-  /// `robot_problems`, `readiness`. `bd status` reads no pull request, readiness or problem of a failed robot: a step
-  /// that needs them waits for them; `bd safe-push --dry-run` reads them
+  /// `robot_problems`, `readiness`. `brd status` reads no pull request, readiness or problem of a failed robot: a step
+  /// that needs them waits for them; `brd safe-push --dry-run` reads them
   #[serde(skip_serializing_if = "Option::is_none")]
   pub waits_for: Option<String>,
   /// The pull request the step is about: the open one, the one a robot failed in, of the whole stack the branch is in
@@ -221,9 +221,9 @@ fn step_words(kind: &StepKind, what: &str) -> String {
     }
     StepKind::PickRemoteCommits { count } => {
       let commits = if *count == 1 { "1 commit".to_owned() } else { format!("{count} commits") };
-      format!("The remote branch has {commits} of someone else that {what} lacks: `bd pick --remote {what}` takes them in, a push drops them")
+      format!("The remote branch has {commits} of someone else that {what} lacks: `brd pick --remote {what}` takes them in, a push drops them")
     }
-    StepKind::UpdateProject { upstream } => format!("{upstream} has new commits: `bd update` builds the copy of {what} anew on them before its push"),
+    StepKind::UpdateProject { upstream } => format!("{upstream} has new commits: `brd update` builds the copy of {what} anew on them before its push"),
     StepKind::AutoMerging { number, .. } => format!("GitHub merges #{number} once its checks pass"),
     StepKind::Hidden
     | StepKind::Settled

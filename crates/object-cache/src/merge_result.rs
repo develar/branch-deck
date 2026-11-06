@@ -1,5 +1,5 @@
 //! `merge_result`: (base tree, commit tree, target tree) -> what `git merge-tree --write-tree` produced, so that
-//! restacks and `bd check` variants don't merge the same trees again
+//! restacks and `brd check` variants don't merge the same trees again
 
 use crate::cache::{ObjectCache, Store};
 use serde::{Deserialize, Serialize};

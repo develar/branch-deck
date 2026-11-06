@@ -1,5 +1,5 @@
 //! The files of a commit's tree as a tar (`git archive`), for a caller that extracts them outside every working tree
-//! (`bd check --build`).
+//! (`brd check --build`).
 
 use anyhow::Result;
 use git_executor::git_command_executor::GitCommandExecutor;

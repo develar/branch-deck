@@ -9,7 +9,7 @@ use super::*;
 use crate::setup::plist_text;
 use std::process::Command;
 
-/// A temporary home with a `LaunchAgent` whose binary is `bin/bd-host`, and a fake launchctl that writes its calls. The
+/// A temporary home with a `LaunchAgent` whose binary is `bin/brd-host`, and a fake launchctl that writes its calls. The
 /// port of the `LaunchAgent` takes connections until [`World::close_port`]
 struct World {
   dir: tempfile::TempDir,
@@ -43,7 +43,7 @@ impl World {
   }
 
   fn target(&self) -> PathBuf {
-    self.dir.path().join("bin/bd-host")
+    self.dir.path().join("bin/brd-host")
   }
 
   fn launchctl(&self) -> PathBuf {
@@ -165,7 +165,7 @@ fn the_agent_checks_the_binary_keeps_the_previous_one_and_swaps_by_rename() {
   );
   assert_eq!(fs::read_to_string(world.target()).expect("the target"), new);
   assert_eq!(fs::read_to_string(previous_of(&world.target())).expect("the previous binary"), old);
-  assert_eq!(world.bin_files(), ["bd-host", "bd-host.previous"]);
+  assert_eq!(world.bin_files(), ["brd-host", "brd-host.previous"]);
   assert_eq!(fs::metadata(world.target()).expect("the target").permissions().mode() & 0o777, BINARY_MODE);
   assert!(read_listening(&world.home).is_none(), "only a later serve writes the listening file");
   assert_eq!(
@@ -230,15 +230,15 @@ fn a_binary_that_does_not_run_here_as_an_upgradable_agent_is_refused_and_the_tar
     assert_eq!(refusal.code, Code::BadBinary, "{text}");
     assert!(refusal.message.contains(said), "{text}: {}", refusal.message);
     assert_eq!(fs::read_to_string(world.target()).expect("the target"), old);
-    assert_eq!(world.bin_files(), ["bd-host"]);
+    assert_eq!(world.bin_files(), ["brd-host"]);
   }
   for plist in ["changed", "unknown"] {
     let refusal = world
       .install(world.stage(&world.agent_text_with("other", WITH_UPGRADE, plist)))
       .expect_err("another LaunchAgent");
     assert_eq!(refusal.code, Code::PlistChanged, "{plist}");
-    assert!(refusal.message.ends_with("`bd-host setup` installs it"), "{}", refusal.message);
-    assert_eq!(world.bin_files(), ["bd-host"]);
+    assert!(refusal.message.ends_with("`brd-host setup` installs it"), "{}", refusal.message);
+    assert_eq!(world.bin_files(), ["brd-host"]);
   }
 }
 
@@ -250,7 +250,7 @@ fn a_lower_version_needs_force_and_a_living_watchdog_refuses_the_next_upgrade() 
   let refusal = world.install(world.stage(&older)).expect_err("a downgrade");
   assert_eq!(refusal.code, Code::Downgrade);
   assert_eq!(refusal.message, "the binary 1.9.0 is older than the agent 2.0.0; `--force` installs it");
-  assert_eq!(world.bin_files(), ["bd-host"]);
+  assert_eq!(world.bin_files(), ["brd-host"]);
 
   let lock = hold_watch_lock(&world.home).expect("the lock of a watchdog");
   let refusal = world.install_forced(world.stage(&older), true).expect_err("a watchdog lives");
@@ -346,7 +346,7 @@ fn the_watchdog_brings_back_the_previous_binary_when_the_new_one_does_not_listen
   assert_eq!(watched.expect("watched"), Watched::RolledBack { listens: true });
   assert_eq!(world.outcome().expect("the outcome").outcome, "rolled_back");
   assert_eq!(fs::read_to_string(world.target()).expect("the target"), "old");
-  assert_eq!(world.bin_files(), ["bd-host"]);
+  assert_eq!(world.bin_files(), ["brd-host"]);
   let (_, service) = service(LAUNCHD_LABEL);
   assert_eq!(world.launchctl_calls(), format!("kickstart -k {service}\n"));
   assert!(said.iter().any(|line| line.contains("so the previous binary comes back")), "{said:?}");
@@ -374,5 +374,5 @@ fn the_binary_of_the_launch_agent_is_the_program_of_its_plist() {
   fs_retry::remove_file(world.home.launch_agent_file()).expect("no plist");
   let refusal = launch_agent(&world.home).expect_err("no LaunchAgent");
   assert_eq!(refusal.code, Code::UpgradeFailed);
-  assert!(refusal.message.contains("`bd-host setup` writes it"), "{}", refusal.message);
+  assert!(refusal.message.contains("`brd-host setup` writes it"), "{}", refusal.message);
 }

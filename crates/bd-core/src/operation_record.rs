@@ -4,11 +4,11 @@
 //! the same intent holds (`operations::engine::request_of`, `unplanned_request`), and its entry in the journal of the
 //! operations once it ended, with what it cost from its admission on (`Entry::finish`):
 //!
-//! - an operation of the remote (`bd push`, `bd safe-push`, `bd request-review`) is admitted once its plan holds
+//! - an operation of the remote (`brd push`, `brd safe-push`, `brd request-review`) is admitted once its plan holds
 //!   (`admit_planned`), `busy` while another process (the app, another `bd`) runs what it needs, a start whose answer was
 //!   lost in its way settled first over the services of the run; its run is the engine's (`run_admitted`);
-//! - a rewrite of the checked out branch (`bd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`,
-//!   `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`), `bd update` and `bd pick` are recorded before the command
+//! - a rewrite of the checked out branch (`brd group`, `rename`, `restack`, `unstack`, `reword`, `fold`, `park`,
+//!   `unpark`, `unapply`, `reapply`, `undo`, `move-hunk`), `brd update` and `brd pick` are recorded before the command
 //!   takes any lock (`recorded`): HEAD, which they hold, makes no other process busy (the repository lock orders them,
 //!   `domain_policy::admission::holds_across`), so the record is what the app's windows show of them ("bd: Unstacking
 //!   beta") and what the journal keeps; only a ref one of them holds besides (the unapplied branch a reapply takes) makes
@@ -86,7 +86,7 @@ pub fn run_admitted(context: &RepoContext, entry: Entry, run: impl Future<Output
 /// What `run` answers; `busy` while an operation of another process holds a ref it needs besides HEAD, as `admit`
 pub fn recorded<T>(context: &RepoContext, intent: &Intent, run: impl FnOnce() -> Result<T, CliError>) -> Result<T, CliError> {
   let Some(request) = unplanned_request(&context.prefix, intent) else {
-    return Err(CliError::new(ErrorCode::InvalidArguments, format!("bd records no {:?} without its plan", intent.kind())));
+    return Err(CliError::new(ErrorCode::InvalidArguments, format!("brd records no {:?} without its plan", intent.kind())));
   };
   let op = operation_of(context);
   let entry = context.operations_registry().admit(&op, HolderTool::Bd, &session_key(context), &request)?;

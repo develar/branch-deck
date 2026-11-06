@@ -808,7 +808,7 @@ pub async fn set_foreign_operation(
 }
 
 /// `POST /repositories/{id}/stamp`: `bd` did a mutation in the repository behind the app's back, as after an agent's
-/// `bd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed
+/// `brd group` (`touch_stamp`): the sessions a window shows sync once the inputs changed
 pub async fn touch_repository_stamp(Path(id): Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, (StatusCode, String)> {
   let path = path_of(&state, &id)?;
   touch_stamp(&std::path::Path::new(&path).join(".git"));

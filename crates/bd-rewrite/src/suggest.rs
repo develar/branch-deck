@@ -1,4 +1,4 @@
-//! `bd suggest`: a grouping of the commits ahead of the baseline into branches, as a plan for `bd group`, already
+//! `brd suggest`: a grouping of the commits ahead of the baseline into branches, as a plan for `brd group`, already
 //! checked. It reads the commits once (`CheckSession`), clusters them (`clustering.rs`), with stacked branches stacks
 //! each cluster on the clusters it needs, and checks the plan with a trial sync; a conflict stacks on or joins the
 //! commits it needs and clusters again. It writes git objects and the cache only (docs/contributing/agent-cli.md)
@@ -53,12 +53,12 @@ pub struct SuggestArgs {
   pub dump_input: bool,
 }
 
-/// `bd suggest`
+/// `brd suggest`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct SuggestOutput {
   #[serde(flatten)]
   pub header: CommitsHeader,
-  /// The plan for `bd check` and `bd group`: only the commits whose branch changes; a fixup that follows its target is
+  /// The plan for `brd check` and `brd group`: only the commits whose branch changes; a fixup that follows its target is
   /// left out
   pub plan: SuggestPlan,
   /// Ordered by their oldest commit
@@ -95,7 +95,7 @@ pub struct SuggestedCluster {
   pub weak: bool,
   /// The issue keys of its subjects
   pub issue_keys: Vec<String>,
-  /// The directories with the most lines, as in `bd commits --brief`
+  /// The directories with the most lines, as in `brd commits --brief`
   pub areas: Vec<DirLines>,
   /// `issue_group`: whole issue branches that an issue group puts together, so that their subjects stay
   /// (`--rewrite-issues` gives them a prefix instead)
@@ -108,7 +108,7 @@ pub struct SuggestedCluster {
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub restacked: bool,
   /// The stack parents stack it on `parent`, but it needs no commit of `parent` or of its ancestors by its lines. The
-  /// plan keeps the parent: `bd unstack <name>` makes it a root, `bd safe-push --dry-run` tells whether it builds alone
+  /// plan keeps the parent: `brd unstack <name>` makes it a root, `brd safe-push --dry-run` tells whether it builds alone
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub stacked_without_need: bool,
 }
@@ -126,7 +126,7 @@ pub struct SuggestCheck {
   pub ok: bool,
   /// The times a conflict joined the commits it needs and the clustering ran again
   pub repair_rounds: usize,
-  /// As in `bd check`
+  /// As in `brd check`
   pub branches: Vec<CheckedBranch>,
 }
 
@@ -143,7 +143,7 @@ pub struct SuggestWarning {
   pub message: String,
 }
 
-/// `bd suggest --dump-input`
+/// `brd suggest --dump-input`
 #[derive(Debug, Serialize)]
 pub struct SuggestInputDump {
   pub schema: SchemaVersion,
@@ -187,7 +187,7 @@ struct Checked {
   report: CheckReport,
 }
 
-/// `bd suggest --dump-input`: the input with every name hashed by `SipHash` with a random key of the operating system,
+/// `brd suggest --dump-input`: the input with every name hashed by `SipHash` with a random key of the operating system,
 /// which is neither kept nor printed
 pub fn suggest_input_dump(context: &RepoContext) -> Result<SuggestInputDump, CliError> {
   let reading = Reading::read(context)?;
@@ -286,7 +286,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
       }
     })
     .collect();
-  // the fixes are `bd check`'s: each costs a trial build of every branch
+  // the fixes are `brd check`'s: each costs a trial build of every branch
   let checked = checked_branches(&report, &files_of, &short, &mut |_, _| None);
   let mut warnings = warnings_of(&repaired.clustering, input.stacks);
   for (branch, result) in report.branches.iter().zip(&checked).filter(|(_, checked)| checked.result != "ok") {
@@ -311,7 +311,7 @@ pub fn suggest(context: &RepoContext, args: &SuggestArgs) -> Result<SuggestOutpu
         let how = if only_the_file {
           format!("move {fixed_by}, which changes only {}, into {}", reference.file, branch.name)
         } else {
-          format!("move that change of {} into {removed_by}; `bd check` proves the move by a trial build", reference.file)
+          format!("move that change of {} into {removed_by}; `brd check` proves the move by a trial build", reference.file)
         };
         format!(
           "{fixed_by} in {} changes the use of {} with what the branch adds, so no stack builds both: {how}",

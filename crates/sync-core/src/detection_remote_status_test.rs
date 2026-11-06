@@ -795,7 +795,7 @@ async fn a_child_whose_parent_got_a_new_commit_lacks_it_on_its_remote() {
   assert_eq!(login_status_outside_the_sync(&scenario).ancestor_commits_ahead, 0);
 }
 
-/// A stack whose parent commit was reworded (`bd reword`: the same changes, another subject): the child's remote branch
+/// A stack whose parent commit was reworded (`brd reword`: the same changes, another subject): the child's remote branch
 /// has the parent's commit with its old message, which a push replaces. Restacked, in the sync and outside it; a parent
 /// only rebuilt (the same message) gives the child nothing to push
 #[test(tokio::test)]

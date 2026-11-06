@@ -8,7 +8,7 @@
 #
 # Options:
 #   --version <x.y.z>  install this release instead of the latest one
-#   --with-cli         also install the Agent CLI (`bd install`: `bd` in ~/.local/bin and the agent skills)
+#   --with-cli         also install the Agent CLI (`brd install`: `brd` in ~/.local/bin and the agent skills)
 # Environment:
 #   BRANCH_DECK_INSTALL_DIR  macOS: the directory for BranchDeck.app (default /Applications, else ~/Applications);
 #                            Linux AppImage: the directory for the branch-deck binary (default ~/.local/bin)
@@ -36,7 +36,7 @@ Installs or upgrades Branch Deck from its GitHub release.
 
 Usage: install.sh [--version <x.y.z>] [--with-cli]
   --version <x.y.z>  install this release instead of the latest one
-  --with-cli         also install the Agent CLI (bd in ~/.local/bin and the agent skills)
+  --with-cli         also install the Agent CLI (brd in ~/.local/bin and the agent skills)
 
 Environment:
   BRANCH_DECK_INSTALL_DIR  macOS: the directory for BranchDeck.app; Linux: the directory for the AppImage
@@ -282,10 +282,10 @@ if [ "$has_cli" = false ]; then
 elif [ "$with_cli" = true ]; then
   cli install >"$tmp/install.json" || fail "the Agent CLI could not be installed"
   tr -d '\n' <"$tmp/install.json" >"$tmp/install.line"
-  bd="$(sed -n 's/.*"bd": *"\([^"]*\)".*/\1/p' "$tmp/install.line")"
-  say "Installed the Agent CLI as $bd, and the branch-deck skill for coding agents"
+  brd="$(sed -n 's/.*"brd": *"\([^"]*\)".*/\1/p' "$tmp/install.line")"
+  say "Installed the Agent CLI as $brd, and the branch-deck skill for coding agents"
   if grep -q '"on_path": *false' "$tmp/install.line"; then
-    say "${bd%/*} is not on PATH: add it in your shell profile, e.g. export PATH=\"\$HOME/.local/bin:\$PATH\""
+    say "${brd%/*} is not on PATH: add it in your shell profile, e.g. export PATH=\"\$HOME/.local/bin:\$PATH\""
   fi
 else
   say "Agent CLI for coding agents: run the installer with --with-cli, or Help → Install Agent CLI… in the app"

@@ -1,5 +1,5 @@
 //! The names a built branch uses that a commit outside its tree adds, by the edges by symbols (`symbol_dependencies`,
-//! `branchdeck.symbols on`): git merges the branch, its build would fail. `bd check` fails such a branch, and the
+//! `branchdeck.symbols on`): git merges the branch, its build would fail. `brd check` fails such a branch, and the
 //! landing gate (`landing_gate`) refuses the start of what lands with it; names, not a compiler, so the user can
 //! override both.
 

@@ -167,14 +167,14 @@ pub struct ErrorBody {
   /// The commits the error is about; empty when it is about none
   pub commits: Vec<String>,
   /// The branches whose remote branch has commits they lack, with their remote status: the rejected ones of
-  /// `lease_rejected` as bd fetched them, the ones behind of `push_refused`
+  /// `lease_rejected` as brd fetched them, the ones behind of `push_refused`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub branches: Vec<ErrorBranch>,
   /// The files the error is about, relative to the repository: the local files of `uncommitted_overlap`, the
   /// conflicting files of a refused resolution
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub paths: Vec<String>,
-  /// The ids of the blocks the file has now, for `block_not_found`: pass one of them to `bd move-hunk --block`
+  /// The ids of the blocks the file has now, for `block_not_found`: pass one of them to `brd move-hunk --block`
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub blocks: Vec<String>,
   /// The code-owner review of `approvals_missing`: the groups whose approval is missing, their files, and where the
@@ -186,8 +186,8 @@ pub struct ErrorBody {
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub processes: Vec<ProcessOutput>,
   /// The commands that act on the refusal, ready to run, in the order to run them: a step with `needs_approval` runs
-  /// only once the user approved it (a push, a rewrite, a cancel of a robot); one without it only reads (`bd robot`,
-  /// `bd sync`, a `--dry-run`). Never a way to start anyway: `--allow-*`, `--without-approvals` and `--min-free` stay in
+  /// only once the user approved it (a push, a rewrite, a cancel of a robot); one without it only reads (`brd robot`,
+  /// `brd sync`, a `--dry-run`). Never a way to start anyway: `--allow-*`, `--without-approvals` and `--min-free` stay in
   /// `message`, with the condition of each
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub next_steps: Vec<NextStep>,
@@ -235,7 +235,7 @@ pub struct ProcessOutput {
   pub command: String,
   /// The arguments as one line, at most 200 characters
   pub argv: String,
-  /// `bazel_server`: it serves only this worktree, and `bd lease return` stops it itself once no other process is in
+  /// `bazel_server`: it serves only this worktree, and `brd lease return` stops it itself once no other process is in
   /// the worktree; `other`: wait until it is done
   pub kind: ProcessKind,
   /// The `--workspace_directory` of a Bazel server
@@ -269,10 +269,10 @@ pub fn regroup_error(error: RegroupError) -> CliError {
   let mut message = error.to_string();
   if let RegroupError::FixupsStranded { refusal, .. } = &error {
     message.push_str(match refusal {
-      FixupRefusal::MarkerChanged => " (to squash commits the user asked to squash, use bd squash <into> <commit>...)",
-      FixupRefusal::Retargeted => " (fold them first with bd fold, or reword them in the same plan to name the new subject)",
-      FixupRefusal::NamedById => " (fold them first with bd fold)",
-      FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with bd fold)",
+      FixupRefusal::MarkerChanged => " (to squash commits the user asked to squash, use brd squash <into> <commit>...)",
+      FixupRefusal::Retargeted => " (fold them first with brd fold, or reword them in the same plan to name the new subject)",
+      FixupRefusal::NamedById => " (fold them first with brd fold)",
+      FixupRefusal::AmendWaits => " (reword the amend! too, or fold first with brd fold)",
     });
   }
   CliError {

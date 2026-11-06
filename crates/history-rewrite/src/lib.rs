@@ -23,12 +23,12 @@
 //! - `regroup`: one reword that sets the prefixes of a plan, with the issue groups and the stack parents, and its undo
 //! - `move_commits`: the app's move of commits to a branch, through the regroup
 //! - `move_plan`: the smallest regroup of a move: by the issue groups, by prefixes, or both
-//! - `reword`: new messages of commits ahead of the baseline as a regroup (`bd reword`, the app's edit of a message),
+//! - `reword`: new messages of commits ahead of the baseline as a regroup (`brd reword`, the app's edit of a message),
 //!   with its undo, and the writes of every regroup
 //! - `fixup_targets`: the fixups a rewrite of messages may not fold elsewhere
 //! - `squash`: commits into the oldest of them, and the undo
 //! - `drop_commits`: commits ahead of the baseline out of HEAD for good, the files following, and the undo
-//! - `autosquash`: the `fixup!`, `squash!` and `amend!` commits into their targets (`bd fold`)
+//! - `autosquash`: the `fixup!`, `squash!` and `amend!` commits into their targets (`brd fold`)
 
 pub mod autosquash;
 pub mod baseline;

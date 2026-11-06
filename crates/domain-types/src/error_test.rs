@@ -74,7 +74,7 @@ fn a_locked_error_names_its_holder() {
   let error = ApiError::new(ErrorCode::Locked, "Another Branch Deck operation holds the repository").with_details(ErrorDetails::Locked {
     holder: Some(LockHolderInfo {
       tool: HolderTool::Bd,
-      command: "bd push auth".to_owned(),
+      command: "brd push auth".to_owned(),
       pid: 4242,
       held_for: 40,
     }),
@@ -84,7 +84,7 @@ fn a_locked_error_names_its_holder() {
     json!({
       "code": "locked",
       "message": "Another Branch Deck operation holds the repository",
-      "details": {"type": "locked", "holder": {"tool": "bd", "command": "bd push auth", "pid": 4242, "held_for": 40}},
+      "details": {"type": "locked", "holder": {"tool": "bd", "command": "brd push auth", "pid": 4242, "held_for": 40}},
       "retry": "same",
       "operation_id": null,
     })

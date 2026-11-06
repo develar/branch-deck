@@ -50,7 +50,7 @@ A review is the story of a change, not a list of files:
    new round of an agent, the review shows the diff since then.
 6. **No switches.** One setting turns the review plan on, and whoever turns it on gets the finished review at once.
    No "Order: Tree / Dependencies", no modes to learn: the product decides how the review looks.
-7. **Measured, not guessed.** Every rule is printed by `bd review-plan` as JSON and measured on real ranges before
+7. **Measured, not guessed.** Every rule is printed by `brd review-plan` as JSON and measured on real ranges before
    the window shows it.
 
 ## Model
@@ -66,10 +66,10 @@ flowchart LR
   F --> T[tree of the window]
   C --> T
   A --> K[overview of the document]
-  P --> B[bd review-plan JSON]
+  P --> B[brd review-plan JSON]
 ```
 
-The plan is computed in Rust once for `bd` and the app, from the git processes the review reads already (its
+The plan is computed in Rust once for `brd` and the app, from the git processes the review reads already (its
 budget is a test, `process_budget_test.rs`). The window only words it: one document, the overview at its top
 (`ReviewPrologue.tsx`, `presentPrologue`) and the opening of each step above its first card (`ChapterOpening.tsx`,
 `presentOpenings`), the one mark of a row and its card (`FileRowMark.tsx`, `presentRowFacts`) and the groups of the
@@ -128,8 +128,8 @@ the review.
 | Deletion as real work | Landed | c60b21a1b | a deleted file is a unit of its own; 3 or more of one directory one unit | |
 | Dependency order of the files | Partial | 1db3d3d4f, d61bd2446 | lives in the story of the diffs | the Order toggle was reverted: no switches |
 | Units and the story of the diffs | Landed | 7658a56f7, 9734e000b, a75281f1d | every block in one unit; about 40% of the units are a change of a body alone, which no part showed before | a file of no parsed language (Markdown, JSON, TOML, Python) is one unit as a whole |
-| Concerns (untangling) | Landed: in the plan, `bd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
-| The story: the brief and the steps | Landed in the plan and `bd` (schema 10), and in the window | 3b9fb5275, this change | a step per commit whose body tells it, the units that land by the commit of their lines, rounds and rewritten commits glued, mechanical parts with the commit that wrote them; every block in one stop on 38 real ranges; the brief quotes the rules of the specs with the tests their test links name | a follow-up by its lines joins 2 of 8 tasks of their own to the step that made their file |
+| Concerns (untangling) | Landed: in the plan, `brd` and the window | 97e92369, v4 of 2026-10-31, the window (this change) | on four labelled corpora (the lab, [Review Concerns → Measurements](../../spec/branch/review-concerns.spec.md#measurements)) purer than a group per file on three (idea-1 85.4 vs 84.7, Java 95.3 vs 89.9) and than `inspect`; build files and imports follow their concern; a server dropped from six configs is one concern; the tree lists the concerns, a file of two of them has its row in the one of most of its lines and a row "also in" the other, the story follows them | recall below a group per file (idea-1 67.0 vs 77.8); the rest buys recall back and costs purity, so it is off; a declaration two tasks change joins them; a module whose files are in concerns has no directory row, its dependency badge is on its build file, in the Mechanical group |
+| The story: the brief and the steps | Landed in the plan and `brd` (schema 10), and in the window | 3b9fb5275, this change | a step per commit whose body tells it, the units that land by the commit of their lines, rounds and rewritten commits glued, mechanical parts with the commit that wrote them; every block in one stop on 38 real ranges; the brief quotes the rules of the specs with the tests their test links name | a follow-up by its lines joins 2 of 8 tasks of their own to the step that made their file |
 | The window, round two: one mark per row | Landed | b94b51243 | up to four badges a row (links, `+1 new`, breaks, same edit) and a dependency badge became one mark, warning only when the file breaks uses left outside; its hover card lists Breaks, Uses, Used by, Same edit, Dependencies, a link selects its file; the description of the row keeps every fact; `I` on the focused row opens the card, the focus on its first file, Escape gives it back to the row (round three) | the card opened by the pointer only until round three: the mark is still no tab stop, the keyboard reaches it from its row |
 | The window, round two: owner chips mark | Landed | 580ed48b1 | a chip hides no file: the files of other owners and the steps without the chosen owner's files are muted, a step with them says "Design 2", J/K and N/P move through the owner's sections only; a link of a mark selects a file of another owner without dropping the chip, so the reveal that undid the filter is gone (only the search keeps one); a chip at 0 mutes nothing and says so | the footer counted every file ("File 3 / 12") until round three added the part of the chip ("· Design 2 / 5") |
 | The window, round two: the commits in their steps | Landed | b19eaea2f | with the plan, a scope of two commits or more lists its commits in the groups of their steps, above the files: the one that starts a step, those that follow it up, those without a story; the column above keeps the scopes; a commit of several concerns is listed once, one of no step in Other commits; a click shows the step, Enter, Show Commit Alone and ⌥↑/⌥↓ the commit alone with its own plan; in the windows of a branch, a stack and a pull request | until the plan of a scope is read the column lists every commit, then they move into the tree; the plan names its commits short, matched by prefix; the first cut listed every commit of a pull request in its Since Your Review, kept commit rows of steps a search had emptied, took the commits out of the column while no tree showed (a search that keeps nothing), and lost the branch heading and the review boundary of the column: a scope lists its own commits, a search keeps the commits of the groups it keeps, the column has them back while the tree lists none, and a row says its branch and "Your review" |
@@ -143,7 +143,7 @@ the review.
 | The tests that reach the code of a step | Landed, the given tests wait for accio (#179) | this change | one `accio tests --at` of the code of every step (JetBrains/accio#107): the step names the files of the tests of the change that reach it (a test of a new file is one, a new file's declarations its code), counts the tests it did not touch that call it, says "No test reaches show" only where accio walked every caller and "No test found within 3 calls" where it stopped short; the step of the tests says which steps it proves | the walk goes up from each declaration to every test of the repository and stops at 3 calls, so a test of the change 17 calls away (an end-to-end test through an RPC) is not seen, and the calls inside `withFixture { … }` are tied by name (JetBrains/accio#212, #213) |
 | Since Your Review: how the message changed | Landed | this change (#171) | the messages the interdiff reads already compared by the blocks of the grammar of a body, an LCS of whole blocks, no process: a `rewritten` commit says "message changed" and a commit whose lines are as reviewed is `reworded`, unread, in Since Your Review without a line of its code; its story marks what its body added and shows what it removed where it stood, the part of a change unfolded (Rust places both), in the openings of All Changes and the heading of a commit shown alone (its plan reads the reviewed message, one `rev-list`); the overview's line of the commit opens to the change, the one place Since Your Review as one diff shows it; the overview said "Only its message changed" of a rewritten commit whose lines moved, never having read a message | a paragraph edited is a block removed and a block added, no word diff; a subject reworded with an amend stays added and dropped |
 | Steps of the message of one commit | Landed | this change | a commit alone whose paragraphs name the code they tell is told by them: a step per labelled section or paragraph (a list under it one part), in the order of the body, titled by its label, its first sentence or its first code name; a concern one part names goes whole to it, one two parts name is cut by its own evidence (a use the change adds nearer than one it keeps), test code joins the step of `Tests:`, a concern no part names stays a step after them; on 31 commits of idea-1 10 switch, 68 concerns now 48 steps, every block in one stop | a body that lists its changes in one list stays on the concerns (a list is one part); a concern no paragraph names (a DTO field the prose calls "the state DTO") stays a step named by its evidence |
-| LLM tour with a hard coverage gate | Not started: the author's tour (`bd tour`) first | | | |
+| LLM tour with a hard coverage gate | Not started: the author's tour (`brd tour`) first | | | |
 | Corpus evaluation (ranks of the hunks reviewers needed, false folds) | Not started | | | the main debt |
 
 ## Decisions and Reversals
@@ -221,7 +221,7 @@ the review.
    under the token `TerminalOffset`, cut the way of the markers into three and made 7 steps of tests and their
    helpers; a reviewer could not tell how the fix works from them. The parts of such a body are now the steps, each
    with the concerns its code names, a concern two parts name cut by its own evidence; nothing is guessed, a concern
-   no part names stays a step of its own. Until the author's tour (`bd tour`, Next 0) exists, the body is the tour of
+   no part names stays a step of its own. Until the author's tour (`brd tour`, Next 0) exists, the body is the tour of
    a commit alone, and the tour will share this model of chapters.
 15. **What the author left out shows** (2026-11-03). `Left out:` was a verification label, folded always, beside
    `Tests:` and `Evidence:`. In `terminal-split-url` it held the one honest answer to "is it proven": "The tests of the
@@ -281,7 +281,7 @@ The plan: [Review Plan → Measurements](../../spec/branch/review-plan.spec.md#m
 
 ## Next
 
-0. **The author's tour** (`bd tour write`): the agent that wrote the change writes its decisions to approve and the
+0. **The author's tour** (`brd tour write`): the agent that wrote the change writes its decisions to approve and the
    places to look closely, by the ids of the units, gated by the plan (every unit in one chapter), kept by the
    fingerprints across a rebase; then "Write Tour" in the window by a model for a range without one.
 1. **Concerns**: units joined by static evidence (names declared in the change and their uses, a test and its subject,

@@ -326,7 +326,7 @@ fn commit_map(
 pub(crate) mod robot_commits_test;
 
 /// The failure of a robot with the commit map of its branch and the checked-out branch, for the prompt for an agent: the
-/// app and `bd robot` build it alike. For a robot of the whole stack (`stack_root`), `ancestors` are the members of the
+/// app and `brd robot` build it alike. For a robot of the whole stack (`stack_root`), `ancestors` are the members of the
 /// stack, the root first (`stack_robot_commit_map`). No map without a branch, a stack with members, or a source
 /// revision. One process besides the map: `symbolic-ref` names the checked-out branch.
 #[instrument(skip(git_executor, failure), fields(robot = %failure.robot.id))]

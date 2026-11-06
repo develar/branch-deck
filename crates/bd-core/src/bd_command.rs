@@ -1,19 +1,23 @@
-//! How to run the bd of this binary: the command the outputs, the help texts and the skills name (`BdCommand`), and a
-//! word quoted for the user's shell. `bd install` writes the symlink these read
+//! How to run the brd of this binary: the command the outputs, the help texts and the skills name (`BdCommand`), and a
+//! word quoted for the user's shell. `brd install` writes the symlink these read
 
 use crate::context::Environment;
 use crate::error::CliError;
-use domain_types::error::ErrorCode;
+use domain_types::error::{AGENT_CLI_NAME, ErrorCode};
 use std::path::{Path, PathBuf};
 use sync_utils::paths::display_path;
 
-/// Where the `bd` symlink goes, under the home directory
+/// The agent CLI executable name and its Windows console executable name
+pub const CLI_NAME: &str = AGENT_CLI_NAME;
+pub const CLI_EXE: &str = "brd.exe";
+
+/// Where the `brd` symlink goes, under the home directory
 #[cfg(unix)]
 pub const LINK_DIR: &str = ".local/bin";
 
-/// How to run the bd of this binary, without writing anything: the `bd` symlink in `~/.local/bin` when it points at
+/// How to run the `brd` of this binary, without writing anything: the `brd` symlink in `~/.local/bin` when it points at
 /// this binary, else the binary itself, with the `cli` subcommand on macOS and Linux, where the bare app binary starts
-/// the app (on Windows `bd.exe` next to the app, the console binary)
+/// the app (on Windows `brd.exe` next to the app, the console binary)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BdCommand {
   pub program: PathBuf,
@@ -61,40 +65,40 @@ pub fn shell_word(word: &str) -> String {
   }
 }
 
-/// The bd of this binary, see `BdCommand`
+/// The brd of this binary, see `BdCommand`
 pub fn bd_command(environment: &Environment) -> Result<BdCommand, CliError> {
   let target = app_binary(environment)?;
   #[cfg(unix)]
   if let Some(home) = &environment.home {
-    let link = home.join(LINK_DIR).join("bd");
+    let link = home.join(LINK_DIR).join(CLI_NAME);
     if links_to(&link, &target) {
       return Ok(BdCommand { program: link, subcommand: None });
     }
   }
-  // the app binary needs `cli`; a binary named bd (a cargo build, `bd.exe` on Windows) is the CLI itself
-  let is_bd = target.file_stem().is_some_and(|stem| stem == "bd");
-  let subcommand = (!cfg!(windows) && !is_bd).then_some("cli");
+  // the app binary needs `cli`; a binary named `brd` (a cargo build, `brd.exe` on Windows) is the CLI itself
+  let is_cli = target.file_stem().is_some_and(|stem| stem == CLI_NAME);
+  let subcommand = (!cfg!(windows) && !is_cli).then_some("cli");
   Ok(BdCommand { program: target, subcommand })
 }
 
-/// The command `bd help skill` names, quoted for a shell: `bd_command`, or `bd` when the binary is unknown
+/// The command `brd help skill` names, quoted for a shell: `bd_command`, or `brd` when the binary is unknown
 pub fn skill_command(environment: &Environment) -> String {
-  bd_command(environment).map_or_else(|_| "bd".to_string(), |command| command.for_shell())
+  bd_command(environment).map_or_else(|_| CLI_NAME.to_string(), |command| command.for_shell())
 }
 
 /// `path` without the `\\?\` prefix that `canonicalize` gives on Windows, when it is shorter than 260 characters: every
-/// command bd prints names the program, and many tools refuse the verbatim form
+/// command brd prints names the program, and many tools refuse the verbatim form
 pub fn without_verbatim(path: &Path) -> PathBuf {
   PathBuf::from(display_path(path))
 }
 
-/// The binary the command runs: on macOS and Linux the app binary (a `bd` symlink resolves to it), on Windows `bd.exe`
+/// The binary the command runs: on macOS and Linux the app binary (a `brd` symlink resolves to it), on Windows `brd.exe`
 /// next to the app, the console binary
 pub fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
   let executable = environment
     .executable
     .as_deref()
-    .ok_or_else(|| CliError::new(ErrorCode::InstallRefused, "Can't tell where the bd binary is"))?;
+    .ok_or_else(|| CliError::new(ErrorCode::InstallRefused, "Can't tell where the brd binary is"))?;
   let executable = without_verbatim(&std::fs::canonicalize(executable).map_err(|e| io_error(executable, &e))?);
   // an `APPIMAGE` that is gone is not the app's
   let appimage = environment
@@ -104,11 +108,11 @@ pub fn app_binary(environment: &Environment) -> Result<PathBuf, CliError> {
     .map(|path| without_verbatim(&path));
   let executable = app_binary_path(&executable, appimage.as_deref());
   if cfg!(windows) {
-    let bd = executable.with_file_name("bd.exe");
-    if !bd.is_file() {
-      return Err(CliError::new(ErrorCode::InstallRefused, format!("No bd.exe next to {}", executable.display())));
+    let cli = executable.with_file_name(CLI_EXE);
+    if !cli.is_file() {
+      return Err(CliError::new(ErrorCode::InstallRefused, format!("No {CLI_EXE} next to {}", executable.display())));
     }
-    return Ok(bd);
+    return Ok(cli);
   }
   Ok(executable)
 }

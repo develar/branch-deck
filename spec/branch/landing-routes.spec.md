@@ -82,7 +82,7 @@ targets:
 
 # Landing Routes
 
-Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions, its page and `bd land`, the closes of what landed by content, the route in Settings → Landing, the merge of a pull request and its auto-merge on GitHub with their steps, `bd land` and the news of an auto-merge)
+Status: Draft (implemented: the route, its facts and its gates, Push to master with its step, its actions, its page and `brd land`, the closes of what landed by content, the route in Settings → Landing, the merge of a pull request and its auto-merge on GitHub with their steps, `brd land` and the news of an auto-merge)
 Date: 2026-10-28
 
 ## Summary
@@ -99,7 +99,7 @@ target, read before anything is pushed.
 
 ## Goals
 
-- Name the route of a repository once, in its git config, read by the app and `bd` alike.
+- Name the route of a repository once, in its git config, read by the app and `brd` alike.
 - Keep the monorepo on Safe Push without a setting, and give every other repository a route.
 - Tell before a push whether the user may push into the target or merge there, from facts GitHub already gives.
 - Never read a fact without an answer as "no".
@@ -143,7 +143,7 @@ target, read before anything is pushed.
   `pushInsteadOf` applied). It sends them in `BranchesGrouped` (`landing`): the setting, whether `origin` pushes to
   Space, the github.com repository the remote of the baseline pushes to, the branch of the baseline there (`master` of
   `origin/master`) and its remote (`origin`; none of both for a local baseline). The session keeps them in the header
-  of its view. The grouping of `bd status` reads them from the same listing (`BranchGrouping.landing`).
+  of its view. The grouping of `brd status` reads them from the same listing (`BranchGrouping.landing`).
   [@test] ../../crates/sync-core/src/repo_facts_test.rs (`the_remotes_come_with_their_push_urls`, `the_landing_remote_is_read_with_the_facts_of_a_sync`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_push_route_reads_the_rules_of_the_target`)
 
@@ -168,9 +168,9 @@ target, read before anything is pushed.
 
 ### Gates
 
-- One rule must decide the route and its gate for the app and `bd` (`domain_policy::landing_route::route`): open, a
+- One rule must decide the route and its gate for the app and `brd` (`domain_policy::landing_route::route`): open, a
   wait for a fact (with the reason of a read that failed), confirmations the user accepts, or a refusal with its
-  reason (`Reason`, worded by the page in `src/presenters/reasons.ts` and by `bd` in `refusal_words.rs`). The view of the
+  reason (`Reason`, worded by the page in `src/presenters/reasons.ts` and by `brd` in `refusal_words.rs`). The view of the
   session carries it as a part of its own (`RepositoryView.route`), patched when it changes.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`the_facts_of_the_session_read_as_the_rule_takes_them`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
@@ -214,7 +214,7 @@ target, read before anything is pushed.
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_gate_of_the_route_refuses_waits_or_asks_and_a_dry_run_needs_patronus`, `the_subject_refuses_in_the_order_of_the_table_what_landed_it_the_landing_gate_and_the_target`)
 - A push runs no CI: what CI did not pass on the commit it lands must be confirmed (`unchecked`: no open pull request,
   one that shows another commit, failing or running checks, GitHub listing none; a commit without checks asks nothing),
-  so must the changes requested on its pull request and what the gate asks (`routeRule`); `bd land` accepts them only by
+  so must the changes requested on its pull request and what the gate asks (`routeRule`); `brd land` accepts them only by
   `--allow-checks-not-passed` and `--bypass-rules`.
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_checks_that_did_not_pass_on_the_tip_and_the_changes_requested_are_confirmations`, `bd_accepts_the_checks_and_what_the_gate_asks_only_by_their_flags`)
 - The push must go by the first push URL of the remote of the baseline that its plan names
@@ -230,7 +230,7 @@ target, read before anything is pushed.
   a fetch that runs), asks a sync, and fails as `baseline_moved`, pushing nothing again by itself. The copies are built
   on the fork point of the checked out branch, so Update Project follows it as after a push that landed
   (`land_direct::update_after`): the update onto the moved target builds the copy anew on it, and the step offers its
-  push again; `bd land` names `bd update`. A refusal of the server (`[remote rejected]`: a hook, a protected branch) must fail it as `baseline_refused` in
+  push again; `brd land` names `brd update`. A refusal of the server (`[remote rejected]`: a hook, a protected branch) must fail it as `baseline_refused` in
   the server's words, which the session keeps: the gate asks about them before the next push
   (`baselineRefusedPush`), and a push that lands forgets them.
   [@test] ../../crates/sync-core/src/baseline_push_test.rs (`a_target_that_moved_refuses_the_copy_as_no_fast_forward`, `the_server_refusing_the_push_is_said_in_its_words_and_a_large_push_never_goes`)
@@ -240,7 +240,7 @@ target, read before anything is pushed.
   sync: its `base` is not the head of the baseline) must refuse a push the gate would let go or ask about
   (`baselineAhead`, "origin/master has new commits: Update Project first"): the copy is built on the fork point, so the
   server would refuse it as no fast-forward after a round trip. The step is Update Project (row push′ of
-  [Next Step](next-step.spec.md#a-push-into-the-target)); `bd land` refuses it as `baseline_moved` with `bd update`
+  [Next Step](next-step.spec.md#a-push-into-the-target)); `brd land` refuses it as `baseline_moved` with `brd update`
   next, before anything is sent. A gate that refuses for another reason or waits keeps its answer.
   [@test] ../../crates/domain-policy/src/landing_route_test.rs (`a_fetched_baseline_ahead_of_the_fork_point_refuses_the_push_until_the_update`)
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_fetched_target_ahead_of_the_branch_refuses_the_push_before_it_is_sent`)
@@ -249,8 +249,8 @@ target, read before anything is pushed.
   shows it (`landed_state`: "Landed in origin/master"): a second click pushes nothing. Then Update Project with its fetch
   follows as an operation of its own (`land_direct::update_after`, run by the engine), whose replay drops the originals
   whose copies landed; the caller of the start hears its steps and its outcome on the channel of the start, after the
-  start's own (the toast of the push tells how the update went), and the answer of the start comes after it; `bd land`
-  names `bd update` instead.
+  start's own (the toast of the push tells how the update went), and the answer of the start comes after it; `brd land`
+  names `brd update` instead.
   [@test] ../../crates/domain-policy/src/landed_test.rs (`a_push_of_this_session_landed_the_subject_at_the_tip_it_pushed`)
   [@test] ../../crates/repository-model/src/session_test.rs (`a_push_into_the_target_lands_its_subject_and_a_refusal_of_the_server_stays_for_the_gate`)
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_a_push_into_the_target_that_landed_or_found_it_moved`)
@@ -264,8 +264,8 @@ target, read before anything is pushed.
   [@test] ../../crates/domain-policy/src/landing_node_test.rs (`a_push_into_the_target_is_ready_and_a_refusal_of_its_gate_waits`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_push_into_the_target_offers_its_push_with_the_reason_of_its_step_and_no_start_of_the_robot`)
   [@test] ../../src/presenters/next-step.test.ts (`row push: Push to master by the branches it lands, its start disabled with the refusal of the gate of the route`)
-- `bd land` must land by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)), its sync and its trial with no
-  fetch and no check against the newest target (a push is its own), and `bd status` must decide the steps by the same
+- `brd land` must land by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)), its sync and its trial with no
+  fetch and no check against the newest target (a push is its own), and `brd status` must decide the steps by the same
   route over what its grouping read of git, GitHub not asked: the gate of a push into a repository on GitHub waits.
   [@test] ../../crates/bd-remote/src/land_test.rs (`a_moved_target_is_baseline_moved_and_a_refusal_of_the_server_baseline_refused`, `bd_status_decides_the_steps_by_the_route_of_the_repository`)
   [@test] ../../crates/bd-cli/src/process_budget_test.rs (`a_land_check_by_a_push`, `a_land_by_a_push`)
@@ -284,7 +284,7 @@ target, read before anything is pushed.
   can merge it now (`mergeStateStatus`: `CLEAN`, `UNSTABLE`, `BLOCKED`, `BEHIND`, `DIRTY`, `DRAFT`, `HAS_HOOKS`,
   `UNKNOWN`), the method of an auto-merge enabled on it (`autoMergeRequest`), and of the repository the methods it
   allows (`rebaseMergeAllowed`, `mergeCommitAllowed`, `squashMergeAllowed`, `autoMergeAllowed`). GitHub computes the
-  state lazily: an open pull request it answered `UNKNOWN` of makes the session list once more a moment later, and `bd`
+  state lazily: an open pull request it answered `UNKNOWN` of makes the session list once more a moment later, and `brd`
   lists again once; the start waits for it (`mergeState`), never "no".
   [@test] ../../crates/remote-facts/src/pull_requests_test.rs (`the_merge_state_the_auto_merge_and_the_merge_methods_come_with_the_listing`)
   [@test] ../../crates/domain-policy/src/refresh_test.rs (`an_open_pull_request_whose_merge_state_github_computes_asks_the_list_again`)
@@ -295,7 +295,7 @@ target, read before anything is pushed.
   conflict, which the start asks first (`squashOnly`).
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`a_clean_pull_request_merges_by_the_first_method_the_repository_allows_and_an_unstable_one_asks_first`)
 - A start must merge now a pull request GitHub can merge (`CLEAN`, `HAS_HOOKS`), and one whose checks the base does not
-  require fail or run (`UNSTABLE`) once the user accepts it (`checksNotRequired`, `--allow-checks-not-passed` of `bd land`);
+  require fail or run (`UNSTABLE`) once the user accepts it (`checksNotRequired`, `--allow-checks-not-passed` of `brd land`);
   changes someone requested that hold nothing back are a confirmation too. It must enable the auto-merge, GitHub merging
   once the checks pass, while required checks still run (`BLOCKED` by them) where the repository allows it, and after
   the push of the branch (of a whole stack its stack branch) when the pull request shows another commit than the copy:
@@ -319,7 +319,7 @@ target, read before anything is pushed.
 - A merge by the click must go into the session at once (`PullRequestWrite::Merged`): its subject is landed by the
   pull request ("Landed with #7"), and the pull requests of what it landed close by content as a merged pull request's
   ([Closing what landed](#closing-what-landed)); then Update Project with its fetch follows as an operation of its own
-  (`land_direct::update_after`), as after a push; `bd land` names `bd update` instead. An enabled auto-merge goes into
+  (`land_direct::update_after`), as after a push; `brd land` names `brd update` instead. An enabled auto-merge goes into
   the session too (`PullRequestWrite::AutoMerge`), and runs no update: once a listing shows the pull request merged,
   the session tells it as news (`NewsEvent::AutoMerged`, `news::auto_merged`).
   [@test] ../../crates/domain-policy/src/land_direct_test.rs (`the_update_follows_a_merge_of_the_pull_request_and_no_auto_merge`)
@@ -341,7 +341,7 @@ target, read before anything is pushed.
   `merge′`; the merge is `merge-pull-request` in place of the robot's starts.
   [@test] ../../crates/operations/src/auto_merge_test.rs (`cancel_auto_merge_disables_the_auto_merge_of_an_open_pull_request_that_has_one`)
   [@test] ../../crates/domain-policy/src/actions_test.rs (`a_merge_of_the_pull_request_offers_its_merge_and_cancel_auto_merge_while_github_merges_it`)
-- `bd land` must merge by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)): `pull_request` names the pull
+- `brd land` must merge by the same plan ([Agent CLI](../cli/agent-cli.spec.md#bd-land)): `pull_request` names the pull
   request, `auto_merge` an auto-merge enabled (now or before), `landed` a merge; its refusals `not_mergeable`,
   `merge_blocked` and `no_pull_request`, a mirror or a repository off GitHub `landing_route_unsupported`. On Space the
   pull-request route is the Safe Push, as in the app while Patronus lands the repository.
@@ -378,7 +378,7 @@ target, read before anything is pushed.
   [@test] ../../src/lib/landed-closes.test.ts (`asks the session to close what each landing without a robot landed, and toasts each close that failed`)
   [@test] ../../src/presenters/activity.test.ts (`says each close of a landing without a robot by its comment, which no toast says`)
   [@test] ../../tests/e2e/landing/push-to-master.spec.ts (`should close the pull requests of what a push of a stacked piece landed that show an older version of a branch, its own too`)
-- `bd land` must list the pull requests its push closes as `closes`, by the same rule, and close none: the app's session
+- `brd land` must list the pull requests its push closes as `closes`, by the same rule, and close none: the app's session
   closes them ([Agent CLI](../cli/agent-cli.spec.md#bd-land)).
 
 ### The page

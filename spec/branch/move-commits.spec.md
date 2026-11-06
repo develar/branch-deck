@@ -142,12 +142,12 @@ Renaming and ungrouping a branch are moves of all its commits.
   [@test] ../../crates/history-rewrite/src/repository_lock_test.rs (`a_witness_that_missed_computes_once_more_without_the_lock`)
 - A move, a rename, a restack, an unstack and their undo of the app are rewrites of the engine (`execute` of the
   intent `rewrite`, `operations::rewrite`), named on the table the window shows (`TableWitness`). Each must wait for
-  the lock as long as its holder lives (an agent's `bd pick --follow`, `bd`, the app's own push), never refused after
+  the lock as long as its holder lives (an agent's `brd pick --follow`, `brd`, the app's own push), never refused after
   10 s: its operation's step is `waitingForLock` with the holder, and a move started from a menu shows its spinner on
-  the "⋯" of its row, whose hover says whom it waits for ("Waiting for `bd pick` (pid 4242, for 12 s)") and whose
+  the "⋯" of its row, whose hover says whom it waits for ("Waiting for `brd pick` (pid 4242, for 12 s)") and whose
   click offers Stop Waiting (`cancel_operation`), which ends the wait with nothing moved ("Canceled moving 1 commit to
   docs before it started"); the surface that started it says the same. Once the holder released the lock the move
-  runs, on what the holder left: a holder that moved HEAD meanwhile (`bd update`, `bd pick`, a `bd` rewrite, a commit)
+  runs, on what the holder left: a holder that moved HEAD meanwhile (`brd update`, `brd pick`, a `brd` rewrite, a commit)
   makes its core refuse the HEAD it expected, and the move is resolved again on HEAD as it is now and runs once more (at
   most three runs), a branch by its name, a commit by its author, author time and subject without the prefix once the
   sync shows that HEAD; a commit the holder took away is `plan_changed`, nothing written. A Stop Waiting that came as

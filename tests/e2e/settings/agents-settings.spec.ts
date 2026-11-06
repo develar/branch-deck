@@ -90,7 +90,7 @@ test.describe("Settings → Agents", () => {
     await expect(toast).toContainText("Agents work in their own worktree and land each commit on your branch, and name the branch in each commit subject.")
     // the page is the place the toast of the main window opens: no action to open it
     await expect(toast.getByRole("button", { name: "Open Agent Settings" })).toHaveCount(0)
-    await expect(skill).toContainText("Installed: agents find bd (/Users/test/.local/bin/bd) through /Users/test/.claude/skills/branch-deck/SKILL.md")
+    await expect(skill).toContainText("Installed: agents find brd (/Users/test/.local/bin/brd) through /Users/test/.claude/skills/branch-deck/SKILL.md")
   })
 })
 

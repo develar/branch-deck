@@ -353,7 +353,7 @@ fn squashes_only_the_fixups_of_one_branch_or_one_fixup() {
   squash_fixups(&test_repo, &test_repo.head(), AutosquashScope::Fixup(fixup)).unwrap();
   assert_eq!(test_repo.log(&["--format=%s"]).unwrap().trim_end(), "fixup! (c) Gone\n(b) Add b\n(a) Add a\nInitial");
 
-  // nothing left but an orphan: refused with that orphan and the HEAD it was planned on, which `bd fold` answers
+  // nothing left but an orphan: refused with that orphan and the HEAD it was planned on, which `brd fold` answers
   let head = test_repo.head();
   let error = squash_fixups(&test_repo, &head, AutosquashScope::Branch("c".to_string())).expect_err("only an orphan");
   assert_eq!(format!("{error:#}"), "No fixup commits to squash: 1 without a target in this range");

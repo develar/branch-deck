@@ -1,4 +1,4 @@
-//! `bd mark-reviewed`: keep the base and the tip a branch has now as its reviewed pair (`review_plan::mark_reviewed`,
+//! `brd mark-reviewed`: keep the base and the tip a branch has now as its reviewed pair (`review_plan::mark_reviewed`,
 //! spec/branch/review-plan.spec.md), which a later review of the branch compares it with. Writes only
 //! `refs/branch-deck/reviewed/`, with compare-and-swap; the baseline is that of the checked out branch
 
@@ -21,7 +21,7 @@ pub struct MarkReviewedArgs {
   pub base: Option<String>,
 }
 
-/// `bd mark-reviewed`
+/// `brd mark-reviewed`
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct MarkReviewedOutput {
   pub schema: SchemaVersion,

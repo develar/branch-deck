@@ -3,7 +3,7 @@ name = "pool-disk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "What the lease pools of this machine hold on disk (`bd lease disk`, the Disk window): the bytes the builds of each slot wrote"
+description = "What the lease pools of this machine hold on disk (`brd lease disk`, the Disk window): the bytes the builds of each slot wrote"
 publish = false
 
 [dependencies]

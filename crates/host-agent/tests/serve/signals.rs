@@ -46,7 +46,7 @@ fn a_command_that_ignores_sigint_gets_sigkill_after_the_grace_time() {
   assert!(matches!(agent.reply(&Request::Cancel { run: "2-1".to_owned() }), Reply::Done { .. }));
   let followed = agent.follow("2-1");
   assert_eq!(followed.end, Reply::Exit { code: 128 + 9 }, "{}", agent.dump("2-1"));
-  assert!(followed.has_line("bd-host: the command did not end 500 ms after SIGINT; SIGKILL"), "{followed:?}");
+  assert!(followed.has_line("brd-host: the command did not end 500 ms after SIGINT; SIGKILL"), "{followed:?}");
 }
 
 #[test]
@@ -68,8 +68,8 @@ fn a_process_that_the_command_leaves_in_its_group_gets_sigterm_and_sigkill_befor
   ));
   let followed = agent.follow("3-1");
   assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("3-1"));
-  assert!(followed.has_line("bd-host: the command left processes in its group; SIGTERM"), "{followed:?}");
-  assert!(followed.has_line("bd-host: the processes of the group did not end after SIGTERM; SIGKILL"), "{followed:?}");
+  assert!(followed.has_line("brd-host: the command left processes in its group; SIGTERM"), "{followed:?}");
+  assert!(followed.has_line("brd-host: the processes of the group did not end after SIGTERM; SIGKILL"), "{followed:?}");
   // the system reaps the killed process a moment later; its parent, the command, has ended
   let left = fs::read_to_string(&pid_file).expect("the pid");
   eventually("the end of the process of the group", || !process_alive(left.trim()));

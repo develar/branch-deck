@@ -822,7 +822,7 @@ pub async fn commit_on_head(
   }
 }
 
-/// Updates the checked out branch onto the fetched baseline behind the app's back, as `bd update` beside the app does:
+/// Updates the checked out branch onto the fetched baseline behind the app's back, as `brd update` beside the app does:
 /// the core of Update Project without a fetch, in no session, so only the next sync of the page learns what it landed
 pub async fn update_outside_the_app(axum::extract::Path(id): axum::extract::Path<String>, State(state): State<Arc<AppState>>) -> Result<StatusCode, StatusCode> {
   let path = state.repositories.get(&id).map(|repo| repo.path.clone()).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
@@ -856,12 +856,12 @@ pub struct RepositoryLockRequest {
 #[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum HeldLock {
-  /// `$GIT_COMMON_DIR/branch-deck.lock` with its holder record, as an agent's `bd pick --follow` holds it
+  /// `$GIT_COMMON_DIR/branch-deck.lock` with its holder record, as an agent's `brd pick --follow` holds it
   /// (`lock_repository_as_another_process`: outside the line of the server's process, in which the app's operations
-  /// wait for each other): its record names `bd pick --follow` and the server's pid, alive while it runs
+  /// wait for each other): its record names `brd pick --follow` and the server's pid, alive while it runs
   Repository,
-  /// The fetch lock of the baseline, its record naming `bd update` and the tracking ref of `origin/master`, as an agent's
-  /// `bd update` that fetches the baseline holds it (`sync_core::fetch_lock::hold_fetch_as_another_process`): the fetch
+  /// The fetch lock of the baseline, its record naming `brd update` and the tracking ref of `origin/master`, as an agent's
+  /// `brd update` that fetches the baseline holds it (`sync_core::fetch_lock::hold_fetch_as_another_process`): the fetch
   /// of an update or of a Fetch of the page waits for it, then fetches itself, the ref unmoved
   Fetch,
 }
@@ -882,8 +882,8 @@ pub async fn hold_lock(
   *slot = None;
   if request.held {
     let taken = match lock {
-      HeldLock::Repository => history_rewrite::repository_lock::lock_repository_as_another_process(&common_dir, "bd pick --follow"),
-      HeldLock::Fetch => sync_core::fetch_lock::hold_fetch_as_another_process(&common_dir, "refs/remotes/origin/master", "bd update"),
+      HeldLock::Repository => history_rewrite::repository_lock::lock_repository_as_another_process(&common_dir, "brd pick --follow"),
+      HeldLock::Fetch => sync_core::fetch_lock::hold_fetch_as_another_process(&common_dir, "refs/remotes/origin/master", "brd update"),
     };
     *slot = Some(taken.map_err(|e| {
       tracing::error!("Cannot take the lock: {e:#}");

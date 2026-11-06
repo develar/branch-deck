@@ -1,8 +1,8 @@
-//! The command line of `bd-host` (spec/cli/host.spec.md). A run leaves by the exit code of its command. A refusal says
-//! `bd-host: <code>: <message>` on the stderr and leaves by its exit: 75 when the host did not run the command, so the
+//! The command line of `brd-host` (spec/cli/host.spec.md). A run leaves by the exit code of its command. A refusal says
+//! `brd-host: <code>: <message>` on the stderr and leaves by its exit: 75 when the host did not run the command, so the
 //! caller can run it locally, 130 after Ctrl+C before the command, 2 for a usage error, and 255 for any other refusal.
 //! A command line that clap refuses leaves by 2. stdout carries only the stdout of a command and the answers of the
-//! other commands; every line of bd-host goes to the stderr
+//! other commands; every line of brd-host goes to the stderr
 
 use crate::{VERSION, report_fd, schema, skill};
 use clap::error::ErrorKind;
@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-/// The niceness of a run when `--nice` names none: a run of `bd-host` yields the CPU to the runs of `bt --host`
+/// The niceness of a run when `--nice` names none: a run of `brd-host` yields the CPU to the runs of `bt --host`
 const DEFAULT_NICE: u8 = 10;
 
 /// The main repository on a host when `setup --repo` names none
@@ -41,7 +41,7 @@ const HOSTNAME_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Parser)]
 #[command(
-  name = "bd-host",
+  name = "brd-host",
   version = VERSION,
   about = "Runs a command of a checkout on another machine of the user, in a warm host slot there, and is the agent on that machine"
 )]
@@ -88,7 +88,7 @@ enum Command {
   /// of this machine
   Slots(SlotsArgs),
   /// What the lease pools of a host hold on disk, of every host without an alias: per slot the bytes its builds wrote,
-  /// as `bd lease disk` reports them there
+  /// as `brd lease disk` reports them there
   Disk {
     /// The alias of the host file; without it every host of the client
     alias: Option<String>,
@@ -100,7 +100,7 @@ enum Command {
     json: bool,
   },
   /// Deletes the free slots past `branchdeck.leaseMaxSlots` of every lease pool of a host, of every host without an
-  /// alias, with their Bazel output bases, as `bd lease trim` does there; a host needs no `bd` for it. The keeper of
+  /// alias, with their Bazel output bases, as `brd lease trim` does there; a host needs no `brd` for it. The keeper of
   /// the agent does the same by itself below `branchdeck.leaseMinFree`
   Trim {
     /// The alias of the host file; without it every host of the client
@@ -138,7 +138,7 @@ enum Command {
   /// The machine contract as one JSON object: the protocol, the exit codes, every refusal code, and the JSON schemas
   /// of the report of a run and of the hello
   Schema,
-  /// The agent skill of bd-host of this build, for an agent harness such as Claude Code
+  /// The agent skill of brd-host of this build, for an agent harness such as Claude Code
   Skill {
     #[command(subcommand)]
     command: SkillCommand,
@@ -149,7 +149,7 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct RunArgs {
-  /// The alias of the host file, which `bd-host setup` writes
+  /// The alias of the host file, which `brd-host setup` writes
   alias: String,
   /// Run the committed HEAD only, and refuse a checkout with local changes
   #[arg(long)]
@@ -206,7 +206,7 @@ struct SlotsArgs {
 #[derive(Debug, Args)]
 #[command(group = clap::ArgGroup::new("mode").required(true).args(["alias", "agent"]))]
 struct SetupArgs {
-  /// The ssh alias of the host: copy this binary there, run `bd-host setup --agent` there, and write the host file
+  /// The ssh alias of the host: copy this binary there, run `brd-host setup --agent` there, and write the host file
   alias: Option<String>,
   /// On the host: make the identity of the agent, allow the client, and write and start the `LaunchAgent`
   #[arg(long, requires_all = ["client", "name"])]
@@ -214,7 +214,7 @@ struct SetupArgs {
   /// The fingerprint of the client that `--agent` allows
   #[arg(long, requires = "agent")]
   client: Option<Fingerprint>,
-  /// The name of the client in the allow list (default for `setup <alias>`: `bd-host on <host name>`)
+  /// The name of the client in the allow list (default for `setup <alias>`: `brd-host on <host name>`)
   #[arg(long)]
   name: Option<String>,
   #[arg(long, default_value_t = DEFAULT_PORT)]
@@ -232,9 +232,9 @@ struct SetupArgs {
 
 #[derive(Debug, Subcommand)]
 enum SkillCommand {
-  /// Writes the skill into `~/.claude/skills/bd-host/`. A copy with local edits stays, unless `--force`
+  /// Writes the skill into `~/.claude/skills/brd-host/`. A copy with local edits stays, unless `--force`
   Install {
-    /// The skill directory (default: `~/.claude/skills/bd-host`)
+    /// The skill directory (default: `~/.claude/skills/brd-host`)
     #[arg(long)]
     dir: Option<PathBuf>,
     /// Replace a copy with local edits too
@@ -246,7 +246,7 @@ enum SkillCommand {
 }
 
 /// The sinks of one process: stdout for the answers and the stdout of a command, the stderr for every line of
-/// bd-host. Each stdout line goes out with a flush, as it comes
+/// brd-host. Each stdout line goes out with a flush, as it comes
 struct Out {
   stdout: Mutex<std::io::Stdout>,
 }
@@ -267,7 +267,7 @@ fn say(line: &str) {
 }
 
 fn refuse(refusal: &Refusal) {
-  say(&format!("bd-host: {refusal}"));
+  say(&format!("brd-host: {refusal}"));
 }
 
 /// One invocation, with the program name first. Answers the exit code
@@ -344,7 +344,7 @@ const fn run_options(args: &RunArgs) -> RunOptions {
   }
 }
 
-/// `bd-host run`: the report goes to `--report-fd` on every way out after the parse
+/// `brd-host run`: the report goes to `--report-fd` on every way out after the parse
 fn run_command(args: &RunArgs, out: &Out) -> u8 {
   let mut report_file = match args.report_fd.map(report_fd::open).transpose() {
     Ok(file) => file,
@@ -358,7 +358,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
     if let Some(mut file) = report_file.take()
       && let Err(error) = file.write_all(report.line().as_bytes())
     {
-      say(&format!("bd-host: cannot write the report to --report-fd: {error}"));
+      say(&format!("brd-host: cannot write the report to --report-fd: {error}"));
     }
     report.exit
   };
@@ -391,7 +391,7 @@ fn run_command(args: &RunArgs, out: &Out) -> u8 {
       let facts = &outcome.facts;
       if !facts.fetched.is_empty() {
         say(&format!(
-          "bd-host: copied {} files of the run {} into {}",
+          "brd-host: copied {} files of the run {} into {}",
           facts.fetched.len(),
           facts.run.as_deref().unwrap_or_default(),
           checkout.display()
@@ -501,7 +501,7 @@ fn execute(command: Command, out: &Out) -> Result<u8, Refusal> {
   }
 }
 
-/// `bd-host runs --json`
+/// `brd-host runs --json`
 #[derive(Serialize)]
 struct RunsOutput<'a> {
   schema: u32,
@@ -509,7 +509,7 @@ struct RunsOutput<'a> {
   runs: &'a [RunInfo],
 }
 
-/// `bd-host hello`
+/// `brd-host hello`
 fn hello(alias: &str, json: bool, out: &Out) -> Result<u8, Refusal> {
   let line_out = |line: &str| out.line(line);
   let answer: Result<(AgentInfo, Build), Refusal> = client(&line_out, &say).and_then(|client| Ok((client.hello(alias)?, client.build().clone())));
@@ -537,13 +537,13 @@ fn hello_text(report: &HelloReport) -> String {
   let build = agent.build.as_deref().map_or("an unknown build", short);
   let features = if agent.features.is_empty() { "none".to_owned() } else { agent.features.join(", ") };
   let mut text = format!(
-    "bd-host {} (build {build}) answers on {} ({} {}), schema {}, features: {features}",
+    "brd-host {} (build {build}) answers on {} ({} {}), schema {}, features: {features}",
     agent.version, report.address, agent.os, agent.arch, agent.schema
   );
   if !report.same_build {
     let _ = write!(
       text,
-      "\nthis client is bd-host {} (build {}): `bd-host upgrade {}` sends this build",
+      "\nthis client is brd-host {} (build {}): `brd-host upgrade {}` sends this build",
       report.client.version,
       report.client.build.as_deref().map_or("unknown", short),
       report.alias
@@ -552,7 +552,7 @@ fn hello_text(report: &HelloReport) -> String {
   text
 }
 
-/// `bd-host slots`
+/// `brd-host slots`
 fn slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   if args.local {
     return local_slots(args, out);
@@ -576,7 +576,7 @@ fn slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   Ok(0)
 }
 
-/// `bd-host disk`: the report of each host (`each_host`)
+/// `brd-host disk`: the report of each host (`each_host`)
 fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, Refusal> {
   each_host(
     alias,
@@ -587,7 +587,7 @@ fn disk(alias: Option<&str>, fresh: bool, json: bool, out: &Out) -> Result<u8, R
   )
 }
 
-/// `bd-host trim`: the trim of each host (`each_host`)
+/// `brd-host trim`: the trim of each host (`each_host`)
 fn trim(alias: Option<&str>, max: Option<usize>, plan: bool, json: bool, out: &Out) -> Result<u8, Refusal> {
   if !plan {
     install_interrupt("Ctrl+C ends this process, and the trim goes on on the host");
@@ -638,7 +638,7 @@ fn each_host(
       hosts: &hosts,
     });
   } else if hosts.is_empty() {
-    out.line("no host: `bd-host setup <alias>` makes one ready");
+    out.line("no host: `brd-host setup <alias>` makes one ready");
   } else {
     for host in &hosts {
       match (&host.report, &host.refusal) {
@@ -658,7 +658,7 @@ fn each_host(
   }
 }
 
-/// The answer of one host to `bd-host disk` or `bd-host trim`, or why it has none
+/// The answer of one host to `brd-host disk` or `brd-host trim`, or why it has none
 #[derive(Serialize)]
 struct HostAnswer {
   alias: String,
@@ -669,14 +669,14 @@ struct HostAnswer {
   refusal: Option<Refusal>,
 }
 
-/// `bd-host disk --json` and `bd-host trim --json`
+/// `brd-host disk --json` and `brd-host trim --json`
 #[derive(Serialize)]
 struct HostsOutput<'a> {
   schema: u32,
   hosts: &'a [HostAnswer],
 }
 
-/// `bd-host slots --json`
+/// `brd-host slots --json`
 #[derive(Serialize)]
 struct SlotsOutput<'a> {
   schema: u32,
@@ -693,7 +693,7 @@ fn slot_lines(repository: &RepositorySlots, out: &Out) -> Result<(), Refusal> {
   Ok(())
 }
 
-/// `bd-host slots --local`: the table of a repository of this machine, its shrink and its sizes, in this process
+/// `brd-host slots --local`: the table of a repository of this machine, its shrink and its sizes, in this process
 fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   use host_agent::table::{Local, lines, sizes};
   let dir = args.dir.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -730,13 +730,13 @@ fn local_slots(args: &SlotsArgs, out: &Out) -> Result<u8, Refusal> {
   Ok(0)
 }
 
-/// `bd-host setup`
+/// `brd-host setup`
 fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   if let Some(alias) = &args.alias {
     install_interrupt("Ctrl+C ends this process, and an ssh call goes on");
     let line_out = |line: &str| out.line(line);
     let binary = args.binary.clone().map_or_else(this_exe, Ok)?;
-    let name = args.name.clone().unwrap_or_else(|| format!("bd-host on {}", local_name(&OsProcesses)));
+    let name = args.name.clone().unwrap_or_else(|| format!("brd-host on {}", local_name(&OsProcesses)));
     let prepared = client(&line_out, &say)?.setup(&SetupRequest {
       alias,
       binary: &binary,
@@ -751,7 +751,7 @@ fn setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
     };
     let info = &prepared.agent;
     out.line(&format!(
-      "{copied}\nlaunchd: {}\nbd-host {} answers on {} ({} {})\nhost file {}",
+      "{copied}\nlaunchd: {}\nbrd-host {} answers on {} ({} {})\nhost file {}",
       prepared.launchd,
       info.version,
       info.address,
@@ -771,7 +771,7 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   let home = Home::from_env()?;
   let mut stdout = Vec::new();
   let path = std::env::var("PATH").unwrap_or_default();
-  // the `LaunchAgent` runs `~/.local/bin/bd-host`, a copy of this executable when it is missing
+  // the `LaunchAgent` runs `~/.local/bin/brd-host`, a copy of this executable when it is missing
   let exe = this_exe()?;
   let (Some(client), Some(name)) = (args.client, args.name.as_deref()) else {
     return Err(Refusal::new(Code::Usage, "setup --agent needs --client and --name"));
@@ -790,20 +790,20 @@ fn agent_setup(args: &SetupArgs, out: &Out) -> Result<u8, Refusal> {
   Ok(0)
 }
 
-/// The answer of `bd-host upgrade`
+/// The answer of `brd-host upgrade`
 fn upgraded_text(alias: &str, upgraded: &Upgraded) -> String {
   let info = &upgraded.agent;
-  let answers = format!("bd-host {} answers on {} ({} {})", upgraded.version, info.address, info.os, info.arch);
+  let answers = format!("brd-host {} answers on {} ({} {})", upgraded.version, info.address, info.os, info.arch);
   match &upgraded.way {
-    UpgradeWay::Current => format!("bd-host {} on {alias} is current\n{answers}", short(&upgraded.sha256)),
+    UpgradeWay::Current => format!("brd-host {} on {alias} is current\n{answers}", short(&upgraded.sha256)),
     UpgradeWay::Request => {
       let previous = upgraded.previous_sha256.as_deref().map_or("an older build", short);
-      format!("upgraded bd-host on {alias} from {previous} to {} over the link\n{answers}", short(&upgraded.sha256))
+      format!("upgraded brd-host on {alias} from {previous} to {} over the link\n{answers}", short(&upgraded.sha256))
     }
   }
 }
 
-/// One run of `bd-host runs`: its id, its state, its affinity, its commit, its command, and the steps of 0.1 s or more
+/// One run of `brd-host runs`: its id, its state, its affinity, its commit, its command, and the steps of 0.1 s or more
 fn run_line(run: &RunInfo) -> String {
   let state = run.exit.map_or_else(|| "running".to_owned(), |code| format!("exit {code}"));
   let mut line = format!("{}  {state}  {}  {}  {}", run.run, run.affinity, short(&run.commit), run.command.join(" "));
@@ -821,7 +821,7 @@ fn short(id: &str) -> &str {
 /// Installs the Ctrl+C handler, and says `without` when it cannot
 fn install_interrupt(without: &str) {
   if let Err(said) = interrupt::install() {
-    say(&format!("bd-host: {said}; {without}"));
+    say(&format!("brd-host: {said}; {without}"));
   }
 }
 

@@ -1,7 +1,7 @@
-//! The checks of a resolved file in a conflict round of `bd update` (docs/design/git-operations.md, "Resolve
-//! session"). The merge result that bd wrote (`edit`, with zdiff3 markers) is plain text with conflict blocks; the
+//! The checks of a resolved file in a conflict round of `brd update` (docs/design/git-operations.md, "Resolve
+//! session"). The merge result that brd wrote (`edit`, with zdiff3 markers) is plain text with conflict blocks; the
 //! resolution may replace each block with anything, but must keep every byte outside the blocks, because there the
-//! merge already holds every change of both sides. A block is recognised only by the labels bd passed to `merge-tree`
+//! merge already holds every change of both sides. A block is recognised only by the labels brd passed to `merge-tree`
 //! (the new parent, `<commit>^` and the commit), at any marker length (`conflict-marker-size`), so a line such as a
 //! Markdown `=======` outside the blocks is text. Lines of a side's change that the resolution dropped are reported,
 //! not refused: the agent shows them to the user. Everything works on bytes; only the reported lines are decoded.
@@ -21,7 +21,7 @@ pub enum CheckFailure {
   UnresolvedMarkers,
 }
 
-/// The labels after the markers of one round: what bd passed to `merge-tree --merge-base <base> <onto> <commit>`
+/// The labels after the markers of one round: what brd passed to `merge-tree --merge-base <base> <onto> <commit>`
 #[derive(Debug, Clone, Copy)]
 pub struct Labels<'a> {
   /// The new parent
@@ -114,7 +114,7 @@ fn split_blocks<'a>(merged: &'a [u8], labels: Labels<'_>) -> Option<Vec<Lines<'a
   matches!(part, Part::Plain).then_some(plains)
 }
 
-/// The number of conflict blocks of bd's labels in the merge result `merged`; 0 when it has none that bd can read
+/// The number of conflict blocks of bd's labels in the merge result `merged`; 0 when it has none that brd can read
 pub fn block_count(merged: &[u8], labels: Labels<'_>) -> usize {
   split_blocks(merged, labels).map_or(0, |plains| plains.len() - 1)
 }
@@ -171,7 +171,7 @@ fn normalized_line_ends(content: &[u8]) -> Vec<u8> {
   normalized
 }
 
-/// Check the resolution `resolved` of the merge result `merged` (the `edit` file as bd wrote it): outside the conflict
+/// Check the resolution `resolved` of the merge result `merged` (the `edit` file as brd wrote it): outside the conflict
 /// blocks it must be byte for byte the same, and no marker may be left where a block was. Returns the lines of
 /// `resolved` that replaced the blocks
 ///

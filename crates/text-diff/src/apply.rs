@@ -1,5 +1,5 @@
 //! The blocks of a diff applied to the bytes of a text, the result of a merge composed on the bytes of its three texts,
-//! and the ids that name a block across the views and the command line. Branch Deck's own: `bd move-hunk` moves the
+//! and the ids that name a block across the views and the command line. Branch Deck's own: `brd move-hunk` moves the
 //! blocks the views show, and the sync commits a merge that its words resolve.
 //!
 //! Lines are the engine's (`SourceText`): `\n`, `\r\n` and a lone `\r` end a line, and a text has one line more than it

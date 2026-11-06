@@ -165,8 +165,8 @@ fn a_fold_whose_fixup_conflicts_is_refused_as_a_squash_conflict() {
   assert_eq!(repo.head(), head);
 }
 
-/// Another process that moves HEAD after the plan of `bd fold`, whose range its core takes, before the core reads the
-/// history it replays: `bd fold` folds the fixups of HEAD as its core finds it under the lock, keeps the commit of the
+/// Another process that moves HEAD after the plan of `brd fold`, whose range its core takes, before the core reads the
+/// history it replays: `brd fold` folds the fixups of HEAD as its core finds it under the lock, keeps the commit of the
 /// other process and prints what the core folded, from that HEAD, whose undo goes back to it; HEAD without the fixups
 /// (another process folded them) is nothing to fold. With `--expect-head` the moved HEAD is the answer (`head_moved`)
 #[cfg(unix)]

@@ -1,4 +1,4 @@
-//! The lease pool of a repository (`bd lease`, spec/cli/lease.spec.md, "Lease" in docs/design/git-operations.md): linked
+//! The lease pool of a repository (`brd lease`, spec/cli/lease.spec.md, "Lease" in docs/design/git-operations.md): linked
 //! worktrees that agent sessions lease, one session per slot. The state in `$GIT_COMMON_DIR/branch-deck/leases.json` is
 //! the authority: a free slot is pool property, and a get replaces its content, so no ancestry proves anything. The
 //! pool has a lock of its own (`leases.lock`), held only while the state is read and written, never across a git that
@@ -92,12 +92,12 @@ pub struct Slot {
   pub returned: Option<u64>,
   /// Unix seconds of its last return: `returned` counts within one pool, and the shrink of a get below the minimum free
   /// space orders the free slots of every pool of the machine by this (`shrink::shrink_order`). `None` for a slot never
-  /// returned and for one a bd before this field returned
+  /// returned and for one a brd before this field returned
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub returned_at: Option<u64>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub lease: Option<Lease>,
-  /// The lease a takeover or `bd lease reclaim` took from its dead holder: a command of another session in the slot is
+  /// The lease a takeover or `brd lease reclaim` took from its dead holder: a command of another session in the slot is
   /// refused (`reclaimed_refusal`) until the next get of the free slot
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reclaimed: Option<Reclaimed>,
@@ -120,7 +120,7 @@ pub struct Reclaimed {
   pub source_branch: Option<String>,
   /// Unix seconds of the takeover
   pub at: u64,
-  /// The lease of the get that took it over; none for `bd lease reclaim`, which left the slot free
+  /// The lease of the get that took it over; none for `brd lease reclaim`, which left the slot free
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub by_lease_id: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -379,7 +379,7 @@ pub enum LeaseState {
   Templating,
   /// The return of the lease runs (`lease_return_core`): no get takes the slot and no other return acts on it
   Returning,
-  /// A free slot that `bd lease clean` cleans: no get takes it until the clean ends
+  /// A free slot that `brd lease clean` cleans: no get takes it until the clean ends
   Cleaning,
 }
 
@@ -422,7 +422,7 @@ impl Lease {
   }
 
   /// Whether the lease is idle: `ready`, its holder gone, and no host slot (idle between runs by design; only
-  /// `bd-host slots --local --shrink` gives one back)
+  /// `brd-host slots --local --shrink` gives one back)
   pub fn is_idle(&self) -> bool {
     self.state == LeaseState::Ready && self.holder_alive() == Some(false) && !self.holder.starts_with(HOST_HOLDER_PREFIX)
   }
@@ -505,7 +505,7 @@ fn idle_leases(store: &LeaseStore) -> Vec<IdleLease> {
     .iter()
     .filter_map(|slot| {
       let lease = slot.lease.as_ref()?;
-      // a host slot is idle between runs by design: `bd-host slots --local --shrink` gives it back, never a hand return
+      // a host slot is idle between runs by design: `brd-host slots --local --shrink` gives it back, never a hand return
       lease.is_idle().then(|| IdleLease {
         path: slot.path.clone(),
         holder: lease.holder.clone(),
@@ -516,7 +516,7 @@ fn idle_leases(store: &LeaseStore) -> Vec<IdleLease> {
     .collect()
 }
 
-/// What the pool refuses; `bd` gives each its error code
+/// What the pool refuses; `brd` gives each its error code
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LeaseRefusal {
   #[error("{0} holds no lease of this repository's pool")]
@@ -532,7 +532,7 @@ pub enum LeaseRefusal {
   #[error("Bazel servers of {path} did not exit on {SERVER_STOP}: {}; wait, or stop them with `bazel shutdown` in their workspace", describe_processes(.processes))]
   ServersRunning { path: String, processes: Vec<BusyProcess> },
   #[error(
-    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}{}{}. Tell the user (`bd lease clean --free`, `bd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `bd lease trim` free space); never pass `--min-free 0` on your own",
+    "The volume of the pool {pool} has {} free, less than the {} a lease needs (`branchdeck.leaseMinFree`, `--min-free`); {free_slots} free slot(s){}{}{}{}{}{}. Tell the user (`brd lease clean --free`, `brd lease reclaim --idle`, a lower `branchdeck.leaseMaxSlots` and `brd lease trim` free space); never pass `--min-free 0` on your own",
     describe_size(*.available),
     describe_size(*.required),
     describe_trimmed(.freed.trim),
@@ -558,7 +558,7 @@ pub enum LeaseRefusal {
   #[error("{key} {value:?}: {reason}")]
   InvalidSize { key: String, value: String, reason: String },
   #[error(
-    "HEAD of {path} has {} commit(s) that {}; land them first (`bd -C {path} lease pick`); --confirm-preserved gives them up, only when the user says they are kept elsewhere",
+    "HEAD of {path} has {} commit(s) that {}; land them first (`brd -C {path} lease pick`); --confirm-preserved gives them up, only when the user says they are kept elsewhere",
     .commits.len(),
     .check.describe()
   )]
@@ -566,7 +566,7 @@ pub enum LeaseRefusal {
   #[error("{path} has local changes; commit or land them; --confirm-preserved discards them, only when the user says they are kept elsewhere")]
   DirtyWorktree { path: String, paths: Vec<String> },
   #[error(
-    "{path} has a resolve session open ({session}); finish it with `bd -C {path} update --continue` and land the commits with `bd -C {path} lease pick`, or close it with `bd -C {path} update --abort`"
+    "{path} has a resolve session open ({session}); finish it with `brd -C {path} update --continue` and land the commits with `brd -C {path} lease pick`, or close it with `brd -C {path} update --abort`"
   )]
   ResolveInProgress { path: String, session: String },
   #[error("{path} has local changes; a slot of the pool must be clean")]
@@ -586,10 +586,10 @@ pub enum LeaseRefusal {
   #[error("Cannot move {path} into the pool: {reason}")]
   CannotMove { path: String, reason: String },
   #[error(
-    "{path} is host slot {n}, which the agent of `bd-host` on this host lends to the runs of other machines; `bd-host slots --local --shrink <count>` on this host gives the host slots past the count back to the pool"
+    "{path} is host slot {n}, which the agent of `brd-host` on this host lends to the runs of other machines; `brd-host slots --local --shrink <count>` on this host gives the host slots past the count back to the pool"
   )]
   HostSlot { path: String, n: u32 },
-  #[error("The holder {0:?} is reserved: the host slots of `bd-host` are `{HOST_HOLDER_PREFIX}<n>`")]
+  #[error("The holder {0:?} is reserved: the host slots of `brd-host` are `{HOST_HOLDER_PREFIX}<n>`")]
   ReservedHolder(String),
   #[error("{}", describe_reclaimed(.path, .reclaimed, *.in_progress))]
   LeaseReclaimed {
@@ -613,12 +613,12 @@ fn describe_reclaimed(path: &str, reclaimed: &Reclaimed, in_progress: bool) -> S
   let home = source_branch.as_deref().unwrap_or("its home branch");
   let by = match (by_lease_id, by_holder) {
     (Some(id), Some(by)) => format!("the lease {id} of {by}"),
-    _ => "`bd lease reclaim`, which left it free".to_string(),
+    _ => "`brd lease reclaim`, which left it free".to_string(),
   };
   let branch = branch.as_ref().map_or_else(String::new, |branch| format!("; its branch {branch} stays"));
   if in_progress {
     format!(
-      "The lease {lease_id} of {holder} in {path} is being taken over by {by}, which checks whether its work landed on {home}: this worktree is not yours now{branch}. Wait for `bd lease status`, then get a lease of your own"
+      "The lease {lease_id} of {holder} in {path} is being taken over by {by}, which checks whether its work landed on {home}: this worktree is not yours now{branch}. Wait for `brd lease status`, then get a lease of your own"
     )
   } else {
     format!(
@@ -995,7 +995,7 @@ pub struct AddingSlot {
 }
 
 impl fmt::Display for CloneHolder {
-  /// "waiting for `bd lease get --holder lane-3` (pid 4242, for 35 s), which adds /pool/8/idea-1 for lane-3: …"
+  /// "waiting for `brd lease get --holder lane-3` (pid 4242, for 35 s), which adds /pool/8/idea-1 for lane-3: …"
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     write!(f, "waiting for {}", self.process)?;
     match &self.adding {
@@ -1088,7 +1088,7 @@ enum Reserved {
 /// the slot is ready, a clone of a template without what the `delete` rules delete (`add_cloned_slot`), else a
 /// registration and the only full checkout. A failure after the lease was recorded gives the slot back
 ///
-/// The holders `bd-host/<n>` are the host slots' (`host_slots`), which only `host_slots::fill` gets: another get with
+/// The holders `brd-host/<n>` are the host slots' (`host_slots`), which only `host_slots::fill` gets: another get with
 /// such a holder is refused (`ReservedHolder`)
 #[instrument(skip_all, fields(source = %params.source.top_level))]
 pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
@@ -1098,7 +1098,7 @@ pub fn lease_get_core(git_executor: &GitCommandExecutor, params: &LeaseGetParams
   get_lease(git_executor, params, TakeOver::Idle)
 }
 
-/// The get of a host slot (`host_slots::fill`), with its holder `bd-host/<n>`: it takes over no idle lease, as the
+/// The get of a host slot (`host_slots::fill`), with its holder `brd-host/<n>`: it takes over no idle lease, as the
 /// trash of a takeover is named by the process of the long-lived agent, which no later return deletes while it runs
 pub(crate) fn get_host_slot(git_executor: &GitCommandExecutor, params: &LeaseGetParams<'_>) -> Result<LeaseGot> {
   get_lease(git_executor, params, TakeOver::None)
@@ -2112,7 +2112,7 @@ pub(crate) fn commit_takeover(pool: &Pool, timeout: Duration, path: &str, lease:
 }
 
 /// Give the idle lease `old` back to the slot at `path` that the get of `lease_id` reserved, from the copy of the get: a
-/// bd before `taking_over` that wrote the state meanwhile dropped the one in the state. Best effort: a get gone before
+/// brd before `taking_over` that wrote the state meanwhile dropped the one in the state. Best effort: a get gone before
 /// it gives it back leaves it to `settle_abandoned`
 fn keep_idle(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, old: Lease) {
   let kept = pool.update(timeout, |store| {
@@ -2127,7 +2127,7 @@ fn keep_idle(pool: &Pool, timeout: Duration, path: &str, lease_id: &str, old: Le
 }
 
 impl Reclaimed {
-  /// The record of `old`, taken over by `by` (none: `bd lease reclaim`)
+  /// The record of `old`, taken over by `by` (none: `brd lease reclaim`)
   fn of(old: &Lease, by: Option<&Lease>) -> Self {
     Self {
       lease_id: old.id.clone(),
@@ -2585,7 +2585,7 @@ pub struct LeaseReturnParams<'a> {
   pub workspace: &'a RepositoryDirs,
   /// The lease the caller holds; another one refuses
   pub lease_id: Option<&'a str>,
-  /// The caller named no worktree (`bd lease return --lease-id` without `--workspace`): when `workspace` holds no lease
+  /// The caller named no worktree (`brd lease return --lease-id` without `--workspace`): when `workspace` holds no lease
   /// or another one, the slot of `lease_id` is returned, so a coordinator returns the lease of another session from any
   /// checkout of the repository
   pub find_by_lease_id: bool,
@@ -2635,7 +2635,7 @@ pub struct LeaseReturned {
   pub process_scan: bool,
 }
 
-/// Give the lease of a slot back. Refused while a process other than `bd` and its ancestors is in the slot, while HEAD
+/// Give the lease of a slot back. Refused while a process other than `brd` and its ancestors is in the slot, while HEAD
 /// has commits that no branch, tag or remote branch holds (not counting those of the commit it was leased at), and
 /// while the tree has local changes; `confirm_preserved`
 /// gives up the commits and discards the changes (`reset --hard`, `clean -fd`: the ignored files stay). Then the seeded
@@ -2646,8 +2646,8 @@ pub struct LeaseReturned {
 /// answers `joined` once it freed the slot, or returns the lease itself once it failed; a return that another return
 /// of its lease overtook answers `joined` too and changes nothing
 ///
-/// A host slot (`host_slots`: its holder is `bd-host/<n>`, or the lend table names its lease) is refused (`HostSlot`):
-/// the agent of the host lends it to its runs, and only a shrink (`bd-host slots --local --shrink`) gives it back
+/// A host slot (`host_slots`: its holder is `brd-host/<n>`, or the lend table names its lease) is refused (`HostSlot`):
+/// the agent of the host lends it to its runs, and only a shrink (`brd-host slots --local --shrink`) gives it back
 pub fn lease_return_core(git_executor: &GitCommandExecutor, params: &LeaseReturnParams<'_>) -> Result<LeaseReturned> {
   return_lease(git_executor, params, ReturnAs::Hand)
 }
@@ -2663,7 +2663,7 @@ pub(crate) fn return_host_slot(git_executor: &GitCommandExecutor, params: &Lease
 /// Who returns a lease
 #[derive(Clone, Copy)]
 enum ReturnAs<'a> {
-  /// `bd lease return`: a host slot is refused
+  /// `brd lease return`: a host slot is refused
   Hand,
   /// The shrink of the host slots, with the config it read of the clean slot and the trash it deletes
   HostSlot { config: &'a LeaseConfig, trash: &'a Trash },
@@ -2826,7 +2826,7 @@ fn return_once(
       processes: busy_processes(&inside),
     });
   }
-  // a resolve session of the slot (`bd lease pick` opens one onto its home): the next lease of the slot would find it
+  // a resolve session of the slot (`brd lease pick` opens one onto its home): the next lease of the slot would find it
   let session = session_ref(&slot.name);
   if ref_exists(git_executor, &path, &session) {
     bail!(LeaseRefusal::ResolveInProgress { path, session });
@@ -3144,7 +3144,7 @@ pub(crate) fn stop_servers(servers: &[&ProcessInfo], bazel: Option<&OsStr>, time
   }
 }
 
-/// How `bd lease status` sees a slot, from the state alone; its JSON is the snake case name (`free`, `ready`)
+/// How `brd lease status` sees a slot, from the state alone; its JSON is the snake case name (`free`, `ready`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
@@ -3156,24 +3156,24 @@ pub enum SlotState {
   Templating,
   /// Its return runs
   Returning,
-  /// A free slot that `bd lease clean` cleans
+  /// A free slot that `brd lease clean` cleans
   Cleaning,
   /// A lease that is not `ready` and whose process is gone: the next get takes the slot as free
   Abandoned,
 }
 
-/// A slot of `bd lease status`
+/// A slot of `brd lease status`
 #[derive(Debug, Clone)]
 pub struct SlotStatus {
   pub slot: Slot,
   pub state: SlotState,
   /// The directory is gone
   pub missing: bool,
-  /// With `processes`: the processes in it, except the session of `bd`, git's maintenance and `caffeinate`
+  /// With `processes`: the processes in it, except the session of `brd`, git's maintenance and `caffeinate`
   pub processes: Option<Vec<BusyProcess>>,
 }
 
-/// Where the commits of a lease go (`bd lease pick`): the source checkout of its get and the branch it had checked out
+/// Where the commits of a lease go (`brd lease pick`): the source checkout of its get and the branch it had checked out
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaseHome {
   /// The source checkout, its top level; empty when the state does not name it (a lease of an older bd)
@@ -3208,7 +3208,7 @@ pub fn ready_slot_at(git_common_dir: &Path, top_level: &str) -> Result<Option<Sl
   )
 }
 
-/// Why a command of `bd` in the worktree `top_level` must not run: the slot's lease was taken over from a dead holder
+/// Why a command of `brd` in the worktree `top_level` must not run: the slot's lease was taken over from a dead holder
 /// (`Slot::reclaimed`) or is being taken over, and this process is no process of the session that holds it now, as a
 /// resumed session of the old holder is not. From the state, no git; a process scan only in such a slot. A command that
 /// `mutates` nothing passes but while a get takes the lease over. `lease_id`, the id a command names, passes when it is
@@ -3281,9 +3281,9 @@ pub fn lease_status_core(git_common_dir: &Path, processes: bool) -> Result<(Vec<
   Ok((slots, scan.is_available()))
 }
 
-/// What `bd lease clean` cleans
+/// What `brd lease clean` cleans
 pub struct LeaseCleanParams<'a> {
-  /// The checkout bd runs in: its `.branchdeck.toml` holds the rules, and without `free` and `dirs` it is the target
+  /// The checkout brd runs in: its `.branchdeck.toml` holds the rules, and without `free` and `dirs` it is the target
   pub repository: &'a RepositoryDirs,
   /// The free slots of the pool
   pub free: bool,
@@ -3297,7 +3297,7 @@ pub struct LeaseCleanParams<'a> {
   pub lock_timeout: Duration,
 }
 
-/// A checkout `bd lease clean` cleaned, or skipped
+/// A checkout `brd lease clean` cleaned, or skipped
 #[derive(Debug, Clone)]
 pub struct CleanTarget {
   pub path: String,
@@ -3332,7 +3332,7 @@ pub fn lease_clean_core(git_executor: &GitCommandExecutor, params: &LeaseCleanPa
   let mut seen = HashSet::new();
   paths.retain(|path| seen.insert(path.clone()));
   let scan = ProcessScan::scan();
-  let marker = Lease::marker("clean", "bd lease clean", LeaseState::Cleaning);
+  let marker = Lease::marker("clean", "brd lease clean", LeaseState::Cleaning);
   let trash = Trash::new(&pool.trash_dir());
   let mode = if params.apply { CleanMode::Trash(&trash) } else { CleanMode::Measure };
   let mut targets: Vec<CleanTarget> = paths
@@ -3402,7 +3402,7 @@ fn mark_for_clean(pool: &Pool, timeout: Duration, path: &str, marker: &Lease) ->
   })
 }
 
-/// What `bd lease reclaim --idle` reclaims
+/// What `brd lease reclaim --idle` reclaims
 pub struct LeaseReclaimParams<'a> {
   /// A checkout of the repository: its config and its clean rules
   pub repository: &'a RepositoryDirs,
@@ -3417,7 +3417,7 @@ pub struct LeaseReclaimParams<'a> {
   pub lock_timeout: Duration,
 }
 
-/// What `bd lease reclaim` did with each idle lease of the pool
+/// What `brd lease reclaim` did with each idle lease of the pool
 #[derive(Debug, Clone, Default)]
 pub struct LeaseReclaim {
   /// Returned, as their work landed (with `--dry-run`: would be)
@@ -3455,7 +3455,7 @@ pub struct SkippedIdle {
   pub reason: IdleSkip,
 }
 
-/// Why `bd lease reclaim` left an idle lease for now
+/// Why `brd lease reclaim` left an idle lease for now
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdleSkip {
   /// Its get or the last move of its HEAD is younger than `IDLE_QUIET`
@@ -3625,7 +3625,7 @@ fn record_idle_check(pool: &Pool, timeout: Duration, path: &str, lease_id: &str,
   }
 }
 
-/// A directory `bd lease adopt` added, or refused
+/// A directory `brd lease adopt` added, or refused
 #[derive(Debug, Clone)]
 pub enum Adopted {
   /// With `moved_from` when `--move` moved it into the pool directory
@@ -3642,7 +3642,7 @@ pub enum Adopted {
 /// Add existing linked worktrees of this repository to the pool as free slots, where they are. Each is refused when it
 /// is not a linked worktree of the same common dir, the pool holds it, a process is in it, or it has local changes (one
 /// `status`)
-/// What `bd lease adopt` adds
+/// What `brd lease adopt` adds
 pub struct LeaseAdoptParams<'a> {
   /// A worktree of the repository, where `git worktree move` runs
   pub repository: &'a str,
@@ -3729,7 +3729,7 @@ fn move_in(git_executor: &GitCommandExecutor, pool: &Pool, params: &LeaseAdoptPa
       pool: display_path(pool_dir),
     }));
   }
-  let entry = Lease::marker("adopt", "bd lease adopt", LeaseState::Preparing);
+  let entry = Lease::marker("adopt", "brd lease adopt", LeaseState::Preparing);
   let reserved = pool.update(params.lock_timeout, |store| {
     if store.slots.iter().any(|slot| slot.path == path) {
       return Ok(Err(LeaseRefusal::InPool(path.to_string())));

@@ -167,7 +167,7 @@ testWithIssueLinks.describe("Activity", () => {
     // no agent did anything yet: no Agents chip
     await expect(filter.getByRole("button")).toHaveText(["All1", "Pushes1"])
 
-    // an agent's bd pushed feature-auth from a slot of the lease pool of the repository: the watch of the registry tells
+    // an agent's brd pushed feature-auth from a slot of the lease pool of the repository: the watch of the registry tells
     // the open window, which reads the journal again; the agent's push is behind its chip
     const agent = await issueLinksRepo.journalAgentOperation(
       { kind: "push", subject: { kind: "branch", name: "feature-auth" }, scope: { kind: "alone" }, expectRemote: null, force: false, restartRunning: false },

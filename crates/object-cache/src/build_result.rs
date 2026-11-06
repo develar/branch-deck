@@ -1,4 +1,4 @@
-//! `build_result`: (version, a hash of what a build of `bd check --build` sees) -> that it passed. The caller hashes the
+//! `build_result`: (version, a hash of what a build of `brd check --build` sees) -> that it passed. The caller hashes the
 //! command, the branch and the object ids of what it extracts, so a tree that passed is not built again; a failure is
 //! never kept, because a build may fail by chance. The second key that is not an object id, after `review_answer`: an
 //! entry stays valid as long as the build depends only on the tree (see `cache.rs`). The version of the key is part of

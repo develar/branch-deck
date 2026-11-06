@@ -39,14 +39,14 @@ impl RepoTemplate {
     }
   }
 
-  /// Put the commits of issue `key` into the branch `name`, as `bd group` does with `issue_groups`
+  /// Put the commits of issue `key` into the branch `name`, as `brd group` does with `issue_groups`
   #[must_use]
   pub fn issue_group(mut self, key: &str, name: &str) -> Self {
     self.issue_groups.push(format!("{key}\t{name}"));
     self
   }
 
-  /// Stack the branch `child` on `parent` in the stack parents, as `bd restack` does
+  /// Stack the branch `child` on `parent` in the stack parents, as `brd restack` does
   #[must_use]
   pub fn stack_parent(mut self, child: &str, parent: &str) -> Self {
     self.stack_parents.push(format!("{child}\t{parent}"));
@@ -311,7 +311,7 @@ pub mod templates {
 
   /// Branches with long names and long commit subjects, for checking that the branch table
   /// gives the commit title the free width and truncates only the title (issue #72). `docs` has a description, as
-  /// `bd describe` writes it
+  /// `brd describe` writes it
   pub fn long_subjects() -> RepoTemplate {
     // Use fixed timestamps: Jan 1, 2024 starting at 14:00:00 UTC, incrementing by 30 minutes
     RepoTemplate::new("long_subjects")

@@ -28,7 +28,7 @@ fn subjects(repo: &TestRepo) -> Vec<String> {
   git(repo, &["log", "--reverse", "--format=%s", "origin/master..HEAD"]).lines().map(str::to_string).collect()
 }
 
-/// Run `bd group` with `plan` written to a file
+/// Run `brd group` with `plan` written to a file
 fn group(repo: &TestRepo, plan: &Value, extra: &[&str]) -> (i32, Value) {
   let file = tempfile::NamedTempFile::new().unwrap();
   std::fs::write(file.path(), plan.to_string()).unwrap();
@@ -319,7 +319,7 @@ fn issue_groups_plan_and_undo() {
   assert_error(&refused, exit_code, 2, "invalid_arguments");
 }
 
-/// `bd group` with descriptions holds the repository lock only for the witness and the write of its regroup: its
+/// `brd group` with descriptions holds the repository lock only for the witness and the write of its regroup: its
 /// computation before it, the one `git config` per changed description after it (docs/design/git-operations.md, "Lock
 /// spans")
 #[cfg(unix)]

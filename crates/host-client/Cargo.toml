@@ -3,10 +3,10 @@ name = "host-client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The client of the remote runs of bd-host: the run, the commit of the working tree, the pack, the follow, the fetch, the base sync and the host files"
+description = "The client of the remote runs of brd-host: the run, the commit of the working tree, the pack, the follow, the fetch, the base sync and the host files"
 publish = false
 
-# The architecture test keeps it off the lease pool and the agent. Unix only, as bd-host (src/lib.rs), so on Windows
+# The architecture test keeps it off the lease pool and the agent. Unix only, as brd-host (src/lib.rs), so on Windows
 # the crate is empty and needs none
 [target.'cfg(unix)'.dependencies]
 # Ctrl+C of a run (`interrupt`)
@@ -23,7 +23,7 @@ sync-utils = { path = "../sync-utils" }
 # the host files, the run records and the report of a run
 serde.workspace = true
 serde_json.workspace = true
-# the JSON schemas of the report and of the hello, which `bd-host schema` prints (`report`)
+# the JSON schemas of the report and of the hello, which `brd-host schema` prints (`report`)
 schemars.workspace = true
 # the fetch: `O_NOFOLLOW` of the open of a part
 libc = "0.2.191"

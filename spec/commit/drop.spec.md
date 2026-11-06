@@ -38,7 +38,7 @@ lands, not be answered by a revert: a commit and its revert land into master tog
 nothing. A drop takes commits ahead of the baseline out of the current branch for good; the commits after them are
 replayed, and the files follow, as an unapply's do ([Unapply and Reapply](../branch/unapply.spec.md)), through the same
 check and the same guarded move. A commit and its revert dropped together leave every file as it is. An agent drops its
-own commit with `bd drop`; a commit its lease already picked onto the shared branch is dropped there.
+own commit with `brd drop`; a commit its lease already picked onto the shared branch is dropped there.
 
 ## Goals
 
@@ -91,7 +91,7 @@ own commit with `bd drop`; a commit its lease already picked onto the shared bra
   [@test] ../../crates/git-ops/src/unapply_test.rs (`a_drop_is_refused_by_a_later_commit_that_depends_on_it_would_become_empty_or_by_the_root`, `a_drop_under_a_staged_change_names_the_path`, `a_drop_is_refused_during_a_merge`)
   [@test] ../../crates/history-rewrite/src/drop_commits_test.rs (`a_drop_refuses_commits_that_are_not_ahead_and_another_head`)
   [@test] ../../crates/bd-update/src/drop_test.rs (`drop_refuses_what_is_not_ahead_a_dependent_later_commit_local_changes_and_another_head`)
-- The app and `bd` must answer each refusal with the same code.
+- The app and `brd` must answer each refusal with the same code.
   [@test] ../../crates/bd-update/src/error_code_test.rs (`bd_answers_the_code_of_each_refusal_of_a_move_an_unapply_and_a_reapply_that_the_app_answers`)
 
 ### Lock and engine
@@ -130,17 +130,17 @@ own commit with `bd drop`; a commit its lease already picked onto the shared bra
 - A refusal must keep the commits and show "Cannot drop the commits" with why.
   [@test] ../../tests/e2e/drop-commits/drop-commits.spec.ts (`should keep the commits and say why when the drop is refused`)
 
-### `bd drop`
+### `brd drop`
 
-- `bd drop <commit>... [--expect-head <id>] [--dry-run]` must drop the commits as above and print `dropped`,
+- `brd drop <commit>... [--expect-head <id>] [--dry-run]` must drop the commits as above and print `dropped`,
   `files_changed`, `rebuilt_branches`, `emptied_branches`, `previous_head`, `new_head` and its `undo_token`;
   `--dry-run` builds the drop and drops it, with no ref, note or file changed and no record.
   [@test] ../../crates/bd-update/src/drop_test.rs (`drop_takes_the_commit_and_its_file_out_of_head_and_the_undo_brings_them_back`, `drop_outputs_match_the_schema`)
 - In a lease of the pool, a commit its home branch has (a pick landed it) must be refused as `drop_in_home` (exit 4)
-  with the two next steps: the drop in the shared checkout, then `bd lease pick`, which lands nothing and moves the
+  with the two next steps: the drop in the shared checkout, then `brd lease pick`, which lands nothing and moves the
   lease past the dropped commit, so the lease can be returned.
   [@test] ../../crates/bd-lease/src/lease_test.rs (`a_session_drops_its_landed_commit_in_the_shared_checkout_and_its_lease_follows`)
-- The agent's rules must name `bd drop` for a commit of its own that must not land, never `git revert`, both dropped
+- The agent's rules must name `brd drop` for a commit of its own that must not land, never `git revert`, both dropped
   when a revert exists, and a commit of another session or of the user only after the user asked.
   [@test] ../../crates/bd-cli/src/agent_help_test.rs (`every_refusal_is_in_the_help_of_its_command`)
 
