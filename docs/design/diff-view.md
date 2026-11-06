@@ -723,18 +723,25 @@ review plays down (`quietImports`) is not: it is pale, and N and P pass it.
 They are `FileRows.changeStarts`. The rule of the review stays: after a scroll that the view made, the file
 at the top changes the selection only after a wheel, touch, pointer or key event.
 
-**Find in the diffs.** ⌘F (Ctrl+F off macOS) in a view with its own scroller opens a find bar above the diffs
-(`DiffFindBar.tsx`). The find searches the model, not the rows in the DOM (`find.ts`):
-- It searches the lines that the rows show, file by file in the order of the view: both sides of a change in Split,
-  the new side of an unchanged line. With "In folded lines" on, it searches the folded lines of the new side too. A
-  hit in a fold expands the fold when the find goes to it.
-- It asks for the texts of every file it searches; the count grows as they arrive ("12 results", then "3 of 12").
-- Enter and ⌘G go to the next hit, and Shift with them to the previous one. The scroll is exact: the hit a third of
-  the viewport below the header.
-- The painter draws the hits as a layer, the current one stronger.
+**Find in the review.** ⌘F (Ctrl+F off macOS) in a review window opens a find bar above the document
+(`DiffFindBar.tsx`, labelled "Find in the review"). It combines two searches into one hit list:
+- The mounted DOM text of the prologue, each opening and the epilogue (`find-text.ts`), in document order around the
+  diff rows. It matches case-insensitively within one block, can span inline nodes, and skips `.sr-only`,
+  `[aria-hidden=true]` and `[data-find-skip]`.
+- The diff model's lines (`find.ts`): both sides of a change in Split and the new side of an unchanged line. "In folded
+  lines" searches folded diff lines only; it does not gate story text.
 
-The search runs in one pass over the texts it has. A review of many large files can make it a slice job of the
-worker later.
+Closed story-body parts and `Disclosure`s retain their text hidden in the page. A text hit opens each fold around it
+through `beforematch`, then scrolls the hit a third of the viewport below the sticky header. The text hit is held by its
+text-node range, so opening the fold or receiving more story text keeps the same current hit. The result count combines
+text and diff hits; Enter and ⌘G go to the next one, Shift with them to the previous one, wrapping around.
+
+The painter marks diff hits as a layer, the current one stronger. The CSS Custom Highlight API marks text hits with the
+same tokens without mutating React's DOM; without the API, the count and scroll still work. Escape closes the bar and
+clears the marks. ⌘F works anywhere in a review window, including the sidebar; ⌘G steps while the bar is open.
+
+Searching story text is synchronous and cheap because the openings are few. The diff search keeps its current cost:
+one pass over the texts it has. A review of many large files can make it a slice job of the worker later.
 
 **Accessibility.**
 - The scroller has `role="region"`, the label "Diffs", and the focus. The arrows, PageUp, PageDown and Space scroll it

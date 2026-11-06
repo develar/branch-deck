@@ -147,6 +147,8 @@ export function CommitReviewCode({
     },
     visibleStop: () => review.current?.visibleStop(),
     focus: () => review.current?.focus(),
+    openFind: () => review.current?.openFind(),
+    stepFind: direction => review.current?.stepFind(direction),
     revealDeclaration: (place, from) => {
       setFileViews([])
       return review.current?.revealDeclaration(place, from) ?? false

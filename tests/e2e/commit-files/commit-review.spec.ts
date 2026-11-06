@@ -445,7 +445,7 @@ simpleTest.describe("Commit review", () => {
     await code.locator("[aria-label='Changes of the commit']").focus()
 
     await page.keyboard.press("ControlOrMeta+f")
-    const field = window.getByRole("textbox", { name: "Find in the diffs" })
+    const field = window.getByRole("textbox", { name: "Find in the review" })
     await expect(field).toBeFocused()
     // line 11 of RowMapper.kt lies in a fold: only the find in the folded lines sees it
     await field.fill("field10")
@@ -464,6 +464,31 @@ simpleTest.describe("Commit review", () => {
     await expect(window.getByTestId("diff-find-bar")).toHaveCount(0)
     await expect(code.locator("[aria-label='Changes of the commit']")).toBeFocused()
     await expect(code.locator(".dv-hit")).toHaveCount(0)
+  })
+
+  simpleTest("should open find from the file tree and step results there with ⌘F and ⌘G @webkit", async ({ page }) => {
+    const window = await openTreeReview(page)
+    const item = window.getByRole("tree", { name: "Changed files" }).getByRole("treeitem").first()
+    await item.focus()
+    await expect(item).toBeFocused()
+
+    await page.keyboard.press("ControlOrMeta+f")
+    const field = window.getByRole("textbox", { name: "Find in the review" })
+    await expect(field).toBeFocused()
+    const count = window.getByTestId("diff-find-count")
+    await field.fill("val")
+    await expect(count).toHaveText(/^\d+ results?$/)
+    const total = Number((await count.textContent())?.split(" ")[0])
+    expect(total).toBeGreaterThan(1)
+
+    await field.press("Enter")
+    await expect(count).toHaveText(`1 of ${total}`)
+    await item.focus()
+    await expect(item).toBeFocused()
+    await page.keyboard.press("ControlOrMeta+g")
+    await expect(count).toHaveText(`2 of ${total}`)
+    await page.keyboard.press("ControlOrMeta+Shift+g")
+    await expect(count).toHaveText(`1 of ${total}`)
   })
 
   simpleTest("should open the review at a file with Enter in the tree, and with the footer button", async ({ page }) => {

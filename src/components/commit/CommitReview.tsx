@@ -1120,7 +1120,20 @@ function ReviewLayout({
   }, [onPositionChange, loadedKey, selectedPath, selectedIndex, files.length, ownerLabel, ownerIndex, ownerCount, overviewAtTop, stepAtTop])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (loaded === null || event.defaultPrevented || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
+    if (event.defaultPrevented) {
+      return
+    }
+    if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+      if (event.code === "KeyF" && !event.shiftKey) {
+        event.preventDefault()
+        code.current?.openFind()
+      } else if (event.code === "KeyG") {
+        event.preventDefault()
+        code.current?.stepFind(event.shiftKey ? -1 : 1)
+      }
+      return
+    }
+    if (loaded === null || event.altKey || event.metaKey || event.ctrlKey || event.shiftKey || isTypingTarget(event)) {
       return
     }
     // the physical keys, as E and F of the preview

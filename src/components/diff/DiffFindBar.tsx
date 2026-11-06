@@ -20,7 +20,7 @@ export interface DiffFindBarProps {
 }
 
 /**
- * The find bar above the diffs of a review (docs/design/diff-view.md, "Find in the diffs"): Enter and ⌘G go to the next
+ * The find bar above the review (docs/design/diff-view.md, "Find in the review"): Enter and ⌘G go to the next
  * hit, with Shift to the previous one; Escape closes the bar
  */
 export function DiffFindBar({ query, onQueryChange, count, current, folded, onFoldedChange, onStep, onClose, inputRef }: DiffFindBarProps) {
@@ -34,8 +34,8 @@ export function DiffFindBar({ query, onQueryChange, count, current, folded, onFo
           ref={inputRef}
           type="text"
           value={query}
-          placeholder="Find in the diffs"
-          aria-label="Find in the diffs"
+          placeholder="Find in the review"
+          aria-label="Find in the review"
           autoComplete="off"
           spellCheck={false}
           className="h-7"

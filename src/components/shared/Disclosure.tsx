@@ -41,7 +41,9 @@ export function Disclosure({
         {prefix !== undefined && <span className="shrink-0 text-muted-foreground">{prefix}</span>}
         <span className="min-w-0">{title}</span>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pl-[1.125rem]">{children}</CollapsibleContent>
+      <CollapsibleContent hiddenUntilFound className="pl-[1.125rem]">
+        {children}
+      </CollapsibleContent>
     </Collapsible>
   )
 }

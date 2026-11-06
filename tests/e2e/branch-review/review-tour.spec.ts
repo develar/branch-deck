@@ -40,6 +40,32 @@ function headerNameLefts(window: Page): Promise<number[]> {
   })
 }
 
+type ReviewFindMarker = { kind: "text" | "diff"; layer: string | null; text: string }
+
+async function openReviewFind(window: Page): Promise<Locator> {
+  await window.getByTestId("diff-view").focus()
+  await window.keyboard.press("ControlOrMeta+f")
+  const field = window.getByRole("textbox", { name: "Find in the review" })
+  await expect(field).toBeFocused()
+  return field
+}
+
+function currentReviewFindMarker(window: Page): Promise<ReviewFindMarker | null> {
+  return window.evaluate(() => {
+    const highlight = typeof CSS === "undefined" || CSS.highlights === undefined ? undefined : CSS.highlights.get("bd-find-current")
+    const range = highlight?.values().next().value
+    if (range !== undefined) {
+      const layer = range.startContainer.parentElement?.closest<HTMLElement>("[data-testid=diff-view-prologue], [data-testid=diff-view-opening], [data-testid=diff-view-epilogue]")
+      const contents = document.createRange()
+      contents.setStart(range.startContainer, range.startOffset)
+      contents.setEnd(range.endContainer, range.endOffset)
+      return { kind: "text", layer: layer?.dataset.testid ?? null, text: contents.cloneContents().textContent ?? "" }
+    }
+    const hit = document.querySelector<HTMLElement>(".dv-hit-current")
+    return hit === null ? null : { kind: "diff", layer: hit.closest<HTMLElement>("[data-testid=diff-view-file]")?.dataset.path ?? null, text: hit.textContent ?? "" }
+  })
+}
+
 // the `review_tour` template: the branch `layout` of five commits with bodies, a refactor of the manager, the rule
 // `allowed` with its two uses and a test that calls it, a test of the welcome the branch does not touch, a change of the
 // paint no test calls, the restart story with a rule of the spec and its test link, and a round that renames the flag of
@@ -151,7 +177,9 @@ test.describe("Review tour", () => {
     ])
     const round = opening.getByTestId("review-opening-follow-up")
     await expect(round).toContainText("Follows upthe rule names its flag again")
-    await expect(round).not.toContainText("The review asked for the name of the flag")
+    const foldedStory = round.getByText("The review asked for the name of the flag to say what it holds.", { exact: true })
+    await expect(foldedStory).toBeAttached()
+    await expect(foldedStory).toBeHidden()
     await round.getByRole("button", { name: /the rule names its flag again/ }).click()
     await expect(round).toContainText("The review asked for the name of the flag to say what it holds.")
     await captureHtmlSnapshot(opening, "review-opening")
@@ -203,6 +231,107 @@ test.describe("Review tour", () => {
     // a file of its tests shows its test in the diffs, the file selected in the tree
     await opening.getByTestId("review-step-tested").filter({ hasText: "ManagerTest.kt" }).click()
     await expect(window.getByRole("treeitem", { name: "ManagerTest.kt" })).toHaveAttribute("aria-selected", "true")
+  })
+
+  test("should find overview and opening text before the matching diff rows, and open a folded follow-up", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    writeTestIndex(repo.path)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const field = await openReviewFind(window)
+    const count = window.getByTestId("diff-find-count")
+
+    await field.fill("layout")
+    await expect(count).toHaveText(/^\d+ results?$/)
+    await expect.poll(() => window.evaluate(() => CSS.highlights.get("bd-find")?.size ?? 0)).toBeGreaterThan(0)
+    const textCount = await window.evaluate(() => CSS.highlights.get("bd-find")?.size ?? 0)
+    const total = Number((await count.textContent())?.split(" ")[0])
+    expect(total).toBeGreaterThan(textCount)
+
+    const visited: ReviewFindMarker[] = []
+    for (let index = 0; index < total; index++) {
+      await field.press("Enter")
+      await expect(count).toHaveText(`${index + 1} of ${total}`)
+      await expect.poll(() => currentReviewFindMarker(window)).not.toBeNull()
+      const marker = await currentReviewFindMarker(window)
+      if (marker !== null) {
+        visited.push(marker)
+      }
+    }
+    const prologue = visited.findIndex(hit => hit.kind === "text" && hit.layer === "diff-view-prologue")
+    const opening = visited.findIndex(hit => hit.kind === "text" && hit.layer === "diff-view-opening")
+    const diff = visited.findIndex(hit => hit.kind === "diff")
+    expect(prologue).toBeGreaterThanOrEqual(0)
+    expect(opening).toBeGreaterThan(prologue)
+    expect(diff).toBeGreaterThan(opening)
+
+    const round = window.getByTestId("review-opening-follow-up")
+    const foldedStory = round.getByText("The review asked for the name of the flag to say what it holds.", { exact: true })
+    await expect(foldedStory).toBeHidden()
+    await field.fill("The review asked for the name of the flag to say what it holds.")
+    await expect(count).toHaveText("1 result")
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 1")
+    await expect(foldedStory).toBeVisible()
+    await expect.poll(() => currentReviewFindMarker(window)).toMatchObject({ kind: "text", layer: "diff-view-opening" })
+    await field.press("Escape")
+    await expect(window.getByTestId("diff-find-bar")).toHaveCount(0)
+    await expect.poll(() => window.evaluate(() => CSS.highlights.has("bd-find"))).toBe(false)
+    await expect.poll(() => window.evaluate(() => CSS.highlights.has("bd-find-current"))).toBe(false)
+  })
+
+  test("should search story text in the epilogue and scroll to the hit", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    const welcomeTest = (body: string) => `package b\n\nimport a.Manager\nimport org.junit.Test\n\nclass WelcomeTest {\n${body}}\n`
+    const focuses = "  @Test fun `the welcome focuses its project`() = check(Welcome(Manager()).focus() >= 0)\n"
+    const keeps = "\n  @Test fun `the welcome keeps the stored layout`() {\n    val welcome = Welcome(Manager())\n    val focused = welcome.focus()\n    check(focused >= 0)\n  }\n"
+    await repo.commit(
+      "(tail) the welcome test checks a stored layout\n\nThe welcome test checks that the welcome keeps the stored layout of its project.",
+      { "test/b/WelcomeTest.kt": welcomeTest(focuses + keeps) },
+      1704121200,
+    )
+    await repo.commit(
+      "(tail) the welcome test drops the focus check\n\nThe check of the focus repeats the check of the layout, so it goes.",
+      { "test/b/WelcomeTest.kt": welcomeTest(keeps) },
+      1704121800,
+    )
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "tail")
+    const epilogue = window.getByTestId("diff-view-epilogue")
+    const epilogueText = "The check of the focus repeats the check of the layout, so it goes."
+    const field = await openReviewFind(window)
+    const count = window.getByTestId("diff-find-count")
+
+    await field.fill(epilogueText)
+    await expect(count).toHaveText("2 results")
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 2")
+    await expect.poll(() => currentReviewFindMarker(window)).toMatchObject({ kind: "text", layer: "diff-view-prologue" })
+    await field.press("Enter")
+    await expect(count).toHaveText("2 of 2")
+    await expect(epilogue.getByText(epilogueText, { exact: true })).toBeInViewport()
+    await expect.poll(() => currentReviewFindMarker(window)).toMatchObject({ kind: "text", layer: "diff-view-epilogue", text: epilogueText })
+  })
+
+  test("should open a hit in a closed story body and keep it current", async ({ page, setupRepo, syncAndWaitForBranches }) => {
+    const repo = await setupRepo("review_tour")
+    turnOnReviewPlan(repo)
+    const window = await openPlanWindow(page, syncAndWaitForBranches, "layout")
+    const restart = window.getByTestId("review-opening").filter({ has: window.getByRole("button", { name: "Step 4 · the restart story checks the layout", exact: true }) })
+    const foldedTest = restart.getByText("restart.json restarts the window once", { exact: true })
+    await expect(foldedTest).toBeAttached()
+    await expect(foldedTest).toBeHidden()
+    const field = await openReviewFind(window)
+    const count = window.getByTestId("diff-find-count")
+
+    await field.fill("restart.json restarts the window once")
+    await expect(count).toHaveText("1 result")
+    await field.press("Enter")
+    await expect(count).toHaveText("1 of 1")
+    await expect(foldedTest).toBeVisible()
+    await expect(restart.getByTestId("commit-body-unfold")).toHaveAttribute("aria-expanded", "true")
+    await expect.poll(() => currentReviewFindMarker(window)).toMatchObject({ kind: "text", layer: "diff-view-opening", text: "restart.json restarts the window once" })
+    await expect(foldedTest).toBeInViewport()
   })
 
   test("should open a step whose code another step's card shows above the opening of that step, with no card, its unit named in that card, J and K through both openings", async ({
@@ -462,7 +591,9 @@ test.describe("Review tour", () => {
     const folded = restart.getByTestId("commit-body-folded")
     await expect(folded).toHaveText("More:Tests")
     await expect(tests).toHaveAttribute("aria-expanded", "false")
-    await expect(restart).not.toContainText("restarts the window once")
+    const foldedTest = restart.getByText("restart.json restarts the window once", { exact: true })
+    await expect(foldedTest).toBeAttached()
+    await expect(foldedTest).toBeHidden()
     // a name in a folded part marks its section too: a click opens the part, its block outlined; the open part is
     // headed by its label, the toggle that folds it, and leaves the line of what is still folded
     await tree.getByRole("treeitem", { name: "tests/restart.json", exact: true }).click()
@@ -478,7 +609,7 @@ test.describe("Review tour", () => {
     // its label folds it again, back into the line, and the line opens it again below
     await unfold.click()
     await expect(tests).toHaveAttribute("aria-expanded", "false")
-    await expect(restart).not.toContainText("restarts the window once")
+    await expect(foldedTest).toBeHidden()
     await tests.click()
     await expect(restart.getByTestId("commit-body-part").filter({ hasText: "restarts the window once" })).toBeVisible()
 

@@ -502,6 +502,14 @@
   box-shadow: none;
 }
 
+::highlight(bd-find) {
+  background-color: var(--diff-search-result);
+}
+
+::highlight(bd-find-current) {
+  background-color: var(--diff-selection);
+}
+
 /*
  * A fold: DIFF_SEPARATORS_BACKGROUND with a 1-px line of DIFF_SEPARATOR_WAVE above and below it, in place of the
  * squiggle IntelliJ draws (the text of the fold stands where its wave would be)

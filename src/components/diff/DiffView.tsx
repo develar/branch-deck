@@ -19,7 +19,9 @@ import type { FileDiff, TextDiff } from "@/lib/diff/file-diff-model"
 import { PROLOGUE_SECTION } from "@/lib/diff/file-map"
 import { composeResult, resultTextId } from "@/lib/diff/file-merge-model"
 import type { FileMerge, MergeMiddle, TextMerge } from "@/lib/diff/file-merge-model"
-import { findHits, hitsByLine } from "@/lib/diff/find"
+import { findHits, hitsByLine, mergeHits } from "@/lib/diff/find"
+import type { DiffFindHit, FindHit, TextFindHit } from "@/lib/diff/find"
+import { findTextHits, revealTextHit } from "@/lib/diff/find-text"
 import { getHighlightClient } from "@/lib/diff/highlight/highlighter"
 import { DiffLayout, endsWithFooter, EPILOGUE_KEY, PROLOGUE_KEY, visualLinePrefix } from "@/lib/diff/layout"
 import type { LayoutPart } from "@/lib/diff/layout"
@@ -79,6 +81,25 @@ const OPENING_ESTIMATE = 32
 const ROWS_FONT = `${DIFF_FONT_SIZE}px "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`
 /** The files after the window whose texts are read ahead */
 const READ_AHEAD_FILES = 20
+const EMPTY_TEXT_HITS: readonly TextFindHit[] = []
+
+type FindHitIdentity = { kind: "text"; node: Node; offset: number } | { kind: "diff"; file: number; side: number; line: number; start: number; end: number }
+
+function identityOf(hit: FindHit): FindHitIdentity {
+  return hit.kind === "text"
+    ? { kind: "text", node: hit.range.startContainer, offset: hit.range.startOffset }
+    : { kind: "diff", file: hit.file, side: hit.side, line: hit.line, start: hit.start, end: hit.end }
+}
+
+function matchesIdentity(hit: FindHit, identity: FindHitIdentity): boolean {
+  if (hit.kind === "text" && identity.kind === "text") {
+    return hit.range.startContainer === identity.node && hit.range.startOffset === identity.offset
+  }
+  if (hit.kind === "diff" && identity.kind === "diff") {
+    return hit.file === identity.file && hit.side === identity.side && hit.line === identity.line && hit.start === identity.start && hit.end === identity.end
+  }
+  return false
+}
 
 export interface DiffViewFile {
   /** The file of git's list, with the line counts of the engine */
@@ -168,6 +189,8 @@ export interface DiffViewHandle {
    */
   visibleStop: () => { key: string; part: LayoutPart; step?: string } | undefined
   focus: () => void
+  openFind: () => void
+  stepFind: (direction: 1 | -1) => void
   /**
    * Shows a declaration of the view: its file open, the fold around it expanded, its name selected; `from` is the place
    * Back returns to. False for a file the view does not show
@@ -488,12 +511,14 @@ export function DiffView({
   // the block of changed lines N and P stepped to last, in the section at the top
   const changeCursor = useRef<{ key: string; index: number } | null>(null)
   const [painter] = useState(() => new DiffPainter(EMPTY_CALLBACKS, getHighlightClientOrNull, () => blobTextsStore.getState().byId))
-  // the find in the diffs of a view with its own scroller (⌘F): the query, the folded lines, the current hit (-1 before
+  // the find in the review of a view with its own scroller (⌘F): the query, the folded lines, the current hit (-1 before
   // the first step)
   const [find, setFind] = useState<{ open: boolean; query: string; folded: boolean; current: number }>({ open: false, query: "", folded: false, current: -1 })
+  const [textSearch, setTextSearch] = useState<{ query: string; hits: readonly TextFindHit[] }>({ query: "", hits: [] })
   const findInput = useRef<HTMLInputElement>(null)
-  // the hit a step chose, shown once the layout has its row
-  const reveal = useRef<number | null>(null)
+  const currentIdentity = useRef<FindHitIdentity | null>(null)
+  // the hit a step chose, shown once its fold is open and its layout is measured
+  const reveal = useRef<FindHitIdentity | null>(null)
 
   const prepared = useMemo(
     () => files.map(entry => prepareFile(entry, { mode, middle, folds, toggled: renderHeader === undefined ? null : toggled, worktree })),
@@ -600,8 +625,68 @@ export function DiffView({
     [mapped, prepared, muted],
   )
 
-  // the hits of the find in the lines the rows show, from the texts read so far
-  const hits = useMemo(() => {
+  useLayoutEffect(() => {
+    const clear = () => setTextSearch(previous => (previous.query === find.query && previous.hits.length === 0 ? previous : { query: find.query, hits: [] }))
+    if (!find.open || find.query === "") {
+      clear()
+      return
+    }
+    const scrollElement = scroller.current
+    if (scrollElement === null) {
+      clear()
+      return
+    }
+    const layers: Array<{ root: HTMLElement; file: number }> = []
+    const measuredLayers = new Map<string, HTMLElement>()
+    scrollElement.querySelectorAll<HTMLElement>("[data-measure]").forEach(root => {
+      const key = root.dataset.measure
+      if (key !== undefined) {
+        measuredLayers.set(key, root)
+      }
+    })
+    const addLayer = (key: string, file: number) => {
+      const root = measuredLayers.get(key)
+      if (root !== undefined) {
+        layers.push({ root, file })
+      }
+    }
+    if (prologued) {
+      addLayer(PROLOGUE_KEY, -1)
+    }
+    prepared.forEach((file, index) => {
+      if (layout.files[index]!.opening !== undefined && file.section !== null) {
+        addLayer(file.key, index)
+      }
+    })
+    if (epilogued && epilogueElement.current !== null) {
+      layers.push({ root: epilogueElement.current, file: prepared.length })
+    }
+    const update = () => setTextSearch({ query: find.query, hits: layers.flatMap(({ root, file }) => findTextHits(root, find.query, file)) })
+    update()
+    let frame: number | null = null
+    const observer = new MutationObserver(() => {
+      if (frame !== null) {
+        return
+      }
+      frame = requestAnimationFrame(() => {
+        frame = null
+        update()
+      })
+    })
+    for (const { root } of layers) {
+      observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden"] })
+    }
+    return () => {
+      observer.disconnect()
+      if (frame !== null) {
+        cancelAnimationFrame(frame)
+      }
+    }
+  }, [find.open, find.query, prepared, layout, prologued, epilogued])
+
+  const textHits = find.open && textSearch.query === find.query ? textSearch.hits : EMPTY_TEXT_HITS
+  // the hits of the find in the review: story text and the rows the diff painter shows
+  const diffHits = useMemo(() => {
     if (!find.open || find.query === "") {
       return []
     }
@@ -615,8 +700,46 @@ export function DiffView({
     const sideBySide = mode === "split" || prepared.some(file => file.kind === "merge")
     return findHits(searched, find.query, { sideBySide, folded: find.folded })
   }, [find.open, find.query, find.folded, prepared, layout, texts, mode])
+  const hits = useMemo(() => (find.open && find.query !== "" ? mergeHits(textHits, diffHits) : []), [find.open, find.query, textHits, diffHits])
   const current = Math.min(find.current, hits.length - 1)
-  const hitLines = useMemo(() => (hits.length === 0 ? undefined : hitsByLine(hits, current)), [hits, current])
+  const diffHitsOnly = useMemo(() => hits.filter((hit): hit is DiffFindHit => hit.kind === "diff"), [hits])
+  const currentHit = current < 0 ? undefined : hits[current]
+  const currentDiff = currentHit?.kind === "diff" ? diffHitsOnly.indexOf(currentHit) : -1
+  const hitLines = useMemo(() => (diffHitsOnly.length === 0 ? undefined : hitsByLine(diffHitsOnly, currentDiff)), [diffHitsOnly, currentDiff])
+
+  useLayoutEffect(() => {
+    const identity = currentIdentity.current
+    if (identity === null) {
+      return
+    }
+    const index = hits.findIndex(hit => matchesIdentity(hit, identity))
+    if (index < 0) {
+      currentIdentity.current = null
+      reveal.current = null
+      setFind(previous => (previous.current === -1 ? previous : { ...previous, current: -1 }))
+    } else {
+      setFind(previous => (previous.current === index ? previous : { ...previous, current: index }))
+    }
+  }, [hits])
+
+  useLayoutEffect(() => {
+    if (typeof CSS === "undefined" || CSS.highlights === undefined || typeof Highlight === "undefined") {
+      return
+    }
+    const highlights = CSS.highlights
+    highlights.delete("bd-find")
+    highlights.delete("bd-find-current")
+    if (find.open && textHits.length > 0) {
+      highlights.set("bd-find", new Highlight(...textHits.map(hit => hit.range)))
+      if (currentHit?.kind === "text") {
+        highlights.set("bd-find-current", new Highlight(currentHit.range))
+      }
+    }
+    return () => {
+      highlights.delete("bd-find")
+      highlights.delete("bd-find-current")
+    }
+  }, [find.open, textHits, currentHit])
 
   // the painter gets the model before the paint, so the anchor keeps its place in the new layout
   useLayoutEffect(() => {
@@ -633,16 +756,38 @@ export function DiffView({
     painter.setModel({ files: painterFiles, layout, softWraps, textMetrics: metrics.text, hits: hitLines })
   }, [painter, prepared, layout, softWraps, metrics, width, hitLines, split])
 
-  // the hit a step chose: a third of the viewport below the header, never above its file
+  // the hit a step chose: a third of the viewport below the header; a text hit waits until its folds open
   useLayoutEffect(() => {
-    const hit = reveal.current === null ? undefined : hits[reveal.current]
-    const rows = hit === undefined ? null : layout.files[hit.file]!.rows
-    if (hit === undefined || rows === null) {
+    const identity = reveal.current
+    if (identity === null) {
       return
     }
+    const hit = hits.find(candidate => matchesIdentity(candidate, identity))
+    if (hit === undefined) {
+      return
+    }
+    if (hit.kind === "diff") {
+      const rows = layout.files[hit.file]!.rows
+      if (rows === null) {
+        return
+      }
+      reveal.current = null
+      const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
+      painter.scrollTo(Math.max(top, layout.cardTop(hit.file)))
+      return
+    }
+    if (hit.folds.some(fold => fold.hasAttribute("hidden"))) {
+      return
+    }
+    const element = scroller.current
+    if (element === null) {
+      return
+    }
+    const rangeRect = hit.range.getBoundingClientRect()
+    const scrollerRect = element.getBoundingClientRect()
+    const top = rangeRect.top - scrollerRect.top + element.scrollTop - layout.stickyTop - headerHeight - element.clientHeight / 3
     reveal.current = null
-    const top = layout.rowTop(hit.file, rowOfLine(rows, hit.side, hit.line)) - layout.stickyTop - headerHeight - (scroller.current?.clientHeight ?? 0) / 3
-    painter.scrollTo(Math.max(top, layout.cardTop(hit.file)))
+    painter.scrollTo(Math.max(top, 0))
   }, [find.current, hits, layout, painter, headerHeight])
 
   // the find reads the texts of every file it searches, behind the texts on screen
@@ -687,20 +832,42 @@ export function DiffView({
     }
     const next = current < 0 ? (direction === 1 ? 0 : hits.length - 1) : (current + direction + hits.length) % hits.length
     const hit = hits[next]!
-    const text = prepared[hit.file]?.foldKey ?? null
-    if (hit.gap >= 0 && text !== null && (getFoldLevels(text)[hit.gap] ?? 0) < EXPANDED) {
-      const levels = Array.from({ length: Math.max(getFoldLevels(text).length, hit.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
-      levels[hit.gap] = EXPANDED
-      setFoldLevels(text, levels)
-      setFolds(previous => new Map(previous).set(text, levels))
+    const identity = identityOf(hit)
+    currentIdentity.current = identity
+    reveal.current = identity
+    if (hit.kind === "text") {
+      revealTextHit(hit)
+    } else {
+      const text = prepared[hit.file]?.foldKey ?? null
+      if (hit.gap >= 0 && text !== null && (getFoldLevels(text)[hit.gap] ?? 0) < EXPANDED) {
+        const levels = Array.from({ length: Math.max(getFoldLevels(text).length, hit.gap + 1) }, (_, gap) => getFoldLevels(text)[gap] ?? 0)
+        levels[hit.gap] = EXPANDED
+        setFoldLevels(text, levels)
+        setFolds(previous => new Map(previous).set(text, levels))
+      }
     }
-    reveal.current = next
     setFind(previous => ({ ...previous, current: next }))
   }
 
   const closeFind = () => {
+    currentIdentity.current = null
+    reveal.current = null
     setFind(previous => ({ ...previous, open: false, current: -1 }))
     scroller.current?.focus()
+  }
+
+  const openFind = () => {
+    setFind(previous => ({ ...previous, open: true }))
+    requestAnimationFrame(() => {
+      findInput.current?.focus()
+      findInput.current?.select()
+    })
+  }
+
+  const stepFind = (direction: 1 | -1) => {
+    if (find.open) {
+      stepHit(direction)
+    }
   }
 
   // ⌘F (Ctrl+F off macOS) opens the find, ⌘G steps through its hits
@@ -710,12 +877,10 @@ export function DiffView({
     }
     if (event.code === "KeyF" && !event.shiftKey) {
       event.preventDefault()
-      setFind(previous => ({ ...previous, open: true }))
-      requestAnimationFrame(() => findInput.current?.select())
-      queueMicrotask(() => findInput.current?.focus())
+      openFind()
     } else if (event.code === "KeyG" && find.open) {
       event.preventDefault()
-      stepHit(event.shiftKey ? -1 : 1)
+      stepFind(event.shiftKey ? -1 : 1)
     }
   }
 
@@ -1205,6 +1370,8 @@ export function DiffView({
         ? undefined
         : { key: visibleKey.current, part: visiblePart.current, ...(visiblePart.current === "opening" && visibleStep.current !== undefined && { step: visibleStep.current }) },
     focus: () => scroller.current?.focus(),
+    openFind,
+    stepFind,
     revealDeclaration: (place, from) => {
       if (sectionOf(prepared, place.path) < 0) {
         return false
@@ -1390,11 +1557,19 @@ export function DiffView({
       {find.open && (
         <DiffFindBar
           query={find.query}
-          onQueryChange={query => setFind(previous => ({ ...previous, query, current: -1 }))}
+          onQueryChange={query => {
+            currentIdentity.current = null
+            reveal.current = null
+            setFind(previous => ({ ...previous, query, current: -1 }))
+          }}
           count={hits.length}
           current={current}
           folded={find.folded}
-          onFoldedChange={folded => setFind(previous => ({ ...previous, folded, current: -1 }))}
+          onFoldedChange={folded => {
+            currentIdentity.current = null
+            reveal.current = null
+            setFind(previous => ({ ...previous, folded, current: -1 }))
+          }}
           onStep={stepHit}
           onClose={closeFind}
           inputRef={findInput}

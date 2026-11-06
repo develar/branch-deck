@@ -38,6 +38,7 @@ export function ChapterOpening({ opening, group, onShowStep }: { opening: Openin
         <span
           className={cn("text-base font-semibold text-foreground underline-offset-4", opening.code && "font-mono font-medium", opening.titleInBody && "sr-only")}
           data-testid="review-opening-title"
+          data-find-skip={opening.titleInBody ? "" : undefined}
         >
           {opening.code ? <BreakableCode text={opening.title} humps /> : opening.title}
         </span>

@@ -7,6 +7,7 @@ targets:
   - ../../src/components/commit/CommitPreviewDialog.tsx
   - ../../src/components/diff/CommitReviewCode.tsx
   - ../../src/components/diff/DiffView.tsx
+  - ../../src/components/diff/DiffFindBar.tsx
   - ../../src/components/diff/DiffFileMap.tsx
   - ../../src/components/diff/diff-painter.ts
   - ../../src/components/diff/use-measured-heights.ts
@@ -22,6 +23,8 @@ targets:
   - ../../src/components/shared/WindowPage.tsx
   - ../../src/pages/ReviewPage.tsx
   - ../../src/lib/diff/rows.ts
+  - ../../src/lib/diff/find.ts
+  - ../../src/lib/diff/find-text.ts
   - ../../src/lib/diff/layout.ts
   - ../../src/lib/diff/file-map.ts
   - ../../src/lib/diff/view-files.ts
@@ -41,6 +44,9 @@ targets:
   - ../../src/components/preview/CommitsPreviewBody.tsx
   - ../../src/hooks/usePreviewHotkeys.ts
   - ../../src/components/review/RangeReview.tsx
+  - ../../src/components/review/ChapterOpening.tsx
+  - ../../src/components/commit/CommitBodyView.tsx
+  - ../../src/components/shared/Disclosure.tsx
   - ../../src/components/review/ReviewKeyHints.tsx
   - ../../src/components/shared/DiffViewToggle.tsx
   - ../../src/lib/review-position.ts
@@ -88,7 +94,7 @@ where a dialog would cover it.
 
 - No comments, no "viewed" marks: the review reads, it does not record.
 - No review of uncommitted changes; the amend card shows them ([Amend Changes](amend.spec.md)).
-- The search of the sidebar finds files by their path, not text in them; the find of the diffs finds text.
+- The search of the sidebar finds files by their path, not text in them; the find in the review searches story text and diff rows.
 
 ## Requirements
 
@@ -272,13 +278,23 @@ where a dialog would cover it.
   selects the side of the file at the top, and a copy then gives all its shown lines.
   [@test] ../../src/lib/diff/copy-text.test.ts (`copies the lines the rows show from the model, cut at both ends, in the order of the diffs`, `copies one side in Split, and the new line of an Inline row without its deleted parts`, `copies across files and leaves out a fold and a text not read yet`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should copy the lines of a selection of the diffs from the model, one side in Split, without the line numbers`)
-- ⌘F (Ctrl+F off macOS) in the diffs must open a find bar above them. It finds the text in the lines the rows show,
-  ignoring case, from the model, not from the rows on screen: both sides of a change in Split and the new side of an
-  unchanged line, and with "In folded lines" the folded lines too. It reads the texts of every file it searches. The
-  bar counts the hits ("12 results", "3 of 12"); Enter and ⌘G go to the next one, Shift with them to the previous one,
-  a hit in a fold opens its fold, and the current hit is marked; Escape closes the bar and gives the diffs the focus.
-  [@test] ../../src/lib/diff/find.test.ts (`finds the query in the lines the rows show, ignoring case, in the order of the rows`, `searches both sides of a change in Split and the new side of an unchanged line, and the folds on request`, `groups the hits by file and line for the painter, the current one marked`)
+- ⌘F (Ctrl+F off macOS) in the review must open a find bar labelled and placeholder "Find in the review". It searches
+  the prologue, every opening (including steps told before their section), the epilogue and the diff rows as one
+  document, in order: prologue, opening of file *i*, diff rows of file *i*, then epilogue. Story text is matched
+  ignoring case, one block at a time (never across paragraphs or list items); `.sr-only`, `[aria-hidden=true]` and
+  `[data-find-skip]` are excluded. Closed story-body parts and `Disclosure`s are searched always and open when the
+  find goes to a hit; "In folded lines" applies to diff rows only. The diff search remains model-based: both sides of a
+  change in Split, the new side of an unchanged line, and with the checkbox folded diff lines too. The count combines
+  text and diff hits ("12 results", "3 of 12"); Enter and ⌘G go to the next one, Shift with them to the previous one.
+  The current hit stays the same hit when a fold opens or story text arrives. The painter marks diff hits; the CSS
+  Custom Highlight API marks text hits in the same colours, with scrolling still working when that API is unavailable.
+  ⌘F (Ctrl+F off macOS) works anywhere in the review window, including the sidebar; ⌘G and Shift+⌘G step while the
+  bar is open, including with focus in the sidebar. Escape closes the bar, clears the marks and gives the scroller the
+  focus.
+  [@test] ../../src/lib/diff/find.test.ts (`finds the query in the lines the rows show, ignoring case, in the order of the rows`, `searches both sides of a change in Split and the new side of an unchanged line, and the folds on request`, `groups the hits by file and line for the painter, the current one marked`, `matches ignoring case and finds several hits in one segment`, `does not match across segments and returns no hits for an empty query`, `puts text before diff hits for each file and keeps each list's order`)
   [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should find a text in the diffs from the model, also in the folded lines, with ⌘F, Enter and Escape`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open find from the file tree and step results there with ⌘F and ⌘G @webkit`)
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should find overview and opening text before the matching diff rows, and open a folded follow-up`, `should search story text in the epilogue and scroll to the hit`, `should open a hit in a closed story body and keep it current`)
 - The diffs come from `get_file_diffs` and their texts from `get_blob_texts`
   ([Commit Files](commit-files.spec.md#file-diffs)): N and P step through the blocks that are not `Ignored`.
 - The Split/Unified/Inline toggle must switch the layout; it is the setting of the Files section, Split by default. It is in
@@ -377,7 +393,6 @@ where a dialog would cover it.
 - The patch of a commit is parsed whole when the review opens; a commit of thousands of files may take a moment.
 - A diff without the file contents cannot know whether lines follow its last hunk, so its last separator offers
   "More unchanged context may be available".
-- The browser's find (⌘F) sees only the rendered files.
 
 ## References
 

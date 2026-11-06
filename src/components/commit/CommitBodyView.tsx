@@ -1,4 +1,4 @@
-import { Fragment } from "react"
+import { Fragment, useEffect, useRef } from "react"
 import type { ReactNode } from "react"
 import { cn } from "cn"
 import { ChevronRightIcon } from "lucide-react"
@@ -7,7 +7,7 @@ import { Callout } from "@/components/shared/Callout"
 import { CodeText } from "@/components/shared/CodeText"
 import { DisclosureChevron } from "@/components/shared/Disclosure"
 import { useBodyFold } from "@/hooks/useBodyFold"
-import type { BodyFold } from "@/hooks/useBodyFold"
+import type { BodyFoldState } from "@/hooks/useBodyFold"
 import { useCommitBody } from "@/hooks/useCommitBody"
 import type { CommitBody, CommitBodyBlock } from "@/lib/bindings"
 import type { BodyPart, BodyParts, PlacedBlock, RemovedBlocks } from "@/presenters/commit-body"
@@ -73,7 +73,7 @@ export function CommitBodyView({ body: source, size = "reading", empty, fold = f
 export interface BodyPartsViewProps {
   readonly parts: BodyParts
   readonly size: BodySize
-  readonly fold: BodyFold
+  readonly fold: BodyFoldState
   readonly rendering?: BodyRendering
   /** Shown last, below the blocks, without a label; a story shows none */
   readonly trailers?: readonly string[]
@@ -99,9 +99,45 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
   const text = rendering.text ?? codeTextOf(parts)
   const place = rendering.place ?? inPlace
   const lead = parts.lead
+  const storySize = size === "story" || size === "nested"
+  const root = useRef<HTMLDivElement>(null)
+  const revealSerial = useRef(-1)
+  useEffect(() => {
+    if (!storySize) {
+      return
+    }
+    const element = root.current
+    if (element === null) {
+      return
+    }
+    const onBeforeMatch = (event: Event) => {
+      if (event.target instanceof HTMLElement) {
+        const key = event.target.dataset.bodyFold
+        if (key !== undefined) {
+          fold.reveal(key, revealSerial.current--)
+        }
+      }
+    }
+    element.addEventListener("beforematch", onBeforeMatch, true)
+    return () => element.removeEventListener("beforematch", onBeforeMatch, true)
+  }, [fold, storySize])
   const closed = parts.folded.filter(({ part }) => !fold.opened.has(part.key))
+  const renderFoldedPart = ({ part, name }: (typeof parts.folded)[number]) => {
+    const opened = fold.opened.has(part.key)
+    return (
+      <BodyPartView
+        key={part.key}
+        part={part}
+        text={text}
+        place={place}
+        revealed={fold.revealed?.key === part.key ? fold.revealed.serial : null}
+        unfolded={opened ? { name, close: () => fold.toggle(part.key) } : undefined}
+      />
+    )
+  }
   return (
     <div
+      ref={root}
       data-testid={testId}
       data-size={size}
       data-commit={commit}
@@ -153,18 +189,31 @@ export function BodyPartsView({ parts, size, fold, rendering = {}, trailers = []
         </div>
       )}
       {/* an open part in its place after the line, its label the toggle that folds it: its name once */}
-      {parts.folded
-        .filter(({ part }) => fold.opened.has(part.key))
-        .map(({ part, name }) => (
-          <BodyPartView
+      {parts.folded.map(({ part, name }) => {
+        const opened = fold.opened.has(part.key)
+        const body = renderFoldedPart({ part, name })
+        if (!storySize) {
+          return opened ? body : null
+        }
+        return (
+          <div
             key={part.key}
-            part={part}
-            text={text}
-            place={place}
-            revealed={fold.revealed?.key === part.key ? fold.revealed.serial : null}
-            unfolded={{ name, close: () => fold.toggle(part.key) }}
-          />
-        ))}
+            ref={element => {
+              if (element !== null) {
+                if (opened) {
+                  element.removeAttribute("hidden")
+                } else {
+                  element.setAttribute("hidden", "until-found")
+                }
+              }
+            }}
+            data-body-fold={opened ? undefined : part.key}
+            hidden={!opened}
+          >
+            {body}
+          </div>
+        )
+      })}
       {trailers.length > 0 && (
         <div className="flex flex-col gap-0.5 border-t border-border pt-3 text-xs text-muted-foreground">
           {trailers.map((line, index) => (

@@ -22,6 +22,7 @@ export default defineConfig({
     "branch-row-layout/focus-outline.spec.ts",
     "repository/repository-lock.spec.ts",
     "branch-review/review-plan.spec.ts",
+    "commit-files/commit-review.spec.ts",
     "commit-message/commit-message.spec.ts",
   ],
   grep: [/drag|dropped|new branch zone/i, /@webkit/],

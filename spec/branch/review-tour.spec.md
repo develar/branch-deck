@@ -32,6 +32,12 @@ targets:
   - ../../src/lib/diff/rows.ts
   - ../../src/lib/diff/layout.ts
   - ../../src/components/diff/DiffView.tsx
+  - ../../src/components/diff/DiffFindBar.tsx
+  - ../../src/lib/diff/find.ts
+  - ../../src/lib/diff/find-text.ts
+  - ../../src/components/commit/CommitBodyView.tsx
+  - ../../src/components/shared/Disclosure.tsx
+  - ../../src/components/diff/diff-view.css
   - ../../src/hooks/useSelectReviewFile.ts
 ---
 
@@ -375,6 +381,14 @@ How to write a body this story reads well: [The Commit Body a Review Reads](../.
   group its section starts.
   [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should open the review on its overview, then each step's opening above its first card, a step per commit with its story, its rounds and the tests that reach its code`, `should link a code name of a body to its declaration in the diffs and a section back to the paragraph that names it`)
   [@test] ../../src/presenters/review-story.test.ts (`shows the lead of a body and its parts before the fold, the rest and every verification section folded, each named in the outline`, `words the overview: the headline, What Changes one header per file, the steps with the lead of each, their facts and a step no test proves`, `opens a step of the commits with the body of the commit that starts it, its follow-ups and the commits of no story, its facts with the new API and the new links between modules at their places`)
+- ⌘F (Ctrl+F off macOS) searches the review document from its overview through the openings and diff rows to the
+  epilogue. Story text is matched ignoring case, one block at a time, with `.sr-only`, `[aria-hidden=true]` and
+  `[data-find-skip]` excluded. Folded story parts and follow-up `Disclosure`s stay hidden in the document and open when
+  the find goes to their hit; text and diff hits share one document-order count and text hits are highlighted without
+  changing the DOM React owns. ⌘F works anywhere in the review window, including the sidebar; ⌘G and Shift+⌘G step
+  through hits there while the bar is open.
+  [@test] ../../tests/e2e/branch-review/review-tour.spec.ts (`should find overview and opening text before the matching diff rows, and open a folded follow-up`, `should search story text in the epilogue and scroll to the hit`, `should open a hit in a closed story body and keep it current`)
+  [@test] ../../tests/e2e/commit-files/commit-review.spec.ts (`should open find from the file tree and step results there with ⌘F and ⌘G @webkit`)
 - A step of the concerns of one commit must open with the parts of the body of that commit told in it (`told`), the
   label Rust made its title (`titled`) not shown again, and say what joins its parts in the line of its facts
   ("Joined by the identifier `accio`"); the lead and the parts told before the steps are in

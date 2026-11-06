@@ -5,11 +5,12 @@ import { lineText } from "@/lib/diff/line-table"
 import { NEW, rowAt } from "@/lib/diff/rows"
 
 /*
- * The find in the diffs (docs/design/diff-view.md, "Find in the diffs"): it searches the model, the lines the rows show
+ * The diff hits of the find in the review (docs/design/diff-view.md): it searches the model, the lines the rows show
  * and, on request, the folded lines, not the rows in the DOM.
  */
 
-export interface FindHit {
+export interface DiffFindHit {
+  kind: "diff"
   file: number
   side: number
   line: number
@@ -19,14 +20,25 @@ export interface FindHit {
   gap: number
 }
 
+export interface TextFindHit {
+  kind: "text"
+  /** -1 the prologue, i the openings above file i, files.length the epilogue */
+  file: number
+  range: Range
+  /** The hidden folds around the hit, outermost first; empty when shown */
+  folds: readonly HTMLElement[]
+}
+
+export type FindHit = DiffFindHit | TextFindHit
+
 /**
  * The hits of `query` in the files, in the order of the rows, case-insensitive. A row shows the lines a copy takes;
  * with a column per side (Split, a merge) a change is searched on every side and an unchanged line on the new side
  * (the middle of a merge). With `folded` the folded lines of that side are searched too.
  */
-export function findHits(files: readonly CopyFile[], query: string, { sideBySide, folded }: { sideBySide: boolean; folded: boolean }): FindHit[] {
+export function findHits(files: readonly CopyFile[], query: string, { sideBySide, folded }: { sideBySide: boolean; folded: boolean }): DiffFindHit[] {
   const needle = query.toLowerCase()
-  const hits: FindHit[] = []
+  const hits: DiffFindHit[] = []
   if (needle === "") {
     return hits
   }
@@ -37,7 +49,7 @@ export function findHits(files: readonly CopyFile[], query: string, { sideBySide
     }
     const text = lineText(table, line).toLowerCase()
     for (let start = text.indexOf(needle); start >= 0; start = text.indexOf(needle, start + needle.length)) {
-      hits.push({ file, side, line, start, end: start + needle.length, gap })
+      hits.push({ kind: "diff", file, side, line, start, end: start + needle.length, gap })
     }
   }
   files.forEach(({ rows }, file) => {
@@ -68,13 +80,48 @@ export function findHits(files: readonly CopyFile[], query: string, { sideBySide
   return hits
 }
 
+/** Hits in each segment independently, ignoring case; a hit never spans two blocks */
+export function findInSegments(segments: readonly string[], query: string): Array<{ segment: number; start: number; end: number }> {
+  const needle = query.toLowerCase()
+  if (needle === "") {
+    return []
+  }
+  return segments.flatMap((segment, index) => {
+    const text = segment.toLowerCase()
+    const hits: Array<{ segment: number; start: number; end: number }> = []
+    for (let start = text.indexOf(needle); start >= 0; start = text.indexOf(needle, start + needle.length)) {
+      hits.push({ segment: index, start, end: start + needle.length })
+    }
+    return hits
+  })
+}
+
+/** Merges hits in document order: story text before the diff rows of its file */
+export function mergeHits(text: readonly TextFindHit[], diff: readonly DiffFindHit[]): FindHit[] {
+  const hits: FindHit[] = []
+  let textIndex = 0
+  let diffIndex = 0
+  while (textIndex < text.length || diffIndex < diff.length) {
+    const textHit = text[textIndex]
+    const diffHit = diff[diffIndex]
+    if (diffHit === undefined || (textHit !== undefined && textHit.file <= diffHit.file)) {
+      hits.push(textHit!)
+      textIndex++
+    } else {
+      hits.push(diffHit)
+      diffIndex++
+    }
+  }
+  return hits
+}
+
 /** The key of a line of a file in `hitsByLine` */
 export function lineKey(side: number, line: number): string {
   return `${side}:${line}`
 }
 
 /** The hits by file and line, for the painter: the current one marked */
-export function hitsByLine(hits: readonly FindHit[], current: number): Map<number, Map<string, LineHits>> {
+export function hitsByLine(hits: readonly DiffFindHit[], current: number): Map<number, Map<string, LineHits>> {
   const byFile = new Map<number, Map<string, { ranges: number[]; current: number }>>()
   hits.forEach((hit, index) => {
     let lines = byFile.get(hit.file)
