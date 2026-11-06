@@ -491,6 +491,26 @@ fn the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject(
   }
 }
 
+/// A pick lands on the local branch only; `brd land --dry-run` names the route of the repository, and a Safe Push is
+/// only its `patronus` route, so an agent off Space takes the push or the pull request instead of retrying
+/// `not_on_space`
+#[test]
+fn the_skill_lands_by_the_route_of_the_repository_and_a_pick_is_local() {
+  let skill = skill_text("brd");
+  let local = skill.find("- `brd lease pick` and `brd pick` land on the local branch only").unwrap();
+  let safe_push = skill.find("- A Safe Push only on the `patronus` route").unwrap();
+  let push_route = skill.find("- `brd land` of a repository that lands by a push (`route: push`)").unwrap();
+  assert!(local < safe_push && safe_push < push_route, "{skill}");
+  for words in [
+    "nothing reaches the remote and no CI runs until the\n  route of the repository lands it",
+    "`brd land <branch> --dry-run` names that route (`route`: `patronus`, `push` or\n  `pull-request`)",
+    "off Space it is `not_on_space`, never retried",
+    "a Patronus Safe Push on Space, else a push or a pull request",
+  ] {
+    assert!(skill.contains(words), "{words}: {skill}");
+  }
+}
+
 /// The repository form of a subject follows the `(branch) ` prefix, also with the rule off, from the agent instructions
 /// of the repository or its `git log`; the push drops the prefix, and a pick refuses what `[commit] check` rejects. `brd
 /// help worktrees` says the same for `(branch)`, `(parent/leaf)` and `(leaf)`

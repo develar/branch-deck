@@ -779,8 +779,9 @@ brd is `{command}`; run it as written, it is quoted for the shell. Below, `brd` 
 
 Branch Deck groups the commits ahead of the baseline (e.g. origin/master) into virtual branches by the `(name)` prefix
 of their subjects. brd regroups the commits by rewriting the prefixes, rebuilds the virtual branches, pushes them and
-starts their Patronus Safe Push. Only `brd update` (the branch onto its baseline), `brd pick`, `brd unapply`,
-`brd reapply`, `brd drop` and their undo write the working tree, through the guarded update.
+lands them by the route of the repository: a Patronus Safe Push on Space, else a push or a pull request. Only
+`brd update` (the branch onto its baseline), `brd pick`, `brd unapply`, `brd reapply`, `brd drop` and their undo write
+the working tree, through the guarded update.
 
 Before the first edit or commit in a repository, run `brd workspace` and follow it; what the user says in the session
 wins over it:
@@ -838,9 +839,13 @@ command prints and what each of its refusals asks.
   Move a change between commits only with `brd move-hunk`, change a message only with `brd reword`. Never push, start a Safe
   Push or create pull requests before the user approved them; an `error.next_steps` entry with `needs_approval` waits
   for that approval too.
-- Before a Safe Push, run `brd safe-push <branch> --dry-run` first and show the user what it lands: the Safe Push of a
-  stacked branch lands the branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack,
-  its side branches included, in one robot.
+- `brd lease pick` and `brd pick` land on the local branch only: nothing reaches the remote and no CI runs until the
+  route of the repository lands it. `brd land <branch> --dry-run` names that route (`route`: `patronus`, `push` or
+  `pull-request`) and pushes nothing; take the route it names.
+- A Safe Push only on the `patronus` route: off Space it is `not_on_space`, never retried. Before it, run
+  `brd safe-push <branch> --dry-run` and show the user what it lands: the Safe Push of a stacked branch lands the
+  branches it is built on with it, in one robot, and `--whole-stack` lands the whole stack, its side branches included,
+  in one robot.
 - `brd land` of a repository that lands by a push (`route: push`) pushes into master itself, without a robot and without
   the CI of a pull request: run `brd land <branch> --dry-run`, show the user `lands` and `confirmations`, and run it only
   once they approved, as any push; never pass --allow-checks-not-passed or --bypass-rules on your own. After it, `brd update`.

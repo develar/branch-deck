@@ -1677,6 +1677,8 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   other, and updating onto the baseline with its conflicts, landing a worktree's commits, fixups, a change in the wrong
   commit, a review request, why a robot failed), its full path, `brd workspace` before the first edit with what each of
   its rules asks, `brd help agent` as the workflow of grouping, pushing and Safe Push, `brd help update` for an update,
+  that `brd lease pick` and `brd pick` land on the local branch only and `brd land <branch> --dry-run` names the route
+  of the repository, a Safe Push only on its `patronus` route (`not_on_space` never retried),
   and `brd safe-push <branch> --dry-run` before a Safe Push, which lands a stacked branch with its parents, and
   `--whole-stack`, which lands the whole stack, the landing of a worktree's commits onto a shared branch among its
   triggers, `brd help worktrees` when several sessions or worktrees work on one branch, `brd <command> --help` for the
@@ -1691,7 +1693,7 @@ sense has one word in every command (`crates/bd-cli/src/flag_names.rs`).
   details of an output belong in the binary's help, not in the skill. `brd help skill` must print the
   same text. Its `allowed-tools` must be
   `Bash(<brd>:*)`, `<brd>` as the body names it, so that Claude Code runs every brd command without a permission prompt.
-  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_brd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`)
+  [@test] ../../crates/bd-cli/src/agent_help_test.rs (`the_skill_allows_every_brd_command_as_named`, `the_skill_says_how_to_write_the_commit_body_a_review_reads_under_the_subject`, `the_skill_says_that_the_repository_form_of_a_subject_follows_the_prefix`, `the_skill_lands_by_the_route_of_the_repository_and_a_pick_is_local`)
   [@test] ../../crates/bd-cli/src/install_test.rs (`installs_the_command_and_the_skills_and_uninstalls_them`)
 - It must say whether `brd` on `PATH` is the installed one, and print `agents` `{lease, subject_branch}`, the rules of
   `brd workspace` that the global git config gives every repository; `--uninstall` must remove the skills and only its
